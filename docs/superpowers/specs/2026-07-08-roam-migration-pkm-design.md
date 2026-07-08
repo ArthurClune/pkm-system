@@ -58,7 +58,7 @@ blocks(uid PK,                    -- Roam's uid preserved on import; new = nanoi
        page_id, parent_uid NULL,  -- NULL = top-level block of page
        order_idx, text, heading, collapsed, created_at, updated_at)
 refs(src_block_uid, target_page_id, kind)   -- kind: link | tag | attribute
-assets(id, filename, sha256, mime, size, created_at)
+assets(sha256 PK, filename, mime, size, created_at)
 blocks_fts                        -- FTS5 over block text + page titles
 ```
 

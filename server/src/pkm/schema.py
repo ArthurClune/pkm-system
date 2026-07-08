@@ -10,6 +10,7 @@ CREATE TABLE pages(
   updated_at  INTEGER
 );
 
+-- ON DELETE CASCADE requires PRAGMA foreign_keys=ON per connection (SQLite default is OFF)
 CREATE TABLE blocks(
   uid         TEXT PRIMARY KEY,
   page_id     INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
@@ -40,6 +41,7 @@ CREATE TABLE assets(
   created_at  INTEGER
 );
 
+-- keyed by blocks' implicit rowid: never VACUUM without rebuilding FTS ('rebuild' command)
 CREATE VIRTUAL TABLE blocks_fts USING fts5(text, content='blocks');
 CREATE TRIGGER blocks_fts_ai AFTER INSERT ON blocks BEGIN
   INSERT INTO blocks_fts(rowid, text) VALUES (new.rowid, new.text);

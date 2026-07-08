@@ -62,3 +62,57 @@ def test_rerun_replaces_database(tmp_path):
     con = sqlite3.connect(out / "pkm.sqlite3")
     assert con.execute("SELECT count(*) FROM pages WHERE title='Scribble'"
                        ).fetchone()[0] == 0
+
+
+def test_duplicate_content_assets_do_not_crash(tmp_path):
+    # Two differently-named files with identical bytes hash to the same
+    # sha256, and must be deduped before the INSERT INTO assets (which has
+    # sha256 as PRIMARY KEY) or main() raises sqlite3.IntegrityError.
+    files = tmp_path / "files"
+    files.mkdir()
+    (files / "paper-fig.png").write_bytes(b"PNGDATA")
+    (files / "paper-fig-copy.png").write_bytes(b"PNGDATA")
+    out = tmp_path / "data"
+
+    rc = main([str(FIXTURE), "--files", str(files), "--out", str(out)])
+    assert rc == 0
+
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute("SELECT count(*) FROM assets").fetchone()[0] == 1
+
+    report = (out / "import-report.txt").read_text()
+    assert "assets: 1 in store" in report
+
+
+def test_stale_tmp_asset_does_not_survive_import(tmp_path):
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    sha = hashlib.sha256(b"PNGDATA").hexdigest()
+    stale_dir = out / "assets" / sha[:2]
+    stale_dir.mkdir(parents=True)
+    (stale_dir / f"{sha}.tmp").write_bytes(b"PARTIAL-LEFTOVER")
+
+    rc = main([str(FIXTURE), "--files", str(files), "--out", str(out)])
+    assert rc == 0
+
+    dest = out / "assets" / sha[:2] / sha
+    assert dest.read_bytes() == b"PNGDATA"
+    assert list((out / "assets").rglob("*.tmp")) == []
+
+
+def test_missing_export_file_reports_friendly_error(tmp_path, capsys):
+    missing = tmp_path / "nope.edn"
+    out = tmp_path / "data"
+    rc = main([str(missing), "--out", str(out)])
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert f"error: export file not found: {missing}" in captured.err
+
+
+def test_missing_files_dir_warns_and_continues(tmp_path, capsys):
+    missing_files = tmp_path / "no-such-files-dir"
+    out = tmp_path / "data"
+    rc = main([str(FIXTURE), "--files", str(missing_files), "--out", str(out)])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert f"warning: --files dir missing or empty: {missing_files}" in captured.err

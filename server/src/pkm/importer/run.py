@@ -38,10 +38,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="data", help="output data directory")
     args = parser.parse_args(argv)
 
-    sys.setrecursionlimit(20000)  # deep outlines recurse in tree assembly
-    export = parse_export(parse_edn(Path(args.export).read_text(encoding="utf-8")))
+    export_path = Path(args.export)
+    if not export_path.is_file():
+        print(f"error: export file not found: {export_path}", file=sys.stderr)
+        return 2
 
-    by_name, paths = _index_files(Path(args.files)) if args.files else ({}, {})
+    sys.setrecursionlimit(20000)  # deep outlines recurse in tree assembly
+    export = parse_export(parse_edn(export_path.read_text(encoding="utf-8")))
+
+    files_dir = Path(args.files) if args.files else None
+    if files_dir is not None and (
+        not files_dir.is_dir() or not any(p.is_file() for p in files_dir.rglob("*"))
+    ):
+        print(f"warning: --files dir missing or empty: {files_dir}", file=sys.stderr)
+        files_dir = None
+
+    by_name, paths = _index_files(files_dir) if files_dir else ({}, {})
+    unique_assets = {a.sha256: a for a in by_name.values()}
     used: set[str] = set()
     missing: set[str] = set()
 
@@ -66,17 +79,20 @@ def main(argv: list[str] | None = None) -> int:
         con.executemany("INSERT INTO refs VALUES (?,?,?)", rows.refs)
         con.executemany(
             "INSERT INTO assets VALUES (?,?,?,?,NULL)",
-            [(a.sha256, a.filename, a.mime, a.size) for a in by_name.values()])
+            [(a.sha256, a.filename, a.mime, a.size) for a in unique_assets.values()])
         con.commit()
     finally:
         con.close()
-    os.replace(tmp, out / "pkm.sqlite3")
 
     for sha, src in paths.items():
         dest = out / "assets" / sha[:2] / sha
         if not dest.exists():
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, dest)
+            dest_tmp = dest.with_name(dest.name + ".tmp")
+            shutil.copyfile(src, dest_tmp)
+            os.replace(dest_tmp, dest)
+
+    os.replace(tmp, out / "pkm.sqlite3")
 
     report = ImportReport(
         pages=len(rows.pages),
@@ -87,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         skipped_entities=export.skipped_entities,
         block_ref_count=rows.block_ref_count,
         embed_count=rows.embed_count,
-        assets_total=len(by_name),
+        assets_total=len(unique_assets),
         assets_used=len(used),
         missing_asset_urls=tuple(sorted(missing)),
         attr_counts=export.attr_counts,

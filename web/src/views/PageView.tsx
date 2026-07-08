@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import type { PagePayload } from "../api/payloads";
+import { BacklinksSection } from "../components/BacklinksSection";
 import { BlockTree } from "../components/BlockTree";
+import { UnlinkedSection } from "../components/UnlinkedSection";
 import { BlockRefContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
 
@@ -35,6 +37,8 @@ export function PageView() {
         <h1 className="page-title">{payload.page.title}</h1>
         <BlockTree blocks={payload.blocks} />
       </article>
+      <BacklinksSection key={`bl-${title}`} title={title} initial={payload.backlinks} />
+      <UnlinkedSection key={`ul-${title}`} title={title} />
     </BlockRefContext.Provider>
   );
 }

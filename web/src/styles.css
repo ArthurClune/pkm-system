@@ -62,3 +62,18 @@ mark.highlight { background: #fff3b8; }
 .pdf-download { display: inline-block; margin-top: 4px; font-size: 13px; }
 .todo-checkbox { margin-right: 6px; vertical-align: middle; }
 .query-pending { color: #8a9ba8; font-style: italic; }
+
+/* backlinks + unlinked */
+.backlinks, .unlinked { margin-top: 36px; border-top: 1px solid #e1e8ed; padding-top: 12px; }
+.section-header { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: #5c7080; margin: 0 0 8px; }
+.section-header.collapsible { cursor: pointer; user-select: none; }
+.section-header .chevron { display: inline-block; transform: rotate(90deg); }
+.section-header .chevron.closed { transform: rotate(0deg); }
+.group-title { font-size: 15px; margin: 12px 0 4px; }
+.backlink-item, .query-item { padding: 4px 0 4px 12px; border-left: 2px solid #eef2f5;
+  margin: 4px 0; }
+.breadcrumbs { font-size: 12px; color: #a7b6c2; margin-bottom: 2px; }
+.show-more { margin-top: 8px; background: #f5f8fa; border: 1px solid #d8e1e8;
+  border-radius: 3px; padding: 4px 12px; cursor: pointer; color: #5c7080; }
+.show-more:hover { background: #ebf1f5; }

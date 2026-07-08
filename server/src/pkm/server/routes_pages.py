@@ -11,6 +11,7 @@ from pkm.server.auth import require_auth
 from pkm.server.backlinks import group_backlinks
 from pkm.server.daily import date_for_title
 from pkm.server.db import get_db
+from pkm.server.fts import phrase_query
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -113,3 +114,36 @@ def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
         "block_ref_texts": _block_ref_texts(
             db, [r["text"] for r in blocks] + bl_texts),
     }
+
+
+@router.get("/api/unlinked")
+def get_unlinked(title: str, limit: int = 20, offset: int = 0,
+                 db: sqlite3.Connection = Depends(get_db)) -> dict:
+    limit = max(1, min(limit, 100))
+    page = _fetch_page(db, title)
+    if page is None:
+        raise HTTPException(status_code=404, detail="page not found")
+    where = """FROM blocks_fts f
+               JOIN blocks b ON b.rowid = f.rowid
+               JOIN pages p ON p.id = b.page_id
+              WHERE blocks_fts MATCH ? AND b.page_id != ?
+                AND NOT EXISTS (SELECT 1 FROM refs r
+                                 WHERE r.src_block_uid = b.uid
+                                   AND r.target_page_id = ?)"""
+    params = (phrase_query(title), page["id"], page["id"])
+    total = db.execute(f"SELECT count(*) {where}", params).fetchone()[0]
+    rows = db.execute(
+        f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
+            {where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?""",
+        (*params, limit, offset)).fetchall()
+    groups: list[dict] = []
+    index: dict[int, dict] = {}
+    for r in rows:
+        group = index.get(r["page_id"])
+        if group is None:
+            group = {"page_id": r["page_id"], "page_title": r["page_title"],
+                     "items": []}
+            index[r["page_id"]] = group
+            groups.append(group)
+        group["items"].append({"uid": r["uid"], "text": r["text"]})
+    return {"groups": groups, "total": total}

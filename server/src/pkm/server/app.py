@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from pkm.server.auth import require_auth, router as auth_router
 from pkm.server.config import Config
 from pkm.server.routes_assets import router as assets_router
+from pkm.server.routes_ops import router as ops_router
 from pkm.server.routes_pages import router as pages_router
 from pkm.server.routes_search import router as search_router
 
@@ -25,6 +26,7 @@ def create_app(config: Config) -> FastAPI:
         return app.openapi()
 
     app.include_router(api)
+    app.include_router(ops_router)
     app.include_router(pages_router)
     app.include_router(search_router)
     app.include_router(assets_router)

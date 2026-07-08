@@ -46,4 +46,6 @@ async def ws_endpoint(websocket: WebSocket) -> None:
         while True:
             await websocket.receive_text()  # inbound is ignored (keepalive)
     except WebSocketDisconnect:
+        pass
+    finally:
         hub.disconnect(websocket)

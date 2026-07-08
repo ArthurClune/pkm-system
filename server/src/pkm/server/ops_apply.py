@@ -100,9 +100,11 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
             page = get_or_create_page(db, ref.title, now_ms)
             db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
                        (eff.uid, page["id"], ref.kind))
-    else:  # TouchPage
+    elif isinstance(eff, TouchPage):
         db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
                    (now_ms, eff.page_id))
+    else:
+        raise AssertionError(f"unhandled effect: {eff!r}")
 
 
 def apply_batch(db: sqlite3.Connection, batch: OpBatch, now_ms: int) -> None:

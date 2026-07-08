@@ -28,7 +28,8 @@ SKEW_MS = 5 * 60 * 1000
 def verify_session(secret: bytes, token: str, now_ms: int,
                    max_age_ms: int = YEAR_MS) -> bool:
     parts = token.split(".")
-    if len(parts) != 3 or parts[0] != "v1" or not parts[1].isdigit():
+    if (len(parts) != 3 or parts[0] != "v1"
+            or not parts[1].isascii() or not parts[1].isdigit()):
         return False
     payload = f"{parts[0]}.{parts[1]}"
     expected = hmac.new(secret, payload.encode("ascii"), hashlib.sha256).hexdigest()

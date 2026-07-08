@@ -20,7 +20,7 @@ class CreateOp(BaseModel):
     parent_uid: str | None = None
     order_idx: int
     text: str
-    heading: int | None = None
+    heading: int | None = Field(default=None, ge=1, le=3)
 
 
 class UpdateTextOp(BaseModel):

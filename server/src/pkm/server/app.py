@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, FastAPI
 
 from pkm.server.auth import require_auth, router as auth_router
 from pkm.server.config import Config
+from pkm.server.routes_pages import router as pages_router
 
 
 def create_app(config: Config) -> FastAPI:
@@ -17,15 +18,12 @@ def create_app(config: Config) -> FastAPI:
 
     api = APIRouter(dependencies=[Depends(require_auth)])
 
-    @api.get("/api/page/{title:path}")
-    def page_placeholder(title: str) -> dict:  # replaced in Task 4
-        return {"title": title}
-
     @api.get("/api/openapi.json")
     def openapi_schema() -> dict:
         return app.openapi()
 
     app.include_router(api)
+    app.include_router(pages_router)
 
     @app.get("/healthz")
     def healthz() -> dict:

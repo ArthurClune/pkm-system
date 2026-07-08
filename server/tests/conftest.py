@@ -18,20 +18,20 @@ SEED_PAGES = [
     (5, "Attention Is All You Need", None, None),
 ]
 SEED_BLOCKS = [
-    ("b1", 1, None, 0, "Tags:: #AI", None, 0, None, None),
-    ("b2", 1, None, 1, "Papers", 2, 0, None, None),
-    ("b3", 1, "b2", 0, "[[Attention Is All You Need]] is a [[Paper]]",
+    ("uid_b1", 1, None, 0, "Tags:: #AI", None, 0, None, None),
+    ("uid_b2", 1, None, 1, "Papers", 2, 0, None, None),
+    ("uid_b3", 1, "uid_b2", 0, "[[Attention Is All You Need]] is a [[Paper]]",
      None, 0, None, None),
-    ("b4", 3, None, 0, "Studying [[Machine Learning]] today", None, 0, None, None),
-    ("b5", 3, None, 1, "See ((b3)) for details", None, 0, None, None),
-    ("b6", 2, None, 0, "AI overview mentions Machine Learning in plain text",
+    ("uid_b4", 3, None, 0, "Studying [[Machine Learning]] today", None, 0, None, None),
+    ("uid_b5", 3, None, 1, "See ((uid_b3)) for details", None, 0, None, None),
+    ("uid_b6", 2, None, 0, "AI overview mentions Machine Learning in plain text",
      None, 0, None, None),
 ]
 SEED_REFS = [
-    ("b1", 2, "tag"),
-    ("b3", 5, "link"),
-    ("b3", 4, "link"),
-    ("b4", 1, "link"),
+    ("uid_b1", 2, "tag"),
+    ("uid_b3", 5, "link"),
+    ("uid_b3", 4, "link"),
+    ("uid_b4", 1, "link"),
 ]
 
 

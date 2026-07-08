@@ -21,10 +21,18 @@ def sign_session(secret: bytes, issued_at_ms: int) -> str:
     return f"{payload}.{sig}"
 
 
-def verify_session(secret: bytes, token: str) -> bool:
+YEAR_MS = 365 * 24 * 3600 * 1000
+SKEW_MS = 5 * 60 * 1000
+
+
+def verify_session(secret: bytes, token: str, now_ms: int,
+                   max_age_ms: int = YEAR_MS) -> bool:
     parts = token.split(".")
-    if len(parts) != 3 or parts[0] != "v1":
+    if len(parts) != 3 or parts[0] != "v1" or not parts[1].isdigit():
         return False
     payload = f"{parts[0]}.{parts[1]}"
     expected = hmac.new(secret, payload.encode("ascii"), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, parts[2])
+    if not hmac.compare_digest(expected, parts[2]):
+        return False
+    issued = int(parts[1])
+    return issued <= now_ms + SKEW_MS and now_ms - issued <= max_age_ms

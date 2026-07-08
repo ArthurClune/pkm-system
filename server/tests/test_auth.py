@@ -13,12 +13,13 @@ def test_password_roundtrip():
 
 def test_session_roundtrip_and_tamper():
     token = sign_session(SECRET, 1700000000000)
+    now = 1700000000000 + 1000
     assert token.startswith("v1.1700000000000.")
-    assert verify_session(SECRET, token)
-    assert not verify_session(SECRET, token[:-1] + ("0" if token[-1] != "0" else "1"))
-    assert not verify_session(b"other" * 8, token)
-    assert not verify_session(SECRET, "garbage")
-    assert not verify_session(SECRET, "v1.123")
+    assert verify_session(SECRET, token, now_ms=now)
+    assert not verify_session(SECRET, token[:-1] + ("0" if token[-1] != "0" else "1"), now_ms=now)
+    assert not verify_session(b"other" * 8, token, now_ms=now)
+    assert not verify_session(SECRET, "garbage", now_ms=now)
+    assert not verify_session(SECRET, "v1.123", now_ms=now)
 
 
 def test_login_flow_and_gate(anon_client):

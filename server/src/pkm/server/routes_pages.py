@@ -13,18 +13,13 @@ from pkm.server.backlinks import group_backlinks
 from pkm.server.daily import date_for_title, title_for_date
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
+from pkm.server.store import fetch_page, get_or_create_page
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
                " created_at, updated_at")
-
-
-def _fetch_page(db: sqlite3.Connection, title: str) -> sqlite3.Row | None:
-    return db.execute(
-        "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
-        (title,)).fetchone()
 
 
 def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
@@ -51,6 +46,7 @@ def _fetch_ancestors(db: sqlite3.Connection, uids: list[str]) -> dict[str, list[
               UNION ALL
               SELECT a.start_uid, b.uid, b.parent_uid, b.text, a.depth + 1
                 FROM anc a JOIN blocks b ON b.uid = a.parent_uid
+               WHERE a.depth < 100
             )
             SELECT start_uid, text, depth FROM anc WHERE depth > 0
              ORDER BY start_uid, depth DESC""", uids).fetchall()
@@ -93,16 +89,12 @@ def _backlinks(db: sqlite3.Connection, page_id: int,
 def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
              db: sqlite3.Connection = Depends(get_db)) -> dict:
     bl_limit = max(1, min(bl_limit, 100))
-    page = _fetch_page(db, title)
+    page = fetch_page(db, title)
     if page is None:
         if date_for_title(title) is None:
             raise HTTPException(status_code=404, detail="page not found")
-        now = int(time.time() * 1000)
-        db.execute(
-            "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
-            (title, now, now))
+        page = get_or_create_page(db, title, int(time.time() * 1000))
         db.commit()
-        page = _fetch_page(db, title)
     blocks = db.execute(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["id"],)).fetchall()
@@ -121,7 +113,7 @@ def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
 def get_unlinked(title: str, limit: int = 20, offset: int = 0,
                  db: sqlite3.Connection = Depends(get_db)) -> dict:
     limit = max(1, min(limit, 100))
-    page = _fetch_page(db, title)
+    page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
     where = """FROM blocks_fts f
@@ -165,14 +157,10 @@ def get_journal(before: str | None = None, days: int = 7,
     for i in range(1, days + 1):
         d = start - timedelta(days=i)
         title = title_for_date(d)
-        page = _fetch_page(db, title)
+        page = fetch_page(db, title)
         if page is None and d == date.today():
-            now = int(time.time() * 1000)
-            db.execute(
-                "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
-                (title, now, now))
+            page = get_or_create_page(db, title, int(time.time() * 1000))
             db.commit()
-            page = _fetch_page(db, title)
         if page is None:
             out.append({"date": d.isoformat(), "title": title,
                         "exists": False, "blocks": []})

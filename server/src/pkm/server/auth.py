@@ -32,7 +32,8 @@ class LoginBody(BaseModel):
 
 def require_auth(request: Request, config: Config = Depends(get_config)) -> None:
     token = request.cookies.get(COOKIE_NAME)
-    if not token or not verify_session(bytes.fromhex(config.session_secret), token):
+    if not token or not verify_session(bytes.fromhex(config.session_secret),
+                                       token, now_ms=int(time.time() * 1000)):
         raise HTTPException(status_code=401, detail="not authenticated")
 
 

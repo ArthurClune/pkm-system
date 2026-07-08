@@ -32,12 +32,18 @@ def rewrite_asset_urls(
 
     def _sub(m: re.Match[str]) -> str:
         url = m.group()
+        # Trim trailing sentence punctuation
+        trailing_punct = ""
+        while url and url[-1] in ".,;:!?":
+            trailing_punct = url[-1] + trailing_punct
+            url = url[:-1]
+
         asset = by_name.get(url_basename(url).lower())
         if asset is None:
             missing.add(url)
-            return url
+            return url + trailing_punct
         used.add(asset.sha256)
         quoted = urllib.parse.quote(asset.filename)
-        return f"/assets/{asset.sha256}/{quoted}"
+        return f"/assets/{asset.sha256}/{quoted}" + trailing_punct
 
     return _FIREBASE_URL.sub(_sub, text), frozenset(used), frozenset(missing)

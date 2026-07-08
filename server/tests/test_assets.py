@@ -37,3 +37,18 @@ def test_filename_needing_quoting():
     new, used, _ = rewrite_asset_urls(f"[pdf]({url})", idx)
     assert f"/assets/{'a' * 64}/my%20file%20%281%29.pdf" in new
     assert used == frozenset({"a" * 64})
+
+
+def test_trailing_sentence_punctuation_not_swallowed():
+    text = f"See {URL}."
+    new, used, missing = rewrite_asset_urls(text, INDEX)
+    assert new == f"See /assets/{'f' * 64}/paper-fig.png."
+    assert used == frozenset({"f" * 64})
+    assert missing == frozenset()
+
+
+def test_trailing_punctuation_on_unknown_url():
+    other = URL.replace("paper-fig", "gone")
+    new, used, missing = rewrite_asset_urls(f"see {other}, ok", INDEX)
+    assert new == f"see {other}, ok"
+    assert missing == frozenset({other})

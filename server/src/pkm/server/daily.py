@@ -27,6 +27,7 @@ def date_for_title(title: str) -> date | None:
         return None
     month = _MONTHS.index(m.group(1)) + 1
     try:
-        return date(int(m.group(4)), month, int(m.group(2)))
+        d = date(int(m.group(4)), month, int(m.group(2)))
     except ValueError:
         return None
+    return d if title_for_date(d) == title else None

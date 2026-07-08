@@ -154,8 +154,13 @@ def get_unlinked(title: str, limit: int = 20, offset: int = 0,
 def get_journal(before: str | None = None, days: int = 7,
                 db: sqlite3.Connection = Depends(get_db)) -> dict:
     days = max(1, min(days, 31))
-    start = (date.fromisoformat(before) if before
-             else date.today() + timedelta(days=1))
+    if before:
+        try:
+            start = date.fromisoformat(before)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid before date")
+    else:
+        start = date.today() + timedelta(days=1)
     out = []
     for i in range(1, days + 1):
         d = start - timedelta(days=i)

@@ -58,3 +58,8 @@ def test_asset_unknown_sha_404(client):
 
 def test_asset_requires_auth(anon_client):
     assert anon_client.get(f"/assets/{'0' * 64}/x.png").status_code == 401
+
+
+def test_journal_bad_before_400(client):
+    r = client.get("/api/journal", params={"before": "garbage"})
+    assert r.status_code == 400

@@ -28,6 +28,7 @@ def test_roundtrip(d, title):
 @pytest.mark.parametrize("bad", [
     "Machine Learning", "July 2026", "July 32nd, 2026",
     "Smarch 1st, 2026", "July 1st 2026", "AWS/SCP",
+    "July 1nd, 2026", "July 3th, 2026",
 ])
 def test_non_daily_titles(bad):
     assert date_for_title(bad) is None

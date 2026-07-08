@@ -205,3 +205,60 @@ batch step, optimize only if it becomes annoying).
   user's sidebar shortcuts (nice import for plan 3's left nav);
   `:children/view-type` (262) is a numbered/document-view rendering hint we
   currently drop; `:block/props` (30) unexamined, low count.
+
+### Read-API smoke findings (plan 2)
+
+Ran the full read API (`pkm.server.setup` + `pkm.server.run`) against the real
+imported database (4,313 pages / 52,695 blocks) on port 8974. All checklist
+items passed; no code changes needed.
+
+- **Title substitutions: none needed.** Every title named in the task-10 brief
+  (`Generative Models`, `AWS/SCP`, `Machine Learning`, the `{and: [[Generative
+  Models]] [[Link]]}` query, `datascript` search term) already exists in the
+  real graph, so all curls ran as written.
+- **Auth:** `/healthz` → `{"ok":true}`; login sets the session cookie;
+  `/api/search` without a cookie → `401`; `/assets/...` without a cookie →
+  `401` too (asset route is gated, confirmed explicitly).
+- **Page endpoint:** `GET /api/page/Generative Models` returns `page` +
+  block `tree` + `backlinks` (grouped by source page, each group carrying
+  `page_id`/`page_title`/`items` with `uid`/`text`/`breadcrumbs`) +
+  `block_ref_texts` (map of referenced-block uid → `{text, page_title}`) — all
+  four populated with real data (4 backlink groups, 4 resolved block refs on
+  this page).
+- **Namespace page:** `GET /api/page/AWS/SCP` (literal slash in the path)
+  resolved correctly to the `AWS/SCP` page — no path-splitting issues.
+- **Backlink pagination:** verified on the two most-linked pages in the
+  graph — `Tags` (2,383 refs) and `Paper` (423 refs). Both cap at `limit: 20`
+  per page and report `total_pages` (2,373 for `Tags`) and `offset` — matches
+  the "pagination on every list" requirement.
+- **Search:** `q=datascript` returned a real block hit from `roam/render`
+  with `<mark>datascript</mark>` snippet highlighting; no page-title matches
+  for this term (expected — it's a code-block term, not a page name).
+- **Query eval:** `{and: [[Generative Models]] [[Link]]}` returned 4 matching
+  blocks grouped by page (`Generative Models` itself plus three daily-journal
+  entries) — nested and/or/not evaluation works against real data.
+- **Unlinked references:** `title=Machine Learning` returned plausible
+  mention-only blocks (e.g. `AGI`, `AI Bias`, `AI Chips` pages referencing
+  "machine learning" in prose without a `[[...]]` link).
+- **Journal:** `days=3` returned today (2026-07-08, `July 8th, 2026`) plus the
+  prior two days. Today's page **already existed** in the real export (the
+  user had used Roam today before the export), so the auto-create-if-missing
+  path wasn't actually exercised by this run — worth a follow-up smoke test
+  on a date with no existing journal page to confirm creation still works.
+- **Assets:** fetched one PNG (`image/png`, 788,354 bytes) and one PDF
+  (`application/pdf`, 985,418 bytes) by sha256+filename. Both returned
+  `cache-control: private, max-age=31536000, immutable` (note: `private`,
+  not `public` — correct given the endpoint is auth-gated) plus correct
+  `content-type`, `etag`, `last-modified`, `accept-ranges: bytes`.
+- **Latency:** every call was fast. `GET /api/page/Paper` (423 backlinks):
+  28ms cold, 10ms warm. `GET /api/page/Tags` (2,383 backlinks, the single
+  most-linked page in the graph): 35ms cold, 19ms warm. Well under the
+  <100ms target with zero optimization — SQLite + indexed refs is plenty for
+  this graph size.
+- **Data integrity:** confirmed page/block counts unchanged after the smoke
+  test (4,313 pages / 52,695 blocks, matching `import-report.txt` exactly).
+  The sqlite file's mtime moved (WAL checkpoint from read connections) but no
+  rows were added or altered — the pre-existing today's-journal page was read,
+  not written.
+- **No encoding surprises:** titles with slashes, unicode, and markdown-style
+  brackets in block text all round-tripped through JSON cleanly in this pass.

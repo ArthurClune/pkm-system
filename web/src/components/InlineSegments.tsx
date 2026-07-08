@@ -5,6 +5,7 @@ import { BlockRef } from "./BlockRef";
 import { CodeBlock } from "./CodeBlock";
 import { PageLink } from "./PageLink";
 import { PdfEmbed } from "./PdfEmbed";
+import { QueryBlock } from "./QueryBlock";
 import { TodoCheckbox } from "./TodoCheckbox";
 
 function isPdfAssetHref(href: string): boolean {
@@ -57,7 +58,6 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
     case "code-block":
       return <CodeBlock lang={seg.lang} code={seg.code} />;
     case "query":
-      // Task 10 replaces this inert span with the live <QueryBlock>.
-      return <span className="query-pending">{`{{query: ${seg.expr}}}`}</span>;
+      return <QueryBlock expr={seg.expr} />;
   }
 }

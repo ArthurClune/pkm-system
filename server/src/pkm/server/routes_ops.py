@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -16,7 +16,8 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 @router.post("/api/ops")
-async def post_ops(batch: OpBatch,
+async def post_ops(request: Request,
+                   batch: OpBatch,
                    db: sqlite3.Connection = Depends(get_db)) -> dict:
     now = int(time.time() * 1000)
     try:
@@ -26,4 +27,9 @@ async def post_ops(batch: OpBatch,
         raise HTTPException(status_code=400,
                             detail={"index": e.index, "reason": e.reason})
     db.commit()
+    await request.app.state.hub.broadcast({
+        "client_id": batch.client_id,
+        "ts": now,
+        "ops": [op.model_dump() for op in batch.ops],
+    })
     return {"ok": True, "ts": now, "applied": len(batch.ops)}

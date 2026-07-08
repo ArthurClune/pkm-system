@@ -44,3 +44,7 @@ def test_errors():
         parse_edn("{:a}")
     with pytest.raises(EdnError):
         parse_edn("[1] trailing")
+    with pytest.raises(EdnError):
+        parse_edn("#")
+    with pytest.raises(EdnError):
+        parse_edn('{[1] "v"}')

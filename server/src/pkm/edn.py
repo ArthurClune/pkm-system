@@ -76,7 +76,10 @@ def _parse_map(text: str, pos: int) -> tuple[dict, int]:
         items.append(value)
     if len(items) % 2:
         raise EdnError("map has odd number of forms")
-    return dict(zip(items[::2], items[1::2], strict=True)), pos + 1
+    try:
+        return dict(zip(items[::2], items[1::2], strict=True)), pos + 1
+    except TypeError as e:
+        raise EdnError("unhashable map key") from e
 
 
 def _parse_seq(text: str, pos: int, closer: str) -> tuple[list, int]:
@@ -115,6 +118,8 @@ def _parse_string(text: str, pos: int) -> tuple[str, int]:
 
 
 def _parse_dispatch(text: str, pos: int) -> tuple[object, int]:
+    if pos >= len(text):
+        raise EdnError("unexpected end of input")
     if text[pos] == "{":  # set literal #{...}
         return _parse_seq(text, pos + 1, "}")
     if text[pos] == "_":  # discard form #_

@@ -187,7 +187,21 @@ friendly (one input element at a time).
   (markdown rendering, outline state); shared parser fixture keeps the two
   grammars honest; Playwright smoke test for the core editing loop.
 
-## Open items
+## Real-export import findings (2026-07-08, Task 10)
 
-- User to provide: EDN export + linked-files download (drop in `sample-data/`).
-- Importer report will decide whether `((block-ref))` rendering is needed in v1.
+First real import: **4,313 pages / 52,695 blocks / 27,308 refs / 1,647 assets
+(2.0 GB)** in ~4 minutes (pure-Python EDN parse dominates; acceptable for a
+batch step, optimize only if it becomes annoying).
+
+- **`((block-refs))`: 1,344 across the graph → rendering them is IN scope for
+  v1** (plan 3). Creating new ones stays out of scope.
+- **`{{embed}}`: 0 → embed support dropped from v1.**
+- Assets: 1,565/1,580 referenced URLs resolved via uid-prefix matching (Roam's
+  download names files `<10-char-uid>-<original name>`; URLs use
+  `<uid>.<ext>`). 2 URLs are absent from Roam's own download (noted in
+  import-report.txt); 82 stored files are unreferenced leftovers — kept.
+- Orphan blocks 223 (0.4%), skipped entities 23 — acceptable residue.
+- Ignored attributes worth revisiting later: `:page/sidebar` (23) holds the
+  user's sidebar shortcuts (nice import for plan 3's left nav);
+  `:children/view-type` (262) is a numbered/document-view rendering hint we
+  currently drop; `:block/props` (30) unexamined, low count.

@@ -45,6 +45,42 @@ it("InlineSegments renders query segments as live QueryBlocks", async () => {
   expect(screen.getByText(`query: ${EXPR}`)).toBeInTheDocument();
 });
 
+it("caps nested query recursion with an inert placeholder and no extra fetch", async () => {
+  const fetchMock = stubFetch([
+    [`/api/query?expr=${ENC}`, {
+      groups: [{ page_id: 9, page_title: "Self", items: [
+        { uid: "uid_r1", text: `see {{query: ${EXPR}}}` }] }],
+      total: 1,
+    }],
+  ]);
+  render(<MemoryRouter><QueryBlock expr={EXPR} depth={1} /></MemoryRouter>);
+  expect(await screen.findByText("1 result")).toBeInTheDocument();
+  // The nested query inside the result item sits at the cap: inert, no fetch.
+  expect(screen.getByText(`{{query: ${EXPR}}}`)).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("clears a stale error once a show-more retry succeeds", async () => {
+  let calls = 0;
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    calls += 1;
+    if (calls === 2) {
+      return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+    }
+    return new Response(JSON.stringify({
+      groups: [{ page_id: 1, page_title: "P", items: [
+        { uid: `uid_e${calls}`, text: `item ${calls}` }] }],
+      total: 3,
+    }), { status: 200 });
+  }));
+  render(<MemoryRouter><QueryBlock expr={EXPR} /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("button", { name: /show more/i }));
+  expect(await screen.findByText(/500/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /show more/i }));
+  expect(await screen.findByText("item 3")).toBeInTheDocument();
+  expect(screen.queryByText(/500/)).toBeNull();
+});
+
 it("shows the server's 400 as an error state", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "bad query" }), { status: 400 })));

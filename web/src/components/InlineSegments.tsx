@@ -58,6 +58,6 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
     case "code-block":
       return <CodeBlock lang={seg.lang} code={seg.code} />;
     case "query":
-      return <QueryBlock expr={seg.expr} />;
+      return <QueryBlock expr={seg.expr} depth={depth} />;
   }
 }

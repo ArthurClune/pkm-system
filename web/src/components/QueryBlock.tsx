@@ -9,7 +9,13 @@ import { mergeGroups } from "./groups";
 
 const PAGE_SIZE = 20;
 
-export function QueryBlock({ expr }: { expr: string }) {
+// A query whose results contain another {{query}} (e.g. a self-matching
+// block) would otherwise re-mount an identical QueryBlock and recurse
+// forever, fetch after fetch. Same guard idea as BlockRef's MAX_DEPTH.
+const MAX_DEPTH = 2;
+
+export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }) {
+  const capped = depth >= MAX_DEPTH;
   const [groups, setGroups] = useState<BlockGroup[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [offset, setOffset] = useState(0);
@@ -24,6 +30,7 @@ export function QueryBlock({ expr }: { expr: string }) {
       setGroups((g) => (from === 0 ? p.groups : mergeGroups(g, p.groups)));
       setTotal(p.total);
       setOffset(from + p.groups.reduce((n, gr) => n + gr.items.length, 0));
+      setError(null);
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -32,14 +39,20 @@ export function QueryBlock({ expr }: { expr: string }) {
   };
 
   useEffect(() => {
+    if (capped) return;
     setGroups([]);
     setTotal(null);
     setOffset(0);
     setError(null);
     void load(0);
-    // load(0) reads only `expr` from scope; re-run on expr change alone.
+    // load(0) reads only `expr`/`capped` from scope; re-run on those alone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expr]);
+  }, [expr, capped]);
+
+  if (capped) {
+    // Inert placeholder matching the pre-live fallback: no fetch, no results.
+    return <span className="query-pending">{`{{query: ${expr}}}`}</span>;
+  }
 
   return (
     <div className="query-block">
@@ -57,7 +70,7 @@ export function QueryBlock({ expr }: { expr: string }) {
           <div className="group-title"><PageLink title={g.page_title} tag={false} /></div>
           {g.items.map((item) => (
             <div className="query-item" key={item.uid}>
-              <InlineSegments segments={tokenizeBlock(item.text)} />
+              <InlineSegments segments={tokenizeBlock(item.text)} depth={depth + 1} />
             </div>
           ))}
         </div>

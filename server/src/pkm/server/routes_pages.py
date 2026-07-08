@@ -8,6 +8,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 
 from pkm.server.auth import require_auth
+from pkm.server.backlinks import group_backlinks
 from pkm.server.daily import date_for_title
 from pkm.server.db import get_db
 from pkm.server.tree import build_tree, collect_block_ref_uids
@@ -37,8 +38,59 @@ def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
             for r in rows}
 
 
+def _fetch_ancestors(db: sqlite3.Connection, uids: list[str]) -> dict[str, list[str]]:
+    if not uids:
+        return {}
+    marks = ",".join("?" * len(uids))
+    rows = db.execute(
+        f"""WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth) AS (
+              SELECT uid, uid, parent_uid, text, 0 FROM blocks
+               WHERE uid IN ({marks})
+              UNION ALL
+              SELECT a.start_uid, b.uid, b.parent_uid, b.text, a.depth + 1
+                FROM anc a JOIN blocks b ON b.uid = a.parent_uid
+            )
+            SELECT start_uid, text, depth FROM anc WHERE depth > 0
+             ORDER BY start_uid, depth DESC""", uids).fetchall()
+    out: dict[str, list[str]] = {}
+    for r in rows:  # depth DESC = root first
+        out.setdefault(r["start_uid"], []).append(r["text"])
+    return out
+
+
+def _backlinks(db: sqlite3.Connection, page_id: int,
+               offset: int, limit: int) -> tuple[list[dict], int, list[str]]:
+    total = db.execute(
+        """SELECT count(DISTINCT b.page_id) FROM refs r
+            JOIN blocks b ON b.uid = r.src_block_uid
+           WHERE r.target_page_id = ?""", (page_id,)).fetchone()[0]
+    page_ids = [r[0] for r in db.execute(
+        """SELECT DISTINCT b.page_id FROM refs r
+            JOIN blocks b ON b.uid = r.src_block_uid
+            JOIN pages p ON p.id = b.page_id
+           WHERE r.target_page_id = ?
+           ORDER BY p.updated_at DESC NULLS LAST, p.title
+           LIMIT ? OFFSET ?""", (page_id, limit, offset)).fetchall()]
+    if not page_ids:
+        return [], total, []
+    marks = ",".join("?" * len(page_ids))
+    rows = db.execute(
+        f"""SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
+              FROM refs r
+              JOIN blocks b ON b.uid = r.src_block_uid
+              JOIN pages p ON p.id = b.page_id
+             WHERE r.target_page_id = ? AND b.page_id IN ({marks})
+             ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
+        [page_id, *page_ids]).fetchall()
+    ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
+    return (group_backlinks(rows, ancestors), total,
+            [r["text"] for r in rows])
+
+
 @router.get("/api/page/{title:path}")
-def get_page(title: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
+def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
+             db: sqlite3.Connection = Depends(get_db)) -> dict:
+    bl_limit = max(1, min(bl_limit, 100))
     page = _fetch_page(db, title)
     if page is None:
         if date_for_title(title) is None:
@@ -52,8 +104,12 @@ def get_page(title: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
     blocks = db.execute(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["id"],)).fetchall()
+    groups, total, bl_texts = _backlinks(db, page["id"], bl_offset, bl_limit)
     return {
         "page": dict(page),
         "blocks": build_tree(blocks),
-        "block_ref_texts": _block_ref_texts(db, [r["text"] for r in blocks]),
+        "backlinks": {"groups": groups, "total_pages": total,
+                      "offset": bl_offset, "limit": bl_limit},
+        "block_ref_texts": _block_ref_texts(
+            db, [r["text"] for r in blocks] + bl_texts),
     }

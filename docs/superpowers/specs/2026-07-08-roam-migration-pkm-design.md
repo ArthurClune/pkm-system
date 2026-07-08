@@ -322,3 +322,22 @@ no code changes needed.
   directly, but the write path showed the same "SQLite + indexed refs is
   plenty for this graph size" latency characteristics plan-2 found on the
   read side.
+
+### Write-path API contract notes (plan 3 final review)
+
+- **`MoveOp.order_idx` frame of reference (plan-5 editor MUST match this):**
+  the index is interpreted as "insert before the block currently at
+  `order_idx`, counted BEFORE the moved block is removed from its old
+  position". Example: siblings `[A, B, C]` (A at 0); moving A to
+  `order_idx=2` yields `[B, A, C]`, not `[B, C, A]`. Sibling shifts leave
+  gaps rather than renumbering; readers order by `order_idx` so gaps are
+  harmless.
+- **Deferred cleanup for plan 4 pre-flight** (from the plan-3 final review;
+  all verified non-blocking): unused `TypeAdapter`/`TouchPage` imports;
+  `.isascii()` guard alongside `isdigit()` in `verify_session`;
+  `finally: hub.disconnect(...)` in `ws_endpoint`; `Field(ge=1, le=3)` on
+  `CreateOp.heading`; assert close code 4401 in the WS auth test.
+- **Carried forward:** plan 5 — make the ops broadcast non-blocking
+  (`asyncio.wait_for` per send or `create_task`) before live two-client
+  editing; plan 6 — asset upload size cap + mime allowlist or
+  `Content-Disposition`/`nosniff` hardening at deployment.

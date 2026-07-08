@@ -29,12 +29,16 @@ export function SearchModal({ open, onClose }:
   const [rows, setRows] = useState<ResultRow[]>([]);
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Request sequence token: only the latest dispatched request may set rows,
+  // so a slow response for an old query can't clobber newer results.
+  const seqRef = useRef(0);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (open) {
       inputRef.current?.focus();
     } else {
+      seqRef.current++; // drop any in-flight response after close
       setQuery("");
       setRows([]);
       setSelected(0);
@@ -44,14 +48,23 @@ export function SearchModal({ open, onClose }:
   useEffect(() => {
     if (!open) return;
     if (!query.trim()) {
+      seqRef.current++; // drop any in-flight response for a cleared query
       setRows([]);
       setSelected(0);
       return;
     }
     const timer = setTimeout(() => {
+      const token = ++seqRef.current;
       apiFetch<SearchPayload>(`/api/search?q=${encodeURIComponent(query)}`)
-        .then((p) => { setRows(toRows(p)); setSelected(0); })
-        .catch(() => setRows([]));
+        .then((p) => {
+          if (token !== seqRef.current) return; // stale response: drop
+          setRows(toRows(p));
+          setSelected(0);
+        })
+        .catch(() => {
+          if (token !== seqRef.current) return;
+          setRows([]);
+        });
     }, 150);
     return () => clearTimeout(timer);
   }, [query, open]);

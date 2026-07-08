@@ -1,7 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
-import { stubFetch } from "../test-helpers";
+import { jsonResponse, stubFetch } from "../test-helpers";
 import { SearchModal } from "./SearchModal";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -50,6 +50,40 @@ it("Enter navigates to the selected hit and closes", async () => {
   fireEvent.keyDown(input, { key: "Enter" });
   expect(onClose).toHaveBeenCalled();
   expect(screen.getByText("page view here")).toBeInTheDocument();
+});
+
+it("drops a stale response that resolves after a newer query's", async () => {
+  // Controllable promises: each fetch call is resolved manually by the test.
+  const resolvers = new Map<string, (r: Response) => void>();
+  const fetchMock = vi.fn(
+    (input: RequestInfo | URL) =>
+      new Promise<Response>((resolve) => resolvers.set(String(input), resolve)),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  renderModal();
+  const input = screen.getByPlaceholderText("Search…");
+
+  fireEvent.change(input, { target: { value: "alpha" } });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1)); // debounce fires
+  fireEvent.change(input, { target: { value: "paper" } });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+  // NEWER query resolves first…
+  await act(async () => {
+    resolvers.get("/api/search?q=paper")!(jsonResponse(results));
+  });
+  await screen.findAllByRole("listitem");
+
+  // …then the OLD query's slow response arrives late: it must be dropped.
+  const stale = { pages: [{ id: 9, title: "Stale Alpha" }], blocks: [] };
+  await act(async () => {
+    resolvers.get("/api/search?q=alpha")!(jsonResponse(stale));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+  const items = screen.getAllByRole("listitem");
+  expect(items[0].textContent).toContain("Paper");
+  expect(screen.queryByText("Stale Alpha")).toBeNull();
 });
 
 it("Escape closes without navigating", () => {

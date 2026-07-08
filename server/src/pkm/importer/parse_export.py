@@ -112,9 +112,9 @@ def parse_export(db: object) -> Export:
             walk(b)
     all_uids = {ent[":block/uid"] for ent in entities.values() if is_block(ent)}
 
-    # Count skipped entities: those with uid but no string
+    # Count skipped entities: those with uid but no string (excluding pages)
     skipped_entities = len({ent[":block/uid"] for ent in entities.values()
-                            if ":block/uid" in ent and not is_block(ent)})
+                            if ":block/uid" in ent and not is_block(ent) and ":node/title" not in ent})
 
     return Export(
         pages=tuple(sorted(pages, key=lambda p: p.title)),

@@ -6,6 +6,7 @@ from pkm.importer.parse_export import parse_export
 EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
   [1 :node/title "Machine Learning" 536870913]
+  [1 :block/uid "uid-page1x" 536870913]
   [1 :create/time 1600000000000 536870913]
   [1 :edit/time 1600000001000 536870913]
   [1 :block/children 3 536870913]

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import sqlite3
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
+from pkm.server.query import parse_query, plan_sql, QueryParseError
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -35,3 +36,32 @@ def search(q: str = "", limit: int = 20,
             WHERE blocks_fts MATCH ? ORDER BY rank LIMIT ?""",
         (match, limit)).fetchall()]
     return {"pages": pages, "blocks": blocks}
+
+
+@router.get("/api/query")
+def run_query(expr: str, limit: int = 100, offset: int = 0,
+              db: sqlite3.Connection = Depends(get_db)) -> dict:
+    limit = max(1, min(limit, 500))
+    try:
+        sql, params = plan_sql(parse_query(expr))
+    except QueryParseError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    total = db.execute(
+        f"SELECT count(*) FROM ({sql})", params).fetchone()[0]
+    rows = db.execute(
+        f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
+              FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
+              JOIN pages p ON p.id = b.page_id
+             ORDER BY p.title, b.uid LIMIT ? OFFSET ?""",
+        [*params, limit, offset]).fetchall()
+    groups: list[dict] = []
+    index: dict[int, dict] = {}
+    for r in rows:
+        group = index.get(r["page_id"])
+        if group is None:
+            group = {"page_id": r["page_id"], "page_title": r["page_title"],
+                     "items": []}
+            index[r["page_id"]] = group
+            groups.append(group)
+        group["items"].append({"uid": r["uid"], "text": r["text"]})
+    return {"groups": groups, "total": total}

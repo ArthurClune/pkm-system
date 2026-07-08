@@ -1,0 +1,15 @@
+/* pkm — Roam-ish light theme. Plain CSS only. */
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #202b33;
+  background: #ffffff;
+}
+a { color: #106ba3; text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { font: inherit; }

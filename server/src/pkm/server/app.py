@@ -9,7 +9,9 @@ from pkm.server.config import Config
 
 
 def create_app(config: Config) -> FastAPI:
-    app = FastAPI(title="pkm", openapi_url="/api/openapi.json")
+    app = FastAPI(
+        title="pkm", docs_url=None, redoc_url=None, openapi_url=None
+    )
     app.state.config = config
     app.include_router(auth_router)
 
@@ -18,6 +20,10 @@ def create_app(config: Config) -> FastAPI:
     @api.get("/api/page/{title:path}")
     def page_placeholder(title: str) -> dict:  # replaced in Task 4
         return {"title": title}
+
+    @api.get("/api/openapi.json")
+    def openapi_schema() -> dict:
+        return app.openapi()
 
     app.include_router(api)
 

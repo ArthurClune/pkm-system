@@ -32,3 +32,18 @@ def test_login_flow_and_gate(anon_client):
     r = anon_client.post("/api/login", json={"password": "test-pw"})
     assert r.status_code == 200
     assert "pkm_session" in anon_client.cookies
+
+
+def test_docs_routes_disabled(anon_client):
+    assert anon_client.get("/docs").status_code == 404
+    assert anon_client.get("/redoc").status_code == 404
+
+
+def test_openapi_json_requires_auth(anon_client):
+    assert anon_client.get("/api/openapi.json").status_code == 401
+
+
+def test_openapi_json_available_after_login(client):
+    r = client.get("/api/openapi.json")
+    assert r.status_code == 200
+    assert "openapi" in r.json()

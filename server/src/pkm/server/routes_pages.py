@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from pkm.server.auth import require_auth
 from pkm.server.backlinks import group_backlinks
-from pkm.server.daily import date_for_title
+from pkm.server.daily import date_for_title, title_for_date
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
 from pkm.server.tree import build_tree, collect_block_ref_uids
@@ -147,3 +148,33 @@ def get_unlinked(title: str, limit: int = 20, offset: int = 0,
             groups.append(group)
         group["items"].append({"uid": r["uid"], "text": r["text"]})
     return {"groups": groups, "total": total}
+
+
+@router.get("/api/journal")
+def get_journal(before: str | None = None, days: int = 7,
+                db: sqlite3.Connection = Depends(get_db)) -> dict:
+    days = max(1, min(days, 31))
+    start = (date.fromisoformat(before) if before
+             else date.today() + timedelta(days=1))
+    out = []
+    for i in range(1, days + 1):
+        d = start - timedelta(days=i)
+        title = title_for_date(d)
+        page = _fetch_page(db, title)
+        if page is None and d == date.today():
+            now = int(time.time() * 1000)
+            db.execute(
+                "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
+                (title, now, now))
+            db.commit()
+            page = _fetch_page(db, title)
+        if page is None:
+            out.append({"date": d.isoformat(), "title": title,
+                        "exists": False, "blocks": []})
+        else:
+            blocks = db.execute(
+                f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+                (page["id"],)).fetchall()
+            out.append({"date": d.isoformat(), "title": title,
+                        "exists": True, "blocks": build_tree(blocks)})
+    return {"days": out}

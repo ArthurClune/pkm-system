@@ -1,0 +1,6 @@
+.DS_Store
+sample-data/
+data/
+__pycache__/
+.venv/
+node_modules/

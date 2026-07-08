@@ -52,3 +52,24 @@ def test_trailing_punctuation_on_unknown_url():
     new, used, missing = rewrite_asset_urls(f"see {other}, ok", INDEX)
     assert new == f"see {other}, ok"
     assert missing == frozenset({other})
+
+
+def test_uid_prefix_fallback_matches_roam_download_naming():
+    # download file "-0yUy7-KXY-IMG_0659.jpeg" indexed under its 10-char uid prefix
+    idx = {"-0yuy7-kxy": Asset("b" * 64, "-0yUy7-KXY-IMG_0659.jpeg", "image/jpeg", 5)}
+    url = ("https://firebasestorage.googleapis.com/v0/b/x/o/"
+           "imgs%2Fapp%2Farthurclune%2F-0yUy7-KXY.jpeg?alt=media&token=t")
+    new, used, missing = rewrite_asset_urls(f"![]({url})", idx)
+    assert used == frozenset({"b" * 64})
+    assert missing == frozenset()
+    assert "/assets/" + "b" * 64 + "/" in new
+
+
+def test_exact_name_wins_over_prefix():
+    idx = {
+        "paper-fig.png": Asset("c" * 64, "paper-fig.png", "image/png", 3),
+        "paper-fig.": Asset("d" * 64, "wrong.png", "image/png", 3),
+    }
+    url = ("https://firebasestorage.googleapis.com/v0/b/x/o/paper-fig.png?alt=media")
+    _, used, _ = rewrite_asset_urls(f"![]({url})", idx)
+    assert used == frozenset({"c" * 64})

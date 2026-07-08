@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from pkm.edn import parse_edn
-from pkm.importer.assets import Asset, rewrite_asset_urls
+from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
 from pkm.importer.parse_export import parse_export
 from pkm.importer.report import ImportReport, render
 from pkm.importer.rows import to_rows
@@ -22,12 +22,19 @@ from pkm.schema import DDL
 def _index_files(files_dir: Path) -> tuple[dict[str, Asset], dict[str, Path]]:
     by_name: dict[str, Asset] = {}
     paths: dict[str, Path] = {}
-    for path in sorted(p for p in files_dir.rglob("*") if p.is_file()):
+    all_files = sorted(p for p in files_dir.rglob("*") if p.is_file())
+    for path in all_files:
         data = path.read_bytes()
         sha = hashlib.sha256(data).hexdigest()
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         by_name[path.name.lower()] = Asset(sha, path.name, mime, len(data))
         paths[sha] = path
+    # Second pass: register each file's leading uid prefix as a fallback
+    # lookup key, without clobbering any exact-name entry above. Roam's
+    # linked-files download names files "<uid>-<original name>.<ext>", so
+    # this is what lets firebase URLs (named "<uid>.<ext>") resolve.
+    for path in all_files:
+        by_name.setdefault(path.name[:UID_PREFIX_LEN].lower(), by_name[path.name.lower()])
     return by_name, paths
 
 

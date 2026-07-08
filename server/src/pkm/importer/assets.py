@@ -10,6 +10,12 @@ _FIREBASE_URL = re.compile(
     r"https://firebasestorage\.googleapis\.com/[^\s\)\]\}\"']+"
 )
 
+# Roam's linked-files download names files "<10-char-uid>-<original name>.<ext>",
+# while firebase URLs in block text use "<10-char-uid>.<ext>" or
+# "<10-char-uid>.<truncated original>.<ext>" as the basename. Matching on just
+# the leading uid prefix is what lets the two naming schemes line up.
+UID_PREFIX_LEN = 10
+
 
 @dataclass(frozen=True)
 class Asset:
@@ -38,7 +44,8 @@ def rewrite_asset_urls(
             trailing_punct = url[-1] + trailing_punct
             url = url[:-1]
 
-        asset = by_name.get(url_basename(url).lower())
+        base = url_basename(url).lower()
+        asset = by_name.get(base) or by_name.get(base[:UID_PREFIX_LEN])
         if asset is None:
             missing.add(url)
             return url + trailing_punct

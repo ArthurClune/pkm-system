@@ -116,3 +116,14 @@ def test_missing_files_dir_warns_and_continues(tmp_path, capsys):
     assert rc == 0
     captured = capsys.readouterr()
     assert f"warning: --files dir missing or empty: {missing_files}" in captured.err
+
+
+def test_index_files_registers_uid_prefix_keys(tmp_path):
+    from pkm.importer.run import _index_files
+    files = tmp_path / "files"
+    files.mkdir()
+    (files / "abCdEfGhIj-Screenshot 2025.png").write_bytes(b"X")
+    by_name, paths = _index_files(files)
+    assert "abcdefghij-screenshot 2025.png" in by_name
+    assert "abcdefghij" in by_name
+    assert by_name["abcdefghij"].filename == "abCdEfGhIj-Screenshot 2025.png"

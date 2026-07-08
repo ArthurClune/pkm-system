@@ -1,0 +1,99 @@
+import { act, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { JournalDay } from "../api/payloads";
+import { block, stubFetch } from "../test-helpers";
+import { Journal } from "./Journal";
+
+class FakeIntersectionObserver {
+  static instances: FakeIntersectionObserver[] = [];
+  readonly callback: IntersectionObserverCallback;
+  root = null;
+  rootMargin = "";
+  thresholds: number[] = [];
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
+    FakeIntersectionObserver.instances.push(this);
+  }
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] { return []; }
+}
+
+beforeEach(() => {
+  FakeIntersectionObserver.instances = [];
+  vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+});
+afterEach(() => vi.unstubAllGlobals());
+
+function day(date: string, title: string, blocks = [block(`uid_${date}`, `entry ${date}`)],
+             exists = true): JournalDay {
+  return { date, title, exists, blocks: exists ? blocks : [] };
+}
+
+function intersect() {
+  const entries = [{ isIntersecting: true }] as unknown as IntersectionObserverEntry[];
+  act(() => {
+    for (const o of FakeIntersectionObserver.instances) {
+      o.callback(entries, o as unknown as IntersectionObserver);
+    }
+  });
+}
+
+it("renders the first batch newest-first and loads older days on intersect", async () => {
+  const fetchMock = stubFetch([
+    // more-specific prefix FIRST (plain ?days=5 also prefixes the before-url)
+    ["/api/journal?days=5&before=2026-07-04", { days: [
+      day("2026-07-03", "July 3rd, 2026"),
+      day("2026-07-02", "July 2nd, 2026", [], false),
+    ] }],
+    ["/api/journal?days=5", { days: [
+      day("2026-07-08", "July 8th, 2026"),
+      day("2026-07-07", "July 7th, 2026", [], false),
+      day("2026-07-06", "July 6th, 2026"),
+      day("2026-07-05", "July 5th, 2026", [], false),
+      day("2026-07-04", "July 4th, 2026"),
+    ] }],
+  ]);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
+  expect(await screen.findByRole("link", { name: "July 8th, 2026" }))
+    .toHaveAttribute("href", "/page/July%208th%2C%202026");
+  expect(screen.getByText("entry 2026-07-06")).toBeInTheDocument();
+  expect(screen.getAllByText("No notes").length).toBe(2);
+
+  intersect();
+  expect(await screen.findByRole("link", { name: "July 3rd, 2026" })).toBeInTheDocument();
+  // oldest already-loaded date is passed as the exclusive `before`
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "/api/journal?days=5&before=2026-07-04", undefined);
+});
+
+it("stops auto-loading after 3 consecutive empty batches", async () => {
+  const empty = (from: string, dates: string[]) =>
+    [`/api/journal?days=5&before=${from}`,
+     { days: dates.map((d) => day(d, d, [], false)) }] as [string, unknown];
+  stubFetch([
+    empty("2026-07-04", ["2026-07-03", "2026-07-02", "2026-07-01", "2026-06-30", "2026-06-29"]),
+    empty("2026-06-29", ["2026-06-28", "2026-06-27", "2026-06-26", "2026-06-25", "2026-06-24"]),
+    empty("2026-06-24", ["2026-06-23", "2026-06-22", "2026-06-21", "2026-06-20", "2026-06-19"]),
+    ["/api/journal?days=5", { days: [
+      day("2026-07-08", "July 8th, 2026"),
+      day("2026-07-07", "July 7th, 2026", [], false),
+      day("2026-07-06", "July 6th, 2026", [], false),
+      day("2026-07-05", "July 5th, 2026", [], false),
+      day("2026-07-04", "July 4th, 2026", [], false),
+    ] }],
+  ]);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
+  await screen.findByRole("link", { name: "July 8th, 2026" });
+  intersect();
+  await screen.findByText("2026-07-03");
+  intersect();
+  await screen.findByText("2026-06-28");
+  intersect();
+  await screen.findByText("2026-06-23");
+  // three all-empty batches in a row -> sentinel replaced by a manual button
+  expect(await screen.findByRole("button", { name: /load older days/i }))
+    .toBeInTheDocument();
+});

@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
 import { Link, Route, Routes } from "react-router-dom";
+import { Journal } from "./views/Journal";
 import { PageView } from "./views/PageView";
 
 export function App() {
@@ -11,8 +12,7 @@ export function App() {
       </nav>
       <main className="main-pane">
         <Routes>
-          {/* Task 8 replaces this element with <Journal /> */}
-          <Route path="/" element={<p className="empty">pkm</p>} />
+          <Route path="/" element={<Journal />} />
           <Route path="/page/*" element={<PageView />} />
         </Routes>
       </main>

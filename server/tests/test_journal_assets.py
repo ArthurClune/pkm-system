@@ -1,5 +1,5 @@
 import hashlib
-from datetime import date, timedelta
+from datetime import date
 
 import sqlite3
 
@@ -22,14 +22,17 @@ def test_journal_includes_seeded_daily(client):
 
 def test_journal_auto_creates_today_only(client, seeded_config):
     today = date.today()
+    con = sqlite3.connect(seeded_config.db_path)
+    before = {r[0] for r in con.execute("SELECT title FROM pages")}
+    con.close()
     r = client.get("/api/journal", params={"days": 3})
     days = r.json()["days"]
     assert days[0]["date"] == today.isoformat()
     con = sqlite3.connect(seeded_config.db_path)
-    titles = {r[0] for r in con.execute("SELECT title FROM pages")}
+    after = {r[0] for r in con.execute("SELECT title FROM pages")}
     con.close()
-    assert title_for_date(today) in titles
-    assert title_for_date(today - timedelta(days=2)) not in titles
+    assert title_for_date(today) in after
+    assert after - before == {title_for_date(today)}
 
 
 def test_asset_serving(client, seeded_config):

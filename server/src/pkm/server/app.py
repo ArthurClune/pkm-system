@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, FastAPI
 from pkm.server.auth import require_auth, router as auth_router
 from pkm.server.config import Config
 from pkm.server.routes_assets import router as assets_router
+from pkm.server.routes_ops import router as ops_router
 from pkm.server.routes_pages import router as pages_router
 from pkm.server.routes_search import router as search_router
+from pkm.server.ws import Hub, router as ws_router
 
 
 def create_app(config: Config) -> FastAPI:
@@ -16,6 +18,7 @@ def create_app(config: Config) -> FastAPI:
         title="pkm", docs_url=None, redoc_url=None, openapi_url=None
     )
     app.state.config = config
+    app.state.hub = Hub()
     app.include_router(auth_router)
 
     api = APIRouter(dependencies=[Depends(require_auth)])
@@ -25,9 +28,11 @@ def create_app(config: Config) -> FastAPI:
         return app.openapi()
 
     app.include_router(api)
+    app.include_router(ops_router)
     app.include_router(pages_router)
     app.include_router(search_router)
     app.include_router(assets_router)
+    app.include_router(ws_router)
 
     @app.get("/healthz")
     def healthz() -> dict:

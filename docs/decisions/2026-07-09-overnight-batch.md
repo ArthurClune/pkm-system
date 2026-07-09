@@ -94,3 +94,17 @@ reviewed later.
   wrapper delegating to a new EditableSidebarPanel file and avoid
   restructuring useOutline.ts, so the jg1p merge stays tractable. DnD
   integration of editable panels goes to a follow-up bean.
+- **pkm-g356 merged — all six original beans complete.** Panels are now
+  editable outlines via a new EditableSidebarPanel; SidebarPanel is a thin
+  wrapper (-22/+2) and useOutline is untouched, per the conflict-containment
+  constraint. Real hazard found and fixed: two live editors of the same
+  page in one tab would silently diverge (WS echo filter is per client_id,
+  per tab), so an activeOutlines refcount registry makes the first mount
+  editable and later mounts read-only-but-live. DnD integration deferred to
+  pkm-auvy (blocked by pkm-jg1p). Final integrated run: 203 web + 201
+  server tests, typecheck, build, and both Playwright e2e scenarios green.
+- **Scope extension (autonomous):** the run spawned three follow-up beans;
+  two are unblocked and within the "all todos and bugs" goal, so they are
+  being implemented next, sequenced because both regenerate OpenAPI types:
+  pkm-kiip (heading slash commands, needs a SetHeading op) then pkm-4wbu
+  (sidebar entry management UI). pkm-auvy remains blocked by pkm-jg1p.

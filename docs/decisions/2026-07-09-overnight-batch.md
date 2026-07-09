@@ -62,3 +62,9 @@ reviewed later.
 - **pkm-bz6n merged.** Search moved Cmd-K → Cmd/Ctrl-U (Cmd-K removed);
   Ctrl-Cmd-D navigates home. No input-focus guard added — matches the
   pre-existing unguarded Cmd-K behaviour. 161 web tests + typecheck pass.
+- **pkm-j5n6 merged.** Slash menu ships /text, /todo, /python, /bash,
+  /javascript, reusing the existing autocomplete machinery. Bare "/" opens
+  the menu; slashes glued to text (URLs, paths) never trigger. /h1-3
+  deferred to new bean pkm-kiip — there is no writable op path for
+  `heading` on existing blocks and we chose not to add a server op in this
+  batch. 174 web tests + typecheck pass.

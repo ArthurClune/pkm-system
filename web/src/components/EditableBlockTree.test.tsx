@@ -179,6 +179,43 @@ test("readOnly disables the chevron (even with children) and the todo checkbox",
   expect(h.onToggleTodo).not.toHaveBeenCalled();
 });
 
+test("typing / opens the command menu; Enter wraps the block in a code fence", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/py" } });
+  ta.setSelectionRange(3, 3);
+  expect(screen.getByRole("option", { name: "Python code block" })).toBeInTheDocument();
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onSplit).not.toHaveBeenCalled(); // Enter was consumed by the popup
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```python\n\n```");
+  expect(screen.queryByRole("listbox")).toBeNull(); // popup closed
+});
+
+test("/t filters to text+todo; ArrowDown+Enter picks /todo", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/t" } });
+  ta.setSelectionRange(2, 2);
+  expect(screen.getByRole("option", { name: "Text" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "To-do" })).toBeInTheDocument();
+  fireEvent.keyDown(ta, { key: "ArrowDown" }); // "Text" -> "To-do"
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} ");
+});
+
+test("a non-matching slash query shows no rows and Enter falls through to split", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/zzz" } });
+  ta.setSelectionRange(4, 4);
+  expect(screen.queryByRole("listbox")).toBeNull();
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onSplit).toHaveBeenCalledWith("u1", 4);
+});
+
 test("collapsed children are hidden", () => {
   const h = handlers();
   const t = [block("p", "parent", {

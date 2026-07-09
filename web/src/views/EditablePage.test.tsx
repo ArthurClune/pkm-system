@@ -117,3 +117,33 @@ test("pasting an image uploads it and splices markdown at the cursor", async () 
     });
   });
 });
+
+test("hiding the tab flushes the pending draft immediately", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "first draft" } });
+  expect(sync.sent).toEqual([]);
+  Object.defineProperty(document, "visibilityState",
+                        { value: "hidden", configurable: true });
+  fireEvent(document, new Event("visibilitychange"));
+  Object.defineProperty(document, "visibilityState",
+                        { value: "visible", configurable: true });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "first draft" }],
+  ]);
+});
+
+test("draft for a remotely-deleted block is dropped, not flushed", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "doomed draft" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "delete", uid: "u1" },
+  ] }));
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([]);
+});

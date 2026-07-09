@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.{{USER}}.pkm.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{UV}}</string>
+    <string>run</string>
+    <string>--project</string>
+    <string>{{PKM_HOME}}/app/server</string>
+    <string>python</string>
+    <string>-m</string>
+    <string>pkm.backup</string>
+    <string>--data-dir</string>
+    <string>{{PKM_HOME}}/data</string>
+    <string>--backups-dir</string>
+    <string>{{PKM_HOME}}/backups</string>
+  </array>
+  <key>WorkingDirectory</key><string>{{PKM_HOME}}/app/server</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>3</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key><string>{{PKM_HOME}}/logs/backup.out.log</string>
+  <key>StandardErrorPath</key><string>{{PKM_HOME}}/logs/backup.err.log</string>
+</dict>
+</plist>

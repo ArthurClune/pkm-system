@@ -4,7 +4,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { FakeWebSocket, stubFetch } from "../test-helpers";
 import type { WsBatch } from "./socket";
 import { clientId } from "./opQueue";
-import { SyncProvider, useSync } from "./SyncProvider";
+import { SyncProvider, useSync, type Sync } from "./SyncProvider";
 
 function Probe({ onBatch }: { onBatch: (b: WsBatch) => void }) {
   const sync = useSync();
@@ -51,4 +51,14 @@ test("dispatches remote batches to subscribers, filters own echoes", () => {
 test("connects to /api/ws on the current host", () => {
   render(<SyncProvider><div /></SyncProvider>);
   expect(lastWs().url).toMatch(/^ws{1,2}:\/\/.+\/api\/ws$/);
+});
+
+test("enqueue outside a provider throws instead of dropping writes", () => {
+  let sync: Sync | undefined;
+  function Probe() {
+    sync = useSync();
+    return null;
+  }
+  render(<Probe />);
+  expect(() => sync!.enqueue([])).toThrow(/SyncProvider/);
 });

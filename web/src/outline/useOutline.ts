@@ -53,8 +53,11 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     const pending = pendingRef.current;
     if (!pending) return [];
     pendingRef.current = null;
-    if (findNode(blocksRef.current, pending.uid)?.text === pending.text) {
-      return []; // draft never actually changed the text
+    const node = findNode(blocksRef.current, pending.uid);
+    if (!node || node.text === pending.text) {
+      // no node: a remote batch deleted it — flushing would doom the whole
+      // batch. same text: the draft never actually changed anything.
+      return [];
     }
     return [{ op: "update_text", uid: pending.uid, text: pending.text }];
   }, []);
@@ -79,6 +82,17 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   const flushNow = useCallback(() => {
     run((b) => ({ blocks: b, ops: [], focus: null }));
   }, [run]);
+
+  // A hidden tab can be killed without blur ever firing (the one real
+  // data-loss window): flush the draft as soon as the tab hides.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushNow();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibility);
+  }, [flushNow]);
 
   // Remote batches: the same applyOps as local edits. Text updates for the
   // block being typed in are skipped — the local draft wins on its next

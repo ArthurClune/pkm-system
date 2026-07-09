@@ -23,7 +23,10 @@ export interface Sync {
 export const SyncContext = createContext<Sync>({
   status: "connecting",
   resyncSeq: 0,
-  enqueue: () => undefined,
+  enqueue: () => {
+    // a silent default would drop writes without a trace
+    throw new Error("enqueue called outside <SyncProvider>");
+  },
   subscribe: () => () => undefined,
 });
 

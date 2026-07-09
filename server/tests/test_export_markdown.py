@@ -44,6 +44,25 @@ def test_page_filename_sanitizes_and_dedupes():
     assert page_filename("...", taken) == "untitled.md"
 
 
+def test_page_filename_truncates_overlong_titles():
+    # APFS caps filename components at 255 bytes; live graph has a
+    # 268-byte page title that must still export.
+    taken: set[str] = set()
+    name = page_filename("x" * 300, taken)
+    assert name.endswith(".md")
+    assert len(name.encode("utf-8")) <= 255
+    dedup = page_filename("x" * 300, taken)
+    assert dedup != name
+    assert len(dedup.encode("utf-8")) <= 255
+
+
+def test_page_filename_truncation_respects_multibyte_boundaries():
+    taken: set[str] = set()
+    name = page_filename("é" * 200, taken)  # 400 utf-8 bytes
+    assert len(name.encode("utf-8")) <= 255
+    name.encode("utf-8").decode("utf-8")  # no split code point
+
+
 def test_safe_filename():
     assert safe_filename("a/b:c.png") == "a-b-c.png"
     assert safe_filename("") == "file"

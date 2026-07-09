@@ -134,3 +134,16 @@ test("hiding the tab flushes the pending draft immediately", () => {
     [{ op: "update_text", uid: "u1", text: "first draft" }],
   ]);
 });
+
+test("draft for a remotely-deleted block is dropped, not flushed", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "doomed draft" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "delete", uid: "u1" },
+  ] }));
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([]);
+});

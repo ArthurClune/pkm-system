@@ -53,8 +53,11 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     const pending = pendingRef.current;
     if (!pending) return [];
     pendingRef.current = null;
-    if (findNode(blocksRef.current, pending.uid)?.text === pending.text) {
-      return []; // draft never actually changed the text
+    const node = findNode(blocksRef.current, pending.uid);
+    if (!node || node.text === pending.text) {
+      // no node: a remote batch deleted it — flushing would doom the whole
+      // batch. same text: the draft never actually changed anything.
+      return [];
     }
     return [{ op: "update_text", uid: pending.uid, text: pending.text }];
   }, []);

@@ -56,6 +56,7 @@ export function Composer({ onSend, readOnly }: {
   };
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (readOnly) return;
     const file = e.target.files?.[0];
     e.target.value = ""; // same photo can be picked twice
     if (!file) return;
@@ -74,7 +75,7 @@ export function Composer({ onSend, readOnly }: {
         <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
       </div>
       <input ref={fileRef} type="file" accept="image/*" aria-label="Add photo"
-             className="composer-file" onChange={onPickFile} />
+             className="composer-file" onChange={onPickFile} disabled={readOnly} />
       <button className="composer-send" onClick={send}
               disabled={readOnly || draft.trim() === ""}>
         Add

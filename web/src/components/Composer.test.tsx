@@ -21,6 +21,7 @@ test("empty text does not send; readOnly disables everything", () => {
   rerender(<Composer onSend={onSend} readOnly />);
   expect(screen.getByRole("textbox", { name: "Add to this page" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+  expect(screen.getByLabelText("Add photo")).toBeDisabled();
 });
 
 test("picking a photo uploads it and appends markdown to the draft", async () => {

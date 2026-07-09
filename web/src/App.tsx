@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, Route, Routes, useNavigate } from "react-router-dom";
 import { ReconnectBanner } from "./components/ReconnectBanner";
 import { SearchModal } from "./components/SearchModal";
 import { SidebarPanel } from "./components/SidebarPanel";
@@ -29,6 +29,7 @@ export function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [stack, setStack] = useState<SidebarEntry[]>([]);
   const idRef = useRef(1);
+  const navigate = useNavigate();
 
   const sidebarApi = useMemo(() => ({
     openInSidebar: (title: string) => {
@@ -40,14 +41,17 @@ export function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "u") {
         e.preventDefault();
         setSearchOpen((o) => !o);
+      } else if (e.ctrlKey && e.metaKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        navigate("/");
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [navigate]);
 
   return (
     <SyncProvider>

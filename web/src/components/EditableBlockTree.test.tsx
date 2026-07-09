@@ -107,6 +107,9 @@ test("readOnly blocks structural keys but Escape still blurs", () => {
   expect(ta).toHaveAttribute("readonly");
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onSplit).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(ta); // mount effect focused it
+  fireEvent.keyDown(ta, { key: "Escape" });
+  expect(document.activeElement).not.toBe(ta);
 });
 
 test("chevron toggles collapse via handler; todo checkbox toggles via handler", () => {

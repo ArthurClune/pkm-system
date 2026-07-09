@@ -3,9 +3,10 @@ from starlette.websockets import WebSocketDisconnect
 
 
 def test_ws_requires_auth(anon_client):
-    with pytest.raises(WebSocketDisconnect):
+    with pytest.raises(WebSocketDisconnect) as exc:
         with anon_client.websocket_connect("/api/ws") as ws:
             ws.receive_text()
+    assert exc.value.code == 4401
 
 
 def test_ops_broadcast_to_connected_clients(client):

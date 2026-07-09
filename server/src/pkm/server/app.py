@@ -2,7 +2,9 @@
 """FastAPI application factory."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from pkm.server.auth import require_auth, router as auth_router
 from pkm.server.config import Config
@@ -37,5 +39,19 @@ def create_app(config: Config) -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict:
         return {"ok": True}
+
+    if config.web_dist is not None:
+        app.mount("/app-assets",
+                  StaticFiles(directory=config.web_dist / "app-assets"),
+                  name="app-assets")
+        index_html = config.web_dist / "index.html"
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def spa(full_path: str) -> FileResponse:
+            # Real API/asset routes are registered earlier and win; anything
+            # still hitting these prefixes is a miss, not a client-side route.
+            if full_path.split("/", 1)[0] in ("api", "assets", "app-assets"):
+                raise HTTPException(status_code=404, detail="not found")
+            return FileResponse(index_html)
 
     return app

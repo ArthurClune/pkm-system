@@ -17,6 +17,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--password", help="omit to be prompted")
     ap.add_argument("--insecure-cookie", action="store_true",
                     help="allow the session cookie over plain http (dev only)")
+    ap.add_argument("--web-dist",
+                    help="path to the built SPA dist dir, relative to the"
+                         " data dir (e.g. ../web/dist); omit for API-only")
     args = ap.parse_args(argv)
     password = args.password or getpass.getpass("password: ")
     salt = secrets.token_bytes(16)
@@ -28,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
         "session_secret": secrets.token_bytes(32).hex(),
         "cookie_secure": not args.insecure_cookie,
     }
+    if args.web_dist:
+        cfg["web_dist"] = args.web_dist
     out = Path(args.data_dir) / "config.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(cfg, indent=2), encoding="utf-8")

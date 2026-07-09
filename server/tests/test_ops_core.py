@@ -1,5 +1,5 @@
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from pkm.server.ops_core import (BlockInfo, BlockOp, CreateOp, DeleteBlocks,
                                  DeleteOp, InsertBlock, MoveOp, OpBatch,

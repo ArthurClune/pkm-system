@@ -144,7 +144,7 @@ export function insertSubtree(blocks: BlockNode[], node: BlockNode,
   const siblings = siblingsOf(tree, parentUid);
   if (siblings === null) return tree;
   shiftFrom(siblings, orderIdx);
-  siblings.push({ ...node, order_idx: orderIdx });
+  siblings.push({ ...node, children: clone(node.children), order_idx: orderIdx });
   sortSiblings(siblings);
   return tree;
 }

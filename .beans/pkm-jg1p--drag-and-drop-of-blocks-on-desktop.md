@@ -5,7 +5,7 @@ status: in-progress
 type: feature
 priority: normal
 created_at: 2026-07-09T18:54:26Z
-updated_at: 2026-07-09T20:07:24Z
+updated_at: 2026-07-09T20:27:13Z
 ---
 
 Drag and drop reordering of blocks needs to work on desktop (presumably works or is planned on touch; desktop mouse-based DnD currently doesn't work).

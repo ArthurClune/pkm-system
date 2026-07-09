@@ -133,4 +133,16 @@ describe("applyOps mirrors ops_apply.py", () => {
     const next = insertSubtree(tree, node, null, 1);
     expect(next.map((n) => n.uid)).toEqual(["x", "n", "y"]);
   });
+
+  test("insertSubtree deep-clones the inserted node's children", () => {
+    const tree = [block("x", "X", { order_idx: 0 }), block("y", "Y", { order_idx: 1 })];
+    const node = { ...block("n", "N"), children: [block("c1", "C1")] };
+    const next = insertSubtree(tree, node, null, 1);
+    // Mutate the original node's children
+    node.children.push(block("c2", "C2"));
+    // The returned tree should still have only the original child
+    const insertedNode = findNode(next, "n")!;
+    expect(insertedNode.children.length).toBe(1);
+    expect(insertedNode.children[0].uid).toBe("c1");
+  });
 });

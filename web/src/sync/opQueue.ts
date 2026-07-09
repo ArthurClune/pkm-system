@@ -35,7 +35,11 @@ export function createOpQueue(onDesync: (e: unknown) => void): OpQueue {
         });
       } catch (e: unknown) {
         pending = [];
-        onDesync(e);
+        try {
+          onDesync(e);
+        } catch {
+          // a throwing desync callback must not poison the queue
+        }
         return;
       }
     }
@@ -49,6 +53,9 @@ export function createOpQueue(onDesync: (e: unknown) => void): OpQueue {
         await pump();
       } finally {
         inflight = null;
+        // ops enqueued while the pump was tearing down (e.g. from a
+        // re-entrant onDesync) must start a fresh pump, not strand
+        if (pending.length > 0) kick();
       }
     });
   };

@@ -70,3 +70,44 @@ test("a failed batch clears the queue and reports desync; queue keeps working", 
   await q.idle();
   expect(mock).toHaveBeenCalledTimes(2);
 });
+
+test("ops re-enqueued synchronously from onDesync are not stranded", async () => {
+  const { bodies, mock } = capturingFetch([
+    () => jsonResponse({ detail: { index: 0, reason: "boom" } }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  const q = createOpQueue(() => {
+    q.enqueue([op("u9")]);
+  });
+  q.enqueue([op("u1")]);
+  await q.idle();
+  expect(mock).toHaveBeenCalledTimes(2);
+  expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u9")]);
+});
+
+test("a throwing onDesync does not poison the queue or idle()", async () => {
+  const { mock } = capturingFetch([
+    () => jsonResponse({ detail: { index: 0, reason: "boom" } }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  const q = createOpQueue(() => {
+    throw new Error("desync handler exploded");
+  });
+  q.enqueue([op("u1")]);
+  await q.idle(); // must resolve, not reject
+  // queue survives: a later enqueue sends normally
+  q.enqueue([op("u2")]);
+  await q.idle();
+  expect(mock).toHaveBeenCalledTimes(2);
+});
+
+test("batches larger than 500 ops split into sequential POSTs", async () => {
+  const { bodies, mock } = capturingFetch([() => jsonResponse({ ok: true })]);
+  const q = createOpQueue(() => undefined);
+  const ops = Array.from({ length: 501 }, (_, i) => op(`u${i}`));
+  q.enqueue(ops);
+  await q.idle();
+  expect(mock).toHaveBeenCalledTimes(2);
+  expect((bodies[0] as { ops: unknown[] }).ops).toHaveLength(500);
+  expect((bodies[1] as { ops: unknown[] }).ops).toHaveLength(1);
+});

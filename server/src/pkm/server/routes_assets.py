@@ -34,6 +34,13 @@ ALLOWED_UPLOAD_MIME = frozenset({
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 })
 
+# Safe to render in the app's origin: raster images + PDF. SVG is
+# deliberately absent — it can script, so it downloads instead.
+INLINE_MIME = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
+    "application/pdf",
+})
+
 
 @router.get("/assets/{sha256}/{filename}")
 def get_asset(sha256: str, filename: str,
@@ -41,14 +48,17 @@ def get_asset(sha256: str, filename: str,
               config: Config = Depends(get_config)) -> FileResponse:
     if not _SHA_RE.match(sha256):
         raise HTTPException(status_code=404, detail="asset not found")
-    row = db.execute("SELECT mime FROM assets WHERE sha256 = ?",
+    row = db.execute("SELECT mime, filename FROM assets WHERE sha256 = ?",
                      (sha256,)).fetchone()
     path = config.assets_dir / sha256[:2] / sha256
     if row is None or not path.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
+    kind = "inline" if row["mime"] in INLINE_MIME else "attachment"
     return FileResponse(
-        path, media_type=row["mime"],
-        headers={"Cache-Control": "private, max-age=31536000, immutable"})
+        path, media_type=row["mime"], filename=row["filename"],
+        content_disposition_type=kind,
+        headers={"Cache-Control": "private, max-age=31536000, immutable",
+                 "X-Content-Type-Options": "nosniff"})
 
 
 @router.post("/api/assets")

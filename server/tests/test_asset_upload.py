@@ -68,3 +68,18 @@ def test_upload_disallowed_mime_415(client):
 
 def test_upload_pdf_allowed(client):
     assert _upload(client, name="doc.pdf", mime="application/pdf").status_code == 200
+
+
+def test_asset_serving_headers_inline_for_png(client):
+    url = _upload(client).json()["url"]
+    r = client.get(url)
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["content-disposition"].startswith("inline")
+
+
+def test_asset_serving_svg_forced_to_attachment(client):
+    url = _upload(client, content=b"<svg onload=alert(1)/>", name="a.svg",
+                  mime="image/svg+xml").json()["url"]
+    r = client.get(url)
+    assert r.headers["content-disposition"].startswith("attachment")
+    assert r.headers["x-content-type-options"] == "nosniff"

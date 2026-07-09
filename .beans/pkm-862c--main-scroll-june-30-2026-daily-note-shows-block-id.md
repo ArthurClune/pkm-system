@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-07-09T18:54:25Z
-updated_at: 2026-07-09T19:37:32Z
+updated_at: 2026-07-09T19:46:33Z
 ---
 
 In the main scroll view, the June 30th 2026 daily note renders block IDs rather than block contents. The note displays correctly once you click into it, so the underlying data is fine — likely a rendering/resolution issue in the scroll view for that note.
@@ -20,3 +20,8 @@ Fix (mirrors the /api/page → PageView pattern):
 - web: Journal.tsx accumulates block_ref_texts across batches (cleared on resync reset) and wraps the day list in BlockRefContext.Provider; JournalPayload type updated; test-first in Journal.test.tsx
 
 Verified: 189 server tests + 158 web tests pass, tsc clean, and an end-to-end check against a read-only-sourced copy of the real database confirmed every June 30th block ref resolves in the journal payload.
+
+
+## Recurrence note (2026-07-09 evening)
+
+Bug reappeared after running deploy/update.sh — root cause was deployment, not the fix: update.sh updates the checkout the script lives in (APP="$(dirname $0)/.."), so running it from the dev checkout pulled/rebuilt /Users/arthur/code/llm/pkm and restarted the service, while the service serves ~/.config/pkm/app, which was still on 5ff23ee with a 16:13 bundle. Re-ran ~/.config/pkm/app/deploy/update.sh: deployed checkout now at 0c23d48, server serving the fixed bundle (index-D_9sRmIR.js), healthz + tailscale bind + HTTPS smoke checks pass (password-gated smoke steps need interactive input). Follow-up bean created for the update.sh wrong-checkout footgun.

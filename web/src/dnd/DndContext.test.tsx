@@ -65,6 +65,7 @@ it("cross-page drop does two-outline surgery and one op with page_title", () => 
 
 it("cross-page drop with unregistered source refetches the registered target", async () => {
   const { sync, dnd } = setup();
+  const enqueueSpy = vi.spyOn(sync, "enqueue");
   const dst = fakeOutline();
   dnd().registerOutline("B", dst);
   // source page "A" has no registered outline (e.g. a panel of an unopened
@@ -78,6 +79,12 @@ it("cross-page drop with unregistered source refetches the registered target", a
   expect(sync.sent).toEqual([[
     { op: "move", uid: "u1", parent_uid: null, order_idx: 1,
       page_title: "B" }]]);
+  // ordering is load-bearing: refetch's internal idle() gate only awaits
+  // the move POST if the op is already queued when refetch runs. Refetching
+  // first would let the authoritative GET race ahead of the move and adopt
+  // a pre-move tree — the dropped block would vanish until reload.
+  expect(enqueueSpy.mock.invocationCallOrder[0])
+    .toBeLessThan(vi.mocked(dst.refetch).mock.invocationCallOrder[0]);
 });
 
 it("cross-page drop with unregistered target only removes from the source", () => {

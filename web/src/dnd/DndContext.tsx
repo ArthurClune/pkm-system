@@ -80,14 +80,16 @@ export function DndProvider({ children }: { children: ReactNode }) {
       } else {
         const node = src?.removeSubtreeLocal(d.uid) ?? null;
         const dst = outlinesRef.current.get(target.page_title);
-        if (dst) {
-          if (node) dst.insertSubtreeLocal(node, target);
-          else dst.refetch();
-        }
+        if (dst && node) dst.insertSubtreeLocal(node, target);
         const ops: BlockOp[] = [{ op: "move", uid: d.uid,
           parent_uid: target.parent_uid, order_idx: target.order_idx,
           page_title: target.page_title }];
         sync.enqueue(ops);
+        // no subtree to insert (source outline unregistered, e.g. a panel
+        // of an unopened page): pull authoritative state instead. Must run
+        // AFTER enqueue — refetch's internal idle() gate only holds the GET
+        // behind the move POST if the op is already in the queue.
+        if (dst && !node) dst.refetch();
       }
       void sync.idle().then(() => {
         for (const title of [d.pageTitle, target.page_title]) {

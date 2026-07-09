@@ -341,3 +341,55 @@ no code changes needed.
   (`asyncio.wait_for` per send or `create_task`) before live two-client
   editing; plan 6 — asset upload size cap + mime allowlist or
   `Content-Disposition`/`nosniff` hardening at deployment.
+
+### Frontend-read smoke findings (plan 4)
+
+Ran the full curl-based smoke script from the plan-4 brief against the real
+imported database (`data/pkm.sqlite3`) with the built SPA served by FastAPI
+(`pkm.server.run`, `web_dist` pointed at the worktree's `web/dist`). All
+checklist items passed on the first run; no code changes needed. The
+temporary `data/config.json` and cookie jar were removed at the end of the
+run and `git status --porcelain` in the worktree was empty (no `data/`
+files ever appear there — the directory only exists, gitignored, in the
+main checkout).
+
+- **SPA serving on real data:** `GET /healthz` → `{"ok":true}`. `GET /`
+  served the `index.html` shell (`<!doctype html>… <title>pkm</title>…`).
+  The client-side deep route `GET /page/Paper` (a real page with a large
+  backlink set) fell through to the same `index.html` shell with a `200`,
+  confirming the catch-all doesn't try to resolve app routes server-side.
+  The built asset (`/app-assets/index-CgVrxqx8.js`) referenced from that
+  shell returned `200` from the `/app-assets` mount.
+- **Auth gating confirmed on the real API:** `GET /api/search?q=test`
+  without a cookie returned `401`, matching plan-4 T12's gating. After
+  `POST /api/login` with the smoke password, the same cookie jar could
+  read `/api/page/Paper`, `/api/journal?days=3`, and
+  `/api/search?q=datascript` successfully.
+- **Backlinks populated on a real heavy page:** `/api/page/Paper` returned
+  a `backlinks` object with `total_pages: 371` and a full first page of 20
+  groups (default pagination), confirming the plan-3 note that Paper
+  carries hundreds of real backlinks renders correctly through the read
+  API with the frontend's expected shape (`groups`/`total_pages`/`offset`/
+  `limit`).
+- **Journal auto-create observed (expected, sanctioned mutation):**
+  `/api/journal?days=3` returned today's page (`2026-07-09`,
+  "July 9th, 2026") with `exists: true` and an empty block list — this is
+  the pre-existing auto-create-on-read behaviour from the read routes, not
+  a smoke-script side effect, and is the only mutation this run made
+  against the real data (besides the temporary config file, deleted in
+  teardown).
+- **Bundle size:** `pnpm build` output (`tsc && vite build`, 93 modules):
+  `dist/index.html` 0.39 kB (gzip 0.26 kB); `dist/app-assets/index-*.css`
+  6.56 kB (gzip 2.29 kB); `dist/app-assets/index-*.js` 345.19 kB (gzip
+  113.27 kB) — a single JS chunk, no code-splitting configured, well within
+  reasonable bounds for a personal-use SPA including the bundled
+  `highlight.js/lib/common`.
+- **Nothing surprising.** Every `test`/`curl -sf` in the brief's script
+  passed on the first run; no server errors observed in the log for the
+  duration of the run.
+- **Explicitly deferred:** in-browser visual verification — rendering
+  fidelity on heavy real pages (large backlink lists, deeply nested
+  outlines, query blocks), the shift-click sidebar stack's actual feel,
+  and the responsive/phone breakpoints — was not exercised by this
+  curl-only smoke and is deferred to manual use and to plan 5's Playwright
+  smoke, which can drive an actual browser against this same real data.

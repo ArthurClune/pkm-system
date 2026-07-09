@@ -1,8 +1,10 @@
 // pattern: Imperative Shell
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api/client";
 import type { PagePayload } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
+import { useDnd } from "../dnd/DndContext";
+import { useDropZone } from "../dnd/useDropZone";
 import { encodeTitle } from "../paths";
 import { BlockTree } from "./BlockTree";
 import { PageLink } from "./PageLink";
@@ -11,6 +13,16 @@ export function SidebarPanel({ title, onClose }:
     { title: string; onClose: () => void }) {
   const [payload, setPayload] = useState<PagePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshSeq, setRefreshSeq] = useState(0);
+  const dnd = useDnd();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const payloadRef = useRef(payload);
+  payloadRef.current = payload;
+  const { indicator, zoneProps } = useDropZone(
+    title, () => payloadRef.current?.blocks ?? [], containerRef);
+
+  useEffect(() => dnd.registerPanel(title, () => setRefreshSeq((n) => n + 1)),
+            [dnd, title]);
 
   useEffect(() => {
     let cancelled = false;
@@ -18,7 +30,7 @@ export function SidebarPanel({ title, onClose }:
       .then((p) => { if (!cancelled) setPayload(p); })
       .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
-  }, [title]);
+  }, [title, refreshSeq]);
 
   return (
     <section className="sidebar-panel" aria-label={`sidebar: ${title}`}>
@@ -31,9 +43,16 @@ export function SidebarPanel({ title, onClose }:
       {error && <p className="error">{error}</p>}
       {!payload && !error && <p className="loading">Loading…</p>}
       {payload && (
-        <BlockRefContext.Provider value={payload.block_ref_texts}>
-          <BlockTree blocks={payload.blocks} />
-        </BlockRefContext.Provider>
+        <div ref={containerRef} style={{ position: "relative" }}
+             {...zoneProps} onDragEnd={() => dnd.endDrag()}>
+          <BlockRefContext.Provider value={payload.block_ref_texts}>
+            <BlockTree blocks={payload.blocks} dndPage={title} />
+          </BlockRefContext.Provider>
+          {indicator && (
+            <div className="drop-indicator"
+                 style={{ top: indicator.top, left: indicator.left }} />
+          )}
+        </div>
       )}
     </section>
   );

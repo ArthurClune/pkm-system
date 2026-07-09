@@ -59,3 +59,6 @@ reviewed later.
 - **pkm-r1wy merged** (d4a265b). Guard verified safely with stubbed
   git/uv/pnpm/launchctl — no real prod command was executed during testing.
   190 backend tests pass.
+- **pkm-bz6n merged.** Search moved Cmd-K → Cmd/Ctrl-U (Cmd-K removed);
+  Ctrl-Cmd-D navigates home. No input-focus guard added — matches the
+  pre-existing unguarded Cmd-K behaviour. 161 web tests + typecheck pass.

@@ -17,7 +17,12 @@ BASE="https://$HOST_DNS"
 fail() { echo "SMOKE FAIL: $1" >&2; exit 1; }
 
 curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null || fail "loopback healthz"
-curl -fsS "http://$TS_IP:$PORT/healthz" >/dev/null || fail "tailscale-ip healthz"
+# macOS doesn't hairpin traffic to the machine's own tailscale IP (it routes
+# into utun and never comes back), so curl from here would hang. Assert the
+# LISTEN socket instead; reachability is verified end-to-end from another
+# tailnet device.
+lsof -nP "-iTCP@$TS_IP:$PORT" -sTCP:LISTEN >/dev/null \
+  || fail "tailscale-ip bind missing"
 curl -fsS "$BASE/healthz" >/dev/null || fail "serve https healthz"
 
 read -rs -p "app password: " PW; echo
@@ -48,4 +53,4 @@ async def main() -> None:
 
 asyncio.run(main())
 PY
-echo "SMOKE OK: loopback, tailscale ip, serve https, login, asset gate, websocket"
+echo "SMOKE OK: loopback, tailscale-ip bind, serve https, login, asset gate, websocket"

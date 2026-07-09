@@ -1,4 +1,11 @@
 import hashlib
+from dataclasses import replace
+
+from fastapi.testclient import TestClient
+
+from pkm.server.app import create_app
+
+TEST_PASSWORD = "test-pw"  # must match conftest.py
 
 
 def _upload(client, content=b"PNGDATA", name="pic.png", mime="image/png"):
@@ -36,3 +43,28 @@ def test_upload_dedupes_by_content(client, seeded_config):
 
 def test_upload_empty_400(client):
     assert _upload(client, content=b"").status_code == 400
+
+
+def _small_cap_client(seeded_config, cap=10):
+    c = TestClient(create_app(replace(seeded_config, max_upload_bytes=cap)))
+    assert c.post("/api/login", json={"password": TEST_PASSWORD}).status_code == 200
+    return c
+
+
+def test_upload_over_cap_413(seeded_config):
+    c = _small_cap_client(seeded_config)
+    assert _upload(c, content=b"x" * 11).status_code == 413
+
+
+def test_upload_exactly_at_cap_ok(seeded_config):
+    c = _small_cap_client(seeded_config)
+    assert _upload(c, content=b"x" * 10).status_code == 200
+
+
+def test_upload_disallowed_mime_415(client):
+    r = _upload(client, name="evil.html", mime="text/html")
+    assert r.status_code == 415
+
+
+def test_upload_pdf_allowed(client):
+    assert _upload(client, name="doc.pdf", mime="application/pdf").status_code == 200

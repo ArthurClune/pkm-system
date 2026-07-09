@@ -20,6 +20,20 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
+# Upload allowlist (spec: images, PDF, plain text, office docs). SVG upload
+# is allowed; serving forces it to download (see INLINE_MIME in Task 4).
+ALLOWED_UPLOAD_MIME = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
+    "image/svg+xml",
+    "application/pdf",
+    "text/plain", "text/markdown", "text/csv", "application/json",
+    "application/msword", "application/vnd.ms-excel",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+})
+
 
 @router.get("/assets/{sha256}/{filename}")
 def get_asset(sha256: str, filename: str,
@@ -41,7 +55,14 @@ def get_asset(sha256: str, filename: str,
 async def upload_asset(file: UploadFile,
                        db: sqlite3.Connection = Depends(get_db),
                        config: Config = Depends(get_config)) -> dict:
-    data = await file.read()
+    mime = file.content_type or "application/octet-stream"
+    if mime not in ALLOWED_UPLOAD_MIME:
+        raise HTTPException(status_code=415,
+                            detail=f"unsupported upload type {mime}")
+    # read one byte past the cap: a short read proves the whole file fit
+    data = await file.read(config.max_upload_bytes + 1)
+    if len(data) > config.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="upload too large")
     if not data:
         raise HTTPException(status_code=400, detail="empty upload")
     sha = hashlib.sha256(data).hexdigest()
@@ -52,7 +73,6 @@ async def upload_asset(file: UploadFile,
         tmp.write_bytes(data)
         os.replace(tmp, dest)
     filename = Path(file.filename or "upload").name or "upload"
-    mime = file.content_type or "application/octet-stream"
     db.execute("INSERT OR IGNORE INTO assets VALUES (?,?,?,?,?)",
                (sha, filename, mime, len(data), int(time.time() * 1000)))
     db.commit()

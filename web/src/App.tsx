@@ -5,6 +5,7 @@ import { ReconnectBanner } from "./components/ReconnectBanner";
 import { SearchModal } from "./components/SearchModal";
 import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { SidebarContext } from "./contexts";
 import { SyncProvider } from "./sync/SyncProvider";
 import { Journal } from "./views/Journal";
@@ -72,6 +73,7 @@ export function App() {
                     onClick={() => { setNavOpen(false); setSearchOpen(true); }}>
               Search
             </button>
+            <ThemeToggle />
             <SidebarNav onNavigate={() => setNavOpen(false)} />
           </nav>
           <main className="main-pane">

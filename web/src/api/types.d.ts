@@ -290,6 +290,8 @@ export interface components {
             parent_uid: string | null;
             /** Order Idx */
             order_idx: number;
+            /** Page Title */
+            page_title?: string | null;
         };
         /** OpBatch */
         OpBatch: {

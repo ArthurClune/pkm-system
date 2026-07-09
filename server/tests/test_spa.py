@@ -49,6 +49,11 @@ def test_api_and_asset_routes_not_shadowed(tmp_path):
     # unknown api/assets paths 404 rather than returning HTML
     assert client.get("/api/nonexistent").status_code == 404
     assert client.get("/assets/not-a-sha").status_code == 404
+    # bare prefixes (no trailing slash) also 404, never HTML
+    assert client.get("/api").status_code == 404
+    assert client.get("/assets").status_code == 404
+    assert client.get("/app-assets").status_code == 404
+    assert client.get("/app-assets/does-not-exist.js").status_code == 404
 
 
 def test_without_web_dist_root_is_404(tmp_path):

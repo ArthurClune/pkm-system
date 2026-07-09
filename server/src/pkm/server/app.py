@@ -50,7 +50,7 @@ def create_app(config: Config) -> FastAPI:
         def spa(full_path: str) -> FileResponse:
             # Real API/asset routes are registered earlier and win; anything
             # still hitting these prefixes is a miss, not a client-side route.
-            if full_path.startswith(("api/", "assets/", "app-assets/")):
+            if full_path.split("/", 1)[0] in ("api", "assets", "app-assets"):
                 raise HTTPException(status_code=404, detail="not found")
             return FileResponse(index_html)
 

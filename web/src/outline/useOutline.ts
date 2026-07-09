@@ -99,6 +99,23 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       document.removeEventListener("visibilitychange", onVisibility);
   }, [flushNow]);
 
+  // Authoritative refetch: adopt the server's tree once our own queue has
+  // drained. Used both when a remote batch targets us with content we don't
+  // have (below) and as the DnD refetch fallback for panel-sourced cross-page
+  // moves (the source outline isn't registered, so no subtree ever arrives
+  // locally). Waiting for idle first matters: fetching immediately can race a
+  // local optimistic edit enqueued in this window and silently overwrite it.
+  const refetch = useCallback(() => {
+    void sync.idle()
+      .then(() => apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`))
+      .then((p) => {
+        blocksRef.current = p.blocks;
+        setBlocks(p.blocks);
+        setFocus((f) => (f && findNode(p.blocks, f.uid) ? f : null));
+      })
+      .catch(() => undefined); // next resync will repair
+  }, [sync, pageTitle]);
+
   // Remote batches: the same applyOps as local edits. Text updates for the
   // block being typed in are skipped — the local draft wins on its next
   // flush (per-block last-write-wins).
@@ -113,19 +130,10 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     setBlocks(blocksRef.current);
     if (needsRefetch) {
       // we are the target of a cross-page move: the op carries no block
-      // content, so adopt the authoritative tree. Wait for our own queue to
-      // drain first — fetching immediately can race a local optimistic edit
-      // enqueued in this window and silently overwrite it on screen.
-      void sync.idle()
-        .then(() => apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`))
-        .then((p) => {
-          blocksRef.current = p.blocks;
-          setBlocks(p.blocks);
-          setFocus((f) => (f && findNode(p.blocks, f.uid) ? f : null));
-        })
-        .catch(() => undefined); // next resync will repair
+      // content, so adopt the authoritative tree.
+      refetch();
     }
-  }), [sync, pageTitle]);
+  }), [sync, pageTitle, refetch]);
 
   const handlers = useMemo<OutlineHandlers>(() => ({
     onFocusBlock: (uid, cursor) => setFocus({ uid, cursor }),
@@ -216,7 +224,8 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
         blocksRef.current, node, target.parent_uid, target.order_idx);
       setBlocks(blocksRef.current);
     },
-  }), [run, flushNow, pageTitle]);
+    refetch,
+  }), [run, flushNow, pageTitle, refetch]);
 
   const createFirstBlock = useCallback(() => {
     run((b) => {

@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { block } from "../test-helpers";
 import type { BlockNode } from "../api/payloads";
 import { allowedDepths, depthFromX, dropRows, resolveDrop,
-         INDENT_PX } from "./dnd";
+         INDENT_PX, type DragSource } from "./dnd";
 
 // Page "P":  a(0) [ b(0) [ c(0) ] ]  d(1, collapsed) [ e(0) ]  f(2)
 function page(): BlockNode[] {
@@ -16,7 +16,6 @@ function page(): BlockNode[] {
   ];
 }
 const OTHER: DragSource = { uid: "zz", pageTitle: "Elsewhere" };
-type DragSource = { uid: string; pageTitle: string };
 
 it("dropRows hides collapsed children and excludes the dragged subtree", () => {
   expect(dropRows(page(), OTHER, "P").map((r) => r.uid))

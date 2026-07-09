@@ -6,6 +6,7 @@ import { BlockRefContext } from "../contexts";
 import { useDnd } from "../dnd/DndContext";
 import { useDropZone } from "../dnd/useDropZone";
 import { encodeTitle } from "../paths";
+import { useSync } from "../sync/SyncProvider";
 import { BlockTree } from "./BlockTree";
 import { PageLink } from "./PageLink";
 
@@ -15,6 +16,7 @@ export function SidebarPanel({ title, onClose }:
   const [error, setError] = useState<string | null>(null);
   const [refreshSeq, setRefreshSeq] = useState(0);
   const dnd = useDnd();
+  const connected = useSync().status === "connected";
   const containerRef = useRef<HTMLDivElement | null>(null);
   const payloadRef = useRef(payload);
   payloadRef.current = payload;
@@ -44,9 +46,9 @@ export function SidebarPanel({ title, onClose }:
       {!payload && !error && <p className="loading">Loading…</p>}
       {payload && (
         <div ref={containerRef} style={{ position: "relative" }}
-             {...zoneProps} onDragEnd={() => dnd.endDrag()}>
+             {...(connected ? zoneProps : {})} onDragEnd={() => dnd.endDrag()}>
           <BlockRefContext.Provider value={payload.block_ref_texts}>
-            <BlockTree blocks={payload.blocks} dndPage={title} />
+            <BlockTree blocks={payload.blocks} dndPage={connected ? title : undefined} />
           </BlockRefContext.Provider>
           {indicator && (
             <div className="drop-indicator"

@@ -24,7 +24,7 @@ function setup() {
 
 function fakeOutline(over: Partial<OutlineDndApi> = {}): OutlineDndApi {
   return { moveTo: vi.fn(), removeSubtreeLocal: vi.fn(() => null),
-           insertSubtreeLocal: vi.fn(), ...over };
+           insertSubtreeLocal: vi.fn(), refetch: vi.fn(), ...over };
 }
 
 it("same-page drop delegates to the registered outline's moveTo", () => {
@@ -58,6 +58,40 @@ it("cross-page drop does two-outline surgery and one op with page_title", () => 
   expect(src.removeSubtreeLocal).toHaveBeenCalledWith("u1");
   expect(dst.insertSubtreeLocal).toHaveBeenCalledWith(moved,
     { parent_uid: null, order_idx: 1, page_title: "B" });
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "u1", parent_uid: null, order_idx: 1,
+      page_title: "B" }]]);
+});
+
+it("cross-page drop with unregistered source refetches the registered target", async () => {
+  const { sync, dnd } = setup();
+  const dst = fakeOutline();
+  dnd().registerOutline("B", dst);
+  // source page "A" has no registered outline (e.g. a panel of an unopened
+  // page): removeSubtreeLocal never runs, so there's no subtree to insert —
+  // the target must pull authoritative state instead.
+  dnd().drop({ uid: "u1", pageTitle: "A" },
+             { parent_uid: null, order_idx: 1, page_title: "B" });
+  await Promise.resolve(); await Promise.resolve(); // idle() microtasks
+  expect(dst.refetch).toHaveBeenCalled();
+  expect(dst.insertSubtreeLocal).not.toHaveBeenCalled();
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "u1", parent_uid: null, order_idx: 1,
+      page_title: "B" }]]);
+});
+
+it("cross-page drop with unregistered target only removes from the source", () => {
+  const { sync, dnd } = setup();
+  const moved: BlockNode = block("u1", "hi");
+  const src = fakeOutline({ removeSubtreeLocal: vi.fn(() => moved) });
+  dnd().registerOutline("A", src);
+  // target page "B" has no registered outline: nothing to insert into and
+  // nothing to refetch.
+  dnd().drop({ uid: "u1", pageTitle: "A" },
+             { parent_uid: null, order_idx: 1, page_title: "B" });
+  expect(src.removeSubtreeLocal).toHaveBeenCalledWith("u1");
+  expect(src.insertSubtreeLocal).not.toHaveBeenCalled();
+  expect(src.refetch).not.toHaveBeenCalled();
   expect(sync.sent).toEqual([[
     { op: "move", uid: "u1", parent_uid: null, order_idx: 1,
       page_title: "B" }]]);

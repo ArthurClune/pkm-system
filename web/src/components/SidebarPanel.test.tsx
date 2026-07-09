@@ -70,6 +70,20 @@ it("panel bullets are draggable and start a drag for the panel's page", async ()
   expect(dnd().drag).toEqual({ uid: "s1", pageTitle: "Some Page" });
 });
 
+it("dragging is disabled while disconnected (writes paused invariant)", async () => {
+  const sync = makeSync("reconnecting");
+  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("s1", "side one")])]]);
+  render(
+    <SyncContext.Provider value={sync}>
+      <DndProvider>
+        <MemoryRouter><SidebarPanel title="Paper" onClose={() => undefined} /></MemoryRouter>
+      </DndProvider>
+    </SyncContext.Provider>);
+  await screen.findByText("side one");
+  const bullet = document.querySelector(".sidebar-panel .bullet");
+  expect(bullet).toHaveAttribute("draggable", "false");
+});
+
 it("panel refetches after a drop that touches its page", async () => {
   const fetchMock = stubFetch([["/api/page/Some%20Page",
     pagePayload("Some Page", [block("s1", "side one")])]]);

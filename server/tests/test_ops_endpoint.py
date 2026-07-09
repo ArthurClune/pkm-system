@@ -1,3 +1,6 @@
+import sqlite3
+
+
 def _post(client, *ops, client_id="c1"):
     return client.post("/api/ops",
                        json={"client_id": client_id, "ops": list(ops)})
@@ -83,9 +86,6 @@ def test_malformed_batch_422(client):
     r = client.post("/api/ops", json={"client_id": "c1",
                                       "ops": [{"op": "explode"}]})
     assert r.status_code == 422
-
-
-import sqlite3
 
 
 def test_cross_page_move_under_parent(client, seeded_config):

@@ -14,6 +14,11 @@ export interface OutlineDndApi {
   moveTo(uid: string, target: DropTarget): void;
   removeSubtreeLocal(uid: string): BlockNode | null;
   insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
+  /** Authoritative idle-gated refetch. Used as the cross-page-drop fallback
+   * when the source outline isn't registered (e.g. dragged from a panel of
+   * an unopened page): no subtree ever arrives locally to insert, so the
+   * target outline must pull the server's tree instead. */
+  refetch(): void;
 }
 
 export interface Dnd {
@@ -75,7 +80,10 @@ export function DndProvider({ children }: { children: ReactNode }) {
       } else {
         const node = src?.removeSubtreeLocal(d.uid) ?? null;
         const dst = outlinesRef.current.get(target.page_title);
-        if (dst && node) dst.insertSubtreeLocal(node, target);
+        if (dst) {
+          if (node) dst.insertSubtreeLocal(node, target);
+          else dst.refetch();
+        }
         const ops: BlockOp[] = [{ op: "move", uid: d.uid,
           parent_uid: target.parent_uid, order_idx: target.order_idx,
           page_title: target.page_title }];

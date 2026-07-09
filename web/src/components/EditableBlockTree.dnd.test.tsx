@@ -32,7 +32,6 @@ function renderPage(blocks = [
 
 it("bullets are draggable and a drop reorders via one move op", () => {
   const sync = renderPage();
-  const rows = document.querySelectorAll(".block-row");
   const bullets = document.querySelectorAll(".bullet");
   expect(bullets[0]).toHaveAttribute("draggable", "true");
 
@@ -49,7 +48,6 @@ it("bullets are draggable and a drop reorders via one move op", () => {
   // optimistic: u2 now renders first
   const texts = [...document.querySelectorAll(".block-text")].map((n) => n.textContent);
   expect(texts).toEqual(["two", "one"]);
-  void rows;
 });
 
 it("an empty page accepts a top-level drop from another page", () => {
@@ -57,17 +55,25 @@ it("an empty page accepts a top-level drop from another page", () => {
   render(
     <SyncContext.Provider value={sync}>
       <DndProvider>
-        <MemoryRouter><EditablePage title="Empty" initial={[]} /></MemoryRouter>
+        <MemoryRouter>
+          <EditablePage title="Src" initial={[block("s1", "from src")]} />
+          <EditablePage title="Empty" initial={[]} />
+        </MemoryRouter>
       </DndProvider>
     </SyncContext.Provider>);
-  // simulate a drag that started elsewhere (context drag set via dragstart
-  // is per-provider; here we drive the zone directly with an external drag)
+
+  // drag starts on the source page's bullet (only page with any blocks)
+  const srcBullet = document.querySelector(".bullet")!;
+  const transfer = dt();
+  fireEvent.dragStart(srcBullet, { dataTransfer: transfer });
+
   const zone = screen.getByText(/start writing/i).closest(".empty-drop-zone")!;
-  void zone;
-  // NOTE: full cross-provider simulation happens in Task 8's journal test;
-  // here assert the zone element exists and is wired (has drop handler via
-  // React — smoke-level assertion):
-  expect(zone).toBeTruthy();
+  fireEvent.dragOver(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
+  fireEvent.drop(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
+
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "s1", parent_uid: null, order_idx: 0,
+      page_title: "Empty" }]]);
 });
 
 it("dragging is disabled when read-only", () => {

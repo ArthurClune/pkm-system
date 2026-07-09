@@ -30,6 +30,22 @@ describe("detectAutocomplete", () => {
   test("cursor position matters", () => {
     expect(detectAutocomplete("see [[Ma", 4)).toBeNull();
   });
+
+  test("slash triggers a command context at block start or after whitespace", () => {
+    expect(detectAutocomplete("/", 1)).toEqual({ kind: "command", start: 1, query: "" });
+    expect(detectAutocomplete("/py", 3)).toEqual({ kind: "command", start: 1, query: "py" });
+    expect(detectAutocomplete("hello /py", 9)).toEqual({ kind: "command", start: 7, query: "py" });
+  });
+
+  test("slash glued to the previous character does not trigger (quiet in URLs/paths)", () => {
+    expect(detectAutocomplete("https://example.com", 8)).toBeNull();
+    expect(detectAutocomplete("path/to/x", 5)).toBeNull();
+  });
+
+  test("a space (or other non-letter) after the slash closes the command context", () => {
+    expect(detectAutocomplete("/py ", 4)).toBeNull();
+    expect(detectAutocomplete("/py-thon", 8)).toBeNull();
+  });
 });
 
 describe("applyCompletion", () => {

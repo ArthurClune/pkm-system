@@ -30,6 +30,9 @@ export function useTitleOptions(query: string | null): string[] {
 export interface AcRow {
   title: string;
   isNew: boolean;
+  /** Set for "command" (slash) rows; picking runs applySlashCommand instead
+   * of the ref/tag applyCompletion path. */
+  command?: string;
 }
 
 export function buildRows(options: string[], query: string): AcRow[] {

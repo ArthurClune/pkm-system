@@ -2,7 +2,8 @@ import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { JournalDay } from "../api/payloads";
-import { block, stubFetch } from "../test-helpers";
+import { SyncContext } from "../sync/SyncProvider";
+import { block, jsonResponse, makeSync, stubFetch } from "../test-helpers";
 import { Journal } from "./Journal";
 
 class FakeIntersectionObserver {
@@ -67,6 +68,37 @@ it("renders the first batch newest-first and loads older days on intersect", asy
   // oldest already-loaded date is passed as the exclusive `before`
   expect(fetchMock).toHaveBeenLastCalledWith(
     "/api/journal?days=5&before=2026-07-04", undefined);
+});
+
+it("discards a stale in-flight load when a resync resets the journal", async () => {
+  // First /api/journal fetch is gated (held in flight); every later fetch
+  // resolves immediately with the fresh post-resync day.
+  let releaseStale!: (r: Response) => void;
+  const gated = new Promise<Response>((res) => { releaseStale = res; });
+  const fetchMock = vi.fn()
+    .mockReturnValueOnce(gated)
+    .mockResolvedValue(jsonResponse({ days: [day("2026-07-08", "Fresh day")] }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  const sync = makeSync();
+  const inSync = (s: typeof sync) => (
+    <SyncContext.Provider value={s}>
+      <MemoryRouter><Journal /></MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(inSync(sync));
+  // resync arrives while the initial fetch is still in flight
+  rerender(inSync({ ...sync, resyncSeq: 1 }));
+  expect(await screen.findByRole("link", { name: "Fresh day" })).toBeInTheDocument();
+
+  // the superseded response lands late: dropped, not rendered
+  await act(async () => {
+    releaseStale(jsonResponse({ days: [day("2026-07-07", "Stale day")] }));
+  });
+  expect(screen.queryByText("Stale day")).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Fresh day" })).toBeInTheDocument();
+  // exactly two loads: the gated original and the resync reload
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
 it("stops auto-loading after 3 consecutive empty batches", async () => {

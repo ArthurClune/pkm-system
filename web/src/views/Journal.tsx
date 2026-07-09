@@ -19,12 +19,14 @@ export function Journal() {
   const daysRef = useRef<JournalDay[]>([]);
   const emptyStreakRef = useRef(0);
   const loadingRef = useRef(false);
+  const genRef = useRef(0);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
+    const gen = genRef.current;
     try {
       const current = daysRef.current;
       const oldest = current[current.length - 1]?.date;
@@ -32,6 +34,7 @@ export function Journal() {
       // date returns the day before it first (days come back newest-first).
       const qs = oldest ? `?days=${BATCH}&before=${oldest}` : `?days=${BATCH}`;
       const p = await apiFetch<JournalPayload>(`/api/journal${qs}`);
+      if (gen !== genRef.current) return; // reset() superseded this load: discard
       const next = [...current, ...p.days];
       daysRef.current = next;
       setDays(next);
@@ -39,11 +42,16 @@ export function Journal() {
         p.days.some((d) => d.exists) ? 0 : emptyStreakRef.current + 1;
       if (emptyStreakRef.current >= MAX_EMPTY_BATCHES) setAutoLoad(false);
     } catch (e: unknown) {
+      if (gen !== genRef.current) return; // reset() superseded this load: discard
       setError(String(e));
       setAutoLoad(false);
     } finally {
-      loadingRef.current = false;
-      setLoading(false);
+      // A superseded load must not release the lock: it now belongs to the
+      // reset()-triggered reload that took over this generation.
+      if (gen === genRef.current) {
+        loadingRef.current = false;
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -51,6 +59,10 @@ export function Journal() {
   useEffect(() => { document.title = "Daily Notes — pkm"; }, []);
 
   const reset = useCallback(() => {
+    // Invalidate any in-flight loadMore so its stale response can't clobber
+    // the authoritative refetch, and release its lock so we can start now.
+    genRef.current += 1;
+    loadingRef.current = false;
     daysRef.current = [];
     setDays([]);
     emptyStreakRef.current = 0;

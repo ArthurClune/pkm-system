@@ -41,8 +41,6 @@ export function allowedDepths(rows: DropRow[], boundary: number): number[] {
   const below = rows[boundary];
   let max = above ? (above.collapsed ? above.depth : above.depth + 1) : 0;
   const min = below ? below.depth : 0;
-  // When there's no row below (at end of outline), cap max at above's depth
-  if (!below && above) max = above.depth;
   const out: number[] = [];
   for (let d = Math.min(min, max); d <= max; d++) out.push(d);
   return out;

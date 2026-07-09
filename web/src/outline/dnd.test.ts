@@ -30,7 +30,7 @@ it("allowedDepths spans below-depth..above-depth+1, capped by collapse", () => {
   expect(allowedDepths(rows, 0)).toEqual([0]);          // top: only depth 0
   expect(allowedDepths(rows, 3)).toEqual([0, 1, 2, 3]); // after c(d2): up to child-of-c
   expect(allowedDepths(rows, 4)).toEqual([0]);          // after collapsed d: NO child depth
-  expect(allowedDepths(rows, 5)).toEqual([0]);          // end of outline
+  expect(allowedDepths(rows, 5)).toEqual([0, 1]);       // end: top level or child of f
   expect(allowedDepths([], 0)).toEqual([0]);            // empty outline
 });
 
@@ -53,6 +53,9 @@ it("resolveDrop picks parent and order_idx from the chosen depth", () => {
   // → insert before d at top level
   expect(resolveDrop(page(), "P", OTHER, 1, 0))
     .toEqual({ parent_uid: null, order_idx: 1, page_title: "P" });
+  // boundary 5 = end of outline, after f; depth 1 → child of f (childless) → first child
+  expect(resolveDrop(page(), "P", OTHER, 5, 1))
+    .toEqual({ parent_uid: "f", order_idx: 0, page_title: "P" });
 });
 
 it("resolveDrop returns null for a same-position drop", () => {

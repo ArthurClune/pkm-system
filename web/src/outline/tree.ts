@@ -109,6 +109,11 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
   } else if (op.op === "delete") {
     found.siblings.splice(found.index, 1);
   } else { // move — order_idx counted BEFORE the moved block is removed
+    if (op.page_title != null && op.page_title !== pageTitle) {
+      // this outline is the SOURCE of a cross-page move: just remove
+      found.siblings.splice(found.index, 1);
+      return;
+    }
     const target = siblingsOf(tree, op.parent_uid);
     if (target === null) return;
     shiftFrom(target, op.order_idx, op.uid);
@@ -117,4 +122,29 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
     target.push(found.node);
     sortSiblings(target);
   }
+}
+
+/** Detach uid's subtree. Returns the new tree and the detached node
+ * (null = uid not found; tree returned unchanged). Pure: clones. */
+export function removeSubtree(blocks: BlockNode[], uid: string):
+    { tree: BlockNode[]; node: BlockNode | null } {
+  const tree = clone(blocks);
+  const found = locate(tree, uid);
+  if (!found) return { tree, node: null };
+  found.siblings.splice(found.index, 1);
+  return { tree, node: found.node };
+}
+
+/** Insert a detached subtree per the move contract (insert before the
+ * block currently at orderIdx). Unknown parentUid: returns tree unchanged. */
+export function insertSubtree(blocks: BlockNode[], node: BlockNode,
+                              parentUid: string | null,
+                              orderIdx: number): BlockNode[] {
+  const tree = clone(blocks);
+  const siblings = siblingsOf(tree, parentUid);
+  if (siblings === null) return tree;
+  shiftFrom(siblings, orderIdx);
+  siblings.push({ ...node, order_idx: orderIdx });
+  sortSiblings(siblings);
+  return tree;
 }

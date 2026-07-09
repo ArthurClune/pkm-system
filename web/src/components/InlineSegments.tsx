@@ -13,10 +13,14 @@ function isPdfAssetHref(href: string): boolean {
 }
 
 /** Plan-4 carry-forward: [x](javascript:…) in block text must not become a
- * clickable anchor. http(s), mailto, and site-relative (single-slash) only. */
+ * clickable anchor. http(s), mailto, and site-relative (single-slash) only.
+ * Control chars are rejected outright (browsers strip tab/CR/LF before URL
+ * parsing, defeating prefix checks) and the second char after a leading /
+ * may not be / or \ (protocol-relative escapes). */
 function isSafeHref(href: string): boolean {
+  if (/[\u0000-\u001f]/.test(href)) return false;
   if (/^(https?:|mailto:)/i.test(href)) return true;
-  return href.startsWith("/") && !href.startsWith("//");
+  return href.startsWith("/") && !/^\/[/\\]/.test(href);
 }
 
 export function InlineSegments({ segments, depth = 0 }:

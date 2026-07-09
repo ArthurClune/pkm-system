@@ -78,6 +78,7 @@ export interface JournalDay {
 
 export interface JournalPayload {
   days: JournalDay[];
+  block_ref_texts: Record<string, BlockRefText>;
 }
 
 export interface SearchPageHit {

@@ -154,6 +154,7 @@ def get_journal(before: str | None = None, days: int = 7,
     else:
         start = date.today() + timedelta(days=1)
     out = []
+    texts: list[str] = []
     for i in range(1, days + 1):
         d = start - timedelta(days=i)
         title = title_for_date(d)
@@ -168,6 +169,7 @@ def get_journal(before: str | None = None, days: int = 7,
             blocks = db.execute(
                 f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
                 (page["id"],)).fetchall()
+            texts.extend(r["text"] for r in blocks)
             out.append({"date": d.isoformat(), "title": title,
                         "exists": True, "blocks": build_tree(blocks)})
-    return {"days": out}
+    return {"days": out, "block_ref_texts": _block_ref_texts(db, texts)}

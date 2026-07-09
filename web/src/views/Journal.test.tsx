@@ -70,6 +70,29 @@ it("renders the first batch newest-first and loads older days on intersect", asy
     "/api/journal?days=5&before=2026-07-04", undefined);
 });
 
+it("resolves ((block refs)) from every batch's block_ref_texts", async () => {
+  stubFetch([
+    ["/api/journal?days=5&before=2026-07-08", {
+      days: [day("2026-07-07", "July 7th, 2026",
+                 [block("u2", "older ((ref_bbbb))")])],
+      block_ref_texts: { ref_bbbb: { text: "resolved beta", page_title: "B" } },
+    }],
+    ["/api/journal?days=5", {
+      days: [day("2026-07-08", "July 8th, 2026",
+                 [block("u1", "see ((ref_aaaa))")])],
+      block_ref_texts: { ref_aaaa: { text: "resolved alpha", page_title: "A" } },
+    }],
+  ]);
+  render(<MemoryRouter><Journal /></MemoryRouter>);
+  expect(await screen.findByText("resolved alpha")).toBeInTheDocument();
+
+  intersect();
+  expect(await screen.findByText("resolved beta")).toBeInTheDocument();
+  // maps merge across batches: the first batch's refs still resolve
+  expect(screen.getByText("resolved alpha")).toBeInTheDocument();
+  expect(screen.queryByText(/\(\(ref_/)).not.toBeInTheDocument();
+});
+
 it("discards a stale in-flight load when a resync resets the journal", async () => {
   // First /api/journal fetch is gated (held in flight); every later fetch
   // resolves immediately with the fresh post-resync day.

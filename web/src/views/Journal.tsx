@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api/client";
-import type { JournalDay, JournalPayload } from "../api/payloads";
+import type { BlockRefText, JournalDay, JournalPayload } from "../api/payloads";
+import { BlockRefContext } from "../contexts";
 import { pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
@@ -12,6 +13,7 @@ const MAX_EMPTY_BATCHES = 3;
 
 export function Journal() {
   const [days, setDays] = useState<JournalDay[]>([]);
+  const [refTexts, setRefTexts] = useState<Record<string, BlockRefText>>({});
   const [autoLoad, setAutoLoad] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,6 +40,7 @@ export function Journal() {
       const next = [...current, ...p.days];
       daysRef.current = next;
       setDays(next);
+      setRefTexts((m) => ({ ...m, ...p.block_ref_texts }));
       emptyStreakRef.current =
         p.days.some((d) => d.exists) ? 0 : emptyStreakRef.current + 1;
       if (emptyStreakRef.current >= MAX_EMPTY_BATCHES) setAutoLoad(false);
@@ -65,6 +68,7 @@ export function Journal() {
     loadingRef.current = false;
     daysRef.current = [];
     setDays([]);
+    setRefTexts({});
     emptyStreakRef.current = 0;
     setAutoLoad(true);
     void loadMore();
@@ -84,16 +88,18 @@ export function Journal() {
 
   return (
     <div className="journal">
-      {days.map((day, i) => (
-        <section className="journal-day" key={day.date}>
-          <h1 className="page-title">
-            <Link to={pagePath(day.title)}>{day.title}</Link>
-          </h1>
-          {/* the first loaded day is today by construction */}
-          <EditablePage title={day.title} initial={day.blocks}
-                        composer={i === 0} />
-        </section>
-      ))}
+      <BlockRefContext.Provider value={refTexts}>
+        {days.map((day, i) => (
+          <section className="journal-day" key={day.date}>
+            <h1 className="page-title">
+              <Link to={pagePath(day.title)}>{day.title}</Link>
+            </h1>
+            {/* the first loaded day is today by construction */}
+            <EditablePage title={day.title} initial={day.blocks}
+                          composer={i === 0} />
+          </section>
+        ))}
+      </BlockRefContext.Provider>
       {error && <p className="error">{error}</p>}
       <p className="journal-status" role="status" aria-live="polite">
         {loading ? "Loading more days…" : ""}

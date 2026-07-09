@@ -20,6 +20,17 @@ def test_journal_includes_seeded_daily(client):
     assert days[1]["exists"] is False and days[1]["blocks"] == []
 
 
+def test_journal_resolves_block_refs(client):
+    # uid_b5 on the July 7th page reads "See ((uid_b3)) for details" — the
+    # journal payload must carry the texts to render it, like /api/page does.
+    r = client.get("/api/journal",
+                   params={"before": "2026-07-08", "days": 2})
+    assert r.status_code == 200
+    assert r.json()["block_ref_texts"] == {
+        "uid_b3": {"text": "[[Attention Is All You Need]] is a [[Paper]]",
+                   "page_title": "Machine Learning"}}
+
+
 def test_journal_auto_creates_today_only(client, seeded_config):
     today = date.today()
     con = sqlite3.connect(seeded_config.db_path)

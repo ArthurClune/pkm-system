@@ -98,3 +98,22 @@ test("editing is read-only while the socket is not connected", () => {
   const ta = focusBlock("first");
   expect(ta).toHaveAttribute("readonly");
 });
+
+test("pasting an image uploads it and splices markdown at the cursor", async () => {
+  const url = `/assets/${"cd".repeat(32)}/pic.png`;
+  stubFetch([["/api/assets", { sha256: "cd".repeat(32), filename: "pic.png",
+                               mime: "image/png", size: 3, url }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  ta.setSelectionRange(5, 5);
+  fireEvent.paste(ta, {
+    clipboardData: {
+      files: [new File(["png"], "pic.png", { type: "image/png" })],
+    },
+  });
+  await vi.waitFor(() => {
+    expect(sync.sent.flat()).toContainEqual({
+      op: "update_text", uid: "u1", text: `first![pic.png](${url})`,
+    });
+  });
+});

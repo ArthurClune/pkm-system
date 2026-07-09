@@ -7,6 +7,7 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { OutlineHandlers } from "../components/EditableBlockTree";
 import { toggleTodo } from "../grammar/todo";
+import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
@@ -129,7 +130,30 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       const ops: BlockOp[] = [{ op: "update_text", uid, text: flipped }];
       return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
     }),
-    onFiles: () => undefined, // wired in T11 (paste/drop upload)
+    onFiles: (uid, cursor, files) => {
+      void (async () => {
+        let inserted = "";
+        for (const file of files) {
+          try {
+            inserted += (inserted ? " " : "") + assetMarkdown(await uploadAsset(file));
+          } catch {
+            // failed upload: leave the text untouched rather than half-splice
+          }
+        }
+        if (inserted === "") return;
+        run((b) => {
+          const node = findNode(b, uid);
+          if (!node) return { blocks: b, ops: [], focus: null };
+          // splice at the pre-paste offset, clamped: the user may have kept
+          // typing during a slow upload (accepted for v1)
+          const at = Math.min(cursor, node.text.length);
+          const text = node.text.slice(0, at) + inserted + node.text.slice(at);
+          const ops: BlockOp[] = [{ op: "update_text", uid, text }];
+          return { blocks: applyOps(b, ops, pageTitle), ops,
+                   focus: { uid, cursor: at + inserted.length } };
+        });
+      })();
+    },
   }), [run, flushNow, pageTitle]);
 
   const createFirstBlock = useCallback(() => {

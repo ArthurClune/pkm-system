@@ -77,3 +77,13 @@ reviewed later.
   inserted 22/22 in order, re-run confirmed idempotent (0 inserted), page
   and block counts unchanged, server process untouched. Wave 1 integrated
   suites: 181 web + 201 server tests + typecheck all green.
+- **pkm-pthk merged.** styles.css refactored to CSS custom properties
+  (light palette pixel-identical); dark palette applied via
+  `@media (prefers-color-scheme: dark)` + `data-theme` override, toggle
+  cycles system→light→dark, persisted at localStorage "pkm:theme".
+  highlight.js theme colors inlined into styles.css as --hljs-* vars (Vite
+  CSS imports are global, so the two-import approach can't switch).
+  Anti-flash inline script in index.html for explicit light/dark only.
+  Note: test-setup.ts now stubs matchMedia and localStorage per-test —
+  Node 26's experimental localStorage global shadows jsdom's and returns
+  undefined. 191 web tests + typecheck + build green.

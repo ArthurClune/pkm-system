@@ -138,6 +138,47 @@ test("todo checkbox is enabled in the editable tree and reports its uid", () => 
   expect(h.onToggleTodo).toHaveBeenCalledWith("u2");
 });
 
+test("chevron is disabled on a childless block; enabled on a block with children", () => {
+  const h = handlers();
+  const t = [block("p", "parent", {
+    order_idx: 0, children: [block("k", "kid", { order_idx: 0 })],
+  })];
+  render(
+    <MemoryRouter>
+      <EditableBlockTree blocks={t} focus={null} handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  const [parentChevron, kidChevron] =
+    screen.getAllByRole("button", { name: "toggle children" });
+  expect(parentChevron).toBeEnabled();
+  expect(kidChevron).toBeDisabled();
+  fireEvent.click(kidChevron);
+  expect(h.onToggleCollapsed).not.toHaveBeenCalled();
+});
+
+test("readOnly disables the chevron (even with children) and the todo checkbox", () => {
+  const h = handlers();
+  const t = [
+    block("p", "parent", {
+      order_idx: 0, children: [block("k", "kid", { order_idx: 0 })],
+    }),
+    block("u2", "{{[[TODO]]}} task", { order_idx: 1 }),
+  ];
+  render(
+    <MemoryRouter>
+      <EditableBlockTree blocks={t} focus={null} handlers={h} readOnly={true} />
+    </MemoryRouter>);
+  const parentChevron =
+    screen.getAllByRole("button", { name: "toggle children" })[0];
+  expect(parentChevron).toBeDisabled();
+  fireEvent.click(parentChevron);
+  expect(h.onToggleCollapsed).not.toHaveBeenCalled();
+
+  const box = screen.getByRole("checkbox");
+  expect(box).toBeDisabled();
+  fireEvent.click(box);
+  expect(h.onToggleTodo).not.toHaveBeenCalled();
+});
+
 test("collapsed children are hidden", () => {
   const h = handlers();
   const t = [block("p", "parent", {

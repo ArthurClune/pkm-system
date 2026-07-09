@@ -66,6 +66,7 @@ function EditableBlock({ node, focus, handlers, readOnly }: {
         <button
           className={"chevron" + (node.collapsed ? " closed" : "") + (hasChildren ? "" : " hidden")}
           onClick={() => handlers.onToggleCollapsed(node.uid, !node.collapsed)}
+          disabled={readOnly || !hasChildren}
           aria-label="toggle children"
         >
           ▸
@@ -78,7 +79,7 @@ function EditableBlock({ node, focus, handlers, readOnly }: {
           <Tag className="block-text"
                onClick={() => handlers.onFocusBlock(node.uid, node.text.length)}>
             <BlockEditContext.Provider
-                value={{ toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
+                value={readOnly ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
               <InlineSegments segments={tokenizeBlock(node.text)} />
             </BlockEditContext.Provider>
           </Tag>

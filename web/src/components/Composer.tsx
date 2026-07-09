@@ -16,7 +16,6 @@ export function Composer({ onSend, readOnly }: {
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
   const options = useTitleOptions(ac ? ac.query : null);
   const acRows = ac ? buildRows(options, ac.query) : [];
 
@@ -74,7 +73,7 @@ export function Composer({ onSend, readOnly }: {
                   onChange={onChange} onKeyDown={onKeyDown} />
         <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
       </div>
-      <input ref={fileRef} type="file" accept="image/*" aria-label="Add photo"
+      <input type="file" accept="image/*" aria-label="Add photo"
              className="composer-file" onChange={onPickFile} disabled={readOnly} />
       <button className="composer-send" onClick={send}
               disabled={readOnly || draft.trim() === ""}>

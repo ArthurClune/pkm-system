@@ -144,3 +144,10 @@ mark.highlight { background: #fff3b8; }
 .ws-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 100;
   background: #bf7326; color: #fff; text-align: center; padding: 4px 8px;
   font-size: 13px; }
+
+/* --- plan 5: editor --- */
+.block-input { flex: 1; width: 100%; font: inherit; color: inherit;
+  line-height: inherit; background: transparent; border: none; outline: none;
+  resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
+.block-row.focused { background: #f0f6fa; }
+.block-text { cursor: text; min-height: 1.5em; }

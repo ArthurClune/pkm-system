@@ -65,3 +65,24 @@ def run_query(expr: str, limit: int = 100, offset: int = 0,
             groups.append(group)
         group["items"].append({"uid": r["uid"], "text": r["text"]})
     return {"groups": groups, "total": total}
+
+
+@router.get("/api/titles")
+def titles(q: str = "", limit: int = 10,
+           db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """Page-title completion for the editor's [[ / # popup."""
+    limit = max(1, min(limit, 50))
+    needle = q.strip()
+    if not needle:
+        return {"titles": []}
+    esc = (needle.replace("\\", "\\\\")
+                 .replace("%", "\\%")
+                 .replace("_", "\\_"))
+    rows = db.execute(
+        r"""SELECT title FROM pages
+             WHERE title LIKE ? ESCAPE '\'
+             ORDER BY (CASE WHEN title LIKE ? ESCAPE '\' THEN 0 ELSE 1 END),
+                      length(title), title
+             LIMIT ?""",
+        (f"%{esc}%", f"{esc}%", limit)).fetchall()
+    return {"titles": [r["title"] for r in rows]}

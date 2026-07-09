@@ -95,3 +95,7 @@ export interface SearchPayload {
   pages: SearchPageHit[];
   blocks: SearchBlockHit[];
 }
+
+export interface TitlesPayload {
+  titles: string[];
+}

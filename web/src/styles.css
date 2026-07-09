@@ -135,3 +135,49 @@ mark.highlight { background: #fff3b8; }
   .main-pane { padding: 48px 16px 120px; }
   .sidebar { width: 100vw; }
 }
+
+/* --- plan 5: carry-forwards --- */
+.error-screen, .not-found { padding: 32px; }
+.journal-status { min-height: 1.5em; color: #8a9ba8; margin: 4px 0; }
+
+/* --- plan 5: sync --- */
+.ws-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: #bf7326; color: #fff; text-align: center; padding: 4px 8px;
+  font-size: 13px; }
+
+/* --- plan 5: editor --- */
+.block-input { flex: 1; width: 100%; font: inherit; color: inherit;
+  line-height: inherit; background: transparent; border: none; outline: none;
+  resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
+.block-row.focused { background: #f0f6fa; }
+.block-text { cursor: text; min-height: 1.5em; }
+
+/* --- plan 5: autocomplete --- */
+.block-input-wrap { position: relative; flex: 1; min-width: 0; }
+.ac-popup { position: absolute; top: 100%; left: 0; z-index: 50;
+  background: #fff; border: 1px solid #d3dbe1; border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(16, 22, 26, 0.15); min-width: 240px;
+  max-height: 40vh; overflow-y: auto; }
+.ac-row { padding: 4px 10px; cursor: pointer; }
+.ac-row.selected { background: #eef4f8; }
+
+/* --- plan 5: empty page/day affordance --- */
+.empty-page { display: block; width: 100%; text-align: left; color: #8a9ba8;
+  background: none; border: none; padding: 8px 0 24px; cursor: text;
+  font: inherit; }
+
+/* --- plan 5: phone composer --- */
+.composer { display: none; }
+@media (max-width: 600px) {
+  .composer { display: flex; gap: 8px; align-items: flex-end;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    padding: 8px; background: #fff; border-top: 1px solid #e1e8ed; }
+  .composer-input-wrap { position: relative; flex: 1; min-width: 0; }
+  .composer textarea { width: 100%; font: inherit; resize: none;
+    border: 1px solid #d3dbe1; border-radius: 6px; padding: 6px 8px; }
+  .composer .ac-popup { top: auto; bottom: 100%; }
+  .composer-file { max-width: 90px; }
+  .composer-send { border: 1px solid #d3dbe1; border-radius: 6px;
+    background: #f5f8fa; padding: 6px 12px; }
+  .main-pane { padding-bottom: 96px; }
+}

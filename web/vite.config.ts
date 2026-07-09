@@ -7,7 +7,7 @@ export default defineConfig({
   build: { assetsDir: "app-assets" },
   server: {
     proxy: {
-      "/api": "http://127.0.0.1:8974",
+      "/api": { target: "http://127.0.0.1:8974", ws: true },
       "/assets": "http://127.0.0.1:8974",
       "/login": "http://127.0.0.1:8974",
     },
@@ -16,5 +16,6 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["src/test-setup.ts"],
     globals: false,
+    exclude: ["e2e/**", "node_modules/**"],
   },
 });

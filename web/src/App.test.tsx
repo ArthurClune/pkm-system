@@ -49,3 +49,10 @@ it("cmd-k opens the search modal", async () => {
   fireEvent.keyDown(window, { key: "k", metaKey: true });
   expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
 });
+
+it("unknown route renders the not-found view", () => {
+  stubFetch([]);
+  render(<MemoryRouter initialEntries={["/definitely/not/a/route"]}><App /></MemoryRouter>);
+  expect(screen.getByText("Page not found")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Go to Daily Notes" })).toBeInTheDocument();
+});

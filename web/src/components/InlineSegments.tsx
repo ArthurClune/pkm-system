@@ -12,6 +12,17 @@ function isPdfAssetHref(href: string): boolean {
   return href.startsWith("/assets/") && href.toLowerCase().endsWith(".pdf");
 }
 
+/** Plan-4 carry-forward: [x](javascript:…) in block text must not become a
+ * clickable anchor. http(s), mailto, and site-relative (single-slash) only.
+ * Control chars are rejected outright (browsers strip tab/CR/LF before URL
+ * parsing, defeating prefix checks) and the second char after a leading /
+ * may not be / or \ (protocol-relative escapes). */
+function isSafeHref(href: string): boolean {
+  if (/[\u0000-\u001f]/.test(href)) return false;
+  if (/^(https?:|mailto:)/i.test(href)) return true;
+  return href.startsWith("/") && !/^\/[/\\]/.test(href);
+}
+
 export function InlineSegments({ segments, depth = 0 }:
     { segments: BlockSegment[]; depth?: number }) {
   return (
@@ -42,9 +53,9 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
     case "image":
       return <AssetImage src={seg.src} alt={seg.alt} />;
     case "link":
-      return isPdfAssetHref(seg.href)
-        ? <PdfEmbed href={seg.href} label={seg.text} />
-        : <a href={seg.href} target="_blank" rel="noreferrer">{seg.text}</a>;
+      if (isPdfAssetHref(seg.href)) return <PdfEmbed href={seg.href} label={seg.text} />;
+      if (!isSafeHref(seg.href)) return <>{seg.text}</>;
+      return <a href={seg.href} target="_blank" rel="noreferrer">{seg.text}</a>;
     case "bold":
       return <strong><InlineSegments segments={seg.children} depth={depth} /></strong>;
     case "italic":

@@ -74,6 +74,28 @@ it("renders images, pdf embeds for /assets/*.pdf links, and external links", () 
     .toHaveAttribute("target", "_blank");
 });
 
+it("javascript: links render as plain text, not anchors", () => {
+  // nested parens in the URL trip up the naive markdown-link scanner
+  // (unrelated pre-existing limitation), so keep this href paren-free.
+  renderText("[x](javascript:alert)");
+  expect(screen.getByText("x")).toBeInTheDocument();
+  expect(screen.queryByRole("link")).toBeNull();
+});
+
+it("relative and mailto links stay clickable", () => {
+  renderText("[m](mailto:a@b.c) [r](/assets/x/y.png)");
+  expect(screen.getByRole("link", { name: "m" })).toHaveAttribute("href", "mailto:a@b.c");
+  expect(screen.getByRole("link", { name: "r" })).toHaveAttribute("href", "/assets/x/y.png");
+});
+
+it("protocol-relative and escaped pseudo-relative hrefs render as plain text", () => {
+  // Browsers normalize \ to / and strip tab/CR/LF before URL parsing, so
+  // each of these would resolve to an external origin if left as an anchor.
+  const { container } = renderText("[a](//evil.com) [b](/\\evil.com) [c](/\t/evil.com)");
+  expect(container).toHaveTextContent("a b c");
+  expect(screen.queryByRole("link")).toBeNull();
+});
+
 it("shift-click calls the sidebar callback instead of navigating", () => {
   const openInSidebar = vi.fn();
   render(

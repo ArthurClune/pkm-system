@@ -2,6 +2,7 @@
 """WebSocket hub: committed op batches broadcast to every open client."""
 from __future__ import annotations
 
+import asyncio
 import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -10,6 +11,8 @@ from pkm.server.auth import COOKIE_NAME
 from pkm.server.auth_core import verify_session
 
 router = APIRouter()
+
+SEND_TIMEOUT = 1.0  # a stalled client is dropped, not waited on
 
 
 class Hub:
@@ -26,7 +29,8 @@ class Hub:
     async def broadcast(self, message: dict) -> None:
         for ws in list(self._conns):
             try:
-                await ws.send_json(message)
+                await asyncio.wait_for(ws.send_json(message),
+                                       timeout=SEND_TIMEOUT)
             except Exception:
                 self._conns.discard(ws)
 

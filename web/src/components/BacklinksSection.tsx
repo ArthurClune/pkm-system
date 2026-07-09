@@ -5,6 +5,7 @@ import type { BacklinkGroup, Backlinks, BlockRefText, PagePayload } from "../api
 import { BlockRefContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { encodeTitle } from "../paths";
+import { mergeGroups } from "./groups";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
 
@@ -25,7 +26,7 @@ export function BacklinksSection({ title, initial }:
       // bl pagination counts source pages; groups.length is the next offset.
       const p = await apiFetch<PagePayload>(
         `/api/page/${encodeTitle(title)}?bl_offset=${groups.length}&bl_limit=${initial.limit}`);
-      setGroups((g) => [...g, ...p.backlinks.groups]);
+      setGroups((g) => mergeGroups(g, p.backlinks.groups));
       setExtraRefTexts((m) => ({ ...m, ...p.block_ref_texts }));
     } catch (e: unknown) {
       setError(String(e));

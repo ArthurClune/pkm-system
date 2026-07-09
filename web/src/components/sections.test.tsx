@@ -58,6 +58,32 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
 });
 
+it("backlinks show-more merges batches from the same source page", async () => {
+  const groupA = {
+    page_id: 9, page_title: "Src",
+    items: [{ uid: "s1", text: "one", breadcrumbs: [] }],
+  };
+  const groupAmore = {
+    page_id: 9, page_title: "Src",
+    items: [{ uid: "s2", text: "two", breadcrumbs: [] }],
+  };
+  const backlinksInitial: Backlinks =
+    { groups: [groupA], total_pages: 2, offset: 0, limit: 1 };
+  stubFetch([
+    ["/api/page/T?bl_offset=1", pagePayload("T", [],
+      { backlinks: { groups: [groupAmore], total_pages: 2, offset: 1, limit: 1 } })],
+  ]);
+  render(
+    <MemoryRouter>
+      <BacklinksSection title="T" initial={backlinksInitial} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+  expect(await screen.findByText("two")).toBeInTheDocument();
+  // one group heading, not two duplicate-keyed groups
+  expect(screen.getAllByText("Src")).toHaveLength(1);
+});
+
 it("shows an error and re-enables the button when show-more fails", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));

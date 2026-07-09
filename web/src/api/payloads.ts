@@ -15,6 +15,7 @@ export interface BlockNode {
   text: string;
   heading: number | null;
   collapsed: boolean;
+  order_idx: number;
   created_at: number | null;
   updated_at: number | null;
   children: BlockNode[];
@@ -93,4 +94,8 @@ export interface SearchBlockHit {
 export interface SearchPayload {
   pages: SearchPageHit[];
   blocks: SearchBlockHit[];
+}
+
+export interface TitlesPayload {
+  titles: string[];
 }

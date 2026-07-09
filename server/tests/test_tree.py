@@ -22,3 +22,9 @@ def test_build_tree_nests_and_sorts():
 def test_collect_block_ref_uids():
     texts = ["see ((abc123XYZ)) and ((abc123XYZ))", "plain", "((zz99_-foo))"]
     assert collect_block_ref_uids(texts) == ["abc123XYZ", "zz99_-foo"]
+
+
+def test_build_tree_exposes_order_idx():
+    tree = build_tree(ROWS)
+    assert [n["order_idx"] for n in tree] == [0, 1, 0]
+    assert tree[1]["children"][0]["order_idx"] == 0

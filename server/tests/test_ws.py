@@ -1,5 +1,25 @@
+import asyncio
+
 import pytest
 from starlette.websockets import WebSocketDisconnect
+
+
+class _GoodWS:
+    def __init__(self):
+        self.sent = []
+
+    async def send_json(self, message):
+        self.sent.append(message)
+
+
+class _RaisingWS:
+    async def send_json(self, message):
+        raise RuntimeError("client gone")
+
+
+class _StallingWS:
+    async def send_json(self, message):
+        await asyncio.sleep(60)
 
 
 def test_ws_requires_auth(anon_client):
@@ -36,3 +56,15 @@ def test_failed_batch_broadcasts_nothing(client):
         assert ok.status_code == 200
         # first message received is the SECOND (successful) batch
         assert ws.receive_json()["client_id"] == "sender-2"
+
+
+def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
+    from pkm.server import ws as ws_module
+    monkeypatch.setattr(ws_module, "SEND_TIMEOUT", 0.05)
+    hub = ws_module.Hub()
+    good, raising, stalling = _GoodWS(), _RaisingWS(), _StallingWS()
+    for conn in (raising, stalling, good):
+        hub._conns.add(conn)
+    asyncio.run(hub.broadcast({"ok": 1}))
+    assert good.sent == [{"ok": 1}]
+    assert hub._conns == {good}

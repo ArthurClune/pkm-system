@@ -15,6 +15,7 @@ export interface BlockNode {
   text: string;
   heading: number | null;
   collapsed: boolean;
+  order_idx: number;
   created_at: number | null;
   updated_at: number | null;
   children: BlockNode[];

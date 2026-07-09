@@ -4,6 +4,26 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>pkm</title>
+    <script>
+      // Anti-flash: stamp the persisted theme onto <html> before first
+      // paint. Only handles explicit "light"/"dark" -- plain "system" (or
+      // no stored value, or localStorage unavailable) needs no JS at all,
+      // since styles.css's @media (prefers-color-scheme: dark) block
+      // already renders the right palette on first paint by itself.
+      // Keep this in sync with THEME_STORAGE_KEY in src/theme.ts and the
+      // attribute contract in src/useTheme.ts.
+      (function () {
+        try {
+          var stored = localStorage.getItem("pkm:theme");
+          if (stored === "light" || stored === "dark") {
+            document.documentElement.setAttribute("data-theme", stored);
+          }
+        } catch (e) {
+          // localStorage unavailable (private mode / disabled): fall back
+          // to the system media query, same as the React shell does.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

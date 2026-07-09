@@ -68,6 +68,49 @@ export class FakeWebSocket {
   drop() { this.onclose?.(); }
 }
 
+/** Controllable stand-in for a MediaQueryList; jsdom has no real
+ * matchMedia. Installed globally (quiet, "light") in test-setup; tests that
+ * care about the OS theme call stubMatchMedia() again for a fresh, drivable
+ * instance. */
+export class FakeMediaQueryList {
+  matches: boolean;
+  media = "(prefers-color-scheme: dark)";
+  private listeners = new Set<(e: { matches: boolean }) => void>();
+
+  constructor(matches: boolean) { this.matches = matches; }
+
+  addEventListener(_type: string, listener: (e: { matches: boolean }) => void) {
+    this.listeners.add(listener);
+  }
+
+  removeEventListener(_type: string, listener: (e: { matches: boolean }) => void) {
+    this.listeners.delete(listener);
+  }
+
+  // --- test driver ---
+  simulateChange(matches: boolean) {
+    this.matches = matches;
+    this.listeners.forEach((fn) => fn({ matches }));
+  }
+}
+
+export function stubMatchMedia(initialMatches = false): FakeMediaQueryList {
+  const mql = new FakeMediaQueryList(initialMatches);
+  vi.stubGlobal("matchMedia", vi.fn(() => mql));
+  return mql;
+}
+
+/** In-memory Storage stand-in. Node 26's own (experimental, flag-gated)
+ * global `localStorage` shadows jsdom's real implementation in this repo's
+ * test environment, making the bare global undefined -- see test-setup.ts. */
+export class FakeLocalStorage {
+  private store = new Map<string, string>();
+  getItem(key: string): string | null { return this.store.get(key) ?? null; }
+  setItem(key: string, value: string): void { this.store.set(key, String(value)); }
+  removeItem(key: string): void { this.store.delete(key); }
+  clear(): void { this.store.clear(); }
+}
+
 export interface SyncFake extends Sync {
   sent: BlockOp[][];
   emit(batch: WsBatch): void;

@@ -166,6 +166,22 @@ button { font: inherit; }
   border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 2px; }
 .nav-sidebar-entries .nav-link { display: block; }
 .nav-sidebar-error { font-size: 13px; margin-top: 8px; }
+.nav-sidebar-edit-toggle { font-size: 12px; color: var(--color-text-muted);
+  align-self: flex-start; padding: 2px 0; }
+.nav-sidebar-entry { display: flex; align-items: center; justify-content: space-between;
+  gap: 4px; }
+.nav-sidebar-entry-controls { display: flex; gap: 2px; flex-shrink: 0; }
+.nav-sidebar-entry-controls button { width: 20px; height: 20px; line-height: 1;
+  font-size: 12px; color: var(--color-text-secondary); background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border); border-radius: 3px; cursor: pointer; padding: 0; }
+.nav-sidebar-entry-controls button:disabled { opacity: 0.35; cursor: default; }
+.nav-sidebar-entry-controls button:hover:not(:disabled) { color: var(--color-text); }
+.nav-sidebar-add { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.nav-sidebar-add input { font: inherit; padding: 4px 6px; border: 1px solid var(--color-border-input);
+  border-radius: 3px; background: var(--color-bg); color: var(--color-text); }
+.nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px;
+  border: 1px solid var(--color-border-input); border-radius: 3px; background: var(--color-bg-subtle);
+  color: var(--color-text); cursor: pointer; }
 .main-pane { flex: 1; min-width: 0; max-width: 800px; margin: 0 auto;
   padding: 24px 32px 120px; }
 .page-title { font-size: 26px; margin: 0 0 12px; }

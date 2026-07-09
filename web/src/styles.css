@@ -151,3 +151,12 @@ mark.highlight { background: #fff3b8; }
   resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
 .block-row.focused { background: #f0f6fa; }
 .block-text { cursor: text; min-height: 1.5em; }
+
+/* --- plan 5: autocomplete --- */
+.block-input-wrap { position: relative; flex: 1; min-width: 0; }
+.ac-popup { position: absolute; top: 100%; left: 0; z-index: 50;
+  background: #fff; border: 1px solid #d3dbe1; border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(16, 22, 26, 0.15); min-width: 240px;
+  max-height: 40vh; overflow-y: auto; }
+.ac-row { padding: 4px 10px; cursor: pointer; }
+.ac-row.selected { background: #eef4f8; }

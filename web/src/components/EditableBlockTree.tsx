@@ -8,6 +8,9 @@ import type { BlockNode } from "../api/payloads";
 import type { FocusTarget } from "../outline/edits";
 import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
+import { applyCompletion, detectAutocomplete,
+         type AcContext } from "../outline/autocomplete";
+import { AutocompletePopup, buildRows, useTitleOptions } from "./AutocompletePopup";
 import { InlineSegments } from "./InlineSegments";
 
 export interface OutlineHandlers {
@@ -98,7 +101,12 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   handlers: OutlineHandlers; readOnly: boolean;
 }) {
   const [draft, setDraft] = useState(node.text);
+  const [ac, setAc] = useState<AcContext | null>(null);
+  const [acSelected, setAcSelected] = useState(0);
+  const [caret, setCaret] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const options = useTitleOptions(ac ? ac.query : null);
+  const acRows = ac ? buildRows(options, ac.query) : [];
 
   // Take focus + place the cursor once on mount (this component exists only
   // while its block is the focused one).
@@ -119,15 +127,59 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     el.style.height = `${el.scrollHeight}px`;
   }, [draft]);
 
+  const setText = (text: string, cursorPos: number) => {
+    setDraft(text);
+    handlers.onDraftChange(node.uid, text);
+    // place the cursor after React commits the new value
+    requestAnimationFrame(() => {
+      ref.current?.setSelectionRange(cursorPos, cursorPos);
+    });
+  };
+
+  const pick = (row: { title: string }) => {
+    if (!ac) return;
+    const applied = applyCompletion(draft, caret, ac, row.title);
+    setAc(null);
+    setAcSelected(0);
+    setText(applied.text, applied.cursor);
+  };
+
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setDraft(e.target.value);
-    handlers.onDraftChange(node.uid, e.target.value);
+    const value = e.target.value;
+    const pos = e.target.selectionStart ?? value.length;
+    setDraft(value);
+    setCaret(pos);
+    setAcSelected(0);
+    setAc(detectAutocomplete(value, pos));
+    handlers.onDraftChange(node.uid, value);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
     const pos = el.selectionStart;
     const caretOnly = el.selectionStart === el.selectionEnd;
+    if (acRows.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setAcSelected((s) => Math.min(s + 1, acRows.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setAcSelected((s) => Math.max(s - 1, 0));
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pick(acRows[acSelected]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setAc(null);
+        return;
+      }
+    }
     if (e.key === "Escape") {
       el.blur();
       return;
@@ -175,10 +227,15 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   };
 
   return (
-    <textarea ref={ref} className="block-input" rows={1} value={draft}
-              readOnly={readOnly}
-              onChange={onChange} onKeyDown={onKeyDown}
-              onBlur={() => handlers.onBlurBlock(node.uid)}
-              onPaste={onPaste} onDrop={onDrop} />
+    <div className="block-input-wrap">
+      <textarea ref={ref} className="block-input" rows={1} value={draft}
+                readOnly={readOnly}
+                onChange={onChange} onKeyDown={onKeyDown}
+                onBlur={() => handlers.onBlurBlock(node.uid)}
+                onPaste={onPaste} onDrop={onDrop} />
+      {!readOnly && (
+        <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
+      )}
+    </div>
   );
 }

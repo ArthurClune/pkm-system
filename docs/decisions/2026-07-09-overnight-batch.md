@@ -87,3 +87,10 @@ reviewed later.
   Note: test-setup.ts now stubs matchMedia and localStorage per-test —
   Node 26's experimental localStorage global shadows jsdom's and returns
   undefined. 191 web tests + typecheck + build green.
+- **pkm-g356 dispatched with conflict-containment constraints.** Observed
+  that the jg1p session's branch now touches SidebarPanel.tsx directly
+  ("sidebar panels as drag-and-drop sources and targets"). Proceeding per
+  Arthur's pre-approval, but the agent must keep SidebarPanel.tsx as a thin
+  wrapper delegating to a new EditableSidebarPanel file and avoid
+  restructuring useOutline.ts, so the jg1p merge stays tractable. DnD
+  integration of editable panels goes to a follow-up bean.

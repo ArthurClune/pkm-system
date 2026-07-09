@@ -3,8 +3,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import type { JournalDay, JournalPayload } from "../api/payloads";
-import { BlockTree } from "../components/BlockTree";
 import { pagePath } from "../paths";
+import { useResync } from "../sync/SyncProvider";
+import { EditablePage } from "./EditablePage";
 
 const BATCH = 5;
 const MAX_EMPTY_BATCHES = 3;
@@ -49,6 +50,15 @@ export function Journal() {
   useEffect(() => { void loadMore(); }, [loadMore]);
   useEffect(() => { document.title = "Daily Notes — pkm"; }, []);
 
+  const reset = useCallback(() => {
+    daysRef.current = [];
+    setDays([]);
+    emptyStreakRef.current = 0;
+    setAutoLoad(true);
+    void loadMore();
+  }, [loadMore]);
+  useResync(reset);
+
   useEffect(() => {
     if (!autoLoad) return;
     const el = sentinelRef.current;
@@ -67,9 +77,7 @@ export function Journal() {
           <h1 className="page-title">
             <Link to={pagePath(day.title)}>{day.title}</Link>
           </h1>
-          {day.exists && day.blocks.length > 0
-            ? <BlockTree blocks={day.blocks} />
-            : <p className="empty-day">No notes</p>}
+          <EditablePage title={day.title} initial={day.blocks} />
         </section>
       ))}
       {error && <p className="error">{error}</p>}

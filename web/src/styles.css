@@ -160,3 +160,8 @@ mark.highlight { background: #fff3b8; }
   max-height: 40vh; overflow-y: auto; }
 .ac-row { padding: 4px 10px; cursor: pointer; }
 .ac-row.selected { background: #eef4f8; }
+
+/* --- plan 5: empty page/day affordance --- */
+.empty-page { display: block; width: 100%; text-align: left; color: #8a9ba8;
+  background: none; border: none; padding: 8px 0 24px; cursor: text;
+  font: inherit; }

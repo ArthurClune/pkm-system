@@ -60,7 +60,7 @@ it("renders the first batch newest-first and loads older days on intersect", asy
   expect(await screen.findByRole("link", { name: "July 8th, 2026" }))
     .toHaveAttribute("href", "/page/July%208th%2C%202026");
   expect(screen.getByText("entry 2026-07-06")).toBeInTheDocument();
-  expect(screen.getAllByText("No notes").length).toBe(2);
+  expect(screen.getAllByRole("button", { name: /start writing/i }).length).toBe(2);
 
   intersect();
   expect(await screen.findByRole("link", { name: "July 3rd, 2026" })).toBeInTheDocument();

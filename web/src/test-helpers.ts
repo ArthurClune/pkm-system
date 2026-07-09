@@ -1,5 +1,8 @@
 import { vi } from "vitest";
+import type { BlockOp } from "./api/ops";
 import type { BlockNode, PagePayload } from "./api/payloads";
+import type { WsBatch } from "./sync/socket";
+import type { Sync, SyncStatus } from "./sync/SyncProvider";
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -63,4 +66,22 @@ export class FakeWebSocket {
   open() { this.onopen?.(); }
   message(body: unknown) { this.onmessage?.({ data: JSON.stringify(body) }); }
   drop() { this.onclose?.(); }
+}
+
+export interface SyncFake extends Sync {
+  sent: BlockOp[][];
+  emit(batch: WsBatch): void;
+}
+
+export function makeSync(status: SyncStatus = "connected"): SyncFake {
+  const subs = new Set<(b: WsBatch) => void>();
+  const sent: BlockOp[][] = [];
+  return {
+    status,
+    resyncSeq: 0,
+    enqueue: (ops) => { sent.push(ops); },
+    subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
+    sent,
+    emit: (batch) => subs.forEach((fn) => fn(batch)),
+  };
 }

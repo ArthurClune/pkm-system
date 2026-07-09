@@ -38,7 +38,7 @@ export function PageView() {
       <article className="page">
         <h1 className="page-title">{payload.page.title}</h1>
         <EditablePage key={payload.page.title} title={payload.page.title}
-                      initial={payload.blocks} />
+                      initial={payload.blocks} composer />
       </article>
       <BacklinksSection key={`bl-${title}`} title={title} initial={payload.backlinks} />
       <UnlinkedSection key={`ul-${title}`} title={title} />

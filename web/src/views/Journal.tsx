@@ -72,12 +72,14 @@ export function Journal() {
 
   return (
     <div className="journal">
-      {days.map((day) => (
+      {days.map((day, i) => (
         <section className="journal-day" key={day.date}>
           <h1 className="page-title">
             <Link to={pagePath(day.title)}>{day.title}</Link>
           </h1>
-          <EditablePage title={day.title} initial={day.blocks} />
+          {/* the first loaded day is today by construction */}
+          <EditablePage title={day.title} initial={day.blocks}
+                        composer={i === 0} />
         </section>
       ))}
       {error && <p className="error">{error}</p>}

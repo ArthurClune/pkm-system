@@ -91,6 +91,21 @@ def test_move_cycle_against_db_chain(db):
     db.rollback()
 
 
+def test_set_heading_updates_and_clears(db):
+    apply_batch(db, _batch(
+        {"op": "set_heading", "uid": "uid_b2", "heading": 1},
+    ), NOW)
+    db.commit()
+    assert db.execute("SELECT heading FROM blocks WHERE uid='uid_b2'"
+                      ).fetchone()[0] == 1
+    apply_batch(db, _batch(
+        {"op": "set_heading", "uid": "uid_b2", "heading": None},
+    ), NOW)
+    db.commit()
+    assert db.execute("SELECT heading FROM blocks WHERE uid='uid_b2'"
+                      ).fetchone()[0] is None
+
+
 def test_op_error_index_reports_failing_op(db):
     with pytest.raises(OpError) as e:
         apply_batch(db, _batch(

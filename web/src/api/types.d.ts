@@ -313,7 +313,7 @@ export interface components {
             /** Client Id */
             client_id: string;
             /** Ops */
-            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"])[];
+            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"])[];
         };
         /** SetCollapsedOp */
         SetCollapsedOp: {
@@ -326,6 +326,18 @@ export interface components {
             uid: string;
             /** Collapsed */
             collapsed: boolean;
+        };
+        /** SetHeadingOp */
+        SetHeadingOp: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "set_heading";
+            /** Uid */
+            uid: string;
+            /** Heading */
+            heading?: number | null;
         };
         /** UpdateTextOp */
         UpdateTextOp: {

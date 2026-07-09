@@ -146,3 +146,9 @@ export function setCollapsed(blocks: BlockNode[], pageTitle: string,
   return done(blocks, pageTitle,
               [{ op: "set_collapsed", uid, collapsed }], null);
 }
+
+export function setHeading(blocks: BlockNode[], pageTitle: string,
+                           uid: string, heading: number | null): EditResult {
+  if (!findNode(blocks, uid)) return noop(blocks);
+  return done(blocks, pageTitle, [{ op: "set_heading", uid, heading }], null);
+}

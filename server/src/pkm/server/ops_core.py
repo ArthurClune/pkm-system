@@ -47,8 +47,15 @@ class SetCollapsedOp(BaseModel):
     collapsed: bool
 
 
+class SetHeadingOp(BaseModel):
+    op: Literal["set_heading"]
+    uid: str
+    heading: int | None = Field(default=None, ge=1, le=3)
+
+
 BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
-                          SetCollapsedOp], Field(discriminator="op")]
+                          SetCollapsedOp, SetHeadingOp],
+                    Field(discriminator="op")]
 
 
 class OpBatch(BaseModel):
@@ -121,6 +128,12 @@ class SetCollapsed:
 
 
 @dataclass(frozen=True)
+class SetHeading:
+    uid: str
+    heading: int | None
+
+
+@dataclass(frozen=True)
 class ReindexRefs:
     uid: str
     text: str
@@ -132,7 +145,7 @@ class TouchPage:
 
 
 Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
-               DeleteBlocks, SetCollapsed, ReindexRefs, TouchPage]
+               DeleteBlocks, SetCollapsed, SetHeading, ReindexRefs, TouchPage]
 
 
 def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
@@ -172,5 +185,8 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                 TouchPage(ctx.block.page_id))
     if isinstance(op, DeleteOp):
         return (DeleteBlocks(ctx.subtree), TouchPage(ctx.block.page_id))
-    # SetCollapsedOp (the discriminated union admits nothing else)
-    return (SetCollapsed(op.uid, op.collapsed), TouchPage(ctx.block.page_id))
+    if isinstance(op, SetCollapsedOp):
+        return (SetCollapsed(op.uid, op.collapsed),
+                TouchPage(ctx.block.page_id))
+    # SetHeadingOp (the discriminated union admits nothing else)
+    return (SetHeading(op.uid, op.heading), TouchPage(ctx.block.page_id))

@@ -777,6 +777,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SetCollapsedOp"
+                },
+                {
+                  "$ref": "#/components/schemas/SetHeadingOp"
                 }
               ],
               "discriminator": {
@@ -786,6 +789,7 @@
                   "delete": "#/components/schemas/DeleteOp",
                   "move": "#/components/schemas/MoveOp",
                   "set_collapsed": "#/components/schemas/SetCollapsedOp",
+                  "set_heading": "#/components/schemas/SetHeadingOp",
                   "update_text": "#/components/schemas/UpdateTextOp"
                 }
               }
@@ -826,6 +830,38 @@
           "collapsed"
         ],
         "title": "SetCollapsedOp"
+      },
+      "SetHeadingOp": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "const": "set_heading",
+            "title": "Op"
+          },
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "op",
+          "uid"
+        ],
+        "title": "SetHeadingOp"
       },
       "UpdateTextOp": {
         "properties": {

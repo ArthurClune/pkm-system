@@ -46,6 +46,17 @@ describe("detectAutocomplete", () => {
     expect(detectAutocomplete("/py ", 4)).toBeNull();
     expect(detectAutocomplete("/py-thon", 8)).toBeNull();
   });
+
+  test("digits after a leading letter still trigger (for /h1, /h2, /h3)", () => {
+    expect(detectAutocomplete("/h1", 3)).toEqual({ kind: "command", start: 1, query: "h1" });
+    expect(detectAutocomplete("/h", 2)).toEqual({ kind: "command", start: 1, query: "h" });
+    expect(detectAutocomplete("hello /h2", 9)).toEqual({ kind: "command", start: 7, query: "h2" });
+  });
+
+  test("a leading digit does not trigger (quiet in dates/numbers)", () => {
+    expect(detectAutocomplete("a /2020 budget", 7)).toBeNull();
+    expect(detectAutocomplete("/1", 2)).toBeNull();
+  });
 });
 
 describe("applyCompletion", () => {

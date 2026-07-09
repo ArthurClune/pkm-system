@@ -10,8 +10,8 @@ function handlers(): OutlineHandlers {
     onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftChange: vi.fn(),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveUp: vi.fn(), onMoveDown: vi.fn(), onBackspaceAtStart: vi.fn(),
-    onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onToggleTodo: vi.fn(),
-    onFiles: vi.fn(),
+    onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
+    onToggleTodo: vi.fn(), onFiles: vi.fn(),
   };
 }
 
@@ -214,6 +214,54 @@ test("a non-matching slash query shows no rows and Enter falls through to split"
   expect(screen.queryByRole("listbox")).toBeNull();
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onSplit).toHaveBeenCalledWith("u1", 4);
+});
+
+test("typing /h1 shows the heading rows; Enter strips the trigger and dispatches onSetHeading", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "hello [[World]] /h1" } });
+  ta.setSelectionRange(19, 19);
+  expect(screen.getByRole("option", { name: "Heading 1" })).toBeInTheDocument();
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "hello [[World]] ");
+  expect(h.onSetHeading).toHaveBeenCalledWith("u1", 1);
+  expect(screen.queryByRole("listbox")).toBeNull();
+});
+
+test("/h1 on a block that is already h1 toggles back to plain text", () => {
+  const h = handlers();
+  const heading1 = [block("u1", "hello [[World]]", { order_idx: 0, heading: 1 })];
+  render(
+    <MemoryRouter>
+      <EditableBlockTree blocks={heading1} focus={{ uid: "u1", cursor: 0 }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "hello [[World]] /h1" } });
+  ta.setSelectionRange(19, 19);
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onSetHeading).toHaveBeenCalledWith("u1", null);
+});
+
+test("/normal always clears the heading, even from plain text", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/normal" } });
+  ta.setSelectionRange(7, 7);
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onSetHeading).toHaveBeenCalledWith("u1", null);
+});
+
+test("non-heading commands never call onSetHeading", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/py" } });
+  ta.setSelectionRange(3, 3);
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onSetHeading).not.toHaveBeenCalled();
 });
 
 test("collapsed children are hidden", () => {

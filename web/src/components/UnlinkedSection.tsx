@@ -15,9 +15,11 @@ export function UnlinkedSection({ title }: { title: string }) {
   const [total, setTotal] = useState<number | null>(null);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = async (from: number) => {
     setLoading(true);
+    setError(null);
     try {
       const p = await apiFetch<GroupsPayload>(
         `/api/unlinked?title=${encodeURIComponent(title)}&limit=${PAGE_SIZE}&offset=${from}`);
@@ -25,6 +27,8 @@ export function UnlinkedSection({ title }: { title: string }) {
       setTotal(p.total);
       // /api/unlinked paginates by blocks: advance by items received.
       setOffset(from + p.groups.reduce((n, gr) => n + gr.items.length, 0));
+    } catch (e: unknown) {
+      setError(String(e));
     } finally {
       setLoading(false);
     }
@@ -56,6 +60,7 @@ export function UnlinkedSection({ title }: { title: string }) {
               ))}
             </div>
           ))}
+          {error && <p className="error">{error}</p>}
           {total !== null && offset < total && (
             <button className="show-more" onClick={() => void load(offset)} disabled={loading}>
               {loading ? "Loading…" : "Show more"}

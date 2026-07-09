@@ -14,6 +14,15 @@ export function titleFromPathname(pathname: string): string {
   return pathname
     .replace(/^\/page\//, "")
     .split("/")
-    .map(decodeURIComponent)
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        // Malformed percent-encoding (e.g. a hand-typed "/page/100%") would
+        // otherwise throw a URIError during render; fall back to the raw
+        // segment rather than crashing the whole app.
+        return segment;
+      }
+    })
     .join("/");
 }

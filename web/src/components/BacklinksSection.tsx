@@ -15,16 +15,20 @@ export function BacklinksSection({ title, initial }:
   const [extraRefTexts, setExtraRefTexts] =
     useState<Record<string, BlockRefText>>({});
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const hasMore = groups.length < initial.total_pages;
 
   const loadMore = async () => {
     setLoading(true);
+    setError(null);
     try {
       // bl pagination counts source pages; groups.length is the next offset.
       const p = await apiFetch<PagePayload>(
         `/api/page/${encodeTitle(title)}?bl_offset=${groups.length}&bl_limit=${initial.limit}`);
       setGroups((g) => [...g, ...p.backlinks.groups]);
       setExtraRefTexts((m) => ({ ...m, ...p.block_ref_texts }));
+    } catch (e: unknown) {
+      setError(String(e));
     } finally {
       setLoading(false);
     }
@@ -49,6 +53,7 @@ export function BacklinksSection({ title, initial }:
             ))}
           </div>
         ))}
+        {error && <p className="error">{error}</p>}
         {hasMore && (
           <button className="show-more" onClick={() => void loadMore()} disabled={loading}>
             {loading ? "Loading…" : "Show more"}

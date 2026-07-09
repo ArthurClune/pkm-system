@@ -58,6 +58,19 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
 });
 
+it("shows an error and re-enables the button when show-more fails", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
+  render(
+    <MemoryRouter>
+      <BacklinksSection title="Machine Learning" initial={initial} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /show more/i }));
+  expect(await screen.findByText(/500/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /show more/i })).not.toBeDisabled();
+});
+
 it("unlinked references fetch lazily on first open and paginate", async () => {
   const fetchMock = stubFetch([
     ["/api/unlinked?title=Machine%20Learning&limit=20&offset=1", {
@@ -82,4 +95,28 @@ it("unlinked references fetch lazily on first open and paginate", async () => {
   fireEvent.click(screen.getByRole("button", { name: /show more/i }));
   expect(await screen.findByText(/épilogue/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
+});
+
+it("shows an error and re-enables the button when unlinked show-more fails", async () => {
+  let calls = 0;
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(JSON.stringify({
+        groups: [{ page_id: 2, page_title: "AI", items: [
+          { uid: "uid_u1", text: "AI overview mentions Machine Learning" }] }],
+        total: 2,
+      }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+  }));
+  render(
+    <MemoryRouter>
+      <UnlinkedSection title="Machine Learning" />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  fireEvent.click(await screen.findByRole("button", { name: /show more/i }));
+  expect(await screen.findByText(/500/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /show more/i })).not.toBeDisabled();
 });

@@ -113,9 +113,16 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     setBlocks(blocksRef.current);
     if (needsRefetch) {
       // we are the target of a cross-page move: the op carries no block
-      // content, so adopt the authoritative tree
-      void apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`)
-        .then((p) => { blocksRef.current = p.blocks; setBlocks(p.blocks); })
+      // content, so adopt the authoritative tree. Wait for our own queue to
+      // drain first — fetching immediately can race a local optimistic edit
+      // enqueued in this window and silently overwrite it on screen.
+      void sync.idle()
+        .then(() => apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`))
+        .then((p) => {
+          blocksRef.current = p.blocks;
+          setBlocks(p.blocks);
+          setFocus((f) => (f && findNode(p.blocks, f.uid) ? f : null));
+        })
         .catch(() => undefined); // next resync will repair
     }
   }), [sync, pageTitle]);

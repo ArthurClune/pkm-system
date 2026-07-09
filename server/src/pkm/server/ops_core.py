@@ -34,6 +34,9 @@ class MoveOp(BaseModel):
     uid: str
     parent_uid: str | None   # required but nullable: null = top level
     order_idx: int
+    # cross-page target when parent_uid is null; must agree with the
+    # parent's page when parent_uid is set. None = stay on current page.
+    page_title: str | None = Field(default=None, min_length=1)
 
 
 class DeleteOp(BaseModel):
@@ -76,7 +79,7 @@ class OpContext:
     page_id: int | None = None            # create: resolved target page
     parent: BlockInfo | None = None       # create/move: target parent row
     parent_chain: tuple[str, ...] = ()    # move: target parent + its ancestors
-    subtree: tuple[str, ...] = ()         # delete: op.uid subtree, deepest first
+    subtree: tuple[str, ...] = ()         # delete/move: op.uid subtree (delete: deepest first)
 
 
 @dataclass(frozen=True)
@@ -131,8 +134,14 @@ class TouchPage:
     page_id: int
 
 
+@dataclass(frozen=True)
+class SetPageId:
+    uids: tuple[str, ...]
+    page_id: int
+
+
 Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
-               DeleteBlocks, SetCollapsed, ReindexRefs, TouchPage]
+               DeleteBlocks, SetCollapsed, ReindexRefs, TouchPage, SetPageId]
 
 
 def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
@@ -163,13 +172,22 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         if op.parent_uid is not None:
             if ctx.parent is None:
                 raise OpError(index, f"parent not found: {op.parent_uid}")
-            if ctx.parent.page_id != ctx.block.page_id:
-                raise OpError(index, "cross-page move is not supported")
+            if ctx.page_id is not None and ctx.page_id != ctx.parent.page_id:
+                raise OpError(index, "page_title does not match parent's page")
             if op.uid in ctx.parent_chain:
                 raise OpError(index, "move would create a cycle")
-        return (ShiftSiblings(ctx.block.page_id, op.parent_uid, op.order_idx),
-                SetParent(op.uid, op.parent_uid, op.order_idx),
-                TouchPage(ctx.block.page_id))
+            target_page = ctx.parent.page_id
+        else:
+            target_page = (ctx.page_id if ctx.page_id is not None
+                           else ctx.block.page_id)
+        effects: list[Effect] = [
+            ShiftSiblings(target_page, op.parent_uid, op.order_idx),
+            SetParent(op.uid, op.parent_uid, op.order_idx)]
+        if target_page != ctx.block.page_id:
+            effects.append(SetPageId(ctx.subtree, target_page))
+            effects.append(TouchPage(ctx.block.page_id))
+        effects.append(TouchPage(target_page))
+        return tuple(effects)
     if isinstance(op, DeleteOp):
         return (DeleteBlocks(ctx.subtree), TouchPage(ctx.block.page_id))
     # SetCollapsedOp (the discriminated union admits nothing else)

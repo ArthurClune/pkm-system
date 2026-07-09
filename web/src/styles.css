@@ -181,3 +181,14 @@ mark.highlight { background: #fff3b8; }
     background: #f5f8fa; padding: 6px 12px; }
   .main-pane { padding-bottom: 96px; }
 }
+
+/* --- plan 6/7: block drag-and-drop --- */
+.drop-indicator {
+  position: absolute;
+  right: 0;
+  height: 0;
+  border-top: 2px solid #4a9eda;
+  pointer-events: none;
+  z-index: 5;
+}
+.bullet[draggable="true"] { cursor: grab; }

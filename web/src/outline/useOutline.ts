@@ -191,6 +191,9 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
         });
       })();
     },
+    // overridden by EditablePage (which knows the drag-source page title);
+    // kept here only so this object satisfies OutlineHandlers on its own.
+    onDragStartBlock: () => undefined,
   }), [run, flushNow, pageTitle]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({

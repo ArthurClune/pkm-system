@@ -38,3 +38,29 @@ export function pagePayload(title: string, blocks: BlockNode[],
     ...over,
   };
 }
+
+/** WebSocket stub installed globally in test-setup: quiet by default (never
+ * opens); tests drive instances via FakeWebSocket.instances. */
+export class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  url: string;
+  sent: string[] = [];
+  closedByApp = false;
+  onopen: (() => void) | null = null;
+  onmessage: ((ev: { data: string }) => void) | null = null;
+  onclose: (() => void) | null = null;
+
+  constructor(url: string) {
+    this.url = url;
+    FakeWebSocket.instances.push(this);
+  }
+
+  send(data: string) { this.sent.push(data); }
+
+  close() { this.closedByApp = true; this.onclose?.(); }
+
+  // --- test drivers ---
+  open() { this.onopen?.(); }
+  message(body: unknown) { this.onmessage?.({ data: JSON.stringify(body) }); }
+  drop() { this.onclose?.(); }
+}

@@ -139,3 +139,8 @@ mark.highlight { background: #fff3b8; }
 /* --- plan 5: carry-forwards --- */
 .error-screen, .not-found { padding: 32px; }
 .journal-status { min-height: 1.5em; color: #8a9ba8; margin: 4px 0; }
+
+/* --- plan 5: sync --- */
+.ws-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: #bf7326; color: #fff; text-align: center; padding: 4px 8px;
+  font-size: 13px; }

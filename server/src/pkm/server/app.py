@@ -52,6 +52,9 @@ def create_app(config: Config) -> FastAPI:
             # still hitting these prefixes is a miss, not a client-side route.
             if full_path.split("/", 1)[0] in ("api", "assets", "app-assets"):
                 raise HTTPException(status_code=404, detail="not found")
-            return FileResponse(index_html)
+            # index.html references hashed bundle filenames, so it must be
+            # revalidated on every request or browsers keep serving stale
+            # bundle references after a deploy.
+            return FileResponse(index_html, headers={"Cache-Control": "no-cache"})
 
     return app

@@ -18,6 +18,8 @@ export interface Sync {
   enqueue(ops: BlockOp[]): void;
   /** Remote batches only — own echoes are filtered out here. */
   subscribe(fn: (batch: WsBatch) => void): () => void;
+  /** Resolves once nothing is pending or in flight in the op queue. */
+  idle(): Promise<void>;
 }
 
 export const SyncContext = createContext<Sync>({
@@ -28,6 +30,7 @@ export const SyncContext = createContext<Sync>({
     throw new Error("enqueue called outside <SyncProvider>");
   },
   subscribe: () => () => undefined,
+  idle: () => Promise.resolve(),
 });
 
 export function useSync(): Sync {
@@ -82,6 +85,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       subsRef.current.add(fn);
       return () => { subsRef.current.delete(fn); };
     },
+    idle: () => queue.idle(),
   }), [status, resyncSeq, queue]);
 
   return <SyncContext.Provider value={api}>{children}</SyncContext.Provider>;

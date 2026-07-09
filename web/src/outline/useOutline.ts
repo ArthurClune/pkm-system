@@ -3,17 +3,21 @@
 // debounce, and the wiring between pure edit commands, the op queue, and
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BlockNode } from "../api/payloads";
+import { apiFetch } from "../api/client";
+import type { PagePayload, BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { OutlineHandlers } from "../components/EditableBlockTree";
+import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
+import { encodeTitle } from "../paths";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
          outdentBlock, setCollapsed, splitBlock,
          type EditResult, type FocusTarget } from "./edits";
-import { applyOps, findNode, visibleNeighbor } from "./tree";
+import { applyOps, findNode, insertSubtree, removeSubtree,
+         visibleNeighbor } from "./tree";
 
 const TEXT_DEBOUNCE_MS = 500;
 
@@ -22,6 +26,7 @@ export interface Outline {
   focus: FocusTarget | null;
   readOnly: boolean;
   handlers: OutlineHandlers;
+  dnd: OutlineDndApi;
   createFirstBlock(): void;
   appendBlock(text: string): void;
 }
@@ -98,10 +103,21 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   // block being typed in are skipped — the local draft wins on its next
   // flush (per-block last-write-wins).
   useEffect(() => sync.subscribe((batch) => {
+    const needsRefetch = batch.ops.some((op) =>
+      op.op === "move" && op.page_title != null &&
+      op.page_title === pageTitle &&
+      !findNode(blocksRef.current, op.uid));
     const ops = batch.ops.filter((op) =>
       !(op.op === "update_text" && op.uid === focusRef.current?.uid));
     blocksRef.current = applyOps(blocksRef.current, ops, pageTitle);
     setBlocks(blocksRef.current);
+    if (needsRefetch) {
+      // we are the target of a cross-page move: the op carries no block
+      // content, so adopt the authoritative tree
+      void apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`)
+        .then((p) => { blocksRef.current = p.blocks; setBlocks(p.blocks); })
+        .catch(() => undefined); // next resync will repair
+    }
   }), [sync, pageTitle]);
 
   const handlers = useMemo<OutlineHandlers>(() => ({
@@ -170,6 +186,28 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     },
   }), [run, flushNow, pageTitle]);
 
+  const dnd = useMemo<OutlineDndApi>(() => ({
+    moveTo: (uid, target) => run((b) => {
+      const ops: BlockOp[] = [{ op: "move", uid,
+        parent_uid: target.parent_uid, order_idx: target.order_idx }];
+      return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
+    }),
+    removeSubtreeLocal: (uid) => {
+      flushNow();
+      const { tree, node } = removeSubtree(blocksRef.current, uid);
+      if (!node) return null;
+      blocksRef.current = tree;
+      setBlocks(tree);
+      setFocus((f) => (f && findNode(tree, f.uid) ? f : null));
+      return node;
+    },
+    insertSubtreeLocal: (node, target) => {
+      blocksRef.current = insertSubtree(
+        blocksRef.current, node, target.parent_uid, target.order_idx);
+      setBlocks(blocksRef.current);
+    },
+  }), [run, flushNow, pageTitle]);
+
   const createFirstBlock = useCallback(() => {
     run((b) => {
       if (b.length > 0) return { blocks: b, ops: [], focus: null };
@@ -198,6 +236,7 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     focus,
     readOnly: sync.status !== "connected",
     handlers,
+    dnd,
     createFirstBlock,
     appendBlock,
   };

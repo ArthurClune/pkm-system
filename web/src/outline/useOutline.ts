@@ -80,6 +80,17 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     run((b) => ({ blocks: b, ops: [], focus: null }));
   }, [run]);
 
+  // A hidden tab can be killed without blur ever firing (the one real
+  // data-loss window): flush the draft as soon as the tab hides.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushNow();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibility);
+  }, [flushNow]);
+
   // Remote batches: the same applyOps as local edits. Text updates for the
   // block being typed in are skipped — the local draft wins on its next
   // flush (per-block last-write-wins).

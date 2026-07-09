@@ -94,6 +94,7 @@ export function SearchModal({ open, onClose }:
     <div className="modal-overlay" onClick={onClose}>
       <div className="search-modal" onClick={(e) => e.stopPropagation()}>
         <input ref={inputRef} className="search-input" placeholder="Search…"
+               aria-label="Search"
                value={query} onKeyDown={onKeyDown}
                onChange={(e) => setQuery(e.target.value)} />
         <ul className="search-results">

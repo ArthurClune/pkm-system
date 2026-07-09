@@ -12,6 +12,16 @@ interface SidebarEntry {
   title: string;
 }
 
+function NotFound() {
+  return (
+    <div className="not-found">
+      <h1>Page not found</h1>
+      <p>No app route matches this address.</p>
+      <Link to="/">Go to Daily Notes</Link>
+    </div>
+  );
+}
+
 export function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
@@ -58,6 +68,7 @@ export function App() {
           <Routes>
             <Route path="/" element={<Journal />} />
             <Route path="/page/*" element={<PageView />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
         {stack.length > 0 && (

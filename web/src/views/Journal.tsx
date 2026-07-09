@@ -13,6 +13,7 @@ export function Journal() {
   const [days, setDays] = useState<JournalDay[]>([]);
   const [autoLoad, setAutoLoad] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   // Refs, not state, so the IntersectionObserver callback never goes stale.
   const daysRef = useRef<JournalDay[]>([]);
   const emptyStreakRef = useRef(0);
@@ -22,6 +23,7 @@ export function Journal() {
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
+    setLoading(true);
     try {
       const current = daysRef.current;
       const oldest = current[current.length - 1]?.date;
@@ -40,6 +42,7 @@ export function Journal() {
       setAutoLoad(false);
     } finally {
       loadingRef.current = false;
+      setLoading(false);
     }
   }, []);
 
@@ -70,6 +73,9 @@ export function Journal() {
         </section>
       ))}
       {error && <p className="error">{error}</p>}
+      <p className="journal-status" role="status" aria-live="polite">
+        {loading ? "Loading more days…" : ""}
+      </p>
       {autoLoad
         ? <div ref={sentinelRef} className="journal-sentinel" />
         : (

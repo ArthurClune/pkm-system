@@ -135,3 +135,7 @@ mark.highlight { background: #fff3b8; }
   .main-pane { padding: 48px 16px 120px; }
   .sidebar { width: 100vw; }
 }
+
+/* --- plan 5: carry-forwards --- */
+.error-screen, .not-found { padding: 32px; }
+.journal-status { min-height: 1.5em; color: #8a9ba8; margin: 4px 0; }

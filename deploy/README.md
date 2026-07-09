@@ -25,22 +25,26 @@ creation — an existing `config.json` and database are left alone.
    renders both launchd plists from the templates in this directory, and
    loads them with `launchctl bootstrap`). It also configures Tailscale
    Serve to forward HTTPS on the tailnet to the local server port.
-2. If `$PKM_HOME/data/config.json` doesn't exist yet, create it:
+2. Build the web app (required before first startup):
+   ```bash
+   cd "$PKM_HOME/app/web" && pnpm install --frozen-lockfile && pnpm build
+   ```
+3. If `$PKM_HOME/data/config.json` doesn't exist yet, create it:
    ```
    cd "$PKM_HOME/app/server" && uv run python -m pkm.server.setup \
-     --data-dir "$PKM_HOME/data" --web-dist ../web/dist
+     --data-dir "$PKM_HOME/data" --web-dist ../app/web/dist
    ```
    This prompts for the app password and writes `config.json` (mode 0600)
    with the password hash, session secret, and `web_dist`.
-3. Add the `bind_hosts` line `install.sh` printed (loopback + your
+4. Add the `bind_hosts` line `install.sh` printed (loopback + your
    Tailscale IP) to `config.json` by hand — `setup.py` doesn't know your
    Tailscale IP, so this line isn't written automatically:
    ```json
    "bind_hosts": ["127.0.0.1", "100.x.y.z"],
    ```
-4. Restart the server so it picks up the new config:
+5. Restart the server so it picks up the new config:
    `launchctl kickstart -k "gui/$UID/com.$USER.pkm.server"`.
-5. Run `deploy/smoke.sh` to verify the install end-to-end.
+6. Run `deploy/smoke.sh` to verify the install end-to-end.
 
 ## Updating
 

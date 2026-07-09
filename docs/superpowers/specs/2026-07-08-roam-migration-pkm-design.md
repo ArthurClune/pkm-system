@@ -435,3 +435,84 @@ on the branch before merge and are NOT carried forward.
   TODO-then-`Attr::` interaction unspecified (attribute parses only at
   block start, matching `refs.py`); Roam never emits the odd forms — note
   them in plan 5's grammar work if it touches the tokenizer.
+
+### Frontend-edit smoke findings (plan 5)
+
+Smoked 2026-07-09 against a SQLite-backup scratch copy of the real graph
+(server on :8976, built SPA, real Chrome via agent-browser; two parallel
+authenticated clients). Real DB integrity: pre-counts 4314 pages /
+52695 blocks, post-counts identical, file mtime unchanged (never opened
+for writing — the backup source connection was opened `mode=ro`).
+`data/smoke-scratch/` removed after the run.
+
+What was exercised, and how it felt:
+
+- **Journal home:** today auto-created on first load. `[[Pap` popped the
+  autocomplete over the full 4.3k-title corpus instantly (one debounced
+  `GET /api/titles?q=Pap`, no perceptible latency); prefix matches ranked
+  first with the New-page row last. Enter-accept, Enter-split,
+  Tab-indent, and Alt-↑ reorder all behaved, with focus retained after
+  structural ops.
+- **Heavy page (`Paper`, 372 linked refs):** page body editable
+  immediately; 20 synthetic keystrokes handled in 1.3ms total (drafts are
+  local — no tree re-render per keystroke). Backlinks render lazily in
+  paginated groups with "Show more"; whole page is ~1.3k DOM nodes.
+  The journal block written minutes earlier containing `[[Paper]]`
+  already appeared in the backlinks (371→372) under today's group.
+- **Largest page (`UoS/VP Research Strategy Group`, 692 blocks):**
+  ~2.1k DOM nodes; typing mid-outline produced zero long tasks (>50ms)
+  through the 500ms debounce flush window. The `React.memo`/
+  virtualization fallback contemplated by the plan is not needed at this
+  graph's scale.
+- **Two clients:** an edit in client 1 appeared in client 2 in ~1s
+  (500ms flush + broadcast). Killing the server flipped both clients to
+  "Reconnecting… editing is paused" with textareas `readOnly`; restart
+  cleared the banner, resynced state, and editing + live sync resumed.
+- **Rejected batch:** hand-POSTed `set_collapsed` on a nonexistent uid →
+  400; normal editing afterwards stayed consistent.
+- **TODO + collapse:** a real `{{[[TODO]]}}` checkbox toggled to DONE and
+  a collapsed subtree both survived reload.
+- **Image paste:** pasted PNG uploaded to `POST /api/assets`, markdown
+  inserted, rendered inline; the file landed under the scratch
+  `assets/` dir (sharded by content hash), NOT the real assets dir; the
+  asset URL is session-auth-gated (cookie-less fetch → 401).
+- **Phone breakpoint (390px):** bottom composer appears with working
+  `[[` autocomplete and photo upload; the photo deduplicated to the same
+  content-hash asset as the earlier paste. Composer submit appended the
+  block to today.
+
+Surprises worth recording:
+
+- **Split-then-type remount race (automation speed only):** dispatching
+  keystrokes in the same instant as Enter (CDP types with zero
+  inter-key delay) landed the new text in the old block — the split's
+  focus handoff happens on the post-op remount, one frame later. With
+  ~300ms between Enter and typing the split is flawless every time.
+  Human typing cadence is unlikely to hit the window, and T13's e2e spec
+  already works around the same class (post-Tab focus race). Candidate
+  fix if it ever bites a fast typist: buffer keydowns during the
+  op-remount or move focus into a `useLayoutEffect`.
+- **Production websocket dependency (found in T13, confirmed here):**
+  plain uvicorn ships no websocket protocol library, so `/api/ws`
+  upgrades fail on a real server even though every TestClient suite
+  passes; `websockets>=13` is now a server dependency and this smoke's
+  real-uvicorn upgrades were all accepted.
+- The plan said 4,313 pages; the graph is now 4,314 (a day page created
+  since import) — noted so later counts don't look off-by-one.
+
+### Frontend-edit carry-forwards (plan 5 final review)
+
+- plan-3/6 carry-forward still open: asset upload size cap + mime
+  allowlist or `Content-Disposition`/`nosniff` hardening (deployment).
+- click-to-focus places the cursor at the block end, not under the
+  pointer (v1 simplification; caret-mapping is the known follow-up).
+- backlinks/unlinked sections are snapshots while editing the page above
+  them (refresh on navigation).
+- pending draft ops can be lost by closing the tab inside the 500ms
+  debounce window (blur/structural keys/navigation all flush;
+  `visibilitychange` flush is the cheap improvement).
+- journal desync/reconnect resets scroll to today (authoritative refetch
+  drops older loaded days).
+- split-then-type remount race above: same-frame keystrokes after Enter
+  can land in the pre-split block; only reachable at automation speed
+  today.

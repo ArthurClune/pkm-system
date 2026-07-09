@@ -370,7 +370,9 @@ main checkout).
   groups (default pagination), confirming the plan-3 note that Paper
   carries hundreds of real backlinks renders correctly through the read
   API with the frontend's expected shape (`groups`/`total_pages`/`offset`/
-  `limit`).
+  `limit`). (The plan-3 note counted 423 backlink *rows* for this page;
+  `total_pages: 371` counts *distinct backlinking pages* — different units,
+  not a discrepancy.)
 - **Journal auto-create observed (expected, sanctioned mutation):**
   `/api/journal?days=3` returned today's page (`2026-07-09`,
   "July 9th, 2026") with `exists: true` and an empty block list — this is
@@ -393,3 +395,43 @@ main checkout).
   and the responsive/phone breakpoints — was not exercised by this
   curl-only smoke and is deferred to manual use and to plan 5's Playwright
   smoke, which can drive an actual browser against this same real data.
+
+### Frontend-read carry-forwards (plan 4 final review)
+
+All plan-4 per-task minors were triaged by the final whole-branch review;
+everything below was judged safe to merge without and is deferred to plan 5.
+The two Important findings from that review (silent show-more pagination
+errors; whole-app white-screen on a malformed `/page/100%` URL) were fixed
+on the branch before merge and are NOT carried forward.
+
+- **Do EARLY in plan 5 — `openapi.json` drift guard:** nothing asserts the
+  committed `web/src/api/openapi.json` (source of the generated
+  `types.d.ts`) still matches `create_app(...).openapi()`. Plan 5 is
+  exactly when request models (`OpBatch`/`CreateOp` etc.) start changing,
+  so the generated types would go stale silently. Add a one-assert server
+  test (or CI diff step) comparing the dump to the live schema.
+- **Root `ErrorBoundary`:** the only identified render-throw source
+  (`decodeURIComponent` in `titleFromPathname`) was fixed pre-merge, but a
+  root boundary remains worthwhile defense-in-depth once plan 5 adds
+  editing state.
+- **URL-scheme allowlist on markdown-link hrefs**
+  (`web/src/components/InlineSegments.tsx`): `[x](javascript:…)` in block
+  text currently becomes a clickable anchor. Substantially mitigated
+  (`target="_blank" rel="noreferrer"`, single-author content), but an
+  `http(s)/mailto` prefix check makes the XSS story airtight.
+- **Client-side 404 route:** unknown app paths (`/foo`) get `index.html`
+  from the server catch-all, then render an empty main pane plus a
+  react-router console warning. Add a `<Route path="*">` not-found view.
+- **`mergeGroups` in `BacklinksSection` pagination:** backlink batches are
+  appended without merging by `page_id`, unlike unlinked/query sections —
+  duplicate React keys are possible only if the `updated_at DESC` ordering
+  shifts between clicks (near-impossible while the UI is read-only, real
+  once plan 5 writes land).
+- **Accessibility polish batch:** `aria-label` on the Cmd-K search input
+  and on the read-only TODO checkboxes; `aria-live` on the journal's
+  loading indicator.
+- **Grammar leniencies (documentation-only):** the TS tokenizer accepts
+  `{{TODO}}`/`{{[[TODO]]}}` bracket variants independently and leaves
+  TODO-then-`Attr::` interaction unspecified (attribute parses only at
+  block start, matching `refs.py`); Roam never emits the odd forms — note
+  them in plan 5's grammar work if it touches the tokenizer.

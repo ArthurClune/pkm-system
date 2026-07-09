@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 import { block, makeSync, stubFetch } from "../test-helpers";
+import { registerOutline } from "../outline/activeOutlines";
 import { SyncContext } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
 
@@ -146,4 +147,52 @@ test("draft for a remotely-deleted block is dropped, not flushed", () => {
   ] }));
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([]);
+});
+
+test("a page already active elsewhere in this tab renders read-only", () => {
+  // Simulates a second instance for the same title (e.g. the page is also
+  // open in a sidebar panel): the newcomer must not offer an editable
+  // textarea, since two live editors of one page in this tab can't see
+  // each other's edits (see outline/activeOutlines.ts).
+  const release = registerOutline("Page");
+  try {
+    mount();
+    fireEvent.click(screen.getByText("first"));
+    expect(screen.queryByRole("textbox")).toBeNull();
+  } finally {
+    release();
+  }
+});
+
+test("the read-only fallback still reflects genuinely remote batches", () => {
+  const release = registerOutline("Page");
+  try {
+    const sync = mount();
+    act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+      { op: "create", uid: "r1", page_title: "Page", parent_uid: null,
+        order_idx: 2, text: "from elsewhere" },
+    ] }));
+    expect(screen.getByText("from elsewhere")).toBeInTheDocument();
+  } finally {
+    release();
+  }
+});
+
+test("once the first instance unmounts, a freshly mounted one becomes editable again", () => {
+  const sync = makeSync();
+  const first = render(
+    <MemoryRouter>
+      <SyncContext.Provider value={sync}>
+        <EditablePage title="Page" initial={[block("u1", "first", { order_idx: 0 })]} />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  first.unmount();
+  render(
+    <MemoryRouter>
+      <SyncContext.Provider value={sync}>
+        <EditablePage title="Page" initial={[block("u1", "first", { order_idx: 0 })]} />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  fireEvent.click(screen.getByText("first"));
+  expect(screen.getByRole("textbox")).toBeInTheDocument();
 });

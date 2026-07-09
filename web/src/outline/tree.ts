@@ -106,6 +106,8 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
     found.node.text = op.text;
   } else if (op.op === "set_collapsed") {
     found.node.collapsed = op.collapsed;
+  } else if (op.op === "set_heading") {
+    found.node.heading = op.heading ?? null;
   } else if (op.op === "delete") {
     found.siblings.splice(found.index, 1);
   } else { // move — order_idx counted BEFORE the moved block is removed

@@ -10,9 +10,11 @@ export interface AcContext {
 }
 
 const PLAIN_TAG_RE = /^[A-Za-z0-9_/-]+$/;
-// Letters only: a space or punctuation after the "/" closes the command menu
+// Must start with a letter (so a bare "/2020" in prose stays quiet) but may
+// be followed by digits (so "/h1", "/h2", "/h3" keep the menu open); any
+// other punctuation or whitespace after the "/" closes the command menu
 // (this also keeps it quiet inside URLs and path-like text, see below).
-const SLASH_QUERY_RE = /^[A-Za-z]*$/;
+const SLASH_QUERY_RE = /^([A-Za-z][A-Za-z0-9]*)?$/;
 
 export function detectAutocomplete(text: string,
                                    cursor: number): AcContext | null {

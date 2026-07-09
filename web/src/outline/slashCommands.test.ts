@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { applySlashCommand, matchSlashCommands, SLASH_COMMANDS } from "./slashCommands";
+import { applySlashCommand, matchSlashCommands, resolveHeading,
+         SLASH_COMMANDS } from "./slashCommands";
 
 describe("matchSlashCommands", () => {
   test("empty query returns the full list", () => {
@@ -65,5 +66,51 @@ describe("applySlashCommand: /todo", () => {
     expect(applySlashCommand(content, content.length,
                              { kind: "command", start: content.length - 4, query: "todo" }, "todo"))
       .toEqual({ text: "{{TODO}} buy milk ", cursor: 18 });
+  });
+});
+
+describe("applySlashCommand: /h1 /h2 /h3 /normal", () => {
+  test("just strips the trigger — the heading field is set via a separate op", () => {
+    expect(applySlashCommand("buy milk /h1", 12,
+                             { kind: "command", start: 10, query: "h1" }, "h1"))
+      .toEqual({ text: "buy milk ", cursor: 9 });
+    expect(applySlashCommand("/h2", 3, { kind: "command", start: 1, query: "h2" }, "h2"))
+      .toEqual({ text: "", cursor: 0 });
+    expect(applySlashCommand("/normal", 7,
+                             { kind: "command", start: 1, query: "normal" }, "normal"))
+      .toEqual({ text: "", cursor: 0 });
+  });
+});
+
+describe("matchSlashCommands: heading commands are listed", () => {
+  test("h1/h2/h3/normal all appear in the static list", () => {
+    const names = SLASH_COMMANDS.map((c) => c.name);
+    expect(names).toEqual(expect.arrayContaining(["h1", "h2", "h3", "normal"]));
+  });
+
+  test("prefix match narrows to the heading commands", () => {
+    expect(matchSlashCommands("h").map((c) => c.name)).toEqual(["h1", "h2", "h3"]);
+  });
+});
+
+describe("resolveHeading", () => {
+  test("non-heading commands resolve to undefined (no heading op to dispatch)", () => {
+    expect(resolveHeading("python", null)).toBeUndefined();
+    expect(resolveHeading("text", 1)).toBeUndefined();
+  });
+
+  test("sets the target heading when the block isn't already that heading", () => {
+    expect(resolveHeading("h1", null)).toBe(1);
+    expect(resolveHeading("h2", 1)).toBe(2);
+  });
+
+  test("toggles back to plain text when the block is already that heading", () => {
+    expect(resolveHeading("h1", 1)).toBeNull();
+    expect(resolveHeading("h3", 3)).toBeNull();
+  });
+
+  test("/normal always clears, never toggles", () => {
+    expect(resolveHeading("normal", null)).toBeNull();
+    expect(resolveHeading("normal", 2)).toBeNull();
   });
 });

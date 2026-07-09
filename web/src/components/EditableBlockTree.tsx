@@ -10,7 +10,8 @@ import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { applyCompletion, detectAutocomplete,
          type AcContext } from "../outline/autocomplete";
-import { applySlashCommand, matchSlashCommands } from "../outline/slashCommands";
+import { applySlashCommand, matchSlashCommands,
+         resolveHeading } from "../outline/slashCommands";
 import { AutocompletePopup, buildRows, useTitleOptions,
          type AcRow } from "./AutocompletePopup";
 import { InlineSegments } from "./InlineSegments";
@@ -30,6 +31,7 @@ export interface OutlineHandlers {
   onBackspaceAtStart(uid: string): void;
   onArrow(uid: string, dir: "up" | "down" | "left" | "right"): void;
   onToggleCollapsed(uid: string, collapsed: boolean): void;
+  onSetHeading(uid: string, heading: number | null): void;
   onToggleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
 }
@@ -151,6 +153,14 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     setAc(null);
     setAcSelected(0);
     setText(applied.text, applied.cursor);
+    // Heading commands (/h1 /h2 /h3 /normal) aren't text transforms: the
+    // trigger is stripped above like any other command, but the heading
+    // field itself is set via a dedicated op, dispatched here against the
+    // block's current heading so picking the active one toggles it off.
+    if (row.command) {
+      const heading = resolveHeading(row.command, node.heading);
+      if (heading !== undefined) handlers.onSetHeading(node.uid, heading);
+    }
   };
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

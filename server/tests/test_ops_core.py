@@ -4,9 +4,9 @@ from pydantic import ValidationError
 from pkm.server.ops_core import (BlockInfo, BlockOp, CreateOp, DeleteBlocks,
                                  DeleteOp, InsertBlock, MoveOp, OpBatch,
                                  OpContext, OpError, ReindexRefs,
-                                 SetCollapsed, SetCollapsedOp, SetParent,
-                                 ShiftSiblings, TouchPage, UpdateText,
-                                 UpdateTextOp, plan_op)
+                                 SetCollapsed, SetCollapsedOp, SetHeading,
+                                 SetHeadingOp, SetParent, ShiftSiblings,
+                                 TouchPage, UpdateText, UpdateTextOp, plan_op)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 
@@ -103,6 +103,26 @@ def test_plan_delete_and_collapse():
                                      collapsed=True),
                    OpContext(block=BlockInfo("uid_b2", 1, None))) == (
         SetCollapsed("uid_b2", True), TouchPage(1))
+
+
+def test_plan_set_heading():
+    assert plan_op(0, SetHeadingOp(op="set_heading", uid="uid_b2", heading=2),
+                   OpContext(block=BlockInfo("uid_b2", 1, None))) == (
+        SetHeading("uid_b2", 2), TouchPage(1))
+    # clearing back to plain text
+    assert plan_op(0, SetHeadingOp(op="set_heading", uid="uid_b2", heading=None),
+                   OpContext(block=BlockInfo("uid_b2", 1, None))) == (
+        SetHeading("uid_b2", None), TouchPage(1))
+    with pytest.raises(OpError, match="block not found"):
+        plan_op(0, SetHeadingOp(op="set_heading", uid="ghost99", heading=1),
+                OpContext())
+
+
+def test_set_heading_op_rejects_out_of_range():
+    with pytest.raises(ValidationError):
+        SetHeadingOp(op="set_heading", uid="uid_b2", heading=5)
+    with pytest.raises(ValidationError):
+        SetHeadingOp(op="set_heading", uid="uid_b2", heading=0)
 
 
 def test_op_error_carries_index():

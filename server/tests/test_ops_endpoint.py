@@ -53,6 +53,18 @@ def test_move_and_collapse_roundtrip(client):
     assert page["blocks"][2]["children"] == []
 
 
+def test_set_heading_via_endpoint(client):
+    r = _post(client, {"op": "set_heading", "uid": "uid_b2", "heading": 2})
+    assert r.status_code == 200
+    page = client.get("/api/page/Machine Learning").json()
+    assert page["blocks"][1]["heading"] == 2
+
+
+def test_set_heading_rejects_out_of_range(client):
+    r = _post(client, {"op": "set_heading", "uid": "uid_b2", "heading": 5})
+    assert r.status_code == 422
+
+
 def test_delete_subtree_via_endpoint(client):
     assert _post(client, {"op": "delete", "uid": "uid_b2"}).status_code == 200
     page = client.get("/api/page/Machine Learning").json()

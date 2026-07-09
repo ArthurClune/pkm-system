@@ -12,6 +12,7 @@ from pkm.server.routes_assets import router as assets_router
 from pkm.server.routes_ops import router as ops_router
 from pkm.server.routes_pages import router as pages_router
 from pkm.server.routes_search import router as search_router
+from pkm.server.routes_sidebar import router as sidebar_router
 from pkm.server.ws import Hub, router as ws_router
 
 
@@ -33,6 +34,7 @@ def create_app(config: Config) -> FastAPI:
     app.include_router(ops_router)
     app.include_router(pages_router)
     app.include_router(search_router)
+    app.include_router(sidebar_router)
     app.include_router(assets_router)
     app.include_router(ws_router)
 

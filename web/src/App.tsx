@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
 import { ReconnectBanner } from "./components/ReconnectBanner";
 import { SearchModal } from "./components/SearchModal";
+import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { SidebarContext } from "./contexts";
 import { SyncProvider } from "./sync/SyncProvider";
@@ -71,6 +72,7 @@ export function App() {
                     onClick={() => { setNavOpen(false); setSearchOpen(true); }}>
               Search
             </button>
+            <SidebarNav onNavigate={() => setNavOpen(false)} />
           </nav>
           <main className="main-pane">
             <Routes>

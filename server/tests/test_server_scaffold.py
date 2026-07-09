@@ -49,3 +49,21 @@ def test_open_db_sets_pragmas(tmp_path):
     con.execute("INSERT INTO t VALUES (1)")
     assert con.execute("SELECT a FROM t").fetchone()["a"] == 1  # Row factory
     con.close()
+
+
+def test_open_db_backfills_sidebar_entries_on_legacy_db(tmp_path):
+    # Simulate a database created before sidebar_entries existed: run only
+    # the original tables' DDL, without sidebar_entries.
+    path = tmp_path / "legacy.sqlite3"
+    legacy = sqlite3.connect(path)
+    legacy.execute("CREATE TABLE pages(id INTEGER PRIMARY KEY, title TEXT)")
+    legacy.commit()
+    legacy.close()
+
+    con = open_db(path)
+    names = {r[0] for r in con.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert "sidebar_entries" in names
+    con.execute("INSERT INTO sidebar_entries(title, order_idx) VALUES ('AI', 0)")
+    con.commit()
+    con.close()

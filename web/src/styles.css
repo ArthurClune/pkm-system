@@ -17,10 +17,15 @@ button { font: inherit; }
 /* layout */
 .app { display: flex; min-height: 100vh; }
 .left-nav { width: 200px; flex-shrink: 0; padding: 16px; background: #f5f8fa;
-  border-right: 1px solid #e1e8ed; display: flex; flex-direction: column; gap: 8px; }
+  border-right: 1px solid #e1e8ed; display: flex; flex-direction: column; gap: 8px;
+  overflow-y: auto; }
 .nav-title { font-weight: 700; margin-bottom: 8px; }
 .nav-link { background: none; border: none; padding: 4px 0; text-align: left;
   color: #106ba3; cursor: pointer; }
+.nav-sidebar-entries { list-style: none; margin: 8px 0 0; padding: 8px 0 0;
+  border-top: 1px solid #e1e8ed; display: flex; flex-direction: column; gap: 2px; }
+.nav-sidebar-entries .nav-link { display: block; }
+.nav-sidebar-error { font-size: 13px; margin-top: 8px; }
 .main-pane { flex: 1; min-width: 0; max-width: 800px; margin: 0 auto;
   padding: 24px 32px 120px; }
 .page-title { font-size: 26px; margin: 0 0 12px; }

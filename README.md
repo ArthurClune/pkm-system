@@ -37,8 +37,9 @@ single-user graph never uses) for:
   text is stored as unmodified Roam-flavoured markdown, so nothing is locked
   into this app either.
 
-The full rationale, data model, API design and rejected alternatives are in
-the **[design document](docs/superpowers/specs/2026-07-08-roam-migration-pkm-design.md)**.
+The **[design document](docs/design.md)** gives the high-level architecture
+and the load-bearing decisions, linking through to the detailed specs and
+implementation plans.
 
 ## Repository layout
 
@@ -135,9 +136,8 @@ backup and restore procedures.
 
 ## Documentation
 
-- **[Design document](docs/superpowers/specs/2026-07-08-roam-migration-pkm-design.md)**
-  — goals, requirements, data model, API and sync design, rejected
-  alternatives
+- **[Design document](docs/design.md)** — high-level architecture and key
+  decisions, linking to the detailed specs and plans in `docs/superpowers/`
 - **[Deployment guide](deploy/README.md)** — install, update, backups, restore,
   troubleshooting
 - `docs/superpowers/plans/` — the implementation plans each phase was built

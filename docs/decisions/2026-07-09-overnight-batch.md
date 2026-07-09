@@ -56,3 +56,6 @@ reviewed later.
 ## Log
 
 (appended as the run progresses)
+- **pkm-r1wy merged** (d4a265b). Guard verified safely with stubbed
+  git/uv/pnpm/launchctl — no real prod command was executed during testing.
+  190 backend tests pass.

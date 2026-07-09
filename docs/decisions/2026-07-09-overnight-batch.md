@@ -68,3 +68,12 @@ reviewed later.
   deferred to new bean pkm-kiip — there is no writable op path for
   `heading` on existing blocks and we chose not to add a server op in this
   batch. 174 web tests + typecheck pass.
+- **pkm-as55 merged.** New `sidebar_entries` table; no migration runner
+  exists in this project, so the DDL is `CREATE TABLE IF NOT EXISTS` re-run
+  on every `open_db()` — existing/prod DBs pick it up automatically.
+  `GET /api/sidebar` + left-nav list UI (read-only; management UI is new
+  bean pkm-4wbu). The 22 entries were imported into the LIVE database
+  (pre-approved): tested on a backup-API copy first, then run for real —
+  inserted 22/22 in order, re-run confirmed idempotent (0 inserted), page
+  and block counts unchanged, server process untouched. Wave 1 integrated
+  suites: 181 web + 201 server tests + typecheck all green.

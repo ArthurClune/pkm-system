@@ -17,7 +17,13 @@ def test_tables_exist(db):
     names = {r[0] for r in db.execute(
         "SELECT name FROM sqlite_master WHERE type IN ('table','view')")}
     assert {"pages", "blocks", "refs", "assets",
-            "blocks_fts", "pages_fts"} <= names
+            "blocks_fts", "pages_fts", "sidebar_entries"} <= names
+
+
+def test_sidebar_entries_title_is_unique(db):
+    db.execute("INSERT INTO sidebar_entries(title, order_idx) VALUES ('AI', 0)")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute("INSERT INTO sidebar_entries(title, order_idx) VALUES ('AI', 1)")
 
 
 def test_fts_triggers_track_blocks(db):

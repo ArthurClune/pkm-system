@@ -469,6 +469,26 @@
         }
       }
     },
+    "/api/sidebar": {
+      "get": {
+        "summary": "Get Sidebar",
+        "operationId": "get_sidebar_api_sidebar_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Sidebar Api Sidebar Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/assets/{sha256}/{filename}": {
       "get": {
         "summary": "Get Asset",

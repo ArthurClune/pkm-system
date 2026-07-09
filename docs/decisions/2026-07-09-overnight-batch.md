@@ -108,3 +108,20 @@ reviewed later.
   being implemented next, sequenced because both regenerate OpenAPI types:
   pkm-kiip (heading slash commands, needs a SetHeading op) then pkm-4wbu
   (sidebar entry management UI). pkm-auvy remains blocked by pkm-jg1p.
+- **pkm-kiip merged.** New SetHeadingOp (modelled on SetCollapsedOp),
+  OpenAPI regenerated; /h1 /h2 /h3 with toggle-off plus /normal; slash
+  regex now allows digits after a leading letter. Note: ops_core.py will
+  need a small conflict resolution when pkm-jg1p merges (both touch the
+  op union).
+- **pkm-4wbu merged — batch complete.** POST/DELETE/PUT /api/sidebar with
+  pure permutation validation; quiet "Edit" toggle in the nav reveals
+  add/remove/↑↓ controls, refetch-after-write, dark-safe via existing CSS
+  vars. Flagged (not fixed): duplicate detection is exact-match on trimmed
+  title — case variants would be accepted as distinct.
+- **Final state:** 8 beans completed and merged (pkm-r1wy, pkm-bz6n,
+  pkm-j5n6, pkm-as55, pkm-pthk, pkm-g356, pkm-kiip, pkm-4wbu). Remaining:
+  pkm-jg1p (other session, in progress) and pkm-auvy (blocked by jg1p).
+  Full verification on final main: 225 web + 224 server tests, typecheck,
+  build, 2/2 Playwright e2e — all green. Prod NOT deployed, per decision;
+  run ~/.config/pkm/app/deploy/update.sh to ship (the new guard will now
+  refuse the dev-checkout footgun). All worktrees cleaned up.

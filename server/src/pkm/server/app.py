@@ -18,11 +18,13 @@ from pkm.server.ws import Hub, router as ws_router
 
 
 def create_app(config: Config) -> FastAPI:
-    # init_db() is idempotent and cheap (one WAL pragma + an IF-NOT-EXISTS
-    # migration), so calling it here makes WAL mode + migrations
-    # un-forgettable for any entrypoint or direct create_app(config) call
-    # that serves DB routes, rather than relying on every caller
-    # remembering to run it first (run.py used to be the only such call).
+    # init_db() is idempotent and cheap (one WAL pragma + the fully
+    # IF-NOT-EXISTS base schema, see schema.py), so calling it here makes
+    # WAL mode + a working schema un-forgettable for any entrypoint or
+    # direct create_app(config) call that serves DB routes -- including a
+    # brand-new data dir that never had an import run against it
+    # (pkm-cqu2) -- rather than relying on every caller remembering to run
+    # it first (run.py used to be the only such call).
     init_db(config.db_path)
     app = FastAPI(
         title="pkm", docs_url=None, redoc_url=None, openapi_url=None

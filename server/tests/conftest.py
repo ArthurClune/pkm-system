@@ -1,7 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from pkm.schema import DDL
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
@@ -38,9 +37,8 @@ SEED_REFS = [
 @pytest.fixture()
 def seeded_config(tmp_path) -> Config:
     db_path = tmp_path / "pkm.sqlite3"
-    init_db(db_path)  # WAL + migrations, once, before any open_db() call
+    init_db(db_path)  # WAL mode + base schema, once, before any open_db() call
     con = open_db(db_path)
-    con.executescript(DDL)
     con.executemany("INSERT INTO pages VALUES (?,?,?,?)", SEED_PAGES)
     con.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)", SEED_BLOCKS)
     con.executemany("INSERT INTO refs VALUES (?,?,?)", SEED_REFS)

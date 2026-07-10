@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import Request
 
-from pkm.schema import SIDEBAR_ENTRIES_DDL
+from pkm.schema import DDL
 from pkm.server.config import Config
 
 
@@ -20,20 +20,26 @@ BUSY_TIMEOUT_MS = 5000
 
 def init_db(path: Path) -> None:
     """One-time, idempotent database setup: switch to WAL journal mode and
-    apply schema migrations. Call this once at process startup (serve
+    apply the base schema. Call this once at process startup (serve
     entrypoints) or from test fixtures, before any connection-per-request
     is opened — never from open_db() itself. Both operations here take
     locks that are incompatible with any other connection's open write
     transaction, so running them per-request (the pre-pkm-lhzd behavior)
-    could raise 'database is locked' on an ordinary concurrent request."""
+    could raise 'database is locked' on an ordinary concurrent request.
+
+    schema.DDL is entirely IF-NOT-EXISTS (pkm-cqu2), so running it here is
+    safe for every database this can be pointed at: a brand-new, empty
+    data dir (no Roam import ever run -- previously left with zero
+    tables, so every page route 500'd with 'no such table: pages'), a
+    database the importer already built (same DDL, so this is a no-op),
+    and a pre-pkm-lhzd already-populated database missing a table added
+    since (e.g. sidebar_entries), which picks it up with no manual
+    migration step. There is no migration runner in this project (see
+    schema.py) beyond this idempotent-replay strategy."""
     con = sqlite3.connect(path)
     try:
         con.execute("PRAGMA journal_mode=WAL")
-        # No migration runner in this project (see schema.py) — ensure
-        # tables added after a database was first created exist, so
-        # already-populated (e.g. production) databases pick them up with
-        # no manual step.
-        con.executescript(SIDEBAR_ENTRIES_DDL)
+        con.executescript(DDL)
         con.commit()
     finally:
         con.close()

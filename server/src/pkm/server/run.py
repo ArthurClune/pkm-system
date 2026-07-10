@@ -44,8 +44,9 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(Path(args.data_dir) / "config.json")
     hosts = args.hosts if args.hosts else list(config.bind_hosts)
     sockets = bind_sockets(hosts, args.port)
-    # create_app() runs init_db() (WAL + migrations) itself, so serving is
-    # never accidentally started against a non-WAL/non-migrated database.
+    # create_app() runs init_db() (WAL mode + base schema) itself, so
+    # serving is never accidentally started against a non-WAL or
+    # schema-less (e.g. brand-new, never-imported) database.
     server = uvicorn.Server(uvicorn.Config(create_app(config), port=args.port))
     server.run(sockets=sockets)
     return 0

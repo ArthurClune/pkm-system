@@ -50,6 +50,22 @@ def test_init_db_sets_wal_mode(tmp_path):
     con.close()
 
 
+def test_create_app_initializes_db_without_an_explicit_init_db_call(tmp_path):
+    # pkm-2939: create_app() must run init_db() itself, so a future
+    # entrypoint (or a direct create_app(config) call) that forgets the
+    # by-convention init_db()-before-serve step still gets WAL mode and
+    # migrations rather than silently serving against a raw/legacy db.
+    config = _config(tmp_path)
+    assert not config.db_path.exists()
+    create_app(config)
+    con = sqlite3.connect(config.db_path)
+    assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    names = {r[0] for r in con.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert "sidebar_entries" in names
+    con.close()
+
+
 def test_open_db_sets_connection_local_pragmas_only(tmp_path):
     # open_db() must not touch WAL/DDL (see test_db_concurrency.py for
     # why) - it only sets pragmas scoped to this connection.

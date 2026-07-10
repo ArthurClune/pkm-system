@@ -180,6 +180,46 @@
             }
           }
         }
+      },
+      "delete": {
+        "summary": "Delete Page",
+        "description": "Deletes the page, its blocks, and any sidebar entry for it. Inbound\n[[links]] from other pages' block text are left as-is -- only the refs\nrows pointing at this page disappear (via target_page_id CASCADE).\n\nBlocks are deleted explicitly (not left to the pages FK cascade) so the\nblocks_fts_ad trigger fires for every row -- a direct DELETE guarantees\nthat; relying on cascade-triggered deletes to fire triggers is not safe.",
+        "operationId": "delete_page_api_page__title__delete",
+        "parameters": [
+          {
+            "name": "title",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Title"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Page Api Page  Title  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/pages": {

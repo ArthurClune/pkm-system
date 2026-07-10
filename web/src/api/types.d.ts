@@ -83,7 +83,17 @@ export interface paths {
         get: operations["get_page_api_page__title__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Page
+         * @description Deletes the page, its blocks, and any sidebar entry for it. Inbound
+         *     [[links]] from other pages' block text are left as-is -- only the refs
+         *     rows pointing at this page disappear (via target_page_id CASCADE).
+         *
+         *     Blocks are deleted explicitly (not left to the pages FK cascade) so the
+         *     blocks_fts_ad trigger fires for every row -- a direct DELETE guarantees
+         *     that; relying on cascade-triggered deletes to fire triggers is not safe.
+         */
+        delete: operations["delete_page_api_page__title__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -738,6 +748,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PagePayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_page_api_page__title__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                title: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

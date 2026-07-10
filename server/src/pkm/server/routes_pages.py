@@ -128,6 +128,25 @@ def create_page(body: CreatePageRequest,
     return dict(page)
 
 
+@router.delete("/api/page/{title:path}")
+def delete_page(title: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """Deletes the page, its blocks, and any sidebar entry for it. Inbound
+    [[links]] from other pages' block text are left as-is -- only the refs
+    rows pointing at this page disappear (via target_page_id CASCADE).
+
+    Blocks are deleted explicitly (not left to the pages FK cascade) so the
+    blocks_fts_ad trigger fires for every row -- a direct DELETE guarantees
+    that; relying on cascade-triggered deletes to fire triggers is not safe."""
+    page = fetch_page(db, title)
+    if page is None:
+        raise HTTPException(status_code=404, detail="page not found")
+    db.execute("DELETE FROM blocks WHERE page_id = ?", (page["id"],))
+    db.execute("DELETE FROM pages WHERE id = ?", (page["id"],))
+    db.execute("DELETE FROM sidebar_entries WHERE title = ?", (title,))
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/api/unlinked", response_model=GroupsPayload)
 def get_unlinked(title: str, limit: int = 20, offset: int = 0,
                  db: sqlite3.Connection = Depends(get_db)) -> dict:

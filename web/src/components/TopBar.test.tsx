@@ -1,9 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { SidebarContext } from "../contexts";
+import { stubFetch } from "../test-helpers";
 import { TopBar } from "./TopBar";
+
+afterEach(() => vi.unstubAllGlobals());
 
 function renderTopBar(
   path: string,
@@ -17,6 +20,10 @@ function renderTopBar(
         <TopBar onSearchClick={vi.fn()} sidebarCollapsed={sidebarCollapsed}
                 onToggleSidebar={onToggleSidebar} />
       </SidebarContext.Provider>
+      <Routes>
+        <Route path="/" element={<p>home</p>} />
+        <Route path="/page/*" element={<p>page view here</p>} />
+      </Routes>
     </MemoryRouter>,
   );
 }
@@ -104,4 +111,46 @@ it("closes the menu on Escape", () => {
 
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.queryByRole("menu")).toBeNull();
+});
+
+it("picking 'Delete page…' asks for confirmation, and cancelling makes no request", () => {
+  const fetchMock = stubFetch([]);
+  vi.stubGlobal("confirm", vi.fn(() => false));
+  renderTopBar("/page/Paper");
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Paper"));
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(screen.getByRole("menu")).toBeInTheDocument(); // untouched: nothing happened
+});
+
+it("confirming delete sends DELETE to the page's URL, closes the menu, and navigates to /", async () => {
+  const fetchMock = stubFetch([["/api/page/Machine%20Learning", { ok: true }]]);
+  vi.stubGlobal("confirm", vi.fn(() => true));
+  renderTopBar("/page/Machine%20Learning");
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  });
+
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Machine%20Learning",
+    expect.objectContaining({ method: "DELETE" }));
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.getByText("home")).toBeInTheDocument();
+});
+
+it("a failed delete closes the menu but does not navigate", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
+  vi.stubGlobal("confirm", vi.fn(() => true));
+  renderTopBar("/page/Paper");
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  });
+
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.getByText("page view here")).toBeInTheDocument();
+  expect(screen.queryByText("home")).toBeNull();
 });

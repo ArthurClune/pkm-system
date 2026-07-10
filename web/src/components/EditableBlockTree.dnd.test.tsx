@@ -77,6 +77,40 @@ it("an empty page accepts a top-level drop from another page", () => {
       page_title: "Empty" }]]);
 });
 
+it("dragleave clears the drop indicator", () => {
+  renderPage();
+  const bullets = document.querySelectorAll(".bullet");
+  const transfer = dt();
+  fireEvent.dragStart(bullets[1], { dataTransfer: transfer });
+
+  const zone = document.querySelector(".outline-drop-zone")!;
+  fireEvent.dragOver(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
+  expect(document.querySelector(".drop-indicator")).not.toBeNull();
+
+  // pointer left the zone (relatedTarget outside): the indicator clears
+  fireEvent.dragLeave(zone, { dataTransfer: transfer });
+  expect(document.querySelector(".drop-indicator")).toBeNull();
+});
+
+it("dragend without a drop clears the active drag so a later drop is inert", () => {
+  const sync = renderPage();
+  const bullets = document.querySelectorAll(".bullet");
+  const transfer = dt();
+  fireEvent.dragStart(bullets[1], { dataTransfer: transfer });
+
+  const zone = document.querySelector(".outline-drop-zone")!;
+  // arm a drop candidate, then abandon the drag (dropped outside any zone)
+  fireEvent.dragOver(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
+  expect(document.querySelector(".drop-indicator")).not.toBeNull(); // drag armed
+  fireEvent.dragEnd(bullets[1], { dataTransfer: transfer });
+
+  // the context drag is gone: even with a live candidate, drop resolves
+  // nothing and enqueues no op.
+  fireEvent.drop(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
+  expect(sync.sent).toEqual([]);
+  expect(document.querySelector(".drop-indicator")).toBeNull();
+});
+
 it("dragging is disabled when read-only", () => {
   const sync = makeSync("reconnecting");
   render(

@@ -119,8 +119,34 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         raise AssertionError(f"unhandled effect: {eff!r}")
 
 
-def apply_batch(db: sqlite3.Connection, batch: OpBatch, now_ms: int) -> None:
+def _page_title(db: sqlite3.Connection, page_id: int) -> str | None:
+    row = db.execute("SELECT title FROM pages WHERE id = ?",
+                     (page_id,)).fetchone()
+    return row["title"] if row is not None else None
+
+
+def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:
+    """The op as broadcast to remote clients. Identical to the request wire
+    form, except a parent-based cross-page move that omitted page_title is
+    enriched with the resolved target title: without it the source can't drop
+    the block (its parent isn't in the source tree) and the target's refetch
+    has no page_title to key on, leaving both views stale."""
+    d = op.model_dump()
+    if (isinstance(op, MoveOp) and op.page_title is None
+            and ctx.parent is not None and ctx.block is not None
+            and ctx.parent.page_id != ctx.block.page_id):
+        d["page_title"] = _page_title(db, ctx.parent.page_id)
+    return d
+
+
+def apply_batch(db: sqlite3.Connection, batch: OpBatch,
+                now_ms: int) -> list[dict]:
+    """Apply a batch inside the caller's transaction and return the ops as
+    they should be broadcast (see _broadcast_op)."""
+    broadcast_ops: list[dict] = []
     for index, op in enumerate(batch.ops):
         ctx = _context_for(db, op, now_ms)
         for eff in plan_op(index, op, ctx):
             _execute(db, eff, now_ms)
+        broadcast_ops.append(_broadcast_op(db, op, ctx))
+    return broadcast_ops

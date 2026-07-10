@@ -5,6 +5,7 @@ import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, pagePayload, stubFetch,
          type SyncFake } from "../test-helpers";
+import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
@@ -82,6 +83,49 @@ it("dnd.insertSubtreeLocal inserts at the target and sends no ops", () => {
   });
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["new", "u1"]);
   expect(sync.sent).toEqual([]);
+});
+
+it("a remote parent-based cross-page move (server-resolved page_title) removes from the source and refetches the target", async () => {
+  // The server enriches a bare parent-based cross-page move with the resolved
+  // target title before broadcasting (see ops_apply._broadcast_op). The client
+  // then handles it off op.page_title with no special casing: the source drops
+  // the block, the target refetches (the op carries no block content).
+  const sync = makeSync();
+  const fetchMock = stubFetch([
+    ["/api/page/Dst", pagePayload("Dst", [
+      block("tp", "target parent", { order_idx: 0 }),
+      block("moved", "moved here", { order_idx: 1 }),
+    ])],
+  ]);
+  let src!: Outline;
+  let dst!: Outline;
+  render(
+    <SyncContext.Provider value={sync}>
+      <Harness pageTitle="Src"
+        initial={[{ ...block("p", "parent", { order_idx: 0 }),
+                    children: [block("moved", "moved here", { order_idx: 0 })] }]}
+        onReady={(o) => { src = o; }} />
+      <Harness pageTitle="Dst"
+        initial={[block("tp", "target parent", { order_idx: 0 })]}
+        onReady={(o) => { dst = o; }} />
+    </SyncContext.Provider>);
+
+  await act(async () => {
+    sync.emit({
+      client_id: "other", ts: 1,
+      ops: [{ op: "move", uid: "moved", parent_uid: "tp", order_idx: 0,
+               page_title: "Dst" }],
+    });
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  });
+
+  // source: page_title != our page → the block is dropped (its target parent
+  // was never in this tree)
+  expect(findNode(src.blocks, "moved")).toBeNull();
+  expect(src.blocks.map((b) => b.uid)).toEqual(["p"]);
+  // target: op carries no block content, so it pulls the authoritative tree
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Dst", undefined);
+  expect(dst.blocks.map((b) => b.uid)).toEqual(["tp", "moved"]);
 });
 
 it("target-side refetch waits for sync.idle() to resolve before fetching, then adopts and re-validates focus", async () => {

@@ -44,6 +44,38 @@ def test_ops_broadcast_to_connected_clients(client):
                                "collapsed": True}]
 
 
+def test_cross_page_move_broadcast_carries_resolved_page_title(client):
+    # A parent-based cross-page move sent WITHOUT page_title (legal: the
+    # server resolves the target page from the parent). Remote clients can't
+    # act on a bare move — the source can't drop the block (parent isn't in
+    # its tree) and the target's refetch keys on page_title — so the broadcast
+    # is enriched with the resolved target title even though the request omits
+    # it. uid_b4 lives on "July 7th, 2026"; uid_b2 lives on "Machine Learning".
+    with client.websocket_connect("/api/ws") as ws:
+        r = client.post("/api/ops", json={
+            "client_id": "sender-1",
+            "ops": [{"op": "move", "uid": "uid_b4", "parent_uid": "uid_b2",
+                     "order_idx": 99}]})
+        assert r.status_code == 200
+        assert ws.receive_json()["ops"] == [
+            {"op": "move", "uid": "uid_b4", "parent_uid": "uid_b2",
+             "order_idx": 99, "page_title": "Machine Learning"}]
+
+
+def test_same_page_move_broadcast_keeps_page_title_null(client):
+    # A same-page move stays page_title: null — enrichment only fires when the
+    # resolved target page differs from the block's current page.
+    with client.websocket_connect("/api/ws") as ws:
+        r = client.post("/api/ops", json={
+            "client_id": "sender-1",
+            "ops": [{"op": "move", "uid": "uid_b3", "parent_uid": None,
+                     "order_idx": 0}]})
+        assert r.status_code == 200
+        assert ws.receive_json()["ops"] == [
+            {"op": "move", "uid": "uid_b3", "parent_uid": None,
+             "order_idx": 0, "page_title": None}]
+
+
 def test_failed_batch_broadcasts_nothing(client):
     with client.websocket_connect("/api/ws") as ws:
         r = client.post("/api/ops", json={

@@ -182,12 +182,29 @@ button { font: inherit; }
 .nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px;
   border: 1px solid var(--color-border-input); border-radius: 3px; background: var(--color-bg-subtle);
   color: var(--color-text); cursor: pointer; }
+.content-area { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .main-pane { flex: 1; min-width: 0; max-width: 800px; margin: 0 auto;
   padding: 24px 32px 120px; }
 .page-title { font-size: 26px; margin: 0 0 12px; }
 .page-title a { color: inherit; }
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
+
+/* top bar: spans the main pane, houses search + the page ("...") menu */
+.top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px;
+  max-width: 800px; margin: 0 auto; padding: 8px 32px; }
+.top-bar-search-button, .top-bar-menu-button { background: none; cursor: pointer;
+  border: 1px solid var(--color-border-strong); border-radius: 4px; padding: 4px 10px;
+  color: var(--color-text-secondary); }
+.top-bar-search-button:hover, .top-bar-menu-button:hover { background: var(--color-bg-subtle); }
+.top-bar-page-menu { position: relative; }
+.top-bar-menu { position: absolute; top: 100%; right: 0; z-index: 21; margin: 4px 0 0;
+  padding: 4px 0; list-style: none; min-width: 160px; background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-input); border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
+.top-bar-menu button { display: block; width: 100%; text-align: left; background: none;
+  border: none; padding: 6px 12px; cursor: pointer; color: var(--color-text); }
+.top-bar-menu button:hover { background: var(--color-selected-bg); }
 
 /* outline */
 .block-row { display: flex; align-items: baseline; padding: 1px 0; border-radius: 3px; }
@@ -322,7 +339,8 @@ mark.highlight { background: var(--color-highlight-bg); }
   .left-nav { position: fixed; left: 0; top: 0; height: 100vh; z-index: 25;
     transform: translateX(-100%); transition: transform 0.15s; }
   .left-nav.open { transform: translateX(0); }
-  .main-pane { padding: 48px 16px 120px; }
+  .top-bar { padding: 8px 16px; }
+  .main-pane { padding: 24px 16px 120px; }
   .sidebar { width: 100vw; }
 }
 

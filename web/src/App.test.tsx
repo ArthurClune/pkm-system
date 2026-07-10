@@ -58,6 +58,26 @@ it("ctrl-u opens the search modal", async () => {
   expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
 });
 
+it("clicking the top bar's Search button opens the search modal; the left nav has no search entry", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  expect(screen.queryByRole("button", { name: "Page menu" })).toBeNull(); // journal: no page menu
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
+});
+
+it("the top bar's page menu opens 'Open in sidebar', which stacks the current page", async () => {
+  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  await screen.findByRole("heading", { name: "Paper" });
+
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Open in sidebar" }));
+
+  const panel = await screen.findByRole("region"); // the stacked sidebar panel
+  expect(within(panel).getByText("paper body")).toBeInTheDocument();
+});
+
 it("cmd-k no longer opens the search modal", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);

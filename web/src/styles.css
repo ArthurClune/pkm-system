@@ -243,7 +243,10 @@ button { font: inherit; }
 .top-bar-menu button:hover { background: var(--color-selected-bg); }
 
 /* outline */
-.block-row { display: flex; align-items: baseline; padding: 1px 0; border-radius: 3px; }
+/* line-height set here (not on .block-text) so the edit-mode textarea
+ * inherits the same value and the row doesn't jump on focus */
+.block-row { display: flex; align-items: baseline; padding: 3px 0; border-radius: 3px;
+  line-height: 1.6; }
 .block-row:hover { background: var(--color-bg-subtle); }
 .chevron { background: none; border: none; cursor: pointer; color: var(--color-text-muted);
   width: 16px; padding: 0; flex-shrink: 0; transform: rotate(90deg);
@@ -251,7 +254,7 @@ button { font: inherit; }
 .chevron.closed { transform: rotate(0deg); }
 .chevron.hidden { visibility: hidden; }
 .bullet { box-sizing: content-box; width: 5px; height: 5px; flex-shrink: 0;
-  align-self: flex-start; margin: 5px 8px 0 0;
+  align-self: flex-start; margin: 6px 8px 0 0;
   border: 4px solid transparent; border-radius: 50%;
   background-color: var(--color-bullet); background-clip: content-box; }
 .bullet.closed { border-color: var(--color-bullet-ring); }

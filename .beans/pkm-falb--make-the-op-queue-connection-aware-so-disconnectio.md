@@ -1,11 +1,11 @@
 ---
 # pkm-falb
 title: Make the op queue connection-aware so disconnection really pauses writes
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-10T10:56:52Z
-updated_at: 2026-07-10T11:33:42Z
+updated_at: 2026-07-10T11:45:22Z
 parent: pkm-m309
 ---
 
@@ -35,3 +35,10 @@ ordering would create. A failed flush keeps the existing clear-pending + desync
 path. Tests: web/src/sync/opQueue.test.ts (offline/reconnect/in-flight),
 web/src/sync/connectionAware.test.tsx (debounce + upload regressions),
 web/src/sync/SyncProvider.test.tsx (flush-before-resync ordering).
+
+## Summary of Changes
+
+- opQueue gains explicit online state (setOnline driven by SyncProvider's WS status): offline enqueues are preserved, never dropped, and no new HTTP pump starts; in-flight POSTs complete normally.
+- Reconnect flushes preserved ops, then a queue.idle()-gated resync bump refetches authoritative state (flush-then-refetch, chosen over refetch-then-flush to avoid the refetch racing the flush POST and adopting pre-flush state).
+- 7 new tests covering all four regression scenarios (debounce-after-drop, upload-after-drop, ordered reconnect flush, in-flight crossing); 262 web tests + typecheck pass. Merged to main (--no-ff).
+- Deferred minors (final-review triage): redundant double refetch when the reconnect flush fails; second-disconnect-mid-flush releases the gated refetch early (self-heals); test (b) preservation assertion could be tighter. Pre-existing policy note: flush failure at reconnect still clears pending via the desync path (visible revert, not silent loss).

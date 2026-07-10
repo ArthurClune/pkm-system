@@ -221,7 +221,7 @@ button { font: inherit; }
   border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   box-shadow: 0 1px 3px rgba(var(--shadow-rgb), 0.05); }
-.page-title { font-size: 26px; margin: 0 0 12px; }
+.page-title { font-size: 26px; font-weight: 600; margin: 0 0 12px; }
 .page-title a { color: inherit; }
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
@@ -255,9 +255,9 @@ button { font: inherit; }
 .bullet { color: var(--color-text-muted); margin-right: 8px; flex-shrink: 0; font-size: 11px; }
 .block-children { margin-left: 22px; border-left: 1px solid var(--color-border-subtle); padding-left: 8px; }
 .block-text { flex: 1; margin: 0; font-weight: normal; min-width: 0; overflow-wrap: break-word; }
-h1.block-text { font-size: 22px; font-weight: 600; }
-h2.block-text { font-size: 19px; font-weight: 600; }
-h3.block-text { font-size: 16px; font-weight: 600; }
+h1.block-text { font-size: 1.8rem; font-weight: 600; }
+h2.block-text { font-size: 1.6rem; font-weight: 600; }
+h3.block-text { font-size: 1.4rem; font-weight: 400; color: var(--color-text-secondary); }
 
 /* inline */
 .tag:hover { color: var(--color-link); }

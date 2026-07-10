@@ -164,9 +164,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Page Api Page  Title  Get"
+                  "$ref": "#/components/schemas/PagePayload"
                 }
               }
             }
@@ -225,9 +223,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Unlinked Api Unlinked Get"
+                  "$ref": "#/components/schemas/GroupsPayload"
                 }
               }
             }
@@ -283,9 +279,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Journal Api Journal Get"
+                  "$ref": "#/components/schemas/JournalPayload"
                 }
               }
             }
@@ -335,9 +329,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Search Api Search Get"
+                  "$ref": "#/components/schemas/SearchPayload"
                 }
               }
             }
@@ -396,9 +388,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Run Query Api Query Get"
+                  "$ref": "#/components/schemas/GroupsPayload"
                 }
               }
             }
@@ -449,9 +439,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Titles Api Titles Get"
+                  "$ref": "#/components/schemas/TitlesPayload"
                 }
               }
             }
@@ -479,9 +467,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Get Sidebar Api Sidebar Get"
+                  "$ref": "#/components/schemas/SidebarNavPayload"
                 }
               }
             }
@@ -672,9 +658,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Upload Asset Api Assets Post"
+                  "$ref": "#/components/schemas/AssetUploadResponse"
                 }
               }
             }
@@ -728,6 +712,238 @@
           "title"
         ],
         "title": "AddSidebarEntryRequest"
+      },
+      "AssetUploadResponse": {
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "mime": {
+            "type": "string",
+            "title": "Mime"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sha256",
+          "filename",
+          "mime",
+          "size",
+          "url"
+        ],
+        "title": "AssetUploadResponse"
+      },
+      "BacklinkGroup": {
+        "properties": {
+          "page_id": {
+            "type": "integer",
+            "title": "Page Id"
+          },
+          "page_title": {
+            "type": "string",
+            "title": "Page Title"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BacklinkItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page_id",
+          "page_title",
+          "items"
+        ],
+        "title": "BacklinkGroup"
+      },
+      "BacklinkItem": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "breadcrumbs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Breadcrumbs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "text",
+          "breadcrumbs"
+        ],
+        "title": "BacklinkItem"
+      },
+      "Backlinks": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/BacklinkGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "total_pages": {
+            "type": "integer",
+            "title": "Total Pages"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups",
+          "total_pages",
+          "offset",
+          "limit"
+        ],
+        "title": "Backlinks"
+      },
+      "BlockGroup": {
+        "properties": {
+          "page_id": {
+            "type": "integer",
+            "title": "Page Id"
+          },
+          "page_title": {
+            "type": "string",
+            "title": "Page Title"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GroupItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page_id",
+          "page_title",
+          "items"
+        ],
+        "title": "BlockGroup"
+      },
+      "BlockNode": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          },
+          "collapsed": {
+            "type": "boolean",
+            "title": "Collapsed"
+          },
+          "order_idx": {
+            "type": "integer",
+            "title": "Order Idx"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/BlockNode"
+            },
+            "type": "array",
+            "title": "Children"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "text",
+          "heading",
+          "collapsed",
+          "order_idx",
+          "created_at",
+          "updated_at",
+          "children"
+        ],
+        "title": "BlockNode"
+      },
+      "BlockRefText": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "page_title": {
+            "type": "string",
+            "title": "Page Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "page_title"
+        ],
+        "title": "BlockRefText"
       },
       "Body_upload_asset_api_assets_post": {
         "properties": {
@@ -821,6 +1037,46 @@
         ],
         "title": "DeleteOp"
       },
+      "GroupItem": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "text"
+        ],
+        "title": "GroupItem"
+      },
+      "GroupsPayload": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/BlockGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups",
+          "total"
+        ],
+        "title": "GroupsPayload",
+        "description": "Shared by /api/unlinked and /api/query."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -833,6 +1089,61 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "JournalDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "exists": {
+            "type": "boolean",
+            "title": "Exists"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BlockNode"
+            },
+            "type": "array",
+            "title": "Blocks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "title",
+          "exists",
+          "blocks"
+        ],
+        "title": "JournalDay"
+      },
+      "JournalPayload": {
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/JournalDay"
+            },
+            "type": "array",
+            "title": "Days"
+          },
+          "block_ref_texts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BlockRefText"
+            },
+            "type": "object",
+            "title": "Block Ref Texts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "days",
+          "block_ref_texts"
+        ],
+        "title": "JournalPayload"
       },
       "LoginBody": {
         "properties": {
@@ -950,6 +1261,80 @@
         ],
         "title": "OpBatch"
       },
+      "PageMeta": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PageMeta"
+      },
+      "PagePayload": {
+        "properties": {
+          "page": {
+            "$ref": "#/components/schemas/PageMeta"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BlockNode"
+            },
+            "type": "array",
+            "title": "Blocks"
+          },
+          "backlinks": {
+            "$ref": "#/components/schemas/Backlinks"
+          },
+          "block_ref_texts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BlockRefText"
+            },
+            "type": "object",
+            "title": "Block Ref Texts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "blocks",
+          "backlinks",
+          "block_ref_texts"
+        ],
+        "title": "PagePayload"
+      },
       "ReorderSidebarEntriesRequest": {
         "properties": {
           "order": {
@@ -965,6 +1350,71 @@
           "order"
         ],
         "title": "ReorderSidebarEntriesRequest"
+      },
+      "SearchBlockHit": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "page_title": {
+            "type": "string",
+            "title": "Page Title"
+          },
+          "snippet": {
+            "type": "string",
+            "title": "Snippet"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "page_title",
+          "snippet"
+        ],
+        "title": "SearchBlockHit"
+      },
+      "SearchPageHit": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "SearchPageHit"
+      },
+      "SearchPayload": {
+        "properties": {
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/SearchPageHit"
+            },
+            "type": "array",
+            "title": "Pages"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/SearchBlockHit"
+            },
+            "type": "array",
+            "title": "Blocks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pages",
+          "blocks"
+        ],
+        "title": "SearchPayload"
       },
       "SetCollapsedOp": {
         "properties": {
@@ -1021,6 +1471,56 @@
           "uid"
         ],
         "title": "SetHeadingOp"
+      },
+      "SidebarNavEntry": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "SidebarNavEntry"
+      },
+      "SidebarNavPayload": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SidebarNavEntry"
+            },
+            "type": "array",
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "title": "SidebarNavPayload"
+      },
+      "TitlesPayload": {
+        "properties": {
+          "titles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Titles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "titles"
+        ],
+        "title": "TitlesPayload"
       },
       "UpdateTextOp": {
         "properties": {

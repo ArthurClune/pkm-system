@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
+from pkm.server.response_models import SidebarNavPayload
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -22,7 +23,7 @@ class ReorderSidebarEntriesRequest(BaseModel):
     order: list[int]
 
 
-@router.get("/api/sidebar")
+@router.get("/api/sidebar", response_model=SidebarNavPayload)
 def get_sidebar(db: sqlite3.Connection = Depends(get_db)) -> dict:
     rows = db.execute(
         "SELECT id, title FROM sidebar_entries ORDER BY order_idx").fetchall()

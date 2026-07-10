@@ -4,14 +4,15 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
+import { SearchBar } from "./SearchBar";
 
 /** Menu bar spanning the top of the main pane. Houses the left-nav collapse
  * toggle (leftmost, so it stays put regardless of what else is here), the
- * search entry point (opens SearchModal, which App still owns), and, on
- * /page/* routes, a "…" page menu -- the anchor for page-level actions
- * ("Open in sidebar", "Delete page…"; more land here later). */
-export function TopBar({ onSearchClick, sidebarCollapsed, onToggleSidebar }: {
-  onSearchClick: () => void;
+ * search bar (self-contained: SearchBar owns query, results dropdown, and
+ * the Cmd/Ctrl-U shortcut), and, on /page/* routes, a "…" page menu -- the
+ * anchor for page-level actions ("Open in sidebar", "Delete page…"; more
+ * land here later). */
+export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }) {
@@ -64,9 +65,7 @@ export function TopBar({ onSearchClick, sidebarCollapsed, onToggleSidebar }: {
               onClick={onToggleSidebar}>
         {sidebarCollapsed ? "⟩" : "⟨"}
       </button>
-      <button type="button" className="top-bar-search-button" onClick={onSearchClick}>
-        Search
-      </button>
+      <SearchBar />
       {title !== null && (
         <div className="top-bar-page-menu" ref={menuRef}>
           <button type="button" className="top-bar-menu-button"

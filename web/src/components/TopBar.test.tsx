@@ -17,7 +17,7 @@ function renderTopBar(
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[path]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
-        <TopBar onSearchClick={vi.fn()} sidebarCollapsed={sidebarCollapsed}
+        <TopBar sidebarCollapsed={sidebarCollapsed}
                 onToggleSidebar={onToggleSidebar} />
       </SidebarContext.Provider>
       <Routes>
@@ -28,24 +28,19 @@ function renderTopBar(
   );
 }
 
-it("clicking the search button calls onSearchClick", () => {
-  const onSearchClick = vi.fn();
-  render(
-    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
-      <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
-        <TopBar onSearchClick={onSearchClick} sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
-      </SidebarContext.Provider>
-    </MemoryRouter>,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  expect(onSearchClick).toHaveBeenCalledOnce();
+it("renders a search bar (a real input, not a button)", () => {
+  renderTopBar("/");
+  const input = screen.getByRole("textbox", { name: "Search" });
+  expect(input).toHaveAttribute("placeholder", "Search…");
+  input.focus();
+  expect(input).toHaveFocus();
 });
 
-it("shows the sidebar toggle before the search button, labelled to hide an open sidebar", () => {
+it("shows the sidebar toggle before the search bar, labelled to hide an open sidebar", () => {
   renderTopBar("/");
   const toggle = screen.getByRole("button", { name: "Hide sidebar" });
   expect(toggle).toHaveAttribute("aria-expanded", "true");
-  const search = screen.getByRole("button", { name: "Search" });
+  const search = screen.getByRole("textbox", { name: "Search" });
   // DOM order backs the "left edge, before search" placement enforced by CSS.
   expect(toggle.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });

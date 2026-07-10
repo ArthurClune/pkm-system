@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
 import { ReconnectBanner } from "./components/ReconnectBanner";
-import { SearchModal } from "./components/SearchModal";
 import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -30,7 +29,6 @@ function NotFound() {
 }
 
 export function App() {
-  const [searchOpen, setSearchOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapsed();
   const [stack, setStack] = useState<SidebarEntry[]>([]);
@@ -45,12 +43,10 @@ export function App() {
     },
   }), []);
 
+  // Cmd/Ctrl-U (focus search) lives in SearchBar, next to the input it targets.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "u") {
-        e.preventDefault();
-        setSearchOpen((o) => !o);
-      } else if (e.ctrlKey && e.metaKey && e.key.toLowerCase() === "d") {
+      if (e.ctrlKey && e.metaKey && e.key.toLowerCase() === "d") {
         e.preventDefault();
         navigate("/");
       }
@@ -78,8 +74,7 @@ export function App() {
               <SidebarNav onNavigate={() => setNavOpen(false)} />
             </nav>
             <div className="content-area">
-              <TopBar onSearchClick={() => setSearchOpen(true)}
-                      sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
+              <TopBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
               <main className="main-pane">
                 <Routes>
                   <Route path="/" element={<Journal />} />
@@ -99,7 +94,6 @@ export function App() {
                 ))}
               </aside>
             )}
-            <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
           </div>
         </SidebarContext.Provider>
       </DndProvider>

@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { jsonResponse, stubFetch } from "../test-helpers";
-import { SearchModal } from "./SearchModal";
+import { SearchBar } from "./SearchBar";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -13,25 +13,25 @@ const results = {
              snippet: "a <mark>paper</mark> about attention" }],
 };
 
-function renderModal(onClose = vi.fn()) {
+function renderBar() {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
-      <SearchModal open={true} onClose={onClose} />
+      <SearchBar />
       <Routes>
         <Route path="/" element={<p>home</p>} />
         <Route path="/page/*" element={<p>page view here</p>} />
       </Routes>
     </MemoryRouter>,
   );
-  return onClose;
+  return screen.getByPlaceholderText("Search…");
 }
 
 it("debounces input, lists pages before block snippets with real <mark>s", async () => {
   const fetchMock = stubFetch([["/api/search?q=paper", results]]);
-  renderModal();
-  fireEvent.change(screen.getByPlaceholderText("Search…"), { target: { value: "pap" } });
-  fireEvent.change(screen.getByPlaceholderText("Search…"), { target: { value: "pape" } });
-  fireEvent.change(screen.getByPlaceholderText("Search…"), { target: { value: "paper" } });
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "pap" } });
+  fireEvent.change(input, { target: { value: "pape" } });
+  fireEvent.change(input, { target: { value: "paper" } });
   const items = await screen.findAllByRole("listitem");
   expect(fetchMock).toHaveBeenCalledTimes(1); // only the settled query fired
   expect(items[0].textContent).toContain("Paper");           // page hit first
@@ -41,16 +41,16 @@ it("debounces input, lists pages before block snippets with real <mark>s", async
   expect(mark!.textContent).toBe("paper");
 });
 
-it("Enter navigates to the selected hit and closes", async () => {
+it("Enter navigates to the selected hit and cancels the search", async () => {
   stubFetch([["/api/search?q=paper", results]]);
-  const onClose = renderModal();
-  const input = screen.getByPlaceholderText("Search…");
+  const input = renderBar();
   fireEvent.change(input, { target: { value: "paper" } });
   await screen.findAllByRole("listitem");
   fireEvent.keyDown(input, { key: "ArrowDown" });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(onClose).toHaveBeenCalled();
   expect(screen.getByText("page view here")).toBeInTheDocument();
+  expect(input).toHaveValue("");                    // query cleared…
+  expect(screen.queryByRole("listitem")).toBeNull(); // …dropdown closed
 });
 
 it("drops a stale response that resolves after a newer query's", async () => {
@@ -61,8 +61,7 @@ it("drops a stale response that resolves after a newer query's", async () => {
       new Promise<Response>((resolve) => resolvers.set(String(input), resolve)),
   );
   vi.stubGlobal("fetch", fetchMock);
-  renderModal();
-  const input = screen.getByPlaceholderText("Search…");
+  const input = renderBar();
 
   fireEvent.change(input, { target: { value: "alpha" } });
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1)); // debounce fires
@@ -87,33 +86,75 @@ it("drops a stale response that resolves after a newer query's", async () => {
   expect(screen.queryByText("Stale Alpha")).toBeNull();
 });
 
-it("Escape closes without navigating", () => {
+it("Escape cancels the search: clears the query and closes the dropdown", async () => {
+  stubFetch([["/api/search?q=paper", results]]);
+  const input = renderBar();
+  input.focus();
+  fireEvent.change(input, { target: { value: "paper" } });
+  await screen.findAllByRole("listitem");
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(input).toHaveValue("");
+  expect(screen.queryByRole("listitem")).toBeNull();
+  expect(input).not.toHaveFocus();
+  expect(screen.getByText("home")).toBeInTheDocument(); // no navigation
+});
+
+it("Escape cancels even when focus has left the input", async () => {
+  stubFetch([["/api/search?q=paper", results]]);
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "paper" } });
+  await screen.findAllByRole("listitem");
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(input).toHaveValue("");
+  expect(screen.queryByRole("listitem")).toBeNull();
+});
+
+it("a click outside the search bar cancels the search", async () => {
+  stubFetch([["/api/search?q=paper", results]]);
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "paper" } });
+  await screen.findAllByRole("listitem");
+  fireEvent.mouseDown(document.body);
+  expect(input).toHaveValue("");
+  expect(screen.queryByRole("listitem")).toBeNull();
+});
+
+it("cmd-u focuses the search bar; pressing it again cancels", () => {
   stubFetch([]);
-  const onClose = renderModal();
-  fireEvent.keyDown(screen.getByPlaceholderText("Search…"), { key: "Escape" });
-  expect(onClose).toHaveBeenCalled();
+  const input = renderBar();
+  fireEvent.keyDown(window, { key: "u", metaKey: true });
+  expect(input).toHaveFocus();
+  fireEvent.keyDown(window, { key: "u", metaKey: true });
+  expect(input).not.toHaveFocus();
+});
+
+it("ctrl-u focuses the search bar", () => {
+  stubFetch([]);
+  const input = renderBar();
+  fireEvent.keyDown(window, { key: "u", ctrlKey: true });
+  expect(input).toHaveFocus();
 });
 
 it('shows a create-page row when no page hit matches the query exactly', async () => {
   stubFetch([["/api/search?q=papers", results]]); // page hit is "Paper", query is "papers"
-  renderModal();
-  fireEvent.change(screen.getByPlaceholderText("Search…"), { target: { value: "papers" } });
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "papers" } });
   await screen.findAllByRole("listitem");
   expect(screen.getByText('Create page "papers"')).toBeInTheDocument();
 });
 
 it('shows a create-page row when there are no search results at all', async () => {
   stubFetch([["/api/search?q=nonexistent", { pages: [], blocks: [] }]]);
-  renderModal();
-  fireEvent.change(screen.getByPlaceholderText("Search…"), { target: { value: "nonexistent" } });
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "nonexistent" } });
   await waitFor(() =>
     expect(screen.getByText('Create page "nonexistent"')).toBeInTheDocument());
 });
 
 it("does NOT show a create-page row when a page hit matches case-insensitively", async () => {
   stubFetch([["/api/search?q=PAPER", results]]); // page hit "Paper" matches "PAPER" case-insensitively
-  renderModal();
-  fireEvent.change(screen.getByPlaceholderText("Search…"), { target: { value: "PAPER" } });
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "PAPER" } });
   await screen.findAllByRole("listitem");
   expect(screen.queryByText(/Create page/)).toBeNull();
 });
@@ -125,8 +166,7 @@ it("does not flash the create row while a newer query's results are in flight", 
       new Promise<Response>((resolve) => resolvers.set(String(input), resolve)),
   );
   vi.stubGlobal("fetch", fetchMock);
-  renderModal();
-  const input = screen.getByPlaceholderText("Search…");
+  const input = renderBar();
 
   fireEvent.change(input, { target: { value: "zzz" } });
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -148,8 +188,7 @@ it('picking the create row POSTs the page and navigates to it', async () => {
     ["/api/search?q=papers", results],
     ["/api/pages", { id: 42, title: "papers", created_at: 1, updated_at: 1 }],
   ]);
-  const onClose = renderModal();
-  const input = screen.getByPlaceholderText("Search…");
+  const input = renderBar();
   fireEvent.change(input, { target: { value: "papers" } });
   const createRow = await screen.findByText('Create page "papers"');
   await act(async () => {
@@ -159,11 +198,11 @@ it('picking the create row POSTs the page and navigates to it', async () => {
     method: "POST",
     body: JSON.stringify({ title: "papers" }),
   }));
-  expect(onClose).toHaveBeenCalled();
   expect(screen.getByText("page view here")).toBeInTheDocument();
+  expect(input).toHaveValue("");
 });
 
-it("a failed create POST keeps the modal open and does not navigate", async () => {
+it("a failed create POST keeps the search open and does not navigate", async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.startsWith("/api/search?q=papers")) return jsonResponse(results);
@@ -171,14 +210,13 @@ it("a failed create POST keeps the modal open and does not navigate", async () =
     return jsonResponse({ detail: "not found" }, 404);
   });
   vi.stubGlobal("fetch", fetchMock);
-  const onClose = renderModal();
-  const input = screen.getByPlaceholderText("Search…");
+  const input = renderBar();
   fireEvent.change(input, { target: { value: "papers" } });
   const createRow = await screen.findByText('Create page "papers"');
   await act(async () => {
     fireEvent.click(createRow);
   });
-  expect(onClose).not.toHaveBeenCalled();
   expect(screen.queryByText("page view here")).toBeNull();
-  expect(screen.getByPlaceholderText("Search…")).toBeInTheDocument();
+  expect(input).toHaveValue("papers");
+  expect(screen.getAllByRole("listitem").length).toBeGreaterThan(0);
 });

@@ -7,6 +7,7 @@ import time
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from pkm.server.auth import require_auth
 from pkm.server.backlinks import group_backlinks
@@ -14,7 +15,7 @@ from pkm.server.daily import date_for_title, title_for_date
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
 from pkm.server.response_models import (
-    GroupsPayload, JournalPayload, PagePayload)
+    GroupsPayload, JournalPayload, PageMeta, PagePayload)
 from pkm.server.store import fetch_page, get_or_create_page
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
@@ -22,6 +23,10 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
                " created_at, updated_at")
+
+
+class CreatePageRequest(BaseModel):
+    title: str = Field(min_length=1)
 
 
 def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
@@ -109,6 +114,18 @@ def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
         "block_ref_texts": _block_ref_texts(
             db, [r["text"] for r in blocks] + bl_texts),
     }
+
+
+@router.post("/api/pages", response_model=PageMeta)
+def create_page(body: CreatePageRequest,
+                db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """Idempotent: creating an existing page returns its row, not an error."""
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="title must not be blank")
+    page = get_or_create_page(db, title, int(time.time() * 1000))
+    db.commit()
+    return dict(page)
 
 
 @router.get("/api/unlinked", response_model=GroupsPayload)

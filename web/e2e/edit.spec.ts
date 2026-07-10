@@ -56,6 +56,41 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
   await expect(page.locator(".backlink-text")).toContainText("second block");
 });
 
+test("can click back into a line after emptying it (pkm-mc07)", async ({ page }) => {
+  await login(page);
+  const today = page.locator(".journal-day").first();
+  await expect(today).toBeVisible();
+
+  // append a fresh sibling after whatever's already on today's page (this
+  // must not assume an empty day: other tests in this file share the DB)
+  const startWriting = today.getByText("Click to start writing…");
+  if (await startWriting.count() > 0) {
+    await startWriting.click();
+  } else {
+    await today.locator(".block-text").first().click();
+    await caretToEnd(page);
+    await input(page).press("Enter");
+  }
+  await input(page).fill("mc07-marker");
+  await input(page).press("Escape"); // blur: renders as unfocused, non-empty
+
+  const row = page.locator(".block-row", { has: page.locator(".block-text", { hasText: "mc07-marker" }) });
+  const uid = await row.getAttribute("data-uid");
+  const stableRow = page.locator(`.block-row[data-uid="${uid}"]`);
+
+  // empty out the marker block, then blur it
+  await row.locator(".block-text").click();
+  await input(page).selectText();
+  await page.keyboard.press("Backspace");
+  await expect(input(page)).toHaveValue("");
+  await input(page).press("Escape"); // blur: renders as unfocused, now-empty
+
+  // clicking anywhere on that now-empty line's row must re-enter edit mode,
+  // the same as it would for a line that was never written to
+  await stableRow.click();
+  await expect(input(page)).toBeFocused();
+});
+
 test("edits broadcast live to a second client", async ({ browser, badResponses }) => {
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();

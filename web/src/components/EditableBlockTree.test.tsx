@@ -321,6 +321,22 @@ test("adopting a remote update clamps the caret to the new (shorter) length", ()
   expect(ta.selectionStart).toBe(2);
 });
 
+test("an emptied (previously-written) block still renders a clickable, focusable block-text (pkm-mc07)", () => {
+  const h = handlers();
+  const emptied = [block("u1", "", { order_idx: 0 })];
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={emptied} focus={null} handlers={h}
+                         readOnly={false} />
+    </MemoryRouter>);
+  const row = container.querySelector('.block-row[data-uid="u1"]');
+  expect(row).not.toBeNull();
+  const blockText = row!.querySelector(".block-text");
+  expect(blockText).not.toBeNull();
+  fireEvent.click(blockText!);
+  expect(h.onFocusBlock).toHaveBeenCalledWith("u1", 0);
+});
+
 test("collapsed children are hidden", () => {
   const h = handlers();
   const t = [block("p", "parent", {

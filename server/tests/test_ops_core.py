@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from pkm.server.ops_core import (BlockInfo, BlockOp, CreateOp, DeleteBlocks,
+from pkm.server.ops_core import (BlockInfo, CreateOp, DeleteBlocks,
                                  DeleteOp, InsertBlock, MoveOp, OpBatch,
                                  OpContext, OpError, ReindexRefs,
                                  SetCollapsed, SetCollapsedOp, SetHeading,

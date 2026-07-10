@@ -11,7 +11,12 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx>=0.27", "pyrefly>=1.1"]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "pyrefly>=1.1",
+    "ruff>=0.15.20",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -22,3 +27,6 @@ packages = ["src/pkm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120

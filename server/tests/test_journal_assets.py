@@ -55,7 +55,8 @@ def test_asset_serving(client, seeded_config):
     con = sqlite3.connect(seeded_config.db_path)
     con.execute("INSERT INTO assets VALUES (?,?,?,?,NULL)",
                 (sha, "fig.png", "image/png", len(data)))
-    con.commit(); con.close()
+    con.commit()
+    con.close()
     r = client.get(f"/assets/{sha}/fig.png")
     assert r.status_code == 200
     assert r.content == data

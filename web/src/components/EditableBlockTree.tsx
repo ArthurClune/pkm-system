@@ -80,14 +80,13 @@ function EditableBlock({ node, focus, handlers, readOnly }: {
         >
           ▸
         </button>
-        <span className="bullet" draggable={!readOnly}
+        <span className={"bullet" + (hasChildren && node.collapsed ? " closed" : "")}
+              draggable={!readOnly}
               onDragStart={(e) => {
                 e.dataTransfer.setData("text/plain", node.uid);
                 e.dataTransfer.effectAllowed = "move";
                 handlers.onDragStartBlock(node.uid);
-              }}>
-          •
-        </span>
+              }} />
         {focused ? (
           <BlockInput node={node} cursor={focus.cursor} handlers={handlers}
                       readOnly={readOnly} />

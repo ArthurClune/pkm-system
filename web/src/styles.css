@@ -252,7 +252,11 @@ button { font: inherit; }
   transition: transform 0.1s; }
 .chevron.closed { transform: rotate(0deg); }
 .chevron.hidden { visibility: hidden; }
-.bullet { color: var(--color-text-muted); margin-right: 8px; flex-shrink: 0; font-size: 11px; }
+.bullet { box-sizing: content-box; width: 5px; height: 5px; flex-shrink: 0;
+  align-self: flex-start; margin: 5px 8px 0 0;
+  border: 4px solid transparent; border-radius: 50%;
+  background-color: var(--color-bullet); background-clip: content-box; }
+.bullet.closed { border-color: var(--color-bullet-ring); }
 .block-children { margin-left: 22px; border-left: 1px solid var(--color-border-subtle); padding-left: 8px; }
 .block-text { flex: 1; margin: 0; font-weight: normal; min-width: 0; overflow-wrap: break-word; }
 h1.block-text { font-size: 1.8rem; font-weight: 600; }

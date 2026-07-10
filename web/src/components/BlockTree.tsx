@@ -26,7 +26,7 @@ export function Block({ node }: { node: BlockNode }) {
         >
           ▸
         </button>
-        <span className="bullet">•</span>
+        <span className={"bullet" + (hasChildren && collapsed ? " closed" : "")} />
         <Tag className="block-text">
           <InlineSegments segments={tokenizeBlock(node.text)} />
         </Tag>

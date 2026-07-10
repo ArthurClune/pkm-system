@@ -26,6 +26,13 @@ Use worktrees and branches to enable parallel sessions.
 
 ### Testing
 
+Run these from the repo root before considering backend/frontend work verified:
+
+- Server tests: `cd server && uv run pytest -q`
+- Server type check: `cd server && uv run pyrefly check` (also runnable as `uv run --project server pyrefly check` from the repo root; pyrefly is pinned in `server/pyproject.toml` dev deps so the command is reproducible without a global install). `pyright` (using `server/.venv`) is also configured via the root `pyrightconfig.json` and may be run for a second opinion, but pyrefly is the supported/committed command.
+- Web tests: `cd web && pnpm test -- --run`
+- Web type check: `cd web && pnpm typecheck`
+
 ### Skills
 
 When creating or updating skills, invoke `/superpowers:writing-skills` first.

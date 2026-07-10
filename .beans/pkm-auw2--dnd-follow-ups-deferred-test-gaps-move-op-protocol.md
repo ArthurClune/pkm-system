@@ -1,11 +1,11 @@
 ---
 # pkm-auw2
 title: 'DnD follow-ups: deferred test gaps + move-op protocol hardening'
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-07-09T22:09:47Z
-updated_at: 2026-07-10T11:46:15Z
+updated_at: 2026-07-10T12:01:22Z
 ---
 
 Follow-ups from the pkm-jg1p final review (branch worktree-dnd-blocks, fixes landed in 5601ed1). Bundled deferred items:
@@ -14,3 +14,10 @@ Follow-ups from the pkm-jg1p final review (branch worktree-dnd-blocks, fixes lan
 - [x] web: unit tests for insertSubtree edge branches — unknown parentUid returns tree unchanged; insertion under a nested (non-null) parent
 - [x] web: component test for drag cancel paths (dragleave clears indicator; dragend without drop clears context drag) using the jsdom DragEvent polyfill
 - [x] protocol hardening: a parent-based cross-page move WITHOUT page_title (legal server-side, ops_core resolves target from parent) leaves remote clients' views stale — source outline can't remove (parent not in tree), target outline's needsRefetch keys on op.page_title. Resolved by enriching the BROADCAST payload with the resolved target page_title (ops_apply._broadcast_op); request wire format unchanged; client works unchanged off op.page_title. No current producer sends this shape (DndContext always attaches page_title); latent for API/script clients.
+
+## Summary of Changes
+
+- Server endpoint test proves batch rollback undoes an auto-created page (fresh-connection assertions on page row + block position).
+- insertSubtree edge-branch unit tests (unknown parentUid; nested non-null parent) and drag-cancel component tests (dragleave clears indicator; dragend leaves later drop inert).
+- Protocol hardening: apply_batch now returns broadcast ops, and a parent-based cross-page move without page_title is enriched with the resolved target title in the broadcast only (request wire format and client logic unchanged; broadcast only after commit; same-page moves stay null; missing page row degrades to None). Client regression test locks source-removal + target-refetch behavior.
+- Verified post-merge on main: server 276 passed, pyrefly + ruff clean; web 267 passed, tsc clean. Merged to main (--no-ff).

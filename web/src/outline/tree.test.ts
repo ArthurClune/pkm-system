@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { block } from "../test-helpers";
-import { applyOps, findNode, locate, visibleNeighbor, visibleUids } from "./tree";
+import { applyOps, findNode, insertSubtree, locate, removeSubtree, visibleNeighbor, visibleUids } from "./tree";
 
 // Siblings with order_idx GAPS (0, 5, 7) — the server leaves gaps after
 // shifts; every helper must key on order_idx values, never array positions.
@@ -111,5 +111,50 @@ describe("applyOps mirrors ops_apply.py", () => {
     const input = tree();
     applyOps(input, [{ op: "update_text", uid: "a", text: "changed" }], "P");
     expect(input[0].text).toBe("A");
+  });
+
+  test("applyOps removes the subtree when a move targets another page", () => {
+    const tree = [block("a", "A"), { ...block("b", "B"), children: [block("c", "C")] }];
+    const next = applyOps(tree, [
+      { op: "move", uid: "b", parent_uid: null, order_idx: 0,
+        page_title: "Elsewhere" }], "Here");
+    expect(next.map((n) => n.uid)).toEqual(["a"]);
+  });
+
+  test("applyOps still applies a move whose page_title names this page", () => {
+    const tree = [block("a", "A", { order_idx: 0 }), block("b", "B", { order_idx: 1 })];
+    const next = applyOps(tree, [
+      { op: "move", uid: "b", parent_uid: null, order_idx: 0,
+        page_title: "Here" }], "Here");
+    expect(next.map((n) => n.uid)).toEqual(["b", "a"]);
+  });
+
+  test("removeSubtree detaches a nested subtree and returns it", () => {
+    const tree = [{ ...block("a", "A"), children: [
+      { ...block("b", "B"), children: [block("c", "C")] }] }];
+    const { tree: next, node } = removeSubtree(tree, "b");
+    expect(node?.uid).toBe("b");
+    expect(node?.children.map((n) => n.uid)).toEqual(["c"]);
+    expect(next[0].children).toEqual([]);
+    expect(tree[0].children.length).toBe(1); // input not mutated
+  });
+
+  test("insertSubtree inserts before the sibling at order_idx", () => {
+    const tree = [block("x", "X", { order_idx: 0 }), block("y", "Y", { order_idx: 1 })];
+    const node = block("n", "N");
+    const next = insertSubtree(tree, node, null, 1);
+    expect(next.map((n) => n.uid)).toEqual(["x", "n", "y"]);
+  });
+
+  test("insertSubtree deep-clones the inserted node's children", () => {
+    const tree = [block("x", "X", { order_idx: 0 }), block("y", "Y", { order_idx: 1 })];
+    const node = { ...block("n", "N"), children: [block("c1", "C1")] };
+    const next = insertSubtree(tree, node, null, 1);
+    // Mutate the original node's children
+    node.children.push(block("c2", "C2"));
+    // The returned tree should still have only the original child
+    const insertedNode = findNode(next, "n")!;
+    expect(insertedNode.children.length).toBe(1);
+    expect(insertedNode.children[0].uid).toBe("c1");
   });
 });

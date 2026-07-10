@@ -5,8 +5,9 @@ from pkm.server.ops_core import (BlockInfo, BlockOp, CreateOp, DeleteBlocks,
                                  DeleteOp, InsertBlock, MoveOp, OpBatch,
                                  OpContext, OpError, ReindexRefs,
                                  SetCollapsed, SetCollapsedOp, SetHeading,
-                                 SetHeadingOp, SetParent, ShiftSiblings,
-                                 TouchPage, UpdateText, UpdateTextOp, plan_op)
+                                 SetHeadingOp, SetPageId, SetParent,
+                                 ShiftSiblings, TouchPage, UpdateText,
+                                 UpdateTextOp, plan_op)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 
@@ -87,11 +88,6 @@ def test_plan_move_and_cycle():
                           order_idx=0),
                 OpContext(block=BlockInfo("uid_b2", 1, None),
                           parent=B, parent_chain=("uid_b3", "uid_b2")))
-    with pytest.raises(OpError, match="cross-page"):
-        plan_op(0, MoveOp(op="move", uid="uid_b3", parent_uid="uid_b6",
-                          order_idx=0),
-                OpContext(block=B, parent=BlockInfo("uid_b6", 2, None),
-                          parent_chain=("uid_b6",)))
 
 
 def test_plan_delete_and_collapse():
@@ -129,3 +125,63 @@ def test_op_error_carries_index():
     with pytest.raises(OpError) as e:
         plan_op(7, DeleteOp(op="delete", uid="ghost99"), OpContext())
     assert e.value.index == 7 and "not found" in e.value.reason
+
+
+def _move_ctx(block_page=1, parent_page=1, page_id=None):
+    return OpContext(
+        block=BlockInfo("u_child", block_page, None),
+        parent=BlockInfo("u_parent", parent_page, None),
+        parent_chain=("u_parent",),
+        page_id=page_id,
+        subtree=("u_gc", "u_child"))
+
+
+def test_move_cross_page_under_parent_reassigns_subtree():
+    op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=0)
+    effects = plan_op(0, op, _move_ctx(block_page=1, parent_page=2))
+    assert effects == (
+        ShiftSiblings(2, "u_parent", 0),
+        SetParent("u_child", "u_parent", 0),
+        SetPageId(("u_gc", "u_child"), 2),
+        TouchPage(1),
+        TouchPage(2))
+
+
+def test_move_top_level_to_named_page():
+    op = MoveOp(op="move", uid="u_child", parent_uid=None, order_idx=0,
+                page_title="July 1st, 2026")
+    ctx = OpContext(block=BlockInfo("u_child", 1, "u_old"),
+                    page_id=7, subtree=("u_child",))
+    effects = plan_op(0, op, ctx)
+    assert effects == (
+        ShiftSiblings(7, None, 0),
+        SetParent("u_child", None, 0),
+        SetPageId(("u_child",), 7),
+        TouchPage(1),
+        TouchPage(7))
+
+
+def test_move_same_page_unchanged_shape():
+    # no page_title, same page: exactly the pre-existing three effects
+    op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=3)
+    effects = plan_op(0, op, _move_ctx(block_page=1, parent_page=1))
+    assert effects == (
+        ShiftSiblings(1, "u_parent", 3),
+        SetParent("u_child", "u_parent", 3),
+        TouchPage(1))
+
+
+def test_move_page_title_must_match_parent_page():
+    op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=0,
+                page_title="Somewhere Else")
+    with pytest.raises(OpError, match="page_title does not match"):
+        plan_op(0, op, _move_ctx(parent_page=2, page_id=3))
+
+
+def test_move_cycle_check_still_applies_cross_page():
+    op = MoveOp(op="move", uid="u_parent", parent_uid="u_parent", order_idx=0)
+    ctx = OpContext(block=BlockInfo("u_parent", 1, None),
+                    parent=BlockInfo("u_parent", 2, None),
+                    parent_chain=("u_parent",), subtree=("u_parent",))
+    with pytest.raises(OpError, match="cycle"):
+        plan_op(0, op, ctx)

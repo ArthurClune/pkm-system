@@ -3,17 +3,21 @@
 // debounce, and the wiring between pure edit commands, the op queue, and
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BlockNode } from "../api/payloads";
+import { apiFetch } from "../api/client";
+import type { PagePayload, BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { OutlineHandlers } from "../components/EditableBlockTree";
+import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
+import { encodeTitle } from "../paths";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
          outdentBlock, setCollapsed, setHeading, splitBlock,
          type EditResult, type FocusTarget } from "./edits";
-import { applyOps, findNode, visibleNeighbor } from "./tree";
+import { applyOps, findNode, insertSubtree, removeSubtree,
+         visibleNeighbor } from "./tree";
 
 const TEXT_DEBOUNCE_MS = 500;
 
@@ -22,6 +26,7 @@ export interface Outline {
   focus: FocusTarget | null;
   readOnly: boolean;
   handlers: OutlineHandlers;
+  dnd: OutlineDndApi;
   createFirstBlock(): void;
   appendBlock(text: string): void;
 }
@@ -94,15 +99,41 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       document.removeEventListener("visibilitychange", onVisibility);
   }, [flushNow]);
 
+  // Authoritative refetch: adopt the server's tree once our own queue has
+  // drained. Used both when a remote batch targets us with content we don't
+  // have (below) and as the DnD refetch fallback for panel-sourced cross-page
+  // moves (the source outline isn't registered, so no subtree ever arrives
+  // locally). Waiting for idle first matters: fetching immediately can race a
+  // local optimistic edit enqueued in this window and silently overwrite it.
+  const refetch = useCallback(() => {
+    void sync.idle()
+      .then(() => apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`))
+      .then((p) => {
+        blocksRef.current = p.blocks;
+        setBlocks(p.blocks);
+        setFocus((f) => (f && findNode(p.blocks, f.uid) ? f : null));
+      })
+      .catch(() => undefined); // next resync will repair
+  }, [sync, pageTitle]);
+
   // Remote batches: the same applyOps as local edits. Text updates for the
   // block being typed in are skipped — the local draft wins on its next
   // flush (per-block last-write-wins).
   useEffect(() => sync.subscribe((batch) => {
+    const needsRefetch = batch.ops.some((op) =>
+      op.op === "move" && op.page_title != null &&
+      op.page_title === pageTitle &&
+      !findNode(blocksRef.current, op.uid));
     const ops = batch.ops.filter((op) =>
       !(op.op === "update_text" && op.uid === focusRef.current?.uid));
     blocksRef.current = applyOps(blocksRef.current, ops, pageTitle);
     setBlocks(blocksRef.current);
-  }), [sync, pageTitle]);
+    if (needsRefetch) {
+      // we are the target of a cross-page move: the op carries no block
+      // content, so adopt the authoritative tree.
+      refetch();
+    }
+  }), [sync, pageTitle, refetch]);
 
   const handlers = useMemo<OutlineHandlers>(() => ({
     onFocusBlock: (uid, cursor) => setFocus({ uid, cursor }),
@@ -170,7 +201,33 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
         });
       })();
     },
+    // overridden by EditablePage (which knows the drag-source page title);
+    // kept here only so this object satisfies OutlineHandlers on its own.
+    onDragStartBlock: () => undefined,
   }), [run, flushNow, pageTitle]);
+
+  const dnd = useMemo<OutlineDndApi>(() => ({
+    moveTo: (uid, target) => run((b) => {
+      const ops: BlockOp[] = [{ op: "move", uid,
+        parent_uid: target.parent_uid, order_idx: target.order_idx }];
+      return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
+    }),
+    removeSubtreeLocal: (uid) => {
+      flushNow();
+      const { tree, node } = removeSubtree(blocksRef.current, uid);
+      if (!node) return null;
+      blocksRef.current = tree;
+      setBlocks(tree);
+      setFocus((f) => (f && findNode(tree, f.uid) ? f : null));
+      return node;
+    },
+    insertSubtreeLocal: (node, target) => {
+      blocksRef.current = insertSubtree(
+        blocksRef.current, node, target.parent_uid, target.order_idx);
+      setBlocks(blocksRef.current);
+    },
+    refetch,
+  }), [run, flushNow, pageTitle, refetch]);
 
   const createFirstBlock = useCallback(() => {
     run((b) => {
@@ -200,6 +257,7 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     focus,
     readOnly: sync.status !== "connected",
     handlers,
+    dnd,
     createFirstBlock,
     appendBlock,
   };

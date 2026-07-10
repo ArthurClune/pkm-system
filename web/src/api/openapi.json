@@ -872,6 +872,18 @@
           "order_idx": {
             "type": "integer",
             "title": "Order Idx"
+          },
+          "page_title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Title"
           }
         },
         "type": "object",

@@ -34,6 +34,7 @@ export interface OutlineHandlers {
   onSetHeading(uid: string, heading: number | null): void;
   onToggleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
+  onDragStartBlock(uid: string): void;
 }
 
 interface TreeProps {
@@ -66,7 +67,8 @@ function EditableBlock({ node, focus, handlers, readOnly }: {
     node.heading === 3 ? "h3" : "div";
   return (
     <div className="block">
-      <div className={"block-row" + (focused ? " focused" : "")}>
+      <div className={"block-row" + (focused ? " focused" : "")}
+           data-uid={node.uid}>
         <button
           className={"chevron" + (node.collapsed ? " closed" : "") + (hasChildren ? "" : " hidden")}
           onClick={() => handlers.onToggleCollapsed(node.uid, !node.collapsed)}
@@ -75,7 +77,14 @@ function EditableBlock({ node, focus, handlers, readOnly }: {
         >
           ▸
         </button>
-        <span className="bullet">•</span>
+        <span className="bullet" draggable={!readOnly}
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/plain", node.uid);
+                e.dataTransfer.effectAllowed = "move";
+                handlers.onDragStartBlock(node.uid);
+              }}>
+          •
+        </span>
         {focused ? (
           <BlockInput node={node} cursor={focus.cursor} handlers={handlers}
                       readOnly={readOnly} />

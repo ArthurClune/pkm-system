@@ -370,3 +370,14 @@ mark.highlight { background: var(--color-highlight-bg); }
     background: var(--color-bg-subtle); padding: 6px 12px; color: var(--color-text); }
   .main-pane { padding-bottom: 96px; }
 }
+
+/* --- plan 6/7: block drag-and-drop --- */
+.drop-indicator {
+  position: absolute;
+  right: 0;
+  height: 0;
+  border-top: 2px solid #4a9eda;
+  pointer-events: none;
+  z-index: 5;
+}
+.bullet[draggable="true"] { cursor: grab; }

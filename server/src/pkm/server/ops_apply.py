@@ -9,8 +9,8 @@ from pkm.refs import extract
 from pkm.server.ops_core import (BlockInfo, CreateOp, DeleteBlocks, DeleteOp,
                                  Effect, InsertBlock, MoveOp, OpBatch,
                                  OpContext, ReindexRefs, SetCollapsed,
-                                 SetHeading, SetParent, ShiftSiblings,
-                                 TouchPage, UpdateText, plan_op)
+                                 SetHeading, SetPageId, SetParent,
+                                 ShiftSiblings, TouchPage, UpdateText, plan_op)
 from pkm.server.store import get_or_create_page
 
 _DEPTH_CAP = 100
@@ -59,7 +59,11 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     if isinstance(op, MoveOp):
         parent = _block_info(db, op.parent_uid) if op.parent_uid else None
         chain = _parent_chain(db, op.parent_uid) if op.parent_uid else ()
-        return OpContext(block=block, parent=parent, parent_chain=chain)
+        page_id = (get_or_create_page(db, op.page_title, now_ms)["id"]
+                   if op.page_title is not None else None)
+        return OpContext(block=block, parent=parent, parent_chain=chain,
+                         page_id=page_id,
+                         subtree=_subtree_deepest_first(db, op.uid))
     if isinstance(op, DeleteOp):
         return OpContext(block=block,
                          subtree=_subtree_deepest_first(db, op.uid))
@@ -107,6 +111,10 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
     elif isinstance(eff, TouchPage):
         db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
                    (now_ms, eff.page_id))
+    elif isinstance(eff, SetPageId):
+        db.executemany(
+            "UPDATE blocks SET page_id = ?, updated_at = ? WHERE uid = ?",
+            [(eff.page_id, now_ms, u) for u in eff.uids])
     else:
         raise AssertionError(f"unhandled effect: {eff!r}")
 

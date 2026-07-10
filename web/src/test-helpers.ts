@@ -124,6 +124,7 @@ export function makeSync(status: SyncStatus = "connected"): SyncFake {
     resyncSeq: 0,
     enqueue: (ops) => { sent.push(ops); },
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
+    idle: () => Promise.resolve(),
     sent,
     emit: (batch) => subs.forEach((fn) => fn(batch)),
   };

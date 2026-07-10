@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import { block, makeSync, stubFetch } from "../test-helpers";
 import { registerOutline } from "../outline/activeOutlines";
@@ -13,7 +14,7 @@ function mount(sync = makeSync(), initial = [
   block("u2", "second", { order_idx: 1 }),
 ]) {
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         <EditablePage title="Page" initial={initial} />
       </SyncContext.Provider>
@@ -216,14 +217,14 @@ test("the read-only fallback still reflects genuinely remote batches", () => {
 test("once the first instance unmounts, a freshly mounted one becomes editable again", () => {
   const sync = makeSync();
   const first = render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         <EditablePage title="Page" initial={[block("u1", "first", { order_idx: 0 })]} />
       </SyncContext.Provider>
     </MemoryRouter>);
   first.unmount();
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         <EditablePage title="Page" initial={[block("u1", "first", { order_idx: 0 })]} />
       </SyncContext.Provider>

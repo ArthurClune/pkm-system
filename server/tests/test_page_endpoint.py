@@ -45,5 +45,6 @@ def test_namespace_title_with_slash(client, seeded_config):
     import sqlite3
     con = sqlite3.connect(seeded_config.db_path)
     con.execute("INSERT INTO pages(id,title) VALUES (99,'AWS/SCP')")
-    con.commit(); con.close()
+    con.commit()
+    con.close()
     assert client.get("/api/page/AWS/SCP").status_code == 200

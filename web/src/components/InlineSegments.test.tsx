@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, it, vi } from "vitest";
 import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, SidebarContext } from "../contexts";
@@ -8,7 +9,7 @@ import { InlineSegments } from "./InlineSegments";
 
 function renderText(text: string, refTexts: Record<string, BlockRefText> = {}) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <BlockRefContext.Provider value={refTexts}>
         <InlineSegments segments={tokenizeBlock(text)} />
       </BlockRefContext.Provider>
@@ -99,7 +100,7 @@ it("protocol-relative and escaped pseudo-relative hrefs render as plain text", (
 it("shift-click calls the sidebar callback instead of navigating", () => {
   const openInSidebar = vi.fn();
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <InlineSegments segments={tokenizeBlock("go [[Paper]]")} />
       </SidebarContext.Provider>

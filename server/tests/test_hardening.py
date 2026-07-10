@@ -46,6 +46,7 @@ def test_ancestor_depth_cap_survives_cycle(client, seeded_config):
     con = sqlite3.connect(seeded_config.db_path)
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("UPDATE blocks SET parent_uid = 'uid_b3' WHERE uid = 'uid_b2'")
-    con.commit(); con.close()
+    con.commit()
+    con.close()
     r = client.get("/api/page/Paper")   # backlinks of Paper walk uid_b3's ancestors
     assert r.status_code == 200

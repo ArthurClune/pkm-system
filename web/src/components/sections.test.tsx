@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Backlinks } from "../api/payloads";
 import { pagePayload, stubFetch } from "../test-helpers";
@@ -43,7 +44,7 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
   });
   const fetchMock = stubFetch([["/api/page/Machine%20Learning?bl_offset=1", more]]);
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <BacklinksSection title="Machine Learning" initial={initial} />
     </MemoryRouter>,
   );
@@ -74,7 +75,7 @@ it("backlinks show-more merges batches from the same source page", async () => {
       { backlinks: { groups: [groupAmore], total_pages: 2, offset: 1, limit: 1 } })],
   ]);
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <BacklinksSection title="T" initial={backlinksInitial} />
     </MemoryRouter>,
   );
@@ -88,7 +89,7 @@ it("shows an error and re-enables the button when show-more fails", async () => 
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <BacklinksSection title="Machine Learning" initial={initial} />
     </MemoryRouter>,
   );
@@ -111,7 +112,7 @@ it("unlinked references fetch lazily on first open and paginate", async () => {
     }],
   ]);
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <UnlinkedSection title="Machine Learning" />
     </MemoryRouter>,
   );
@@ -137,7 +138,7 @@ it("shows an error and re-enables the button when unlinked show-more fails", asy
     return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
   }));
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <UnlinkedSection title="Machine Learning" />
     </MemoryRouter>,
   );

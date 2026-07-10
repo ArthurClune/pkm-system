@@ -158,7 +158,7 @@ rendered HTML. Same editing feel as Roam, fast on large pages, iPad-Safari
 friendly (one input element at a time).
 
 - **Keyboard:** Enter = new sibling; Tab / Shift-Tab = indent / outdent;
-  Alt-↑/↓ = move block; arrows cross block boundaries; Cmd-K = search;
+  Alt-↑/↓ = move block; arrows cross block boundaries; Cmd/Ctrl-U = search;
   Esc = blur. All functional on iPad hardware keyboard.
 - **Autocomplete:** `[[` or `#` opens fuzzy page-title completion.
 - **Rendering:** markdown (bold/italic/links), code blocks with syntax
@@ -427,8 +427,8 @@ on the branch before merge and are NOT carried forward.
   duplicate React keys are possible only if the `updated_at DESC` ordering
   shifts between clicks (near-impossible while the UI is read-only, real
   once plan 5 writes land).
-- **Accessibility polish batch:** `aria-label` on the Cmd-K search input
-  and on the read-only TODO checkboxes; `aria-live` on the journal's
+- **Accessibility polish batch:** `aria-label` on the Cmd/Ctrl-U search
+  input and on the read-only TODO checkboxes; `aria-live` on the journal's
   loading indicator.
 - **Grammar leniencies (documentation-only):** the TS tokenizer accepts
   `{{TODO}}`/`{{[[TODO]]}}` bracket variants independently and leaves

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import { registerOutline } from "../outline/activeOutlines";
 import { SyncContext } from "../sync/SyncProvider";
@@ -12,7 +13,7 @@ function mount(sync = makeSync(), title = "Paper",
                blocks = [block("uid_s1", "a paper block", { order_idx: 0 })]) {
   stubFetch([["/api/page/Paper", pagePayload(title, blocks)]]);
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         <EditableSidebarPanel title={title} />
       </SyncContext.Provider>
@@ -62,7 +63,7 @@ test("a page already open elsewhere in this tab falls back to read-only", async 
 test("shows the fetch error", async () => {
   stubFetch([]);
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={makeSync()}>
         <EditableSidebarPanel title="Missing" />
       </SyncContext.Provider>

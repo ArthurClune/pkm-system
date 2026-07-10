@@ -1,7 +1,6 @@
 import pytest
 
-from pkm.server.query import (QueryNode, QueryParseError, parse_query,
-                              plan_sql)
+from pkm.server.query import QueryParseError, parse_query
 
 
 def test_parse_simple_and():

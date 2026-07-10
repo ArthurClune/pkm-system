@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { block, pagePayload, stubFetch } from "../test-helpers";
 import { PageView } from "./PageView";
@@ -8,7 +9,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 function renderAt(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[path]}>
       <Routes>
         <Route path="/page/*" element={<PageView />} />
       </Routes>

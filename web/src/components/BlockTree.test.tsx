@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, it } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { BlockTree } from "./BlockTree";
@@ -10,7 +11,7 @@ function block(uid: string, text: string, over: Partial<BlockNode> = {}): BlockN
 }
 
 function renderTree(blocks: BlockNode[]) {
-  return render(<MemoryRouter><BlockTree blocks={blocks} /></MemoryRouter>);
+  return render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockTree blocks={blocks} /></MemoryRouter>);
 }
 
 it("renders nested blocks with heading levels", () => {

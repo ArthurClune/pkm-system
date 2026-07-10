@@ -48,3 +48,35 @@ def test_namespace_title_with_slash(client, seeded_config):
     con.commit()
     con.close()
     assert client.get("/api/page/AWS/SCP").status_code == 200
+
+
+def test_create_page_creates_new_page(client):
+    r = client.post("/api/pages", json={"title": "New Page"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["title"] == "New Page"
+    assert isinstance(body["id"], int)
+    # persisted, not just returned for this request
+    assert client.get("/api/page/New Page").status_code == 200
+
+
+def test_create_page_is_idempotent(client):
+    r = client.post("/api/pages", json={"title": "Machine Learning"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == 1  # existing seeded page, not a duplicate
+    assert body["title"] == "Machine Learning"
+    assert body["created_at"] == 1000
+
+
+def test_create_page_rejects_blank_title(client):
+    assert client.post("/api/pages", json={"title": ""}).status_code == 422
+
+
+def test_create_page_rejects_whitespace_only_title(client):
+    assert client.post("/api/pages", json={"title": "   "}).status_code == 422
+
+
+def test_create_page_requires_auth(anon_client):
+    r = anon_client.post("/api/pages", json={"title": "New Page"})
+    assert r.status_code == 401

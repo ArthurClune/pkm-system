@@ -291,7 +291,7 @@ mark.highlight { background: var(--color-highlight-bg); }
   color: var(--color-text-muted); margin-bottom: 4px; }
 
 /* right sidebar stack */
-.sidebar { width: 340px; flex-shrink: 0; border-left: 1px solid var(--color-border);
+.sidebar { width: 33.333%; flex-shrink: 0; border-left: 1px solid var(--color-border);
   background: var(--color-bg-sidebar); padding: 16px; overflow-y: auto; height: 100vh;
   position: sticky; top: 0; }
 .sidebar-panel { border-bottom: 1px solid var(--color-border); padding-bottom: 12px;
@@ -310,7 +310,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 
 /* responsive: sidebar overlays under 900px */
 @media (max-width: 900px) {
-  .sidebar { position: fixed; right: 0; top: 0; height: 100vh;
+  .sidebar { position: fixed; right: 0; top: 0; height: 100vh; width: 340px;
     box-shadow: -4px 0 16px rgba(var(--shadow-rgb), 0.2); z-index: 10; }
 }
 

@@ -1,11 +1,11 @@
 ---
 # pkm-falb
 title: Make the op queue connection-aware so disconnection really pauses writes
-status: todo
+status: in-progress
 type: bug
 priority: high
 created_at: 2026-07-10T10:56:52Z
-updated_at: 2026-07-10T10:57:50Z
+updated_at: 2026-07-10T11:33:42Z
 parent: pkm-m309
 ---
 
@@ -14,10 +14,24 @@ Review finding 3 (Important). The UI goes read-only when WebSocket status !== co
 Fix direction: give the queue explicit connectivity state. When offline, preserve pending ops/drafts without sending; on reconnect, establish the authoritative-state policy first, then flush safe pending work or discard it with explicit user-visible reconciliation. Do NOT silently drop enqueue() calls — that is direct data loss.
 
 ## Checklist
-- [ ] Thread connection status into opQueue; stop pumping while offline
-- [ ] Preserve pending ops/drafts while offline
-- [ ] Define and implement reconnect policy (authoritative state, then flush or explicit reconciliation)
-- [ ] Regression: type text, disconnect before debounce, advance timer → no HTTP POST
-- [ ] Regression: upload completes after disconnection → no op pumped
-- [ ] Regression: reconnect → documented handling of preserved pending work
-- [ ] Regression: in-flight POST whose socket drops before the response
+- [x] Thread connection status into opQueue; stop pumping while offline
+- [x] Preserve pending ops/drafts while offline
+- [x] Define and implement reconnect policy (authoritative state, then flush or explicit reconciliation)
+- [x] Regression: type text, disconnect before debounce, advance timer → no HTTP POST
+- [x] Regression: upload completes after disconnection → no op pumped
+- [x] Regression: reconnect → documented handling of preserved pending work
+- [x] Regression: in-flight POST whose socket drops before the response
+
+## Implementation notes
+
+`opQueue` gains `setOnline(bool)`, driven by `SyncProvider` from the websocket
+status. Offline, `enqueue()` still preserves ops (no silent drop) but `kick()`
+starts no pump; `pump()` re-checks `online` each iteration so an in-flight POST
+finishes while no new batch is sent. Reconnect calls `setOnline(true)` (flushes
+preserved ops, which become the newest server-LWW writers) and defers the
+`resyncSeq` bump behind `queue.idle()` so views refetch *post-flush* authoritative
+state — avoiding a display-vs-server divergence the literal "refetch then flush"
+ordering would create. A failed flush keeps the existing clear-pending + desync
+path. Tests: web/src/sync/opQueue.test.ts (offline/reconnect/in-flight),
+web/src/sync/connectionAware.test.tsx (debounce + upload regressions),
+web/src/sync/SyncProvider.test.tsx (flush-before-resync ordering).

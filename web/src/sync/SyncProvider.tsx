@@ -65,8 +65,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         subsRef.current.forEach((fn) => fn(batch));
       },
       onStatus: (up) => {
+        // Drive the queue's connectivity synchronously here (not via a status
+        // effect, which would race child refetch effects): the pump must be
+        // paused/resumed at the exact transition.
+        queue.setOnline(up);
         if (up) {
-          if (everConnectedRef.current) setResyncSeq((n) => n + 1);
+          if (everConnectedRef.current) {
+            // Reconnect after a gap: flush the preserved ops first, then bump
+            // resyncSeq so views refetch state that already reflects them.
+            // (setOnline(true) started the flush synchronously, so idle() now
+            // waits for it.) Ordering it this way keeps the display from
+            // briefly adopting pre-flush state and diverging from the server.
+            void queue.idle().then(() => setResyncSeq((n) => n + 1));
+          }
           everConnectedRef.current = true;
           setStatus("connected");
         } else {

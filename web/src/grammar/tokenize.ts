@@ -168,6 +168,19 @@ function tokenizeInline(text: string, blockStart: boolean): InlineSegment[] {
         continue;
       }
     }
+    if (ch === "h" && (i === 0 || /[\s([{]/.test(text[i - 1]))) {
+      const m = /^https?:\/\/\S+/.exec(text.slice(i));
+      if (m) {
+        // trailing punctuation is prose, not URL: "see https://x.org/a."
+        const url = m[0].replace(/[.,;:!?'")\]}>]+$/, "");
+        if (!/^https?:\/\/$/.test(url)) {
+          flushText();
+          out.push({ kind: "link", text: url, href: url });
+          i += url.length;
+          continue;
+        }
+      }
+    }
     if (ch === "(" && text.startsWith("((", i)) {
       const m = BLOCK_REF_AT.exec(text.slice(i));
       if (m) {

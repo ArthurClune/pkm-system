@@ -21,7 +21,7 @@ async def post_ops(request: Request,
                    db: sqlite3.Connection = Depends(get_db)) -> dict:
     now = int(time.time() * 1000)
     try:
-        apply_batch(db, batch, now)
+        broadcast_ops = apply_batch(db, batch, now)
     except OpError as e:
         db.rollback()
         raise HTTPException(status_code=400,
@@ -30,6 +30,6 @@ async def post_ops(request: Request,
     await request.app.state.hub.broadcast({
         "client_id": batch.client_id,
         "ts": now,
-        "ops": [op.model_dump() for op in batch.ops],
+        "ops": broadcast_ops,
     })
     return {"ok": True, "ts": now, "applied": len(batch.ops)}

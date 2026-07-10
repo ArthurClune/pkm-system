@@ -1,41 +1,80 @@
-// pattern: Functional Core
+// pattern: Imperative Shell
+import { useEffect, useId, useState } from "react";
+import { blueskyEmbedSrc, parseBlueskyPostUrl } from "./bluesky";
 
-// Handles ("alice.bsky.social") and DIDs ("did:plc:...") are both valid
-// actor identifiers in a Bluesky post URL; only the path shape is checked
-// here, so anything without a slash is accepted for that segment.
-const POST_URL_RE = /^https:\/\/bsky\.app\/profile\/([^/]+)\/post\/([a-zA-Z0-9]+)$/;
+const EMBED_ORIGIN = "https://embed.bsky.app";
+const RESOLVE_URL =
+  "https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=";
 
-export function parseBlueskyPostUrl(href: string): { actor: string; rkey: string } | null {
-  const m = POST_URL_RE.exec(href);
-  if (!m) return null;
-  return { actor: m[1], rkey: m[2] };
-}
+// module-level so every embed of the same author across the app shares one
+// resolution; failures are evicted so a transient network error can retry
+const didCache = new Map<string, Promise<string>>();
 
-export function isBlueskyPostUrl(href: string): boolean {
-  return parseBlueskyPostUrl(href) !== null;
-}
-
-/** Builds the direct embed.bsky.app iframe src for a post URL, or null if
- * href isn't a Bluesky post URL. Mirrors the shape returned by Bluesky's
- * oEmbed endpoint (https://embed.bsky.app/oembed?url=...) without the
- * extra network round-trip. */
-export function blueskyEmbedSrc(href: string): string | null {
-  const parsed = parseBlueskyPostUrl(href);
-  if (!parsed) return null;
-  const { actor, rkey } = parsed;
-  return `https://embed.bsky.app/embed/${actor}/app.bsky.feed.post/${rkey}` +
-    `?ref_url=${encodeURIComponent(href)}`;
+function resolveHandle(handle: string): Promise<string> {
+  let pending = didCache.get(handle);
+  if (!pending) {
+    pending = fetch(RESOLVE_URL + encodeURIComponent(handle)).then(async (r) => {
+      if (!r.ok) throw new Error(`resolveHandle: ${r.status}`);
+      const body = (await r.json()) as { did?: unknown };
+      if (typeof body.did !== "string" || !body.did.startsWith("did:")) {
+        throw new Error("resolveHandle: no did in response");
+      }
+      return body.did;
+    });
+    pending.catch(() => didCache.delete(handle));
+    didCache.set(handle, pending);
+  }
+  return pending;
 }
 
 export function BlueskyEmbed({ href }: { href: string }) {
-  const src = blueskyEmbedSrc(href);
-  if (!src) return null;
+  const embedId = useId();
+  const actor = parseBlueskyPostUrl(href)?.actor ?? null;
+  const [did, setDid] = useState<string | null>(
+    actor?.startsWith("did:") ? actor : null,
+  );
+  const [height, setHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!actor || actor.startsWith("did:")) return;
+    let alive = true;
+    setDid(null);
+    resolveHandle(actor).then(
+      (resolved) => { if (alive) setDid(resolved); },
+      () => {},
+    );
+    return () => { alive = false; };
+  }, [href, actor]);
+
+  // the embed page reports its rendered height, keyed by our id param —
+  // the same protocol Bluesky's official embed.js uses
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== EMBED_ORIGIN) return;
+      const data = event.data as { id?: unknown; height?: unknown };
+      if (data.id === embedId && typeof data.height === "number") {
+        setHeight(data.height);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [embedId]);
+
+  if (!actor) return null;
+  if (!did) {
+    // resolving, or resolution failed: the post link is still useful
+    return <a href={href} target="_blank" rel="noreferrer">{href}</a>;
+  }
   return (
     <iframe
-      src={src}
+      src={blueskyEmbedSrc(href, did, embedId)!}
       className="bluesky-embed"
       title="Bluesky post"
-      sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+      style={height === null ? undefined : { height }}
+      // allow-same-origin is required: with an opaque origin the embed
+      // page renders blank (pkm-es9o); this matches Bluesky's official
+      // embed.js, which uses no sandbox at all
+      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
     />
   );
 }

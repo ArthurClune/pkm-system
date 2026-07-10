@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, it, vi } from "vitest";
@@ -75,15 +75,28 @@ it("renders images, pdf embeds for /assets/*.pdf links, and external links", () 
     .toHaveAttribute("target", "_blank");
 });
 
-it("renders a Bluesky post link as an embedded iframe, not a plain anchor", () => {
-  const { container } = renderText(
-    "[post](https://bsky.app/profile/alice.bsky.social/post/3k2abc123xy)");
-  const iframe = container.querySelector("iframe.bluesky-embed");
-  expect(iframe).not.toBeNull();
-  expect(iframe).toHaveAttribute("src",
-    "https://embed.bsky.app/embed/alice.bsky.social/app.bsky.feed.post/3k2abc123xy" +
-      "?ref_url=https%3A%2F%2Fbsky.app%2Fprofile%2Falice.bsky.social%2Fpost%2F3k2abc123xy");
-  expect(screen.queryByRole("link", { name: "post" })).toBeNull();
+it("renders a Bluesky post link as an embedded iframe, not a plain anchor", async () => {
+  // embed.bsky.app only accepts DIDs, so the handle is resolved first (pkm-es9o)
+  const did = "did:plc:z72i7hdynmk6r22z27h6tvur";
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true, status: 200, json: async () => ({ did }),
+  }));
+  try {
+    const { container } = renderText(
+      "[post](https://bsky.app/profile/inline-segs.bsky.social/post/3k2abc123xy)");
+    await waitFor(() => {
+      expect(container.querySelector("iframe.bluesky-embed")).not.toBeNull();
+    });
+    const src = new URL(
+      container.querySelector("iframe.bluesky-embed")!.getAttribute("src")!);
+    expect(src.origin).toBe("https://embed.bsky.app");
+    expect(src.pathname).toBe(`/embed/${did}/app.bsky.feed.post/3k2abc123xy`);
+    expect(src.searchParams.get("ref_url"))
+      .toBe("https://bsky.app/profile/inline-segs.bsky.social/post/3k2abc123xy");
+    expect(screen.queryByRole("link", { name: "post" })).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it("non-post Bluesky links stay plain external links", () => {

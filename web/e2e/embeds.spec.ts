@@ -18,6 +18,11 @@ const caretToEnd = (page: Page) =>
     el.setSelectionRange(el.value.length, el.value.length));
 
 test("bare Bluesky URL renders as an embed iframe", async ({ page }) => {
+  // hermetic: answer the handle->DID resolution locally (embed.bsky.app
+  // only accepts DIDs in the embed path, pkm-es9o)
+  const did = "did:plc:tq6gqh5aaohgi55y2yofylwj";
+  await page.route("**/xrpc/com.atproto.identity.resolveHandle*", (route) =>
+    route.fulfill({ json: { did } }));
   await login(page);
   const today = page.locator(".journal-day").first();
   await expect(today).toBeVisible();
@@ -35,6 +40,6 @@ test("bare Bluesky URL renders as an embed iframe", async ({ page }) => {
   await expect(iframe).toBeVisible();
   await expect(iframe).toHaveAttribute(
     "src",
-    /embed\.bsky\.app\/embed\/cpaxton\.bsky\.social\/app\.bsky\.feed\.post\/3mp4jonwrfk2h/,
+    new RegExp(`embed\\.bsky\\.app/embed/${did}/app\\.bsky\\.feed\\.post/3mp4jonwrfk2h`),
   );
 });

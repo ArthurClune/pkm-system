@@ -119,6 +119,14 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  // Whether the user has typed edits not yet committed to the block tree.
+  // Focus alone is not a draft: while dirty, remote text still lands on the
+  // tree but the textarea keeps the local draft (last-write-wins); with no
+  // dirty draft the textarea adopts tree changes. draftRef mirrors `draft`
+  // so the adoption effect can read it without re-subscribing on every keystroke.
+  const dirtyRef = useRef(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   // The "/" trigger is served from the static command list, not the titles
   // API, so only fetch titles for ref/tag contexts.
   const options = useTitleOptions(ac && ac.kind !== "command" ? ac.query : null);
@@ -145,7 +153,21 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     el.style.height = `${el.scrollHeight}px`;
   }, [draft]);
 
+  // Adopt block-tree text changes — a remote update, or our own draft landing
+  // after a flush — unless an unflushed local draft should win. node.text
+  // matching the draft means our edit committed (or we're already in sync), so
+  // the draft is no longer dirty.
+  useEffect(() => {
+    if (node.text === draftRef.current) {
+      dirtyRef.current = false;
+      return;
+    }
+    if (dirtyRef.current) return;
+    setDraft(node.text);
+  }, [node.text]);
+
   const setText = (text: string, cursorPos: number) => {
+    dirtyRef.current = true;
     setDraft(text);
     handlers.onDraftChange(node.uid, text);
     // place the cursor after React commits the new value
@@ -175,6 +197,7 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const pos = e.target.selectionStart ?? value.length;
+    dirtyRef.current = true;
     setDraft(value);
     setCaret(pos);
     setAcSelected(0);

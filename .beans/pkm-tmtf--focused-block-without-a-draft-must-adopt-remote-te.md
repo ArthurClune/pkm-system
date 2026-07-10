@@ -1,11 +1,11 @@
 ---
 # pkm-tmtf
 title: Focused block without a draft must adopt remote text updates
-status: todo
+status: in-progress
 type: bug
 priority: high
 created_at: 2026-07-10T10:56:40Z
-updated_at: 2026-07-10T10:57:50Z
+updated_at: 2026-07-10T11:13:10Z
 parent: pkm-m309
 ---
 
@@ -14,9 +14,17 @@ Review finding 2 (Important). useOutline (web/src/outline/useOutline.ts:119-136)
 Fix direction per review: base conflict behavior on an actual pending draft, not focus. E.g. apply remote text to the underlying block tree even while the textarea holds a local component draft; a real draft flush then becomes the next legitimate last-writer. The no-draft case must adopt the remote value.
 
 ## Checklist
-- [ ] Apply remote update_text to block tree when focused block has no pending local draft
-- [ ] Decide and implement LWW behavior when a real local draft exists
-- [ ] Update EditablePage.test.tsx:77-86 to the new contract
-- [ ] Regression: focused, no local change → remote update displayed/adopted
-- [ ] Regression: focused with pending draft → chosen LWW behavior verified
-- [ ] Regression: focus then blur without editing after remote update → client and server consistent
+- [x] Apply remote update_text to block tree when focused block has no pending local draft
+- [x] Decide and implement LWW behavior when a real local draft exists
+- [x] Update EditablePage.test.tsx:77-86 to the new contract
+- [x] Regression: focused, no local change → remote update displayed/adopted
+- [x] Regression: focused with pending draft → chosen LWW behavior verified
+- [x] Regression: focus then blur without editing after remote update → client and server consistent
+
+## Resolution
+
+Remote `update_text` ops now always apply to the block tree (removed the
+focus-based filter in `useOutline.ts`). Display-time LWW moved into
+`BlockInput` (`EditableBlockTree.tsx`): a `dirtyRef` tracks unflushed local
+typing; a `node.text` effect adopts tree changes when not dirty and keeps the
+local draft when dirty. A dirty draft's debounce flush is the next writer.

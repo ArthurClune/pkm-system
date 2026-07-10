@@ -6,6 +6,7 @@ import { SearchModal } from "./components/SearchModal";
 import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { TopBar } from "./components/TopBar";
 import { SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
 import { SyncProvider } from "./sync/SyncProvider";
@@ -71,20 +72,19 @@ export function App() {
               <Link to="/" className="nav-link" onClick={() => setNavOpen(false)}>
                 Daily Notes
               </Link>
-              <button className="nav-link search-button"
-                      onClick={() => { setNavOpen(false); setSearchOpen(true); }}>
-                Search
-              </button>
               <ThemeToggle />
               <SidebarNav onNavigate={() => setNavOpen(false)} />
             </nav>
-            <main className="main-pane">
-              <Routes>
-                <Route path="/" element={<Journal />} />
-                <Route path="/page/*" element={<PageView />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </main>
+            <div className="content-area">
+              <TopBar onSearchClick={() => setSearchOpen(true)} />
+              <main className="main-pane">
+                <Routes>
+                  <Route path="/" element={<Journal />} />
+                  <Route path="/page/*" element={<PageView />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </main>
+            </div>
             {stack.length > 0 && (
               <aside className="sidebar">
                 {stack.map((entry) => (

@@ -60,3 +60,42 @@ def test_transform_applied_before_extraction():
     rows = to_rows(EXPORT, lambda t: t.replace("[[Attention]]", "[[Rewritten]]"))
     titles = {r[1] for r in rows.pages}
     assert "Rewritten" in titles and "Attention" not in titles
+
+
+MERMAID_EXPORT = Export(
+    pages=(
+        Page("Diagrams", None, None, (
+            _block("uid-mermaid1", "{{[[mermaid]]}}", children=(
+                _block("uid-line1", "flowchart TB"),
+                _block("uid-line2", "a --> b"),
+            )),
+            _block("uid-plain1", "not a diagram, mentions [[mermaid]] in passing"),
+            _block("uid-mention1", "{{[[mermaid]]}}"),  # childless mention
+        )),
+    ),
+    orphan_block_count=0,
+    skipped_entities=0,
+    attr_counts={},
+)
+
+
+def test_mermaid_component_block_becomes_single_fenced_block():
+    rows = to_rows(MERMAID_EXPORT, lambda t: t)
+    uids = [r[0] for r in rows.blocks]
+    assert "uid-line1" not in uids and "uid-line2" not in uids  # children consumed
+    by_uid = {r[0]: r for r in rows.blocks}
+    assert by_uid["uid-mermaid1"][4] == "```mermaid\nflowchart TB\na --> b\n```"
+
+
+def test_mermaid_fence_has_no_mermaid_ref():
+    rows = to_rows(MERMAID_EXPORT, lambda t: t)
+    mermaid_refs_from_fence = [r for r in rows.refs if r[0] == "uid-mermaid1"]
+    assert mermaid_refs_from_fence == []
+
+
+def test_childless_mermaid_mention_is_left_alone():
+    rows = to_rows(MERMAID_EXPORT, lambda t: t)
+    by_uid = {r[0]: r for r in rows.blocks}
+    assert by_uid["uid-mention1"][4] == "{{[[mermaid]]}}"
+    page_ids = {r[1]: r[0] for r in rows.pages}
+    assert ("uid-mention1", page_ids["mermaid"], "link") in rows.refs

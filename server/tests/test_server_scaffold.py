@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from pkm.server.app import create_app
 from pkm.server.config import Config, load_config
-from pkm.server.db import open_db
+from pkm.server.db import BUSY_TIMEOUT_MS, init_db, open_db
 
 
 def _config(tmp_path, **over):
@@ -42,17 +42,27 @@ def test_load_config_resolves_paths_relative_to_file(tmp_path):
     assert cfg.cookie_secure is False
 
 
-def test_open_db_sets_pragmas(tmp_path):
+def test_init_db_sets_wal_mode(tmp_path):
+    path = tmp_path / "t.sqlite3"
+    init_db(path)
+    con = sqlite3.connect(path)
+    assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    con.close()
+
+
+def test_open_db_sets_connection_local_pragmas_only(tmp_path):
+    # open_db() must not touch WAL/DDL (see test_db_concurrency.py for
+    # why) - it only sets pragmas scoped to this connection.
     con = open_db(tmp_path / "t.sqlite3")
     assert con.execute("PRAGMA foreign_keys").fetchone()[0] == 1
-    assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    assert con.execute("PRAGMA busy_timeout").fetchone()[0] == BUSY_TIMEOUT_MS
     con.execute("CREATE TABLE t(a)")
     con.execute("INSERT INTO t VALUES (1)")
     assert con.execute("SELECT a FROM t").fetchone()["a"] == 1  # Row factory
     con.close()
 
 
-def test_open_db_backfills_sidebar_entries_on_legacy_db(tmp_path):
+def test_init_db_backfills_sidebar_entries_on_legacy_db(tmp_path):
     # Simulate a database created before sidebar_entries existed: run only
     # the original tables' DDL, without sidebar_entries.
     path = tmp_path / "legacy.sqlite3"
@@ -61,7 +71,8 @@ def test_open_db_backfills_sidebar_entries_on_legacy_db(tmp_path):
     legacy.commit()
     legacy.close()
 
-    con = open_db(path)
+    init_db(path)
+    con = sqlite3.connect(path)
     names = {r[0] for r in con.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "sidebar_entries" in names

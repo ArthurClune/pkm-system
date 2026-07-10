@@ -14,6 +14,7 @@ from pkm.schema import DDL
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
+from pkm.server.db import init_db
 
 PORT = 8975
 PASSWORD = "e2e-pw"
@@ -31,6 +32,7 @@ def main() -> int:
     con.executescript(DDL)
     con.commit()
     con.close()
+    init_db(db_path)  # WAL + migrations, once, before serving
     (data / "assets").mkdir()
     config = Config(
         db_path=db_path,

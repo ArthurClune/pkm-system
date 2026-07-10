@@ -5,7 +5,7 @@ from pkm.schema import DDL
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
-from pkm.server.db import open_db
+from pkm.server.db import init_db, open_db
 
 TEST_PASSWORD = "test-pw"
 TEST_SALT = bytes.fromhex("00" * 16)
@@ -38,6 +38,7 @@ SEED_REFS = [
 @pytest.fixture()
 def seeded_config(tmp_path) -> Config:
     db_path = tmp_path / "pkm.sqlite3"
+    init_db(db_path)  # WAL + migrations, once, before any open_db() call
     con = open_db(db_path)
     con.executescript(DDL)
     con.executemany("INSERT INTO pages VALUES (?,?,?,?)", SEED_PAGES)

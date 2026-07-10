@@ -14,6 +14,7 @@ import uvicorn
 
 from pkm.server.app import create_app
 from pkm.server.config import load_config
+from pkm.server.db import init_db
 
 
 def bind_sockets(hosts: list[str], port: int) -> list[socket.socket]:
@@ -42,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="repeatable; overrides config bind_hosts")
     args = ap.parse_args(argv)
     config = load_config(Path(args.data_dir) / "config.json")
+    init_db(config.db_path)  # WAL + migrations, once, before serving
     hosts = args.hosts if args.hosts else list(config.bind_hosts)
     sockets = bind_sockets(hosts, args.port)
     server = uvicorn.Server(uvicorn.Config(create_app(config), port=args.port))

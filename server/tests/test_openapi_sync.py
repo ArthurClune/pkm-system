@@ -22,30 +22,38 @@ REGEN = ("regenerate with `uv run python -m pkm.server.openapi_dump "
          "> ../web/src/api/openapi.json` then `pnpm gen-types`, and commit "
          "both files")
 
-# GET routes that are exempt from the "must declare a response_model" rule
-# because they don't return a JSON API payload: a health check, the schema
-# introspection endpoint itself, and a binary file download. Keep this list
-# explicit and minimal - anything else returning bare-dict JSON is a bug.
+# Routes exempt from the "must declare a response_model" rule because they
+# don't return a JSON API payload: a health check, the schema introspection
+# endpoint itself, and a binary file download. Keep this list explicit and
+# minimal - anything else returning bare-dict JSON is a bug.
 EXEMPT_READ_ROUTES = {"/healthz", "/api/openapi.json", "/assets/{sha256}/{filename}"}
 
+# Write routes return small ad-hoc JSON acks by design, so only GETs are
+# auto-checked - except the upload response, the one non-GET payload the web
+# client consumes as a generated type.
+CHECKED_NON_GET = {("/api/assets", "post")}
 
-def _get_routes(schema: dict) -> list[tuple[str, dict]]:
-    return [(path, methods["get"])
-            for path, methods in schema["paths"].items() if "get" in methods]
+
+def _checked_operations(schema: dict) -> list[tuple[str, str, dict]]:
+    return [(path, method, op)
+            for path, methods in schema["paths"].items()
+            for method, op in methods.items()
+            if method == "get" or (path, method) in CHECKED_NON_GET]
 
 
 def _undeclared_response_model_routes(schema: dict, exempt: set[str]) -> list[str]:
-    """GET routes (outside `exempt`) whose 200 JSON body isn't a named
-    component ($ref) - i.e. would be a bare/untyped dict in the schema."""
+    """Checked operations (outside `exempt` paths) whose 200 JSON body isn't a
+    named component ($ref) - i.e. would be a bare/untyped dict in the schema."""
     bad = []
-    for path, op in _get_routes(schema):
+    for path, method, op in _checked_operations(schema):
         if path in exempt:
             continue
-        body = op["responses"]["200"].get("content", {}).get("application/json")
+        body = (op["responses"].get("200", {})
+                .get("content", {}).get("application/json"))
         if body is None:
-            continue  # not a JSON response (e.g. an HTML page)
+            continue  # no JSON 200 body (e.g. an HTML page or a 204)
         if not body.get("schema", {}).get("$ref"):
-            bad.append(path)
+            bad.append(f"{method.upper()} {path}")
     return bad
 
 
@@ -72,7 +80,7 @@ def test_read_routes_declare_response_models(tmp_path):
     schema = create_app(_dummy_config(tmp_path)).openapi()
     bad = _undeclared_response_model_routes(schema, EXEMPT_READ_ROUTES)
     assert not bad, (
-        f"GET route(s) {bad} must declare response_model=<Payload> (see "
+        f"Route(s) {bad} must declare response_model=<Payload> (see "
         f"pkm.server.response_models) or be added to EXEMPT_READ_ROUTES if "
         f"genuinely not a JSON API payload; {REGEN}")
 
@@ -87,4 +95,4 @@ def test_undeclared_response_model_checker_catches_a_bare_dict_route():
         return {"ok": True}
 
     assert _undeclared_response_model_routes(app.openapi(), exempt=set()) == \
-        ["/api/fake"]
+        ["GET /api/fake"]

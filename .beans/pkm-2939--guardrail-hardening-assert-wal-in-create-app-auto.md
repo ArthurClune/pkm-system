@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-07-10T12:21:55Z
-updated_at: 2026-07-10T12:38:03Z
+updated_at: 2026-07-10T12:41:11Z
 ---
 
 Follow-ups from the 2026-07-10 batch final-review triage — two convention-only guarantees worth making structural: (1) init_db()-before-serve is by convention; a future entrypoint or direct create_app(config) that serves DB routes would silently run non-WAL/non-migrated. Add a cheap assertion in create_app (e.g. journal_mode == 'wal' on a probe connection, or call init_db there) so it is un-forgettable; reconcile with the 7 TestClient call sites that don't use the with-form. (2) server/tests/test_openapi_sync.py's test_read_routes_declare_response_models hardcodes the 8 route→model pairs; auto-discover GET routes from the OpenAPI document instead so a new read route returning a bare dict fails the test.
@@ -77,3 +77,5 @@ flags it, proving a future bare-dict read route would fail
   `server/tests/e2e_serve.py:48` (`uvicorn.config` attribute access), present
   identically on `main` before this branch.
 - No web/ files touched, so web suites weren't run.
+
+Post-merge adjustment (main session): the auto-discovery originally covered only GET routes, silently dropping the old map's POST /api/assets assertion. The checker now checks all GETs plus an explicit CHECKED_NON_GET set containing ('/api/assets', 'post'); the other write routes (login, ops, sidebar mutations) return ad-hoc acks by design and stay unchecked.

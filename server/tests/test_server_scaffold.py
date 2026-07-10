@@ -5,6 +5,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from pkm.server.app import create_app
+from pkm.server.auth_core import hash_password
 from pkm.server.config import Config, load_config
 from pkm.server.db import BUSY_TIMEOUT_MS, init_db, open_db
 
@@ -76,6 +77,31 @@ def test_open_db_sets_connection_local_pragmas_only(tmp_path):
     con.execute("INSERT INTO t VALUES (1)")
     assert con.execute("SELECT a FROM t").fetchone()["a"] == 1  # Row factory
     con.close()
+
+
+def test_fresh_data_dir_serves_journal_without_an_import(tmp_path):
+    # pkm-cqu2: create_app() against a brand-new data dir (the README setup
+    # path: pkm.server.setup then pkm.server.run, no Roam import) must not
+    # 500 on the very first page route -- init_db() has to lay down the
+    # base schema (pages, blocks, ...) itself, not rely on an importer run
+    # having built the database first.
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "assets").mkdir(exist_ok=True)
+    password = "hunter2"
+    salt = bytes.fromhex("11" * 16)
+    config = _config(
+        tmp_path,
+        password_salt=salt.hex(),
+        password_hash=hash_password(password, salt),
+    )
+    assert not config.db_path.exists()
+
+    client = TestClient(create_app(config))
+    r = client.post("/api/login", json={"password": password})
+    assert r.status_code == 200
+
+    r = client.get("/api/journal")
+    assert r.status_code == 200
 
 
 def test_init_db_backfills_sidebar_entries_on_legacy_db(tmp_path):

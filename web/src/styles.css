@@ -15,28 +15,34 @@
  * "light" and "dark" are referenced here, "system" behaves like no
  * attribute at all (falls through to the media query). */
 :root {
-  --color-bg: #ffffff;
-  --color-bg-subtle: #f5f8fa;
+  --color-bg: #f8f9fb;
+  --color-bg-subtle: #f2f5f8;
   --color-bg-surface: #ffffff;
   --color-bg-sidebar: #fbfcfd;
-  --color-border: #e1e8ed;
-  --color-border-subtle: #eef2f5;
-  --color-border-strong: #d8e1e8;
-  --color-border-input: #d3dbe1;
-  --color-text: #202b33;
-  --color-text-muted: #8a9ba8;
-  --color-text-faint: #a7b6c2;
-  --color-text-secondary: #5c7080;
-  --color-accent: #106ba3;
+  --color-border: #dbe4e8;
+  --color-border-subtle: #e9eef2;
+  --color-border-strong: #c8d5dc;
+  --color-border-input: #c8d5dc;
+  --color-text: #3f4758;
+  --color-text-muted: #7086a9;
+  --color-text-faint: #a3b2c9;
+  --color-text-secondary: #5d6f8f;
+  --color-accent: #ec6f35;
+  --color-link: #ec6f35;
+  --color-link-ext: #7056f2;
+  --color-tag: #9dafca;
+  --color-bullet: #e3ecf2;
+  --color-bullet-ring: #d8e5ee;
   --color-error: #c23030;
-  --color-highlight-bg: #fff3b8;
+  --color-highlight-bg: #fcc1786d;
+  --color-selection-bg: #fcc1786d;
   --color-selected-bg: #ebf1f5;
-  --color-focus-bg: #f0f6fa;
+  --color-focus-bg: #faf3ec;
   --color-ac-selected-bg: #eef4f8;
   --color-ref-dashed: #b3c2ce;
   --color-banner-bg: #bf7326;
   --color-banner-text: #ffffff;
-  --shadow-rgb: 16, 22, 26;
+  --shadow-rgb: 63, 71, 88;
 
   /* highlight.js token colors, ported from highlight.js/styles/github.css
    * (see components/CodeBlock.tsx for why these live here instead of that
@@ -71,11 +77,17 @@
     --color-text-muted: #7c8a99;
     --color-text-faint: #5c6b78;
     --color-text-secondary: #9fb0bd;
-    --color-accent: #5bb3e8;
+    --color-accent: #ff9d5c;
+    --color-link: #ff9d5c;
+    --color-link-ext: #a394f8;
+    --color-tag: #6f80a0;
+    --color-bullet: #39434d;
+    --color-bullet-ring: #4a5866;
     --color-error: #ff6b6b;
-    --color-highlight-bg: #665c1f;
+    --color-highlight-bg: #ff913c48;
+    --color-selection-bg: #ff913c55;
     --color-selected-bg: #29323b;
-    --color-focus-bg: #232c33;
+    --color-focus-bg: #2a251f;
     --color-ac-selected-bg: #26303a;
     --color-ref-dashed: #4a5866;
     --color-banner-bg: #96551c;
@@ -112,11 +124,17 @@
   --color-text-muted: #7c8a99;
   --color-text-faint: #5c6b78;
   --color-text-secondary: #9fb0bd;
-  --color-accent: #5bb3e8;
+  --color-accent: #ff9d5c;
+  --color-link: #ff9d5c;
+  --color-link-ext: #a394f8;
+  --color-tag: #6f80a0;
+  --color-bullet: #39434d;
+  --color-bullet-ring: #4a5866;
   --color-error: #ff6b6b;
-  --color-highlight-bg: #665c1f;
+  --color-highlight-bg: #ff913c48;
+  --color-selection-bg: #ff913c55;
   --color-selected-bg: #29323b;
-  --color-focus-bg: #232c33;
+  --color-focus-bg: #2a251f;
   --color-ac-selected-bg: #26303a;
   --color-ref-dashed: #4a5866;
   --color-banner-bg: #96551c;
@@ -150,8 +168,11 @@ body {
   color: var(--color-text);
   background: var(--color-bg);
 }
-a { color: var(--color-accent); text-decoration: none; }
+a { color: var(--color-link-ext); font-weight: 600; text-decoration: none; }
+a.page-link { color: var(--color-link); }
+a.tag { color: var(--color-tag); font-weight: 400; }
 a:hover { text-decoration: underline; }
+::selection { background: var(--color-selection-bg); }
 button { font: inherit; }
 
 /* layout */
@@ -237,8 +258,7 @@ h2.block-text { font-size: 19px; font-weight: 600; }
 h3.block-text { font-size: 16px; font-weight: 600; }
 
 /* inline */
-.tag { color: var(--color-text-faint); }
-.tag:hover { color: var(--color-accent); }
+.tag:hover { color: var(--color-link); }
 .attribute a { font-weight: 600; color: var(--color-text); }
 .inline-code { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: 3px;
   padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

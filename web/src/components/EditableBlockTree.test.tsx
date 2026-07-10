@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
 import { block } from "../test-helpers";
 import type { OutlineHandlers } from "./EditableBlockTree";
@@ -23,7 +24,7 @@ const BLOCKS = [
 function mount(h: OutlineHandlers, focus: { uid: string; cursor: number } | null,
                readOnly = false) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={BLOCKS} focus={focus} handlers={h}
                          readOnly={readOnly} />
     </MemoryRouter>);
@@ -118,7 +119,7 @@ test("chevron toggles collapse via handler; todo checkbox toggles via handler", 
     order_idx: 0, children: [block("k", "kid", { order_idx: 0 })],
   })];
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={withKids} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
@@ -144,7 +145,7 @@ test("chevron is disabled on a childless block; enabled on a block with children
     order_idx: 0, children: [block("k", "kid", { order_idx: 0 })],
   })];
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={t} focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>);
   const [parentChevron, kidChevron] =
@@ -164,7 +165,7 @@ test("readOnly disables the chevron (even with children) and the todo checkbox",
     block("u2", "{{[[TODO]]}} task", { order_idx: 1 }),
   ];
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={t} focus={null} handlers={h} readOnly={true} />
     </MemoryRouter>);
   const parentChevron =
@@ -233,7 +234,7 @@ test("/h1 on a block that is already h1 toggles back to plain text", () => {
   const h = handlers();
   const heading1 = [block("u1", "hello [[World]]", { order_idx: 0, heading: 1 })];
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={heading1} focus={{ uid: "u1", cursor: 0 }}
                          handlers={h} readOnly={false} />
     </MemoryRouter>);
@@ -271,7 +272,7 @@ test("collapsed children are hidden", () => {
     children: [block("k", "hidden kid", { order_idx: 0 })],
   })];
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={t} focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>);
   expect(screen.queryByText("hidden kid")).toBeNull();

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { stubFetch } from "../test-helpers";
 import { tokenizeBlock } from "../grammar/tokenize";
@@ -24,7 +25,7 @@ it("evaluates on mount, groups by page, shows the total, paginates", async () =>
       total: 2,
     }],
   ]);
-  render(<MemoryRouter><QueryBlock expr={EXPR} /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR} /></MemoryRouter>);
   expect(await screen.findByRole("link", { name: "Generative Models" })).toBeInTheDocument();
   expect(screen.getByText("2 results")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(
@@ -37,7 +38,7 @@ it("evaluates on mount, groups by page, shows the total, paginates", async () =>
 it("InlineSegments renders query segments as live QueryBlocks", async () => {
   stubFetch([[`/api/query?expr=${ENC}`, { groups: [], total: 0 }]]);
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <InlineSegments segments={tokenizeBlock(`{{[[query]]: ${EXPR}}}`)} />
     </MemoryRouter>,
   );
@@ -53,7 +54,7 @@ it("caps nested query recursion with an inert placeholder and no extra fetch", a
       total: 1,
     }],
   ]);
-  render(<MemoryRouter><QueryBlock expr={EXPR} depth={1} /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR} depth={1} /></MemoryRouter>);
   expect(await screen.findByText("1 result")).toBeInTheDocument();
   // The nested query inside the result item sits at the cap: inert, no fetch.
   expect(screen.getByText(`{{query: ${EXPR}}}`)).toBeInTheDocument();
@@ -73,7 +74,7 @@ it("clears a stale error once a show-more retry succeeds", async () => {
       total: 3,
     }), { status: 200 });
   }));
-  render(<MemoryRouter><QueryBlock expr={EXPR} /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR} /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: /show more/i }));
   expect(await screen.findByText(/500/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /show more/i }));
@@ -84,6 +85,6 @@ it("clears a stale error once a show-more retry succeeds", async () => {
 it("shows the server's 400 as an error state", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "bad query" }), { status: 400 })));
-  render(<MemoryRouter><QueryBlock expr="{nonsense" /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr="{nonsense" /></MemoryRouter>);
   expect(await screen.findByText(/400/)).toBeInTheDocument();
 });

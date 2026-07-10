@@ -1,5 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { JournalDay } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
@@ -57,7 +58,7 @@ it("renders the first batch newest-first and loads older days on intersect", asy
       day("2026-07-04", "July 4th, 2026"),
     ] }],
   ]);
-  render(<MemoryRouter><Journal /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
   expect(await screen.findByRole("link", { name: "July 8th, 2026" }))
     .toHaveAttribute("href", "/page/July%208th%2C%202026");
   expect(screen.getByText("entry 2026-07-06")).toBeInTheDocument();
@@ -83,7 +84,7 @@ it("resolves ((block refs)) from every batch's block_ref_texts", async () => {
       block_ref_texts: { ref_aaaa: { text: "resolved alpha", page_title: "A" } },
     }],
   ]);
-  render(<MemoryRouter><Journal /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
   expect(await screen.findByText("resolved alpha")).toBeInTheDocument();
 
   intersect();
@@ -106,7 +107,7 @@ it("discards a stale in-flight load when a resync resets the journal", async () 
   const sync = makeSync();
   const inSync = (s: typeof sync) => (
     <SyncContext.Provider value={s}>
-      <MemoryRouter><Journal /></MemoryRouter>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
     </SyncContext.Provider>
   );
   const { rerender } = render(inSync(sync));
@@ -140,7 +141,7 @@ it("stops auto-loading after 3 consecutive empty batches", async () => {
       day("2026-07-04", "July 4th, 2026", [], false),
     ] }],
   ]);
-  render(<MemoryRouter><Journal /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
   await screen.findByRole("link", { name: "July 8th, 2026" });
   intersect();
   await screen.findByText("2026-07-03");

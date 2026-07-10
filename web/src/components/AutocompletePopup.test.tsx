@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
 import { block, stubFetch } from "../test-helpers";
 import type { OutlineHandlers } from "./EditableBlockTree";
@@ -20,7 +21,7 @@ function handlers(): OutlineHandlers {
 
 function mount(h: OutlineHandlers) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={[block("u1", "", { order_idx: 0 })]}
                          focus={{ uid: "u1", cursor: 0 }} handlers={h}
                          readOnly={false} />

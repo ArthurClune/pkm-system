@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { jsonResponse, stubFetch } from "../test-helpers";
 import { SearchModal } from "./SearchModal";
@@ -14,7 +15,7 @@ const results = {
 
 function renderModal(onClose = vi.fn()) {
   render(
-    <MemoryRouter initialEntries={["/"]}>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
       <SearchModal open={true} onClose={onClose} />
       <Routes>
         <Route path="/" element={<p>home</p>} />

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { ROUTER_FUTURE_FLAGS } from "./router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { block, pagePayload, stubFetch } from "./test-helpers";
 import { App } from "./App";
@@ -26,7 +27,7 @@ it("shift-click stacks sidebar panels newest-first; close removes one", async ()
       block("uid_m1", "see [[Paper]] and [[AI]]")])],
   ]);
   render(
-    <MemoryRouter initialEntries={["/page/Machine%20Learning"]}>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
       <App />
     </MemoryRouter>,
   );
@@ -45,21 +46,21 @@ it("shift-click stacks sidebar panels newest-first; close removes one", async ()
 
 it("cmd-u opens the search modal", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "u", metaKey: true });
   expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
 });
 
 it("ctrl-u opens the search modal", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "u", ctrlKey: true });
   expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
 });
 
 it("cmd-k no longer opens the search modal", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
-  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "k", metaKey: true });
   expect(screen.queryByPlaceholderText("Search…")).toBeNull();
 });
@@ -69,7 +70,7 @@ it("ctrl-cmd-d navigates to the home page", async () => {
     ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
     ["/api/journal", { days: [] }],
   ]);
-  render(<MemoryRouter initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "Paper" })).toBeInTheDocument();
   fireEvent.keyDown(window, { key: "d", ctrlKey: true, metaKey: true });
   await waitFor(() => {
@@ -79,7 +80,7 @@ it("ctrl-cmd-d navigates to the home page", async () => {
 
 it("unknown route renders the not-found view", () => {
   stubFetch([]);
-  render(<MemoryRouter initialEntries={["/definitely/not/a/route"]}><App /></MemoryRouter>);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/definitely/not/a/route"]}><App /></MemoryRouter>);
   expect(screen.getByText("Page not found")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Go to Daily Notes" })).toBeInTheDocument();
 });

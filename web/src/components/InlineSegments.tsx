@@ -2,6 +2,7 @@
 import type { BlockSegment } from "../grammar/tokenize";
 import { AssetImage } from "./AssetImage";
 import { BlockRef } from "./BlockRef";
+import { BlueskyEmbed, isBlueskyPostUrl } from "./BlueskyEmbed";
 import { CodeBlock } from "./CodeBlock";
 import { PageLink } from "./PageLink";
 import { PdfEmbed } from "./PdfEmbed";
@@ -54,6 +55,7 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       return <AssetImage src={seg.src} alt={seg.alt} />;
     case "link":
       if (isPdfAssetHref(seg.href)) return <PdfEmbed href={seg.href} label={seg.text} />;
+      if (isBlueskyPostUrl(seg.href)) return <BlueskyEmbed href={seg.href} />;
       if (!isSafeHref(seg.href)) return <>{seg.text}</>;
       return <a href={seg.href} target="_blank" rel="noreferrer">{seg.text}</a>;
     case "bold":

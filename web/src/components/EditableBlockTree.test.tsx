@@ -58,6 +58,21 @@ test("typing reports the draft", () => {
   expect(h.onDraftChange).toHaveBeenCalledWith("u1", "hi");
 });
 
+test("bullet shows the closed ring only when collapsed with children", () => {
+  const blocks = [
+    block("p1", "parent", { collapsed: true, order_idx: 0,
+                            children: [block("c1", "child")] }),
+    block("p2", "collapsed leaf", { collapsed: true, order_idx: 1 }),
+  ];
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={blocks} focus={null} handlers={handlers()}
+                         readOnly={false} />
+    </MemoryRouter>);
+  expect(container.querySelector('[data-uid="p1"] .bullet.closed')).not.toBeNull();
+  expect(container.querySelector('[data-uid="p2"] .bullet.closed')).toBeNull();
+});
+
 test("keyboard map dispatches to the right handlers", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });

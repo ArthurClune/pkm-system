@@ -40,3 +40,12 @@ it("hides the chevron on childless blocks", () => {
   const { container } = renderTree([block("uid_a1", "leaf")]);
   expect(container.querySelector(".chevron.hidden")).not.toBeNull();
 });
+
+it("bullet shows the closed ring only when collapsed with children", () => {
+  const { container } = renderTree([
+    block("uid_a1", "parent", { collapsed: true, children: [block("uid_a2", "child")] }),
+    block("uid_a3", "leaf", { collapsed: true }),
+  ]);
+  expect(container.querySelector('[data-uid="uid_a1"] .bullet.closed')).not.toBeNull();
+  expect(container.querySelector('[data-uid="uid_a3"] .bullet.closed')).toBeNull();
+});

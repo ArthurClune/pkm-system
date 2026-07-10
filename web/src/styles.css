@@ -15,28 +15,33 @@
  * "light" and "dark" are referenced here, "system" behaves like no
  * attribute at all (falls through to the media query). */
 :root {
-  --color-bg: #ffffff;
-  --color-bg-subtle: #f5f8fa;
+  --color-bg: #f8f9fb;
+  --color-bg-subtle: #f2f5f8;
   --color-bg-surface: #ffffff;
   --color-bg-sidebar: #fbfcfd;
-  --color-border: #e1e8ed;
-  --color-border-subtle: #eef2f5;
-  --color-border-strong: #d8e1e8;
-  --color-border-input: #d3dbe1;
-  --color-text: #202b33;
-  --color-text-muted: #8a9ba8;
-  --color-text-faint: #a7b6c2;
-  --color-text-secondary: #5c7080;
-  --color-accent: #106ba3;
+  --color-border: #dbe4e8;
+  --color-border-subtle: #e9eef2;
+  --color-border-strong: #c8d5dc;
+  --color-border-input: #c8d5dc;
+  --color-text: #3f4758;
+  --color-text-muted: #7086a9;
+  --color-text-faint: #a3b2c9;
+  --color-text-secondary: #5d6f8f;
+  --color-accent: #ec6f35;
+  --color-link: #ec6f35;
+  --color-link-ext: #7056f2;
+  --color-tag: #9dafca;
+  --color-bullet: #e3ecf2;
+  --color-bullet-ring: #d8e5ee;
   --color-error: #c23030;
-  --color-highlight-bg: #fff3b8;
+  --color-highlight-bg: #fcc1786d;
+  --color-selection-bg: #fcc1786d;
   --color-selected-bg: #ebf1f5;
-  --color-focus-bg: #f0f6fa;
+  --color-focus-bg: #faf3ec;
   --color-ac-selected-bg: #eef4f8;
-  --color-ref-dashed: #b3c2ce;
   --color-banner-bg: #bf7326;
   --color-banner-text: #ffffff;
-  --shadow-rgb: 16, 22, 26;
+  --shadow-rgb: 63, 71, 88;
 
   /* highlight.js token colors, ported from highlight.js/styles/github.css
    * (see components/CodeBlock.tsx for why these live here instead of that
@@ -71,13 +76,18 @@
     --color-text-muted: #7c8a99;
     --color-text-faint: #5c6b78;
     --color-text-secondary: #9fb0bd;
-    --color-accent: #5bb3e8;
+    --color-accent: #ff9d5c;
+    --color-link: #ff9d5c;
+    --color-link-ext: #a394f8;
+    --color-tag: #6f80a0;
+    --color-bullet: #39434d;
+    --color-bullet-ring: #4a5866;
     --color-error: #ff6b6b;
-    --color-highlight-bg: #665c1f;
+    --color-highlight-bg: #ff913c48;
+    --color-selection-bg: #ff913c55;
     --color-selected-bg: #29323b;
-    --color-focus-bg: #232c33;
+    --color-focus-bg: #2a251f;
     --color-ac-selected-bg: #26303a;
-    --color-ref-dashed: #4a5866;
     --color-banner-bg: #96551c;
     --color-banner-text: #ffffff;
     --shadow-rgb: 0, 0, 0;
@@ -112,13 +122,18 @@
   --color-text-muted: #7c8a99;
   --color-text-faint: #5c6b78;
   --color-text-secondary: #9fb0bd;
-  --color-accent: #5bb3e8;
+  --color-accent: #ff9d5c;
+  --color-link: #ff9d5c;
+  --color-link-ext: #a394f8;
+  --color-tag: #6f80a0;
+  --color-bullet: #39434d;
+  --color-bullet-ring: #4a5866;
   --color-error: #ff6b6b;
-  --color-highlight-bg: #665c1f;
+  --color-highlight-bg: #ff913c48;
+  --color-selection-bg: #ff913c55;
   --color-selected-bg: #29323b;
-  --color-focus-bg: #232c33;
+  --color-focus-bg: #2a251f;
   --color-ac-selected-bg: #26303a;
-  --color-ref-dashed: #4a5866;
   --color-banner-bg: #96551c;
   --color-banner-text: #ffffff;
   --shadow-rgb: 0, 0, 0;
@@ -150,8 +165,11 @@ body {
   color: var(--color-text);
   background: var(--color-bg);
 }
-a { color: var(--color-accent); text-decoration: none; }
+a { color: var(--color-link-ext); font-weight: 600; text-decoration: none; }
+a.page-link { color: var(--color-link); }
+a.tag { color: var(--color-tag); font-weight: 400; }
 a:hover { text-decoration: underline; }
+::selection { background: var(--color-selection-bg); }
 button { font: inherit; }
 
 /* layout */
@@ -188,23 +206,26 @@ button { font: inherit; }
 .nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px;
   border: 1px solid var(--color-border-input); border-radius: 3px; background: var(--color-bg-subtle);
   color: var(--color-text); cursor: pointer; }
-.content-area { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-/* Content sits left-of-centre: the left share of the centering gap is 1/3 of
- * what plain `margin: 0 auto` would give ((100% - 800px)/2), the right margin
- * absorbs the rest (pkm-7cbq). max() keeps it at 0 below the max-width. The
- * top bar mirrors these margins so its buttons stay aligned with content. */
-.main-pane { flex: 1; min-width: 0; max-width: 800px;
-  margin: 0 auto 0 max(0px, calc((100% - 800px) / 6));
-  padding: 24px 32px 120px; }
-.page-title { font-size: 26px; margin: 0 0 12px; }
+.content-area { flex: 1; min-width: 0; display: flex; flex-direction: column;
+  /* card geometry shared by .top-bar and .main-pane; --pane-left leans the
+   * card left so the gutter is ~1/3 of what centering would give (pkm-7cbq) */
+  --pane-width: min(860px, calc(100% - 32px));
+  --pane-left: max(16px, calc((100% - 860px) / 6)); }
+.main-pane { flex: 1; min-width: 0; width: var(--pane-width);
+  margin: 10px auto 40px var(--pane-left);
+  padding: 30px 50px 120px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(var(--shadow-rgb), 0.05); }
+.page-title { font-size: 26px; font-weight: 600; margin: 0 0 12px; }
 .page-title a { color: inherit; }
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
 
 /* top bar: spans the main pane, houses search + the page ("...") menu */
 .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px;
-  max-width: 800px; margin: 0 auto 0 max(0px, calc((100% - 800px) / 6));
-  padding: 8px 32px; }
+  width: var(--pane-width); margin: 0 auto 0 var(--pane-left); padding: 8px 4px; }
 .top-bar-search-button, .top-bar-menu-button { background: none; cursor: pointer;
   border: 1px solid var(--color-border-strong); border-radius: 4px; padding: 4px 10px;
   color: var(--color-text-secondary); }
@@ -229,16 +250,19 @@ button { font: inherit; }
   transition: transform 0.1s; }
 .chevron.closed { transform: rotate(0deg); }
 .chevron.hidden { visibility: hidden; }
-.bullet { color: var(--color-text-muted); margin-right: 8px; flex-shrink: 0; font-size: 11px; }
+.bullet { box-sizing: content-box; width: 5px; height: 5px; flex-shrink: 0;
+  align-self: flex-start; margin: 5px 8px 0 0;
+  border: 4px solid transparent; border-radius: 50%;
+  background-color: var(--color-bullet); background-clip: content-box; }
+.bullet.closed { border-color: var(--color-bullet-ring); }
 .block-children { margin-left: 22px; border-left: 1px solid var(--color-border-subtle); padding-left: 8px; }
 .block-text { flex: 1; margin: 0; font-weight: normal; min-width: 0; overflow-wrap: break-word; }
-h1.block-text { font-size: 22px; font-weight: 600; }
-h2.block-text { font-size: 19px; font-weight: 600; }
-h3.block-text { font-size: 16px; font-weight: 600; }
+h1.block-text { font-size: 1.8rem; font-weight: 600; }
+h2.block-text { font-size: 1.6rem; font-weight: 600; }
+h3.block-text { font-size: 1.4rem; font-weight: 400; color: var(--color-text-secondary); }
 
 /* inline */
-.tag { color: var(--color-text-faint); }
-.tag:hover { color: var(--color-accent); }
+.tag:hover { color: var(--color-link); }
 .attribute a { font-weight: 600; color: var(--color-text); }
 .inline-code { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: 3px;
   padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -246,7 +270,8 @@ h3.block-text { font-size: 16px; font-weight: 600; }
 .code-block { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: 4px;
   padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-block code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.block-ref { border-bottom: 1px dashed var(--color-ref-dashed); }
+.block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
+  border-radius: 2px; background: var(--color-link); margin-right: 6px; vertical-align: middle; }
 .block-ref.unresolved { color: var(--color-text-muted); }
 mark.highlight { background: var(--color-highlight-bg); }
 .asset-image { max-width: 100%; border-radius: 4px; display: block; margin: 4px 0; }
@@ -292,8 +317,9 @@ mark.highlight { background: var(--color-highlight-bg); }
 .section-header .chevron { display: inline-block; transform: rotate(90deg); }
 .section-header .chevron.closed { transform: rotate(0deg); }
 .group-title { font-size: 15px; margin: 12px 0 4px; }
-.backlink-item, .query-item { padding: 4px 0 4px 12px; border-left: 2px solid var(--color-border-subtle);
-  margin: 4px 0; }
+.backlink-item, .query-item { margin: 8px 0; padding: 8px;
+  border: 1px solid var(--color-border-subtle); border-radius: 6px;
+  background: var(--color-bg-subtle); }
 .breadcrumbs { font-size: 12px; color: var(--color-text-faint); margin-bottom: 2px; }
 .show-more { margin-top: 8px; background: var(--color-bg-subtle); border: 1px solid var(--color-border-strong);
   border-radius: 3px; padding: 4px 12px; cursor: pointer; color: var(--color-text-secondary); }
@@ -361,8 +387,9 @@ mark.highlight { background: var(--color-highlight-bg); }
    * its button is hidden too, since collapse has no effect on phones */
   .left-nav.collapsed { display: flex; }
   .sidebar-toggle-button { display: none; }
-  .top-bar { padding: 8px 16px; }
-  .main-pane { padding: 24px 16px 120px; }
+  .top-bar { width: auto; margin: 0; padding: 8px 16px; }
+  .main-pane { width: auto; margin: 0; padding: 24px 16px 120px;
+    border: none; border-radius: 0; box-shadow: none; }
   .sidebar { width: 100vw; }
 }
 

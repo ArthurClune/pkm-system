@@ -1,11 +1,15 @@
+import asyncio
 import hashlib
 from dataclasses import replace
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from pkm.export.writer import export_graph
 from pkm.server.app import create_app
 from pkm.server.db import open_db
+from pkm.server.routes_assets import _stream_to_temp
 
 TEST_PASSWORD = "test-pw"  # must match conftest.py
 
@@ -106,6 +110,77 @@ def test_upload_bounds_multibyte_filename_by_byte_length(client, seeded_config):
 def test_upload_dot_filename_falls_back_to_default_stem(client, seeded_config):
     body = _upload(client, name="..").json()
     assert body["filename"] == "file"
+
+
+def test_upload_spoofed_svg_content_forces_download_despite_png_declared_type(
+        client, seeded_config):
+    # Client claims this is a PNG (inline-eligible); the bytes are really
+    # an SVG (script-capable, forced to download). The stored/served type
+    # must follow the sniffed bytes, not the client's Content-Type.
+    body = _upload(client, content=b"<svg onload=alert(1)/>", name="fake.png",
+                   mime="image/png")
+    assert body.status_code == 200
+    result = body.json()
+    assert result["mime"] == "image/svg+xml"
+    fetched = client.get(result["url"])
+    assert fetched.headers["content-disposition"].startswith("attachment")
+
+
+def test_upload_spoofed_pdf_declared_but_real_png_bytes_stores_sniffed_mime(
+        client, seeded_config):
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"restofdata"
+    body = _upload(client, content=png_bytes, name="fake.pdf",
+                   mime="application/pdf").json()
+    assert body["mime"] == "image/png"
+
+
+def test_upload_unsniffable_content_falls_back_to_declared_mime(client, seeded_config):
+    body = _upload(client, content=b"hello world, just plain text",
+                   name="notes.txt", mime="text/plain").json()
+    assert body["mime"] == "text/plain"
+
+
+def test_upload_over_cap_leaves_no_tmp_files(seeded_config):
+    c = _small_cap_client(seeded_config)
+    assert _upload(c, content=b"x" * 11).status_code == 413
+    assert list(seeded_config.assets_dir.iterdir()) == []
+
+
+class _FakeUploadFile:
+    """Duck-types the subset of UploadFile._stream_to_temp relies on."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = list(chunks)
+        self.read_calls = 0
+
+    async def read(self, size: int) -> bytes:
+        self.read_calls += 1
+        if not self._chunks:
+            return b""
+        return self._chunks.pop(0)
+
+
+def test_stream_to_temp_stops_reading_once_cap_exceeded(tmp_path):
+    # 3 chunks of 7 bytes each; cap of 10 is exceeded by the 2nd chunk.
+    # The loop must reject immediately rather than draining the 3rd chunk
+    # into memory/disk first.
+    fake = _FakeUploadFile([b"a" * 7, b"b" * 7, b"c" * 7])
+    tmp_file = tmp_path / "upload.tmp"
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(_stream_to_temp(fake, tmp_file, max_bytes=10))
+    assert exc_info.value.status_code == 413
+    assert fake.read_calls == 2
+
+
+def test_stream_to_temp_hashes_and_writes_incrementally(tmp_path):
+    fake = _FakeUploadFile([b"hello ", b"world"])
+    tmp_file = tmp_path / "upload.tmp"
+    sha, size, first_chunk = asyncio.run(
+        _stream_to_temp(fake, tmp_file, max_bytes=100))
+    assert sha == hashlib.sha256(b"hello world").hexdigest()
+    assert size == 11
+    assert first_chunk == b"hello "
+    assert tmp_file.read_bytes() == b"hello world"
 
 
 def test_overlong_filename_upload_then_export_succeeds(client, seeded_config, tmp_path):

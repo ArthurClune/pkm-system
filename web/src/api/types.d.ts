@@ -177,6 +177,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sidebar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sidebar */
+        get: operations["get_sidebar_api_sidebar_get"];
+        /** Reorder Sidebar Entries */
+        put: operations["reorder_sidebar_entries_api_sidebar_put"];
+        /** Add Sidebar Entry */
+        post: operations["add_sidebar_entry_api_sidebar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sidebar/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Sidebar Entry */
+        delete: operations["delete_sidebar_entry_api_sidebar__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assets/{sha256}/{filename}": {
         parameters: {
             query?: never;
@@ -232,6 +268,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddSidebarEntryRequest */
+        AddSidebarEntryRequest: {
+            /** Title */
+            title: string;
+        };
         /** Body_upload_asset_api_assets_post */
         Body_upload_asset_api_assets_post: {
             /** File */
@@ -298,7 +339,12 @@ export interface components {
             /** Client Id */
             client_id: string;
             /** Ops */
-            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"])[];
+            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"])[];
+        };
+        /** ReorderSidebarEntriesRequest */
+        ReorderSidebarEntriesRequest: {
+            /** Order */
+            order: number[];
         };
         /** SetCollapsedOp */
         SetCollapsedOp: {
@@ -311,6 +357,18 @@ export interface components {
             uid: string;
             /** Collapsed */
             collapsed: boolean;
+        };
+        /** SetHeadingOp */
+        SetHeadingOp: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "set_heading";
+            /** Uid */
+            uid: string;
+            /** Heading */
+            heading?: number | null;
         };
         /** UpdateTextOp */
         UpdateTextOp: {
@@ -640,6 +698,131 @@ export interface operations {
             };
             header?: never;
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sidebar_api_sidebar_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    reorder_sidebar_entries_api_sidebar_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderSidebarEntriesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_sidebar_entry_api_sidebar_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddSidebarEntryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_sidebar_entry_api_sidebar__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
             cookie?: never;
         };
         requestBody?: never;

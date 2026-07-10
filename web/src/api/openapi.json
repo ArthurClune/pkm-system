@@ -469,6 +469,143 @@
         }
       }
     },
+    "/api/sidebar": {
+      "get": {
+        "summary": "Get Sidebar",
+        "operationId": "get_sidebar_api_sidebar_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Sidebar Api Sidebar Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Reorder Sidebar Entries",
+        "operationId": "reorder_sidebar_entries_api_sidebar_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderSidebarEntriesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Reorder Sidebar Entries Api Sidebar Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Add Sidebar Entry",
+        "operationId": "add_sidebar_entry_api_sidebar_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSidebarEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Add Sidebar Entry Api Sidebar Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sidebar/{entry_id}": {
+      "delete": {
+        "summary": "Delete Sidebar Entry",
+        "operationId": "delete_sidebar_entry_api_sidebar__entry_id__delete",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Sidebar Entry Api Sidebar  Entry Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/assets/{sha256}/{filename}": {
       "get": {
         "summary": "Get Asset",
@@ -578,6 +715,20 @@
   },
   "components": {
     "schemas": {
+      "AddSidebarEntryRequest": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "AddSidebarEntryRequest"
+      },
       "Body_upload_asset_api_assets_post": {
         "properties": {
           "file": {
@@ -769,6 +920,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SetCollapsedOp"
+                },
+                {
+                  "$ref": "#/components/schemas/SetHeadingOp"
                 }
               ],
               "discriminator": {
@@ -778,6 +932,7 @@
                   "delete": "#/components/schemas/DeleteOp",
                   "move": "#/components/schemas/MoveOp",
                   "set_collapsed": "#/components/schemas/SetCollapsedOp",
+                  "set_heading": "#/components/schemas/SetHeadingOp",
                   "update_text": "#/components/schemas/UpdateTextOp"
                 }
               }
@@ -794,6 +949,22 @@
           "ops"
         ],
         "title": "OpBatch"
+      },
+      "ReorderSidebarEntriesRequest": {
+        "properties": {
+          "order": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "order"
+        ],
+        "title": "ReorderSidebarEntriesRequest"
       },
       "SetCollapsedOp": {
         "properties": {
@@ -818,6 +989,38 @@
           "collapsed"
         ],
         "title": "SetCollapsedOp"
+      },
+      "SetHeadingOp": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "const": "set_heading",
+            "title": "Op"
+          },
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "op",
+          "uid"
+        ],
+        "title": "SetHeadingOp"
       },
       "UpdateTextOp": {
         "properties": {

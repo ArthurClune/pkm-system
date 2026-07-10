@@ -30,6 +30,33 @@ describe("detectAutocomplete", () => {
   test("cursor position matters", () => {
     expect(detectAutocomplete("see [[Ma", 4)).toBeNull();
   });
+
+  test("slash triggers a command context at block start or after whitespace", () => {
+    expect(detectAutocomplete("/", 1)).toEqual({ kind: "command", start: 1, query: "" });
+    expect(detectAutocomplete("/py", 3)).toEqual({ kind: "command", start: 1, query: "py" });
+    expect(detectAutocomplete("hello /py", 9)).toEqual({ kind: "command", start: 7, query: "py" });
+  });
+
+  test("slash glued to the previous character does not trigger (quiet in URLs/paths)", () => {
+    expect(detectAutocomplete("https://example.com", 8)).toBeNull();
+    expect(detectAutocomplete("path/to/x", 5)).toBeNull();
+  });
+
+  test("a space (or other non-letter) after the slash closes the command context", () => {
+    expect(detectAutocomplete("/py ", 4)).toBeNull();
+    expect(detectAutocomplete("/py-thon", 8)).toBeNull();
+  });
+
+  test("digits after a leading letter still trigger (for /h1, /h2, /h3)", () => {
+    expect(detectAutocomplete("/h1", 3)).toEqual({ kind: "command", start: 1, query: "h1" });
+    expect(detectAutocomplete("/h", 2)).toEqual({ kind: "command", start: 1, query: "h" });
+    expect(detectAutocomplete("hello /h2", 9)).toEqual({ kind: "command", start: 7, query: "h2" });
+  });
+
+  test("a leading digit does not trigger (quiet in dates/numbers)", () => {
+    expect(detectAutocomplete("a /2020 budget", 7)).toBeNull();
+    expect(detectAutocomplete("/1", 2)).toBeNull();
+  });
 });
 
 describe("applyCompletion", () => {

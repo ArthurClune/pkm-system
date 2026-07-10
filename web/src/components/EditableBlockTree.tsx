@@ -10,7 +10,10 @@ import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { applyCompletion, detectAutocomplete,
          type AcContext } from "../outline/autocomplete";
-import { AutocompletePopup, buildRows, useTitleOptions } from "./AutocompletePopup";
+import { applySlashCommand, matchSlashCommands,
+         resolveHeading } from "../outline/slashCommands";
+import { AutocompletePopup, buildRows, useTitleOptions,
+         type AcRow } from "./AutocompletePopup";
 import { InlineSegments } from "./InlineSegments";
 
 export interface OutlineHandlers {
@@ -28,6 +31,7 @@ export interface OutlineHandlers {
   onBackspaceAtStart(uid: string): void;
   onArrow(uid: string, dir: "up" | "down" | "left" | "right"): void;
   onToggleCollapsed(uid: string, collapsed: boolean): void;
+  onSetHeading(uid: string, heading: number | null): void;
   onToggleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
   onDragStartBlock(uid: string): void;
@@ -115,8 +119,12 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
-  const options = useTitleOptions(ac ? ac.query : null);
-  const acRows = ac ? buildRows(options, ac.query) : [];
+  // The "/" trigger is served from the static command list, not the titles
+  // API, so only fetch titles for ref/tag contexts.
+  const options = useTitleOptions(ac && ac.kind !== "command" ? ac.query : null);
+  const acRows: AcRow[] = !ac ? [] : ac.kind === "command"
+    ? matchSlashCommands(ac.query).map((c) => ({ title: c.label, isNew: false, command: c.name }))
+    : buildRows(options, ac.query);
 
   // Take focus + place the cursor once on mount (this component exists only
   // while its block is the focused one).
@@ -146,12 +154,22 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     });
   };
 
-  const pick = (row: { title: string }) => {
+  const pick = (row: AcRow) => {
     if (!ac) return;
-    const applied = applyCompletion(draft, caret, ac, row.title);
+    const applied = row.command
+      ? applySlashCommand(draft, caret, ac, row.command)
+      : applyCompletion(draft, caret, ac, row.title);
     setAc(null);
     setAcSelected(0);
     setText(applied.text, applied.cursor);
+    // Heading commands (/h1 /h2 /h3 /normal) aren't text transforms: the
+    // trigger is stripped above like any other command, but the heading
+    // field itself is set via a dedicated op, dispatched here against the
+    // block's current heading so picking the active one toggles it off.
+    if (row.command) {
+      const heading = resolveHeading(row.command, node.heading);
+      if (heading !== undefined) handlers.onSetHeading(node.uid, heading);
+    }
   };
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

@@ -1,9 +1,11 @@
 // pattern: Imperative Shell
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, Route, Routes, useNavigate } from "react-router-dom";
 import { ReconnectBanner } from "./components/ReconnectBanner";
 import { SearchModal } from "./components/SearchModal";
+import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
 import { SyncProvider } from "./sync/SyncProvider";
@@ -30,6 +32,7 @@ export function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [stack, setStack] = useState<SidebarEntry[]>([]);
   const idRef = useRef(1);
+  const navigate = useNavigate();
 
   const sidebarApi = useMemo(() => ({
     openInSidebar: (title: string) => {
@@ -41,14 +44,17 @@ export function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "u") {
         e.preventDefault();
         setSearchOpen((o) => !o);
+      } else if (e.ctrlKey && e.metaKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        navigate("/");
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [navigate]);
 
   return (
     <SyncProvider>
@@ -69,6 +75,8 @@ export function App() {
                       onClick={() => { setNavOpen(false); setSearchOpen(true); }}>
                 Search
               </button>
+              <ThemeToggle />
+              <SidebarNav onNavigate={() => setNavOpen(false)} />
             </nav>
             <main className="main-pane">
               <Routes>

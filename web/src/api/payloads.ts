@@ -100,3 +100,12 @@ export interface SearchPayload {
 export interface TitlesPayload {
   titles: string[];
 }
+
+export interface SidebarNavEntry {
+  id: number;
+  title: string;
+}
+
+export interface SidebarNavPayload {
+  entries: SidebarNavEntry[];
+}

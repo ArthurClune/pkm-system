@@ -14,7 +14,7 @@ import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
-         outdentBlock, setCollapsed, splitBlock,
+         outdentBlock, setCollapsed, setHeading, splitBlock,
          type EditResult, type FocusTarget } from "./edits";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
@@ -168,6 +168,8 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     },
     onToggleCollapsed: (uid, collapsed) =>
       run((b) => setCollapsed(b, pageTitle, uid, collapsed)),
+    onSetHeading: (uid, heading) =>
+      run((b) => setHeading(b, pageTitle, uid, heading)),
     onToggleTodo: (uid) => run((b) => {
       const node = findNode(b, uid);
       const flipped = node ? toggleTodo(node.text) : null;

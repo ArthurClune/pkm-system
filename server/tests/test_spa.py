@@ -41,6 +41,17 @@ def test_spa_served_when_web_dist_set(tmp_path):
     assert "javascript" in js.headers["content-type"]
 
 
+def test_index_html_is_not_cached(tmp_path):
+    client = TestClient(create_app(_config(tmp_path, web_dist=_dist(tmp_path))))
+    r = client.get("/")
+    assert r.headers["cache-control"] == "no-cache"
+    deep = client.get("/page/Machine%20Learning")  # client-side route
+    assert deep.headers["cache-control"] == "no-cache"
+    # hashed assets should remain cacheable, not forced to revalidate
+    js = client.get("/app-assets/main.js")
+    assert js.headers.get("cache-control") != "no-cache"
+
+
 def test_api_and_asset_routes_not_shadowed(tmp_path):
     client = TestClient(create_app(_config(tmp_path, web_dist=_dist(tmp_path))))
     assert client.get("/healthz").json() == {"ok": True}

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { block, pagePayload, stubFetch } from "./test-helpers";
@@ -43,11 +43,38 @@ it("shift-click stacks sidebar panels newest-first; close removes one", async ()
   expect(screen.getByText("paper body")).toBeInTheDocument();
 });
 
-it("cmd-k opens the search modal", async () => {
+it("cmd-u opens the search modal", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
+  fireEvent.keyDown(window, { key: "u", metaKey: true });
+  expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
+});
+
+it("ctrl-u opens the search modal", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
+  fireEvent.keyDown(window, { key: "u", ctrlKey: true });
+  expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
+});
+
+it("cmd-k no longer opens the search modal", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "k", metaKey: true });
-  expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
+  expect(screen.queryByPlaceholderText("Search…")).toBeNull();
+});
+
+it("ctrl-cmd-d navigates to the home page", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/journal", { days: [] }],
+  ]);
+  render(<MemoryRouter initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  expect(await screen.findByRole("heading", { name: "Paper" })).toBeInTheDocument();
+  fireEvent.keyDown(window, { key: "d", ctrlKey: true, metaKey: true });
+  await waitFor(() => {
+    expect(screen.queryByRole("heading", { name: "Paper" })).toBeNull();
+  });
 });
 
 it("unknown route renders the not-found view", () => {

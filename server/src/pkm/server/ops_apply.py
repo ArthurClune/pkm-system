@@ -9,8 +9,8 @@ from pkm.refs import extract
 from pkm.server.ops_core import (BlockInfo, CreateOp, DeleteBlocks, DeleteOp,
                                  Effect, InsertBlock, MoveOp, OpBatch,
                                  OpContext, ReindexRefs, SetCollapsed,
-                                 SetPageId, SetParent, ShiftSiblings, TouchPage,
-                                 UpdateText, plan_op)
+                                 SetHeading, SetPageId, SetParent,
+                                 ShiftSiblings, TouchPage, UpdateText, plan_op)
 from pkm.server.store import get_or_create_page
 
 _DEPTH_CAP = 100
@@ -98,6 +98,10 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         db.execute(
             "UPDATE blocks SET collapsed = ?, updated_at = ? WHERE uid = ?",
             (int(eff.collapsed), now_ms, eff.uid))
+    elif isinstance(eff, SetHeading):
+        db.execute(
+            "UPDATE blocks SET heading = ?, updated_at = ? WHERE uid = ?",
+            (eff.heading, now_ms, eff.uid))
     elif isinstance(eff, ReindexRefs):
         db.execute("DELETE FROM refs WHERE src_block_uid = ?", (eff.uid,))
         for ref in extract(eff.text).refs:

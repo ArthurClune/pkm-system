@@ -85,12 +85,24 @@ describe("applyOps mirrors ops_apply.py", () => {
     expect(findNode(out, "b1")).toBeNull();
   });
 
+  test("set_heading sets or clears the node's heading (applies to remote batches too)", () => {
+    const out = applyOps(tree(), [
+      { op: "set_heading", uid: "a", heading: 2 },
+    ], "P");
+    expect(findNode(out, "a")!.heading).toBe(2);
+    const cleared = applyOps(out, [
+      { op: "set_heading", uid: "a", heading: null },
+    ], "P");
+    expect(findNode(cleared, "a")!.heading).toBeNull();
+  });
+
   test("ops for uids not in this tree (other pages on the ws) are skipped", () => {
     const out = applyOps(tree(), [
       { op: "update_text", uid: "zz", text: "x" },
       { op: "delete", uid: "zz" },
       { op: "move", uid: "zz", parent_uid: null, order_idx: 0 },
       { op: "set_collapsed", uid: "zz", collapsed: true },
+      { op: "set_heading", uid: "zz", heading: 1 },
     ], "P");
     expect(out.map((n) => n.uid)).toEqual(["a", "b", "c"]);
   });

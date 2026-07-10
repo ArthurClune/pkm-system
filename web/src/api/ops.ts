@@ -8,8 +8,10 @@ export type UpdateTextOp = components["schemas"]["UpdateTextOp"];
 export type MoveOp = components["schemas"]["MoveOp"];
 export type DeleteOp = components["schemas"]["DeleteOp"];
 export type SetCollapsedOp = components["schemas"]["SetCollapsedOp"];
+export type SetHeadingOp = components["schemas"]["SetHeadingOp"];
 
 export type BlockOp =
-  | CreateOp | UpdateTextOp | MoveOp | DeleteOp | SetCollapsedOp;
+  | CreateOp | UpdateTextOp | MoveOp | DeleteOp | SetCollapsedOp
+  | SetHeadingOp;
 
 export type OpBatch = components["schemas"]["OpBatch"];

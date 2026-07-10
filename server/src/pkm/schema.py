@@ -70,3 +70,19 @@ CREATE TRIGGER pages_fts_au AFTER UPDATE OF title ON pages BEGIN
   INSERT INTO pages_fts(rowid, title) VALUES (new.id, new.title);
 END;
 """
+
+# There is no migration runner in this project: DDL above is only ever
+# executed against brand-new databases (fresh importer output, tests).
+# This table's statement is deliberately IF NOT EXISTS and is re-run by
+# open_db() on every connection (see server/db.py) so pre-existing
+# (already-populated) databases pick it up automatically, with no manual
+# migration step, the next time the server process starts.
+SIDEBAR_ENTRIES_DDL = """
+CREATE TABLE IF NOT EXISTS sidebar_entries(
+  id         INTEGER PRIMARY KEY,
+  title      TEXT NOT NULL UNIQUE,
+  order_idx  INTEGER NOT NULL
+);
+"""
+
+DDL += SIDEBAR_ENTRIES_DDL

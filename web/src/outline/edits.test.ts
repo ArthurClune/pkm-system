@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { block } from "../test-helpers";
 import { findNode } from "./tree";
 import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
-         outdentBlock, setCollapsed, splitBlock } from "./edits";
+         outdentBlock, setCollapsed, setHeading, splitBlock } from "./edits";
 
 const P = "Page";
 const tree = () => [
@@ -169,5 +169,23 @@ describe("setCollapsed", () => {
     const r = setCollapsed(tree(), P, "b", true);
     expect(r.ops).toEqual([{ op: "set_collapsed", uid: "b", collapsed: true }]);
     expect(findNode(r.blocks, "b")!.collapsed).toBe(true);
+  });
+});
+
+describe("setHeading", () => {
+  test("emits the op and applies it", () => {
+    const r = setHeading(tree(), P, "b", 2);
+    expect(r.ops).toEqual([{ op: "set_heading", uid: "b", heading: 2 }]);
+    expect(findNode(r.blocks, "b")!.heading).toBe(2);
+  });
+
+  test("clearing back to plain text", () => {
+    const r = setHeading(tree(), P, "b", null);
+    expect(r.ops).toEqual([{ op: "set_heading", uid: "b", heading: null }]);
+    expect(findNode(r.blocks, "b")!.heading).toBeNull();
+  });
+
+  test("no-op for an unknown uid", () => {
+    expect(setHeading(tree(), P, "ghost", 1).ops).toEqual([]);
   });
 });

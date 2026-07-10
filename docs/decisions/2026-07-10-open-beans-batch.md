@@ -83,3 +83,34 @@ integrated verification. This file records decisions for later review.
   pkm-ruvz (branched after bwvo merge so both OpenAPI regens stack
   instead of conflicting); both agents told to keep TopBar diffs minimal
   since they touch it concurrently.
+- **pkm-bsjp merged** (45cd4e4). Collapse toggle at the TopBar's left edge;
+  state in localStorage "pkm:sidebar" (theme.ts pattern); phone breakpoint
+  overrides `.collapsed` back to flex so the hamburger overlay stays the
+  only authority there. Orchestrator follow-up (234eee4): the toggle is
+  hidden on phones — it was a visible no-op.
+- **pkm-ruvz merged** (59f35b5). `DELETE /api/page/{title}`: explicit
+  blocks delete first (so blocks_fts triggers definitely fire), then the
+  page row (pages_fts + refs CASCADE), then any sidebar entry; inbound
+  [[links]] stay as text. TopBar menu gains "Delete page…" behind
+  window.confirm, navigating home on success. TopBar merge conflict with
+  bsjp resolved by hand (combined signature + doc comment). Full run
+  after merge: 336 web + 292 server tests, pyrefly, ruff, build,
+  4/4 Playwright e2e — green; main pushed.
+- **Mid-run scope growth.** Another session is committing to this repo
+  concurrently (bean adds 3c3e7d9, spec 9ea39cb). Per the goal ("the open
+  beans excluding the offline epic") the new arrivals were picked up too:
+  - **pkm-7cbq done** (5d1fdfa, orchestrator-implemented): main-pane/
+    top-bar left margin = exactly 1/3 of the old centering gap via
+    `margin-left: max(0px, calc((100% - 800px)/6))`, unchanged below the
+    800px max-width. (Later superseded by pkm-n2kv's card layout.)
+  - **pkm-pekk merged** (9149691). ```mermaid fences render via a new
+    lazily-loaded MermaidDiagram (module-level cached import promise;
+    securityLevel strict; theme picked once at mount from data-theme);
+    invalid source degrades to an error note + raw fence. Main bundle
+    unchanged; mermaid ships as its own lazy chunk (~634 kB). Full
+    verification incl. 4/4 e2e green.
+  - **pkm-n2kv dispatched** (Roam-look restyle) per its approved spec in
+    docs/superpowers/specs/2026-07-10-roam-look-restyle-design.md; the
+    agent is instructed to drop the pkm-7cbq margin calc in favour of the
+    spec's card layout and to do the required visual check via browser
+    screenshots (light/dark × 3 widths).

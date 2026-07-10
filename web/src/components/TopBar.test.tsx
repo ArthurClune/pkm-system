@@ -5,11 +5,17 @@ import { expect, it, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { TopBar } from "./TopBar";
 
-function renderTopBar(path: string, openInSidebar = vi.fn()) {
+function renderTopBar(
+  path: string,
+  openInSidebar = vi.fn(),
+  sidebarCollapsed = false,
+  onToggleSidebar = vi.fn(),
+) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={[path]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
-        <TopBar onSearchClick={vi.fn()} />
+        <TopBar onSearchClick={vi.fn()} sidebarCollapsed={sidebarCollapsed}
+                onToggleSidebar={onToggleSidebar} />
       </SidebarContext.Provider>
     </MemoryRouter>,
   );
@@ -20,12 +26,34 @@ it("clicking the search button calls onSearchClick", () => {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
-        <TopBar onSearchClick={onSearchClick} />
+        <TopBar onSearchClick={onSearchClick} sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
       </SidebarContext.Provider>
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
   expect(onSearchClick).toHaveBeenCalledOnce();
+});
+
+it("shows the sidebar toggle before the search button, labelled to hide an open sidebar", () => {
+  renderTopBar("/");
+  const toggle = screen.getByRole("button", { name: "Hide sidebar" });
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  const search = screen.getByRole("button", { name: "Search" });
+  // DOM order backs the "left edge, before search" placement enforced by CSS.
+  expect(toggle.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it("reflects a collapsed sidebar with a 'Show sidebar' label and aria-expanded=false", () => {
+  renderTopBar("/", vi.fn(), true);
+  const button = screen.getByRole("button", { name: "Show sidebar" });
+  expect(button).toHaveAttribute("aria-expanded", "false");
+});
+
+it("clicking the sidebar toggle calls onToggleSidebar", () => {
+  const onToggleSidebar = vi.fn();
+  renderTopBar("/", vi.fn(), false, onToggleSidebar);
+  fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  expect(onToggleSidebar).toHaveBeenCalledOnce();
 });
 
 it("shows no page menu on the journal route", () => {

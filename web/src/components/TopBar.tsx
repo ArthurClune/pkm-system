@@ -4,11 +4,16 @@ import { useLocation } from "react-router-dom";
 import { SidebarContext } from "../contexts";
 import { titleFromPathname } from "../paths";
 
-/** Menu bar spanning the top of the main pane. Houses the search entry point
- * (opens SearchModal, which App still owns) and, on /page/* routes, a "…"
- * page menu -- the anchor for page-level actions (currently just "Open in
- * sidebar"; Delete and others land here later). */
-export function TopBar({ onSearchClick }: { onSearchClick: () => void }) {
+/** Menu bar spanning the top of the main pane. Houses the left-nav collapse
+ * toggle (leftmost, so it stays put regardless of what else is here), the
+ * search entry point (opens SearchModal, which App still owns), and, on
+ * /page/* routes, a "…" page menu -- the anchor for page-level actions
+ * (currently just "Open in sidebar"; Delete and others land here later). */
+export function TopBar({ onSearchClick, sidebarCollapsed, onToggleSidebar }: {
+  onSearchClick: () => void;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
+}) {
   const { pathname } = useLocation();
   const onPageRoute = pathname.startsWith("/page/");
   const title = onPageRoute ? titleFromPathname(pathname) : null;
@@ -38,6 +43,12 @@ export function TopBar({ onSearchClick }: { onSearchClick: () => void }) {
 
   return (
     <div className="top-bar">
+      <button type="button" className="sidebar-toggle-button"
+              aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+              aria-expanded={!sidebarCollapsed}
+              onClick={onToggleSidebar}>
+        {sidebarCollapsed ? "⟩" : "⟨"}
+      </button>
       <button type="button" className="top-bar-search-button" onClick={onSearchClick}>
         Search
       </button>

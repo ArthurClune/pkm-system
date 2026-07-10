@@ -10,18 +10,13 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
+from pkm.filenames import truncate_utf8
+
 _ASSET_LINK_RE = re.compile(r"\]\(/assets/")
 _BLOCK_REF_RE = re.compile(r"\(\(([A-Za-z0-9_-]+)\)\)")
 _UNSAFE_RE = re.compile(r"[/\\:\x00-\x1f]")
 # APFS caps filename components at 255 bytes; leave room for " (N)" + ".md".
 _MAX_BASE_BYTES = 200
-
-
-def _truncate_utf8(name: str, limit: int = _MAX_BASE_BYTES) -> str:
-    encoded = name.encode("utf-8")
-    if len(encoded) <= limit:
-        return name
-    return encoded[:limit].decode("utf-8", "ignore").rstrip(" .")
 
 
 def rewrite_asset_links(text: str) -> str:
@@ -34,14 +29,11 @@ def resolve_block_refs(text: str, uid_to_text: Mapping[str, str]) -> str:
         if m.group(1) in uid_to_text else m.group(0), text)
 
 
-def safe_filename(name: str) -> str:
-    return _UNSAFE_RE.sub("-", name) or "file"
-
-
 def page_filename(title: str, taken: set[str]) -> str:
     """Unique '<sanitized title>.md'; case-insensitive against `taken`
     (APFS default). Adds the chosen lowercase key to `taken`."""
-    base = _truncate_utf8(_UNSAFE_RE.sub("-", title).strip(" .")) or "untitled"
+    base = (truncate_utf8(_UNSAFE_RE.sub("-", title).strip(" ."), _MAX_BASE_BYTES)
+           .rstrip(" .") or "untitled")
     name, n = f"{base}.md", 2
     while name.lower() in taken:
         name = f"{base} ({n}).md"

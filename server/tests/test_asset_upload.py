@@ -3,7 +3,9 @@ from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
+from pkm.export.writer import export_graph
 from pkm.server.app import create_app
+from pkm.server.db import open_db
 
 TEST_PASSWORD = "test-pw"  # must match conftest.py
 
@@ -83,3 +85,38 @@ def test_asset_serving_svg_forced_to_attachment(client):
     r = client.get(url)
     assert r.headers["content-disposition"].startswith("attachment")
     assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_upload_bounds_overlong_ascii_filename(client, seeded_config):
+    # A direct tailnet API client (not a browser file picker) can send an
+    # arbitrarily long filename; it must not disable later nightly exports.
+    body = _upload(client, name="x" * 300 + ".png").json()
+    assert body["filename"].endswith(".png")
+    assert len(body["filename"].encode("utf-8")) <= 200
+
+
+def test_upload_bounds_multibyte_filename_by_byte_length(client, seeded_config):
+    # "é" is 2 UTF-8 bytes: under a naive char-count limit but over the
+    # documented byte limit once repeated.
+    body = _upload(client, name="é" * 120 + ".png").json()
+    assert len(body["filename"].encode("utf-8")) <= 200
+    body["filename"].encode("utf-8").decode("utf-8")  # no split code point
+
+
+def test_upload_dot_filename_falls_back_to_default_stem(client, seeded_config):
+    body = _upload(client, name="..").json()
+    assert body["filename"] == "file"
+
+
+def test_overlong_filename_upload_then_export_succeeds(client, seeded_config, tmp_path):
+    # End-to-end regression for review finding 4: an asset row created via
+    # the HTTP API with an overlong filename used to make export_graph()
+    # raise OSError [Errno 63] File name too long on every nightly export.
+    _upload(client, name="x" * 300 + ".png")
+    db = open_db(seeded_config.db_path)
+    try:
+        counts = export_graph(db, seeded_config.assets_dir, tmp_path / "export")
+    finally:
+        db.close()
+    assert counts["assets_copied"] == 1
+    assert counts["assets_pruned"] == 0

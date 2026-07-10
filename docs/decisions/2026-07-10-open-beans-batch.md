@@ -124,3 +124,28 @@ integrated verification. This file records decisions for later review.
   tests, typecheck, pyrefly, ruff, build, 4/4 Playwright e2e — all green.
   Prod NOT deployed, per the standing rule. All batch worktrees and
   branches cleaned up.
+
+## Post-batch follow-up (same evening)
+
+- **Prod deployed at 0563432** on Arthur's request, verified serving.
+- **Mermaid gap found:** Roam represents diagrams as `{{[[mermaid]]}}` blocks
+  with source lines as child blocks; the importer had brought these in
+  verbatim (8 blocks, 7 with children), so pkm-pekk's fence renderer never
+  saw them. Data was intact, just the wrong shape.
+- **pkm-cydp merged** (64dc8ff): importer now converts mermaid component
+  blocks to ```mermaid fences (pure logic in pkm/importer/mermaid.py);
+  idempotent migration script pkm.importer.migrate_mermaid_blocks with
+  --dry-run. **Live data migrated**: online .backup taken
+  (~/.config/pkm/data/pkm.sqlite3.bak-2026-07-10-premermaid), full
+  rehearsal on a copy first (fence content, orphans, refs, direct-FTS
+  orphan probe, FTS integrity-check), then the real run: 7 blocks
+  converted, 0 orphans, FTS integrity OK.
+- **pkm-x2ep merged** (bdf4a6d): /mermaid slash command (Mermaid diagram)
+  wrapping content in a mermaid fence, alongside /python etc.
+- **Deploy caveat:** update.sh ran (prod checkout at bdf4a6d, dist rebuilt)
+  but the launchd service com.arthur.pkm.server was UNLOADED — the restyle
+  session had booted it out and is serving its preview on 127.0.0.1:8974
+  from a data copy. Left their preview alone; a background watcher
+  bootstraps the prod service as soon as the port frees. Manual command if
+  needed: launchctl bootstrap gui/$(id -u)
+  ~/Library/LaunchAgents/com.arthur.pkm.server.plist

@@ -45,26 +45,27 @@ it("shift-click stacks sidebar panels newest-first; close removes one", async ()
   expect(screen.getByText("paper body")).toBeInTheDocument();
 });
 
-it("cmd-u opens the search modal", async () => {
+it("cmd-u focuses the top bar's search bar", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "u", metaKey: true });
-  expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
+  expect(screen.getByPlaceholderText("Search…")).toHaveFocus();
 });
 
-it("ctrl-u opens the search modal", async () => {
+it("ctrl-u focuses the top bar's search bar", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "u", ctrlKey: true });
-  expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
+  expect(screen.getByPlaceholderText("Search…")).toHaveFocus();
 });
 
-it("clicking the top bar's Search button opens the search modal; the left nav has no search entry", async () => {
+it("the top bar has a focusable search bar; the left nav has no search entry", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   expect(screen.queryByRole("button", { name: "Page menu" })).toBeNull(); // journal: no page menu
-  fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
+  const input = screen.getByPlaceholderText("Search…");
+  input.focus();
+  expect(input).toHaveFocus();
 });
 
 it("the top bar's page menu opens 'Open in sidebar', which stacks the current page", async () => {
@@ -79,11 +80,11 @@ it("the top bar's page menu opens 'Open in sidebar', which stacks the current pa
   expect(within(panel).getByText("paper body")).toBeInTheDocument();
 });
 
-it("cmd-k no longer opens the search modal", async () => {
+it("cmd-k does not focus the search bar", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.keyDown(window, { key: "k", metaKey: true });
-  expect(screen.queryByPlaceholderText("Search…")).toBeNull();
+  expect(screen.getByPlaceholderText("Search…")).not.toHaveFocus();
 });
 
 it("ctrl-cmd-d navigates to the home page", async () => {
@@ -126,8 +127,9 @@ it("search stays reachable via the top bar when the sidebar is collapsed", async
   localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
-  fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
+  const input = screen.getByPlaceholderText("Search…");
+  input.focus();
+  expect(input).toHaveFocus();
 });
 
 it("unknown route renders the not-found view", () => {

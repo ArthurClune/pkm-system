@@ -170,12 +170,39 @@ describe("backspaceAtStart", () => {
     expect(r.focus).toEqual({ uid: "b2", cursor: 5 }); // "b-two".length
   });
 
-  test("no-ops: first sibling, block with children, non-empty after structured prev", () => {
+  test("no-ops: non-empty first sibling, block with children, non-empty after structured prev", () => {
     expect(backspaceAtStart(tree(), P, "a").ops).toEqual([]);
-    expect(backspaceAtStart(tree(), P, "b1").ops).toEqual([]); // first child
+    expect(backspaceAtStart(tree(), P, "b1").ops).toEqual([]); // first child, has text
     expect(backspaceAtStart(tree(), P, "b").ops).toEqual([]);  // has children
     const t = [tree()[1], block("d", "text", { order_idx: 6 })];
     expect(backspaceAtStart(t, P, "d").ops).toEqual([]); // prev structured, not empty
+  });
+
+  test("empty first child: deleted, focus lands on the parent", () => {
+    const t = [block("p", "parent", { order_idx: 0, children: [
+      block("k", "", { order_idx: 0 }),
+      block("k2", "sibling", { order_idx: 1 }),
+    ] })];
+    const r = backspaceAtStart(t, P, "k");
+    expect(r.ops).toEqual([{ op: "delete", uid: "k" }]);
+    expect(r.focus).toEqual({ uid: "p", cursor: 6 }); // "parent".length
+    expect(findNode(r.blocks, "k")).toBeNull();
+  });
+
+  test("empty first top-level block: deleted, focus lands on the next block", () => {
+    const t = [block("x", "", { order_idx: 0 }),
+               block("y", "two", { order_idx: 1 })];
+    const r = backspaceAtStart(t, P, "x");
+    expect(r.ops).toEqual([{ op: "delete", uid: "x" }]);
+    expect(r.focus).toEqual({ uid: "y", cursor: 0 });
+  });
+
+  test("sole empty block on the page: deleted, focus cleared", () => {
+    const t = [block("x", "", { order_idx: 0 })];
+    const r = backspaceAtStart(t, P, "x");
+    expect(r.ops).toEqual([{ op: "delete", uid: "x" }]);
+    expect(r.focus).toBeNull();
+    expect(r.blocks).toEqual([]);
   });
 });
 

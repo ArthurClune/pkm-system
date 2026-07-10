@@ -123,8 +123,19 @@ export function moveBlockDown(blocks: BlockNode[], pageTitle: string,
 export function backspaceAtStart(blocks: BlockNode[], pageTitle: string,
                                  uid: string): EditResult {
   const found = locate(blocks, uid);
-  if (!found || found.node.children.length > 0 || found.index === 0) {
-    return noop(blocks);
+  if (!found || found.node.children.length > 0) return noop(blocks);
+  if (found.index === 0) {
+    // No previous sibling to merge into, but an emptied block must still be
+    // deletable: focus the parent (the block visually above), or the next
+    // sibling when this is the first top-level block. focus null (sole block
+    // on the page) leaves focus on the unmounting textarea, whose blur
+    // clears it.
+    if (found.node.text !== "") return noop(blocks);
+    const next = found.siblings[1];
+    const focus = found.parent
+      ? { uid: found.parent.uid, cursor: found.parent.text.length }
+      : next ? { uid: next.uid, cursor: 0 } : null;
+    return done(blocks, pageTitle, [{ op: "delete", uid }], focus);
   }
   const prev = found.siblings[found.index - 1];
   if (prev.children.length > 0) {

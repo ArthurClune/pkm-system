@@ -33,9 +33,13 @@ function hasExactPageMatch(rows: ResultRow[], title: string): boolean {
   return rows.some((r) => r.key.startsWith("p-") && r.title.toLowerCase() === needle);
 }
 
-export function SearchModal({ open, onClose }:
-    { open: boolean; onClose: () => void }) {
+/** Inline search bar for the top bar: a real input that owns focus, with a
+ * results dropdown anchored beneath it. Escape, an outside click, or picking
+ * a result cancels the search (clears the query, closes the dropdown).
+ * Cmd/Ctrl-U focuses the bar from anywhere; pressing it again cancels. */
+export function SearchBar() {
   const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false); // dropdown may show (bar engaged)
   const [rows, setRows] = useState<ResultRow[]>([]);
   const [selected, setSelected] = useState(0);
   // The query whose results `rows` currently reflects -- null while a fetch
@@ -43,26 +47,60 @@ export function SearchModal({ open, onClose }:
   // it only appears once we actually know there's no exact page match,
   // instead of flashing on for a query whose real results haven't arrived.
   const [resultsQuery, setResultsQuery] = useState<string | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   // Request sequence token: only the latest dispatched request may set rows,
   // so a slow response for an old query can't clobber newer results.
   const seqRef = useRef(0);
   const navigate = useNavigate();
 
+  const cancel = () => {
+    seqRef.current++; // drop any in-flight response after cancel
+    setOpen(false);
+    setQuery("");
+    setRows([]);
+    setResultsQuery(null);
+    setSelected(0);
+    inputRef.current?.blur();
+  };
+
+  // Cmd/Ctrl-U: focus the bar from anywhere; when the bar already has focus
+  // the shortcut cancels instead (a toggle, like the old search modal).
   useEffect(() => {
-    if (open) {
-      inputRef.current?.focus();
-    } else {
-      seqRef.current++; // drop any in-flight response after close
-      setQuery("");
-      setRows([]);
-      setResultsQuery(null);
-      setSelected(0);
-    }
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "u") {
+        e.preventDefault();
+        if (document.activeElement === inputRef.current) cancel();
+        else inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // cancel only touches refs and state setters, all stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // While engaged: an outside click cancels, and Escape cancels at the
+  // document level so the search can be dismissed even when focus has
+  // wandered off the input.
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) cancel();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") cancel();
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
     const trimmed = query.trim();
     if (!trimmed) {
       seqRef.current++; // drop any in-flight response for a cleared query
@@ -87,9 +125,7 @@ export function SearchModal({ open, onClose }:
         });
     }, 150);
     return () => clearTimeout(timer);
-  }, [query, open]);
-
-  if (!open) return null;
+  }, [query]);
 
   const trimmedQuery = query.trim();
   const showCreateRow = trimmedQuery !== "" && resultsQuery === trimmedQuery
@@ -108,16 +144,16 @@ export function SearchModal({ open, onClose }:
           body: JSON.stringify({ title: row.title }),
         });
       } catch {
-        return; // creation failed: keep the modal open, don't navigate
+        return; // creation failed: keep the search open, don't navigate
       }
     }
-    onClose();
+    cancel();
     navigate(pagePath(row.title));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
-      onClose();
+      cancel();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelected((s) => Math.min(s + 1, displayRows.length - 1));
@@ -130,12 +166,13 @@ export function SearchModal({ open, onClose }:
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="search-modal" onClick={(e) => e.stopPropagation()}>
-        <input ref={inputRef} className="search-input" placeholder="Search…"
-               aria-label="Search"
-               value={query} onKeyDown={onKeyDown}
-               onChange={(e) => setQuery(e.target.value)} />
+    <div className="top-bar-search" ref={wrapRef}>
+      <input ref={inputRef} className="top-bar-search-input" placeholder="Search…"
+             aria-label="Search" value={query}
+             onFocus={() => setOpen(true)}
+             onChange={(e) => { setOpen(true); setQuery(e.target.value); }}
+             onKeyDown={onKeyDown} />
+      {open && displayRows.length > 0 && (
         <ul className="search-results">
           {displayRows.map((row, i) => (
             <li key={row.key}
@@ -154,7 +191,7 @@ export function SearchModal({ open, onClose }:
             </li>
           ))}
         </ul>
-      </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,5 @@
 from pkm.export.markdown import (page_filename, render_page,
-                                 resolve_block_refs, rewrite_asset_links,
-                                 safe_filename)
+                                 resolve_block_refs, rewrite_asset_links)
 
 
 def node(text, children=()):
@@ -61,8 +60,3 @@ def test_page_filename_truncation_respects_multibyte_boundaries():
     name = page_filename("é" * 200, taken)  # 400 utf-8 bytes
     assert len(name.encode("utf-8")) <= 255
     name.encode("utf-8").decode("utf-8")  # no split code point
-
-
-def test_safe_filename():
-    assert safe_filename("a/b:c.png") == "a-b-c.png"
-    assert safe_filename("") == "file"

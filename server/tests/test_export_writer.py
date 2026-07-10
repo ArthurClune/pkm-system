@@ -63,3 +63,52 @@ def test_deleted_page_disappears_from_export(graph):
     counts = export_graph(db, live_assets, export)
     assert counts["pages"] == 0
     assert not (export / "pages" / "Alpha.md").exists()
+
+
+def test_export_survives_overlong_asset_filename(tmp_path):
+    # Regression: a DB row with an unbounded filename (e.g. from a direct
+    # API client, not the upload route's own guard) used to make
+    # export_graph() raise OSError [Errno 63] File name too long.
+    db = sqlite3.connect(tmp_path / "g.sqlite3")
+    db.row_factory = sqlite3.Row
+    db.executescript(DDL)
+    sha = "cd" * 32
+    db.execute("INSERT INTO assets VALUES (?,?,?,?,?)",
+              (sha, "x" * 300 + ".png", "image/png", 3, None))
+    db.commit()
+    live_assets = tmp_path / "live-assets"
+    (live_assets / sha[:2]).mkdir(parents=True)
+    (live_assets / sha[:2] / sha).write_bytes(b"png")
+    counts = export_graph(db, live_assets, tmp_path / "export")
+    assert counts["assets_copied"] == 1
+    copied = list((tmp_path / "export" / "assets" / sha).iterdir())
+    assert len(copied) == 1
+    assert copied[0].name.endswith(".png")
+    assert len(copied[0].name.encode("utf-8")) <= 200
+
+
+def test_export_does_not_clobber_assets_that_collide_after_truncation(tmp_path):
+    # Two different overlong filenames can truncate to the same string, but
+    # each asset lives under its own sha256 directory, so they must not
+    # overwrite each other.
+    db = sqlite3.connect(tmp_path / "g.sqlite3")
+    db.row_factory = sqlite3.Row
+    db.executescript(DDL)
+    sha_a, sha_b = "aa" * 32, "bb" * 32
+    db.executemany("INSERT INTO assets VALUES (?,?,?,?,?)", [
+        (sha_a, "A" * 250 + ".png", "image/png", 3, None),
+        (sha_b, "A" * 250 + "Z" * 50 + ".png", "image/png", 3, None),
+    ])
+    db.commit()
+    live_assets = tmp_path / "live-assets"
+    for sha, content in ((sha_a, b"one"), (sha_b, b"two")):
+        (live_assets / sha[:2]).mkdir(parents=True, exist_ok=True)
+        (live_assets / sha[:2] / sha).write_bytes(content)
+    counts = export_graph(db, live_assets, tmp_path / "export")
+    assert counts["assets_copied"] == 2
+    assets_dir = tmp_path / "export" / "assets"
+    name_a = next((assets_dir / sha_a).iterdir()).name
+    name_b = next((assets_dir / sha_b).iterdir()).name
+    assert name_a == name_b  # truncation collides...
+    assert (assets_dir / sha_a / name_a).read_bytes() == b"one"
+    assert (assets_dir / sha_b / name_b).read_bytes() == b"two"  # ...but not the files

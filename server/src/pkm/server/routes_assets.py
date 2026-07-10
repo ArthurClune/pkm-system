@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from pkm.filenames import safe_filename
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
@@ -82,7 +83,7 @@ async def upload_asset(file: UploadFile,
         tmp = dest.parent / f"{sha}.tmp"
         tmp.write_bytes(data)
         os.replace(tmp, dest)
-    filename = Path(file.filename or "upload").name or "upload"
+    filename = safe_filename(Path(file.filename or "upload").name)
     db.execute("INSERT OR IGNORE INTO assets VALUES (?,?,?,?,?)",
                (sha, filename, mime, len(data), int(time.time() * 1000)))
     db.commit()

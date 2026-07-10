@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from pkm.edn import parse_edn
+from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
 from pkm.importer.parse_export import parse_export
 from pkm.importer.report import ImportReport, render
@@ -27,7 +28,10 @@ def _index_files(files_dir: Path) -> tuple[dict[str, Asset], dict[str, Path]]:
         data = path.read_bytes()
         sha = hashlib.sha256(data).hexdigest()
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        by_name[path.name.lower()] = Asset(sha, path.name, mime, len(data))
+        # Lookup keys stay on the raw name (Roam's export text references
+        # it); only the stored/displayed filename needs bounding, since a
+        # linked-files download can contain arbitrarily long names.
+        by_name[path.name.lower()] = Asset(sha, safe_filename(path.name), mime, len(data))
         paths[sha] = path
     # Second pass: register each file's leading uid prefix as a fallback
     # lookup key, without clobbering any exact-name entry above. Roam's

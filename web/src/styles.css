@@ -209,23 +209,25 @@ button { font: inherit; }
 .nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px;
   border: 1px solid var(--color-border-input); border-radius: 3px; background: var(--color-bg-subtle);
   color: var(--color-text); cursor: pointer; }
-.content-area { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-/* Content sits left-of-centre: the left share of the centering gap is 1/3 of
- * what plain `margin: 0 auto` would give ((100% - 800px)/2), the right margin
- * absorbs the rest (pkm-7cbq). max() keeps it at 0 below the max-width. The
- * top bar mirrors these margins so its buttons stay aligned with content. */
-.main-pane { flex: 1; min-width: 0; max-width: 800px;
-  margin: 0 auto 0 max(0px, calc((100% - 800px) / 6));
-  padding: 24px 32px 120px; }
+.content-area { flex: 1; min-width: 0; display: flex; flex-direction: column;
+  /* card geometry shared by .top-bar and .main-pane; --pane-left leans the
+   * card left so the gutter is ~1/3 of what centering would give (pkm-7cbq) */
+  --pane-width: min(860px, calc(100% - 32px));
+  --pane-left: max(16px, calc((100% - 860px) / 6)); }
+.main-pane { flex: 1; min-width: 0; width: var(--pane-width);
+  margin: 10px auto 40px var(--pane-left);
+  padding: 30px 50px 120px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(var(--shadow-rgb), 0.05); }
 .page-title { font-size: 26px; margin: 0 0 12px; }
 .page-title a { color: inherit; }
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
 
-/* top bar: spans the main pane, houses search + the page ("...") menu */
 .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px;
-  max-width: 800px; margin: 0 auto 0 max(0px, calc((100% - 800px) / 6));
-  padding: 8px 32px; }
+  width: var(--pane-width); margin: 0 auto 0 var(--pane-left); padding: 8px 4px; }
 .top-bar-search-button, .top-bar-menu-button { background: none; cursor: pointer;
   border: 1px solid var(--color-border-strong); border-radius: 4px; padding: 4px 10px;
   color: var(--color-text-secondary); }
@@ -381,8 +383,9 @@ mark.highlight { background: var(--color-highlight-bg); }
    * its button is hidden too, since collapse has no effect on phones */
   .left-nav.collapsed { display: flex; }
   .sidebar-toggle-button { display: none; }
-  .top-bar { padding: 8px 16px; }
-  .main-pane { padding: 24px 16px 120px; }
+  .top-bar { width: auto; margin: 0; padding: 8px 16px; }
+  .main-pane { width: auto; margin: 0; padding: 24px 16px 120px;
+    border: none; border-radius: 0; box-shadow: none; }
   .sidebar { width: 100vw; }
 }
 

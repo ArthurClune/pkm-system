@@ -1,14 +1,24 @@
 # pattern: Imperative Shell
 """Boot a throwaway server for the Playwright smoke: fresh empty DB in a
 temp dir, fixed password "e2e-pw", serves the built SPA from web/dist.
-Run: uv run python tests/e2e_serve.py   (from server/)"""
+Run: uv run python tests/e2e_serve.py   (from server/)
+
+Also logs any unhandled exception (e.g. a real server bug, not a normal
+4xx) to web/e2e/.server.log, which web/e2e/global-teardown.ts scans and
+fails the run on -- see docs/2026-07-10-implementation-review.md finding 1,
+where a real "database is locked" 500 was invisible to `pnpm e2e` because
+nothing checked server-side errors."""
 from __future__ import annotations
 
+import copy
+import logging
 import sqlite3
 import tempfile
 from pathlib import Path
 
 import uvicorn
+from fastapi import Request
+from fastapi.responses import PlainTextResponse
 
 from pkm.schema import DDL
 from pkm.server.app import create_app
@@ -19,6 +29,28 @@ from pkm.server.db import init_db
 PORT = 8975
 PASSWORD = "e2e-pw"
 SALT = bytes.fromhex("11" * 16)
+
+SERVER_LOGGER_NAME = "pkm.e2e_server"
+server_logger = logging.getLogger(SERVER_LOGGER_NAME)
+
+
+def _log_config(log_path: Path) -> dict:
+    # uvicorn.run() calls logging.config.dictConfig(), which unconditionally
+    # closes any handler that existed before the call (regardless of
+    # disable_existing_loggers) -- so a FileHandler attached ahead of time
+    # would silently stop writing. Folding it into uvicorn's own config
+    # keeps it alive.
+    config = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
+    config["handlers"]["e2e_file"] = {
+        "class": "logging.FileHandler",
+        "filename": str(log_path),
+        "mode": "w",
+        "formatter": "default",
+    }
+    config["loggers"][SERVER_LOGGER_NAME] = {
+        "handlers": ["e2e_file"], "level": "ERROR", "propagate": False,
+    }
+    return config
 
 
 def main() -> int:
@@ -43,7 +75,16 @@ def main() -> int:
         cookie_secure=False,
         web_dist=web_dist,
     )
-    uvicorn.run(create_app(config), host="127.0.0.1", port=PORT)
+    app = create_app(config)
+
+    @app.exception_handler(Exception)
+    async def _log_unhandled(request: Request, exc: Exception) -> PlainTextResponse:
+        server_logger.error("unhandled exception for %s %s",
+                             request.method, request.url, exc_info=exc)
+        return PlainTextResponse("internal server error", status_code=500)
+
+    log_path = root / "web" / "e2e" / ".server.log"
+    uvicorn.run(app, host="127.0.0.1", port=PORT, log_config=_log_config(log_path))
     return 0
 
 

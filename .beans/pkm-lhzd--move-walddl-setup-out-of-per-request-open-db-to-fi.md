@@ -17,4 +17,4 @@ Review finding 1 (Important) — the only issue observed as a live server except
 - [x] Set and document an appropriate busy_timeout for genuine writer contention
 - [x] Replace ad hoc SIDEBAR_ENTRIES_DDL-on-open with an explicit idempotent migration/startup step
 - [x] Regression: backend concurrency test opening read connections while an ops transaction commits
-- [ ] Regression: make the Playwright harness fail on unexpected server exceptions / HTTP 5xx even when visible assertions pass
+- [x] Regression: make the Playwright harness fail on unexpected server exceptions / HTTP 5xx even when visible assertions pass

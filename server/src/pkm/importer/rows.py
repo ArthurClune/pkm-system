@@ -1,11 +1,18 @@
 # pattern: Functional Core
 """Flatten a parsed Export into SQL row tuples, deriving refs and
-creating implicit pages for referenced-but-never-created titles."""
+creating implicit pages for referenced-but-never-created titles.
+
+Roam mermaid component blocks ({{[[mermaid]]}} with diagram-source child
+blocks, see pkm.importer.mermaid) are converted to a single fenced block
+here, before ref-extraction runs: the fence text replaces the component
+block's own text, and its children are consumed (not walked/emitted as
+their own block rows)."""
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from pkm.importer.mermaid import convert_to_fence
 from pkm.importer.parse_export import Block, Export
 from pkm.refs import extract
 
@@ -39,16 +46,18 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         page_id(p.title, p.created_at, p.edited_at)
 
     def walk(b: Block, pid: int, parent_uid: str | None, order_idx: int) -> None:
-        text = transform_text(b.text)
-        parsed = extract(text)
+        fence = convert_to_fence(b.text, b.children)
+        text = transform_text(fence if fence is not None else b.text)
+        parsed = extract(text)  # runs on final text, so a fence has no [[mermaid]] ref
         blocks.append((b.uid, pid, parent_uid, order_idx, text, b.heading,
                        0 if b.open else 1, b.created_at, b.edited_at))
         for r in parsed.refs:
             refs.append((b.uid, page_id(r.title), r.kind))
         counts["block_ref"] += len(parsed.block_refs)
         counts["embed"] += parsed.embeds
-        for i, child in enumerate(b.children):
-            walk(child, pid, b.uid, i)
+        if fence is None:  # children consumed into the fence otherwise
+            for i, child in enumerate(b.children):
+                walk(child, pid, b.uid, i)
 
     for p in export.pages:
         pid = page_ids[p.title]

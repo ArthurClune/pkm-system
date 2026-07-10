@@ -37,8 +37,6 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   const [focus, setFocus] = useState<FocusTarget | null>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
-  const focusRef = useRef(focus);
-  focusRef.current = focus;
   const pendingRef = useRef<{ uid: string; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -116,17 +114,17 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       .catch(() => undefined); // next resync will repair
   }, [sync, pageTitle]);
 
-  // Remote batches: the same applyOps as local edits. Text updates for the
-  // block being typed in are skipped — the local draft wins on its next
-  // flush (per-block last-write-wins).
+  // Remote batches: the same applyOps as local edits. Text updates always
+  // land on the block tree, even for the focused block — focus does not imply
+  // an unflushed local draft. When a real draft exists the focused textarea
+  // keeps showing it (BlockInput owns that decision); its next flush then
+  // becomes the legitimate last-writer (per-block last-write-wins).
   useEffect(() => sync.subscribe((batch) => {
     const needsRefetch = batch.ops.some((op) =>
       op.op === "move" && op.page_title != null &&
       op.page_title === pageTitle &&
       !findNode(blocksRef.current, op.uid));
-    const ops = batch.ops.filter((op) =>
-      !(op.op === "update_text" && op.uid === focusRef.current?.uid));
-    blocksRef.current = applyOps(blocksRef.current, ops, pageTitle);
+    blocksRef.current = applyOps(blocksRef.current, batch.ops, pageTitle);
     setBlocks(blocksRef.current);
     if (needsRefetch) {
       // we are the target of a cross-page move: the op carries no block

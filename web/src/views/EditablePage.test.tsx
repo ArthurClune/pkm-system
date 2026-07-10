@@ -74,15 +74,50 @@ test("remote batches patch the tree; own-echo filtering is the provider's job", 
   expect(screen.getByText("from the iPad")).toBeInTheDocument();
 });
 
-test("remote update_text for the focused block is skipped (draft wins)", () => {
+test("remote update_text for a focused block with no draft is adopted", () => {
   const sync = mount();
   focusBlock("first");
   act(() => sync.emit({ client_id: "other", ts: 1, ops: [
-    { op: "update_text", uid: "u1", text: "clobbered" },
+    { op: "update_text", uid: "u1", text: "remote first" },
     { op: "update_text", uid: "u2", text: "second remote" },
   ] }));
-  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("first");
+  // No local draft exists, so the focused textarea must adopt the remote text
+  // rather than keep the stale value.
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value)
+    .toBe("remote first");
   expect(screen.getByText("second remote")).toBeInTheDocument();
+});
+
+test("focused block with a pending draft keeps the draft; it wins on flush", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "typed" } });
+  // Remote update arrives while a real local draft is unflushed: the block
+  // tree adopts it, but the textarea keeps showing the local draft (LWW).
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("typed");
+  // The draft flush is the next legitimate last-writer.
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "typed" }],
+  ]);
+});
+
+test("focus then blur without editing after a remote update stays consistent", () => {
+  const sync = mount();
+  const ta = focusBlock("first");
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  fireEvent.blur(ta);
+  // Blurring without typing must not enqueue a stale-value op, and the block
+  // must display the remote text: client and server agree.
+  expect(sync.sent).toEqual([]);
+  expect(screen.getByText("remote")).toBeInTheDocument();
 });
 
 test("empty page shows the start-writing affordance which creates block zero", () => {

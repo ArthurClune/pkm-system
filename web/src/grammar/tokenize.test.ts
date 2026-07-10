@@ -25,7 +25,54 @@ describe("tokenizeBlock", () => {
       { kind: "page-ref", title: "Generative Models", tag: true },
     ]);
     expect(tokenizeBlock("https://example.com/#anchor")).toEqual([
-      { kind: "text", text: "https://example.com/#anchor" },
+      { kind: "link", text: "https://example.com/#anchor", href: "https://example.com/#anchor" },
+    ]);
+  });
+
+  it("autolinks bare http(s) URLs at word boundaries", () => {
+    const url = "https://bsky.app/profile/cpaxton.bsky.social/post/3mp4jonwrfk2h";
+    expect(tokenizeBlock(url)).toEqual([
+      { kind: "link", text: url, href: url },
+    ]);
+    expect(tokenizeBlock(`see ${url} today`)).toEqual([
+      { kind: "text", text: "see " },
+      { kind: "link", text: url, href: url },
+      { kind: "text", text: " today" },
+    ]);
+    expect(tokenizeBlock("plain http://x.org here")).toEqual([
+      { kind: "text", text: "plain " },
+      { kind: "link", text: "http://x.org", href: "http://x.org" },
+      { kind: "text", text: " here" },
+    ]);
+  });
+
+  it("excludes trailing punctuation and wrappers from autolinked URLs", () => {
+    expect(tokenizeBlock("read https://example.com/page.")).toEqual([
+      { kind: "text", text: "read " },
+      { kind: "link", text: "https://example.com/page", href: "https://example.com/page" },
+      { kind: "text", text: "." },
+    ]);
+    expect(tokenizeBlock("(https://example.com/x)")).toEqual([
+      { kind: "text", text: "(" },
+      { kind: "link", text: "https://example.com/x", href: "https://example.com/x" },
+      { kind: "text", text: ")" },
+    ]);
+  });
+
+  it("does not autolink mid-word, scheme-only, or inside code/links", () => {
+    expect(tokenizeBlock("foohttps://example.com")).toEqual([
+      { kind: "text", text: "foohttps://example.com" },
+    ]);
+    expect(tokenizeBlock("empty https:// scheme")).toEqual([
+      { kind: "text", text: "empty https:// scheme" },
+    ]);
+    expect(tokenizeBlock("run `https://example.com` now")).toEqual([
+      { kind: "text", text: "run " },
+      { kind: "inline-code", code: "https://example.com" },
+      { kind: "text", text: " now" },
+    ]);
+    expect(tokenizeBlock("[paper](https://x.org/a.pdf)")).toEqual([
+      { kind: "link", text: "paper", href: "https://x.org/a.pdf" },
     ]);
   });
 

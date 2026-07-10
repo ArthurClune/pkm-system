@@ -1,11 +1,11 @@
 ---
 # pkm-tmtf
 title: Focused block without a draft must adopt remote text updates
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-10T10:56:40Z
-updated_at: 2026-07-10T11:13:10Z
+updated_at: 2026-07-10T11:20:49Z
 parent: pkm-m309
 ---
 
@@ -28,3 +28,10 @@ focus-based filter in `useOutline.ts`). Display-time LWW moved into
 `BlockInput` (`EditableBlockTree.tsx`): a `dirtyRef` tracks unflushed local
 typing; a `node.text` effect adopts tree changes when not dirty and keeps the
 local draft when dirty. A dirty draft's debounce flush is the next writer.
+
+## Summary of Changes
+
+- useOutline no longer filters remote update_text by focus; remote ops always land on the block tree.
+- Display-time LWW moved into EditableBlockTree via an explicit dirtyRef (set synchronously on typing, cleared when node.text catches up): pending draft wins until flush; clean textarea adopts remote immediately; blur-without-typing stays consistent.
+- Three regression tests added/rewritten in EditablePage.test.tsx; 255 web tests + typecheck pass. Merged to main (--no-ff).
+- Deferred minors (final-review triage): IME mid-composition adoption, dirty-clear by value equality, caret position on adoption.

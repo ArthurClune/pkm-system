@@ -146,6 +146,32 @@ def test_upload_over_cap_leaves_no_tmp_files(seeded_config):
     assert list(seeded_config.assets_dir.iterdir()) == []
 
 
+def test_upload_multi_chunk_http_roundtrip(client, seeded_config):
+    # Content spans several _CHUNK_SIZE (1 MiB) reads through the real
+    # route -- the multipart parser and _stream_to_temp's read loop
+    # together, not just the _stream_to_temp unit test below.
+    content = b"\x89PNG\r\n\x1a\n" + b"\x00" * (3 * 1024 * 1024)
+    r = _upload(client, content=content, name="big.png", mime="image/png")
+    assert r.status_code == 200
+    body = r.json()
+    sha = hashlib.sha256(content).hexdigest()
+    assert body["sha256"] == sha
+    assert body["size"] == len(content)
+    assert (seeded_config.assets_dir / sha[:2] / sha).read_bytes() == content
+
+
+def test_upload_mid_stream_413_over_multiple_chunks_leaves_no_tmp_file(seeded_config):
+    # Cap sits between the 1st and 2nd chunk boundary so the 413 fires
+    # partway through the stream (not on the very first chunk), exercising
+    # the same abort-and-cleanup path a real multi-MiB upload would hit.
+    cap = int(1.5 * 1024 * 1024)
+    c = _small_cap_client(seeded_config, cap=cap)
+    content = b"x" * (3 * 1024 * 1024)
+    r = _upload(c, content=content)
+    assert r.status_code == 413
+    assert list(seeded_config.assets_dir.iterdir()) == []
+
+
 class _FakeUploadFile:
     """Duck-types the subset of UploadFile._stream_to_temp relies on."""
 

@@ -83,7 +83,8 @@ test("(a) a text draft whose debounce fires after disconnect posts no op", () =>
   expect(opsPosts()).toHaveLength(0);
 });
 
-test("(b) an image upload completing after disconnect posts no op", async () => {
+test("(b) an image upload completing after disconnect is preserved and flushes on reconnect", async () => {
+  vi.useFakeTimers();
   let finishUpload!: () => void;
   uploadAssetMock.mockReturnValue(new Promise((resolve) => {
     finishUpload = () => resolve({
@@ -99,8 +100,16 @@ test("(b) an image upload completing after disconnect posts no op", async () => 
   act(() => lastWs().drop()); // disconnect while the upload is outstanding
 
   await act(async () => { finishUpload(); await Promise.resolve(); });
+  expect(opsPosts()).toHaveLength(0); // preserved, not sent while offline
 
-  expect(opsPosts()).toHaveLength(0);
+  act(() => { vi.advanceTimersByTime(2000); }); // socket auto-reconnect timer
+  await act(async () => { lastWs().open(); }); // reconnect -> flush
+
+  const posts = opsPosts();
+  expect(posts).toHaveLength(1);
+  expect(posts[0].ops).toEqual([
+    { op: "update_text", uid: "u1", text: "![pic.png](/assets/abc/pic.png)" },
+  ]);
 });
 
 test("(c) reconnect flushes the ops preserved while offline, in order", async () => {

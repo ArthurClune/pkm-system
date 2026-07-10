@@ -59,24 +59,39 @@ def test_concurrent_open_db_calls_survive_an_in_flight_ops_transaction(tmp_path)
     # checklist scenario: other connections opening while an ops
     # transaction commits.
 
+    # 8 readers + the main thread: the main thread's own wait() only
+    # returns once every reader has reached the point of executing its
+    # SELECT against the real `blocks` table, so readers are proven to
+    # overlap the writer's still-open transaction rather than racing past
+    # it -- writer.commit() below runs strictly after that rendezvous and
+    # after every reader thread has finished.
+    barrier = threading.Barrier(9)
+    reader_counts: list[int] = []
     errors: list[BaseException] = []
     lock = threading.Lock()
 
     def open_and_read() -> None:
         try:
             con = open_db(db_path)
-            con.execute("SELECT 1").fetchone()
+            barrier.wait(timeout=5)
+            count = con.execute("SELECT COUNT(*) FROM blocks").fetchone()[0]
             con.close()
-        except sqlite3.OperationalError as exc:
+            with lock:
+                reader_counts.append(count)
+        except (sqlite3.OperationalError, threading.BrokenBarrierError) as exc:
             with lock:
                 errors.append(exc)
 
     threads = [threading.Thread(target=open_and_read) for _ in range(8)]
     for t in threads:
         t.start()
+    barrier.wait(timeout=5)  # blocks here until all 8 readers are mid-read
     for t in threads:
         t.join()
     writer.commit()
     writer.close()
 
-    assert not errors, f"open_db() raised under writer contention: {errors}"
+    assert not errors, f"open_db()/read raised under writer contention: {errors}"
+    # Readers hold a snapshot from before the writer's uncommitted insert:
+    # the real table read observes 0 rows, not the writer's pending 1.
+    assert reader_counts == [0] * 8

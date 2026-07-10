@@ -68,11 +68,12 @@ def main() -> int:
 
     # Belt-and-braces: uvicorn's own SIGINT/SIGTERM handling runs a graceful
     # shutdown, then restores whatever handler was installed before it took
-    # over and re-raises the captured signal through it (so the process's
-    # exit status reflects the signal, per Unix convention) -- see
+    # over and re-raises the captured signal through it -- see
     # Server.capture_signals() in uvicorn/server.py. That re-raise hits the
-    # OS default disposition (immediate termination, no atexit) unless we
-    # install our own handler first, which becomes the one restored.
+    # OS default disposition (immediate termination, no atexit, exit status
+    # reflecting the signal per Unix convention) unless we install our own
+    # handler first, which becomes the one restored and runs instead --
+    # cleaning up the temp dir and exiting 0 rather than by signal.
     def _handle_signal(signum: int, frame: FrameType | None) -> None:
         shutil.rmtree(data, ignore_errors=True)
         sys.exit(0)

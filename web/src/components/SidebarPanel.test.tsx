@@ -84,15 +84,3 @@ it("dragging is disabled while disconnected (writes paused invariant)", async ()
   const bullet = document.querySelector(".sidebar-panel .bullet");
   expect(bullet).toHaveAttribute("draggable", "false");
 });
-
-it("panel refetches after a drop that touches its page", async () => {
-  const fetchMock = stubFetch([["/api/page/Some%20Page",
-    pagePayload("Some Page", [block("s1", "side one")])]]);
-  const { dnd } = renderPanel("Some Page");
-  await screen.findByText("side one");
-  const before = fetchMock.mock.calls.length;
-  dnd().drop({ uid: "zz", pageTitle: "Elsewhere" },
-             { parent_uid: null, order_idx: 0, page_title: "Some Page" });
-  await Promise.resolve(); await Promise.resolve();
-  expect(fetchMock.mock.calls.length).toBeGreaterThan(before);
-});

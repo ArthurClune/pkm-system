@@ -168,17 +168,29 @@ it("plain '/' with no modifier does not hide the right sidebar", async () => {
   expect(screen.getByText("paper body")).toBeInTheDocument();
 });
 
-it("ctrl-cmd-d navigates to the home page", async () => {
+// Ctrl-Cmd-D was the original binding but macOS reserves it for dictionary
+// lookup, so the page never receives the keydown; Ctrl-Shift-D replaces it.
+it("ctrl-shift-d navigates to the home page", async () => {
   stubFetch([
     ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
     ["/api/journal", { days: [] }],
   ]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "Paper" })).toBeInTheDocument();
-  fireEvent.keyDown(window, { key: "d", ctrlKey: true, metaKey: true });
+  fireEvent.keyDown(window, { key: "d", ctrlKey: true, shiftKey: true });
   await waitFor(() => {
     expect(screen.queryByRole("heading", { name: "Paper" })).toBeNull();
   });
+});
+
+it("ctrl-cmd-d is no longer bound", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+  ]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  expect(await screen.findByRole("heading", { name: "Paper" })).toBeInTheDocument();
+  fireEvent.keyDown(window, { key: "d", ctrlKey: true, metaKey: true });
+  expect(screen.getByRole("heading", { name: "Paper" })).toBeInTheDocument();
 });
 
 it("clicking the sidebar toggle collapses the left nav and persists the choice; clicking again restores it", async () => {

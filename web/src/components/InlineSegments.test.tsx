@@ -7,6 +7,13 @@ import { BlockRefContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
 
+// See MermaidDiagram.test.tsx: vi.mock factories are hoisted, so any
+// closed-over variable must be named "mock*" for Vitest to rewire it safely.
+const mockMermaidRender = vi.fn().mockResolvedValue({ svg: "<svg data-testid=\"mermaid-svg\"></svg>" });
+vi.mock("mermaid", () => ({
+  default: { initialize: vi.fn(), render: mockMermaidRender },
+}));
+
 function renderText(text: string, refTexts: Record<string, BlockRefText> = {}) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -41,6 +48,14 @@ it("renders fenced code inside pre.code-block", () => {
   const pre = container.querySelector("pre.code-block");
   expect(pre).not.toBeNull();
   expect(pre!.textContent).toContain("x = 1");
+});
+
+it("renders a mermaid fence as a diagram, not a plain code block", async () => {
+  const { container } = renderText("```mermaid\ngraph TD\na-->b\n```");
+  await waitFor(() => {
+    expect(container.querySelector('svg[data-testid="mermaid-svg"]')).not.toBeNull();
+  });
+  expect(container.querySelector("pre.code-block")).toBeNull();
 });
 
 it("resolves block refs from context and falls back to the literal", () => {

@@ -5,6 +5,7 @@ import { BlockRef } from "./BlockRef";
 import { isBlueskyPostUrl } from "./bluesky";
 import { BlueskyEmbed } from "./BlueskyEmbed";
 import { CodeBlock } from "./CodeBlock";
+import { MermaidDiagram } from "./MermaidDiagram";
 import { PageLink } from "./PageLink";
 import { PdfEmbed } from "./PdfEmbed";
 import { QueryBlock } from "./QueryBlock";
@@ -70,6 +71,7 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
     case "todo":
       return <TodoCheckbox done={seg.done} />;
     case "code-block":
+      if (seg.lang === "mermaid") return <MermaidDiagram code={seg.code} />;
       return <CodeBlock lang={seg.lang} code={seg.code} />;
     case "query":
       return <QueryBlock expr={seg.expr} depth={depth} />;

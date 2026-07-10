@@ -57,3 +57,29 @@ integrated verification. This file records decisions for later review.
 ## Log
 
 (appended as the run progresses)
+
+- **pkm-j92y merged** (69b1e14). TopBar component with Search button and a
+  "…" page menu ("Open in sidebar" for now) on /page/* routes; left-nav
+  Search button removed; hamburger left in place; mobile main-pane
+  padding-top reduced to the desktop value since the top bar now provides
+  the clearance. 303 web tests + typecheck green.
+- **pkm-x3so merged** (2fde079). `/text` now normalises the block into a
+  lang-less fence (the "text block"); `.code-block` wraps
+  (`white-space: pre-wrap; overflow-wrap: anywhere`, `overflow-x: auto`
+  dropped). The Tab-accept complaint was NOT reproducible — Tab→pick has
+  worked since c0207bf; a regression test now pins it. Click-pick and
+  /text insertion tests added.
+- **pkm-ul9u merged** (cdc80eb). Pure `refTitleAtCaret` scanner
+  (`web/src/outline/refAtCaret.ts`, innermost-span-wins for nested refs)
+  + Ctrl-O wiring in BlockInput (only intercepts when the caret is inside
+  a closed, non-empty [[ref]]; macOS file-open is Cmd-O so no clash).
+- **pkm-bwvo merged** (42924a8). `POST /api/pages` (idempotent, reuses
+  get_or_create_page, PageMeta response); OpenAPI artifacts regenerated.
+  SearchModal appends `Create page "q"` only once that query's results
+  have settled (new resultsQuery gate — no flashing while stale results
+  are up); failed POST keeps the modal open. Integrated wave-1 run:
+  web suite + typecheck, 286 server tests, pyrefly, ruff — all green.
+- **Wave 2 dispatched:** pkm-bsjp (branched after j92y merge) and
+  pkm-ruvz (branched after bwvo merge so both OpenAPI regens stack
+  instead of conflicting); both agents told to keep TopBar diffs minimal
+  since they touch it concurrently.

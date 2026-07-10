@@ -117,9 +117,9 @@ def test_plan_set_heading():
 
 def test_set_heading_op_rejects_out_of_range():
     with pytest.raises(ValidationError):
-        SetHeadingOp(op="set_heading", uid="uid_b2", heading=5)
+        SetHeadingOp(op="set_heading", uid="uid_b2", heading=5)  # pyrefly: ignore[bad-argument-type] (deliberately out of range: asserting ValidationError)
     with pytest.raises(ValidationError):
-        SetHeadingOp(op="set_heading", uid="uid_b2", heading=0)
+        SetHeadingOp(op="set_heading", uid="uid_b2", heading=0)  # pyrefly: ignore[bad-argument-type] (deliberately out of range: asserting ValidationError)
 
 
 def test_op_error_carries_index():

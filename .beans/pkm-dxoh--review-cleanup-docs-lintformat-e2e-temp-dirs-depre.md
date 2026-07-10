@@ -12,7 +12,7 @@ parent: pkm-m309
 Review 'Consistency and documentation observations' — small independent cleanups.
 
 ## Checklist
-- [ ] Update design/implementation docs: global search shortcut is Cmd/Ctrl-U (changed from Cmd-K in 87360cb4 for a Firefox conflict); tests already assert Cmd-K does not open search
+- [x] Update design/implementation docs: global search shortcut is Cmd/Ctrl-U (changed from Cmd-K in 87360cb4 for a Firefox conflict); tests already assert Cmd-K does not open search
 - [x] Add a Python formatter/linter (e.g. ruff) to match the frontend's strict checks
 - [ ] E2E server (server/tests/e2e_serve.py): clean up the tempfile.mkdtemp() directory instead of accumulating test graphs
 - [ ] Opt into / test React Router v7 future flags to silence repeated warnings and reduce upgrade risk

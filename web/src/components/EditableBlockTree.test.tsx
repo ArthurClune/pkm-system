@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
 import { block } from "../test-helpers";
@@ -348,4 +348,35 @@ test("collapsed children are hidden", () => {
       <EditableBlockTree blocks={t} focus={null} handlers={h} readOnly={false} />
     </MemoryRouter>);
   expect(screen.queryByText("hidden kid")).toBeNull();
+});
+
+function mountWithPageRoute(h: OutlineHandlers,
+                            focus: { uid: string; cursor: number } | null) {
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+      <EditableBlockTree blocks={BLOCKS} focus={focus} handlers={h} readOnly={false} />
+      <Routes>
+        <Route path="/" element={<p>home</p>} />
+        <Route path="/page/*" element={<p>page view here</p>} />
+      </Routes>
+    </MemoryRouter>);
+}
+
+test("Ctrl-O inside a [[page reference]] navigates to that page (pkm-ul9u)", () => {
+  const h = handlers();
+  mountWithPageRoute(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(9, 9); // caret inside "[[World]]" (block text: "hello [[World]]")
+  fireEvent.keyDown(ta, { key: "o", ctrlKey: true });
+  expect(screen.getByText("page view here")).toBeInTheDocument();
+});
+
+test("Ctrl-O outside a ref does not navigate or preventDefault (pkm-ul9u)", () => {
+  const h = handlers();
+  mountWithPageRoute(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(2, 2); // caret inside "hello", not a ref
+  fireEvent.keyDown(ta, { key: "o", ctrlKey: true });
+  expect(screen.queryByText("page view here")).toBeNull();
+  expect(screen.getByText("home")).toBeInTheDocument();
 });

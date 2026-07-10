@@ -4,14 +4,17 @@
 // concerns (focus placement, auto-grow, key mapping) and delegates every
 // semantic decision to the handlers (useOutline).
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { BlockNode } from "../api/payloads";
 import { clampCaret, type FocusTarget } from "../outline/edits";
 import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { applyCompletion, detectAutocomplete,
          type AcContext } from "../outline/autocomplete";
+import { refTitleAtCaret } from "../outline/refAtCaret";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
+import { pagePath } from "../paths";
 import { AutocompletePopup, buildRows, useTitleOptions,
          type AcRow } from "./AutocompletePopup";
 import { InlineSegments } from "./InlineSegments";
@@ -119,6 +122,7 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const navigate = useNavigate();
   // Whether the user has typed edits not yet committed to the block tree.
   // Focus alone is not a draft: while dirty, remote text still lands on the
   // tree but the textarea keeps the local draft (last-write-wins); with no
@@ -259,6 +263,18 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     if (e.key === "Escape") {
       el.blur();
       return;
+    }
+    // Roam/Logseq: Ctrl-O with the caret inside a [[page reference]] opens
+    // that page. macOS browsers use Cmd-O for file-open (no clash); on
+    // Windows/Linux Ctrl-O is browser open-file, but we only steal it when
+    // the caret is actually inside a ref, so the key is left alone otherwise.
+    if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "o") {
+      const title = refTitleAtCaret(draft, pos);
+      if (title) {
+        e.preventDefault();
+        navigate(pagePath(title));
+        return;
+      }
     }
     if (readOnly) return;
     if (e.key === "Enter" && !e.shiftKey) {

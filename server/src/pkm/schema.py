@@ -73,8 +73,8 @@ END;
 
 # There is no migration runner in this project: DDL above is only ever
 # executed against brand-new databases (fresh importer output, tests).
-# This table's statement is deliberately IF NOT EXISTS and is re-run by
-# open_db() on every connection (see server/db.py) so pre-existing
+# This table's statement is deliberately IF NOT EXISTS and is re-run once
+# by init_db() at process startup (see server/db.py) so pre-existing
 # (already-populated) databases pick it up automatically, with no manual
 # migration step, the next time the server process starts.
 SIDEBAR_ENTRIES_DDL = """

@@ -2,7 +2,7 @@ import sqlite3
 
 from pkm.schema import DDL
 from pkm.server.auth_core import YEAR_MS, sign_session, verify_session
-from pkm.server.db import open_db
+from pkm.server.db import init_db, open_db
 from pkm.server.store import fetch_page, get_or_create_page
 
 SECRET = b"s" * 32
@@ -21,7 +21,9 @@ def test_session_expiry_and_skew():
 
 
 def _db(tmp_path) -> sqlite3.Connection:
-    con = open_db(tmp_path / "t.sqlite3")
+    path = tmp_path / "t.sqlite3"
+    init_db(path)
+    con = open_db(path)
     con.executescript(DDL)
     return con
 

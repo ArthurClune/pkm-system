@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test, trackResponses } from "./fixtures";
 
 const PASSWORD = "e2e-pw";
 
@@ -55,9 +56,11 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
   await expect(page.locator(".backlink-text")).toContainText("second block");
 });
 
-test("edits broadcast live to a second client", async ({ browser }) => {
+test("edits broadcast live to a second client", async ({ browser, badResponses }) => {
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();
+  trackResponses(ctxA, badResponses);
+  trackResponses(ctxB, badResponses);
   const a = await ctxA.newPage();
   const b = await ctxB.newPage();
   await login(a);

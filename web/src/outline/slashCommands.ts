@@ -24,6 +24,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "python", label: "Python code block" },
   { name: "bash", label: "Bash code block" },
   { name: "javascript", label: "JavaScript code block" },
+  { name: "mermaid", label: "Mermaid diagram" },
   { name: "h1", label: "Heading 1" },
   { name: "h2", label: "Heading 2" },
   { name: "h3", label: "Heading 3" },
@@ -92,7 +93,8 @@ export function applySlashCommand(
   switch (command) {
     case "text": return textBlock(content);
     case "todo": return applyTodoPrefix(content);
-    case "python": case "bash": case "javascript": return wrapFence(content, command);
+    case "python": case "bash": case "javascript": case "mermaid":
+      return wrapFence(content, command);
     default: return { text: content, cursor: content.length };
   }
 }

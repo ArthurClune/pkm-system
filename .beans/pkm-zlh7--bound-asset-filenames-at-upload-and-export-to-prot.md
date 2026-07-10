@@ -1,11 +1,11 @@
 ---
 # pkm-zlh7
 title: Bound asset filenames at upload and export to protect nightly backups
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-10T10:57:05Z
-updated_at: 2026-07-10T11:14:24Z
+updated_at: 2026-07-10T11:27:55Z
 parent: pkm-m309
 ---
 
@@ -18,3 +18,10 @@ Review finding 4 (Important). The upload route (server/src/pkm/server/routes_ass
 - [x] Regression: overlong ASCII filename upload → export succeeds
 - [x] Regression: multibyte Unicode where char count is under the limit but UTF-8 byte count is over
 - [x] Regression: dot names, collisions after truncation, extension preservation
+
+## Summary of Changes
+
+- New pure helper safe_filename()/truncate_utf8() in server/src/pkm/filenames.py (MAX_FILENAME_BYTES=200, MAX_EXTENSION_BYTES=20): UTF-8 byte-safe truncation preserving extensions, dot/empty/extension-only fallbacks to "file".
+- Applied at all three producers of assets.filename: upload route, importer (_index_files), and defensively in the exporter for pre-existing rows.
+- 16 new tests incl. end-to-end overlong-upload→export and importer regressions; 249 server tests pass. Merged to main (--no-ff).
+- Deferred minor (final-review triage): stem-floor can exceed a caller-requested max_bytes < 24 (unreachable at current call sites).

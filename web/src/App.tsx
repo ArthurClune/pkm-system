@@ -51,7 +51,9 @@ export function App() {
   // Cmd/Ctrl-U (focus search) lives in SearchBar, next to the input it targets.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.metaKey && e.key.toLowerCase() === "d") {
+      // Not Ctrl-Cmd-D: macOS reserves that for dictionary lookup and the
+      // page never receives the keydown.
+      if (e.ctrlKey && e.shiftKey && !e.metaKey && e.key.toLowerCase() === "d") {
         e.preventDefault();
         navigate("/");
       }

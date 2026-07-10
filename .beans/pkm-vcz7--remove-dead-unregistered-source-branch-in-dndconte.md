@@ -14,3 +14,7 @@ Follow-up from pkm-auvy review. Item 1 of pkm-auvy (fallback panels fully exclud
 - [ ] Remove the unreachable branch and its unit test (or document why it must stay)
 - [ ] Update the OutlineDndApi.refetch doc comment to current semantics
 - [ ] pnpm test + typecheck clean
+
+Also fold in (from final-review triage): server/tests/e2e_serve.py:69-78 — the signal-handler comment says uvicorn's re-raise makes the exit status reflect the signal, but the handler calls sys.exit(0); behavior is fine, comment is stale. Tighten the comment (or exit 128+signum) while touching doc-comment accuracy.
+
+- [ ] Fix e2e_serve.py signal-handler comment/exit-semantics mismatch

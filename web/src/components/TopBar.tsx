@@ -1,13 +1,14 @@
 // pattern: Imperative Shell
 import { useContext, useEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { apiFetch } from "../api/client";
 import { SidebarContext } from "../contexts";
-import { titleFromPathname } from "../paths";
+import { encodeTitle, titleFromPathname } from "../paths";
 
 /** Menu bar spanning the top of the main pane. Houses the search entry point
  * (opens SearchModal, which App still owns) and, on /page/* routes, a "…"
- * page menu -- the anchor for page-level actions (currently just "Open in
- * sidebar"; Delete and others land here later). */
+ * page menu -- the anchor for page-level actions ("Open in sidebar", "Delete
+ * page…"; more land here later). */
 export function TopBar({ onSearchClick }: { onSearchClick: () => void }) {
   const { pathname } = useLocation();
   const onPageRoute = pathname.startsWith("/page/");
@@ -15,6 +16,20 @@ export function TopBar({ onSearchClick }: { onSearchClick: () => void }) {
   const { openInSidebar } = useContext(SidebarContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const navigate = useNavigate();
+
+  const handleDelete = async () => {
+    if (title === null) return;
+    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    let deleted = true;
+    try {
+      await apiFetch(`/api/page/${encodeTitle(title)}`, { method: "DELETE" });
+    } catch {
+      deleted = false;
+    }
+    setMenuOpen(false);
+    if (deleted) navigate("/");
+  };
 
   // Route changes (including away from /page/*) should never leave a stale
   // menu open.
@@ -54,6 +69,11 @@ export function TopBar({ onSearchClick }: { onSearchClick: () => void }) {
                 <button type="button" role="menuitem"
                         onClick={() => { openInSidebar(title); setMenuOpen(false); }}>
                   Open in sidebar
+                </button>
+              </li>
+              <li role="none">
+                <button type="button" role="menuitem" onClick={() => void handleDelete()}>
+                  Delete page…
                 </button>
               </li>
             </ul>

@@ -80,3 +80,72 @@ def test_create_page_rejects_whitespace_only_title(client):
 def test_create_page_requires_auth(anon_client):
     r = anon_client.post("/api/pages", json={"title": "New Page"})
     assert r.status_code == 401
+
+
+def test_delete_page_removes_page_and_blocks(client):
+    assert client.get("/api/page/Machine Learning").status_code == 200
+    r = client.delete("/api/page/Machine Learning")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+    assert client.get("/api/page/Machine Learning").status_code == 404
+
+
+def test_delete_page_removes_page_and_blocks_from_search(client):
+    # Pre-delete: FTS finds the page title and its block text.
+    before = client.get("/api/search?q=Papers").json()
+    assert any(b["uid"] == "uid_b2" for b in before["blocks"])
+
+    client.delete("/api/page/Machine Learning")
+
+    after_pages = client.get("/api/search?q=Machine").json()
+    assert not any(p["title"] == "Machine Learning" for p in after_pages["pages"])
+    after_blocks = client.get("/api/search?q=Papers").json()
+    assert not any(b["uid"] == "uid_b2" for b in after_blocks["blocks"])
+    # Plain-text mention of "Machine Learning" on an unrelated page (uid_b6,
+    # page "AI") is untouched -- only the deleted page's own rows are gone.
+    still_there = client.get("/api/search?q=overview").json()
+    assert any(b["uid"] == "uid_b6" for b in still_there["blocks"])
+
+
+def test_delete_page_removes_inbound_refs_but_leaves_source_block_text(
+        client, seeded_config):
+    import sqlite3
+
+    # uid_b4 (page "July 7th, 2026") links to "Machine Learning" (page id 1).
+    r = client.get("/api/page/July 7th, 2026")
+    texts_before = [b["text"] for b in r.json()["blocks"]]
+    assert "Studying [[Machine Learning]] today" in texts_before
+
+    client.delete("/api/page/Machine Learning")
+
+    r = client.get("/api/page/July 7th, 2026")
+    texts_after = [b["text"] for b in r.json()["blocks"]]
+    # The block text (and thus the literal [[link]]) is untouched.
+    assert texts_after == texts_before
+
+    # But the refs row pointing at the now-deleted page is gone.
+    con = sqlite3.connect(seeded_config.db_path)
+    remaining = con.execute(
+        "SELECT * FROM refs WHERE target_page_id = 1").fetchall()
+    con.close()
+    assert remaining == []
+
+
+def test_delete_page_removes_sidebar_entry(client):
+    add = client.post("/api/sidebar", json={"title": "Machine Learning"})
+    assert add.status_code == 200
+    entry_id = add.json()["id"]
+
+    client.delete("/api/page/Machine Learning")
+
+    entries = client.get("/api/sidebar").json()["entries"]
+    assert not any(e["id"] == entry_id for e in entries)
+
+
+def test_delete_missing_page_404(client):
+    assert client.delete("/api/page/No Such Page").status_code == 404
+
+
+def test_delete_page_requires_auth(anon_client):
+    r = anon_client.delete("/api/page/Machine Learning")
+    assert r.status_code == 401

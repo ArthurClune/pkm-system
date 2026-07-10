@@ -35,6 +35,12 @@ describe("applySlashCommand: /python /bash /javascript", () => {
     expect(applySlashCommand("/js", 3, { kind: "command", start: 1, query: "js" }, "javascript"))
       .toEqual({ text: "```javascript\n\n```", cursor: 14 });
   });
+
+  test("mermaid is offered and wraps in a mermaid fence (pkm-x2ep)", () => {
+    expect(matchSlashCommands("mer")).toEqual([{ name: "mermaid", label: "Mermaid diagram" }]);
+    expect(applySlashCommand("/mermaid", 8, { kind: "command", start: 1, query: "mermaid" }, "mermaid"))
+      .toEqual({ text: "```mermaid\n\n```", cursor: 11 });
+  });
 });
 
 describe("applySlashCommand: /text", () => {

@@ -1,8 +1,8 @@
 // pattern: Imperative Shell
 // App-wide drag state + drop dispatch. HTML5 dataTransfer is unreadable
 // during dragover, so the active drag lives here. Outlines register their
-// optimistic APIs by page title; read-only sidebar panels register a
-// refetch instead and are refreshed once the op queue drains.
+// optimistic APIs by page title; a drop is dispatched to the registered
+// source/target outlines and enqueued as a move op.
 import { createContext, useContext, useMemo, useRef, useState,
          type ReactNode } from "react";
 import type { BlockNode } from "../api/payloads";
@@ -26,7 +26,6 @@ export interface Dnd {
   startDrag(d: DragSource): void;
   endDrag(): void;
   registerOutline(pageTitle: string, api: OutlineDndApi): () => void;
-  registerPanel(pageTitle: string, refetch: () => void): () => void;
   drop(drag: DragSource, target: DropTarget): void;
 }
 
@@ -35,7 +34,6 @@ export const DndContext = createContext<Dnd>({
   startDrag: () => undefined,
   endDrag: () => undefined,
   registerOutline: () => () => undefined,
-  registerPanel: () => () => undefined,
   drop: () => undefined,
 });
 
@@ -47,7 +45,6 @@ export function DndProvider({ children }: { children: ReactNode }) {
   const sync = useSync();
   const [drag, setDrag] = useState<DragSource | null>(null);
   const outlinesRef = useRef(new Map<string, OutlineDndApi>());
-  const panelsRef = useRef(new Map<string, Set<() => void>>());
 
   const api = useMemo<Dnd>(() => ({
     drag,
@@ -60,12 +57,6 @@ export function DndProvider({ children }: { children: ReactNode }) {
           outlinesRef.current.delete(title);
         }
       };
-    },
-    registerPanel: (title, refetch) => {
-      const set = panelsRef.current.get(title) ?? new Set();
-      set.add(refetch);
-      panelsRef.current.set(title, set);
-      return () => { set.delete(refetch); };
     },
     drop: (d, target) => {
       const src = outlinesRef.current.get(d.pageTitle);
@@ -91,11 +82,6 @@ export function DndProvider({ children }: { children: ReactNode }) {
         // behind the move POST if the op is already in the queue.
         if (dst && !node) dst.refetch();
       }
-      void sync.idle().then(() => {
-        for (const title of [d.pageTitle, target.page_title]) {
-          panelsRef.current.get(title)?.forEach((fn) => fn());
-        }
-      });
       setDrag(null);
     },
   }), [drag, sync]);

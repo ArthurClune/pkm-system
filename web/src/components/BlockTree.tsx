@@ -1,15 +1,16 @@
 // pattern: Imperative Shell
+// A read-only outline renderer: no draggable bullets, no drop zone. Used for
+// the same-title-active-elsewhere fallback in EditablePage, which is
+// deliberately excluded from block drag-and-drop (see EditablePage).
 import { useState } from "react";
 import type { BlockNode } from "../api/payloads";
-import { useDnd } from "../dnd/DndContext";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
 
-export function Block({ node, dndPage }: { node: BlockNode; dndPage?: string }) {
+export function Block({ node }: { node: BlockNode }) {
   // node.collapsed seeds the state; toggling is view-only in plan 4
   // (persisting collapse is a plan-5 set_collapsed op).
   const [collapsed, setCollapsed] = useState(node.collapsed);
-  const dnd = useDnd();
   const hasChildren = node.children.length > 0;
   const Tag: "h1" | "h2" | "h3" | "div" =
     node.heading === 1 ? "h1" :
@@ -25,31 +26,24 @@ export function Block({ node, dndPage }: { node: BlockNode; dndPage?: string }) 
         >
           ▸
         </button>
-        <span className="bullet" draggable={dndPage !== undefined}
-              onDragStart={dndPage === undefined ? undefined : (e) => {
-                e.dataTransfer.setData("text/plain", node.uid);
-                e.dataTransfer.effectAllowed = "move";
-                dnd.startDrag({ uid: node.uid, pageTitle: dndPage });
-              }}>
-          •
-        </span>
+        <span className="bullet">•</span>
         <Tag className="block-text">
           <InlineSegments segments={tokenizeBlock(node.text)} />
         </Tag>
       </div>
       {hasChildren && !collapsed && (
         <div className="block-children">
-          {node.children.map((c) => <Block key={c.uid} node={c} dndPage={dndPage} />)}
+          {node.children.map((c) => <Block key={c.uid} node={c} />)}
         </div>
       )}
     </div>
   );
 }
 
-export function BlockTree({ blocks, dndPage }: { blocks: BlockNode[]; dndPage?: string }) {
+export function BlockTree({ blocks }: { blocks: BlockNode[] }) {
   return (
     <div className="block-tree">
-      {blocks.map((b) => <Block key={b.uid} node={b} dndPage={dndPage} />)}
+      {blocks.map((b) => <Block key={b.uid} node={b} />)}
     </div>
   );
 }

@@ -104,19 +104,6 @@ it("cross-page drop with unregistered target only removes from the source", () =
       page_title: "B" }]]);
 });
 
-it("panels for both pages refetch after the queue drains", async () => {
-  const { dnd } = setup();
-  const srcRefetch = vi.fn();
-  const dstRefetch = vi.fn();
-  dnd().registerPanel("A", srcRefetch);
-  dnd().registerPanel("B", dstRefetch);
-  dnd().drop({ uid: "u1", pageTitle: "A" },
-             { parent_uid: null, order_idx: 0, page_title: "B" });
-  await Promise.resolve(); await Promise.resolve(); // idle() microtasks
-  expect(srcRefetch).toHaveBeenCalled();
-  expect(dstRefetch).toHaveBeenCalled();
-});
-
 it("unregister stops delivery", () => {
   const { sync, dnd } = setup();
   const api = fakeOutline();

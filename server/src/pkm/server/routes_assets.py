@@ -7,7 +7,9 @@ import os
 import re
 import sqlite3
 import time
+import uuid
 from pathlib import Path
+from typing import Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -16,10 +18,15 @@ from pkm.filenames import safe_filename
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
+from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+
+# Read/write in bounded chunks rather than slurping the whole upload (up
+# to max_upload_bytes) into one bytes object.
+_CHUNK_SIZE = 1024 * 1024  # 1 MiB
 
 # Upload allowlist (spec: images, PDF, plain text, office docs). SVG upload
 # is allowed; serving forces it to download (see INLINE_MIME in Task 4).
@@ -62,30 +69,69 @@ def get_asset(sha256: str, filename: str,
                  "X-Content-Type-Options": "nosniff"})
 
 
+class _ChunkReadable(Protocol):
+    """The subset of UploadFile that `_stream_to_temp` needs; lets tests
+    exercise the streaming/cap logic with a lightweight fake instead of a
+    real UploadFile."""
+
+    async def read(self, size: int) -> bytes: ...
+
+
+async def _stream_to_temp(file: _ChunkReadable, tmp_path: Path,
+                          max_bytes: int) -> tuple[str, int, bytes]:
+    """Stream `file` into `tmp_path` in bounded chunks, hashing as it goes.
+
+    Raises HTTPException(413) as soon as the running total exceeds
+    `max_bytes`, without reading or writing the rest of the upload.
+    Returns (sha256_hex, size, first_chunk); `first_chunk` lets the
+    caller sniff the MIME type without a second read of the content.
+    """
+    hasher = hashlib.sha256()
+    total = 0
+    first_chunk = b""
+    with open(tmp_path, "wb") as out:
+        while True:
+            chunk = await file.read(_CHUNK_SIZE)
+            if not chunk:
+                break
+            if not first_chunk:
+                first_chunk = chunk
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(status_code=413, detail="upload too large")
+            out.write(chunk)
+            hasher.update(chunk)
+    return hasher.hexdigest(), total, first_chunk
+
+
 @router.post("/api/assets")
 async def upload_asset(file: UploadFile,
                        db: sqlite3.Connection = Depends(get_db),
                        config: Config = Depends(get_config)) -> dict:
-    mime = file.content_type or "application/octet-stream"
-    if mime not in ALLOWED_UPLOAD_MIME:
+    declared_mime = file.content_type or "application/octet-stream"
+    if declared_mime not in ALLOWED_UPLOAD_MIME:
         raise HTTPException(status_code=415,
-                            detail=f"unsupported upload type {mime}")
-    # read one byte past the cap: a short read proves the whole file fit
-    data = await file.read(config.max_upload_bytes + 1)
-    if len(data) > config.max_upload_bytes:
-        raise HTTPException(status_code=413, detail="upload too large")
-    if not data:
-        raise HTTPException(status_code=400, detail="empty upload")
-    sha = hashlib.sha256(data).hexdigest()
-    dest = config.assets_dir / sha[:2] / sha
-    if not dest.is_file():
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.parent / f"{sha}.tmp"
-        tmp.write_bytes(data)
-        os.replace(tmp, dest)
+                            detail=f"unsupported upload type {declared_mime}")
+    config.assets_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = config.assets_dir / f".upload-{uuid.uuid4().hex}.tmp"
+    moved = False
+    try:
+        sha, size, first_chunk = await _stream_to_temp(
+            file, tmp_path, config.max_upload_bytes)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="empty upload")
+        mime = resolve_stored_mime(declared_mime, sniff_mime(first_chunk))
+        dest = config.assets_dir / sha[:2] / sha
+        if not dest.is_file():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(tmp_path, dest)
+            moved = True
+    finally:
+        if not moved:
+            tmp_path.unlink(missing_ok=True)
     filename = safe_filename(Path(file.filename or "upload").name)
     db.execute("INSERT OR IGNORE INTO assets VALUES (?,?,?,?,?)",
-               (sha, filename, mime, len(data), int(time.time() * 1000)))
+               (sha, filename, mime, size, int(time.time() * 1000)))
     db.commit()
     row = db.execute(
         "SELECT filename, mime, size FROM assets WHERE sha256 = ?",

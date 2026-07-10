@@ -1,11 +1,11 @@
 ---
 # pkm-1jng
 title: Cmd-/ toggles right sidebar
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-10T19:31:29Z
-updated_at: 2026-07-10T19:33:19Z
+updated_at: 2026-07-10T19:33:48Z
 ---
 
 Cmd-/ (or Ctrl-/) toggles visibility of the right sidebar (the stacked panels opened via shift-click / page menu), matching Roam's shortcut.
@@ -22,3 +22,7 @@ Design decisions:
 - [x] Implement in App.tsx
 - [x] pnpm test + typecheck
 - [ ] Merge --no-ff and push
+
+## Summary of Changes
+
+Cmd-/ (or Ctrl-/) now toggles the right sidebar's visibility. Implemented in App.tsx's existing window keydown handler; session-only hidden flag gates rendering of the aside.sidebar; openInSidebar clears the flag. Four new tests in App.test.tsx; full web suite (356 tests) and typecheck pass.

@@ -13,6 +13,7 @@ def test_datascript_dump_shape():
                                       [2 :edit/time 1600000000000 536870913]]}"""
     db = parse_edn(src)
     assert isinstance(db, Tagged) and db.tag == "datascript/DB"
+    assert isinstance(db.value, dict)
     schema = db.value[":schema"]
     assert schema[":block/children"][":db/cardinality"] == ":db.cardinality/many"
     datoms = db.value[":datoms"]

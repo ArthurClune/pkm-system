@@ -1,14 +1,14 @@
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
 ROWS = [
-    dict(uid="r2", parent_uid=None, order_idx=1, text="second", heading=2,
-         collapsed=1, created_at=None, updated_at=None),
-    dict(uid="r1", parent_uid=None, order_idx=0, text="first", heading=None,
-         collapsed=0, created_at=None, updated_at=None),
-    dict(uid="c1", parent_uid="r2", order_idx=0, text="child", heading=None,
-         collapsed=0, created_at=None, updated_at=None),
-    dict(uid="ghost", parent_uid="missing", order_idx=0, text="orphan",
-         heading=None, collapsed=0, created_at=None, updated_at=None),
+    {"uid": "r2", "parent_uid": None, "order_idx": 1, "text": "second",
+     "heading": 2, "collapsed": 1, "created_at": None, "updated_at": None},
+    {"uid": "r1", "parent_uid": None, "order_idx": 0, "text": "first",
+     "heading": None, "collapsed": 0, "created_at": None, "updated_at": None},
+    {"uid": "c1", "parent_uid": "r2", "order_idx": 0, "text": "child",
+     "heading": None, "collapsed": 0, "created_at": None, "updated_at": None},
+    {"uid": "ghost", "parent_uid": "missing", "order_idx": 0, "text": "orphan",
+     "heading": None, "collapsed": 0, "created_at": None, "updated_at": None},
 ]
 
 

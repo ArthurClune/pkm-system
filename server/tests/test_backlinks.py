@@ -3,9 +3,9 @@ from pkm.server.backlinks import group_backlinks
 
 def test_group_backlinks_pure():
     rows = [
-        dict(uid="x1", text="t1", src_page_id=7, src_page_title="P1"),
-        dict(uid="x2", text="t2", src_page_id=7, src_page_title="P1"),
-        dict(uid="y1", text="t3", src_page_id=9, src_page_title="P2"),
+        {"uid": "x1", "text": "t1", "src_page_id": 7, "src_page_title": "P1"},
+        {"uid": "x2", "text": "t2", "src_page_id": 7, "src_page_title": "P1"},
+        {"uid": "y1", "text": "t3", "src_page_id": 9, "src_page_title": "P2"},
     ]
     groups = group_backlinks(rows, {"x2": ["root text"]})
     assert [g["page_title"] for g in groups] == ["P1", "P2"]

@@ -1,7 +1,8 @@
 import asyncio
+from typing import cast
 
 import pytest
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 
 class _GoodWS:
@@ -64,7 +65,7 @@ def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
     hub = ws_module.Hub()
     good, raising, stalling = _GoodWS(), _RaisingWS(), _StallingWS()
     for conn in (raising, stalling, good):
-        hub._conns.add(conn)
+        hub._conns.add(cast(WebSocket, conn))
     asyncio.run(hub.broadcast({"ok": 1}))
     assert good.sent == [{"ok": 1}]
     assert hub._conns == {good}

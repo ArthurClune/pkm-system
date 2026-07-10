@@ -1,8 +1,23 @@
 import { describe, expect, test } from "vitest";
 import { block } from "../test-helpers";
 import { findNode } from "./tree";
-import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
-         outdentBlock, setCollapsed, setHeading, splitBlock } from "./edits";
+import { backspaceAtStart, clampCaret, indentBlock, moveBlockDown,
+         moveBlockUp, outdentBlock, setCollapsed, setHeading,
+         splitBlock } from "./edits";
+
+describe("clampCaret", () => {
+  test("keeps the offset when it fits the new length", () => {
+    expect(clampCaret(5, 10)).toBe(5);
+  });
+
+  test("clamps to the new length when the offset no longer fits", () => {
+    expect(clampCaret(15, 2)).toBe(2);
+  });
+
+  test("never goes negative", () => {
+    expect(clampCaret(-3, 10)).toBe(0);
+  });
+});
 
 const P = "Page";
 const tree = () => [

@@ -265,6 +265,62 @@ test("non-heading commands never call onSetHeading", () => {
   expect(h.onSetHeading).not.toHaveBeenCalled();
 });
 
+test("a remote update arriving mid-composition is deferred until composition ends", () => {
+  const h = handlers();
+  const view = mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.compositionStart(ta);
+  const updated = [
+    block("u1", "hola [[World]]", { order_idx: 0 }),
+    BLOCKS[1],
+  ];
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={updated} focus={{ uid: "u1", cursor: 0 }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  expect(ta.value).toBe("hello [[World]]"); // untouched while composing
+  fireEvent.compositionEnd(ta);
+  expect(ta.value).toBe("hola [[World]]"); // adopted once composition ends
+});
+
+test("adopting a remote update preserves the caret in a focused, clean textarea", () => {
+  const h = handlers();
+  const view = mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(5, 5); // caret right after "hello"
+  const updated = [
+    block("u1", "hello there [[World]]", { order_idx: 0 }),
+    BLOCKS[1],
+  ];
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={updated} focus={{ uid: "u1", cursor: 0 }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  expect(ta.value).toBe("hello there [[World]]");
+  expect(ta.selectionStart).toBe(5);
+  expect(ta.selectionEnd).toBe(5);
+});
+
+test("adopting a remote update clamps the caret to the new (shorter) length", () => {
+  const h = handlers();
+  const view = mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(15, 15);
+  const updated = [
+    block("u1", "hi", { order_idx: 0 }),
+    BLOCKS[1],
+  ];
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={updated} focus={{ uid: "u1", cursor: 0 }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  expect(ta.value).toBe("hi");
+  expect(ta.selectionStart).toBe(2);
+});
+
 test("collapsed children are hidden", () => {
   const h = handlers();
   const t = [block("p", "parent", {

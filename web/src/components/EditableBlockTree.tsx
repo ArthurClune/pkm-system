@@ -3,9 +3,9 @@
 // everything else renders through the read pipeline. This file owns DOM
 // concerns (focus placement, auto-grow, key mapping) and delegates every
 // semantic decision to the handlers (useOutline).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { BlockNode } from "../api/payloads";
-import type { FocusTarget } from "../outline/edits";
+import { clampCaret, type FocusTarget } from "../outline/edits";
 import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { applyCompletion, detectAutocomplete,
@@ -127,6 +127,13 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   const dirtyRef = useRef(false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  // Set between compositionstart/end: an IME composition in progress. Remote
+  // adoption must not call setDraft mid-composition (it would disturb the
+  // native composition UI), so it's deferred and retried on compositionend.
+  const composingRef = useRef(false);
+  // Caret offset to restore once an adoption's setDraft has committed (see
+  // the layout effect below); null when no restore is pending.
+  const pendingCaretRef = useRef<number | null>(null);
   // The "/" trigger is served from the static command list, not the titles
   // API, so only fetch titles for ref/tag contexts.
   const options = useTitleOptions(ac && ac.kind !== "command" ? ac.query : null);
@@ -156,15 +163,33 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   // Adopt block-tree text changes — a remote update, or our own draft landing
   // after a flush — unless an unflushed local draft should win. node.text
   // matching the draft means our edit committed (or we're already in sync), so
-  // the draft is no longer dirty.
-  useEffect(() => {
+  // the draft is no longer dirty. Deferred while composing (see composingRef);
+  // retried from onCompositionEnd below so a remote update that arrived
+  // mid-composition still lands once the IME is done.
+  const tryAdopt = () => {
     if (node.text === draftRef.current) {
       dirtyRef.current = false;
       return;
     }
-    if (dirtyRef.current) return;
+    if (dirtyRef.current || composingRef.current) return;
+    const el = ref.current;
+    if (el && document.activeElement === el) {
+      pendingCaretRef.current =
+        clampCaret(el.selectionStart ?? 0, node.text.length);
+    }
     setDraft(node.text);
-  }, [node.text]);
+  };
+  useEffect(tryAdopt, [node.text]);
+
+  // Restore the caret after an adoption's setDraft has committed to the DOM
+  // (a plain value swap would otherwise leave the browser's default of
+  // moving the caret to the end of the new text).
+  useLayoutEffect(() => {
+    const at = pendingCaretRef.current;
+    if (at === null) return;
+    pendingCaretRef.current = null;
+    ref.current?.setSelectionRange(at, at);
+  }, [draft]);
 
   const setText = (text: string, cursorPos: number) => {
     dirtyRef.current = true;
@@ -277,13 +302,24 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     handlers.onFiles(node.uid, e.currentTarget.selectionStart, files);
   };
 
+  const onCompositionStart = () => {
+    composingRef.current = true;
+  };
+
+  const onCompositionEnd = () => {
+    composingRef.current = false;
+    tryAdopt();
+  };
+
   return (
     <div className="block-input-wrap">
       <textarea ref={ref} className="block-input" rows={1} value={draft}
                 readOnly={readOnly}
                 onChange={onChange} onKeyDown={onKeyDown}
                 onBlur={() => handlers.onBlurBlock(node.uid)}
-                onPaste={onPaste} onDrop={onDrop} />
+                onPaste={onPaste} onDrop={onDrop}
+                onCompositionStart={onCompositionStart}
+                onCompositionEnd={onCompositionEnd} />
       {!readOnly && (
         <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
       )}

@@ -98,10 +98,9 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   }, [flushNow]);
 
   // Authoritative refetch: adopt the server's tree once our own queue has
-  // drained. Used both when a remote batch targets us with content we don't
-  // have (below) and as the DnD refetch fallback for panel-sourced cross-page
-  // moves (the source outline isn't registered, so no subtree ever arrives
-  // locally). Waiting for idle first matters: fetching immediately can race a
+  // drained. Used when a remote batch targets us with content we don't have
+  // (below): the op carries no block content, so we pull the server's tree
+  // instead. Waiting for idle first matters: fetching immediately can race a
   // local optimistic edit enqueued in this window and silently overwrite it.
   const refetch = useCallback(() => {
     void sync.idle()
@@ -224,8 +223,7 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
         blocksRef.current, node, target.parent_uid, target.order_idx);
       setBlocks(blocksRef.current);
     },
-    refetch,
-  }), [run, flushNow, pageTitle, refetch]);
+  }), [run, flushNow, pageTitle]);
 
   const createFirstBlock = useCallback(() => {
     run((b) => {

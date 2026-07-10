@@ -14,11 +14,6 @@ export interface OutlineDndApi {
   moveTo(uid: string, target: DropTarget): void;
   removeSubtreeLocal(uid: string): BlockNode | null;
   insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
-  /** Authoritative idle-gated refetch. Used as the cross-page-drop fallback
-   * when the source outline isn't registered (e.g. dragged from a panel of
-   * an unopened page): no subtree ever arrives locally to insert, so the
-   * target outline must pull the server's tree instead. */
-  refetch(): void;
 }
 
 export interface Dnd {
@@ -76,11 +71,6 @@ export function DndProvider({ children }: { children: ReactNode }) {
           parent_uid: target.parent_uid, order_idx: target.order_idx,
           page_title: target.page_title }];
         sync.enqueue(ops);
-        // no subtree to insert (source outline unregistered, e.g. a panel
-        // of an unopened page): pull authoritative state instead. Must run
-        // AFTER enqueue — refetch's internal idle() gate only holds the GET
-        // behind the move POST if the op is already in the queue.
-        if (dst && !node) dst.refetch();
       }
       setDrag(null);
     },

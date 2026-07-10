@@ -87,6 +87,87 @@ it("cmd-k does not focus the search bar", async () => {
   expect(screen.getByPlaceholderText("Search…")).not.toHaveFocus();
 });
 
+it("cmd-/ hides the stacked right sidebar; pressing it again shows it", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+      block("uid_m1", "see [[Paper]]")])],
+  ]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+      <App />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole("link", { name: "Paper" }), { shiftKey: true });
+  expect(await screen.findByText("paper body")).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: "/", metaKey: true });
+  expect(screen.queryByText("paper body")).toBeNull();
+
+  fireEvent.keyDown(window, { key: "/", metaKey: true });
+  // Panels remount on re-show, so the content is re-fetched.
+  expect(await screen.findByText("paper body")).toBeInTheDocument();
+});
+
+it("ctrl-/ also toggles the right sidebar", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+      block("uid_m1", "see [[Paper]]")])],
+  ]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+      <App />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole("link", { name: "Paper" }), { shiftKey: true });
+  expect(await screen.findByText("paper body")).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: "/", ctrlKey: true });
+  expect(screen.queryByText("paper body")).toBeNull();
+});
+
+it("opening a page in the sidebar reveals a hidden right sidebar", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/AI", pagePayload("AI", [block("uid_s2", "ai body")])],
+    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+      block("uid_m1", "see [[Paper]] and [[AI]]")])],
+  ]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+      <App />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole("link", { name: "Paper" }), { shiftKey: true });
+  expect(await screen.findByText("paper body")).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: "/", metaKey: true });
+  expect(screen.queryByText("paper body")).toBeNull();
+
+  fireEvent.click(screen.getByRole("link", { name: "AI" }), { shiftKey: true });
+  expect(await screen.findByText("ai body")).toBeInTheDocument();
+  expect(screen.getByText("paper body")).toBeInTheDocument();
+});
+
+it("plain '/' with no modifier does not hide the right sidebar", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+      block("uid_m1", "see [[Paper]]")])],
+  ]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+      <App />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole("link", { name: "Paper" }), { shiftKey: true });
+  expect(await screen.findByText("paper body")).toBeInTheDocument();
+
+  fireEvent.keyDown(window, { key: "/" });
+  expect(screen.getByText("paper body")).toBeInTheDocument();
+});
+
 it("ctrl-cmd-d navigates to the home page", async () => {
   stubFetch([
     ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],

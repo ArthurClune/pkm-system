@@ -200,6 +200,26 @@ test("a page already active elsewhere in this tab renders read-only", () => {
   }
 });
 
+test("two same-title instances mounted in one commit both claim editing (documents the sequential-mount assumption)", () => {
+  // isOutlineActive is read during render but registration happens in an
+  // effect, so two instances mounted in a SINGLE commit both see the title as
+  // inactive and both render editable. Production never does this (panels
+  // mount after an async fetch, so mounts are sequential and the second sees
+  // the first's registration) — this locks the current behavior for the edge
+  // case documented in EditablePage. See outline/activeOutlines.ts.
+  const sync = makeSync();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={sync}>
+        <EditablePage title="Page" initial={[block("u1", "first")]} />
+        <EditablePage title="Page" initial={[block("u2", "second")]} />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  // Both are editable: each renders its own drop zone (the read-only fallback
+  // renders a bare block tree with no .outline-drop-zone).
+  expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(2);
+});
+
 test("the read-only fallback still reflects genuinely remote batches", () => {
   const release = registerOutline("Page");
   try {

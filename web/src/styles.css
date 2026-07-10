@@ -376,7 +376,7 @@ mark.highlight { background: var(--color-highlight-bg); }
   position: absolute;
   right: 0;
   height: 0;
-  border-top: 2px solid #4a9eda;
+  border-top: 2px solid var(--color-accent);
   pointer-events: none;
   z-index: 5;
 }

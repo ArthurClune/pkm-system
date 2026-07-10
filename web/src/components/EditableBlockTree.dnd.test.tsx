@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider } from "../dnd/DndContext";
+import { registerOutline as registerActiveOutline } from "../outline/activeOutlines";
 import { EditablePage } from "../views/EditablePage";
 import { block, makeSync } from "../test-helpers";
 
@@ -109,6 +110,46 @@ it("dragend without a drop clears the active drag so a later drop is inert", () 
   fireEvent.drop(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
   expect(sync.sent).toEqual([]);
   expect(document.querySelector(".drop-indicator")).toBeNull();
+});
+
+it("a fallback panel (title already active elsewhere) is excluded from DnD both ways", () => {
+  // Claim "P" as the live instance elsewhere in the tab, so the P mount below
+  // renders as the read-only fallback.
+  const release = registerActiveOutline("P");
+  try {
+    const sync = makeSync();
+    render(
+      <SyncContext.Provider value={sync}>
+        <DndProvider>
+          <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+            <EditablePage title="Src" initial={[block("s1", "from src")]} />
+            <EditablePage title="P" initial={[block("u1", "fallback block")]} />
+          </MemoryRouter>
+        </DndProvider>
+      </SyncContext.Provider>);
+
+    // Drag OUT is impossible: the fallback's bullet is not draggable.
+    const fallbackBullet = document.querySelector('[data-uid="u1"] .bullet')!;
+    expect(fallbackBullet).not.toHaveAttribute("draggable", "true");
+
+    // Drag IN is impossible: the fallback contributes no drop zone — the only
+    // .outline-drop-zone in the document is the live "Src" page.
+    expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(1);
+
+    // And a real drop attempt over the fallback tree is inert: dragging a
+    // "Src" block over the fallback's block-tree enqueues nothing, because the
+    // fallback has no drop handlers.
+    const srcBullet = document.querySelector('[data-uid="s1"] .bullet')!;
+    const transfer = dt();
+    fireEvent.dragStart(srcBullet, { dataTransfer: transfer });
+    const fallbackTree = document.querySelector('[data-uid="u1"]')!.closest(".block-tree")!;
+    fireEvent.dragOver(fallbackTree, { clientX: 0, clientY: 0, dataTransfer: transfer });
+    fireEvent.drop(fallbackTree, { clientX: 0, clientY: 0, dataTransfer: transfer });
+    expect(sync.sent).toEqual([]);
+    expect(document.querySelector(".drop-indicator")).toBeNull();
+  } finally {
+    release();
+  }
 });
 
 it("dragging is disabled when read-only", () => {

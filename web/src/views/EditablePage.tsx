@@ -27,6 +27,15 @@ export function EditablePage({ title, initial, composer = false }: {
   initial: BlockNode[];
   composer?: boolean;
 }) {
+  // We read isOutlineActive during render but register in an effect below, so
+  // this relies on same-title mounts being SEQUENTIAL, not simultaneous:
+  // real flows fetch a page async and mount its panel only after the response
+  // lands, so by the time a second instance renders the first has already
+  // registered and this read returns true. Two same-title instances mounted
+  // in a SINGLE commit (no async gap between them) would both read false here
+  // and both claim editing — and both register in the last-wins DnD registry.
+  // That case doesn't occur in production; if it ever could, move the read
+  // into the effect (accepting a first-frame flash of two editable copies).
   const activeElsewhereRef = useRef<boolean | null>(null);
   if (activeElsewhereRef.current === null) {
     activeElsewhereRef.current = isOutlineActive(title);
@@ -63,9 +72,13 @@ export function EditablePage({ title, initial, composer = false }: {
   };
 
   if (activeElsewhere) {
-    // Read-only fallback: no drop zone, no draggable bullets. Dragging
-    // into/out of a fallback instance is deliberately unsupported for now
-    // (pkm-auvy tracks revisiting this).
+    // Read-only fallback, deliberately excluded from block DnD in BOTH
+    // directions (pkm-auvy): BlockTree is a pure renderer with no draggable
+    // bullets and no drop zone, so a fallback instance can neither be dragged
+    // out of nor dropped into. The exclusion is silent by design — a fallback
+    // is a duplicate view of a page live-edited elsewhere in the tab, and the
+    // DnD outline registry is last-wins per title, so letting a fallback take
+    // part would shadow or diverge from the live instance.
     return <BlockTree blocks={outline.blocks} />;
   }
 

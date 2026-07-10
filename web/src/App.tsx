@@ -32,6 +32,10 @@ export function App() {
   const [navOpen, setNavOpen] = useState(false);
   const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapsed();
   const [stack, setStack] = useState<SidebarEntry[]>([]);
+  // Session-only, unlike the left nav's persisted collapse: the panel stack
+  // itself resets on reload, so a persisted hidden flag would only ever
+  // apply to an empty (invisible) sidebar.
+  const [sidebarHidden, setSidebarHidden] = useState(false);
   const idRef = useRef(1);
   const navigate = useNavigate();
 
@@ -40,6 +44,7 @@ export function App() {
       const id = idRef.current;
       idRef.current += 1;
       setStack((s) => [{ id, title }, ...s]); // newest on top
+      setSidebarHidden(false); // opening while hidden must not be a silent no-op
     },
   }), []);
 
@@ -49,6 +54,10 @@ export function App() {
       if (e.ctrlKey && e.metaKey && e.key.toLowerCase() === "d") {
         e.preventDefault();
         navigate("/");
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
+        e.preventDefault();
+        setSidebarHidden((h) => !h);
       }
     };
     window.addEventListener("keydown", handler);
@@ -83,7 +92,7 @@ export function App() {
                 </Routes>
               </main>
             </div>
-            {stack.length > 0 && (
+            {stack.length > 0 && !sidebarHidden && (
               <aside className="sidebar">
                 {stack.map((entry) => (
                   <SidebarPanel

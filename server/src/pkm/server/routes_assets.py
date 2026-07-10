@@ -19,6 +19,7 @@ from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
+from pkm.server.response_models import AssetUploadResponse
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -104,7 +105,7 @@ async def _stream_to_temp(file: _ChunkReadable, tmp_path: Path,
     return hasher.hexdigest(), total, first_chunk
 
 
-@router.post("/api/assets")
+@router.post("/api/assets", response_model=AssetUploadResponse)
 async def upload_asset(file: UploadFile,
                        db: sqlite3.Connection = Depends(get_db),
                        config: Config = Depends(get_config)) -> dict:

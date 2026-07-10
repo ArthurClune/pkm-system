@@ -10,11 +10,13 @@ from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
 from pkm.server.query import parse_query, plan_sql, QueryParseError
+from pkm.server.response_models import (
+    GroupsPayload, SearchPayload, TitlesPayload)
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-@router.get("/api/search")
+@router.get("/api/search", response_model=SearchPayload)
 def search(q: str = "", limit: int = 20,
            db: sqlite3.Connection = Depends(get_db)) -> dict:
     limit = max(1, min(limit, 100))
@@ -38,7 +40,7 @@ def search(q: str = "", limit: int = 20,
     return {"pages": pages, "blocks": blocks}
 
 
-@router.get("/api/query")
+@router.get("/api/query", response_model=GroupsPayload)
 def run_query(expr: str, limit: int = 100, offset: int = 0,
               db: sqlite3.Connection = Depends(get_db)) -> dict:
     limit = max(1, min(limit, 500))
@@ -67,7 +69,7 @@ def run_query(expr: str, limit: int = 100, offset: int = 0,
     return {"groups": groups, "total": total}
 
 
-@router.get("/api/titles")
+@router.get("/api/titles", response_model=TitlesPayload)
 def titles(q: str = "", limit: int = 10,
            db: sqlite3.Connection = Depends(get_db)) -> dict:
     """Page-title completion for the editor's [[ / # popup."""

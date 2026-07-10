@@ -13,6 +13,8 @@ from pkm.server.backlinks import group_backlinks
 from pkm.server.daily import date_for_title, title_for_date
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
+from pkm.server.response_models import (
+    GroupsPayload, JournalPayload, PagePayload)
 from pkm.server.store import fetch_page, get_or_create_page
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
@@ -85,7 +87,7 @@ def _backlinks(db: sqlite3.Connection, page_id: int,
             [r["text"] for r in rows])
 
 
-@router.get("/api/page/{title:path}")
+@router.get("/api/page/{title:path}", response_model=PagePayload)
 def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
              db: sqlite3.Connection = Depends(get_db)) -> dict:
     bl_limit = max(1, min(bl_limit, 100))
@@ -109,7 +111,7 @@ def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
     }
 
 
-@router.get("/api/unlinked")
+@router.get("/api/unlinked", response_model=GroupsPayload)
 def get_unlinked(title: str, limit: int = 20, offset: int = 0,
                  db: sqlite3.Connection = Depends(get_db)) -> dict:
     limit = max(1, min(limit, 100))
@@ -142,7 +144,7 @@ def get_unlinked(title: str, limit: int = 20, offset: int = 0,
     return {"groups": groups, "total": total}
 
 
-@router.get("/api/journal")
+@router.get("/api/journal", response_model=JournalPayload)
 def get_journal(before: str | None = None, days: int = 7,
                 db: sqlite3.Connection = Depends(get_db)) -> dict:
     days = max(1, min(days, 31))

@@ -273,6 +273,83 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** AssetUploadResponse */
+        AssetUploadResponse: {
+            /** Sha256 */
+            sha256: string;
+            /** Filename */
+            filename: string;
+            /** Mime */
+            mime: string;
+            /** Size */
+            size: number;
+            /** Url */
+            url: string;
+        };
+        /** BacklinkGroup */
+        BacklinkGroup: {
+            /** Page Id */
+            page_id: number;
+            /** Page Title */
+            page_title: string;
+            /** Items */
+            items: components["schemas"]["BacklinkItem"][];
+        };
+        /** BacklinkItem */
+        BacklinkItem: {
+            /** Uid */
+            uid: string;
+            /** Text */
+            text: string;
+            /** Breadcrumbs */
+            breadcrumbs: string[];
+        };
+        /** Backlinks */
+        Backlinks: {
+            /** Groups */
+            groups: components["schemas"]["BacklinkGroup"][];
+            /** Total Pages */
+            total_pages: number;
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+        };
+        /** BlockGroup */
+        BlockGroup: {
+            /** Page Id */
+            page_id: number;
+            /** Page Title */
+            page_title: string;
+            /** Items */
+            items: components["schemas"]["GroupItem"][];
+        };
+        /** BlockNode */
+        BlockNode: {
+            /** Uid */
+            uid: string;
+            /** Text */
+            text: string;
+            /** Heading */
+            heading: number | null;
+            /** Collapsed */
+            collapsed: boolean;
+            /** Order Idx */
+            order_idx: number;
+            /** Created At */
+            created_at: number | null;
+            /** Updated At */
+            updated_at: number | null;
+            /** Children */
+            children: components["schemas"]["BlockNode"][];
+        };
+        /** BlockRefText */
+        BlockRefText: {
+            /** Text */
+            text: string;
+            /** Page Title */
+            page_title: string;
+        };
         /** Body_upload_asset_api_assets_post */
         Body_upload_asset_api_assets_post: {
             /** File */
@@ -308,10 +385,47 @@ export interface components {
             /** Uid */
             uid: string;
         };
+        /** GroupItem */
+        GroupItem: {
+            /** Uid */
+            uid: string;
+            /** Text */
+            text: string;
+        };
+        /**
+         * GroupsPayload
+         * @description Shared by /api/unlinked and /api/query.
+         */
+        GroupsPayload: {
+            /** Groups */
+            groups: components["schemas"]["BlockGroup"][];
+            /** Total */
+            total: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** JournalDay */
+        JournalDay: {
+            /** Date */
+            date: string;
+            /** Title */
+            title: string;
+            /** Exists */
+            exists: boolean;
+            /** Blocks */
+            blocks: components["schemas"]["BlockNode"][];
+        };
+        /** JournalPayload */
+        JournalPayload: {
+            /** Days */
+            days: components["schemas"]["JournalDay"][];
+            /** Block Ref Texts */
+            block_ref_texts: {
+                [key: string]: components["schemas"]["BlockRefText"];
+            };
         };
         /** LoginBody */
         LoginBody: {
@@ -341,10 +455,55 @@ export interface components {
             /** Ops */
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"])[];
         };
+        /** PageMeta */
+        PageMeta: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Created At */
+            created_at: number | null;
+            /** Updated At */
+            updated_at: number | null;
+        };
+        /** PagePayload */
+        PagePayload: {
+            page: components["schemas"]["PageMeta"];
+            /** Blocks */
+            blocks: components["schemas"]["BlockNode"][];
+            backlinks: components["schemas"]["Backlinks"];
+            /** Block Ref Texts */
+            block_ref_texts: {
+                [key: string]: components["schemas"]["BlockRefText"];
+            };
+        };
         /** ReorderSidebarEntriesRequest */
         ReorderSidebarEntriesRequest: {
             /** Order */
             order: number[];
+        };
+        /** SearchBlockHit */
+        SearchBlockHit: {
+            /** Uid */
+            uid: string;
+            /** Page Title */
+            page_title: string;
+            /** Snippet */
+            snippet: string;
+        };
+        /** SearchPageHit */
+        SearchPageHit: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+        };
+        /** SearchPayload */
+        SearchPayload: {
+            /** Pages */
+            pages: components["schemas"]["SearchPageHit"][];
+            /** Blocks */
+            blocks: components["schemas"]["SearchBlockHit"][];
         };
         /** SetCollapsedOp */
         SetCollapsedOp: {
@@ -369,6 +528,23 @@ export interface components {
             uid: string;
             /** Heading */
             heading?: number | null;
+        };
+        /** SidebarNavEntry */
+        SidebarNavEntry: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+        };
+        /** SidebarNavPayload */
+        SidebarNavPayload: {
+            /** Entries */
+            entries: components["schemas"]["SidebarNavEntry"][];
+        };
+        /** TitlesPayload */
+        TitlesPayload: {
+            /** Titles */
+            titles: string[];
         };
         /** UpdateTextOp */
         UpdateTextOp: {
@@ -536,9 +712,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["PagePayload"];
                 };
             };
             /** @description Validation Error */
@@ -571,9 +745,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["GroupsPayload"];
                 };
             };
             /** @description Validation Error */
@@ -605,9 +777,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["JournalPayload"];
                 };
             };
             /** @description Validation Error */
@@ -639,9 +809,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SearchPayload"];
                 };
             };
             /** @description Validation Error */
@@ -674,9 +842,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["GroupsPayload"];
                 };
             };
             /** @description Validation Error */
@@ -708,9 +874,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["TitlesPayload"];
                 };
             };
             /** @description Validation Error */
@@ -739,9 +903,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["SidebarNavPayload"];
                 };
             };
         };
@@ -900,9 +1062,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AssetUploadResponse"];
                 };
             };
             /** @description Validation Error */

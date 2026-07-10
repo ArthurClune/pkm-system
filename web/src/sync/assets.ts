@@ -1,14 +1,11 @@
 // pattern: Imperative Shell
 // Upload a pasted/dropped/picked file and describe it as block markdown.
 import { apiFetch } from "../api/client";
+import type { components } from "../api/types";
 
-export interface AssetInfo {
-  sha256: string;
-  filename: string;
-  mime: string;
-  size: number;
-  url: string;
-}
+// Generated from the server's AssetUploadResponse model; kept under the
+// short AssetInfo name the callers already use.
+export type AssetInfo = components["schemas"]["AssetUploadResponse"];
 
 export function uploadAsset(file: File): Promise<AssetInfo> {
   const form = new FormData();

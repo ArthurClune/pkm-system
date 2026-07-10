@@ -10,6 +10,7 @@ import { TopBar } from "./components/TopBar";
 import { SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
 import { SyncProvider } from "./sync/SyncProvider";
+import { useSidebarCollapsed } from "./useSidebarCollapsed";
 import { Journal } from "./views/Journal";
 import { PageView } from "./views/PageView";
 
@@ -31,6 +32,7 @@ function NotFound() {
 export function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapsed();
   const [stack, setStack] = useState<SidebarEntry[]>([]);
   const idRef = useRef(1);
   const navigate = useNavigate();
@@ -67,7 +69,7 @@ export function App() {
                     onClick={() => setNavOpen((o) => !o)}>
               ☰
             </button>
-            <nav className={"left-nav" + (navOpen ? " open" : "")}>
+            <nav className={"left-nav" + (navOpen ? " open" : "") + (sidebarCollapsed ? " collapsed" : "")}>
               <div className="nav-title">pkm</div>
               <Link to="/" className="nav-link" onClick={() => setNavOpen(false)}>
                 Daily Notes
@@ -76,7 +78,8 @@ export function App() {
               <SidebarNav onNavigate={() => setNavOpen(false)} />
             </nav>
             <div className="content-area">
-              <TopBar onSearchClick={() => setSearchOpen(true)} />
+              <TopBar onSearchClick={() => setSearchOpen(true)}
+                      sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
               <main className="main-pane">
                 <Routes>
                   <Route path="/" element={<Journal />} />

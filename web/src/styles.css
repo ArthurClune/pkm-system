@@ -159,6 +159,12 @@ button { font: inherit; }
 .left-nav { width: 200px; flex-shrink: 0; padding: 16px; background: var(--color-bg-subtle);
   border-right: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 8px;
   overflow-y: auto; }
+/* desktop-only collapse (toggled from the top bar); .content-area reflows to
+ * fill the freed width automatically since it's the other flex child of
+ * .app. Overridden back to display:flex under the phone breakpoint below,
+ * where the mobile overlay (hamburger + .left-nav.open) is the only thing
+ * that governs visibility. */
+.left-nav.collapsed { display: none; }
 .nav-title { font-weight: 700; margin-bottom: 8px; }
 .nav-link { background: none; border: none; padding: 4px 0; text-align: left;
   color: var(--color-accent); cursor: pointer; }
@@ -197,6 +203,9 @@ button { font: inherit; }
   border: 1px solid var(--color-border-strong); border-radius: 4px; padding: 4px 10px;
   color: var(--color-text-secondary); }
 .top-bar-search-button:hover, .top-bar-menu-button:hover { background: var(--color-bg-subtle); }
+.sidebar-toggle-button { background: none; cursor: pointer; border: 1px solid var(--color-border-strong);
+  border-radius: 4px; padding: 4px 8px; color: var(--color-text-secondary); margin-right: auto; }
+.sidebar-toggle-button:hover { background: var(--color-bg-subtle); }
 .top-bar-page-menu { position: relative; }
 .top-bar-menu { position: absolute; top: 100%; right: 0; z-index: 21; margin: 4px 0 0;
   padding: 4px 0; list-style: none; min-width: 160px; background: var(--color-bg-surface);
@@ -339,6 +348,8 @@ mark.highlight { background: var(--color-highlight-bg); }
   .left-nav { position: fixed; left: 0; top: 0; height: 100vh; z-index: 25;
     transform: translateX(-100%); transition: transform 0.15s; }
   .left-nav.open { transform: translateX(0); }
+  /* the desktop collapse toggle must not fight the hamburger overlay here */
+  .left-nav.collapsed { display: flex; }
   .top-bar { padding: 8px 16px; }
   .main-pane { padding: 24px 16px 120px; }
   .sidebar { width: 100vw; }

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "./router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { SIDEBAR_STORAGE_KEY } from "./sidebar";
 import { block, pagePayload, stubFetch } from "./test-helpers";
 import { App } from "./App";
 
@@ -96,6 +97,37 @@ it("ctrl-cmd-d navigates to the home page", async () => {
   await waitFor(() => {
     expect(screen.queryByRole("heading", { name: "Paper" })).toBeNull();
   });
+});
+
+it("clicking the sidebar toggle collapses the left nav and persists the choice; clicking again restores it", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  const nav = screen.getByRole("navigation");
+  expect(nav).not.toHaveClass("collapsed");
+
+  fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  expect(nav).toHaveClass("collapsed");
+  expect(localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe("collapsed");
+
+  fireEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+  expect(nav).not.toHaveClass("collapsed");
+  expect(localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe("open");
+});
+
+it("honours a persisted 'collapsed' sidebar preference on initial render", async () => {
+  localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  expect(screen.getByRole("navigation")).toHaveClass("collapsed");
+  expect(screen.getByRole("button", { name: "Show sidebar" })).toBeInTheDocument();
+});
+
+it("search stays reachable via the top bar when the sidebar is collapsed", async () => {
+  localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  expect(await screen.findByPlaceholderText("Search…")).toBeInTheDocument();
 });
 
 it("unknown route renders the not-found view", () => {

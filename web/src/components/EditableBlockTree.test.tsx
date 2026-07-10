@@ -206,6 +206,41 @@ test("/t filters to text+todo; ArrowDown+Enter picks /todo", () => {
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} ");
 });
 
+test("clicking a slash-menu row picks it (mouseDown, not click)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/py" } });
+  ta.setSelectionRange(3, 3);
+  fireEvent.mouseDown(screen.getByRole("option", { name: "Python code block" }));
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```python\n\n```");
+  expect(screen.queryByRole("listbox")).toBeNull();
+});
+
+test("Tab accepts the highlighted slash-menu row, same as Enter (pkm-x3so: this " +
+     "already worked at HEAD — kept as a regression test)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/py" } });
+  ta.setSelectionRange(3, 3);
+  fireEvent.keyDown(ta, { key: "Tab" });
+  expect(h.onIndent).not.toHaveBeenCalled(); // Tab was consumed by the popup, not the indent binding
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```python\n\n```");
+  expect(screen.queryByRole("listbox")).toBeNull();
+});
+
+test("/text on an empty block inserts a lang-less (plain text) fence", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/text" } });
+  ta.setSelectionRange(5, 5);
+  expect(screen.getByRole("option", { name: "Text" })).toBeInTheDocument();
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```\n\n```");
+});
+
 test("a non-matching slash query shows no rows and Enter falls through to split", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });

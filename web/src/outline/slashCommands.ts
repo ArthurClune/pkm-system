@@ -5,6 +5,12 @@
 // fence format matches tokenize.ts's parseFence (```lang\ncode\n```) and the
 // TODO prefix matches its TODO_PREFIX regex exactly, so round-tripping through
 // the renderer stays consistent.
+//
+// /text inserts a "text block": a fence with no language tag. parseFence
+// turns a lang-less fence (```\n...\n```) into a code-block with lang null,
+// which CodeBlock renders unhighlighted — that's the plain/verbatim text
+// block. If the content is already a whole fence (any language, e.g. a
+// Python block), /text unwraps it first so the result isn't double-fenced.
 import type { AcContext } from "./autocomplete";
 
 export interface SlashCommand {
@@ -66,6 +72,14 @@ function applyTodoPrefix(content: string): { text: string; cursor: number } {
   return { text, cursor: text.length };
 }
 
+/** Insert a "text block": a lang-less fence wrapping the content, cursor
+ * placed inside it. Unwraps first if the content is already a whole fence
+ * (of any language) so re-running /text (or converting a code block) doesn't
+ * double-fence it. */
+function textBlock(content: string): { text: string; cursor: number } {
+  return wrapFence(unwrapFence(content).text, "");
+}
+
 /** Remove the "/query" trigger and apply `command`'s transform to what's
  * left. Heading commands (h1/h2/h3/normal) have no text transform of their
  * own — they fall through to the default (trigger stripped, nothing else)
@@ -76,7 +90,7 @@ export function applySlashCommand(
 ): { text: string; cursor: number } {
   const content = text.slice(0, ctx.start - 1) + text.slice(cursor);
   switch (command) {
-    case "text": return unwrapFence(content);
+    case "text": return textBlock(content);
     case "todo": return applyTodoPrefix(content);
     case "python": case "bash": case "javascript": return wrapFence(content, command);
     default: return { text: content, cursor: content.length };

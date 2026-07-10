@@ -38,17 +38,22 @@ describe("applySlashCommand: /python /bash /javascript", () => {
 });
 
 describe("applySlashCommand: /text", () => {
-  test("unwraps a whole-block code fence back to plain text", () => {
+  test("wraps an empty block in a lang-less fence, cursor inside it", () => {
+    expect(applySlashCommand("/text", 5, { kind: "command", start: 1, query: "text" }, "text"))
+      .toEqual({ text: "```\n\n```", cursor: 4 });
+  });
+
+  test("wraps existing plain content in a lang-less fence", () => {
+    expect(applySlashCommand("plain /text", 11, { kind: "command", start: 7, query: "text" }, "text"))
+      .toEqual({ text: "```\nplain \n```", cursor: 10 });
+  });
+
+  test("converts an existing whole-block code fence to a lang-less fence, keeping its content", () => {
     const content = "```python\nprint(1)\n```/text";
     expect(applySlashCommand(content, content.length,
                              { kind: "command", start: content.length - 4, query: "text" },
                              "text"))
-      .toEqual({ text: "print(1)", cursor: 8 });
-  });
-
-  test("is a no-op (just removes the trigger) when the block is not a fence", () => {
-    expect(applySlashCommand("plain /text", 11, { kind: "command", start: 7, query: "text" }, "text"))
-      .toEqual({ text: "plain ", cursor: 6 });
+      .toEqual({ text: "```\nprint(1)\n```", cursor: 12 });
   });
 });
 

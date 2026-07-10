@@ -1,10 +1,11 @@
 ---
 # pkm-n2kv
 title: 'Roam-look restyle: palette, card layout, typography, bullets'
-status: todo
+status: in-progress
 type: feature
+priority: normal
 created_at: 2026-07-10T17:59:36Z
-updated_at: 2026-07-10T17:59:36Z
+updated_at: 2026-07-10T18:06:38Z
 ---
 
 Port the agreed parts of the user's custom Roam CSS into the default theme. Spec: docs/superpowers/specs/2026-07-10-roam-look-restyle-design.md

@@ -20,7 +20,7 @@ function lastWs(): FakeWebSocket {
   return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
 }
 
-test("status: connecting -> connected -> reconnecting -> connected, resync bump on re-open", () => {
+test("status: connecting -> connected -> reconnecting -> connected, resync bump on re-open", async () => {
   vi.useFakeTimers();
   const onBatch = vi.fn();
   render(<SyncProvider><Probe onBatch={onBatch} /></SyncProvider>);
@@ -30,8 +30,38 @@ test("status: connecting -> connected -> reconnecting -> connected, resync bump 
   act(() => lastWs().drop());
   expect(screen.getByTestId("status").textContent).toBe("reconnecting:0");
   act(() => { vi.advanceTimersByTime(2000); }); // reconnect timer -> new socket
-  act(() => lastWs().open());
+  // the resync bump is deferred until the preserved queue has flushed (idle)
+  await act(async () => { lastWs().open(); });
   // re-established after a gap: views must refetch (resyncSeq bumped)
+  expect(screen.getByTestId("status").textContent).toBe("connected:1");
+  vi.useRealTimers();
+});
+
+test("on reconnect, resyncSeq bumps only after the preserved queue has flushed", async () => {
+  vi.useFakeTimers();
+  let releasePost!: () => void;
+  const postGate = new Promise<void>((r) => { releasePost = r; });
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).startsWith("/api/ops")) await postGate;
+    return new Response(JSON.stringify({ ok: true }),
+      { status: 200, headers: { "Content-Type": "application/json" } });
+  }));
+
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return <div data-testid="status">{sync.status}:{sync.resyncSeq}</div>;
+  }
+  render(<SyncProvider><Grab /></SyncProvider>);
+  act(() => lastWs().open());  // first connect
+  act(() => lastWs().drop());  // offline: queue paused
+  act(() => sync.enqueue([{ op: "delete", uid: "u1" }])); // preserved, not sent
+  act(() => { vi.advanceTimersByTime(2000); }); // socket reconnect timer
+  await act(async () => { lastWs().open(); }); // reconnect: flush starts (gated)
+
+  // the flush POST is still outstanding, so the refetch must not be signalled
+  expect(screen.getByTestId("status").textContent).toBe("connected:0");
+  await act(async () => { releasePost(); }); // flush completes
   expect(screen.getByTestId("status").textContent).toBe("connected:1");
   vi.useRealTimers();
 });

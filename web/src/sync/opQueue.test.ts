@@ -101,6 +101,53 @@ test("a throwing onDesync does not poison the queue or idle()", async () => {
   expect(mock).toHaveBeenCalledTimes(2);
 });
 
+test("while offline, enqueue is preserved but pumps no HTTP", async () => {
+  const { mock } = capturingFetch([() => jsonResponse({ ok: true })]);
+  const q = createOpQueue(() => undefined);
+  q.setOnline(false);
+  q.enqueue([op("u1")]);
+  q.enqueue([op("u2")]);
+  await q.idle();
+  await Promise.resolve(); // give any stray microtask a chance to POST
+  expect(mock).not.toHaveBeenCalled();
+});
+
+test("reconnect flushes the ops preserved while offline, in order", async () => {
+  const { bodies, mock } = capturingFetch([() => jsonResponse({ ok: true })]);
+  const q = createOpQueue(() => undefined);
+  q.setOnline(false);
+  q.enqueue([op("u1")]);
+  q.enqueue([op("u2")]);
+  q.setOnline(true);
+  await q.idle();
+  expect(mock).toHaveBeenCalledTimes(1);
+  expect((bodies[0] as { ops: unknown[] }).ops).toEqual([op("u1"), op("u2")]);
+});
+
+test("an in-flight POST completes after going offline without starting a new pump", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const bodies: unknown[] = [];
+  const mock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    if (bodies.length === 1) await gate;
+    return jsonResponse({ ok: true });
+  });
+  vi.stubGlobal("fetch", mock);
+  const q = createOpQueue(() => undefined);
+  q.enqueue([op("u1")]);   // connected: pump starts, POST for u1 in flight
+  await Promise.resolve(); // let that batch dispatch
+  q.setOnline(false);      // socket drops while the POST is outstanding
+  q.enqueue([op("u2")]);   // enqueued while offline -> must stay pending
+  release();               // the in-flight POST's response arrives
+  await q.idle();
+  expect(mock).toHaveBeenCalledTimes(1); // u2 did NOT start a new pump
+  q.setOnline(true);       // reconnect flushes the preserved op
+  await q.idle();
+  expect(mock).toHaveBeenCalledTimes(2);
+  expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u2")]);
+});
+
 test("batches larger than 500 ops split into sequential POSTs", async () => {
   const { bodies, mock } = capturingFetch([() => jsonResponse({ ok: true })]);
   const q = createOpQueue(() => undefined);

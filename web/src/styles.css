@@ -223,6 +223,7 @@ button { font: inherit; }
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
 
+/* top bar: spans the main pane, houses search + the page ("...") menu */
 .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px;
   width: var(--pane-width); margin: 0 auto 0 var(--pane-left); padding: 8px 4px; }
 .top-bar-search-button, .top-bar-menu-button { background: none; cursor: pointer;
@@ -270,7 +271,7 @@ h3.block-text { font-size: 1.4rem; font-weight: 400; color: var(--color-text-sec
   padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-block code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
-  border-radius: 2px; background: var(--color-link); margin-right: 6px; }
+  border-radius: 2px; background: var(--color-link); margin-right: 6px; vertical-align: middle; }
 .block-ref.unresolved { color: var(--color-text-muted); }
 mark.highlight { background: var(--color-highlight-bg); }
 .asset-image { max-width: 100%; border-radius: 4px; display: block; margin: 4px 0; }

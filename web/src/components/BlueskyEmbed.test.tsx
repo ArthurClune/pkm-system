@@ -1,62 +1,116 @@
-import { render } from "@testing-library/react";
-import { expect, it } from "vitest";
-import { BlueskyEmbed, blueskyEmbedSrc, isBlueskyPostUrl, parseBlueskyPostUrl } from "./BlueskyEmbed";
+import { act, render, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { BlueskyEmbed } from "./BlueskyEmbed";
 
-it("parses a handle-based post URL into actor and rkey", () => {
-  expect(parseBlueskyPostUrl("https://bsky.app/profile/alice.bsky.social/post/3k2abc123xy"))
-    .toEqual({ actor: "alice.bsky.social", rkey: "3k2abc123xy" });
+const DID = "did:plc:z72i7hdynmk6r22z27h6tvur";
+
+function stubResolve(response: { ok: boolean; did?: string }) {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: response.ok,
+    status: response.ok ? 200 : 400,
+    json: async () => ({ did: response.did }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function embedSrc(container: HTMLElement): URL | null {
+  const iframe = container.querySelector("iframe.bluesky-embed");
+  const src = iframe?.getAttribute("src");
+  return src ? new URL(src) : null;
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
-it("parses a DID-based post URL", () => {
-  expect(parseBlueskyPostUrl("https://bsky.app/profile/did:plc:z72i7hdynmk6r22z27h6tvur/post/3k2abc123xy"))
-    .toEqual({ actor: "did:plc:z72i7hdynmk6r22z27h6tvur", rkey: "3k2abc123xy" });
+it("renders a DID-based post URL as an iframe immediately, with no fetch", () => {
+  const fetchMock = stubResolve({ ok: true, did: DID });
+  const href = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
+  const { container } = render(<BlueskyEmbed href={href} />);
+  const src = embedSrc(container);
+  expect(src).not.toBeNull();
+  expect(src!.origin).toBe("https://embed.bsky.app");
+  expect(src!.pathname).toBe(`/embed/${DID}/app.bsky.feed.post/3k2abc123xy`);
+  expect(src!.searchParams.get("ref_url")).toBe(href);
+  expect(src!.searchParams.get("id")).toBeTruthy();
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
-it("rejects bsky.app URLs that are not a post", () => {
-  expect(parseBlueskyPostUrl("https://bsky.app/profile/alice.bsky.social")).toBeNull();
-  expect(parseBlueskyPostUrl("https://bsky.app/search")).toBeNull();
-  expect(parseBlueskyPostUrl("https://bsky.app/")).toBeNull();
+it("keeps allow-same-origin in the sandbox: an opaque origin blanks the embed", () => {
+  stubResolve({ ok: true, did: DID });
+  const href = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
+  const { container } = render(<BlueskyEmbed href={href} />);
+  const sandbox = container.querySelector("iframe.bluesky-embed")!.getAttribute("sandbox");
+  expect(sandbox).toContain("allow-same-origin");
+  expect(sandbox).toContain("allow-scripts");
 });
 
-it("rejects post URLs missing an rkey", () => {
-  expect(parseBlueskyPostUrl("https://bsky.app/profile/alice.bsky.social/post/")).toBeNull();
-});
-
-it("rejects non-bsky.app hosts, including lookalike domains", () => {
-  expect(parseBlueskyPostUrl("https://bsky.app.evil.com/profile/alice.bsky.social/post/3k2abc123xy")).toBeNull();
-  expect(parseBlueskyPostUrl("https://evil.com/profile/alice.bsky.social/post/3k2abc123xy")).toBeNull();
-});
-
-it("rejects non-https schemes", () => {
-  expect(parseBlueskyPostUrl("http://bsky.app/profile/alice.bsky.social/post/3k2abc123xy")).toBeNull();
-});
-
-it("isBlueskyPostUrl mirrors parseBlueskyPostUrl", () => {
-  expect(isBlueskyPostUrl("https://bsky.app/profile/alice.bsky.social/post/3k2abc123xy")).toBe(true);
-  expect(isBlueskyPostUrl("https://bsky.app/profile/alice.bsky.social")).toBe(false);
-});
-
-it("builds an embed.bsky.app iframe src carrying the original URL as ref_url", () => {
-  const href = "https://bsky.app/profile/alice.bsky.social/post/3k2abc123xy";
-  expect(blueskyEmbedSrc(href)).toBe(
-    "https://embed.bsky.app/embed/alice.bsky.social/app.bsky.feed.post/3k2abc123xy" +
-      "?ref_url=https%3A%2F%2Fbsky.app%2Fprofile%2Falice.bsky.social%2Fpost%2F3k2abc123xy",
+it("resolves a handle to a DID and embeds using the DID", async () => {
+  const fetchMock = stubResolve({ ok: true, did: DID });
+  const href = "https://bsky.app/profile/resolve-me.bsky.social/post/3k2abc123xy";
+  const { container } = render(<BlueskyEmbed href={href} />);
+  await waitFor(() => {
+    expect(container.querySelector("iframe.bluesky-embed")).not.toBeNull();
+  });
+  expect(embedSrc(container)!.pathname).toBe(`/embed/${DID}/app.bsky.feed.post/3k2abc123xy`);
+  expect(fetchMock).toHaveBeenCalledWith(
+    "https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle" +
+      "?handle=resolve-me.bsky.social",
   );
 });
 
-it("returns null for non-post URLs", () => {
-  expect(blueskyEmbedSrc("https://bsky.app/profile/alice.bsky.social")).toBeNull();
+it("falls back to a plain link while resolving and when resolution fails", async () => {
+  const fetchMock = stubResolve({ ok: false });
+  const href = "https://bsky.app/profile/no-such.bsky.social/post/3k2abc123xy";
+  const { container } = render(<BlueskyEmbed href={href} />);
+  const link = container.querySelector("a");
+  expect(link).not.toBeNull();
+  expect(link).toHaveAttribute("href", href);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  expect(container.querySelector("iframe.bluesky-embed")).toBeNull();
+  expect(container.querySelector("a")).toHaveAttribute("href", href);
 });
 
-it("renders an iframe pointed at the embed.bsky.app src", () => {
-  const href = "https://bsky.app/profile/alice.bsky.social/post/3k2abc123xy";
+it("caches resolved handles across mounts", async () => {
+  const fetchMock = stubResolve({ ok: true, did: DID });
+  const href = "https://bsky.app/profile/cache-me.bsky.social/post/3k2abc123xy";
+  const first = render(<BlueskyEmbed href={href} />);
+  await waitFor(() => {
+    expect(first.container.querySelector("iframe.bluesky-embed")).not.toBeNull();
+  });
+  const second = render(<BlueskyEmbed href={href} />);
+  await waitFor(() => {
+    expect(second.container.querySelector("iframe.bluesky-embed")).not.toBeNull();
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("adopts the height the embed page reports for this embed's id", () => {
+  stubResolve({ ok: true, did: DID });
+  const href = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
   const { container } = render(<BlueskyEmbed href={href} />);
-  const iframe = container.querySelector("iframe.bluesky-embed");
-  expect(iframe).not.toBeNull();
-  expect(iframe).toHaveAttribute("src", blueskyEmbedSrc(href)!);
+  const id = embedSrc(container)!.searchParams.get("id")!;
+  act(() => {
+    window.dispatchEvent(new MessageEvent("message", {
+      origin: "https://embed.bsky.app",
+      data: { id: "someone-else", height: 111 },
+    }));
+    window.dispatchEvent(new MessageEvent("message", {
+      origin: "https://evil.example",
+      data: { id, height: 222 },
+    }));
+    window.dispatchEvent(new MessageEvent("message", {
+      origin: "https://embed.bsky.app",
+      data: { id, height: 543 },
+    }));
+  });
+  const iframe = container.querySelector<HTMLIFrameElement>("iframe.bluesky-embed")!;
+  expect(iframe.style.height).toBe("543px");
 });
 
 it("renders nothing for a non-post href", () => {
+  stubResolve({ ok: true, did: DID });
   const { container } = render(<BlueskyEmbed href="https://bsky.app/profile/alice.bsky.social" />);
   expect(container).toBeEmptyDOMElement();
 });

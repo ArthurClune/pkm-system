@@ -2,7 +2,8 @@
 import type { BlockSegment } from "../grammar/tokenize";
 import { AssetImage } from "./AssetImage";
 import { BlockRef } from "./BlockRef";
-import { BlueskyEmbed, isBlueskyPostUrl } from "./BlueskyEmbed";
+import { isBlueskyPostUrl } from "./bluesky";
+import { BlueskyEmbed } from "./BlueskyEmbed";
 import { CodeBlock } from "./CodeBlock";
 import { PageLink } from "./PageLink";
 import { PdfEmbed } from "./PdfEmbed";

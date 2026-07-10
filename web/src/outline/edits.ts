@@ -15,6 +15,12 @@ export interface FocusTarget {
   cursor: number;
 }
 
+/** Where the caret should land after adopting new text at a prior offset:
+ * keep the offset, clamped to the (possibly shorter) new length. */
+export function clampCaret(offset: number, length: number): number {
+  return Math.max(0, Math.min(offset, length));
+}
+
 export interface EditResult {
   blocks: BlockNode[];
   ops: BlockOp[];

@@ -109,8 +109,18 @@ integrated verification. This file records decisions for later review.
     invalid source degrades to an error note + raw fence. Main bundle
     unchanged; mermaid ships as its own lazy chunk (~634 kB). Full
     verification incl. 4/4 e2e green.
-  - **pkm-n2kv dispatched** (Roam-look restyle) per its approved spec in
-    docs/superpowers/specs/2026-07-10-roam-look-restyle-design.md; the
-    agent is instructed to drop the pkm-7cbq margin calc in favour of the
-    spec's card layout and to do the required visual check via browser
-    screenshots (light/dark × 3 widths).
+  - **pkm-n2kv NOT taken** (Roam-look restyle). An agent was briefly
+    dispatched for it before spotting that another session had already
+    claimed it (spec 9ea39cb, implementation plan 9ad933b, branch
+    `bean/pkm-n2kv` created in the main checkout); Arthur confirmed it is
+    in progress in that other instance, so the agent was stopped with no
+    changes made. Left entirely to the other session — including its
+    spec's instruction to drop pkm-7cbq's margin calc in favour of the
+    card layout.
+- **Batch complete.** All open beans except the offline epic (pkm-y8p0)
+  and the otherwise-claimed pkm-n2kv are implemented, merged, and pushed:
+  pkm-j92y, pkm-x3so, pkm-ul9u, pkm-bwvo, pkm-bsjp, pkm-ruvz, pkm-7cbq,
+  pkm-pekk. Final integrated state (at 9149691): 342 web + 292 server
+  tests, typecheck, pyrefly, ruff, build, 4/4 Playwright e2e — all green.
+  Prod NOT deployed, per the standing rule. All batch worktrees and
+  branches cleaned up.

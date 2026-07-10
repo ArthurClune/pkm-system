@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from pkm.edn import Tagged
 
@@ -41,7 +42,8 @@ class Export:
 
 
 def parse_export(db: object) -> Export:
-    if not (isinstance(db, Tagged) and db.tag == "datascript/DB"):
+    if not (isinstance(db, Tagged) and db.tag == "datascript/DB"
+            and isinstance(db.value, dict)):
         raise ValueError("input is not a #datascript/DB export")
     schema = db.value.get(":schema", {})
     datoms = db.value.get(":datoms", [])
@@ -49,7 +51,7 @@ def parse_export(db: object) -> Export:
             if isinstance(spec, dict)
             and spec.get(":db/cardinality") == ":db.cardinality/many"}
 
-    entities: dict[int, dict[str, object]] = {}
+    entities: dict[int, dict[str, Any]] = {}
     attr_counts: dict[str, int] = {}
     for e, a, v, *_ in datoms:
         attr_counts[a] = attr_counts.get(a, 0) + 1
@@ -59,7 +61,7 @@ def parse_export(db: object) -> Export:
         else:
             ent[a] = v
 
-    def is_block(ent: dict[str, object]) -> bool:
+    def is_block(ent: dict[str, Any]) -> bool:
         return ":block/uid" in ent and ":block/string" in ent
 
     built: dict[int, Block] = {}
@@ -84,7 +86,7 @@ def parse_export(db: object) -> Export:
         built[eid] = block
         return block
 
-    def _children(ent: dict[str, object], trail: frozenset[int]) -> tuple[Block, ...]:
+    def _children(ent: dict[str, Any], trail: frozenset[int]) -> tuple[Block, ...]:
         kids = ent.get(":block/children", [])
         ordered = sorted(kids, key=lambda c: entities.get(c, {}).get(":block/order", 0))
         return tuple(b for c in ordered if (b := build(c, trail)) is not None)

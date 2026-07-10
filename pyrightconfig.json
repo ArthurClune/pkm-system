@@ -1,0 +1,7 @@
+{
+  "venvPath": "server",
+  "venv": ".venv",
+  "extraPaths": ["server/src"],
+  "include": ["server"],
+  "exclude": ["**/.venv", "**/node_modules", "**/__pycache__"]
+}

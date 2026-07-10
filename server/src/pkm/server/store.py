@@ -23,4 +23,6 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
             (title, now_ms, now_ms))
     except sqlite3.IntegrityError:
         pass  # lost a create race — the row exists now
-    return fetch_page(db, title)
+    page = fetch_page(db, title)
+    assert page is not None  # inserted above, or the race winner inserted it
+    return page

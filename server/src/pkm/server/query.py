@@ -91,6 +91,7 @@ _PAGE_SQL = ("SELECT r.src_block_uid AS uid FROM refs r"
 
 def plan_sql(node: QueryNode) -> tuple[str, list[str]]:
     if node.kind == "page":
+        assert node.title is not None  # page nodes always carry a title
         return _PAGE_SQL, [node.title]
     if node.kind == "not":  # only reachable nested inside and
         return plan_sql(node.children[0])

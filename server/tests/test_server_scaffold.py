@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -9,7 +10,7 @@ from pkm.server.db import open_db
 
 
 def _config(tmp_path, **over):
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         db_path=tmp_path / "pkm.sqlite3",
         assets_dir=tmp_path / "assets",
         password_salt="00" * 16,

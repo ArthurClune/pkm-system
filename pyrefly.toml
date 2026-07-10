@@ -1,0 +1,3 @@
+# Root config so pyrefly run from the repo root matches running it in server/.
+project-includes = ["server"]
+python-interpreter = "server/.venv/bin/python"

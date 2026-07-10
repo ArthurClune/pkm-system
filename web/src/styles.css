@@ -39,7 +39,6 @@
   --color-selected-bg: #ebf1f5;
   --color-focus-bg: #faf3ec;
   --color-ac-selected-bg: #eef4f8;
-  --color-ref-dashed: #b3c2ce;
   --color-banner-bg: #bf7326;
   --color-banner-text: #ffffff;
   --shadow-rgb: 63, 71, 88;
@@ -89,7 +88,6 @@
     --color-selected-bg: #29323b;
     --color-focus-bg: #2a251f;
     --color-ac-selected-bg: #26303a;
-    --color-ref-dashed: #4a5866;
     --color-banner-bg: #96551c;
     --color-banner-text: #ffffff;
     --shadow-rgb: 0, 0, 0;
@@ -136,7 +134,6 @@
   --color-selected-bg: #29323b;
   --color-focus-bg: #2a251f;
   --color-ac-selected-bg: #26303a;
-  --color-ref-dashed: #4a5866;
   --color-banner-bg: #96551c;
   --color-banner-text: #ffffff;
   --shadow-rgb: 0, 0, 0;
@@ -272,7 +269,8 @@ h3.block-text { font-size: 1.4rem; font-weight: 400; color: var(--color-text-sec
 .code-block { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: 4px;
   padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-block code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.block-ref { border-bottom: 1px dashed var(--color-ref-dashed); }
+.block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
+  border-radius: 2px; background: var(--color-link); margin-right: 6px; }
 .block-ref.unresolved { color: var(--color-text-muted); }
 mark.highlight { background: var(--color-highlight-bg); }
 .asset-image { max-width: 100%; border-radius: 4px; display: block; margin: 4px 0; }
@@ -318,8 +316,9 @@ mark.highlight { background: var(--color-highlight-bg); }
 .section-header .chevron { display: inline-block; transform: rotate(90deg); }
 .section-header .chevron.closed { transform: rotate(0deg); }
 .group-title { font-size: 15px; margin: 12px 0 4px; }
-.backlink-item, .query-item { padding: 4px 0 4px 12px; border-left: 2px solid var(--color-border-subtle);
-  margin: 4px 0; }
+.backlink-item, .query-item { margin: 8px 0; padding: 8px;
+  border: 1px solid var(--color-border-subtle); border-radius: 6px;
+  background: var(--color-bg-subtle); }
 .breadcrumbs { font-size: 12px; color: var(--color-text-faint); margin-bottom: 2px; }
 .show-more { margin-top: 8px; background: var(--color-bg-subtle); border: 1px solid var(--color-border-strong);
   border-radius: 3px; padding: 4px 12px; cursor: pointer; color: var(--color-text-secondary); }

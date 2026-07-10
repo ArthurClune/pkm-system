@@ -146,6 +146,22 @@ describe("applyOps mirrors ops_apply.py", () => {
     expect(next.map((n) => n.uid)).toEqual(["x", "n", "y"]);
   });
 
+  test("insertSubtree returns the tree unchanged for an unknown parentUid", () => {
+    const before = tree();
+    const next = insertSubtree(before, block("n", "N"), "nope", 0);
+    expect(next).toEqual(before);      // value-equal (a fresh clone)
+    expect(findNode(next, "n")).toBeNull();
+  });
+
+  test("insertSubtree inserts under a nested (non-null) parent", () => {
+    // b has children b1(0), b2(3); insert at order_idx 3 → before b2, which
+    // shifts up. Positions key on order_idx, never array index.
+    const next = insertSubtree(tree(), block("n", "N"), "b", 3);
+    const parent = findNode(next, "b")!;
+    expect(parent.children.map((c) => c.uid)).toEqual(["b1", "n", "b2"]);
+    expect(parent.children.map((c) => c.order_idx)).toEqual([0, 3, 4]);
+  });
+
   test("insertSubtree deep-clones the inserted node's children", () => {
     const tree = [block("x", "X", { order_idx: 0 }), block("y", "Y", { order_idx: 1 })];
     const node = { ...block("n", "N"), children: [block("c1", "C1")] };

@@ -154,6 +154,27 @@ def test_cross_page_move_subtree_and_backlinks_survive(client, seeded_config):
                for b in hits["blocks"] if b["uid"] == "uid_b3")
 
 
+def test_batch_rollback_undoes_auto_created_page(client, seeded_config):
+    # op 0 moves uid_b4 to a brand-new page (get_or_create_page inserts a
+    # pages row mid-batch); op 1 fails. The whole transaction must roll back —
+    # the auto-created page and the move both vanish. Exercises the real
+    # db.rollback() in routes_ops, not just the pure planner.
+    r = client.post("/api/ops", json={"client_id": "t", "ops": [
+        {"op": "move", "uid": "uid_b4", "parent_uid": None, "order_idx": 0,
+         "page_title": "Brand New Page"},
+        {"op": "delete", "uid": "ghost99"}]})
+    assert r.status_code == 400
+    assert r.json()["detail"]["index"] == 1
+    con = sqlite3.connect(seeded_config.db_path)
+    con.row_factory = sqlite3.Row
+    assert con.execute(
+        "SELECT id FROM pages WHERE title='Brand New Page'").fetchone() is None
+    row = con.execute(
+        "SELECT page_id, parent_uid FROM blocks WHERE uid='uid_b4'").fetchone()
+    assert row["page_id"] == 3 and row["parent_uid"] is None  # move undone
+    con.close()
+
+
 def test_cross_page_move_page_title_parent_mismatch_400(client):
     r = client.post("/api/ops", json={"client_id": "t", "ops": [
         {"op": "move", "uid": "uid_b4", "parent_uid": "uid_b2",

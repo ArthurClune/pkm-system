@@ -455,4 +455,15 @@ mark.highlight { background: var(--color-highlight-bg); }
   pointer-events: none;
   z-index: 5;
 }
-.bullet[draggable="true"] { cursor: grab; }
+/* iPadOS Safari routes presses (touch AND trackpad pointer) through the touch
+ * gesture system: without these, a press on the handle is claimed by scroll
+ * panning / text selection / the long-press callout and dragstart never fires. */
+.bullet[draggable="true"] { cursor: grab; position: relative;
+  touch-action: none; -webkit-touch-callout: none;
+  -webkit-user-select: none; user-select: none; }
+/* Invisible enlarged hit area for the 13px dot; biased away from the left
+ * edge so it doesn't steal the chevron's clicks. */
+.bullet[draggable="true"]::before { content: ""; position: absolute;
+  /* inset is from the padding box; the 4px border means -9px = 5px past the
+   * outer edge (left kept to 2px so the chevron isn't overlapped much) */
+  inset: -9px -9px -9px -6px; }

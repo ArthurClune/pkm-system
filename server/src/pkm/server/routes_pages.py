@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field
 
 from pkm.server.auth import require_auth
 from pkm.server.backlinks import group_backlinks
-from pkm.server.daily import date_for_title, title_for_date
+from pkm.server.daily import (
+    date_for_title, is_page_empty, past_week_dates, title_for_date)
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
 from pkm.server.ops_core import UID_RE as _UID_RE
@@ -235,3 +236,41 @@ def get_journal(before: str | None = None, days: int = 7,
             out.append({"date": d.isoformat(), "title": title,
                         "exists": True, "blocks": build_tree(blocks)})
     return {"days": out, "block_ref_texts": _block_ref_texts(db, texts)}
+
+
+def _block_is_referenced(db: sqlite3.Connection, uid: str,
+                         page_id: int) -> bool:
+    """True if any block on another page embeds ((uid)). LIKE treats '_' in
+    uids as a wildcard; a false positive only spares a page, so that's an
+    acceptable (conservative) inaccuracy."""
+    return db.execute(
+        "SELECT 1 FROM blocks WHERE page_id != ? AND text LIKE ? LIMIT 1",
+        (page_id, f"%(({uid}))%")).fetchone() is not None
+
+
+@router.post("/api/journal/cleanup")
+def cleanup_journal(db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """Deletes completely-empty daily pages from the 7 days before today
+    (today is spared: the journal auto-creates it for composing). Stateless:
+    every call re-checks the whole window, so a page emptied later by block
+    moves is caught on the next load. A page whose blank block is still
+    ((referenced)) from another page is spared -- deleting it would leave
+    the reference dangling."""
+    deleted: list[str] = []
+    for d in past_week_dates(date.today()):
+        title = title_for_date(d)
+        page = fetch_page(db, title)
+        if page is None:
+            continue
+        blocks = db.execute(
+            "SELECT uid, text FROM blocks WHERE page_id = ?",
+            (page["id"],)).fetchall()
+        if not is_page_empty([r["text"] for r in blocks]):
+            continue
+        if any(_block_is_referenced(db, r["uid"], page["id"])
+               for r in blocks):
+            continue
+        delete_page_rows(db, page["id"], title)
+        deleted.append(title)
+    db.commit()
+    return {"deleted": deleted}

@@ -763,6 +763,8 @@ export interface components {
             uid: string;
             /** Text */
             text: string;
+            /** Base Text Hash */
+            base_text_hash?: string | null;
         };
         /** ValidationError */
         ValidationError: {

@@ -2074,6 +2074,19 @@
           "text": {
             "type": "string",
             "title": "Text"
+          },
+          "base_text_hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Text Hash"
           }
         },
         "type": "object",

@@ -1,5 +1,7 @@
 import sqlite3
 
+from pkm.server.ops_core import text_hash
+
 
 def _post(client, *ops, client_id="c1"):
     return client.post("/api/ops",
@@ -201,3 +203,50 @@ def test_create_page_op_reaches_changes_feed(client):
         {"op": "create_page", "page_title": "Feed Visible"}]})
     feed = client.get(f"/api/sync/changes?since={start}").json()
     assert "Feed Visible" in {p["title"] for p in feed["pages"]}
+
+
+def test_conflict_copy_lands_next_to_target(client):
+    # uid_b1's live text is "Tags:: #AI" (conftest seed); simulate an
+    # offline edit based on stale text
+    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+        {"op": "update_text", "uid": "uid_b1", "text": "offline edit",
+         "base_text_hash": text_hash("some stale base")}]})
+    assert r.status_code == 200
+    page = client.get("/api/page/Machine%20Learning").json()
+    texts = [b["text"] for b in page["blocks"]]
+    i = texts.index("offline edit")
+    assert texts[i + 1] == "[[conflict]] Tags:: #AI"
+
+
+def test_no_false_conflict_after_structural_change(client):
+    base = "Tags:: #AI"
+    # a collapse (structural op) between base and push must NOT conflict
+    client.post("/api/ops", json={"client_id": "c1", "ops": [
+        {"op": "set_collapsed", "uid": "uid_b1", "collapsed": True}]})
+    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+        {"op": "update_text", "uid": "uid_b1", "text": "clean edit",
+         "base_text_hash": text_hash(base)}]})
+    assert r.status_code == 200
+    page = client.get("/api/page/Machine%20Learning").json()
+    assert not any("[[conflict]]" in b["text"] for b in page["blocks"])
+
+
+def test_orphaned_edit_lands_on_todays_daily_page(client):
+    from datetime import date
+    from pkm.server.daily import title_for_date
+    client.post("/api/ops", json={"client_id": "c1", "ops": [
+        {"op": "delete", "uid": "uid_b6"}]})
+    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+        {"op": "update_text", "uid": "uid_b6", "text": "edited after delete",
+         "base_text_hash": text_hash("whatever")}]})
+    assert r.status_code == 200
+    daily = client.get(f"/api/page/{title_for_date(date.today())}").json()
+    assert any(
+        b["text"] == "[[conflict]] (original block deleted) edited after delete"
+        for b in daily["blocks"])
+
+
+def test_hashless_update_on_missing_block_still_400s(client):
+    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+        {"op": "update_text", "uid": "gone_uid1", "text": "x"}]})
+    assert r.status_code == 400

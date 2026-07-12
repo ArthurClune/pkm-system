@@ -29,6 +29,12 @@ class UpdateTextOp(BaseModel):
     op: Literal["update_text"]
     uid: str
     text: str
+    # sha256 hex of the text this edit was based on. Absent => legacy
+    # client, LWW-apply as always. Present => conflict detection per spec
+    # section 2 (text hash, not a version counter: structural changes must
+    # never manufacture a text conflict).
+    base_text_hash: str | None = Field(default=None, min_length=64,
+                                       max_length=64)
 
 
 class MoveOp(BaseModel):
@@ -88,6 +94,20 @@ def batch_request_hash(batch: OpBatch) -> str:
     return hashlib.sha256(canon.encode()).hexdigest()
 
 
+def text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def conflict_copy_text(lost_text: str) -> str:
+    """Overwritten text preserved as an ordinary block, [[conflict]]-tagged
+    so it is findable via search and the conflict page's backlinks."""
+    return f"[[conflict]] {lost_text}"
+
+
+def orphan_conflict_text(text: str) -> str:
+    return f"[[conflict]] (original block deleted) {text}"
+
+
 class OpError(ValueError):
     def __init__(self, index: int, reason: str):
         super().__init__(f"op {index}: {reason}")
@@ -109,6 +129,13 @@ class OpContext:
     parent: BlockInfo | None = None       # create/move: target parent row
     parent_chain: tuple[str, ...] = ()    # move: target parent + its ancestors
     subtree: tuple[str, ...] = ()         # delete/move: op.uid subtree (delete: deepest first)
+    # update_text conflict handling (spec section 2); populated by the
+    # shell only when the op carries base_text_hash
+    current_text: str | None = None      # target's text right now
+    order_idx: int | None = None         # target's order_idx
+    conflict_uid: str | None = None      # fresh uid for a conflict copy
+    daily_page_id: int | None = None     # orphan landing page
+    daily_append_idx: int | None = None  # next top-level idx there
 
 
 @dataclass(frozen=True)
@@ -204,12 +231,43 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                             op.text, op.heading),
                 ReindexRefs(op.uid, op.text),
                 TouchPage(ctx.page_id))
+    if (isinstance(op, UpdateTextOp) and op.base_text_hash is not None
+            and ctx.block is None):
+        # edit-vs-delete race: uid+text is all we have, the deleted row's
+        # page/parent are gone -> conflict block appended to today's daily
+        # page rather than dropping the edit (spec section 2, check 1)
+        if (ctx.conflict_uid is None or ctx.daily_page_id is None
+                or ctx.daily_append_idx is None):
+            raise OpError(index, "conflict context missing")
+        text = orphan_conflict_text(op.text)
+        return (InsertBlock(ctx.conflict_uid, ctx.daily_page_id, None,
+                            ctx.daily_append_idx, text, None),
+                ReindexRefs(ctx.conflict_uid, text),
+                TouchPage(ctx.daily_page_id))
     if ctx.block is None:
         raise OpError(index, f"block not found: {op.uid}")
     if isinstance(op, UpdateTextOp):
-        return (UpdateText(op.uid, op.text),
-                ReindexRefs(op.uid, op.text),
-                TouchPage(ctx.block.page_id))
+        base_effects = (UpdateText(op.uid, op.text),
+                        ReindexRefs(op.uid, op.text),
+                        TouchPage(ctx.block.page_id))
+        if op.base_text_hash is None:
+            return base_effects                      # check 3: legacy
+        if ctx.current_text is None or ctx.order_idx is None \
+                or ctx.conflict_uid is None:
+            raise OpError(index, "conflict context missing")
+        if op.text == ctx.current_text:
+            return ()                                # check 2: identical
+        if text_hash(ctx.current_text) == op.base_text_hash:
+            return base_effects                      # check 4: clean apply
+        # check 5: concurrent edit -- incoming wins, loser preserved as a
+        # sibling right after the target
+        lost = conflict_copy_text(ctx.current_text)
+        idx = ctx.order_idx + 1
+        return (ShiftSiblings(ctx.block.page_id, ctx.block.parent_uid, idx),
+                InsertBlock(ctx.conflict_uid, ctx.block.page_id,
+                            ctx.block.parent_uid, idx, lost, None),
+                ReindexRefs(ctx.conflict_uid, lost),
+                *base_effects)
     if isinstance(op, MoveOp):
         if op.parent_uid is not None:
             if ctx.parent is None:

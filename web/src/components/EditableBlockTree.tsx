@@ -21,6 +21,7 @@ import { applySlashCommand, matchSlashCommands,
 import { pagePath } from "../paths";
 import { AutocompletePopup, buildRows, useTitleOptions,
          type AcRow } from "./AutocompletePopup";
+import { BlockMenu } from "./BlockMenu";
 import { InlineSegments } from "./InlineSegments";
 
 export interface OutlineHandlers {
@@ -62,6 +63,8 @@ interface TreeProps {
 export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                                     readOnly }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
+  // Bullet context menu (pkm-y6af); one per tree, anchored at the pointer.
+  const [menu, setMenu] = useState<{ uid: string; x: number; y: number } | null>(null);
   const selected = selection
     ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
 
@@ -94,18 +97,29 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
          tabIndex={selection ? -1 : undefined} onKeyDown={onKeyDown}>
       {blocks.map((b) => (
         <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
-                       handlers={handlers} readOnly={readOnly} />
+                       handlers={handlers} readOnly={readOnly}
+                       onOpenMenu={(uid, x, y) => setMenu({ uid, x, y })} />
       ))}
+      {menu && (
+        <BlockMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}
+          items={[{
+            label: "Copy block reference",
+            // Copying is read-only-safe (same rationale as multi-block copy).
+            action: () => void navigator.clipboard?.writeText(`((${menu.uid}))`),
+          }]} />
+      )}
     </div>
   );
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
 
-function EditableBlock({ node, focus, selected, handlers, readOnly }: {
+function EditableBlock({ node, focus, selected, handlers, readOnly,
+                         onOpenMenu }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean;
+  onOpenMenu: (uid: string, x: number, y: number) => void;
 }) {
   const focused = focus?.uid === node.uid;
   const isSelected = selected.has(node.uid);
@@ -133,6 +147,14 @@ function EditableBlock({ node, focus, selected, handlers, readOnly }: {
                 e.dataTransfer.setData("text/plain", node.uid);
                 e.dataTransfer.effectAllowed = "move";
                 handlers.onDragStartBlock(node.uid);
+              }}
+              // Click or right-click opens the block menu (pkm-y6af); plain
+              // click included because iPad Safari doesn't fire contextmenu
+              // from touch. Drag suppresses click, so DnD is unaffected.
+              onClick={(e) => onOpenMenu(node.uid, e.clientX, e.clientY)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                onOpenMenu(node.uid, e.clientX, e.clientY);
               }} />
         {focused ? (
           <BlockInput node={node} cursor={focus.cursor} handlers={handlers}
@@ -151,7 +173,8 @@ function EditableBlock({ node, focus, selected, handlers, readOnly }: {
         <div className="block-children">
           {node.children.map((c) => (
             <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}
-                           handlers={handlers} readOnly={readOnly} />
+                           handlers={handlers} readOnly={readOnly}
+                           onOpenMenu={onOpenMenu} />
           ))}
         </div>
       )}

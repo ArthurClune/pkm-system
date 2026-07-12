@@ -123,6 +123,46 @@
         }
       }
     },
+    "/api/block-refs": {
+      "get": {
+        "summary": "Get Block Refs",
+        "description": "On-demand ((uid)) resolution for refs pasted after the page payload\nloaded (pkm-y6af). `uids` is comma-separated; unknown uids are omitted\n(the client renders them unresolved, same as the payload path).",
+        "operationId": "get_block_refs_api_block_refs_get",
+        "parameters": [
+          {
+            "name": "uids",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uids"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockRefsPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/page/{title}": {
       "get": {
         "summary": "Get Page",
@@ -1023,6 +1063,23 @@
           "page_title"
         ],
         "title": "BlockRefText"
+      },
+      "BlockRefsPayload": {
+        "properties": {
+          "block_ref_texts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BlockRefText"
+            },
+            "type": "object",
+            "title": "Block Ref Texts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "block_ref_texts"
+        ],
+        "title": "BlockRefsPayload",
+        "description": "GET /api/block-refs: on-demand ((uid)) resolution."
       },
       "Body_upload_asset_api_assets_post": {
         "properties": {

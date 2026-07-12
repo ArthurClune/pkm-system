@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import type { BlockRefText, JournalDay, JournalPayload } from "../api/payloads";
-import { BlockRefContext } from "../contexts";
+import { BlockRefProvider } from "../components/BlockRefProvider";
 import { pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
@@ -88,7 +88,7 @@ export function Journal() {
 
   return (
     <div className="journal">
-      <BlockRefContext.Provider value={refTexts}>
+      <BlockRefProvider seed={refTexts}>
         {days.map((day, i) => (
           <section className="journal-day" key={day.date}>
             <h1 className="page-title">
@@ -99,7 +99,7 @@ export function Journal() {
                           composer={i === 0} />
           </section>
         ))}
-      </BlockRefContext.Provider>
+      </BlockRefProvider>
       {error && <p className="error">{error}</p>}
       <p className="journal-status" role="status" aria-live="polite">
         {loading ? "Loading more days…" : ""}

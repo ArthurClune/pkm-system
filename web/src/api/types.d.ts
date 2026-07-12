@@ -72,6 +72,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/block-refs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Block Refs
+         * @description On-demand ((uid)) resolution for refs pasted after the page payload
+         *     loaded (pkm-y6af). `uids` is comma-separated; unknown uids are omitted
+         *     (the client renders them unresolved, same as the payload path).
+         */
+        get: operations["get_block_refs_api_block_refs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/page/{title}": {
         parameters: {
             query?: never;
@@ -379,6 +401,16 @@ export interface components {
             text: string;
             /** Page Title */
             page_title: string;
+        };
+        /**
+         * BlockRefsPayload
+         * @description GET /api/block-refs: on-demand ((uid)) resolution.
+         */
+        BlockRefsPayload: {
+            /** Block Ref Texts */
+            block_ref_texts: {
+                [key: string]: components["schemas"]["BlockRefText"];
+            };
         };
         /** Body_upload_asset_api_assets_post */
         Body_upload_asset_api_assets_post: {
@@ -714,6 +746,37 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_block_refs_api_block_refs_get: {
+        parameters: {
+            query: {
+                uids: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockRefsPayload"];
                 };
             };
             /** @description Validation Error */

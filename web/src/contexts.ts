@@ -13,6 +13,12 @@ export const SidebarContext = createContext<SidebarApi>({
 /** uid -> resolved text of ((uid)) block refs, from the page payload. */
 export const BlockRefContext = createContext<Record<string, BlockRefText>>({});
 
+/** Ask the enclosing BlockRefProvider to fetch a uid missing from the map
+ * (a ref pasted after the payload loaded). No-op default keeps plain
+ * BlockRefContext render sites (and their tests) working unchanged. */
+export const BlockRefRequestContext =
+  createContext<(uid: string) => void>(() => undefined);
+
 /** Present only inside the editable outline: lets deep segment renders
  * (TODO checkboxes) reach the block's edit handlers. */
 export interface BlockEditApi {

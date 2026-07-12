@@ -65,6 +65,8 @@ they make discovery snapshots unnecessary for all routine checks.
 | Search | input | `input.top-bar-search-input` |
 | Search | results list | `ul.search-results` |
 | Search | result row | `li.search-result` (+ `.selected` on the active row) |
+| Outline | block context menu (click a block's `.bullet`) | `div.block-menu` |
+| Outline | menu item | `button.block-menu-item` |
 
 - No `data-testid` attributes exist anywhere; these class names are literal
   in `web/src` (not generated), so they're stable until someone renames them.

@@ -62,8 +62,11 @@ export function Journal() {
   useEffect(() => { document.title = "Daily Notes — pkm"; }, []);
 
   // Fire-and-forget: prune empty daily pages from the past week (pkm-c3kz).
-  // Failures are silent; the next Journal load retries. Runs after the
-  // loadMore effect above, so the journal GET is always the first fetch.
+  // Failures are silent; the next Journal load retries. This effect runs
+  // after the loadMore effect above, so the journal GET is dispatched
+  // first — but the two requests still race on the server over separate
+  // connections, which is why deletions may not be reflected in this view
+  // (see spec's Concurrency and staleness section).
   useEffect(() => {
     void apiFetch("/api/journal/cleanup", { method: "POST" })
       .catch(() => {});

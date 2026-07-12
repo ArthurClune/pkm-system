@@ -35,11 +35,10 @@ def _daily_title(days_ago: int) -> str:
 SEEDED_DAILY_TITLE = "July 7th, 2026"
 
 
-def _in_window_days_ago(exclude: tuple[int, ...] = ()) -> int:
+def _in_window_days_ago() -> int:
     """An offset inside the cleanup window (1..7 days ago) whose title does
     not collide with the seeded daily page, whatever today's date is."""
-    return next(k for k in range(1, 8)
-                if _daily_title(k) != SEEDED_DAILY_TITLE and k not in exclude)
+    return next(k for k in range(1, 8) if _daily_title(k) != SEEDED_DAILY_TITLE)
 
 
 def _outside_window_days_ago() -> int:

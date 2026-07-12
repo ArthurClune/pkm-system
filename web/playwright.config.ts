@@ -11,7 +11,9 @@ export default defineConfig({
   webServer: {
     command: "cd ../server && uv run python tests/e2e_serve.py",
     url: "http://127.0.0.1:8975/healthz",
-    reuseExistingServer: true,
+    // Never bypass the purpose-built scratch server or its exception log.
+    // A process already owning 8975 is an error, not a server to trust.
+    reuseExistingServer: false,
     timeout: 60_000,
   },
 });

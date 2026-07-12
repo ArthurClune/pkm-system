@@ -1,11 +1,11 @@
 ---
 # pkm-810w
 title: 'Fix test suite gaps: e2e exclusion, handler-wiring seam, stale bracket-autopair test, unenforced coverage, Composer autocomplete coverage, smoke test'
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-12T17:59:07Z
-updated_at: 2026-07-12T17:59:07Z
+updated_at: 2026-07-12T19:58:23Z
 ---
 
 Findings from test-suite audit (pkm-89yk). Not yet implemented — filing for future work.
@@ -34,3 +34,23 @@ Findings from test-suite audit (pkm-89yk). Not yet implemented — filing for fu
 ## Verification snapshot at time of audit
 
 Backend 330/330 passed; Vitest 417/417 passed; Playwright 3/4 passed.
+
+## Checklist
+
+- [x] Add real EditablePage handler-wiring interaction tests
+- [x] Add Composer autocomplete interaction tests
+- [x] Fix and include Playwright E2E in standard verification
+- [x] Enforce frontend and backend coverage thresholds
+- [x] Replace no-op backend smoke test
+- [ ] Run full verification, summarize, commit, merge, and push
+
+## Summary of Changes
+
+- Added EditablePage interaction tests through the real useOutline handler wiring for outdent, move up/down, backspace, boundary navigation, collapse, headings, TODOs, and multi-block selection. A deliberate move-up/move-down mutation was caught by the new test.
+- Added Composer autocomplete component coverage for mouse pick, ArrowUp/ArrowDown, Enter, Tab, and Escape.
+- Repaired the bracket-auto-pair Playwright flow by waiting for animation-frame caret restoration, and forced Playwright to use its purpose-built scratch server.
+- Added pnpm verify so standard web verification includes typecheck, thresholded Vitest coverage, build, and Playwright.
+- Added thresholded branch-aware pytest coverage and replaced the import-only smoke assertion with installed-distribution metadata verification.
+- Ignored generated coverage reports and documented the new verification commands.
+
+Verification before integration: backend 363 passed at 95.70% coverage; pyrefly 0 errors; ruff clean; frontend 431 passed at 98.46% statements / 91.74% branches / 94.01% functions; Playwright 4/4 passed.

@@ -66,6 +66,113 @@ test("Tab indents the second block under the first", () => {
   ]);
 });
 
+test("Shift+Tab outdents a child through the real editor wiring", () => {
+  const child = block("c1", "child", { order_idx: 0 });
+  const sync = mount(makeSync(), [
+    block("u1", "parent", { order_idx: 0, children: [child] }),
+    block("u2", "after", { order_idx: 1 }),
+  ]);
+  const ta = focusBlock("child");
+  fireEvent.keyDown(ta, { key: "Tab", shiftKey: true });
+  expect(sync.sent).toEqual([
+    [{ op: "move", uid: "c1", parent_uid: null, order_idx: 1 }],
+  ]);
+});
+
+test.each([
+  ["ArrowUp", { op: "move", uid: "u2", parent_uid: null, order_idx: 0 }],
+  ["ArrowDown", { op: "move", uid: "u2", parent_uid: null, order_idx: 3 }],
+])("Alt+%s moves the focused block in that direction", (key, expected) => {
+  const sync = mount(makeSync(), [
+    block("u1", "first", { order_idx: 0 }),
+    block("u2", "second", { order_idx: 1 }),
+    block("u3", "third", { order_idx: 2 }),
+  ]);
+  const ta = focusBlock("second");
+  fireEvent.keyDown(ta, { key, altKey: true });
+  expect(sync.sent).toEqual([[expected]]);
+});
+
+test("Backspace at the start merges with the previous block", () => {
+  const sync = mount();
+  const ta = focusBlock("second");
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "Backspace" });
+  expect(sync.sent).toEqual([[
+    { op: "update_text", uid: "u1", text: "firstsecond" },
+    { op: "delete", uid: "u2" },
+  ]]);
+  expect(screen.getByRole("textbox")).toHaveValue("firstsecond");
+});
+
+test("boundary arrows move editor focus to the visible neighbour", () => {
+  mount();
+  let ta = focusBlock("second");
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "ArrowUp" });
+  ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  expect(ta).toHaveValue("first");
+  expect(ta.selectionStart).toBe(5);
+  fireEvent.keyDown(ta, { key: "ArrowDown" });
+  ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  expect(ta).toHaveValue("second");
+  expect(ta.selectionStart).toBe(0);
+});
+
+test("chevron click queues the collapse op through useOutline", () => {
+  const sync = mount(makeSync(), [
+    block("u1", "parent", {
+      order_idx: 0,
+      children: [block("c1", "child", { order_idx: 0 })],
+    }),
+  ]);
+  const chevron = document.querySelector(
+    '.block-row[data-uid="u1"] .chevron') as HTMLButtonElement;
+  fireEvent.click(chevron);
+  expect(sync.sent).toEqual([[
+    { op: "set_collapsed", uid: "u1", collapsed: true },
+  ]]);
+});
+
+test("heading command selection queues text and heading ops", () => {
+  stubFetch([]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, {
+    target: { value: "/h1", selectionStart: 3, selectionEnd: 3 },
+  });
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(sync.sent).toEqual([[
+    { op: "update_text", uid: "u1", text: "" },
+    { op: "set_heading", uid: "u1", heading: 1 },
+  ]]);
+});
+
+test("clicking a TODO checkbox queues the toggled text op", () => {
+  const sync = mount(makeSync(), [block("u1", "{{TODO}} buy milk")]);
+  fireEvent.click(screen.getByRole("checkbox", { name: "TODO" }));
+  expect(sync.sent).toEqual([[
+    { op: "update_text", uid: "u1", text: "{{DONE}} buy milk" },
+  ]]);
+});
+
+test("Shift+Arrow starts and extends a block selection; Escape clears it", () => {
+  mount(makeSync(), [
+    block("u1", "first", { order_idx: 0 }),
+    block("u2", "second", { order_idx: 1 }),
+    block("u3", "third", { order_idx: 2 }),
+  ]);
+  const ta = focusBlock("second");
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "ArrowUp", shiftKey: true });
+  const tree = document.querySelector(".block-tree") as HTMLElement;
+  expect(document.querySelectorAll(".block-row.selected")).toHaveLength(2);
+  fireEvent.keyDown(tree, { key: "ArrowDown", shiftKey: true });
+  expect(document.querySelectorAll(".block-row.selected")).toHaveLength(1);
+  fireEvent.keyDown(tree, { key: "Escape" });
+  expect(document.querySelectorAll(".block-row.selected")).toHaveLength(0);
+});
+
 test("remote batches patch the tree; own-echo filtering is the provider's job", () => {
   const sync = mount();
   act(() => sync.emit({ client_id: "other", ts: 1, ops: [

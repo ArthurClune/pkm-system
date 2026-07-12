@@ -3,8 +3,9 @@
 title: Offline editing, paving the way for native apps (iOS)
 status: in-progress
 type: epic
+priority: normal
 created_at: 2026-07-10T16:37:01Z
-updated_at: 2026-07-10T16:37:01Z
+updated_at: 2026-07-12T18:35:49Z
 ---
 
 Support editing while offline, with changes syncing when connectivity returns. Architecture choices here should keep a future native iOS app in mind (local-first data layer, sync protocol usable outside the browser).
@@ -43,3 +44,8 @@ Approved design: docs/superpowers/specs/2026-07-12-offline-editing-design.md
 - Sync: state-based changes feed (`/api/sync/changes?since=` windowed over raw journal rows, `/api/sync/snapshot`), not op replay; journal maintained by row-level triggers so derived changes (sibling shifts, subtree moves, cascade deletes, implicit pages) are captured. WS gains a seq nudge.
 - Conflict detection via `base_text_hash` on update_text (no version column — avoids false conflicts from structural changes and avoids ALTER TABLE); pushes idempotent via `batch_id` dedup; orphaned edit-vs-delete text lands on today's daily page; offline-created pages use negative temp ids remapped on sync.
 - Offline in v1: read everything, edit, backlinks, FTS5 search, page/daily create, viewed-assets cache (LRU). Deferred: offline asset upload, full 2GB asset sync, offline query blocks, sidebar writes, PWA/iOS.
+
+
+## Server protocol implemented (2026-07-12)
+
+pkm-dnl6 (server phase) is implemented on branch worktree-pkm-dnl6-offline-sync-server: journal + row-level triggers, changes feed + snapshot endpoints, WS seq nudges, batch_id push idempotency, create_page op, base_text_hash conflict detection. API artifacts (openapi.json, types.d.ts, ops.ts CreatePageOp/BlockOp) regenerated for the web phases to build against.

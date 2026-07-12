@@ -77,7 +77,8 @@ function shiftFrom(siblings: BlockNode[], fromIdx: number, except?: string): voi
  * semantics on the client; both optimistic local edits and remote websocket
  * batches go through here. Ops that don't concern this page are skipped:
  * create is filtered by page_title, everything else by uid presence (the
- * websocket broadcasts ops for ALL pages). Returns a new tree. */
+ * websocket broadcasts ops for ALL pages); create_page never touches a
+ * block tree and is always skipped. Returns a new tree. */
 export function applyOps(blocks: BlockNode[], ops: BlockOp[],
                          pageTitle: string): BlockNode[] {
   const tree = clone(blocks);
@@ -100,6 +101,7 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
     sortSiblings(siblings);
     return;
   }
+  if (op.op === "create_page") return; // page creation: no block tree to update here
   const found = locate(tree, op.uid);
   if (!found) return; // op for another page: skip
   if (op.op === "update_text") {

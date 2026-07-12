@@ -58,8 +58,16 @@ class SetHeadingOp(BaseModel):
     heading: int | None = Field(default=None, ge=1, le=3)
 
 
+class CreatePageOp(BaseModel):
+    """Durable push path for offline page creation (spec section 1): an
+    empty page created offline has no block op to carry its title, so page
+    creation is itself an op -- get_or_create semantics, safely replayable."""
+    op: Literal["create_page"]
+    page_title: str = Field(min_length=1)
+
+
 BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
-                          SetCollapsedOp, SetHeadingOp],
+                          SetCollapsedOp, SetHeadingOp, CreatePageOp],
                     Field(discriminator="op")]
 
 
@@ -173,6 +181,12 @@ Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
 
 
 def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
+    if isinstance(op, CreatePageOp):
+        if ctx.page_id is None:
+            raise OpError(index, "page could not be resolved")
+        # creation happened in context assembly (get_or_create, same as
+        # CreateOp); the journal trigger recorded it. Nothing to execute.
+        return ()
     if isinstance(op, CreateOp):
         if not UID_RE.match(op.uid):
             raise OpError(index, f"invalid uid: {op.uid!r}")

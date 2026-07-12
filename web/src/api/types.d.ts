@@ -491,6 +491,21 @@ export interface components {
             /** Heading */
             heading?: number | null;
         };
+        /**
+         * CreatePageOp
+         * @description Durable push path for offline page creation (spec section 1): an
+         *     empty page created offline has no block op to carry its title, so page
+         *     creation is itself an op -- get_or_create semantics, safely replayable.
+         */
+        CreatePageOp: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "create_page";
+            /** Page Title */
+            page_title: string;
+        };
         /** CreatePageRequest */
         CreatePageRequest: {
             /** Title */
@@ -576,7 +591,7 @@ export interface components {
             /** Batch Id */
             batch_id?: string | null;
             /** Ops */
-            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"])[];
+            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["CreatePageOp"])[];
         };
         /** PageMeta */
         PageMeta: {

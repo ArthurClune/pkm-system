@@ -1277,6 +1277,27 @@
         ],
         "title": "CreateOp"
       },
+      "CreatePageOp": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "const": "create_page",
+            "title": "Op"
+          },
+          "page_title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Page Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "op",
+          "page_title"
+        ],
+        "title": "CreatePageOp",
+        "description": "Durable push path for offline page creation (spec section 1): an\nempty page created offline has no block op to carry its title, so page\ncreation is itself an op -- get_or_create semantics, safely replayable."
+      },
       "CreatePageRequest": {
         "properties": {
           "title": {
@@ -1520,12 +1541,16 @@
                 },
                 {
                   "$ref": "#/components/schemas/SetHeadingOp"
+                },
+                {
+                  "$ref": "#/components/schemas/CreatePageOp"
                 }
               ],
               "discriminator": {
                 "propertyName": "op",
                 "mapping": {
                   "create": "#/components/schemas/CreateOp",
+                  "create_page": "#/components/schemas/CreatePageOp",
                   "delete": "#/components/schemas/DeleteOp",
                   "move": "#/components/schemas/MoveOp",
                   "set_collapsed": "#/components/schemas/SetCollapsedOp",

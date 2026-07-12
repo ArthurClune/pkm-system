@@ -6,9 +6,9 @@ from __future__ import annotations
 import sqlite3
 
 from pkm.refs import extract
-from pkm.server.ops_core import (BlockInfo, CreateOp, DeleteBlocks, DeleteOp,
-                                 Effect, InsertBlock, MoveOp, OpBatch,
-                                 OpContext, ReindexRefs, SetCollapsed,
+from pkm.server.ops_core import (BlockInfo, CreateOp, CreatePageOp, DeleteBlocks,
+                                 DeleteOp, Effect, InsertBlock, MoveOp,
+                                 OpBatch, OpContext, ReindexRefs, SetCollapsed,
                                  SetHeading, SetPageId, SetParent,
                                  ShiftSiblings, TouchPage, UpdateText, plan_op)
 from pkm.server.store import get_or_create_page
@@ -51,6 +51,9 @@ def _subtree_deepest_first(db: sqlite3.Connection,
 
 
 def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
+    if isinstance(op, CreatePageOp):
+        page = get_or_create_page(db, op.page_title, now_ms)
+        return OpContext(page_id=page["id"])
     block = _block_info(db, op.uid)
     if isinstance(op, CreateOp):
         page = get_or_create_page(db, op.page_title, now_ms)

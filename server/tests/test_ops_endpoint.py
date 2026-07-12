@@ -181,3 +181,23 @@ def test_cross_page_move_page_title_parent_mismatch_400(client):
          "order_idx": 0, "page_title": "July 7th, 2026"}]})
     assert r.status_code == 400
     assert "page_title does not match" in r.json()["detail"]["reason"]
+
+
+def test_create_page_op_creates_and_is_idempotent(client):
+    body = {"client_id": "c1", "ops": [
+        {"op": "create_page", "page_title": "Offline Made Me"}]}
+    assert client.post("/api/ops", json=body).status_code == 200
+    assert client.post("/api/ops", json=body).status_code == 200  # replayable
+    r = client.get("/api/page/Offline%20Made%20Me")
+    assert r.status_code == 200
+    # exactly one page: titles endpoint returns it once
+    titles = client.get("/api/titles?q=Offline%20Made%20Me").json()["titles"]
+    assert titles.count("Offline Made Me") == 1
+
+
+def test_create_page_op_reaches_changes_feed(client):
+    start = client.get("/api/sync/changes").json()["latest_seq"]
+    client.post("/api/ops", json={"client_id": "c1", "ops": [
+        {"op": "create_page", "page_title": "Feed Visible"}]})
+    feed = client.get(f"/api/sync/changes?since={start}").json()
+    assert "Feed Visible" in {p["title"] for p in feed["pages"]}

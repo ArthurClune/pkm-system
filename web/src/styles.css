@@ -413,10 +413,16 @@ mark.highlight { background: var(--color-highlight-bg); }
   line-height: inherit; background: transparent; border: none; outline: none;
   resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
 .block-row.focused { background: var(--color-focus-bg); }
+/* Multi-block selection (Shift+Arrow) highlight. The tree container takes focus
+ * to own the keyboard while selecting, but shouldn't show its own outline. */
+.block-row.selected { background: var(--color-selection-bg); }
+.block-tree:focus { outline: none; }
 .block-text { cursor: text; min-height: 1.5em; }
 
 /* --- plan 5: autocomplete --- */
 .block-input-wrap { position: relative; flex: 1; min-width: 0; }
+/* The /upload file picker is driven programmatically; keep it out of layout. */
+.upload-input { display: none; }
 .ac-popup { position: absolute; top: 100%; left: 0; z-index: 50;
   background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: 4px;
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); min-width: 240px;

@@ -25,6 +25,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "bash", label: "Bash code block" },
   { name: "javascript", label: "JavaScript code block" },
   { name: "mermaid", label: "Mermaid diagram" },
+  // "upload" has no text transform: picking it strips the trigger and opens a
+  // file picker (handled in BlockInput), then splices the asset markdown.
+  { name: "upload", label: "Upload file…" },
   { name: "h1", label: "Heading 1" },
   { name: "h2", label: "Heading 2" },
   { name: "h3", label: "Heading 3" },

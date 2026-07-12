@@ -11,6 +11,10 @@ import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { applyCompletion, detectAutocomplete,
          type AcContext } from "../outline/autocomplete";
+import { autoPairBracket, wrapLink, BRACKET_CHARS,
+         type TextSelection } from "../outline/keyEdits";
+import { selectedUids, selectionText,
+         type BlockSelection } from "../outline/blockSelection";
 import { refTitleAtCaret } from "../outline/refAtCaret";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
@@ -37,32 +41,74 @@ export interface OutlineHandlers {
   onSetHeading(uid: string, heading: number | null): void;
   onToggleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
+  /** Begin a multi-block selection from `uid` towards `dir` (Shift+Arrow at a
+   * block edge); the current block is included. */
+  onStartBlockSelection(uid: string, dir: "up" | "down"): void;
+  onExtendBlockSelection(dir: "up" | "down"): void;
+  onClearBlockSelection(): void;
   onDragStartBlock(uid: string): void;
 }
 
 interface TreeProps {
   blocks: BlockNode[];
   focus: FocusTarget | null;
+  // The live multi-block selection, if any. Optional so simple render sites
+  // (and tests) that don't exercise selection can omit it.
+  selection?: BlockSelection | null;
   handlers: OutlineHandlers;
   readOnly: boolean;
 }
 
-export function EditableBlockTree({ blocks, focus, handlers, readOnly }: TreeProps) {
+export function EditableBlockTree({ blocks, focus, selection = null, handlers,
+                                    readOnly }: TreeProps) {
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  const selected = selection
+    ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
+
+  // When a block selection is active there is no focused textarea, so the tree
+  // container itself takes focus and owns the keyboard (extend / copy / clear).
+  useEffect(() => {
+    if (selection) treeRef.current?.focus();
+  }, [selection]);
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!selection) return;
+    if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      void navigator.clipboard?.writeText(selectionText(blocks, selection));
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handlers.onClearBlockSelection();
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      // a plain arrow collapses the selection back to editing the head block
+      e.preventDefault();
+      handlers.onFocusBlock(selection.head, 0);
+    }
+  };
+
   return (
-    <div className="block-tree">
+    <div className="block-tree" ref={treeRef}
+         tabIndex={selection ? -1 : undefined} onKeyDown={onKeyDown}>
       {blocks.map((b) => (
-        <EditableBlock key={b.uid} node={b} focus={focus} handlers={handlers}
-                       readOnly={readOnly} />
+        <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
+                       handlers={handlers} readOnly={readOnly} />
       ))}
     </div>
   );
 }
 
-function EditableBlock({ node, focus, handlers, readOnly }: {
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
+function EditableBlock({ node, focus, selected, handlers, readOnly }: {
   node: BlockNode; focus: FocusTarget | null;
+  selected: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean;
 }) {
   const focused = focus?.uid === node.uid;
+  const isSelected = selected.has(node.uid);
   const hasChildren = node.children.length > 0;
   const Tag: "h1" | "h2" | "h3" | "div" =
     node.heading === 1 ? "h1" :
@@ -70,7 +116,8 @@ function EditableBlock({ node, focus, handlers, readOnly }: {
     node.heading === 3 ? "h3" : "div";
   return (
     <div className="block">
-      <div className={"block-row" + (focused ? " focused" : "")}
+      <div className={"block-row" + (focused ? " focused" : "")
+             + (isSelected ? " selected" : "")}
            data-uid={node.uid}>
         <button
           className={"chevron" + (node.collapsed ? " closed" : "") + (hasChildren ? "" : " hidden")}
@@ -103,8 +150,8 @@ function EditableBlock({ node, focus, handlers, readOnly }: {
       {hasChildren && !node.collapsed && (
         <div className="block-children">
           {node.children.map((c) => (
-            <EditableBlock key={c.uid} node={c} focus={focus} handlers={handlers}
-                           readOnly={readOnly} />
+            <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}
+                           handlers={handlers} readOnly={readOnly} />
           ))}
         </div>
       )}
@@ -121,6 +168,10 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  // The /upload file picker, and the caret offset the trigger was stripped at
+  // (where the asset markdown should be spliced once files are chosen).
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadAtRef = useRef(0);
   const navigate = useNavigate();
   // Whether the user has typed edits not yet committed to the block tree.
   // Focus alone is not a draft: while dirty, remote text still lands on the
@@ -204,8 +255,35 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     });
   };
 
+  // Apply a bracket/link key edit. Unlike a normal keystroke this bypasses
+  // onChange (we preventDefault), so we re-derive the autocomplete context here
+  // — that's what lets typing "[" twice open the [[ page-link popup.
+  const applyKeyEdit = (r: TextSelection) => {
+    dirtyRef.current = true;
+    setDraft(r.text);
+    setCaret(r.selStart);
+    setAcSelected(0);
+    setAc(detectAutocomplete(r.text, r.selStart));
+    handlers.onDraftChange(node.uid, r.text);
+    requestAnimationFrame(() => {
+      ref.current?.setSelectionRange(r.selStart, r.selEnd);
+    });
+  };
+
   const pick = (row: AcRow) => {
     if (!ac) return;
+    // "/upload": strip the trigger, then open a file picker. onPickUpload
+    // splices the uploaded asset's markdown in (via handlers.onFiles) once the
+    // user has chosen files.
+    if (row.command === "upload") {
+      const at = ac.start - 1; // where the "/" was
+      setAc(null);
+      setAcSelected(0);
+      setText(draft.slice(0, at) + draft.slice(caret), at);
+      uploadAtRef.current = at;
+      fileInputRef.current?.click();
+      return;
+    }
     const applied = row.command
       ? applySlashCommand(draft, caret, ac, row.command)
       : applyCompletion(draft, caret, ac, row.title);
@@ -275,7 +353,39 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
         return;
       }
     }
+    // Shift+Arrow at the vertical edge of the block starts a multi-block
+    // selection (to copy several blocks at once). Only from a collapsed caret —
+    // with a text selection Shift+Arrow keeps extending that within the block.
+    // Allowed even when disconnected: copying is read-only-safe.
+    if (e.shiftKey && caretOnly && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      const up = e.key === "ArrowUp";
+      const atEdge = up ? !draft.slice(0, pos).includes("\n")
+                        : !draft.slice(el.selectionEnd).includes("\n");
+      if (atEdge) {
+        e.preventDefault();
+        handlers.onStartBlockSelection(node.uid, up ? "up" : "down");
+        return;
+      }
+    }
     if (readOnly) return;
+    // Cmd-K (mac): wrap the selection as a markdown link, or insert an empty
+    // []() ready for the link text. Ctrl-K is left alone (emacs kill-line).
+    if (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      applyKeyEdit(wrapLink(draft, pos, el.selectionEnd));
+      return;
+    }
+    // Bracket auto-pairing: a bare "[ ( { ` \" '" (or their closers) auto-closes,
+    // wraps the selection, or skips over an existing match. Modified chords and
+    // non-bracket keys fall through untouched.
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && BRACKET_CHARS.has(e.key)) {
+      const edit = autoPairBracket(draft, pos, el.selectionEnd, e.key);
+      if (edit) {
+        e.preventDefault();
+        applyKeyEdit(edit);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handlers.onSplit(node.uid, pos);
@@ -317,6 +427,13 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     handlers.onFiles(node.uid, e.currentTarget.selectionStart, files);
   };
 
+  const onPickUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // let the same file be picked again later
+    if (files.length === 0 || readOnly) return;
+    handlers.onFiles(node.uid, uploadAtRef.current, files);
+  };
+
   const onCompositionStart = () => {
     composingRef.current = true;
   };
@@ -337,6 +454,13 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
                 onCompositionEnd={onCompositionEnd} />
       {!readOnly && (
         <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
+      )}
+      {!readOnly && (
+        <input ref={fileInputRef} type="file" multiple
+               className="upload-input" aria-label="Upload file"
+               accept={"image/*,application/pdf,text/plain,text/markdown,"
+                 + "text/csv,application/json,.doc,.docx,.xls,.xlsx,.ppt,.pptx"}
+               onChange={onPickUpload} />
       )}
     </div>
   );

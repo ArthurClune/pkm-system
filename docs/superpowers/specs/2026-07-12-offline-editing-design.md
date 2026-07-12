@@ -170,8 +170,14 @@ addition is ever needed it requires a `PRAGMA table_info`-guarded helper
 first).
 
 **WebSocket.** The existing WS additionally carries a "seq advanced" nudge
-so online clients know to pull the feed. The existing op-batch broadcast
-remains for live UI patching; the feed is the authority for the replica.
+so online clients know to pull the feed. The invariant: **every
+transaction that advances `changes.seq` emits a post-commit nudge** — not
+just `/api/ops` (today the only broadcasting route) but page
+creation/deletion, sidebar writes, daily-page auto-creation on GET, and
+asset-upload text rewrites. Implementation should centralize this (one
+post-commit hook where routes commit) rather than relying on each route
+remembering. The existing op-batch broadcast remains for live UI
+patching; the feed is the authority for the replica.
 
 ## Section 2: Server — conflict handling
 
@@ -191,15 +197,17 @@ Semantics:
 
 Checks run in this order:
 
-- `base_text_hash` absent → behave exactly as today (current clients
-  remain valid).
-- Incoming text == current text → idempotent no-op, never a conflict.
-  (This must be checked *first*: when two devices independently make the
-  identical edit, the second one's base hash no longer matches the
-  current text, so the base-hash check alone would file a spurious
-  conflict copy.)
-- Hash matches current text → apply normally.
-- Hash differs (a concurrent text edit happened): the incoming edit
+1. Block does not exist (edit-vs-delete race) → conflict block on
+   today's daily page (see below).
+2. Incoming text == current text → idempotent no-op, never a conflict.
+   (Checked before any hash comparison: when two devices independently
+   make the identical edit, the second one's base hash no longer matches
+   the current text, so the base-hash check alone would file a spurious
+   conflict copy.)
+3. `base_text_hash` absent → apply exactly as today (current clients
+   remain valid).
+4. Hash matches current text → apply normally.
+5. Hash differs (a concurrent text edit happened): the incoming edit
   **wins** (consistent with existing reconnect-flush LWW), and the
   overwritten server text is preserved as a **conflict-copy sibling
   block** inserted immediately after the target block. Marker format
@@ -343,8 +351,22 @@ flushes.
   (server 4xx) is set aside and surfaced rather than retried forever;
   exact UX in the implementation plan.
 - Replica schema version mismatch (after a deploy that changes DDL): drop
-  and re-bootstrap.
-- Storage quota errors: surface, keep working online-only.
+  and re-bootstrap — but **never while the pending queue is non-empty**.
+  The queue lives inside the replica DB, so an unconditional drop would
+  erase unsynced offline work. Rebootstrap requires connectivity anyway
+  (it fetches the snapshot), and queued ops are wire-format JSON
+  independent of the local schema, so the recovery sequence is: flush the
+  pending queue to the server first, then drop and re-bootstrap. If the
+  flush fails, surface the error and keep the old database — degraded
+  beats data loss. The same rule guards the manual "reset local data"
+  escape hatch, if one is exposed.
+- Storage quota errors: if a mutation cannot be persisted to the replica
+  (quota exhausted while offline), the editor must **reject further
+  edits** (read-only state with an explicit reason) rather than appear to
+  accept an unpersisted edit — "fall back to online-only" is impossible
+  at that moment, and a silently volatile queue would be disguised data
+  loss. Online, quota failure degrades to online-only operation with the
+  replica disabled.
 
 ## Section 7: Testing
 
@@ -355,9 +377,12 @@ flushes.
   skip case), tombstones, one-transaction hydration, and the
   window-boundary refs case (block+ref shipped whose implicitly-created
   page falls outside the window → dependency page payload present);
-  snapshot; `base_text_hash` conflict matrix (identical-text no-op
-  first, then match / differ / absent / edit-vs-delete → daily page; no
-  false conflict after collapse, heading, move, or sibling shift);
+  snapshot; `base_text_hash` conflict matrix in check order (missing
+  block → daily page, identical-text no-op, absent hash, match, differ;
+  no false conflict after collapse, heading, move, or sibling shift);
+  WS nudge emitted by every journal-advancing write path (incl. a
+  non-op write — page create, sidebar edit, daily auto-create —
+  propagating to another replica);
   `batch_id` dedup (replay with matching request hash returns stored ack
   and applies nothing; same id with different hash → 409); `create_page`
   op idempotency.
@@ -369,7 +394,9 @@ flushes.
   application; reconnect ordering (flush → pull → resync), extending the
   pkm-falb regression suite; negative-id reconciliation transaction
   (children/refs remapped, no cascade delete, FKs intact at commit, incl.
-  a page that has local-only blocks the feed window hasn't delivered).
+  a page that has local-only blocks the feed window hasn't delivered);
+  schema-mismatch recovery with a non-empty pending queue (flush happens
+  first; failed flush keeps the old database and drops nothing).
 - E2E (verify skill): go offline (dev-tools network toggle / kill server),
   edit + create daily note + search, restart tab, reconnect, assert server
   state and conflict-copy behaviour with a second concurrent client.

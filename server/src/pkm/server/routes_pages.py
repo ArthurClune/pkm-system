@@ -17,7 +17,7 @@ from pkm.server.fts import phrase_query
 from pkm.server.ops_core import UID_RE as _UID_RE
 from pkm.server.response_models import (
     BlockRefsPayload, GroupsPayload, JournalPayload, PageMeta, PagePayload)
-from pkm.server.store import fetch_page, get_or_create_page
+from pkm.server.store import delete_page_rows, fetch_page, get_or_create_page
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -162,17 +162,11 @@ def create_page(body: CreatePageRequest,
 def delete_page(title: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
     """Deletes the page, its blocks, and any sidebar entry for it. Inbound
     [[links]] from other pages' block text are left as-is -- only the refs
-    rows pointing at this page disappear (via target_page_id CASCADE).
-
-    Blocks are deleted explicitly (not left to the pages FK cascade) so the
-    blocks_fts_ad trigger fires for every row -- a direct DELETE guarantees
-    that; relying on cascade-triggered deletes to fire triggers is not safe."""
+    rows pointing at this page disappear (via target_page_id CASCADE)."""
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
-    db.execute("DELETE FROM blocks WHERE page_id = ?", (page["id"],))
-    db.execute("DELETE FROM pages WHERE id = ?", (page["id"],))
-    db.execute("DELETE FROM sidebar_entries WHERE title = ?", (title,))
+    delete_page_rows(db, page["id"], title)
     db.commit()
     return {"ok": True}
 

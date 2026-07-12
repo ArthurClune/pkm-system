@@ -88,6 +88,12 @@ CREATE TABLE IF NOT EXISTS changes(
 );
 ```
 
+Implementation guardrail: the WS nudge is emitted **strictly after a
+successful commit**; if delivering the nudge to a connection fails, drop
+that connection so its client reconnects and the normal catch-up pull
+recovers anything missed. Nudges are best-effort signals — the cursor
+pull is the correctness mechanism.
+
 Journal rows are appended by `AFTER INSERT/UPDATE/DELETE` triggers on
 `blocks`, `pages` and `sidebar_entries` (same precedent as the existing
 FTS triggers in `schema.py`), **not** by per-write-path code. This is
@@ -359,7 +365,11 @@ flushes.
   pending queue to the server first, then drop and re-bootstrap. If the
   flush fails, surface the error and keep the old database — degraded
   beats data loss. The same rule guards the manual "reset local data"
-  escape hatch, if one is exposed.
+  escape hatch, if one is exposed. Implementation guardrails: recovery
+  code must read/check the pending queue **before** any schema teardown,
+  and the queue table's shape stays migration-stable enough that a newer
+  client can always extract wire-format JSON from an older database
+  (`pending_ops(id, batch_id, ops_json)` — additive changes only).
 - Storage quota errors: if a mutation cannot be persisted to the replica
   (quota exhausted while offline), the editor must **reject further
   edits** (read-only state with an explicit reason) rather than appear to

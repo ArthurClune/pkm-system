@@ -45,3 +45,31 @@ it("shows an error state on 404", async () => {
   renderAt("/page/Nope");
   expect(await screen.findByText(/could not load/i)).toBeInTheDocument();
 });
+
+it("scrolls to and flashes the block named in the location hash (pkm-pzdu)", async () => {
+  const scrollIntoView = vi.fn();
+  window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [
+      block("uid_t0", "some other block"),
+      block("uid_t1", "target block"),
+    ])],
+  ]);
+  const { container } = renderAt("/page/Paper#uid_t1");
+  await screen.findByRole("heading", { name: "Paper" });
+  const row = container.querySelector('[data-uid="uid_t1"]');
+  expect(row).not.toBeNull();
+  expect(scrollIntoView).toHaveBeenCalled();
+  expect(row!.classList.contains("flash-target")).toBe(true);
+});
+
+it("a hash naming no block on the page is a no-op (pkm-pzdu)", async () => {
+  const scrollIntoView = vi.fn();
+  window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_t0", "only block")])],
+  ]);
+  renderAt("/page/Paper#uid_gone");
+  await screen.findByRole("heading", { name: "Paper" });
+  expect(scrollIntoView).not.toHaveBeenCalled();
+});

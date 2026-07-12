@@ -95,14 +95,21 @@ it("resolves ((block refs)) from every batch's block_ref_texts", async () => {
 });
 
 it("discards a stale in-flight load when a resync resets the journal", async () => {
-  // First /api/journal fetch is gated (held in flight); every later fetch
-  // resolves immediately with the fresh post-resync day.
+  // First /api/journal fetch is gated (held in flight); every later journal
+  // fetch resolves immediately with the fresh post-resync day. The cleanup
+  // POST is answered separately so it can't consume a journal response.
   let releaseStale!: (r: Response) => void;
   const gated = new Promise<Response>((res) => { releaseStale = res; });
-  const fetchMock = vi.fn()
-    .mockResolvedValueOnce(jsonResponse({ deleted: [] })) // cleanup POST
-    .mockReturnValueOnce(gated)
-    .mockResolvedValue(jsonResponse({ days: [day("2026-07-08", "Fresh day")] }));
+  let journalCalls = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    if (String(input) === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    journalCalls += 1;
+    return journalCalls === 1
+      ? gated
+      : Promise.resolve(jsonResponse({ days: [day("2026-07-08", "Fresh day")] }));
+  });
   vi.stubGlobal("fetch", fetchMock);
 
   const sync = makeSync();

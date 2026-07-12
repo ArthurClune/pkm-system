@@ -11,7 +11,12 @@ this machine — never point verification at it).
 
 ## Recipe
 
-1. Build the SPA: `cd web && pnpm build`
+1. Build the SPA — **only if your diff touches `web/`** (check:
+   `git diff --name-only main | grep '^web/'`): `cd web && pnpm build`.
+   For server-only changes, skip the build: the server serves `web/dist` as
+   static files and runs Python from source, so an existing dist built on this
+   branch is already current. Rebuilding "to be safe" is never needed — a
+   stale dist is only possible if `web/` changed since the last build.
 2. Scratch server config (data dir anywhere disposable):
 
    ```bash
@@ -38,6 +43,28 @@ this machine — never point verification at it).
      `eval 'el.setSelectionRange(...)'` or repeated Backspace instead.
    - App shortcuts implemented as JS listeners (e.g. Cmd-U for search) DO fire
      via `press "Meta+u"`.
+
+## Batch sessions: reuse, don't tear down
+
+When verifying several changes in one session, steps 2–3 run **once**; each
+subsequent check is reload-and-drive against the same environment:
+
+- Keep the scratch server and the agent-browser session alive between checks.
+  After a rebuild, a page reload picks up the new bundle — the server reads
+  `web/dist` from disk per request, no restart needed.
+- Content created by earlier checks is an asset (search/autolink tests need
+  something to find), not pollution. Recreate the data dir only when a change
+  touches DB schema/migrations or the test specifically needs an empty DB.
+- Kill the server and remove `$SCRATCH` once at the end of the batch.
+
+## Reading results
+
+- Text assertions ("the dialog opened", "the result contains X") → read the
+  DOM: `snapshot`, `get text`, or `eval '...innerText'`.
+- `screenshot` is for visual assertions — layout, styling, drag affordances —
+  where the pixels ARE the thing under test. One screenshot at the final
+  verified state usually suffices; don't screenshot intermediate steps that a
+  DOM read already confirms.
 
 ## Gotchas
 

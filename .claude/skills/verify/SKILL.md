@@ -42,7 +42,39 @@ this machine — never point verification at it).
      select-all in headless CDP — position the caret with
      `eval 'el.setSelectionRange(...)'` or repeated Backspace instead.
    - App shortcuts implemented as JS listeners (e.g. Cmd-U for search) DO fire
-     via `press "Meta+u"`.
+     via `press "Meta+u"`. Cmd-U is a toggle: it focuses the always-present
+     top-bar search input (there is no search modal); pressed again it
+     cancels and clears the query.
+
+## Known selectors
+
+Verified against the live app (2026-07-12). Drive the app with these —
+they make discovery snapshots unnecessary for all routine checks.
+
+| Surface | Element | Selector |
+|---|---|---|
+| Login | password input | `#pw` |
+| Login | submit button | `form button` |
+| Shell | sidebar container | `nav.left-nav` |
+| Shell | sidebar toggle | `button.sidebar-toggle-button` |
+| Journal | empty-day placeholder | `button.empty-page` |
+| Journal | block editor (while editing) | `textarea.block-input` |
+| Journal | rendered block | `div.block-text` |
+| Journal | day section / block row | `section.journal-day` / `div.block-row` |
+| Search | top-bar wrapper | `div.top-bar-search` |
+| Search | input | `input.top-bar-search-input` |
+| Search | results list | `ul.search-results` |
+| Search | result row | `li.search-result` (+ `.selected` on the active row) |
+
+- No `data-testid` attributes exist anywhere; these class names are literal
+  in `web/src` (not generated), so they're stable until someone renames them.
+- A `li.search-result` row may be the synthetic `Create page "…"` row, not a
+  hit; match highlighting is a `<mark>` inside `span.result-snippet`.
+- To blur a block editor (turn `textarea.block-input` into `div.block-text`),
+  focus another input — clicking static content doesn't reliably blur in
+  headless CDP.
+- If a selector here fails, the UI changed: re-derive it with a scoped
+  `snapshot -s <parent>` and update this table in the same commit.
 
 ## Batch sessions: reuse, don't tear down
 
@@ -59,8 +91,14 @@ subsequent check is reload-and-drive against the same environment:
 
 ## Reading results
 
-- Text assertions ("the dialog opened", "the result contains X") → read the
-  DOM: `snapshot`, `get text`, or `eval '...innerText'`.
+- Drive and assert with the known selectors above: `fill`/`click`/`press`
+  to act, `get text <sel>`, `is visible <sel>`, or
+  `eval 'document.querySelector("<sel>")?.innerText'` to check. Routine
+  checks need no snapshot at all.
+- `snapshot` is for discovering UI the selector table doesn't cover (a new
+  surface, an unexpected state). Scope it: `snapshot -s <sel>` for one
+  subtree, or `-i -c` (interactive-only, compact) for page-level orientation.
+  A bare full-page `snapshot` is a last resort, not a first look.
 - `screenshot` is for visual assertions — layout, styling, drag affordances —
   where the pixels ARE the thing under test. One screenshot at the final
   verified state usually suffices; don't screenshot intermediate steps that a

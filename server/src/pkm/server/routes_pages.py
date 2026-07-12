@@ -6,9 +6,10 @@ import sqlite3
 import time
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.backlinks import group_backlinks
 from pkm.server.daily import date_for_title, title_for_date
@@ -123,7 +124,7 @@ def get_block_refs(uids: str,
 
 
 @router.get("/api/page/{title:path}", response_model=PagePayload)
-def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
+def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 20,
              db: sqlite3.Connection = Depends(get_db)) -> dict:
     bl_limit = max(1, min(bl_limit, 100))
     page = fetch_page(db, title)
@@ -132,6 +133,7 @@ def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
             raise HTTPException(status_code=404, detail="page not found")
         page = get_or_create_page(db, title, int(time.time() * 1000))
         db.commit()
+        notify.nudge_threadpool(request, db)
     blocks = db.execute(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["id"],)).fetchall()
@@ -147,7 +149,7 @@ def get_page(title: str, bl_offset: int = 0, bl_limit: int = 20,
 
 
 @router.post("/api/pages", response_model=PageMeta)
-def create_page(body: CreatePageRequest,
+def create_page(request: Request, body: CreatePageRequest,
                 db: sqlite3.Connection = Depends(get_db)) -> dict:
     """Idempotent: creating an existing page returns its row, not an error."""
     title = body.title.strip()
@@ -155,11 +157,13 @@ def create_page(body: CreatePageRequest,
         raise HTTPException(status_code=422, detail="title must not be blank")
     page = get_or_create_page(db, title, int(time.time() * 1000))
     db.commit()
+    notify.nudge_threadpool(request, db)
     return dict(page)
 
 
 @router.delete("/api/page/{title:path}")
-def delete_page(title: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
+def delete_page(request: Request, title: str,
+                db: sqlite3.Connection = Depends(get_db)) -> dict:
     """Deletes the page, its blocks, and any sidebar entry for it. Inbound
     [[links]] from other pages' block text are left as-is -- only the refs
     rows pointing at this page disappear (via target_page_id CASCADE).
@@ -174,6 +178,7 @@ def delete_page(title: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
     db.execute("DELETE FROM pages WHERE id = ?", (page["id"],))
     db.execute("DELETE FROM sidebar_entries WHERE title = ?", (title,))
     db.commit()
+    notify.nudge_threadpool(request, db)
     return {"ok": True}
 
 
@@ -211,7 +216,7 @@ def get_unlinked(title: str, limit: int = 20, offset: int = 0,
 
 
 @router.get("/api/journal", response_model=JournalPayload)
-def get_journal(before: str | None = None, days: int = 7,
+def get_journal(request: Request, before: str | None = None, days: int = 7,
                 db: sqlite3.Connection = Depends(get_db)) -> dict:
     days = max(1, min(days, 31))
     if before:
@@ -230,6 +235,7 @@ def get_journal(before: str | None = None, days: int = 7,
         if page is None and d == date.today():
             page = get_or_create_page(db, title, int(time.time() * 1000))
             db.commit()
+            notify.nudge_threadpool(request, db)
         if page is None:
             out.append({"date": d.isoformat(), "title": title,
                         "exists": False, "blocks": []})

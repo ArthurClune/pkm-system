@@ -33,7 +33,12 @@ export function connectSocket(opts: {
       pingTimer = setInterval(() => ws?.send("ping"), PING_MS);
     };
     ws.onmessage = (ev: MessageEvent) => {
-      opts.onBatch(JSON.parse(String(ev.data)) as WsBatch);
+      const msg = JSON.parse(String(ev.data)) as unknown;
+      // Nudge frames ({type:"seq"}) arrive once the server ships the
+      // offline sync protocol (pkm-y8p0); the replica consumes them in a
+      // later phase. Only op batches are dispatched here.
+      if (!msg || !Array.isArray((msg as WsBatch).ops)) return;
+      opts.onBatch(msg as WsBatch);
     };
     ws.onclose = () => {
       if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }

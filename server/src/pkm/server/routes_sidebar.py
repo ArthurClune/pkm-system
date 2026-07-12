@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
+from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.response_models import SidebarNavPayload
@@ -31,7 +32,7 @@ def get_sidebar(db: sqlite3.Connection = Depends(get_db)) -> dict:
 
 
 @router.post("/api/sidebar")
-def add_sidebar_entry(body: AddSidebarEntryRequest,
+def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
                       db: sqlite3.Connection = Depends(get_db)) -> dict:
     title = body.title.strip()
     if not title:
@@ -45,22 +46,24 @@ def add_sidebar_entry(body: AddSidebarEntryRequest,
         "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
         (title, order_idx))
     db.commit()
+    notify.nudge_threadpool(request, db)
     return {"id": cur.lastrowid, "title": title}
 
 
 @router.delete("/api/sidebar/{entry_id}")
-def delete_sidebar_entry(entry_id: int,
+def delete_sidebar_entry(request: Request, entry_id: int,
                          db: sqlite3.Connection = Depends(get_db)) -> dict:
     cur = db.execute("DELETE FROM sidebar_entries WHERE id = ?", (entry_id,))
     if cur.rowcount == 0:
         db.rollback()
         raise HTTPException(status_code=404, detail="entry not found")
     db.commit()
+    notify.nudge_threadpool(request, db)
     return {"ok": True}
 
 
 @router.put("/api/sidebar")
-def reorder_sidebar_entries(body: ReorderSidebarEntriesRequest,
+def reorder_sidebar_entries(request: Request, body: ReorderSidebarEntriesRequest,
                             db: sqlite3.Connection = Depends(get_db)) -> dict:
     existing_ids = {r["id"] for r in
                     db.execute("SELECT id FROM sidebar_entries").fetchall()}
@@ -72,4 +75,5 @@ def reorder_sidebar_entries(body: ReorderSidebarEntriesRequest,
         "UPDATE sidebar_entries SET order_idx = ? WHERE id = ?",
         [(idx, entry_id) for idx, entry_id in enumerate(body.order)])
     db.commit()
+    notify.nudge_threadpool(request, db)
     return {"ok": True}

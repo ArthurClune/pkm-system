@@ -7,6 +7,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.ops_apply import apply_batch
@@ -32,4 +33,5 @@ async def post_ops(request: Request,
         "ts": now,
         "ops": broadcast_ops,
     })
+    await notify.nudge(request, db)
     return {"ok": True, "ts": now, "applied": len(batch.ops)}

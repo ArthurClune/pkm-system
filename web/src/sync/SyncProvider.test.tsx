@@ -78,6 +78,19 @@ test("dispatches remote batches to subscribers, filters own echoes", () => {
   expect(onBatch).toHaveBeenCalledWith(remote);
 });
 
+test("ignores non-batch frames (e.g. a seq nudge), still dispatches batches", () => {
+  const onBatch = vi.fn();
+  render(<SyncProvider><Probe onBatch={onBatch} /></SyncProvider>);
+  act(() => lastWs().open());
+  act(() => lastWs().message({ type: "seq", seq: 42 }));
+  expect(onBatch).not.toHaveBeenCalled();
+  const remote = { client_id: "someone-else", ts: 1,
+                   ops: [{ op: "delete", uid: "u1" }] };
+  act(() => lastWs().message(remote));
+  expect(onBatch).toHaveBeenCalledTimes(1);
+  expect(onBatch).toHaveBeenCalledWith(remote);
+});
+
 test("connects to /api/ws on the current host", () => {
   render(<SyncProvider><div /></SyncProvider>);
   expect(lastWs().url).toMatch(/^ws{1,2}:\/\/.+\/api\/ws$/);

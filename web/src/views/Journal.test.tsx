@@ -95,13 +95,21 @@ it("resolves ((block refs)) from every batch's block_ref_texts", async () => {
 });
 
 it("discards a stale in-flight load when a resync resets the journal", async () => {
-  // First /api/journal fetch is gated (held in flight); every later fetch
-  // resolves immediately with the fresh post-resync day.
+  // First /api/journal fetch is gated (held in flight); every later journal
+  // fetch resolves immediately with the fresh post-resync day. The cleanup
+  // POST is answered separately so it can't consume a journal response.
   let releaseStale!: (r: Response) => void;
   const gated = new Promise<Response>((res) => { releaseStale = res; });
-  const fetchMock = vi.fn()
-    .mockReturnValueOnce(gated)
-    .mockResolvedValue(jsonResponse({ days: [day("2026-07-08", "Fresh day")] }));
+  let journalCalls = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    if (String(input) === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    journalCalls += 1;
+    return journalCalls === 1
+      ? gated
+      : Promise.resolve(jsonResponse({ days: [day("2026-07-08", "Fresh day")] }));
+  });
   vi.stubGlobal("fetch", fetchMock);
 
   const sync = makeSync();
@@ -121,8 +129,11 @@ it("discards a stale in-flight load when a resync resets the journal", async () 
   });
   expect(screen.queryByText("Stale day")).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Fresh day" })).toBeInTheDocument();
-  // exactly two loads: the gated original and the resync reload
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  // exactly two journal loads: the gated original and the resync reload
+  // (the mount also fires one /api/journal/cleanup POST, excluded here)
+  const journalLoads = fetchMock.mock.calls.filter(
+    ([url]) => String(url).startsWith("/api/journal?"));
+  expect(journalLoads).toHaveLength(2);
 });
 
 it("stops auto-loading after 3 consecutive empty batches", async () => {
@@ -152,4 +163,17 @@ it("stops auto-loading after 3 consecutive empty batches", async () => {
   // three all-empty batches in a row -> sentinel replaced by a manual button
   expect(await screen.findByRole("button", { name: /load older days/i }))
     .toBeInTheDocument();
+});
+
+it("fires the empty-daily cleanup once on mount", async () => {
+  const fetchMock = stubFetch([
+    ["/api/journal/cleanup", { deleted: [] }],
+    ["/api/journal?days=5", { days: [day("2026-07-08", "July 8th, 2026")] }],
+  ]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  await screen.findByRole("link", { name: "July 8th, 2026" });
+
+  const cleanups = fetchMock.mock.calls.filter(
+    ([url]) => String(url) === "/api/journal/cleanup");
+  expect(cleanups).toEqual([["/api/journal/cleanup", { method: "POST" }]]);
 });

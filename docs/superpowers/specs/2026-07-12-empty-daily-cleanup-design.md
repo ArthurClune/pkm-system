@@ -72,14 +72,31 @@ failures are silent (next load retries).
 ## Concurrency and staleness
 
 - **Mount race:** the journal GET may return `exists: true` for a page the
-  cleanup deletes a moment later. Harmless — rendering is identical.
+  cleanup deletes a moment later. Rendering is identical, but see the
+  stale-block edit caveat below.
 - **Stale open view:** deletion does not broadcast a websocket batch and
   `resyncSeq` only bumps on reconnect, so a mounted Journal keeps stale
-  `exists` flags. Also harmless: if the user types into a day whose page
-  row was deleted, block-create ops carry `page_title` and the apply path
-  calls `get_or_create_page`, transparently recreating the page.
+  `exists` flags.
+  - Create ops still recreate the page transparently (typing into a day
+    rendered with NO blocks is safe).
+  - But if a stale view still shows a since-deleted blank block and the
+    user edits THAT block, the resulting non-create op fails the batch
+    (`OpError("block not found")` in `server/src/pkm/server/ops_core.py`
+    → `POST /api/ops` returns 400 → the web op queue treats 400 as a
+    desync, clearing the queue and refetching authoritative state) and
+    the typed text is lost. The window is narrow: a past-week daily whose
+    only blocks were blank, raced by a concurrent cleanup (mount race) or
+    deleted under a long-open view.
+  - This residual risk is accepted for now; follow-up bean pkm-ie73 tracks
+    notifying open clients (ws broadcast or sequencing), to be coordinated
+    with the offline-editing epic pkm-y8p0.
 - **Idempotence:** a second cleanup call finds nothing and returns
   `{"deleted": []}`.
+- **Timezone caveat:** both the journal endpoint and cleanup use
+  server-local `date.today()`; a client in a timezone behind the server
+  could see its local "today" fall inside the server's cleanup window —
+  inherent to the app's existing server-local-date convention, unchanged
+  by this feature.
 
 ## Testing
 

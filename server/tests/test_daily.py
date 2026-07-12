@@ -2,7 +2,8 @@ from datetime import date
 
 import pytest
 
-from pkm.server.daily import date_for_title, title_for_date
+from pkm.server.daily import (
+    date_for_title, is_page_empty, past_week_dates, title_for_date)
 
 CASES = [
     (date(2026, 7, 1), "July 1st, 2026"),
@@ -32,3 +33,25 @@ def test_roundtrip(d, title):
 ])
 def test_non_daily_titles(bad):
     assert date_for_title(bad) is None
+
+
+def test_past_week_dates_is_the_seven_days_before_today():
+    assert past_week_dates(date(2026, 7, 12)) == [
+        date(2026, 7, 11), date(2026, 7, 10), date(2026, 7, 9),
+        date(2026, 7, 8), date(2026, 7, 7), date(2026, 7, 6),
+        date(2026, 7, 5),
+    ]
+
+
+def test_past_week_dates_crosses_month_boundary():
+    assert past_week_dates(date(2026, 7, 3))[-1] == date(2026, 6, 26)
+
+
+@pytest.mark.parametrize("texts,empty", [
+    ([], True),
+    (["", "   ", "\t\n"], True),
+    (["hello"], False),
+    (["", "x", "  "], False),
+])
+def test_is_page_empty(texts, empty):
+    assert is_page_empty(texts) is empty

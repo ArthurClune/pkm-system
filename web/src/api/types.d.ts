@@ -110,10 +110,6 @@ export interface paths {
          * @description Deletes the page, its blocks, and any sidebar entry for it. Inbound
          *     [[links]] from other pages' block text are left as-is -- only the refs
          *     rows pointing at this page disappear (via target_page_id CASCADE).
-         *
-         *     Blocks are deleted explicitly (not left to the pages FK cascade) so the
-         *     blocks_fts_ad trigger fires for every row -- a direct DELETE guarantees
-         *     that; relying on cascade-triggered deletes to fire triggers is not safe.
          */
         delete: operations["delete_page_api_page__title__delete"];
         options?: never;
@@ -169,6 +165,31 @@ export interface paths {
         get: operations["get_journal_api_journal_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/journal/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cleanup Journal
+         * @description Deletes completely-empty daily pages from the 7 days before today
+         *     (today is spared: the journal auto-creates it for composing). Stateless:
+         *     every call re-checks the whole window, so a page emptied later by block
+         *     moves is caught on the next load. A page whose blank block is still
+         *     ((referenced)) from another page is spared -- deleting it would leave
+         *     the reference dangling.
+         */
+        post: operations["cleanup_journal_api_journal_cleanup_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -951,6 +972,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cleanup_journal_api_journal_cleanup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

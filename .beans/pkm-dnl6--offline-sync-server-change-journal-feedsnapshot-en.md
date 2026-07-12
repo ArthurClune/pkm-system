@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-12T17:38:13Z
-updated_at: 2026-07-12T17:52:57Z
+updated_at: 2026-07-12T17:56:07Z
 parent: pkm-y8p0
 ---
 
@@ -14,7 +14,7 @@ Spec build-order steps 1-2 (server protocol), implemented via docs/superpowers/p
 ## Execution checklist (plan tasks)
 
 - [x] Task 1: journal schema split + triggers + recursive_triggers pragma
-- [ ] Task 2: window dedupe core
+- [x] Task 2: window dedupe core
 - [ ] Task 3: /api/sync/changes + /api/sync/snapshot
 - [ ] Task 4: WS seq nudge on journaled commits
 - [ ] Task 5: idempotent op batches (batch_id)

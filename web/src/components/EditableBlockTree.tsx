@@ -123,6 +123,10 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  // The /upload file picker, and the caret offset the trigger was stripped at
+  // (where the asset markdown should be spliced once files are chosen).
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadAtRef = useRef(0);
   const navigate = useNavigate();
   // Whether the user has typed edits not yet committed to the block tree.
   // Focus alone is not a draft: while dirty, remote text still lands on the
@@ -223,6 +227,18 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
 
   const pick = (row: AcRow) => {
     if (!ac) return;
+    // "/upload": strip the trigger, then open a file picker. onPickUpload
+    // splices the uploaded asset's markdown in (via handlers.onFiles) once the
+    // user has chosen files.
+    if (row.command === "upload") {
+      const at = ac.start - 1; // where the "/" was
+      setAc(null);
+      setAcSelected(0);
+      setText(draft.slice(0, at) + draft.slice(caret), at);
+      uploadAtRef.current = at;
+      fileInputRef.current?.click();
+      return;
+    }
     const applied = row.command
       ? applySlashCommand(draft, caret, ac, row.command)
       : applyCompletion(draft, caret, ac, row.title);
@@ -352,6 +368,13 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     handlers.onFiles(node.uid, e.currentTarget.selectionStart, files);
   };
 
+  const onPickUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // let the same file be picked again later
+    if (files.length === 0 || readOnly) return;
+    handlers.onFiles(node.uid, uploadAtRef.current, files);
+  };
+
   const onCompositionStart = () => {
     composingRef.current = true;
   };
@@ -372,6 +395,13 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
                 onCompositionEnd={onCompositionEnd} />
       {!readOnly && (
         <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
+      )}
+      {!readOnly && (
+        <input ref={fileInputRef} type="file" multiple
+               className="upload-input" aria-label="Upload file"
+               accept={"image/*,application/pdf,text/plain,text/markdown,"
+                 + "text/csv,application/json,.doc,.docx,.xls,.xlsx,.ppt,.pptx"}
+               onChange={onPickUpload} />
       )}
     </div>
   );

@@ -125,3 +125,9 @@ describe("resolveHeading", () => {
     expect(resolveHeading("normal", 2)).toBeNull();
   });
 });
+
+describe("upload", () => {
+  test("upload is offered in the command menu (pkm-coz9)", () => {
+    expect(matchSlashCommands("up")).toEqual([{ name: "upload", label: "Upload file…" }]);
+  });
+});

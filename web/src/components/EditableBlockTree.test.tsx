@@ -490,3 +490,19 @@ test("typing [ twice opens the [[ page-link autocomplete (pkm-3sxw)", () => {
   fireEvent.keyDown(ta, { key: "[" }); // -> "[[]]" caret 2, ref popup opens
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[]]");
 });
+
+test("/upload strips the trigger and hands picked files to onFiles (pkm-coz9)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/upload" } });
+  ta.setSelectionRange(7, 7);
+  expect(screen.getByRole("option", { name: "Upload file…" })).toBeInTheDocument();
+  fireEvent.keyDown(ta, { key: "Enter" }); // pick /upload
+  expect(h.onSplit).not.toHaveBeenCalled(); // Enter consumed by the popup
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", ""); // trigger stripped
+  const input = screen.getByLabelText("Upload file") as HTMLInputElement;
+  const file = new File(["x"], "pic.png", { type: "image/png" });
+  fireEvent.change(input, { target: { files: [file] } });
+  expect(h.onFiles).toHaveBeenCalledWith("u1", 0, [file]);
+});

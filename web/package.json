@@ -7,8 +7,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest",
+    "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc",
     "e2e": "pnpm build && playwright test",
+    "verify": "pnpm typecheck && pnpm test:coverage && pnpm e2e",
     "gen-types": "openapi-typescript src/api/openapi.json -o src/api/types.d.ts"
   },
   "dependencies": {
@@ -26,6 +29,7 @@
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/coverage-v8": "3.2.7",
     "jsdom": "^26.1.0",
     "openapi-typescript": "^7.13.0",
     "typescript": "^5.9.3",

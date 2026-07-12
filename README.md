@@ -117,8 +117,10 @@ Other web scripts:
 
 ```bash
 pnpm test          # Vitest unit tests
+pnpm test:coverage # unit tests with enforced coverage thresholds
 pnpm typecheck     # tsc
 pnpm e2e           # build, then Playwright end-to-end tests
+pnpm verify        # typecheck + coverage + Playwright (standard verification)
 pnpm build         # production build to web/dist
 pnpm gen-types     # regenerate TS API types from the server's OpenAPI schema
 ```

@@ -129,3 +129,56 @@ class AssetUploadResponse(BaseModel):
     mime: str
     size: int
     url: str
+
+
+class SyncRef(BaseModel):
+    target_page_id: int
+    kind: str
+
+
+class SyncBlock(BaseModel):
+    uid: str
+    page_id: int
+    parent_uid: str | None
+    order_idx: int
+    text: str
+    heading: int | None
+    collapsed: int
+    created_at: int | None
+    updated_at: int | None
+    refs: list[SyncRef]
+
+
+class SyncPage(BaseModel):
+    id: int
+    title: str
+    created_at: int | None
+    updated_at: int | None
+
+
+class SyncSidebarEntry(BaseModel):
+    id: int
+    title: str
+    order_idx: int
+
+
+class SyncTombstone(BaseModel):
+    kind: str
+    entity_id: str
+
+
+class ChangesPayload(BaseModel):
+    reset: bool = False
+    next_since: int
+    latest_seq: int
+    pages: list[SyncPage]
+    blocks: list[SyncBlock]
+    sidebar: list[SyncSidebarEntry]
+    tombstones: list[SyncTombstone]
+
+
+class SnapshotPayload(BaseModel):
+    seq: int
+    pages: list[SyncPage]
+    blocks: list[SyncBlock]
+    sidebar: list[SyncSidebarEntry]

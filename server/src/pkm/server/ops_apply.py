@@ -3,17 +3,25 @@
 Runs inside the caller's transaction; never commits or rolls back."""
 from __future__ import annotations
 
+import secrets
 import sqlite3
+from datetime import date
 
 from pkm.refs import extract
-from pkm.server.ops_core import (BlockInfo, CreateOp, DeleteBlocks, DeleteOp,
-                                 Effect, InsertBlock, MoveOp, OpBatch,
-                                 OpContext, ReindexRefs, SetCollapsed,
+from pkm.server.daily import title_for_date
+from pkm.server.ops_core import (BlockInfo, CreateOp, CreatePageOp, DeleteBlocks,
+                                 DeleteOp, Effect, InsertBlock, MoveOp,
+                                 OpBatch, OpContext, ReindexRefs, SetCollapsed,
                                  SetHeading, SetPageId, SetParent,
-                                 ShiftSiblings, TouchPage, UpdateText, plan_op)
+                                 ShiftSiblings, TouchPage, UpdateText,
+                                 UpdateTextOp, plan_op)
 from pkm.server.store import get_or_create_page
 
 _DEPTH_CAP = 100
+
+
+def _new_uid() -> str:
+    return secrets.token_urlsafe(9)  # 12 chars of [A-Za-z0-9_-]: fits UID_RE
 
 
 def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
@@ -51,6 +59,9 @@ def _subtree_deepest_first(db: sqlite3.Connection,
 
 
 def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
+    if isinstance(op, CreatePageOp):
+        page = get_or_create_page(db, op.page_title, now_ms)
+        return OpContext(page_id=page["id"])
     block = _block_info(db, op.uid)
     if isinstance(op, CreateOp):
         page = get_or_create_page(db, op.page_title, now_ms)
@@ -67,6 +78,24 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     if isinstance(op, DeleteOp):
         return OpContext(block=block,
                          subtree=_subtree_deepest_first(db, op.uid))
+    if isinstance(op, UpdateTextOp) and op.base_text_hash is not None:
+        conflict_uid = _new_uid()
+        if block is None:
+            daily = get_or_create_page(
+                db, title_for_date(date.today()), now_ms)
+            idx = db.execute(
+                "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
+                " WHERE page_id = ? AND parent_uid IS NULL",
+                (daily["id"],)).fetchone()[0]
+            return OpContext(block=None, conflict_uid=conflict_uid,
+                             daily_page_id=daily["id"],
+                             daily_append_idx=idx)
+        row = db.execute(
+            "SELECT text, order_idx FROM blocks WHERE uid = ?",
+            (op.uid,)).fetchone()
+        return OpContext(block=block, current_text=row["text"],
+                         order_idx=row["order_idx"],
+                         conflict_uid=conflict_uid)
     return OpContext(block=block)
 
 

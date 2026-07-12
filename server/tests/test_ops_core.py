@@ -7,7 +7,7 @@ from pkm.server.ops_core import (BlockInfo, CreateOp, DeleteBlocks,
                                  SetCollapsed, SetCollapsedOp, SetHeading,
                                  SetHeadingOp, SetPageId, SetParent,
                                  ShiftSiblings, TouchPage, UpdateText,
-                                 UpdateTextOp, plan_op)
+                                 UpdateTextOp, plan_op, text_hash)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 
@@ -186,3 +186,57 @@ def test_move_cycle_check_still_applies_cross_page():
                     parent_chain=("u_parent",), subtree=("u_parent",))
     with pytest.raises(OpError, match="cycle"):
         plan_op(0, op, ctx)
+
+
+_BLK = BlockInfo("uid_t1", page_id=1, parent_uid=None)
+
+
+def _ctx(current="old text", order=2):
+    return OpContext(block=_BLK, current_text=current, order_idx=order,
+                     conflict_uid="uid_cf1")
+
+
+def _op(text="new text", base="old text"):
+    return UpdateTextOp(op="update_text", uid="uid_t1", text=text,
+                        base_text_hash=text_hash(base))
+
+
+def test_check_1_missing_block_lands_on_daily_page():
+    ctx = OpContext(block=None, conflict_uid="uid_cf1",
+                    daily_page_id=9, daily_append_idx=4)
+    effs = plan_op(0, _op(), ctx)
+    ins = next(e for e in effs if isinstance(e, InsertBlock))
+    assert ins.page_id == 9 and ins.order_idx == 4 and ins.parent_uid is None
+    assert ins.text == "[[conflict]] (original block deleted) new text"
+
+
+def test_check_2_identical_text_is_noop_even_with_stale_hash():
+    # device 2 pushes the same text device 1 already synced: base hash is
+    # stale but the content matches -- never a conflict (spec section 2)
+    effs = plan_op(0, _op(text="same", base="anything else"),
+                   _ctx(current="same"))
+    assert effs == ()
+
+
+def test_check_3_absent_hash_applies_as_today():
+    op = UpdateTextOp(op="update_text", uid="uid_t1", text="new")
+    effs = plan_op(0, op, OpContext(block=_BLK))
+    assert any(isinstance(e, UpdateText) for e in effs)
+    assert not any(isinstance(e, InsertBlock) for e in effs)
+
+
+def test_check_4_matching_hash_applies_without_conflict():
+    effs = plan_op(0, _op(), _ctx())
+    assert any(isinstance(e, UpdateText) for e in effs)
+    assert not any(isinstance(e, InsertBlock) for e in effs)
+
+
+def test_check_5_stale_hash_wins_and_preserves_loser_as_sibling():
+    effs = plan_op(0, _op(base="what I saw before going offline"),
+                   _ctx(current="server text meanwhile"))
+    upd = next(e for e in effs if isinstance(e, UpdateText))
+    assert upd.text == "new text"  # incoming wins (LWW)
+    shift = next(e for e in effs if isinstance(e, ShiftSiblings))
+    ins = next(e for e in effs if isinstance(e, InsertBlock))
+    assert shift.from_idx == 3 and ins.order_idx == 3  # right after target
+    assert ins.text == "[[conflict]] server text meanwhile"

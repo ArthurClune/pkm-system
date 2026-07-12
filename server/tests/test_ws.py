@@ -101,3 +101,42 @@ def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
     asyncio.run(hub.broadcast({"ok": 1}))
     assert good.sent == [{"ok": 1}]
     assert hub._conns == {good}
+
+
+def _frames_until_seq(ws, tries=5):
+    frames = []
+    for _ in range(tries):
+        frames.append(ws.receive_json())
+        if frames[-1].get("type") == "seq":
+            return frames
+    raise AssertionError(f"no seq nudge in {frames}")
+
+
+def test_ops_commit_emits_seq_nudge_after_batch_frame(client):
+    with client.websocket_connect("/api/ws") as ws:
+        r = client.post("/api/ops", json={
+            "client_id": "n1",
+            "ops": [{"op": "update_text", "uid": "uid_b1", "text": "x"}]})
+        assert r.status_code == 200
+        frames = _frames_until_seq(ws)
+        assert frames[-1]["seq"] > 0
+
+
+def test_non_op_write_paths_emit_seq_nudge(client):
+    # sidebar write and page create commit outside /api/ops -- the exact
+    # paths the spec calls out as silent today
+    with client.websocket_connect("/api/ws") as ws:
+        assert client.post("/api/sidebar",
+                           json={"title": "AI"}).status_code == 200
+        assert _frames_until_seq(ws)[-1]["type"] == "seq"
+    with client.websocket_connect("/api/ws") as ws:
+        assert client.post("/api/pages",
+                           json={"title": "Nudge Page"}).status_code == 200
+        assert _frames_until_seq(ws)[-1]["type"] == "seq"
+
+
+def test_daily_autocreate_on_get_emits_seq_nudge(client):
+    with client.websocket_connect("/api/ws") as ws:
+        r = client.get("/api/page/July%2013th,%202026")
+        assert r.status_code == 200
+        assert _frames_until_seq(ws)[-1]["type"] == "seq"

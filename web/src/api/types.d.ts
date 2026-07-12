@@ -286,6 +286,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sync/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sync Changes */
+        get: operations["sync_changes_api_sync_changes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sync/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sync Snapshot */
+        get: operations["sync_snapshot_api_sync_snapshot_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assets/{sha256}/{filename}": {
         parameters: {
             query?: never;
@@ -438,6 +472,26 @@ export interface components {
             /** File */
             file: string;
         };
+        /** ChangesPayload */
+        ChangesPayload: {
+            /**
+             * Reset
+             * @default false
+             */
+            reset: boolean;
+            /** Next Since */
+            next_since: number;
+            /** Latest Seq */
+            latest_seq: number;
+            /** Pages */
+            pages: components["schemas"]["SyncPage"][];
+            /** Blocks */
+            blocks: components["schemas"]["SyncBlock"][];
+            /** Sidebar */
+            sidebar: components["schemas"]["SyncSidebarEntry"][];
+            /** Tombstones */
+            tombstones: components["schemas"]["SyncTombstone"][];
+        };
         /** CreateOp */
         CreateOp: {
             /**
@@ -457,6 +511,21 @@ export interface components {
             text: string;
             /** Heading */
             heading?: number | null;
+        };
+        /**
+         * CreatePageOp
+         * @description Durable push path for offline page creation (spec section 1): an
+         *     empty page created offline has no block op to carry its title, so page
+         *     creation is itself an op -- get_or_create semantics, safely replayable.
+         */
+        CreatePageOp: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "create_page";
+            /** Page Title */
+            page_title: string;
         };
         /** CreatePageRequest */
         CreatePageRequest: {
@@ -540,8 +609,10 @@ export interface components {
         OpBatch: {
             /** Client Id */
             client_id: string;
+            /** Batch Id */
+            batch_id?: string | null;
             /** Ops */
-            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"])[];
+            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["CreatePageOp"])[];
         };
         /** PageMeta */
         PageMeta: {
@@ -629,6 +700,74 @@ export interface components {
             /** Entries */
             entries: components["schemas"]["SidebarNavEntry"][];
         };
+        /** SnapshotPayload */
+        SnapshotPayload: {
+            /** Seq */
+            seq: number;
+            /** Pages */
+            pages: components["schemas"]["SyncPage"][];
+            /** Blocks */
+            blocks: components["schemas"]["SyncBlock"][];
+            /** Sidebar */
+            sidebar: components["schemas"]["SyncSidebarEntry"][];
+        };
+        /** SyncBlock */
+        SyncBlock: {
+            /** Uid */
+            uid: string;
+            /** Page Id */
+            page_id: number;
+            /** Parent Uid */
+            parent_uid: string | null;
+            /** Order Idx */
+            order_idx: number;
+            /** Text */
+            text: string;
+            /** Heading */
+            heading: number | null;
+            /** Collapsed */
+            collapsed: number;
+            /** Created At */
+            created_at: number | null;
+            /** Updated At */
+            updated_at: number | null;
+            /** Refs */
+            refs: components["schemas"]["SyncRef"][];
+        };
+        /** SyncPage */
+        SyncPage: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Created At */
+            created_at: number | null;
+            /** Updated At */
+            updated_at: number | null;
+        };
+        /** SyncRef */
+        SyncRef: {
+            /** Target Page Id */
+            target_page_id: number;
+            /** Kind */
+            kind: string;
+        };
+        /** SyncSidebarEntry */
+        SyncSidebarEntry: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Order Idx */
+            order_idx: number;
+        };
+        /** SyncTombstone */
+        SyncTombstone: {
+            /** Kind */
+            kind: string;
+            /** Entity Id */
+            entity_id: string;
+        };
         /** TitlesPayload */
         TitlesPayload: {
             /** Titles */
@@ -645,6 +784,8 @@ export interface components {
             uid: string;
             /** Text */
             text: string;
+            /** Base Text Hash */
+            base_text_hash?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1214,6 +1355,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_changes_api_sync_changes_get: {
+        parameters: {
+            query?: {
+                since?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangesPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_snapshot_api_sync_snapshot_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotPayload"];
                 };
             };
         };

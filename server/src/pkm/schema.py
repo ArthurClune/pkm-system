@@ -10,9 +10,13 @@ server/db.py's init_db() at process startup so an empty data dir (no
 import ever run) still gets working tables (pkm-cqu2). There is no
 migration runner in this project -- any future column/table addition
 needs to be its own idempotent statement appended here so init_db() picks
-it up on existing (already-populated) databases with no manual step."""
+it up on existing (already-populated) databases with no manual step.
 
-DDL = """
+BASE_DDL contains the client-facing schema (replicated to all clients).
+SERVER_DDL contains server-only tables and triggers (change journal, batch
+idempotency) that must not be installed on clients (pkm-y8p0)."""
+
+BASE_DDL = """
 CREATE TABLE IF NOT EXISTS pages(
   id          INTEGER PRIMARY KEY,
   title       TEXT NOT NULL UNIQUE,
@@ -82,11 +86,11 @@ END;
 """
 
 # Added after the tables above shipped; kept as its own statement (rather
-# than folded into DDL's initial CREATE block) as a record of schema
-# history, but it is just as idempotent and is executed as part of DDL
-# below -- init_db() runs the whole of DDL, not this alone, so both a
-# fresh data dir and a pre-pkm-lhzd already-populated database converge
-# on the same schema.
+# than folded into BASE_DDL's initial CREATE block) as a record of schema
+# history, but it is just as idempotent and is executed as part of BASE_DDL
+# below -- init_db() runs the whole of DDL (BASE_DDL + SERVER_DDL), not this
+# alone, so both a fresh data dir and a pre-pkm-lhzd already-populated
+# database converge on the same schema.
 SIDEBAR_ENTRIES_DDL = """
 CREATE TABLE IF NOT EXISTS sidebar_entries(
   id         INTEGER PRIMARY KEY,
@@ -95,4 +99,68 @@ CREATE TABLE IF NOT EXISTS sidebar_entries(
 );
 """
 
-DDL += SIDEBAR_ENTRIES_DDL
+BASE_DDL += SIDEBAR_ENTRIES_DDL
+
+# Server-only DDL: the change journal (offline sync, pkm-y8p0) and batch
+# idempotency records. Deliberately NOT part of BASE_DDL: the client
+# replica is built from BASE_DDL alone -- installing these triggers there
+# would grow an unused local journal on every upsert (spec section 3).
+#
+# Journal rows come from row-level triggers, not per-route code: a single
+# op touches many rows beyond its target (sibling shifts, subtree moves,
+# cascade deletes, implicit page creation), and triggers capture every
+# affected row on every write path, current and future. Cascade deletes
+# fire these triggers only when PRAGMA recursive_triggers=ON (db.py).
+SERVER_DDL = """
+CREATE TABLE IF NOT EXISTS changes(
+  seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL CHECK(kind IN ('block','page','sidebar')),
+  entity_id  TEXT NOT NULL,
+  deleted    INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TRIGGER IF NOT EXISTS blocks_chg_ai AFTER INSERT ON blocks BEGIN
+  INSERT INTO changes(kind, entity_id, deleted) VALUES ('block', new.uid, 0);
+END;
+CREATE TRIGGER IF NOT EXISTS blocks_chg_au AFTER UPDATE ON blocks BEGIN
+  INSERT INTO changes(kind, entity_id, deleted) VALUES ('block', new.uid, 0);
+END;
+CREATE TRIGGER IF NOT EXISTS blocks_chg_ad AFTER DELETE ON blocks BEGIN
+  INSERT INTO changes(kind, entity_id, deleted) VALUES ('block', old.uid, 1);
+END;
+
+CREATE TRIGGER IF NOT EXISTS pages_chg_ai AFTER INSERT ON pages BEGIN
+  INSERT INTO changes(kind, entity_id, deleted)
+  VALUES ('page', CAST(new.id AS TEXT), 0);
+END;
+CREATE TRIGGER IF NOT EXISTS pages_chg_au AFTER UPDATE ON pages BEGIN
+  INSERT INTO changes(kind, entity_id, deleted)
+  VALUES ('page', CAST(new.id AS TEXT), 0);
+END;
+CREATE TRIGGER IF NOT EXISTS pages_chg_ad AFTER DELETE ON pages BEGIN
+  INSERT INTO changes(kind, entity_id, deleted)
+  VALUES ('page', CAST(old.id AS TEXT), 1);
+END;
+
+CREATE TRIGGER IF NOT EXISTS sidebar_chg_ai AFTER INSERT ON sidebar_entries BEGIN
+  INSERT INTO changes(kind, entity_id, deleted)
+  VALUES ('sidebar', CAST(new.id AS TEXT), 0);
+END;
+CREATE TRIGGER IF NOT EXISTS sidebar_chg_au AFTER UPDATE ON sidebar_entries BEGIN
+  INSERT INTO changes(kind, entity_id, deleted)
+  VALUES ('sidebar', CAST(new.id AS TEXT), 0);
+END;
+CREATE TRIGGER IF NOT EXISTS sidebar_chg_ad AFTER DELETE ON sidebar_entries BEGIN
+  INSERT INTO changes(kind, entity_id, deleted)
+  VALUES ('sidebar', CAST(old.id AS TEXT), 1);
+END;
+
+CREATE TABLE IF NOT EXISTS applied_batches(
+  batch_id     TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL,
+  response     TEXT NOT NULL,
+  applied_at   INTEGER NOT NULL
+);
+"""
+
+DDL = BASE_DDL + SERVER_DDL

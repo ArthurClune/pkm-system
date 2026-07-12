@@ -732,6 +732,74 @@
         }
       }
     },
+    "/api/sync/changes": {
+      "get": {
+        "summary": "Sync Changes",
+        "operationId": "sync_changes_api_sync_changes_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Since"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sync/snapshot": {
+      "get": {
+        "summary": "Sync Snapshot",
+        "operationId": "sync_snapshot_api_sync_snapshot_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotPayload"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/assets/{sha256}/{filename}": {
       "get": {
         "summary": "Get Asset",
@@ -1116,6 +1184,61 @@
         ],
         "title": "Body_upload_asset_api_assets_post"
       },
+      "ChangesPayload": {
+        "properties": {
+          "reset": {
+            "type": "boolean",
+            "title": "Reset",
+            "default": false
+          },
+          "next_since": {
+            "type": "integer",
+            "title": "Next Since"
+          },
+          "latest_seq": {
+            "type": "integer",
+            "title": "Latest Seq"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/SyncPage"
+            },
+            "type": "array",
+            "title": "Pages"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/SyncBlock"
+            },
+            "type": "array",
+            "title": "Blocks"
+          },
+          "sidebar": {
+            "items": {
+              "$ref": "#/components/schemas/SyncSidebarEntry"
+            },
+            "type": "array",
+            "title": "Sidebar"
+          },
+          "tombstones": {
+            "items": {
+              "$ref": "#/components/schemas/SyncTombstone"
+            },
+            "type": "array",
+            "title": "Tombstones"
+          }
+        },
+        "type": "object",
+        "required": [
+          "next_since",
+          "latest_seq",
+          "pages",
+          "blocks",
+          "sidebar",
+          "tombstones"
+        ],
+        "title": "ChangesPayload"
+      },
       "CreateOp": {
         "properties": {
           "op": {
@@ -1174,6 +1297,27 @@
           "text"
         ],
         "title": "CreateOp"
+      },
+      "CreatePageOp": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "const": "create_page",
+            "title": "Op"
+          },
+          "page_title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Page Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "op",
+          "page_title"
+        ],
+        "title": "CreatePageOp",
+        "description": "Durable push path for offline page creation (spec section 1): an\nempty page created offline has no block op to carry its title, so page\ncreation is itself an op -- get_or_create semantics, safely replayable."
       },
       "CreatePageRequest": {
         "properties": {
@@ -1385,6 +1529,19 @@
             "minLength": 1,
             "title": "Client Id"
           },
+          "batch_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "ops": {
             "items": {
               "oneOf": [
@@ -1405,12 +1562,16 @@
                 },
                 {
                   "$ref": "#/components/schemas/SetHeadingOp"
+                },
+                {
+                  "$ref": "#/components/schemas/CreatePageOp"
                 }
               ],
               "discriminator": {
                 "propertyName": "op",
                 "mapping": {
                   "create": "#/components/schemas/CreateOp",
+                  "create_page": "#/components/schemas/CreatePageOp",
                   "delete": "#/components/schemas/DeleteOp",
                   "move": "#/components/schemas/MoveOp",
                   "set_collapsed": "#/components/schemas/SetCollapsedOp",
@@ -1677,6 +1838,233 @@
         ],
         "title": "SidebarNavPayload"
       },
+      "SnapshotPayload": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/SyncPage"
+            },
+            "type": "array",
+            "title": "Pages"
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/SyncBlock"
+            },
+            "type": "array",
+            "title": "Blocks"
+          },
+          "sidebar": {
+            "items": {
+              "$ref": "#/components/schemas/SyncSidebarEntry"
+            },
+            "type": "array",
+            "title": "Sidebar"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "pages",
+          "blocks",
+          "sidebar"
+        ],
+        "title": "SnapshotPayload"
+      },
+      "SyncBlock": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "page_id": {
+            "type": "integer",
+            "title": "Page Id"
+          },
+          "parent_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Uid"
+          },
+          "order_idx": {
+            "type": "integer",
+            "title": "Order Idx"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          },
+          "collapsed": {
+            "type": "integer",
+            "title": "Collapsed"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "refs": {
+            "items": {
+              "$ref": "#/components/schemas/SyncRef"
+            },
+            "type": "array",
+            "title": "Refs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "page_id",
+          "parent_uid",
+          "order_idx",
+          "text",
+          "heading",
+          "collapsed",
+          "created_at",
+          "updated_at",
+          "refs"
+        ],
+        "title": "SyncBlock"
+      },
+      "SyncPage": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SyncPage"
+      },
+      "SyncRef": {
+        "properties": {
+          "target_page_id": {
+            "type": "integer",
+            "title": "Target Page Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target_page_id",
+          "kind"
+        ],
+        "title": "SyncRef"
+      },
+      "SyncSidebarEntry": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "order_idx": {
+            "type": "integer",
+            "title": "Order Idx"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "order_idx"
+        ],
+        "title": "SyncSidebarEntry"
+      },
+      "SyncTombstone": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "entity_id": {
+            "type": "string",
+            "title": "Entity Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "entity_id"
+        ],
+        "title": "SyncTombstone"
+      },
       "TitlesPayload": {
         "properties": {
           "titles": {
@@ -1707,6 +2095,19 @@
           "text": {
             "type": "string",
             "title": "Text"
+          },
+          "base_text_hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Text Hash"
           }
         },
         "type": "object",

@@ -9,9 +9,10 @@ export type MoveOp = components["schemas"]["MoveOp"];
 export type DeleteOp = components["schemas"]["DeleteOp"];
 export type SetCollapsedOp = components["schemas"]["SetCollapsedOp"];
 export type SetHeadingOp = components["schemas"]["SetHeadingOp"];
+export type CreatePageOp = components["schemas"]["CreatePageOp"];
 
 export type BlockOp =
   | CreateOp | UpdateTextOp | MoveOp | DeleteOp | SetCollapsedOp
-  | SetHeadingOp;
+  | SetHeadingOp | CreatePageOp;
 
 export type OpBatch = components["schemas"]["OpBatch"];

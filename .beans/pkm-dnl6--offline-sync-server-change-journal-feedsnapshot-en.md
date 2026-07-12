@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-12T17:38:13Z
-updated_at: 2026-07-12T18:33:56Z
+updated_at: 2026-07-12T18:38:43Z
 parent: pkm-y8p0
 ---
 
@@ -20,4 +20,4 @@ Spec build-order steps 1-2 (server protocol), implemented via docs/superpowers/p
 - [x] Task 5: idempotent op batches (batch_id)
 - [x] Task 6: create_page op
 - [x] Task 7: base_text_hash conflict handling
-- [ ] Task 8: regenerate API artifacts + full verification
+- [x] Task 8: regenerate API artifacts + full verification

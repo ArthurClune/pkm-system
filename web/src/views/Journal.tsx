@@ -61,6 +61,14 @@ export function Journal() {
   useEffect(() => { void loadMore(); }, [loadMore]);
   useEffect(() => { document.title = "Daily Notes — pkm"; }, []);
 
+  // Fire-and-forget: prune empty daily pages from the past week (pkm-c3kz).
+  // Failures are silent; the next Journal load retries. Runs after the
+  // loadMore effect above, so the journal GET is always the first fetch.
+  useEffect(() => {
+    void apiFetch("/api/journal/cleanup", { method: "POST" })
+      .catch(() => {});
+  }, []);
+
   const reset = useCallback(() => {
     // Invalidate any in-flight loadMore so its stale response can't clobber
     // the authoritative refetch, and release its lock so we can start now.

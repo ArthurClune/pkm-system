@@ -53,6 +53,11 @@ class BlockRefText(BaseModel):
     page_title: str
 
 
+class BlockRefsPayload(BaseModel):
+    """GET /api/block-refs: on-demand ((uid)) resolution."""
+    block_ref_texts: dict[str, BlockRefText]
+
+
 class PagePayload(BaseModel):
     page: PageMeta
     blocks: list[BlockNode]

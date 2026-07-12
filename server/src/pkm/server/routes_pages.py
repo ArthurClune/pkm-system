@@ -14,8 +14,9 @@ from pkm.server.backlinks import group_backlinks
 from pkm.server.daily import date_for_title, title_for_date
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
+from pkm.server.ops_core import UID_RE as _UID_RE
 from pkm.server.response_models import (
-    GroupsPayload, JournalPayload, PageMeta, PagePayload)
+    BlockRefsPayload, GroupsPayload, JournalPayload, PageMeta, PagePayload)
 from pkm.server.store import fetch_page, get_or_create_page
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
@@ -30,12 +31,16 @@ class CreatePageRequest(BaseModel):
 
 
 def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
+    return _resolve_ref_uids(db, collect_block_ref_uids(texts))
+
+
+def _resolve_ref_uids(db: sqlite3.Connection, uids: list[str]) -> dict:
     """Resolve ((refs)) transitively: a referenced block's text may itself
     contain ((refs)) the client renders nested, so follow the chain. The
     seen set makes cycles (and repeated missing uids) terminate."""
     out: dict = {}
     seen: set[str] = set()
-    pending = collect_block_ref_uids(texts)
+    pending = uids
     while True:
         new = [u for u in pending if u not in seen]
         if not new:
@@ -99,6 +104,22 @@ def _backlinks(db: sqlite3.Connection, page_id: int,
     ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
     return (group_backlinks(rows, ancestors), total,
             [r["text"] for r in rows])
+
+
+@router.get("/api/block-refs", response_model=BlockRefsPayload)
+def get_block_refs(uids: str,
+                   db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """On-demand ((uid)) resolution for refs pasted after the page payload
+    loaded (pkm-y6af). `uids` is comma-separated; unknown uids are omitted
+    (the client renders them unresolved, same as the payload path)."""
+    wanted = [u for u in uids.split(",") if u]
+    if len(wanted) > 50:
+        raise HTTPException(status_code=422, detail="too many uids")
+    for uid in wanted:
+        if not _UID_RE.fullmatch(uid):
+            raise HTTPException(status_code=422,
+                                detail=f"malformed uid: {uid!r}")
+    return {"block_ref_texts": _resolve_ref_uids(db, wanted)}
 
 
 @router.get("/api/page/{title:path}", response_model=PagePayload)

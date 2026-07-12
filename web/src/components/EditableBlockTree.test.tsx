@@ -580,3 +580,55 @@ test("Cmd-C copies the selected blocks' text in document order (pkm-9b8n)", () =
   fireEvent.keyDown(tree, { key: "c", metaKey: true });
   expect(writeText).toHaveBeenCalledWith("hello [[World]]\n{{[[TODO]]}} task");
 });
+
+// --- bullet context menu: Copy block reference (pkm-y6af) ---
+
+function bullet(container: HTMLElement, uid: string): Element {
+  const el = container.querySelector(`[data-uid="${uid}"] .bullet`);
+  expect(el).not.toBeNull();
+  return el as Element;
+}
+
+test("clicking a bullet opens the block menu (pkm-y6af)", () => {
+  const { container } = mount(handlers(), null);
+  fireEvent.click(bullet(container, "u1"));
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
+    .toBeInTheDocument();
+});
+
+test("right-clicking a bullet opens the block menu (pkm-y6af)", () => {
+  const { container } = mount(handlers(), null);
+  fireEvent.contextMenu(bullet(container, "u2"));
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+});
+
+test("Copy block reference writes ((uid)) and closes the menu (pkm-y6af)", () => {
+  const writeText = vi.fn();
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText }, configurable: true,
+  });
+  const { container } = mount(handlers(), null);
+  fireEvent.click(bullet(container, "u1"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Copy block reference" }));
+  expect(writeText).toHaveBeenCalledWith("((u1))");
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("Escape and click-away close the block menu (pkm-y6af)", () => {
+  const { container } = mount(handlers(), null);
+  fireEvent.click(bullet(container, "u1"));
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  fireEvent.click(bullet(container, "u2"));
+  fireEvent.mouseDown(document.body);
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("the block menu also opens in read-only mode (pkm-y6af)", () => {
+  // copying a ref is read-only-safe, same as multi-block copy
+  const { container } = mount(handlers(), null, true);
+  fireEvent.click(bullet(container, "u1"));
+  expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
+    .toBeInTheDocument();
+});

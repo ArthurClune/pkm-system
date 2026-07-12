@@ -13,6 +13,7 @@ export type BacklinkItem = Schemas["BacklinkItem"];
 export type BacklinkGroup = Schemas["BacklinkGroup"];
 export type Backlinks = Schemas["Backlinks"];
 export type BlockRefText = Schemas["BlockRefText"];
+export type BlockRefsPayload = Schemas["BlockRefsPayload"];
 export type PagePayload = Schemas["PagePayload"];
 
 /** Shared by /api/unlinked and /api/query (both return {groups, total}). */

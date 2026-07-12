@@ -96,7 +96,7 @@ export function EditablePage({ title, initial, composer = false }: {
         </div>
       ) : (
         <EditableBlockTree blocks={outline.blocks} focus={outline.focus}
-                           handlers={handlers}
+                           selection={outline.selection} handlers={handlers}
                            readOnly={outline.readOnly} />
       )}
       {indicator && (

@@ -413,6 +413,10 @@ mark.highlight { background: var(--color-highlight-bg); }
   line-height: inherit; background: transparent; border: none; outline: none;
   resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
 .block-row.focused { background: var(--color-focus-bg); }
+/* Multi-block selection (Shift+Arrow) highlight. The tree container takes focus
+ * to own the keyboard while selecting, but shouldn't show its own outline. */
+.block-row.selected { background: var(--color-selection-bg); }
+.block-tree:focus { outline: none; }
 .block-text { cursor: text; min-height: 1.5em; }
 
 /* --- plan 5: autocomplete --- */

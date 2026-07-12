@@ -15,7 +15,9 @@ function handlers(): OutlineHandlers {
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveUp: vi.fn(), onMoveDown: vi.fn(), onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
-    onToggleTodo: vi.fn(), onFiles: vi.fn(), onDragStartBlock: vi.fn(),
+    onToggleTodo: vi.fn(), onFiles: vi.fn(),
+    onStartBlockSelection: vi.fn(), onExtendBlockSelection: vi.fn(),
+    onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
   };
 }
 

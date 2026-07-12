@@ -18,12 +18,14 @@ import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
          type EditResult, type FocusTarget } from "./edits";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
+import { extendSelection, type BlockSelection } from "./blockSelection";
 
 const TEXT_DEBOUNCE_MS = 500;
 
 export interface Outline {
   blocks: BlockNode[];
   focus: FocusTarget | null;
+  selection: BlockSelection | null;
   readOnly: boolean;
   handlers: OutlineHandlers;
   dnd: OutlineDndApi;
@@ -35,6 +37,9 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   const sync = useSync();
   const [blocks, setBlocks] = useState(initial);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
+  // A live multi-block selection (Shift+Arrow), mutually exclusive with an
+  // editing focus: starting one blurs the textarea, focusing a block clears it.
+  const [selection, setSelection] = useState<BlockSelection | null>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
   const pendingRef = useRef<{ uid: string; text: string } | null>(null);
@@ -133,7 +138,10 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   }), [sync, pageTitle, refetch]);
 
   const handlers = useMemo<OutlineHandlers>(() => ({
-    onFocusBlock: (uid, cursor) => setFocus({ uid, cursor }),
+    onFocusBlock: (uid, cursor) => {
+      setSelection(null); // focusing a block to edit ends any block selection
+      setFocus({ uid, cursor });
+    },
     onBlurBlock: (uid) => {
       flushNow();
       // Only clear if this block still owns focus — a structural op may
@@ -198,6 +206,18 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
         });
       })();
     },
+    // Multi-block selection (Shift+Arrow). Starting one flushes the current
+    // draft and blurs the textarea (focus → null) so the whole run renders
+    // read-only while selected.
+    onStartBlockSelection: (uid, dir) => {
+      flushNow();
+      const head = visibleNeighbor(blocksRef.current, uid, dir) ?? uid;
+      setFocus(null);
+      setSelection({ anchor: uid, head });
+    },
+    onExtendBlockSelection: (dir) =>
+      setSelection((s) => (s ? extendSelection(blocksRef.current, s, dir) : s)),
+    onClearBlockSelection: () => setSelection(null),
     // overridden by EditablePage (which knows the drag-source page title);
     // kept here only so this object satisfies OutlineHandlers on its own.
     onDragStartBlock: () => undefined,
@@ -251,6 +271,7 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   return {
     blocks,
     focus,
+    selection,
     readOnly: sync.status !== "connected",
     handlers,
     dnd,

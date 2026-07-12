@@ -13,6 +13,8 @@ import { applyCompletion, detectAutocomplete,
          type AcContext } from "../outline/autocomplete";
 import { autoPairBracket, wrapLink, BRACKET_CHARS,
          type TextSelection } from "../outline/keyEdits";
+import { selectedUids, selectionText,
+         type BlockSelection } from "../outline/blockSelection";
 import { refTitleAtCaret } from "../outline/refAtCaret";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
@@ -39,32 +41,74 @@ export interface OutlineHandlers {
   onSetHeading(uid: string, heading: number | null): void;
   onToggleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
+  /** Begin a multi-block selection from `uid` towards `dir` (Shift+Arrow at a
+   * block edge); the current block is included. */
+  onStartBlockSelection(uid: string, dir: "up" | "down"): void;
+  onExtendBlockSelection(dir: "up" | "down"): void;
+  onClearBlockSelection(): void;
   onDragStartBlock(uid: string): void;
 }
 
 interface TreeProps {
   blocks: BlockNode[];
   focus: FocusTarget | null;
+  // The live multi-block selection, if any. Optional so simple render sites
+  // (and tests) that don't exercise selection can omit it.
+  selection?: BlockSelection | null;
   handlers: OutlineHandlers;
   readOnly: boolean;
 }
 
-export function EditableBlockTree({ blocks, focus, handlers, readOnly }: TreeProps) {
+export function EditableBlockTree({ blocks, focus, selection = null, handlers,
+                                    readOnly }: TreeProps) {
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  const selected = selection
+    ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
+
+  // When a block selection is active there is no focused textarea, so the tree
+  // container itself takes focus and owns the keyboard (extend / copy / clear).
+  useEffect(() => {
+    if (selection) treeRef.current?.focus();
+  }, [selection]);
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!selection) return;
+    if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      void navigator.clipboard?.writeText(selectionText(blocks, selection));
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handlers.onClearBlockSelection();
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      // a plain arrow collapses the selection back to editing the head block
+      e.preventDefault();
+      handlers.onFocusBlock(selection.head, 0);
+    }
+  };
+
   return (
-    <div className="block-tree">
+    <div className="block-tree" ref={treeRef}
+         tabIndex={selection ? -1 : undefined} onKeyDown={onKeyDown}>
       {blocks.map((b) => (
-        <EditableBlock key={b.uid} node={b} focus={focus} handlers={handlers}
-                       readOnly={readOnly} />
+        <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
+                       handlers={handlers} readOnly={readOnly} />
       ))}
     </div>
   );
 }
 
-function EditableBlock({ node, focus, handlers, readOnly }: {
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
+function EditableBlock({ node, focus, selected, handlers, readOnly }: {
   node: BlockNode; focus: FocusTarget | null;
+  selected: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean;
 }) {
   const focused = focus?.uid === node.uid;
+  const isSelected = selected.has(node.uid);
   const hasChildren = node.children.length > 0;
   const Tag: "h1" | "h2" | "h3" | "div" =
     node.heading === 1 ? "h1" :
@@ -72,7 +116,8 @@ function EditableBlock({ node, focus, handlers, readOnly }: {
     node.heading === 3 ? "h3" : "div";
   return (
     <div className="block">
-      <div className={"block-row" + (focused ? " focused" : "")}
+      <div className={"block-row" + (focused ? " focused" : "")
+             + (isSelected ? " selected" : "")}
            data-uid={node.uid}>
         <button
           className={"chevron" + (node.collapsed ? " closed" : "") + (hasChildren ? "" : " hidden")}
@@ -105,8 +150,8 @@ function EditableBlock({ node, focus, handlers, readOnly }: {
       {hasChildren && !node.collapsed && (
         <div className="block-children">
           {node.children.map((c) => (
-            <EditableBlock key={c.uid} node={c} focus={focus} handlers={handlers}
-                           readOnly={readOnly} />
+            <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}
+                           handlers={handlers} readOnly={readOnly} />
           ))}
         </div>
       )}
@@ -305,6 +350,20 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
       if (title) {
         e.preventDefault();
         navigate(pagePath(title));
+        return;
+      }
+    }
+    // Shift+Arrow at the vertical edge of the block starts a multi-block
+    // selection (to copy several blocks at once). Only from a collapsed caret —
+    // with a text selection Shift+Arrow keeps extending that within the block.
+    // Allowed even when disconnected: copying is read-only-safe.
+    if (e.shiftKey && caretOnly && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      const up = e.key === "ArrowUp";
+      const atEdge = up ? !draft.slice(0, pos).includes("\n")
+                        : !draft.slice(el.selectionEnd).includes("\n");
+      if (atEdge) {
+        e.preventDefault();
+        handlers.onStartBlockSelection(node.uid, up ? "up" : "down");
         return;
       }
     }

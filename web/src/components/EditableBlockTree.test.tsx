@@ -12,7 +12,9 @@ function handlers(): OutlineHandlers {
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveUp: vi.fn(), onMoveDown: vi.fn(), onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
-    onToggleTodo: vi.fn(), onFiles: vi.fn(), onDragStartBlock: vi.fn(),
+    onToggleTodo: vi.fn(), onFiles: vi.fn(),
+    onStartBlockSelection: vi.fn(), onExtendBlockSelection: vi.fn(),
+    onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
   };
 }
 
@@ -505,4 +507,76 @@ test("/upload strips the trigger and hands picked files to onFiles (pkm-coz9)", 
   const file = new File(["x"], "pic.png", { type: "image/png" });
   fireEvent.change(input, { target: { files: [file] } });
   expect(h.onFiles).toHaveBeenCalledWith("u1", 0, [file]);
+});
+
+test("Shift+ArrowDown at a block edge starts a block selection (pkm-9b8n)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "ArrowDown", shiftKey: true });
+  expect(h.onStartBlockSelection).toHaveBeenCalledWith("u1", "down");
+});
+
+test("Shift+ArrowUp at a block edge starts a block selection upward (pkm-9b8n)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "ArrowUp", shiftKey: true });
+  expect(h.onStartBlockSelection).toHaveBeenCalledWith("u1", "up");
+});
+
+test("Shift+Arrow inside a multi-line block extends text, not blocks (pkm-9b8n)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "line1\nline2" } });
+  ta.setSelectionRange(8, 8); // on line2, not the top edge
+  fireEvent.keyDown(ta, { key: "ArrowUp", shiftKey: true });
+  expect(h.onStartBlockSelection).not.toHaveBeenCalled();
+});
+
+function mountSelected(h: OutlineHandlers, selection: { anchor: string; head: string }) {
+  return render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={BLOCKS} focus={null} selection={selection}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+}
+
+test("selected block rows get the selected class (pkm-9b8n)", () => {
+  const { container } = mountSelected(handlers(), { anchor: "u1", head: "u2" });
+  expect(container.querySelector('.block-row.selected[data-uid="u1"]')).not.toBeNull();
+  expect(container.querySelector('.block-row.selected[data-uid="u2"]')).not.toBeNull();
+});
+
+test("Shift+Arrow on the selection extends it; Escape clears it (pkm-9b8n)", () => {
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: "u1", head: "u1" });
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+  fireEvent.keyDown(tree, { key: "ArrowDown", shiftKey: true });
+  expect(h.onExtendBlockSelection).toHaveBeenCalledWith("down");
+  fireEvent.keyDown(tree, { key: "Escape" });
+  expect(h.onClearBlockSelection).toHaveBeenCalled();
+});
+
+test("a plain arrow collapses the selection back to editing the head (pkm-9b8n)", () => {
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+  fireEvent.keyDown(tree, { key: "ArrowDown" });
+  expect(h.onFocusBlock).toHaveBeenCalledWith("u2", 0);
+});
+
+test("Cmd-C copies the selected blocks' text in document order (pkm-9b8n)", () => {
+  const writeText = vi.fn();
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText }, configurable: true,
+  });
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+  fireEvent.keyDown(tree, { key: "c", metaKey: true });
+  expect(writeText).toHaveBeenCalledWith("hello [[World]]\n{{[[TODO]]}} task");
 });

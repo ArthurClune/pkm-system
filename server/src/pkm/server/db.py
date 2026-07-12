@@ -39,6 +39,7 @@ def init_db(path: Path) -> None:
     con = sqlite3.connect(path)
     try:
         con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA recursive_triggers=ON")
         con.executescript(DDL)
         con.commit()
     finally:
@@ -49,6 +50,7 @@ def open_db(path: Path) -> sqlite3.Connection:
     con = sqlite3.connect(path, check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
+    con.execute("PRAGMA recursive_triggers=ON")
     con.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     return con
 

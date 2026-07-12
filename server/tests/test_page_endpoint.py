@@ -27,6 +27,46 @@ def test_block_ref_resolution(client):
     }
 
 
+def test_block_ref_resolution_is_transitive(client, seeded_config):
+    # uid_n1's text is itself just a ((ref)) to uid_n2: the client renders
+    # uid_n1's text and needs uid_n2 in the map too (nested expansion).
+    import sqlite3
+    con = sqlite3.connect(seeded_config.db_path)
+    con.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)", [
+        ("uid_n0", 2, None, 1, "c.f. ((uid_n1))", None, 0, None, None),
+        ("uid_n1", 1, None, 2, "((uid_n2))", None, 0, None, None),
+        ("uid_n2", 4, None, 0, "the actual content", None, 0, None, None),
+    ])
+    con.commit()
+    con.close()
+
+    body = client.get("/api/page/AI").json()
+    assert body["block_ref_texts"] == {
+        "uid_n1": {"text": "((uid_n2))", "page_title": "Machine Learning"},
+        "uid_n2": {"text": "the actual content", "page_title": "Paper"},
+    }
+
+
+def test_block_ref_resolution_survives_cycles(client, seeded_config):
+    # Mutually-referencing blocks must not hang resolution.
+    import sqlite3
+    con = sqlite3.connect(seeded_config.db_path)
+    con.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)", [
+        ("uid_c0", 2, None, 1, "start ((uid_c1))", None, 0, None, None),
+        ("uid_c1", 4, None, 0, "a ((uid_c2))", None, 0, None, None),
+        ("uid_c2", 4, None, 1, "b ((uid_c1)) and ((uid_gone))", None, 0, None, None),
+    ])
+    con.commit()
+    con.close()
+
+    body = client.get("/api/page/AI").json()
+    assert body["block_ref_texts"] == {
+        "uid_c1": {"text": "a ((uid_c2))", "page_title": "Paper"},
+        "uid_c2": {"text": "b ((uid_c1)) and ((uid_gone))",
+                   "page_title": "Paper"},
+    }
+
+
 def test_missing_page_404(client):
     assert client.get("/api/page/No Such Page").status_code == 404
 

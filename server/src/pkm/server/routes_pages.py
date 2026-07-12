@@ -30,16 +30,25 @@ class CreatePageRequest(BaseModel):
 
 
 def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
-    uids = collect_block_ref_uids(texts)
-    if not uids:
-        return {}
-    marks = ",".join("?" * len(uids))
-    rows = db.execute(
-        f"SELECT b.uid, b.text, p.title AS page_title FROM blocks b"
-        f" JOIN pages p ON p.id = b.page_id WHERE b.uid IN ({marks})",
-        uids).fetchall()
-    return {r["uid"]: {"text": r["text"], "page_title": r["page_title"]}
-            for r in rows}
+    """Resolve ((refs)) transitively: a referenced block's text may itself
+    contain ((refs)) the client renders nested, so follow the chain. The
+    seen set makes cycles (and repeated missing uids) terminate."""
+    out: dict = {}
+    seen: set[str] = set()
+    pending = collect_block_ref_uids(texts)
+    while True:
+        new = [u for u in pending if u not in seen]
+        if not new:
+            return out
+        seen.update(new)
+        marks = ",".join("?" * len(new))
+        rows = db.execute(
+            f"SELECT b.uid, b.text, p.title AS page_title FROM blocks b"
+            f" JOIN pages p ON p.id = b.page_id WHERE b.uid IN ({marks})",
+            new).fetchall()
+        for r in rows:
+            out[r["uid"]] = {"text": r["text"], "page_title": r["page_title"]}
+        pending = collect_block_ref_uids([r["text"] for r in rows])
 
 
 def _fetch_ancestors(db: sqlite3.Connection, uids: list[str]) -> dict[str, list[str]]:

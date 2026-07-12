@@ -4,6 +4,8 @@ snapshot into effect values. The shell (ops_apply) assembles OpContext
 from SQLite and executes the effects; planning itself does no I/O."""
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from typing import Annotated, Literal, Union
@@ -63,7 +65,19 @@ BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
 
 class OpBatch(BaseModel):
     client_id: str = Field(min_length=1, max_length=64)
+    # Durable client queues retry pushes; batch_id makes the retry safe.
+    # Absent => pre-offline client, applied unconditionally as before.
+    batch_id: str | None = Field(default=None, min_length=8, max_length=64)
     ops: list[BlockOp] = Field(min_length=1, max_length=500)
+
+
+def batch_request_hash(batch: OpBatch) -> str:
+    """Canonical content hash binding a batch_id to one payload forever
+    (spec section 1): replay with a different payload is rejected, so a
+    buggy client can't silently swap the ops behind an acknowledged id."""
+    canon = json.dumps([op.model_dump() for op in batch.ops],
+                       sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canon.encode()).hexdigest()
 
 
 class OpError(ValueError):

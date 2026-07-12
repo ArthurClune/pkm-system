@@ -573,6 +573,8 @@ export interface components {
         OpBatch: {
             /** Client Id */
             client_id: string;
+            /** Batch Id */
+            batch_id?: string | null;
             /** Ops */
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"])[];
         };

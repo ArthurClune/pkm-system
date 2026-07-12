@@ -2,6 +2,7 @@
 """POST /api/ops — the only write path. One transaction per batch."""
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 
@@ -11,7 +12,7 @@ from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.ops_apply import apply_batch
-from pkm.server.ops_core import OpBatch, OpError
+from pkm.server.ops_core import OpBatch, OpError, batch_request_hash
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -21,12 +22,38 @@ async def post_ops(request: Request,
                    batch: OpBatch,
                    db: sqlite3.Connection = Depends(get_db)) -> dict:
     now = int(time.time() * 1000)
+    rhash = batch_request_hash(batch) if batch.batch_id is not None else None
+    if batch.batch_id is not None:
+        row = db.execute(
+            "SELECT request_hash, response FROM applied_batches"
+            " WHERE batch_id = ?", (batch.batch_id,)).fetchone()
+        if row is not None:
+            if row["request_hash"] != rhash:
+                raise HTTPException(
+                    status_code=409,
+                    detail="batch_id was already used with different ops")
+            return json.loads(row["response"])  # replay: stored ack, no effects
     try:
         broadcast_ops = apply_batch(db, batch, now)
     except OpError as e:
         db.rollback()
         raise HTTPException(status_code=400,
                             detail={"index": e.index, "reason": e.reason})
+    response = {"ok": True, "ts": now, "applied": len(batch.ops)}
+    if batch.batch_id is not None:
+        try:
+            db.execute(
+                "INSERT INTO applied_batches VALUES (?,?,?,?)",
+                (batch.batch_id, rhash, json.dumps(response), now))
+        except sqlite3.IntegrityError:
+            # two concurrent submissions of the same batch raced; this one
+            # loses -- roll back its effects and serve the winner's ack
+            db.rollback()
+            row = db.execute(
+                "SELECT response FROM applied_batches WHERE batch_id = ?",
+                (batch.batch_id,)).fetchone()
+            assert row is not None
+            return json.loads(row["response"])
     db.commit()
     await request.app.state.hub.broadcast({
         "client_id": batch.client_id,
@@ -34,4 +61,4 @@ async def post_ops(request: Request,
         "ops": broadcast_ops,
     })
     await notify.nudge(request, db)
-    return {"ok": True, "ts": now, "applied": len(batch.ops)}
+    return response

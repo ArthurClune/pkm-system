@@ -1487,6 +1487,19 @@
             "minLength": 1,
             "title": "Client Id"
           },
+          "batch_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "ops": {
             "items": {
               "oneOf": [

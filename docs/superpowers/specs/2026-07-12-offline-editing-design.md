@@ -75,15 +75,9 @@ Server-authoritative semantics are retained online. This can evolve toward
 local-first reads later (same replica underneath) but that inversion is
 explicitly not part of this design.
 
-## Section 1: Server — versions, journal, sync endpoints
+## Section 1: Server — journal, sync endpoints, idempotent pushes
 
-**Per-block version.** `blocks` gains `version INTEGER NOT NULL DEFAULT 0`,
-incremented on every change to that block. Added as an idempotent
-statement appended to `schema.py` (the project's no-migration-runner
-convention). Timestamps (`updated_at`) are not used for conflict
-detection — device clocks are not trusted.
-
-**Changes journal.** New table:
+**Changes journal — trigger-maintained, row-level.** New table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS changes(
@@ -94,20 +88,52 @@ CREATE TABLE IF NOT EXISTS changes(
 );
 ```
 
-`ops_apply` (and any other write path: sidebar routes, page create, asset
-text rewrites) appends journal rows **in the same transaction** as the
-write. The journal records only *that* an entity changed; current values
-come from the base tables at read time. Deletes leave a tombstone row
-(`deleted=1`) since the base row is gone.
+Journal rows are appended by `AFTER INSERT/UPDATE/DELETE` triggers on
+`blocks`, `pages` and `sidebar_entries` (same precedent as the existing
+FTS triggers in `schema.py`), **not** by per-write-path code. This is
+load-bearing, not a convenience: a single op touches many rows beyond its
+target — `create` shifts every following sibling's `order_idx`, `move`
+rewrites a whole subtree's `page_id`, `delete` cascades to descendants,
+and ref extraction implicitly creates pages. Triggers capture every
+affected row on every write path, including future ones, in the same
+transaction. Deletes leave tombstone rows (`deleted=1`).
+
+`refs` rows are not journaled: they are derived deterministically from
+block text, so the feed ships each changed block's current refs alongside
+the block payload (hydrated at read time) and the client upserts them.
+
+**Feed pagination — cursor over raw journal rows.** "Latest state, deduped"
+must not define the cursor, or entities can be skipped (changes A@1, B@2,
+A@100 with a small limit would return A, advance past B, and never send
+B). Algorithm:
+
+- Scan raw journal rows `WHERE seq > :since ORDER BY seq LIMIT :n`.
+- `next_since` = the last *scanned* row's seq; dedupe entities only
+  *within that window*; hydrate current payloads for the deduped set.
+- Scan + hydration happen in **one SQLite read transaction**, so a
+  concurrent write can't be reflected in the cursor but missing from the
+  payloads. Same rule for snapshot: dump + current seq in one
+  transaction.
+- Upserts are idempotent and order-insensitive, so re-pulling any window
+  is always safe.
+
+**Idempotent op pushes.** The durable client queue retries failed pushes,
+and a retry after a committed-but-unacknowledged batch must not
+double-apply (a replayed `create` alone would hit the uid PK and reject
+the whole batch). `OpBatch` gains a client-generated `batch_id` (uuid).
+New table `applied_batches(batch_id TEXT PRIMARY KEY, response TEXT,
+applied_at INTEGER)`: the server records each batch's response in the
+same transaction as its effects, and a duplicate `batch_id` returns the
+stored acknowledgement without re-applying. Rows older than ~30 days are
+pruned opportunistically. Batches without `batch_id` (current clients)
+behave as today.
 
 **Sync endpoints** (plain HTTP + JSON; with `/api/ops` these constitute
 the whole protocol a native client would speak):
 
-- `GET /api/sync/changes?since=<seq>` → for each entity changed after
-  `seq` (deduped to latest state): full current payload (block row / page
-  row / sidebar entry) or a tombstone; plus `latest_seq`. Paginated via
-  `limit` + repeated calls; order-insensitive upserts make this trivially
-  resumable.
+- `GET /api/sync/changes?since=<seq>&limit=<n>` → windowed feed as above:
+  entity payloads (block + its refs / page / sidebar entry) or
+  tombstones, plus `next_since` and `latest_seq`.
 - `GET /api/sync/snapshot` → full JSON dump (pages, blocks, refs, sidebar
   entries) + current `seq`, for initial bootstrap. At 15MB (less,
   compressed) this needs no streaming cleverness in v1.
@@ -116,32 +142,53 @@ State-based feed, **not** op replay: upserting current row values is
 self-healing and order-insensitive, and fits per-block LWW. Ops remain the
 write path; they are not the sync-down format.
 
+**Schema changes.** All additions are `CREATE TABLE IF NOT EXISTS` /
+`CREATE TRIGGER IF NOT EXISTS` statements appended to `schema.py` — no
+column is added to any existing table (SQLite has no `ADD COLUMN IF NOT
+EXISTS`, and `init_db()` blindly executes the DDL string; if a column
+addition is ever needed it requires a `PRAGMA table_info`-guarded helper
+first).
+
 **WebSocket.** The existing WS additionally carries a "seq advanced" nudge
 so online clients know to pull the feed. The existing op-batch broadcast
 remains for live UI patching; the feed is the authority for the replica.
 
 ## Section 2: Server — conflict handling
 
-Ops gain an optional `base_version` field (per op, for ops that target an
-existing block). Semantics:
+Conflict detection uses a **text hash, not a version counter**:
+`update_text` gains an optional `base_text_hash` (sha256 of the text the
+edit was based on). A version-per-any-change counter was considered and
+rejected — collapse, heading, move, or an automatic `order_idx` shift
+would bump it and turn an *unchanged* server text into a spurious
+conflict copy. Comparing text against text detects exactly the conflicts
+we care about, adds no schema column, and needs no rule for how
+consecutive offline edits advance versions: each queued edit's
+`base_text_hash` is the previous local text, so a user's own edit chain
+flushes cleanly (op N leaves the server text that op N+1's hash matches).
+Timestamps are not used — device clocks are not trusted.
 
-- `base_version` absent → behave exactly as today (current clients remain
-  valid).
-- `base_version` == current version → apply normally.
-- `base_version` < current version (concurrent edit happened):
-  - `update_text`: the incoming edit **wins** (consistent with existing
-    reconnect-flush LWW), and the overwritten server text is preserved as
-    a **conflict-copy sibling block** inserted immediately after the
-    target block. Marker format decided in the implementation plan (e.g. a
-    `[[conflict]]`-tagged block containing the losing text), so conflicts
-    are findable by search/backlinks.
-  - Other op kinds (`move`, `set_collapsed`, `set_heading`, `delete`):
-    apply LWW without conflict copies — structural/cosmetic conflicts are
-    not worth surfacing.
-- Edit-vs-delete race (op targets a block that no longer exists): the
-  orphaned `update_text` materialises as a conflict block appended to the
-  end of the page (or daily page if the page is gone too) rather than
-  being dropped.
+Semantics:
+
+- `base_text_hash` absent → behave exactly as today (current clients
+  remain valid).
+- Hash matches current text → apply normally (also covers two devices
+  independently making the identical edit).
+- Hash differs (a concurrent text edit happened): the incoming edit
+  **wins** (consistent with existing reconnect-flush LWW), and the
+  overwritten server text is preserved as a **conflict-copy sibling
+  block** inserted immediately after the target block. Marker format
+  decided in the implementation plan (e.g. a `[[conflict]]`-tagged block
+  containing the losing text), so conflicts are findable by
+  search/backlinks.
+- Structural op kinds (`move`, `set_collapsed`, `set_heading`, `delete`):
+  plain LWW, no conflict detection — structural/cosmetic conflicts are
+  not worth surfacing.
+- Edit-vs-delete race (`update_text` targets a block that no longer
+  exists): the op carries only `uid` + `text`, and the deleted row's
+  page/parent are gone, so the orphaned edit materialises as a conflict
+  block appended to **today's daily page** (which always auto-creates) —
+  a predictable, daily-visited place — rather than being dropped or
+  requiring block-tombstone metadata retention.
 
 Conflict copies are ordinary blocks: they sync, they show up in search,
 the user deletes them after reconciling. No special UI in v1.
@@ -164,13 +211,32 @@ the user deletes them after reconciling. No special UI in v1.
   - Reconnect: push pending ops, then pull feed, then `resyncSeq` bump.
   - Corruption/desync escape hatch: drop the local DB and re-bootstrap
     (15MB — cheap enough to be the recovery story).
-- **Ref extraction in TS**: offline-written `[[links]]`/`#tags`/attributes
-  must produce refs rows locally so backlinks work. TS port of `refs.py`,
-  parity-tested against the Python implementation via shared fixtures.
+- **Refs**: synced content's refs arrive in the feed (server-derived, no
+  client parsing needed). Ref extraction in TS is required only for
+  *offline local edits* — offline-written `[[links]]`/`#tags`/attributes
+  must produce refs rows locally so backlinks work before sync. TS port
+  of `refs.py`, parity-tested against the Python implementation via
+  shared fixtures.
+- **Offline page creation — ID reconciliation**: the replica shares the
+  server schema, where `pages.id` is a server-assigned integer and
+  `blocks.page_id`/`refs.target_page_id` are FKs onto it. Pages created
+  offline (explicitly, via daily auto-create, or implicitly by local ref
+  extraction) get **temporary negative ids** locally. Ops reference pages
+  by `page_title` (already the case for `CreateOp`/`MoveOp`), so nothing
+  negative ever goes over the wire. On sync, when the feed delivers a
+  page whose title matches a negative-id local page, one transaction
+  remaps local rows pointing at the negative id (blocks, refs) to the
+  authoritative id and deletes the negative page row. (Most blocks are
+  corrected by their own feed upserts anyway — flush pushes the ops,
+  the feed returns those blocks with real `page_id`s — the remap is the
+  safety net for rows the window hasn't covered yet.)
 - **Persisted op queue**: pending ops move from in-memory arrays to a
   table inside the replica DB, so queued offline edits survive tab refresh
-  and browser restart (fixing a known gap in the current design). Each op
-  records the target block's `base_version` captured at enqueue time.
+  and browser restart (fixing a known gap in the current design). Each
+  `update_text` records its `base_text_hash` captured at enqueue time;
+  each flushed batch carries its durable `batch_id`, so a retry after a
+  lost acknowledgement is deduplicated server-side rather than
+  double-applied.
 
 ## Section 4: Offline reads — the API shim
 
@@ -178,19 +244,31 @@ the user deletes them after reconciling. No special UI in v1.
 change. Offline: requests are served by local handlers over the replica,
 returning the same OpenAPI response shapes. Views do not change.
 
-Shim coverage in v1:
+Shim coverage in v1, from an audit of every route the app calls:
 
-- `GET /api/page/{title}` — block tree, backlinks (grouped, with
-  breadcrumbs), unlinked references; daily pages auto-create locally.
-- Page create (and any title-keyed page upsert; pages merge by title on
-  sync, so offline creation is idempotent).
+- `GET /api/page/{title}` — block tree + backlinks (grouped, with
+  breadcrumbs); daily pages auto-create locally.
+- `GET /api/unlinked` — unlinked references (fetched separately from the
+  page payload; FTS over the replica).
+- `GET /api/journal` — the daily-notes home view; required for the
+  train scenario to function at all.
+- `GET /api/titles` — `[[...]]` autocomplete; required for offline
+  editing to feel intact.
+- `GET /api/block-refs` — resolving `((block refs))` for rendering.
 - `GET /api/search` — real FTS5 over the replica, same query semantics,
   ranking and snippets as the server.
-- Sidebar read. (Sidebar *writes* don't go through the op queue and would
-  need a second offline write path — they stay online-only in v1.)
-- Query blocks (`{{query}}`): render an "unavailable offline" placeholder
-  in v1.
-- Asset upload: unavailable offline in v1 (clear error, nothing queued).
+- `POST /api/pages` (page create) — creates locally with a temporary
+  negative id (Section 3).
+- `GET /api/sidebar` — read only.
+
+Online-only in v1 (clear error / placeholder, nothing queued):
+
+- Sidebar writes (`POST`/`PUT`/`DELETE /api/sidebar…`) and page deletion
+  (`DELETE /api/page/{title}`) — neither goes through the op queue, and
+  each would need a second offline write path.
+- Query blocks (`GET /api/query`, `{{query}}` rendering): "unavailable
+  offline" placeholder.
+- Asset upload (`POST /api/assets`).
 
 Status UI: the read-only-when-disconnected banner is replaced by an
 unobtrusive "offline — N changes pending" indicator; editing stays
@@ -215,22 +293,31 @@ flushes.
 
 ## Section 6: Error handling
 
-- Feed pull fails mid-way: cursor only advances after a page of changes is
-  applied transactionally; retry is safe (upserts are idempotent).
+- Feed pull fails mid-way: cursor only advances after a window of changes
+  is applied transactionally; retry is safe (upserts are idempotent).
 - Op push fails on reconnect: existing desync path (clear + resync) is
-  replaced by: keep the persisted queue, surface an error state, retry;
-  the queue is durable so nothing is lost by closing the tab. A poison
-  batch (server 4xx) is set aside and surfaced rather than retried
-  forever; exact UX in the implementation plan.
+  replaced by: keep the persisted queue, surface an error state, retry.
+  Retries are safe because each batch carries a durable `batch_id` and
+  the server returns the stored acknowledgement for a batch it already
+  committed (Section 1) — a lost response cannot double-apply. The queue
+  is durable so nothing is lost by closing the tab. A poison batch
+  (server 4xx) is set aside and surfaced rather than retried forever;
+  exact UX in the implementation plan.
 - Replica schema version mismatch (after a deploy that changes DDL): drop
   and re-bootstrap.
 - Storage quota errors: surface, keep working online-only.
 
 ## Section 7: Testing
 
-- Server: unit tests for version bumping, journal rows per op kind,
-  changes-feed dedup/tombstones/pagination, snapshot, `base_version`
-  conflict matrix (incl. edit-vs-delete).
+- Server: unit tests for trigger journaling per op kind — asserting
+  *derived* rows are journaled (sibling shifts on create, subtree on
+  move, descendants on delete, implicit pages from ref extraction);
+  changes-feed windowed-cursor algorithm (incl. the A@1/B@2/A@100
+  skip case), tombstones, one-transaction hydration; snapshot;
+  `base_text_hash` conflict matrix (match / differ / absent /
+  edit-vs-delete → daily page; no false conflict after collapse, heading,
+  move, or sibling shift); `batch_id` dedup (replay returns stored ack,
+  applies nothing).
 - Parity: shared fixtures run through the Python route handlers and the TS
   shim, asserting identical JSON (page load, backlinks, search where
   rankings are deterministic). TS `refs` extraction parity-tested against
@@ -244,15 +331,17 @@ flushes.
 
 ## Section 8: Build order (child beans)
 
-1. Server: `version` column, `changes` journal + transactional appends,
-   `/api/sync/changes`, `/api/sync/snapshot`, WS seq nudge.
-2. Server: `base_version` conflict handling + conflict-copy blocks.
+1. Server: `changes` journal + triggers, windowed `/api/sync/changes`,
+   `/api/sync/snapshot`, WS seq nudge.
+2. Server: `batch_id` dedup; `base_text_hash` conflict handling +
+   conflict-copy blocks (incl. edit-vs-delete → daily page).
 3. Web: sqlite-wasm replica worker, schema artifact export, bootstrap,
-   feed application, cursor persistence.
-4. Web: persisted op queue + optimistic replica application + TS ref
-   extraction.
-5. Web: apiFetch offline router + shim (page/backlinks/daily/create/
-   sidebar) + offline status indicator.
+   feed application (incl. refs payloads), cursor persistence.
+4. Web: persisted op queue (`batch_id`, `base_text_hash`) + optimistic
+   replica application + TS ref extraction + negative-id page
+   reconciliation.
+5. Web: apiFetch offline router + shim (page/unlinked/journal/titles/
+   block-refs/create/sidebar-read) + offline status indicator.
 6. Web: offline search (FTS5 over replica).
 7. Web: service worker app shell + asset runtime cache + manifest.
 
@@ -271,7 +360,17 @@ consumer; 3–4 are inert until 5 flips reads).
 ## Notes for a future native iOS client
 
 The protocol surface is: login (session cookie), `GET /api/sync/snapshot`,
-`GET /api/sync/changes?since=`, `POST /api/ops` (with `base_version`), WS
-seq nudge, `GET /assets/…`. All JSON over HTTP. The client-side data layer
-is SQLite with the same schema and the same queries as the web shim, so
-the web implementation doubles as the reference implementation for Swift.
+`GET /api/sync/changes?since=`, `POST /api/ops` (with `batch_id` +
+`base_text_hash`), WS seq nudge, `GET /assets/…`. All JSON over HTTP. The
+client-side data layer is SQLite with the same schema and the same
+queries as the web shim, so the web implementation doubles as the
+reference implementation for Swift.
+
+Contract hardening required before building the native client (not v1
+work, but named so it isn't forgotten): the OpenAPI document currently
+has no cookie security scheme and protected operations declare no
+security; `/api/ops` returns a free-form success object; error responses
+(400/401/404/409) are mostly undocumented; and the WebSocket messages
+need their own small versioned schema (they are outside OpenAPI). The web
+client tolerates all of this because it shares the repo; a second
+independent client should not.

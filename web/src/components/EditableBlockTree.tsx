@@ -11,6 +11,8 @@ import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { applyCompletion, detectAutocomplete,
          type AcContext } from "../outline/autocomplete";
+import { autoPairBracket, wrapLink, BRACKET_CHARS,
+         type TextSelection } from "../outline/keyEdits";
 import { refTitleAtCaret } from "../outline/refAtCaret";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
@@ -204,6 +206,21 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     });
   };
 
+  // Apply a bracket/link key edit. Unlike a normal keystroke this bypasses
+  // onChange (we preventDefault), so we re-derive the autocomplete context here
+  // — that's what lets typing "[" twice open the [[ page-link popup.
+  const applyKeyEdit = (r: TextSelection) => {
+    dirtyRef.current = true;
+    setDraft(r.text);
+    setCaret(r.selStart);
+    setAcSelected(0);
+    setAc(detectAutocomplete(r.text, r.selStart));
+    handlers.onDraftChange(node.uid, r.text);
+    requestAnimationFrame(() => {
+      ref.current?.setSelectionRange(r.selStart, r.selEnd);
+    });
+  };
+
   const pick = (row: AcRow) => {
     if (!ac) return;
     const applied = row.command
@@ -276,6 +293,24 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
       }
     }
     if (readOnly) return;
+    // Cmd-K (mac): wrap the selection as a markdown link, or insert an empty
+    // []() ready for the link text. Ctrl-K is left alone (emacs kill-line).
+    if (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      applyKeyEdit(wrapLink(draft, pos, el.selectionEnd));
+      return;
+    }
+    // Bracket auto-pairing: a bare "[ ( { ` \" '" (or their closers) auto-closes,
+    // wraps the selection, or skips over an existing match. Modified chords and
+    // non-bracket keys fall through untouched.
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && BRACKET_CHARS.has(e.key)) {
+      const edit = autoPairBracket(draft, pos, el.selectionEnd, e.key);
+      if (edit) {
+        e.preventDefault();
+        applyKeyEdit(edit);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handlers.onSplit(node.uid, pos);

@@ -430,3 +430,63 @@ test("Ctrl-O outside a ref does not navigate or preventDefault (pkm-ul9u)", () =
   expect(screen.queryByText("page view here")).toBeNull();
   expect(screen.getByText("home")).toBeInTheDocument();
 });
+
+test("Cmd-K wraps the selection as a markdown link (pkm-jbjk)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 5); // select "hello" in "hello [[World]]"
+  fireEvent.keyDown(ta, { key: "k", metaKey: true });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[hello]() [[World]]");
+});
+
+test("Cmd-K with no selection inserts an empty []() (pkm-jbjk)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "k", metaKey: true });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[]()hello [[World]]");
+});
+
+test("Ctrl-K is left alone (mac kill-line, not link) (pkm-jbjk)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 5);
+  fireEvent.keyDown(ta, { key: "k", ctrlKey: true });
+  expect(h.onDraftChange).not.toHaveBeenCalled();
+});
+
+test("typing [ auto-closes the bracket (pkm-3sxw)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "[" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[]hello [[World]]");
+});
+
+test("typing ( around a selection wraps it (pkm-3sxw)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 5); // "hello"
+  fireEvent.keyDown(ta, { key: "(" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "(hello) [[World]]");
+});
+
+test("typing [ twice opens the [[ page-link autocomplete (pkm-3sxw)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  // Start from an empty block so the [[ is unambiguous.
+  fireEvent.change(ta, { target: { value: "" } });
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "[" }); // -> "[]" caret 1
+  // The real browser leaves the caret between the pair; jsdom won't run the
+  // rAF that places it, so set it explicitly before the second keystroke.
+  ta.setSelectionRange(1, 1);
+  fireEvent.keyDown(ta, { key: "[" }); // -> "[[]]" caret 2, ref popup opens
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[]]");
+});

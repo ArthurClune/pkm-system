@@ -102,6 +102,6 @@
 - Consumes: all prior tasks.
 - Produces: a completed bean, verified commit, merge to `main`, and pushed branches.
 
-- [ ] Run `uv run pytest -q`, coverage, pyrefly, and ruff in `server/`.
-- [ ] Run `pnpm verify` in `web/` and inspect all output, including Playwright's server exception teardown.
-- [ ] Update the bean with checked findings and a summary, mark it completed, commit code and bean together, push the feature branch, merge with `--no-ff` into `main`, and push `main`.
+- [x] Run `uv run pytest -q`, coverage, pyrefly, and ruff in `server/`.
+- [x] Run `pnpm verify` in `web/` and inspect all output, including Playwright's server exception teardown.
+- [x] Update the bean with checked findings and a summary, mark it completed, commit code and bean together, push the feature branch, merge with `--no-ff` into `main`, and push `main`.

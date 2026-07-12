@@ -1,11 +1,11 @@
 ---
 # pkm-810w
 title: 'Fix test suite gaps: e2e exclusion, handler-wiring seam, stale bracket-autopair test, unenforced coverage, Composer autocomplete coverage, smoke test'
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-07-12T17:59:07Z
-updated_at: 2026-07-12T19:58:23Z
+updated_at: 2026-07-12T19:59:27Z
 ---
 
 Findings from test-suite audit (pkm-89yk). Not yet implemented — filing for future work.
@@ -42,7 +42,7 @@ Backend 330/330 passed; Vitest 417/417 passed; Playwright 3/4 passed.
 - [x] Fix and include Playwright E2E in standard verification
 - [x] Enforce frontend and backend coverage thresholds
 - [x] Replace no-op backend smoke test
-- [ ] Run full verification, summarize, commit, merge, and push
+- [x] Run full verification, summarize, commit, merge, and push
 
 ## Summary of Changes
 
@@ -54,3 +54,7 @@ Backend 330/330 passed; Vitest 417/417 passed; Playwright 3/4 passed.
 - Ignored generated coverage reports and documented the new verification commands.
 
 Verification before integration: backend 363 passed at 95.70% coverage; pyrefly 0 errors; ruff clean; frontend 431 passed at 98.46% statements / 91.74% branches / 94.01% functions; Playwright 4/4 passed.
+
+## Post-Merge Verification
+
+Verified on main after the --no-ff merge: backend 363 passed at 95.70% coverage; pyrefly 0 errors; ruff clean; frontend 431 passed at 98.46% statements / 91.73% branches / 94.01% functions; Playwright 4/4 passed.

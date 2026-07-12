@@ -284,6 +284,14 @@ h3.block-text { font-size: 1.4rem; font-weight: 400; color: var(--color-text-sec
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
   border-radius: 2px; background: var(--color-link); margin-right: 6px; vertical-align: middle; }
 .block-ref.unresolved { color: var(--color-text-muted); }
+/* resolved refs navigate on click (pkm-pzdu) */
+.block-ref:not(.unresolved) { cursor: pointer; }
+.block-ref:not(.unresolved):hover { background: var(--color-bg-subtle); border-radius: 3px; }
+.block-row.flash-target { animation: flash-target 1.6s ease-out; }
+@keyframes flash-target {
+  from { background: var(--color-ac-selected-bg); }
+  to { background: transparent; }
+}
 mark.highlight { background: var(--color-highlight-bg); }
 .asset-image { max-width: 100%; border-radius: 4px; display: block; margin: 4px 0; }
 .pdf-embed { display: block; margin: 4px 0; }

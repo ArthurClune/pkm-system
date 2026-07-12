@@ -30,8 +30,25 @@ def _daily_title(days_ago: int) -> str:
     return title_for_date(date.today() - timedelta(days=days_ago))
 
 
+# conftest seeds this fixed daily title (page id 3, non-blank blocks); tests
+# must never insert it themselves -- pages.title is UNIQUE.
+SEEDED_DAILY_TITLE = "July 7th, 2026"
+
+
+def _in_window_days_ago(exclude: tuple[int, ...] = ()) -> int:
+    """An offset inside the cleanup window (1..7 days ago) whose title does
+    not collide with the seeded daily page, whatever today's date is."""
+    return next(k for k in range(1, 8)
+                if _daily_title(k) != SEEDED_DAILY_TITLE and k not in exclude)
+
+
+def _outside_window_days_ago() -> int:
+    """An offset just outside the window, collision-free on any run date."""
+    return next(k for k in (8, 9) if _daily_title(k) != SEEDED_DAILY_TITLE)
+
+
 def test_deletes_zero_block_past_daily(client, seeded_config):
-    title = _daily_title(2)
+    title = _daily_title(_in_window_days_ago())
     _insert_page(seeded_config.db_path, 90, title)
 
     r = client.post("/api/journal/cleanup")
@@ -42,7 +59,7 @@ def test_deletes_zero_block_past_daily(client, seeded_config):
 
 
 def test_deletes_whitespace_only_daily_and_purges_fts(client, seeded_config):
-    title = _daily_title(3)
+    title = _daily_title(_in_window_days_ago())
     _insert_page(seeded_config.db_path, 91, title,
                  [("uid_w1", "   "), ("uid_w2", "\t")])
 
@@ -71,7 +88,7 @@ def test_spares_todays_empty_page(client, seeded_config):
 
 
 def test_spares_daily_with_content(client, seeded_config):
-    title = _daily_title(4)
+    title = _daily_title(_in_window_days_ago())
     _insert_page(seeded_config.db_path, 92, title, [("uid_c1", "real note")])
 
     r = client.post("/api/journal/cleanup")
@@ -81,7 +98,7 @@ def test_spares_daily_with_content(client, seeded_config):
 
 
 def test_spares_daily_whose_blank_block_is_referenced(client, seeded_config):
-    title = _daily_title(6)
+    title = _daily_title(_in_window_days_ago())
     _insert_page(seeded_config.db_path, 93, title, [("uid_r1", "  ")])
     # a block on another page (seeded page id 2, "AI") embeds ((uid_r1))
     con = sqlite3.connect(seeded_config.db_path)
@@ -98,7 +115,7 @@ def test_spares_daily_whose_blank_block_is_referenced(client, seeded_config):
 
 
 def test_ignores_empty_daily_older_than_a_week(client, seeded_config):
-    title = _daily_title(8)
+    title = _daily_title(_outside_window_days_ago())
     _insert_page(seeded_config.db_path, 94, title)
 
     r = client.post("/api/journal/cleanup")
@@ -108,7 +125,7 @@ def test_ignores_empty_daily_older_than_a_week(client, seeded_config):
 
 
 def test_second_call_is_a_noop(client, seeded_config):
-    _insert_page(seeded_config.db_path, 95, _daily_title(2))
+    _insert_page(seeded_config.db_path, 95, _daily_title(_in_window_days_ago()))
 
     assert client.post("/api/journal/cleanup").json()["deleted"] != []
     assert client.post("/api/journal/cleanup").json() == {"deleted": []}

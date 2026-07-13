@@ -1,10 +1,11 @@
 ---
 # pkm-su05
 title: 'Offline sync: persisted op queue + optimistic apply + TS refs + page-id reconciliation'
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-07-12T17:38:43Z
-updated_at: 2026-07-12T17:38:43Z
+updated_at: 2026-07-13T19:01:59Z
 parent: pkm-y8p0
 blocked_by:
     - pkm-gtov

@@ -29,9 +29,13 @@ async def post_ops(request: Request,
             " WHERE batch_id = ?", (batch.batch_id,)).fetchone()
         if row is not None:
             if row["request_hash"] != rhash:
+                # same dict shape as the 400 OpError detail below, so
+                # clients parse one error contract (pkm-x7a5)
                 raise HTTPException(
                     status_code=409,
-                    detail="batch_id was already used with different ops")
+                    detail={"index": None,
+                            "reason": "batch_id was already used with"
+                                      " different ops"})
             return json.loads(row["response"])  # replay: stored ack, no effects
     try:
         broadcast_ops = apply_batch(db, batch, now)

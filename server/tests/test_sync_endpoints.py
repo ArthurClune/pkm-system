@@ -81,3 +81,63 @@ def test_cursor_ahead_of_journal_requests_reset(client):
 def test_sync_requires_auth(anon_client):
     assert anon_client.get("/api/sync/changes").status_code in (401, 403)
     assert anon_client.get("/api/sync/snapshot").status_code in (401, 403)
+
+
+def test_generation_echoed_and_stable_across_endpoints(client):
+    """pkm-o9o5: both sync endpoints echo the database's generation token
+    so a client can detect a rebuilt database and re-bootstrap."""
+    snap = client.get("/api/sync/snapshot").json()
+    feed = _drain(client)
+    gen = snap["generation"]
+    assert isinstance(gen, str) and len(gen) == 32
+    assert feed["generation"] == gen
+    assert _drain(client)["generation"] == gen  # stable across pulls
+
+
+def test_limit_is_clamped_to_max(seeded_config):
+    """pkm-x7a5: a limit above MAX_LIMIT scans at most MAX_LIMIT journal
+    rows, so a huge client-supplied limit cannot make one request hydrate
+    an unbounded window."""
+    from fastapi.testclient import TestClient
+
+    from pkm.server.app import create_app
+    from pkm.server.db import open_db
+    from pkm.server.routes_sync import MAX_LIMIT
+
+    test_password = "test-pw"  # must match conftest.py
+
+    con = open_db(seeded_config.db_path)
+    con.executemany(
+        "INSERT INTO changes(kind, entity_id, deleted)"
+        " VALUES ('block', 'uid_b1', 0)", [()] * (MAX_LIMIT + 1))
+    con.commit()
+    con.close()
+    c = TestClient(create_app(seeded_config))
+    assert c.post("/api/login",
+                  json={"password": test_password}).status_code == 200
+    feed = c.get(f"/api/sync/changes?since=0&limit={MAX_LIMIT * 10}").json()
+    # more raw rows exist than one clamped window may scan
+    assert feed["next_since"] < feed["latest_seq"]
+
+
+def test_limit_is_clamped_to_at_least_one(client):
+    """limit=0 (or negative) still makes progress instead of looping."""
+    feed = _drain(client, since=0, limit=0)
+    assert feed["next_since"] > 0
+
+
+def test_cross_page_subtree_move_journals_every_subtree_row(client):
+    """Spec section 7: a cross-page move rewrites the whole subtree's
+    page_id, and the journal must carry every affected descendant so
+    replicas relocate the subtree, not just the moved root."""
+    start = _drain(client)["latest_seq"]
+    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+        {"op": "move", "uid": "uid_b2", "parent_uid": None, "order_idx": 5,
+         "page_title": "AI"}]})
+    assert r.status_code == 200
+    feed = _drain(client, since=start)
+    moved = {b["uid"]: b for b in feed["blocks"]}
+    assert {"uid_b2", "uid_b3"} <= set(moved)
+    ai_id = 2  # seeded id of page 'AI' (conftest SEED_PAGES)
+    assert moved["uid_b2"]["page_id"] == ai_id
+    assert moved["uid_b3"]["page_id"] == ai_id

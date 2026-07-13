@@ -161,6 +161,19 @@ CREATE TABLE IF NOT EXISTS applied_batches(
   response     TEXT NOT NULL,
   applied_at   INTEGER NOT NULL
 );
+
+-- Generation token (pkm-o9o5): a rebuilt database (importer swap) repopulates
+-- the journal, so a stale client cursor usually sits BELOW latest_seq and the
+-- since>latest reset check never fires -- a replica would silently pull from
+-- mid-journal and permanently miss rows. Each database mints a random token
+-- once; the sync endpoints echo it and a client re-bootstraps when it
+-- changes. OR IGNORE keeps idempotent DDL replays from rotating the token.
+CREATE TABLE IF NOT EXISTS sync_meta(
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+INSERT OR IGNORE INTO sync_meta(key, value)
+  SELECT 'db_generation', lower(hex(randomblob(16)));
 """
 
 DDL = BASE_DDL + SERVER_DDL

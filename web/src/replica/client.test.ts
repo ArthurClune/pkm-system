@@ -1,0 +1,111 @@
+// @vitest-environment node
+// End-to-end over a MessageChannel: the typed Replica facade on one side,
+// buildHandlers over a real in-memory sqlite-wasm database on the other.
+import { expect, test } from "vitest";
+import type { Snapshot } from "./apply";
+import { createReplica, type Replica } from "./client";
+import { SCHEMA_VERSION, installSchema } from "./clientSchema";
+import { setMeta } from "./meta";
+import { serveRpc, toPortLike } from "./rpc";
+import { openRawTestDb, type TestDb } from "./testDb";
+import { buildHandlers } from "./workerHandlers";
+
+const SNAP: Snapshot = {
+  generation: "gen-1", seq: 5,
+  pages: [{ id: 1, title: "AI", created_at: 1, updated_at: 1 }],
+  blocks: [{ uid: "uid_b1", page_id: 1, parent_uid: null, order_idx: 0,
+             text: "hello", heading: null, collapsed: 0, created_at: 1,
+             updated_at: 1, refs: [] }],
+  sidebar: [],
+};
+
+async function setup(prep?: (t: TestDb) => void): Promise<{ replica: Replica; current: () => TestDb }> {
+  let t = await openRawTestDb();
+  prep?.(t);
+  const ch = new MessageChannel();
+  serveRpc(toPortLike(ch.port2), buildHandlers({
+    openDb: async () => t.db,
+    resetDb: async () => {
+      t.close();
+      t = await openRawTestDb();
+      return t.db;
+    },
+  }));
+  return { replica: createReplica(toPortLike(ch.port1)), current: () => t };
+}
+
+test("init on a fresh database installs the schema and reports empty", async () => {
+  const { replica } = await setup();
+  const init = await replica.init();
+  expect(init).toEqual({ ok: true, empty: true, cursor: 0,
+                         schemaMismatch: false, pendingBatches: [] });
+});
+
+test("bootstrap then re-init reports cursor and not-empty", async () => {
+  const { replica } = await setup();
+  await replica.init();
+  await replica.applySnapshot(SNAP);
+  const again = await replica.init();
+  expect(again.empty).toBe(false);
+  expect(again.cursor).toBe(5);
+});
+
+test("applyChanges round-trips through the port", async () => {
+  const { replica } = await setup();
+  await replica.init();
+  await replica.applySnapshot(SNAP);
+  const result = await replica.applyChanges({
+    reset: false, generation: "gen-1", next_since: 6, latest_seq: 6,
+    pages: [], blocks: [], sidebar: [],
+    tombstones: [{ kind: "block", entity_id: "uid_b1" }],
+  });
+  expect(result).toEqual({ status: "applied", cursor: 6 });
+  const gone = await replica.applyChanges({
+    reset: false, generation: "gen-2", next_since: 0, latest_seq: 0,
+    pages: [], blocks: [], sidebar: [], tombstones: [],
+  });
+  expect(gone).toEqual({ status: "needs-bootstrap" });
+});
+
+test("a schema-version mismatch is reported with the pending queue intact", async () => {
+  const { replica } = await setup((t) => {
+    // simulate a database written by an older client: full schema but a
+    // different stamped version, with one queued batch
+    installSchema(t.db);
+    setMeta(t.db, "schema_version", "0".repeat(64));
+    setMeta(t.db, "generation", "gen-0");
+    t.db.exec(
+      "INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, ?)",
+      ["batch-1", JSON.stringify([{ op: "delete", uid: "uid_x1" }])]);
+  });
+  const init = await replica.init();
+  expect(init.schemaMismatch).toBe(true);
+  expect(init.pendingBatches).toEqual([{
+    id: 1, batch_id: "batch-1", poisoned: false,
+    ops: [{ op: "delete", uid: "uid_x1" }],
+  }]);
+});
+
+test("reset destroys the database and reinstalls a fresh schema", async () => {
+  const { replica, current } = await setup();
+  await replica.init();
+  await replica.applySnapshot(SNAP);
+  await replica.reset();
+  const init = await replica.init();
+  expect(init.empty).toBe(true);
+  expect(init.schemaMismatch).toBe(false);
+  const rows = current().db.select("SELECT value FROM sync_client_meta WHERE key='schema_version'");
+  expect(rows).toEqual([{ value: SCHEMA_VERSION }]);
+});
+
+test("openDb failure degrades to no-replica mode instead of rejecting", async () => {
+  const ch = new MessageChannel();
+  serveRpc(toPortLike(ch.port2), buildHandlers({
+    openDb: async () => { throw new Error("OPFS unavailable"); },
+    resetDb: async () => { throw new Error("unreachable"); },
+  }));
+  const replica = createReplica(toPortLike(ch.port1));
+  await expect(replica.init()).resolves.toEqual({
+    ok: false, empty: true, cursor: 0, schemaMismatch: false, pendingBatches: [],
+  });
+});

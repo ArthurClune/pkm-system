@@ -479,6 +479,8 @@ export interface components {
              * @default false
              */
             reset: boolean;
+            /** Generation */
+            generation: string;
             /** Next Since */
             next_since: number;
             /** Latest Seq */
@@ -702,6 +704,8 @@ export interface components {
         };
         /** SnapshotPayload */
         SnapshotPayload: {
+            /** Generation */
+            generation: string;
             /** Seq */
             seq: number;
             /** Pages */

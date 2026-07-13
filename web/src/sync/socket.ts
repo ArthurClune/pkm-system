@@ -9,6 +9,14 @@ export interface WsBatch {
   ops: BlockOp[];
 }
 
+/** Post-commit journal nudge (server notify.SeqFrame): the replica pulls
+ * the changes feed when one arrives. Best-effort — the cursor pull on
+ * reconnect is the correctness mechanism. */
+export interface WsSeq {
+  type: "seq";
+  seq: number;
+}
+
 export interface SocketHandle {
   close(): void;
 }
@@ -19,6 +27,7 @@ const PING_MS = 30_000;
 export function connectSocket(opts: {
   onBatch: (batch: WsBatch) => void;
   onStatus: (connected: boolean) => void;
+  onSeq?: (frame: WsSeq) => void;
 }): SocketHandle {
   let closed = false;
   let ws: WebSocket | null = null;
@@ -34,10 +43,12 @@ export function connectSocket(opts: {
     };
     ws.onmessage = (ev: MessageEvent) => {
       const msg = JSON.parse(String(ev.data)) as unknown;
-      // Nudge frames ({type:"seq"}) arrive once the server ships the
-      // offline sync protocol (pkm-y8p0); the replica consumes them in a
-      // later phase. Only op batches are dispatched here.
-      if (!msg || !Array.isArray((msg as WsBatch).ops)) return;
+      if (!msg) return;
+      if ((msg as WsSeq).type === "seq") {
+        opts.onSeq?.(msg as WsSeq);
+        return;
+      }
+      if (!Array.isArray((msg as WsBatch).ops)) return;
       opts.onBatch(msg as WsBatch);
     };
     ws.onclose = () => {

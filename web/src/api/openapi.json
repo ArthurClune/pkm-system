@@ -1191,6 +1191,10 @@
             "title": "Reset",
             "default": false
           },
+          "generation": {
+            "type": "string",
+            "title": "Generation"
+          },
           "next_since": {
             "type": "integer",
             "title": "Next Since"
@@ -1230,6 +1234,7 @@
         },
         "type": "object",
         "required": [
+          "generation",
           "next_since",
           "latest_seq",
           "pages",
@@ -1840,6 +1845,10 @@
       },
       "SnapshotPayload": {
         "properties": {
+          "generation": {
+            "type": "string",
+            "title": "Generation"
+          },
           "seq": {
             "type": "integer",
             "title": "Seq"
@@ -1868,6 +1877,7 @@
         },
         "type": "object",
         "required": [
+          "generation",
           "seq",
           "pages",
           "blocks",

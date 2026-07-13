@@ -105,3 +105,83 @@ test("enqueue outside a provider throws instead of dropping writes", () => {
   render(<Probe />);
   expect(() => sync!.enqueue([])).toThrow(/SyncProvider/);
 });
+
+// --- replica lifecycle (pkm-y8p0) ---
+
+import type { Replica } from "../replica/client";
+
+function fakeReplicaForProvider(): Replica & { log: string[] } {
+  const log: string[] = [];
+  return {
+    log,
+    init: async () => {
+      log.push("init");
+      return { ok: true, empty: true, cursor: 0, schemaMismatch: false,
+               pendingBatches: [] };
+    },
+    applySnapshot: async () => { log.push("applySnapshot"); },
+    applyChanges: async (f) => {
+      log.push("applyChanges");
+      return { status: "applied", cursor: f.next_since };
+    },
+    enqueue: async () => ({ pending: 0 }),
+    nextBatch: async () => null,
+    pendingBatches: async () => [],
+    deleteBatch: async () => ({ pending: 0 }),
+    markPoisoned: async () => ({ pending: 0 }),
+    pendingCount: async () => 0,
+    localApi: async () => null,
+    reset: async () => undefined,
+  };
+}
+
+const SNAPSHOT = { generation: "g1", seq: 5, pages: [], blocks: [], sidebar: [] };
+const EMPTY_FEED = { reset: false, generation: "g1", next_since: 5,
+                     latest_seq: 5, pages: [], blocks: [], sidebar: [],
+                     tombstones: [] };
+
+test("first connect bootstraps an empty replica and reports ready", async () => {
+  const fetchMock = stubFetch([
+    ["/api/sync/snapshot", SNAPSHOT],
+    ["/api/sync/changes", EMPTY_FEED],
+    ["/api/ops", { ok: true }],
+  ]);
+  const replica = fakeReplicaForProvider();
+  function Mode() {
+    return <div data-testid="mode">{useSync().replicaMode}</div>;
+  }
+  render(<SyncProvider replica={replica}><Mode /></SyncProvider>);
+  expect(screen.getByTestId("mode").textContent).toBe("starting");
+  await act(async () => { lastWs().open(); });
+  expect(replica.log).toContain("applySnapshot");
+  expect(screen.getByTestId("mode").textContent).toBe("ready");
+  const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+  expect(urls).toContain("/api/sync/snapshot");
+});
+
+test("a WS seq nudge beyond the cursor pulls the changes feed", async () => {
+  const fetchMock = stubFetch([
+    ["/api/sync/snapshot", SNAPSHOT],
+    ["/api/sync/changes", { ...EMPTY_FEED, next_since: 9, latest_seq: 9 }],
+    ["/api/ops", { ok: true }],
+  ]);
+  const replica = fakeReplicaForProvider();
+  render(<SyncProvider replica={replica}><div /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  const before = fetchMock.mock.calls.length;
+  await act(async () => { lastWs().message({ type: "seq", seq: 12 }); });
+  const changeCalls = fetchMock.mock.calls.slice(before)
+    .map((c) => String(c[0]))
+    .filter((u) => u.startsWith("/api/sync/changes"));
+  expect(changeCalls).toEqual(["/api/sync/changes?since=9"]);
+});
+
+test("without a replica the provider reports no-replica mode", async () => {
+  stubFetch([["/api/ops", { ok: true }]]);
+  function Mode() {
+    return <div data-testid="mode">{useSync().replicaMode}</div>;
+  }
+  render(<SyncProvider replica={null}><Mode /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  expect(screen.getByTestId("mode").textContent).toBe("no-replica");
+});

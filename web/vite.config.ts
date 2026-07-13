@@ -9,6 +9,9 @@ export default defineConfig({
   plugins: [react()],
   base: "/",
   build: { assetsDir: "app-assets" },
+  // sqlite-wasm must not be pre-bundled: its wasm asset URL resolution
+  // breaks under dep optimization (upstream guidance)
+  optimizeDeps: { exclude: ["@sqlite.org/sqlite-wasm"] },
   server: {
     proxy: {
       "/api": { target: apiTarget, ws: true },
@@ -27,6 +30,8 @@ export default defineConfig({
       exclude: [
         "src/**/*.test.{ts,tsx}",
         "src/test-helpers.ts",
+        "src/replica/testDb.ts",
+        "src/replica/worker.ts",
         "src/test-setup.ts",
         "src/main.tsx",
         "src/**/*.d.ts",

@@ -9,6 +9,7 @@
 import type { components } from "../api/types";
 import type { ReplicaDb, SqlValue } from "./db";
 import { getMeta, setMeta } from "./meta";
+import { reconcilePage } from "./reconcile";
 
 export type Changes = components["schemas"]["ChangesPayload"];
 export type Snapshot = components["schemas"]["SnapshotPayload"];
@@ -20,6 +21,7 @@ export type ApplyResult =
   | { status: "needs-bootstrap" };
 
 const upsertPage = (db: ReplicaDb, p: SyncPage): void => {
+  reconcilePage(db, p); // offline-created page? remap its rows first
   db.exec(
     "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)" +
     " ON CONFLICT(id) DO UPDATE SET title = excluded.title," +

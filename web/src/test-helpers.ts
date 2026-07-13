@@ -116,17 +116,21 @@ export interface SyncFake extends Sync {
   emit(batch: WsBatch): void;
 }
 
-export function makeSync(status: SyncStatus = "connected"): SyncFake {
+export function makeSync(status: SyncStatus = "connected",
+                         over: Partial<Sync> = {}): SyncFake {
   const subs = new Set<(b: WsBatch) => void>();
   const sent: BlockOp[][] = [];
   return {
     status,
     resyncSeq: 0,
     replicaMode: "ready",
+    canEdit: status === "connected",
+    pending: 0,
     enqueue: (ops) => { sent.push(ops); },
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
     idle: () => Promise.resolve(),
     sent,
     emit: (batch) => subs.forEach((fn) => fn(batch)),
+    ...over,
   };
 }

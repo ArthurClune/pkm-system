@@ -24,7 +24,7 @@ test("clientId is stable and uid-shaped", () => {
 
 test("ops enqueued in the same tick coalesce into one batch", async () => {
   const { bodies, mock } = capturingFetch([() => jsonResponse({ ok: true })]);
-  const q = createOpQueue(() => undefined);
+  const q = createOpQueue(null, () => undefined);
   q.enqueue([op("u1")]);
   q.enqueue([op("u2"), op("u3")]);
   await q.idle();
@@ -45,7 +45,7 @@ test("ops enqueued while a batch is in flight go in the next batch", async () =>
     return jsonResponse({ ok: true });
   });
   vi.stubGlobal("fetch", mock);
-  const q = createOpQueue(() => undefined);
+  const q = createOpQueue(null, () => undefined);
   q.enqueue([op("u1")]);
   await Promise.resolve(); // let the first batch dispatch
   q.enqueue([op("u2")]);
@@ -61,7 +61,7 @@ test("a failed batch clears the queue and reports desync; queue keeps working", 
     () => jsonResponse({ ok: true }),
   ]);
   const onDesync = vi.fn();
-  const q = createOpQueue(onDesync);
+  const q = createOpQueue(null, onDesync);
   q.enqueue([op("u1"), op("u2")]);
   await q.idle();
   expect(onDesync).toHaveBeenCalledTimes(1);
@@ -76,7 +76,7 @@ test("ops re-enqueued synchronously from onDesync are not stranded", async () =>
     () => jsonResponse({ detail: { index: 0, reason: "boom" } }, 400),
     () => jsonResponse({ ok: true }),
   ]);
-  const q = createOpQueue(() => {
+  const q = createOpQueue(null, () => {
     q.enqueue([op("u9")]);
   });
   q.enqueue([op("u1")]);
@@ -90,7 +90,7 @@ test("a throwing onDesync does not poison the queue or idle()", async () => {
     () => jsonResponse({ detail: { index: 0, reason: "boom" } }, 400),
     () => jsonResponse({ ok: true }),
   ]);
-  const q = createOpQueue(() => {
+  const q = createOpQueue(null, () => {
     throw new Error("desync handler exploded");
   });
   q.enqueue([op("u1")]);
@@ -103,7 +103,7 @@ test("a throwing onDesync does not poison the queue or idle()", async () => {
 
 test("while offline, enqueue is preserved but pumps no HTTP", async () => {
   const { mock } = capturingFetch([() => jsonResponse({ ok: true })]);
-  const q = createOpQueue(() => undefined);
+  const q = createOpQueue(null, () => undefined);
   q.setOnline(false);
   q.enqueue([op("u1")]);
   q.enqueue([op("u2")]);
@@ -114,7 +114,7 @@ test("while offline, enqueue is preserved but pumps no HTTP", async () => {
 
 test("reconnect flushes the ops preserved while offline, in order", async () => {
   const { bodies, mock } = capturingFetch([() => jsonResponse({ ok: true })]);
-  const q = createOpQueue(() => undefined);
+  const q = createOpQueue(null, () => undefined);
   q.setOnline(false);
   q.enqueue([op("u1")]);
   q.enqueue([op("u2")]);
@@ -134,7 +134,7 @@ test("an in-flight POST completes after going offline without starting a new pum
     return jsonResponse({ ok: true });
   });
   vi.stubGlobal("fetch", mock);
-  const q = createOpQueue(() => undefined);
+  const q = createOpQueue(null, () => undefined);
   q.enqueue([op("u1")]);   // connected: pump starts, POST for u1 in flight
   await Promise.resolve(); // let that batch dispatch
   q.setOnline(false);      // socket drops while the POST is outstanding
@@ -150,7 +150,7 @@ test("an in-flight POST completes after going offline without starting a new pum
 
 test("batches larger than 500 ops split into sequential POSTs", async () => {
   const { bodies, mock } = capturingFetch([() => jsonResponse({ ok: true })]);
-  const q = createOpQueue(() => undefined);
+  const q = createOpQueue(null, () => undefined);
   const ops = Array.from({ length: 501 }, (_, i) => op(`u${i}`));
   q.enqueue(ops);
   await q.idle();

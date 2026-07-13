@@ -1,0 +1,279 @@
+{
+  "cases": [
+    {
+      "text": "plain text without any references",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "a [[Simple Link]] in a sentence",
+      "refs": [
+        {
+          "title": "Simple Link",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "two [[Alpha]] and [[Beta]] links",
+      "refs": [
+        {
+          "title": "Alpha",
+          "kind": "link"
+        },
+        {
+          "title": "Beta",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "duplicate [[Alpha]] and [[Alpha]] dedupes",
+      "refs": [
+        {
+          "title": "Alpha",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "nested [[Outer [[Inner]] Link]] yields outer then inner",
+      "refs": [
+        {
+          "title": "Outer [[Inner]] Link",
+          "kind": "link"
+        },
+        {
+          "title": "Inner",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#tag and #another-tag",
+      "refs": [
+        {
+          "title": "tag",
+          "kind": "tag"
+        },
+        {
+          "title": "another-tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[Bracketed Tag]] is a tag",
+      "refs": [
+        {
+          "title": "Bracketed Tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#tag/with/slash and #dotted.tag and #dash-tag",
+      "refs": [
+        {
+          "title": "tag/with/slash",
+          "kind": "tag"
+        },
+        {
+          "title": "dotted.tag",
+          "kind": "tag"
+        },
+        {
+          "title": "dash-tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "mid#word is not a tag",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "(#parenthesised) tag",
+      "refs": [
+        {
+          "title": "parenthesised",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Attribute:: value with [[Link]]",
+      "refs": [
+        {
+          "title": "Attribute",
+          "kind": "attribute"
+        },
+        {
+          "title": "Link",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "  Indented Attribute:: still an attribute",
+      "refs": [
+        {
+          "title": "Indented Attribute",
+          "kind": "attribute"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "not an attribute because :: comes after [[brackets]]:: here",
+      "refs": [
+        {
+          "title": "not an attribute because",
+          "kind": "attribute"
+        },
+        {
+          "title": "brackets",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "Tags:: #AI #ML",
+      "refs": [
+        {
+          "title": "Tags",
+          "kind": "attribute"
+        },
+        {
+          "title": "AI",
+          "kind": "tag"
+        },
+        {
+          "title": "ML",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "inline `code with [[NotALink]]` stays code",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "```\nfenced [[NotALink]] #not-a-tag\n```",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "before ```fence [[X]]``` after [[Real Link]]",
+      "refs": [
+        {
+          "title": "Real Link",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "a block ref ((abcdef123)) is not a page ref",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "short ((abc)) is not a block ref",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "{{embed: ((abcdef123))}}",
+      "refs": [],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "{{[[embed]]: ((abcdef123))}}",
+      "refs": [
+        {
+          "title": "embed",
+          "kind": "link"
+        }
+      ],
+      "block_refs": [
+        "abcdef123"
+      ]
+    },
+    {
+      "text": "unclosed [[bracket stays plain",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "[[Unicode Tîtle ✨]] survives",
+      "refs": [
+        {
+          "title": "Unicode Tîtle ✨",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "trailing hash # alone",
+      "refs": [],
+      "block_refs": []
+    },
+    {
+      "text": "a [[Link]] with #tag and Attr:: no — attr only at line start",
+      "refs": [
+        {
+          "title": "Link",
+          "kind": "link"
+        },
+        {
+          "title": "tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "empty [[]] link",
+      "refs": [
+        {
+          "title": "",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[Nested [[Inside]] Tag]]",
+      "refs": [
+        {
+          "title": "Nested [[Inside]] Tag",
+          "kind": "tag"
+        },
+        {
+          "title": "Inside",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    }
+  ]
+}

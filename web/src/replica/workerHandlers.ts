@@ -2,44 +2,59 @@
 // The worker's RPC handler map, built over an injected database opener so
 // the whole surface is testable without a real Worker or OPFS.
 
+import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import type { PendingBatch } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
 import { getMeta } from "./meta";
+import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
+         pendingCount } from "./queue";
 import type { RpcHandlers } from "./rpc";
 
 export interface WorkerDeps {
   openDb(): Promise<ReplicaDb>;
   /** Destroy the persistent database and return a fresh, empty one. */
   resetDb(): Promise<ReplicaDb>;
+  /** Injectable for tests; the worker uses Date.now/crypto.randomUUID. */
+  nowMs?: () => number;
+  newBatchId?: () => string;
 }
 
 const tableExists = (db: ReplicaDb, name: string): boolean =>
   db.select("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name=?",
             [name]).length > 0;
 
-export function readPendingBatches(db: ReplicaDb): PendingBatch[] {
+function readPendingBatches(db: ReplicaDb): PendingBatch[] {
   // Guardrail (spec section 6): runs BEFORE any teardown decision, and
   // reads only the migration-stable columns so a newer client can always
   // extract wire-format JSON from an older database.
   if (!tableExists(db, "pending_ops")) return [];
-  return db.select<{ id: number; batch_id: string; ops_json: string; poisoned: number }>(
-    "SELECT id, batch_id, ops_json, poisoned FROM pending_ops ORDER BY id",
-  ).map((r) => ({
-    id: r.id,
-    batch_id: r.batch_id,
-    ops: JSON.parse(r.ops_json) as PendingBatch["ops"],
-    poisoned: r.poisoned !== 0,
-  }));
+  return allBatches(db);
 }
 
 export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   let dbPromise: Promise<ReplicaDb> | null = null;
   const db = (): Promise<ReplicaDb> => (dbPromise ??= deps.openDb());
+  const nowMs = deps.nowMs ?? (() => Date.now());
+  const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID());
 
   return {
+    async enqueue(payload) {
+      return enqueueBatch(await db(), payload as BlockOp[], nowMs(),
+                          newBatchId());
+    },
+    async nextBatch() {
+      return nextBatch(await db());
+    },
+    async deleteBatch(payload) {
+      return { pending: deleteBatch(await db(), payload as number) };
+    },
+    async markPoisoned(payload) {
+      const { id, error } = payload as { id: number; error: string };
+      return { pending: markPoisoned(await db(), id, error) };
+    },
     async init() {
       let d: ReplicaDb;
       try {
@@ -72,9 +87,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       return readPendingBatches(await db());
     },
     async pendingCount() {
-      const d = await db();
-      return Number(d.select<{ n: number }>(
-        "SELECT COUNT(*) AS n FROM pending_ops WHERE poisoned = 0")[0].n);
+      return pendingCount(await db());
     },
     async reset() {
       const d = await deps.resetDb();

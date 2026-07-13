@@ -23,6 +23,13 @@ export interface Sync {
   /** Replica lifecycle (offline support): "no-replica" means the app runs
    * online-only exactly as before pkm-y8p0. */
   replicaMode: ReplicaState["mode"];
+  /** Editing allowed: always when connected; offline only when the replica
+   * is ready and local storage can still persist edits (spec section 6). */
+  canEdit: boolean;
+  /** Queued (non-poisoned) batches not yet acknowledged by the server. */
+  pending: number;
+  /** Why editing is blocked, when it is. */
+  readOnlyReason?: string;
   enqueue(ops: BlockOp[]): void;
   /** Remote batches only — own echoes are filtered out here. */
   subscribe(fn: (batch: WsBatch) => void): () => void;
@@ -34,6 +41,8 @@ export const SyncContext = createContext<Sync>({
   status: "connecting",
   resyncSeq: 0,
   replicaMode: "starting",
+  canEdit: false,
+  pending: 0,
   enqueue: () => {
     // a silent default would drop writes without a trace
     throw new Error("enqueue called outside <SyncProvider>");
@@ -75,16 +84,30 @@ export function SyncProvider({ children, replica }: {
   const [resyncSeq, setResyncSeq] = useState(0);
   const [replicaState, setReplicaState] =
     useState<ReplicaState>({ mode: "starting" });
+  const [pending, setPending] = useState(0);
+  const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subsRef = useRef(new Set<(b: WsBatch) => void>());
   const everConnectedRef = useRef(false);
-
-  const queue = useMemo(
-    () => createOpQueue(() => setResyncSeq((n) => n + 1)), []);
 
   const replicaRef = useRef<Replica | null | undefined>(undefined);
   if (replicaRef.current === undefined) {
     replicaRef.current = replica === undefined ? defaultReplica() : replica;
   }
+
+  const queue = useMemo(
+    () => createOpQueue(replicaRef.current ?? null,
+                        () => setResyncSeq((n) => n + 1)), []);
+
+  useEffect(() => {
+    const offs = [
+      queue.onPending(setPending),
+      queue.onQuota(() => setQuotaExhausted(true)),
+    ];
+    // a durable queue may be non-empty from a previous session
+    void replicaRef.current?.pendingCount()
+      .then(setPending).catch(() => undefined);
+    return () => { offs.forEach((off) => off()); };
+  }, [queue]);
   const replicaSync = useMemo(() => {
     const r = replicaRef.current;
     return r ? createReplicaSync({
@@ -134,17 +157,33 @@ export function SyncProvider({ children, replica }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Connected: editing always allowed (server-authoritative, as before).
+  // Offline: allowed only with a ready replica that can still persist —
+  // quota exhaustion offline means an edit could be silently lost, so the
+  // editor is frozen with a reason instead (spec section 6).
+  const canEdit = status === "connected"
+    || (replicaState.mode === "ready" && !quotaExhausted);
+  const readOnlyReason = canEdit ? undefined
+    : quotaExhausted ? "local storage is full — reconnect to sync"
+    : replicaState.mode === "recovery-failed"
+      ? "local data recovery failed — reconnect to continue"
+      : "offline — this graph is not yet available locally";
+
   const api = useMemo<Sync>(() => ({
     status,
     resyncSeq,
     replicaMode: replicaState.mode,
+    canEdit,
+    pending,
+    readOnlyReason,
     enqueue: (ops) => queue.enqueue(ops),
     subscribe: (fn) => {
       subsRef.current.add(fn);
       return () => { subsRef.current.delete(fn); };
     },
     idle: () => queue.idle(),
-  }), [status, resyncSeq, replicaState, queue]);
+  }), [status, resyncSeq, replicaState, canEdit, pending, readOnlyReason,
+       queue]);
 
   return <SyncContext.Provider value={api}>{children}</SyncContext.Provider>;
 }

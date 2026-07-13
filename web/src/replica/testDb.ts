@@ -17,11 +17,18 @@ export interface TestDb {
 }
 
 export async function openTestDb(): Promise<TestDb> {
+  const t = await openRawTestDb();
+  installSchema(t.db);
+  return t;
+}
+
+/** Same, but without installing the schema — for code paths that must see
+ * a brand-new empty database (worker init). */
+export async function openRawTestDb(): Promise<TestDb> {
   sqlite3 ??= (await sqlite3InitModule()) as unknown as Sqlite3Module;
   const raw = new sqlite3.oo1.DB(":memory:");
   const db = wrapSqlite(raw);
   db.exec("PRAGMA foreign_keys=ON");
   db.exec("PRAGMA recursive_triggers=ON");
-  installSchema(db);
   return { db, close: () => raw.close() };
 }

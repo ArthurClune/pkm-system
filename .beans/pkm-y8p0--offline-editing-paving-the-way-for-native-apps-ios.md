@@ -1,11 +1,11 @@
 ---
 # pkm-y8p0
 title: Offline editing, paving the way for native apps (iOS)
-status: in-progress
+status: completed
 type: epic
 priority: normal
 created_at: 2026-07-10T16:37:01Z
-updated_at: 2026-07-12T18:35:49Z
+updated_at: 2026-07-13T20:50:00Z
 ---
 
 Support editing while offline, with changes syncing when connectivity returns. Architecture choices here should keep a future native iOS app in mind (local-first data layer, sync protocol usable outside the browser).
@@ -49,3 +49,13 @@ Approved design: docs/superpowers/specs/2026-07-12-offline-editing-design.md
 ## Server protocol implemented (2026-07-12)
 
 pkm-dnl6 (server phase) is implemented on branch worktree-pkm-dnl6-offline-sync-server: journal + row-level triggers, changes feed + snapshot endpoints, WS seq nudges, batch_id push idempotency, create_page op, base_text_hash conflict detection. API artifacts (openapi.json, types.d.ts, ops.ts CreatePageOp/BlockOp) regenerated for the web phases to build against.
+
+## Summary of Changes (epic complete, 2026-07-13)
+
+All child beans shipped: server change journal + snapshot/changes feed with generation token and batch-id dedup (pkm-dnl6, pkm-x7a5, pkm-o9o5), sqlite-wasm replica worker (pkm-gtov), durable op queue + optimistic apply + negative-id reconciliation (pkm-su05), offline API shim + gateway + indicator (pkm-wptk), offline FTS search (pkm-blz2), and the PWA app shell + asset runtime cache (pkm-xnnh).
+
+The wptk verification pass hardened the whole engine: leftover-batch drain on first connect, persistence decoupled from network drains, gateway online-window routing, pending-batch re-apply after snapshot AND feed windows (kills spurious conflict copies), best-effort optimistic apply (no dropped edits during hydration), schema-on-demand for pre-init edits, and single-flight mount-time replica start for cold-start offline.
+
+The sync protocol is plain HTTP+JSON (snapshot, windowed changes feed, idempotent op batches) — usable by a future native iOS client as designed. Docs updated: README offline section, docs/design.md offline architecture.
+
+Deferred (tracked in the offline design spec): offline asset upload, full 2GB asset sync, offline query blocks, sidebar writes, page delete offline.

@@ -12,12 +12,23 @@ the **[full design spec](superpowers/specs/2026-07-08-roam-migration-pkm-design.
 ## Core idea
 
 **Server-authoritative, block-granular.** SQLite on the server is the single
-source of truth. The browser fetches a page's block tree, applies edits
-optimistically, and sends batches of block-level operations (`create`,
-`update_text`, `move`, `delete`, `set_collapsed`) to the server — the only
-write path. A WebSocket broadcasts committed batches to other open clients.
-No CRDTs, no offline editing: per-block last-write-wins is enough for one
-person, and a dropped connection pauses writes rather than risking divergence.
+source of truth. The browser applies edits optimistically and sends batches
+of block-level operations (`create`, `update_text`, `move`, `delete`,
+`set_collapsed`) to `POST /api/ops` — the only write path. A WebSocket
+broadcasts committed batches to other open clients. No CRDTs: per-block
+last-write-wins is enough for one person.
+
+**Offline is a cache, not a fork.** Each browser keeps a sqlite-wasm replica
+of the graph (hydrated from a snapshot, kept warm by a change journal) plus a
+durable queue of not-yet-acknowledged op batches. While disconnected, reads
+and search are served from the replica through a local shim that mimics the
+API's shapes, and edits keep queueing; on reconnect the queue flushes (batch
+ids make replays idempotent), the feed catches up, and views refetch. The
+server stays the sole authority — a text edit carries the hash of the text it
+was based on, and a mismatch preserves the losing version as a `[[conflict]]`
+block rather than silently overwriting (an edit to a since-deleted block
+lands on today's daily page). A service worker precaches the app shell so a
+cold start needs no network at all.
 
 Two alternatives were rejected — a client-side graph with op-log sync (Roam's
 own architecture: snappy, but you own a sync protocol and its data-loss modes)
@@ -38,6 +49,7 @@ the full trade-off discussion.
 | Frontend (read) | React + Vite SPA: journal home with infinite scroll, page view with lazy backlinks, shift-click sidebar stack, search. | [plan](superpowers/plans/2026-07-08-frontend-read.md) |
 | Frontend (edit) | Roam-style outliner — only the focused block is a live textarea, everything else is rendered HTML; keyboard-first; phone gets a bottom composer instead of outline editing. | [Spec §4](superpowers/specs/2026-07-08-roam-migration-pkm-design.md) · [plan](superpowers/plans/2026-07-09-frontend-edit.md) |
 | Deployment | launchd services on a Mac + Tailscale Serve for HTTPS; nightly backup job (rotated SQLite snapshots + git-committed markdown export). | [Deployment design](superpowers/specs/2026-07-09-plan6-deployment-design.md) · [plan](superpowers/plans/2026-07-09-plan6-deployment.md) · [ops guide](../deploy/README.md) |
+| Offline & PWA | Server: append-only change journal + snapshot/changes feed with a generation token; batch-id dedup on `/api/ops`; base-text-hash conflict copies. Client: sqlite-wasm replica (worker + OPFS), durable op queue with optimistic apply, offline API shim (parity-pinned against the server), FTS search, service-worker app shell + asset runtime cache. | [Offline design](superpowers/specs/2026-07-12-offline-editing-design.md) · [server plan](superpowers/plans/2026-07-12-offline-sync-server.md) · [web plan](superpowers/plans/2026-07-13-offline-sync-web.md) |
 
 ## Load-bearing decisions
 
@@ -63,6 +75,14 @@ the full trade-off discussion.
   transport boundary; a single static password + signed session cookie guards
   against other LAN devices. The server binds loopback + the Tailscale IP
   only.
+- **The replica is a cache; the queue is the user's intent.** Optimistic
+  local application is best-effort (an op that can't apply locally is skipped,
+  never dropped from the queue), authoritative writes re-apply the pending
+  queue over themselves, and a re-bootstrap never discards a database whose
+  queue hasn't flushed. Degraded beats data loss at every decision point.
+- **Sync stays debuggable:** the change journal is append-only rows in the
+  same SQLite file, a generation token detects rebuilt databases, and batch
+  ids make client retries idempotent — no vector clocks, no merge machinery.
 - **Functional-core / imperative-shell** throughout: op application, ref
   extraction, query evaluation are pure modules; FastAPI routes, SQLite and
   the WebSocket hub are thin shells (convention in `CLAUDE.md`).
@@ -82,12 +102,21 @@ what each phase proved and what it deferred:
 5. [Frontend edit](superpowers/plans/2026-07-09-frontend-edit.md)
 6. [Deployment, backup & hardening](superpowers/plans/2026-07-09-plan6-deployment.md)
 
+Offline editing followed as a seventh phase in two plans —
+[server sync protocol](superpowers/plans/2026-07-12-offline-sync-server.md)
+and [web replica/PWA](superpowers/plans/2026-07-13-offline-sync-web.md) —
+from the [offline design spec](superpowers/specs/2026-07-12-offline-editing-design.md),
+with the client/server API shim pinned byte-identical to the real routes by a
+shared fixture (`shared/fixtures/shim_parity.json`).
+
 Known gaps and deferred work are tracked as carry-forward sections in the
 design spec and as beans in `.beans/`.
 
 ## Out of scope (by design)
 
-Multi-user, multiple graphs, offline editing, full datalog queries, encrypted
-blocks, and creating new `((block refs))` (existing ones render). The
+Multi-user, multiple graphs, full datalog queries, and encrypted blocks. The
 reasoning is in the
 [design spec](superpowers/specs/2026-07-08-roam-migration-pkm-design.md).
+Within offline mode, asset upload, sidebar edits, page deletion, query
+blocks, and full asset sync stay online-only — deferred deliberately, see the
+[offline design spec](superpowers/specs/2026-07-12-offline-editing-design.md).

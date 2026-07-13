@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { FakeWebSocket, stubFetch } from "../test-helpers";
+import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId } from "./opQueue";
 import { SyncProvider, useSync, type Sync } from "./SyncProvider";
@@ -130,7 +131,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     deleteBatch: async () => ({ pending: 0 }),
     markPoisoned: async () => ({ pending: 0 }),
     pendingCount: async () => 0,
-    localApi: async () => null,
+    localApi: async () => ({ handled: false as const }),
     reset: async () => undefined,
   };
 }
@@ -186,6 +187,51 @@ test("without a replica the provider reports no-replica mode", async () => {
   expect(screen.getByTestId("mode").textContent).toBe("no-replica");
 });
 
+test("leftover durable batches flush on first connect, then views resync", async () => {
+  // a reload can kill an in-flight POST: the next session's first connect
+  // must drain the leftover AND refetch views (they loaded server state
+  // that predates the flush; the WS echo is filtered as this tab's own)
+  const fetchMock = stubFetch([
+    ["/api/sync/snapshot", SNAPSHOT],
+    ["/api/sync/changes", EMPTY_FEED],
+    ["/api/ops", { ok: true }],
+  ]);
+  const replica = fakeReplicaForProvider();
+  const rows = [{ id: 1, batch_id: "leftover",
+                  ops: [{ op: "delete", uid: "u1" } as const], poisoned: false }];
+  replica.pendingCount = async () => rows.length;
+  replica.nextBatch = async () => rows[0] ?? null;
+  replica.deleteBatch = async () => { rows.pop(); return { pending: 0 }; };
+  render(<SyncProvider replica={replica}><Probe onBatch={() => undefined} /></SyncProvider>);
+  await act(async () => { lastWs().open(); }); // first connect of this load
+  expect(rows).toEqual([]); // drained
+  const opsPosts = fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/ops");
+  expect(opsPosts.length).toBe(1);
+  expect(screen.getByTestId("status").textContent).toBe("connected:1"); // resync
+});
+
+test("gateway: requests reach the network until the socket has actually dropped", async () => {
+  stubFetch([
+    ["/api/sync/snapshot", SNAPSHOT],
+    ["/api/sync/changes", EMPTY_FEED],
+    ["/api/ops", { ok: true }],
+    ["/api/x", { net: true }],
+  ]);
+  const replica = fakeReplicaForProvider();
+  replica.localApi = async () =>
+    ({ handled: true, status: 200, body: { local: true } });
+  const { unmount } = render(<SyncProvider replica={replica}><div /></SyncProvider>);
+  // "connecting" is not offline: the network is reachable before the socket
+  // finishes its handshake (a reload lands here with hot caches)
+  await expect(apiFetch("/api/x")).resolves.toEqual({ net: true });
+  await act(async () => { lastWs().open(); });
+  await expect(apiFetch("/api/x")).resolves.toEqual({ net: true });
+  // only a dropped socket routes reads to the replica shim
+  await act(async () => { lastWs().drop(); });
+  await expect(apiFetch("/api/x")).resolves.toEqual({ local: true });
+  unmount(); // deregisters the gateway for later tests
+});
+
 test("offline with a ready replica keeps editing enabled and counts pending", async () => {
   stubFetch([
     ["/api/sync/snapshot", SNAPSHOT],
@@ -211,6 +257,22 @@ test("offline with a ready replica keeps editing enabled and counts pending", as
   await act(async () => { sync.enqueue([{ op: "delete", uid: "u1" }]); await sync.idle(); });
   expect(sync.pending).toBe(3);
   expect(sync.readOnlyReason).toBeUndefined();
+});
+
+test("cold start offline: a hydrated replica reaches ready and bumps resync", async () => {
+  // no socket ever opens; init is local, and views that errored while the
+  // replica was starting must be told to refetch (through the shim)
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+  const replica = fakeReplicaForProvider();
+  replica.init = async () => ({ ok: true, empty: false, cursor: 5,
+                                schemaMismatch: false, pendingBatches: [] });
+  function Grab() {
+    const sync = useSync();
+    return <div data-testid="s">{sync.replicaMode}:{sync.resyncSeq}:{String(sync.canEdit)}</div>;
+  }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { await Promise.resolve(); });
+  expect(screen.getByTestId("s").textContent).toBe("ready:1:true");
 });
 
 test("offline without a replica stays read-only with a reason", async () => {

@@ -1,0 +1,582 @@
+{
+  "seed": {
+    "pages": [
+      [
+        1,
+        "Machine Learning",
+        1000,
+        5000
+      ],
+      [
+        2,
+        "AI",
+        1000,
+        9000
+      ],
+      [
+        3,
+        "July 10th, 2026",
+        1000,
+        3000
+      ],
+      [
+        4,
+        "Paper",
+        1000,
+        null
+      ],
+      [
+        5,
+        "Attention Is All You Need",
+        1000,
+        8000
+      ]
+    ],
+    "blocks": [
+      [
+        "uid_b1",
+        1,
+        null,
+        0,
+        "Tags:: #AI",
+        null,
+        0,
+        1000,
+        2000
+      ],
+      [
+        "uid_b2",
+        1,
+        null,
+        1,
+        "Papers",
+        2,
+        0,
+        1000,
+        2000
+      ],
+      [
+        "uid_b3",
+        1,
+        "uid_b2",
+        0,
+        "[[Attention Is All You Need]] is a [[Paper]]",
+        null,
+        0,
+        1000,
+        2000
+      ],
+      [
+        "uid_b4",
+        1,
+        "uid_b3",
+        0,
+        "deep child mentioning [[AI]]",
+        null,
+        1,
+        1000,
+        2000
+      ],
+      [
+        "uid_b5",
+        3,
+        null,
+        0,
+        "Studying [[Machine Learning]] today",
+        null,
+        0,
+        1000,
+        2000
+      ],
+      [
+        "uid_b6",
+        3,
+        null,
+        1,
+        "See ((uid_b3)) for details",
+        null,
+        0,
+        1000,
+        2000
+      ],
+      [
+        "uid_b7",
+        2,
+        null,
+        0,
+        "AI overview mentions Machine Learning in plain text",
+        null,
+        0,
+        1000,
+        2000
+      ],
+      [
+        "uid_b8",
+        5,
+        null,
+        0,
+        "Cites ((uid_b6)) which cites more",
+        null,
+        0,
+        1000,
+        2000
+      ]
+    ],
+    "refs": [
+      [
+        "uid_b1",
+        2,
+        "attribute"
+      ],
+      [
+        "uid_b1",
+        2,
+        "tag"
+      ],
+      [
+        "uid_b3",
+        5,
+        "link"
+      ],
+      [
+        "uid_b3",
+        4,
+        "link"
+      ],
+      [
+        "uid_b4",
+        2,
+        "link"
+      ],
+      [
+        "uid_b5",
+        1,
+        "link"
+      ]
+    ],
+    "sidebar": [
+      [
+        1,
+        "Machine Learning",
+        0
+      ],
+      [
+        2,
+        "AI",
+        1
+      ]
+    ]
+  },
+  "cases": [
+    {
+      "name": "page_with_backlinks",
+      "path": "/api/page/Machine%20Learning",
+      "response": {
+        "page": {
+          "id": 1,
+          "title": "Machine Learning",
+          "created_at": 1000,
+          "updated_at": 5000
+        },
+        "blocks": [
+          {
+            "uid": "uid_b1",
+            "text": "Tags:: #AI",
+            "heading": null,
+            "collapsed": false,
+            "order_idx": 0,
+            "created_at": 1000,
+            "updated_at": 2000,
+            "children": []
+          },
+          {
+            "uid": "uid_b2",
+            "text": "Papers",
+            "heading": 2,
+            "collapsed": false,
+            "order_idx": 1,
+            "created_at": 1000,
+            "updated_at": 2000,
+            "children": [
+              {
+                "uid": "uid_b3",
+                "text": "[[Attention Is All You Need]] is a [[Paper]]",
+                "heading": null,
+                "collapsed": false,
+                "order_idx": 0,
+                "created_at": 1000,
+                "updated_at": 2000,
+                "children": [
+                  {
+                    "uid": "uid_b4",
+                    "text": "deep child mentioning [[AI]]",
+                    "heading": null,
+                    "collapsed": true,
+                    "order_idx": 0,
+                    "created_at": 1000,
+                    "updated_at": 2000,
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "backlinks": {
+          "groups": [
+            {
+              "page_id": 3,
+              "page_title": "July 10th, 2026",
+              "items": [
+                {
+                  "uid": "uid_b5",
+                  "text": "Studying [[Machine Learning]] today",
+                  "breadcrumbs": []
+                }
+              ]
+            }
+          ],
+          "total_pages": 1,
+          "offset": 0,
+          "limit": 20
+        },
+        "block_ref_texts": {}
+      }
+    },
+    {
+      "name": "page_ai",
+      "path": "/api/page/AI",
+      "response": {
+        "page": {
+          "id": 2,
+          "title": "AI",
+          "created_at": 1000,
+          "updated_at": 9000
+        },
+        "blocks": [
+          {
+            "uid": "uid_b7",
+            "text": "AI overview mentions Machine Learning in plain text",
+            "heading": null,
+            "collapsed": false,
+            "order_idx": 0,
+            "created_at": 1000,
+            "updated_at": 2000,
+            "children": []
+          }
+        ],
+        "backlinks": {
+          "groups": [
+            {
+              "page_id": 1,
+              "page_title": "Machine Learning",
+              "items": [
+                {
+                  "uid": "uid_b1",
+                  "text": "Tags:: #AI",
+                  "breadcrumbs": []
+                },
+                {
+                  "uid": "uid_b1",
+                  "text": "Tags:: #AI",
+                  "breadcrumbs": []
+                },
+                {
+                  "uid": "uid_b4",
+                  "text": "deep child mentioning [[AI]]",
+                  "breadcrumbs": [
+                    "Papers",
+                    "[[Attention Is All You Need]] is a [[Paper]]"
+                  ]
+                }
+              ]
+            }
+          ],
+          "total_pages": 1,
+          "offset": 0,
+          "limit": 20
+        },
+        "block_ref_texts": {}
+      }
+    },
+    {
+      "name": "page_daily_existing",
+      "path": "/api/page/July%2010th,%202026",
+      "response": {
+        "page": {
+          "id": 3,
+          "title": "July 10th, 2026",
+          "created_at": 1000,
+          "updated_at": 3000
+        },
+        "blocks": [
+          {
+            "uid": "uid_b5",
+            "text": "Studying [[Machine Learning]] today",
+            "heading": null,
+            "collapsed": false,
+            "order_idx": 0,
+            "created_at": 1000,
+            "updated_at": 2000,
+            "children": []
+          },
+          {
+            "uid": "uid_b6",
+            "text": "See ((uid_b3)) for details",
+            "heading": null,
+            "collapsed": false,
+            "order_idx": 1,
+            "created_at": 1000,
+            "updated_at": 2000,
+            "children": []
+          }
+        ],
+        "backlinks": {
+          "groups": [],
+          "total_pages": 0,
+          "offset": 0,
+          "limit": 20
+        },
+        "block_ref_texts": {
+          "uid_b3": {
+            "text": "[[Attention Is All You Need]] is a [[Paper]]",
+            "page_title": "Machine Learning"
+          }
+        }
+      }
+    },
+    {
+      "name": "page_backlinks_paged",
+      "path": "/api/page/AI?bl_offset=1&bl_limit=1",
+      "response": {
+        "page": {
+          "id": 2,
+          "title": "AI",
+          "created_at": 1000,
+          "updated_at": 9000
+        },
+        "blocks": [
+          {
+            "uid": "uid_b7",
+            "text": "AI overview mentions Machine Learning in plain text",
+            "heading": null,
+            "collapsed": false,
+            "order_idx": 0,
+            "created_at": 1000,
+            "updated_at": 2000,
+            "children": []
+          }
+        ],
+        "backlinks": {
+          "groups": [],
+          "total_pages": 1,
+          "offset": 1,
+          "limit": 1
+        },
+        "block_ref_texts": {}
+      }
+    },
+    {
+      "name": "unlinked_ai",
+      "path": "/api/unlinked?title=AI",
+      "response": {
+        "groups": [],
+        "total": 0
+      }
+    },
+    {
+      "name": "unlinked_ml",
+      "path": "/api/unlinked?title=Machine%20Learning&limit=5&offset=0",
+      "response": {
+        "groups": [
+          {
+            "page_id": 2,
+            "page_title": "AI",
+            "items": [
+              {
+                "uid": "uid_b7",
+                "text": "AI overview mentions Machine Learning in plain text"
+              }
+            ]
+          }
+        ],
+        "total": 1
+      }
+    },
+    {
+      "name": "journal_pinned",
+      "path": "/api/journal?before=2026-07-11&days=3",
+      "response": {
+        "days": [
+          {
+            "date": "2026-07-10",
+            "title": "July 10th, 2026",
+            "exists": true,
+            "blocks": [
+              {
+                "uid": "uid_b5",
+                "text": "Studying [[Machine Learning]] today",
+                "heading": null,
+                "collapsed": false,
+                "order_idx": 0,
+                "created_at": 1000,
+                "updated_at": 2000,
+                "children": []
+              },
+              {
+                "uid": "uid_b6",
+                "text": "See ((uid_b3)) for details",
+                "heading": null,
+                "collapsed": false,
+                "order_idx": 1,
+                "created_at": 1000,
+                "updated_at": 2000,
+                "children": []
+              }
+            ]
+          },
+          {
+            "date": "2026-07-09",
+            "title": "July 9th, 2026",
+            "exists": false,
+            "blocks": []
+          },
+          {
+            "date": "2026-07-08",
+            "title": "July 8th, 2026",
+            "exists": false,
+            "blocks": []
+          }
+        ],
+        "block_ref_texts": {
+          "uid_b3": {
+            "text": "[[Attention Is All You Need]] is a [[Paper]]",
+            "page_title": "Machine Learning"
+          }
+        }
+      }
+    },
+    {
+      "name": "titles_a",
+      "path": "/api/titles?q=a",
+      "response": {
+        "titles": [
+          "AI",
+          "Attention Is All You Need",
+          "Paper",
+          "Machine Learning"
+        ]
+      }
+    },
+    {
+      "name": "titles_ml",
+      "path": "/api/titles?q=Machine",
+      "response": {
+        "titles": [
+          "Machine Learning"
+        ]
+      }
+    },
+    {
+      "name": "block_refs",
+      "path": "/api/block-refs?uids=uid_b8,uid_missing",
+      "response": {
+        "block_ref_texts": {
+          "uid_b8": {
+            "text": "Cites ((uid_b6)) which cites more",
+            "page_title": "Attention Is All You Need"
+          },
+          "uid_b6": {
+            "text": "See ((uid_b3)) for details",
+            "page_title": "July 10th, 2026"
+          },
+          "uid_b3": {
+            "text": "[[Attention Is All You Need]] is a [[Paper]]",
+            "page_title": "Machine Learning"
+          }
+        }
+      }
+    },
+    {
+      "name": "sidebar",
+      "path": "/api/sidebar",
+      "response": {
+        "entries": [
+          {
+            "id": 1,
+            "title": "Machine Learning"
+          },
+          {
+            "id": 2,
+            "title": "AI"
+          }
+        ]
+      }
+    },
+    {
+      "name": "search_attention",
+      "path": "/api/search?q=attention",
+      "response": {
+        "pages": [
+          {
+            "id": 5,
+            "title": "Attention Is All You Need"
+          }
+        ],
+        "blocks": [
+          {
+            "uid": "uid_b3",
+            "page_title": "Machine Learning",
+            "snippet": "[[<mark>Attention</mark> Is All You Need]] is a [[Paper]]"
+          }
+        ]
+      }
+    },
+    {
+      "name": "search_machine",
+      "path": "/api/search?q=machine",
+      "response": {
+        "pages": [
+          {
+            "id": 1,
+            "title": "Machine Learning"
+          }
+        ],
+        "blocks": [
+          {
+            "uid": "uid_b5",
+            "page_title": "July 10th, 2026",
+            "snippet": "Studying [[<mark>Machine</mark> Learning]] today"
+          },
+          {
+            "uid": "uid_b7",
+            "page_title": "AI",
+            "snippet": "AI overview mentions <mark>Machine</mark> Learning in plain text"
+          }
+        ]
+      }
+    },
+    {
+      "name": "search_phrase",
+      "path": "/api/search?q=plain%20text",
+      "response": {
+        "pages": [],
+        "blocks": [
+          {
+            "uid": "uid_b7",
+            "page_title": "AI",
+            "snippet": "AI overview mentions Machine Learning in <mark>plain</mark> <mark>text</mark>"
+          }
+        ]
+      }
+    },
+    {
+      "name": "search_empty",
+      "path": "/api/search?q=%20",
+      "response": {
+        "pages": [],
+        "blocks": []
+      }
+    }
+  ]
+}

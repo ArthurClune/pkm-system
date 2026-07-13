@@ -51,6 +51,10 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
   await expect(input(page)).toHaveValue("second block [[E2E Target]]");
   await input(page).press("Escape"); // blur: flushes the draft op
 
+  // the sync indicator clears once every queued edit is on the server;
+  // reloading before that races the local persist of the last edit
+  await expect(page.locator(".ws-banner")).toHaveCount(0);
+
   // persisted across a full reload, structure intact
   await page.reload();
   const day = page.locator(".journal-day").first();

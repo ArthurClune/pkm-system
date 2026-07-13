@@ -8,7 +8,9 @@
 
 import type { components } from "../api/types";
 import type { ReplicaDb, SqlValue } from "./db";
+import { applyLocalOps } from "./localOps";
 import { getMeta, setMeta } from "./meta";
+import { allBatches } from "./queue";
 import { reconcilePage } from "./reconcile";
 
 export type Changes = components["schemas"]["ChangesPayload"];
@@ -48,7 +50,8 @@ const upsertBlock = (db: ReplicaDb, b: SyncBlock): void => {
   }
 };
 
-export function applySnapshot(db: ReplicaDb, snap: Snapshot): void {
+export function applySnapshot(db: ReplicaDb, snap: Snapshot,
+                              nowMs: number = Date.now()): void {
   db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
     // wipe order respects FKs anyway (refs -> blocks -> pages)
@@ -64,10 +67,36 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot): void {
     }
     setMeta(db, "cursor", String(snap.seq));
     setMeta(db, "generation", snap.generation);
+    reapplyPending(db, nowMs);
   });
 }
 
-export function applyChanges(db: ReplicaDb, feed: Changes): ApplyResult {
+/** Re-apply queued optimistic batches after an authoritative write.
+ *
+ * Any snapshot or feed window may overwrite state that queued batches had
+ * applied optimistically (edits race their own echo through the sync
+ * protocol on every bootstrap and pull). Losing that state doesn't just
+ * revert the visible text — the NEXT update_text would capture a stale
+ * base_text_hash and manufacture a spurious conflict copy server-side.
+ * Re-applying is safe: batches flush to the server unchanged, and a batch
+ * that can no longer apply (e.g. its rows were superseded or tombstoned)
+ * is skipped via savepoint rollback — push-time resolution owns it. */
+function reapplyPending(db: ReplicaDb, nowMs: number): void {
+  for (const b of allBatches(db)) {
+    if (b.poisoned) continue;
+    db.exec("SAVEPOINT reapply_batch");
+    try {
+      applyLocalOps(db, b.ops, nowMs);
+      db.exec("RELEASE reapply_batch");
+    } catch {
+      db.exec("ROLLBACK TO reapply_batch");
+      db.exec("RELEASE reapply_batch");
+    }
+  }
+}
+
+export function applyChanges(db: ReplicaDb, feed: Changes,
+                             nowMs: number = Date.now()): ApplyResult {
   if (feed.reset || feed.generation !== getMeta(db, "generation")) {
     // cursor from another life: a reset request, or a rebuilt database
     // whose journal restarted (pkm-o9o5). Never apply mid-journal rows.
@@ -95,6 +124,7 @@ export function applyChanges(db: ReplicaDb, feed: Changes): ApplyResult {
       }
     }
     setMeta(db, "cursor", String(feed.next_since));
+    reapplyPending(db, nowMs);
   });
   return { status: "applied", cursor: feed.next_since };
 }

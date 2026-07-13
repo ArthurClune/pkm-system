@@ -1,4 +1,5 @@
 import react from "@vitejs/plugin-react";
+import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vitest/config";
 
 // PKM_API_PORT lets dev/verification runs proxy to a scratch server without
@@ -6,7 +7,53 @@ import { defineConfig } from "vitest/config";
 const apiTarget = `http://127.0.0.1:${process.env.PKM_API_PORT ?? "8974"}`;
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Offline app shell (spec section 5): precache the built SPA so a cold
+    // start works with no network; runtime-cache viewed uploads from
+    // /assets/ with an LRU cap. /api is NEVER cached — reads route through
+    // the replica shim when offline, and the sync protocol must always see
+    // real responses.
+    VitePWA({
+      registerType: "autoUpdate",
+      manifest: {
+        name: "pkm",
+        short_name: "pkm",
+        description: "Personal knowledge management",
+        theme_color: "#1a1a2e",
+        background_color: "#1a1a2e",
+        display: "standalone",
+        icons: [
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+          { src: "/icon.svg", sizes: "any", type: "image/svg+xml" },
+        ],
+      },
+      workbox: {
+        // the sqlite wasm binary must be precached or the replica cannot
+        // start offline
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,wasm}"],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        clientsClaim: true,
+        skipWaiting: true,
+        navigateFallback: "/index.html",
+        // /login is a server page; /assets and /api are data, not app shell
+        navigateFallbackDenylist: [/^\/api/, /^\/assets/, /^\/login/],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, sameOrigin }) =>
+              sameOrigin && url.pathname.startsWith("/assets/"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "pkm-assets",
+              expiration: { maxEntries: 400, purgeOnQuotaError: true },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+        ],
+      },
+    }),
+  ],
   base: "/",
   build: { assetsDir: "app-assets" },
   // sqlite-wasm must not be pre-bundled: its wasm asset URL resolution

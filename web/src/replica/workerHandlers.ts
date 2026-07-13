@@ -9,6 +9,7 @@ import type { PendingBatch } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
 import { getMeta } from "./meta";
+import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
          pendingCount } from "./queue";
 import type { RpcHandlers } from "./rpc";
@@ -42,8 +43,13 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
 
   return {
     async enqueue(payload) {
-      return enqueueBatch(await db(), payload as BlockOp[], nowMs(),
-                          newBatchId());
+      const d = await db();
+      // the first edit can beat the socket connect that triggers init():
+      // a fresh database gets its schema here so durability never waits.
+      // An existing database (any version) is left alone — init() owns
+      // schema-mismatch detection and recovery.
+      if (!tableExists(d, "sync_client_meta")) installSchema(d);
+      return enqueueBatch(d, payload as BlockOp[], nowMs(), newBatchId());
     },
     async nextBatch() {
       return nextBatch(await db());
@@ -77,17 +83,21 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       };
     },
     async applySnapshot(payload) {
-      applySnapshot(await db(), payload as Snapshot);
+      applySnapshot(await db(), payload as Snapshot, nowMs());
       return null;
     },
     async applyChanges(payload) {
-      return applyChanges(await db(), payload as Changes);
+      return applyChanges(await db(), payload as Changes, nowMs());
     },
     async pendingBatches() {
       return readPendingBatches(await db());
     },
     async pendingCount() {
       return pendingCount(await db());
+    },
+    async localApi(payload) {
+      return handleLocalApi(await db(), payload as LocalApiRequest,
+                            { newBatchId });
     },
     async reset() {
       const d = await deps.resetDb();

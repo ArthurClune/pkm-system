@@ -110,6 +110,22 @@ test("openDb failure degrades to no-replica mode instead of rejecting", async ()
   });
 });
 
+test("an edit arriving before init persists (schema installs on demand)", async () => {
+  // the first keystroke can beat the socket connect that triggers init:
+  // durability must not depend on that ordering
+  const { replica } = await setup();
+  const { pending } = await replica.enqueue([
+    { op: "create", uid: "uid_pre", page_title: "Today",
+      parent_uid: null, order_idx: 0, text: "typed before init" },
+  ]);
+  expect(pending).toBe(1);
+  const init = await replica.init();
+  expect(init.ok).toBe(true);
+  expect(init.empty).toBe(true); // still needs the snapshot bootstrap
+  expect(init.schemaMismatch).toBe(false);
+  expect(init.pendingBatches).toHaveLength(1);
+});
+
 test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   const { replica, current } = await setup();
   await replica.init();

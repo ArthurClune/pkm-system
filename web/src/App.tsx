@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
-import { ReconnectBanner } from "./components/ReconnectBanner";
+import { OfflineIndicator } from "./components/OfflineIndicator";
 import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -71,7 +71,7 @@ export function App() {
       <DndProvider>
         <SidebarContext.Provider value={sidebarApi}>
           <div className="app">
-            <ReconnectBanner />
+            <OfflineIndicator />
             <button className="hamburger" aria-label="menu"
                     onClick={() => setNavOpen((o) => !o)}>
               ☰

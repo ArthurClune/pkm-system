@@ -25,17 +25,28 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
     db.transaction(() => {
       const augmented: BlockOp[] = [];
       for (const op of ops) {
+        let wireOp: BlockOp = op;
         if (op.op === "update_text") {
           // capture BEFORE this op's own optimistic apply
           const base = currentText(db, op.uid);
-          const withHash: UpdateTextOp = base === null
-            ? op // block unknown locally: server applies plain LWW (check 3)
-            : { ...op, base_text_hash: sha256Hex(base) };
-          augmented.push(withHash);
-          applyLocalOps(db, [withHash], nowMs);
-        } else {
-          augmented.push(op);
-          applyLocalOps(db, [op], nowMs);
+          if (base !== null) {
+            // block unknown locally -> no hash: server applies plain LWW
+            wireOp = { ...op, base_text_hash: sha256Hex(base) } as UpdateTextOp;
+          }
+        }
+        augmented.push(wireOp);
+        // Optimistic apply is a best-effort CACHE update; persistence must
+        // never depend on it. During the bootstrap window ops legitimately
+        // reference blocks the replica has not hydrated yet — skip the
+        // local effect (savepoint) and keep the op on the wire; the feed's
+        // reapplyPending restores local consistency once rows exist.
+        db.exec("SAVEPOINT optimistic_op");
+        try {
+          applyLocalOps(db, [wireOp], nowMs);
+          db.exec("RELEASE optimistic_op");
+        } catch {
+          db.exec("ROLLBACK TO optimistic_op");
+          db.exec("RELEASE optimistic_op");
         }
       }
       db.exec("INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, ?)",

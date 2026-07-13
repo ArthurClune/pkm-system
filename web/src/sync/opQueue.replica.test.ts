@@ -36,7 +36,7 @@ function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch
       return { pending: pending() };
     },
     pendingCount: async () => pending(),
-    localApi: async () => null,
+    localApi: async () => ({ handled: false as const }),
     reset: async () => undefined,
     ...over,
   };
@@ -107,6 +107,22 @@ test("a 4xx response poisons the batch and the queue keeps flowing", async () =>
   expect(bodies.length).toBe(2); // rejected batch + the good one
 });
 
+test("a durable batch from a previous page load drains on the first connect", async () => {
+  // a reload can kill an in-flight POST: the batch survives in the replica,
+  // and the first socket connect of the next session must drain it even
+  // though the queue never saw a setOnline(false)
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  replica.rows.push({ id: 99, batch_id: "leftover", ops: [op("u1")],
+                      poisoned: false });
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(true); // the socket's first connect after the reload
+  await q.idle();
+  expect(bodies.map((b) => (b.body as { batch_id: string }).batch_id))
+    .toEqual(["leftover"]);
+  expect(replica.rows).toEqual([]);
+});
+
 test("a network error keeps the batch; the next online kick retries it", async () => {
   let calls = 0;
   vi.stubGlobal("fetch", vi.fn(async () => {
@@ -123,6 +139,26 @@ test("a network error keeps the batch; the next online kick retries it", async (
   q.setOnline(true); // reconnect kick
   await q.idle();
   expect(replica.rows).toEqual([]);
+});
+
+test("a slow drain POST does not delay persisting later edits", async () => {
+  // durability must never wait on the network: if it did, a reload during
+  // one slow POST would lose every edit made behind it
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    await gate;
+    return jsonResponse({ ok: true });
+  }));
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  q.enqueue([op("u1")]);
+  await vi.waitFor(() => { expect(replica.rows.length).toBe(1); });
+  q.enqueue([op("u2")]); // first POST still in flight
+  await vi.waitFor(() => { expect(replica.rows.length).toBe(2); });
+  release();
+  await q.idle();
+  expect(replica.rows).toEqual([]); // both drained once the network freed up
 });
 
 test("quota-failed enqueue surfaces and degrades to a direct post", async () => {

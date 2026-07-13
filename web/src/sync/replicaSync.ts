@@ -109,6 +109,33 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     return pulling;
   };
 
+  const doStart = async (): Promise<void> => {
+    const init = await replica.init();
+    if (!init.ok) {
+      disabled = true;
+      onState({ mode: "no-replica" });
+      return;
+    }
+    cursor = init.cursor;
+    if (init.schemaMismatch) {
+      // deploy changed the DDL: flush queued work, then rebuild
+      try {
+        await flushBatches(init.pendingBatches);
+      } catch (e) {
+        onState({ mode: "recovery-failed", error: errText(e) });
+        return; // keep the old database; retry on next reconnect
+      }
+      await replica.reset();
+      await bootstrap();
+    } else if (init.empty) {
+      await bootstrap();
+    }
+    started = true;
+    onState({ mode: "ready" });
+    await pull();
+  };
+  let starting: Promise<void> | null = null;
+
   return {
     async start() {
       if (disabled) return;
@@ -116,29 +143,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         await pull();
         return;
       }
-      const init = await replica.init();
-      if (!init.ok) {
-        disabled = true;
-        onState({ mode: "no-replica" });
-        return;
-      }
-      cursor = init.cursor;
-      if (init.schemaMismatch) {
-        // deploy changed the DDL: flush queued work, then rebuild
-        try {
-          await flushBatches(init.pendingBatches);
-        } catch (e) {
-          onState({ mode: "recovery-failed", error: errText(e) });
-          return; // keep the old database; retry on next reconnect
-        }
-        await replica.reset();
-        await bootstrap();
-      } else if (init.empty) {
-        await bootstrap();
-      }
-      started = true;
-      onState({ mode: "ready" });
-      await pull();
+      // single-flight: the mount-time start (cold start offline needs no
+      // socket) and the first connect's start must share one initialization
+      starting ??= doStart().finally(() => { starting = null; });
+      await starting;
     },
     onSeq(seq) {
       if (pulling) {

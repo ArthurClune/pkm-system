@@ -67,6 +67,25 @@ def test_api_and_asset_routes_not_shadowed(tmp_path):
     assert client.get("/app-assets/does-not-exist.js").status_code == 404
 
 
+def test_root_level_dist_files_served_not_shadowed(tmp_path):
+    # the PWA needs real files at the root scope: sw.js served as HTML would
+    # break service-worker registration outright
+    dist = _dist(tmp_path)
+    (dist / "sw.js").write_text("self.addEventListener('fetch', () => {})",
+                                encoding="utf-8")
+    (dist / "manifest.webmanifest").write_text("{}", encoding="utf-8")
+    client = TestClient(create_app(_config(tmp_path, web_dist=dist)))
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200
+    assert "javascript" in sw.headers["content-type"]
+    # the SW byte-compares itself on update checks: never cache it
+    assert sw.headers["cache-control"] == "no-cache"
+    assert client.get("/manifest.webmanifest").status_code == 200
+    # directories and traversal never leak; client routes still fall back
+    assert client.get("/app-assets/../index.html").status_code in (200, 404)
+    assert "<!doctype html" in client.get("/page/Whatever").text
+
+
 def test_without_web_dist_root_is_404(tmp_path):
     client = TestClient(create_app(_config(tmp_path)))
     assert client.get("/").status_code == 404

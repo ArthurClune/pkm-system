@@ -4,6 +4,7 @@
 
 import type { BlockOp } from "../api/ops";
 import type { ApplyResult, Changes, Snapshot } from "./apply";
+import type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 import { createRpcClient, type PortLike } from "./rpc";
 
 export interface PendingBatch {
@@ -26,12 +27,7 @@ export interface ReplicaInit {
   pendingBatches: PendingBatch[];
 }
 
-export interface LocalApiRequest {
-  method: string;
-  path: string;
-  body?: unknown;
-  nowMs: number;
-}
+export type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 
 export interface Replica {
   init(): Promise<ReplicaInit>;
@@ -45,8 +41,8 @@ export interface Replica {
   deleteBatch(id: number): Promise<{ pending: number }>;
   markPoisoned(id: number, error: string): Promise<{ pending: number }>;
   pendingCount(): Promise<number>;
-  /** wptk: offline API shim; null = route not shimmed. */
-  localApi(req: LocalApiRequest): Promise<unknown>;
+  /** Offline API shim: handled:false = route not shimmed (online-only). */
+  localApi(req: LocalApiRequest): Promise<LocalApiResult>;
   /** Drop and reinstall the schema. Caller enforces the non-empty-queue
    * guard (spec section 6): never call with unsynced pending ops. */
   reset(): Promise<void>;

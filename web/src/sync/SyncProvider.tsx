@@ -8,7 +8,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState,
          type ReactNode } from "react";
 import type { BlockOp } from "../api/ops";
-import { apiFetch } from "../api/client";
+import { apiFetch, setOfflineGateway } from "../api/client";
 import { createReplica, type Replica } from "../replica/client";
 import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue } from "./opQueue";
@@ -122,6 +122,40 @@ export function SyncProvider({ children, replica }: {
     if (replicaSync === null) setReplicaState({ mode: "no-replica" });
   }, [replicaSync]);
 
+  // Offline routing (spec section 4): while the socket is down, apiFetch
+  // serves shimmed reads (and page create) from the replica. Refs keep the
+  // gateway's view of status/mode current without re-registering.
+  // updated synchronously in onStatus: gateway decisions must not lag a
+  // transition by a React render (a bootstrap fetch fires inside the
+  // socket-open handler, before state has re-rendered)
+  const statusRef = useRef<SyncStatus>("connecting");
+  const modeRef = useRef(replicaState.mode);
+  modeRef.current = replicaState.mode;
+  useEffect(() => {
+    const r = replicaRef.current;
+    if (!r) return;
+    setOfflineGateway({
+      offline: () => statusRef.current !== "connected",
+      handle: async (path, init) => {
+        if (modeRef.current !== "ready") return { handled: false };
+        const method = init?.method ?? "GET";
+        const result = await r.localApi({
+          method,
+          path,
+          body: init?.body ? JSON.parse(String(init.body)) : undefined,
+          nowMs: Date.now(),
+        });
+        if (result.handled && method !== "GET") {
+          // a shim write (page create) enqueued a batch inside the worker
+          void r.pendingCount().then(setPending).catch(() => undefined);
+        }
+        return result;
+      },
+    });
+    return () => setOfflineGateway(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const handle = connectSocket({
       onBatch: (batch) => {
@@ -134,6 +168,7 @@ export function SyncProvider({ children, replica }: {
         // effect, which would race child refetch effects): the pump must be
         // paused/resumed at the exact transition.
         queue.setOnline(up);
+        statusRef.current = up ? "connected" : "reconnecting";
         if (up) {
           if (everConnectedRef.current) {
             // Reconnect after a gap: flush the preserved ops first, then pull

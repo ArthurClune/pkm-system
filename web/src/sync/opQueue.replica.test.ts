@@ -36,7 +36,7 @@ function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch
       return { pending: pending() };
     },
     pendingCount: async () => pending(),
-    localApi: async () => null,
+    localApi: async () => ({ handled: false as const }),
     reset: async () => undefined,
     ...over,
   };

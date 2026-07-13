@@ -130,7 +130,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     deleteBatch: async () => ({ pending: 0 }),
     markPoisoned: async () => ({ pending: 0 }),
     pendingCount: async () => 0,
-    localApi: async () => null,
+    localApi: async () => ({ handled: false as const }),
     reset: async () => undefined,
   };
 }

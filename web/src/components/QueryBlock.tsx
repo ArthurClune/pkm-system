@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useEffect, useState } from "react";
-import { apiFetch } from "../api/client";
+import { OfflineError, apiFetch } from "../api/client";
 import type { BlockGroup, GroupsPayload } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
@@ -32,7 +32,9 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
       setOffset(from + p.groups.reduce((n, gr) => n + gr.items.length, 0));
       setError(null);
     } catch (e: unknown) {
-      setError(String(e));
+      // query blocks are online-only in v1 (spec section 4)
+      setError(e instanceof OfflineError ? "query unavailable offline"
+                                         : String(e));
     } finally {
       setLoading(false);
     }

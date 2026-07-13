@@ -9,6 +9,7 @@ import type { PendingBatch } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
 import { getMeta } from "./meta";
+import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
          pendingCount } from "./queue";
 import type { RpcHandlers } from "./rpc";
@@ -88,6 +89,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     },
     async pendingCount() {
       return pendingCount(await db());
+    },
+    async localApi(payload) {
+      return handleLocalApi(await db(), payload as LocalApiRequest,
+                            { newBatchId });
     },
     async reset() {
       const d = await deps.resetDb();

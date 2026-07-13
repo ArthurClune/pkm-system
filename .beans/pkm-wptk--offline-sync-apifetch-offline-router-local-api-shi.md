@@ -1,10 +1,11 @@
 ---
 # pkm-wptk
 title: 'Offline sync: apiFetch offline router + local API shim + status indicator'
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-07-12T17:38:43Z
-updated_at: 2026-07-12T17:38:43Z
+updated_at: 2026-07-13T19:13:25Z
 parent: pkm-y8p0
 blocked_by:
     - pkm-su05

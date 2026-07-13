@@ -185,3 +185,44 @@ test("without a replica the provider reports no-replica mode", async () => {
   await act(async () => { lastWs().open(); });
   expect(screen.getByTestId("mode").textContent).toBe("no-replica");
 });
+
+test("offline with a ready replica keeps editing enabled and counts pending", async () => {
+  stubFetch([
+    ["/api/sync/snapshot", SNAPSHOT],
+    ["/api/sync/changes", EMPTY_FEED],
+    ["/api/ops", { ok: true }],
+  ]);
+  const replica = fakeReplicaForProvider();
+  let pendingN = 2;
+  replica.pendingCount = async () => pendingN;
+  replica.enqueue = async () => ({ pending: ++pendingN });
+  replica.nextBatch = async () => null; // nothing drains in this test
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return <div data-testid="s">{String(sync.canEdit)}:{sync.pending}</div>;
+  }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  await act(async () => { lastWs().drop(); }); // offline
+  expect(sync.status).toBe("reconnecting");
+  expect(sync.canEdit).toBe(true); // replica ready: editing continues
+  expect(sync.pending).toBe(2);    // durable queue from a previous session
+  await act(async () => { sync.enqueue([{ op: "delete", uid: "u1" }]); await sync.idle(); });
+  expect(sync.pending).toBe(3);
+  expect(sync.readOnlyReason).toBeUndefined();
+});
+
+test("offline without a replica stays read-only with a reason", async () => {
+  stubFetch([["/api/ops", { ok: true }]]);
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return null;
+  }
+  render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  await act(async () => { lastWs().drop(); });
+  expect(sync.canEdit).toBe(false);
+  expect(sync.readOnlyReason).toMatch(/offline/);
+});

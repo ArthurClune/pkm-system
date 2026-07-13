@@ -272,7 +272,8 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     blocks,
     focus,
     selection,
-    readOnly: sync.status !== "connected",
+    // offline editing (pkm-y8p0): the replica persists + renders edits
+    readOnly: !sync.canEdit,
     handlers,
     dnd,
     createFirstBlock,

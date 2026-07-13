@@ -99,6 +99,16 @@ test("offline: edit, create page, link, navigate; reconnect drains to server", a
   await expect(page.locator(".backlinks")).toContainText("Linked references (1)");
   await expect(page.locator(".backlink-text")).toContainText("offline edit survives");
 
+  // search runs on the replica's FTS index while offline (pkm-blz2):
+  // page-title hits and block hits over text typed THIS offline session
+  await page.getByLabel("Search").fill("survives");
+  const blockHit = page.locator(".search-result", { hasText: "offline edit survives" });
+  await expect(blockHit).toBeVisible();
+  await page.keyboard.press("Escape"); // dismiss without navigating
+  await page.getByLabel("Search").fill("Offline Target");
+  await expect(page.locator(".search-result").first()).toContainText("Offline Target");
+  await page.keyboard.press("Escape");
+
   // -- reconnect ------------------------------------------------------------
   offline = false;
   await context.setOffline(false);

@@ -25,6 +25,14 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 MAX_LIMIT = 5000
 
 
+def _generation(db: sqlite3.Connection) -> str:
+    """The database's generation token (pkm-o9o5). init_db() mints it at
+    process startup, so it always exists by the time a request runs."""
+    row = db.execute(
+        "SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()
+    return row["value"] if row is not None else ""
+
+
 def _block_payloads(db: sqlite3.Connection,
                     uids: list[str]) -> tuple[list[SyncBlock], set[int]]:
     """Hydrate blocks + their refs; also return every page id referenced
@@ -67,12 +75,14 @@ def sync_changes(since: int = 0, limit: int = 1000,
     limit = max(1, min(limit, MAX_LIMIT))
     db.execute("BEGIN")  # one consistent read snapshot for scan + hydration
     try:
+        generation = _generation(db)
         latest = db.execute(
             "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
         if since > latest:
             # cursor from a different/rebuilt database (importer swap):
             # the client must re-bootstrap from the snapshot
-            return ChangesPayload(reset=True, next_since=0, latest_seq=latest,
+            return ChangesPayload(reset=True, generation=generation,
+                                  next_since=0, latest_seq=latest,
                                   pages=[], blocks=[], sidebar=[],
                                   tombstones=[])
         rows = db.execute(
@@ -100,6 +110,7 @@ def sync_changes(since: int = 0, limit: int = 1000,
             or (k == "page" and int(e) not in present_pages)
             or (k == "sidebar" and int(e) not in present_sidebar)]
         return ChangesPayload(
+            generation=generation,
             next_since=win.next_since if rows else since,
             latest_seq=latest, pages=pages, blocks=blocks, sidebar=sidebar,
             tombstones=tombstones)
@@ -120,7 +131,7 @@ def sync_snapshot(db: sqlite3.Connection = Depends(get_db)
             "SELECT id, title, created_at, updated_at FROM pages")]
         sidebar = [SyncSidebarEntry(**dict(r)) for r in db.execute(
             "SELECT id, title, order_idx FROM sidebar_entries")]
-        return SnapshotPayload(seq=seq, pages=pages, blocks=blocks,
-                               sidebar=sidebar)
+        return SnapshotPayload(generation=_generation(db), seq=seq,
+                               pages=pages, blocks=blocks, sidebar=sidebar)
     finally:
         db.rollback()

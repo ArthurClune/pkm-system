@@ -140,3 +140,20 @@ def test_daily_autocreate_on_get_emits_seq_nudge(client):
         r = client.get("/api/page/July%2013th,%202026")
         assert r.status_code == 200
         assert _frames_until_seq(ws)[-1]["type"] == "seq"
+
+
+def test_seq_frame_is_typed_and_validated():
+    """pkm-x7a5: the WS nudge frame is built from a typed model, not an
+    ad-hoc dict literal (spec contract-hardening)."""
+    import sqlite3
+
+    from pkm.schema import DDL
+    from pkm.server.notify import SeqFrame, seq_frame
+
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.executescript(DDL)
+    frame = seq_frame(con)
+    assert frame == {"type": "seq", "seq": 0}
+    assert SeqFrame(**frame).seq == 0
+    con.close()

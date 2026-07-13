@@ -6,8 +6,8 @@ fell inside a window that also contained a newer row for something else
 (spec section 1, the A@1/B@2/A@100 case)."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 
 @dataclass(frozen=True)

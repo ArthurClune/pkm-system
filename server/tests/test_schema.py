@@ -55,3 +55,31 @@ def test_refs_kind_constraint(db):
                " NULL, 0, NULL, NULL)")
     with pytest.raises(sqlite3.IntegrityError):
         db.execute("INSERT INTO refs VALUES ('u1', 1, 'bogus')")
+
+
+def test_db_generation_token_created_and_stable(db):
+    """pkm-o9o5: a random generation token is minted when the DDL first
+    runs and survives re-running the (idempotent) DDL."""
+    row = db.execute(
+        "SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()
+    assert row is not None
+    token = row[0]
+    assert len(token) == 32 and all(c in "0123456789abcdef" for c in token)
+    db.executescript(DDL)  # idempotent replay must not rotate the token
+    again = db.execute(
+        "SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()[0]
+    assert again == token
+
+
+def test_db_generation_token_differs_between_databases():
+    """A rebuilt database (importer swap) must mint a different token."""
+    import sqlite3 as _sqlite3
+    tokens = set()
+    for _ in range(2):
+        con = _sqlite3.connect(":memory:")
+        con.executescript(DDL)
+        tokens.add(con.execute(
+            "SELECT value FROM sync_meta WHERE key = 'db_generation'"
+        ).fetchone()[0])
+        con.close()
+    assert len(tokens) == 2

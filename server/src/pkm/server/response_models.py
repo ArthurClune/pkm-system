@@ -169,6 +169,7 @@ class SyncTombstone(BaseModel):
 
 class ChangesPayload(BaseModel):
     reset: bool = False
+    generation: str
     next_since: int
     latest_seq: int
     pages: list[SyncPage]
@@ -178,6 +179,7 @@ class ChangesPayload(BaseModel):
 
 
 class SnapshotPayload(BaseModel):
+    generation: str
     seq: int
     pages: list[SyncPage]
     blocks: list[SyncBlock]

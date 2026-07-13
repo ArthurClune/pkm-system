@@ -8,5 +8,10 @@ coverage/
 .coverage
 .superpowers/
 
+# Local environment files
+.env
+.env.*
+!.env.example
+
 # claude code worktrees
 .claude/worktrees/

@@ -27,6 +27,7 @@ export default defineConfig({
       exclude: [
         "src/**/*.test.{ts,tsx}",
         "src/test-helpers.ts",
+        "src/replica/testDb.ts",
         "src/test-setup.ts",
         "src/main.tsx",
         "src/**/*.d.ts",

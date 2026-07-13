@@ -1,11 +1,11 @@
 ---
 # pkm-gtov
 title: 'Offline sync: sqlite-wasm replica worker + bootstrap + feed application'
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-12T17:38:43Z
-updated_at: 2026-07-12T18:46:09Z
+updated_at: 2026-07-13T18:43:39Z
 parent: pkm-y8p0
 blocked_by:
     - pkm-dnl6

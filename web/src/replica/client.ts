@@ -40,6 +40,8 @@ export interface Replica {
   /** su05: persist + optimistically apply; returns pending count. */
   enqueue(ops: BlockOp[]): Promise<{ pending: number }>;
   nextBatch(): Promise<PendingBatch | null>;
+  /** All queued batches, oldest first (recovery flush reads). */
+  pendingBatches(): Promise<PendingBatch[]>;
   deleteBatch(id: number): Promise<{ pending: number }>;
   markPoisoned(id: number, error: string): Promise<{ pending: number }>;
   pendingCount(): Promise<number>;
@@ -58,6 +60,7 @@ export function createReplica(port: PortLike): Replica {
     applyChanges: (feed) => rpc.call("applyChanges", feed),
     enqueue: (ops) => rpc.call("enqueue", ops),
     nextBatch: () => rpc.call("nextBatch"),
+    pendingBatches: () => rpc.call("pendingBatches"),
     deleteBatch: (id) => rpc.call("deleteBatch", id),
     markPoisoned: (id, error) => rpc.call("markPoisoned", { id, error }),
     pendingCount: () => rpc.call("pendingCount"),

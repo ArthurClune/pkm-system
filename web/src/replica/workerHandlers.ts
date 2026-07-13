@@ -68,6 +68,14 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     async applyChanges(payload) {
       return applyChanges(await db(), payload as Changes);
     },
+    async pendingBatches() {
+      return readPendingBatches(await db());
+    },
+    async pendingCount() {
+      const d = await db();
+      return Number(d.select<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM pending_ops WHERE poisoned = 0")[0].n);
+    },
     async reset() {
       const d = await deps.resetDb();
       dbPromise = Promise.resolve(d);

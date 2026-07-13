@@ -16,10 +16,45 @@ An outliner-style notes app in the Roam mould:
 - **`{{[[query]]}}` blocks** (`and`/`or`/`not` over page refs)
 - **Images and PDFs** stored and served locally, content-addressed
 - **Live sync** between open clients over a WebSocket (desktop + iPad)
+- **Offline editing**: an installable PWA with a local replica — read, edit
+  and search your whole graph with no connection; changes sync back on
+  reconnect (see [Offline](#offline))
 - **One-shot importer** from a Roam EDN export, preserving uids, ordering and
   timestamps
 - **Nightly backups**: rotated SQLite snapshots plus a git-committed
   markdown export
+
+## Offline
+
+After one online visit, each browser keeps a full local replica of the graph
+(SQLite compiled to WebAssembly, persisted by the browser) and a service
+worker caches the app itself — so a cold start with no network still boots
+straight into your notes.
+
+**What works offline:**
+
+- Reading everything: daily notes, pages, backlinks, unlinked references,
+  block references
+- Editing blocks — changes queue durably on the device and the header shows
+  *"Offline — N changes pending"* until they reach the server
+- Creating pages (from search) and daily notes
+- Full-text search and `[[link]]` autocomplete, served from the local replica
+- Images you've viewed before (a bounded cache of recently seen assets);
+  ones you haven't show a labelled placeholder
+
+**Online-only** (the UI says so rather than failing): uploading images/files,
+editing the sidebar, deleting pages, and `{{[[query]]}}` blocks.
+
+**When edits collide** (same block changed on two devices while one was
+offline), the server keeps per-block last-write-wins and preserves the losing
+text as a `[[conflict]]` block next to the winner — nothing is silently
+discarded. An offline edit to a block that was meanwhile deleted is appended
+to today's daily note instead of vanishing.
+
+**Limits to know about:** the first visit (and login) needs a connection; the
+replica is per-browser, so a new device or a cleared browser profile starts
+online; and if the device runs out of local storage while offline, editing
+pauses (with a visible reason) rather than risking a silently lost change.
 
 ## Why
 

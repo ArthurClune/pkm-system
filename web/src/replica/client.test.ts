@@ -109,3 +109,22 @@ test("openDb failure degrades to no-replica mode instead of rejecting", async ()
     ok: false, empty: true, cursor: 0, schemaMismatch: false, pendingBatches: [],
   });
 });
+
+test("enqueue round-trips: persisted, optimistic, drainable", async () => {
+  const { replica, current } = await setup();
+  await replica.init();
+  await replica.applySnapshot(SNAP);
+  const { pending } = await replica.enqueue([
+    { op: "update_text", uid: "uid_b1", text: "offline edit" },
+  ]);
+  expect(pending).toBe(1);
+  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+    .toEqual([{ text: "offline edit" }]);
+  const batch = (await replica.nextBatch())!;
+  expect(batch.ops[0]).toMatchObject({ op: "update_text", text: "offline edit" });
+  expect(batch.batch_id.length).toBeGreaterThanOrEqual(8);
+  expect(await replica.pendingBatches()).toHaveLength(1);
+  await replica.deleteBatch(batch.id);
+  expect(await replica.pendingCount()).toBe(0);
+  await expect(replica.markPoisoned(99, "gone")).resolves.toEqual({ pending: 0 });
+});

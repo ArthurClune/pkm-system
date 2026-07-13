@@ -8,7 +8,7 @@
 
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import { type Oo1DbLike, type ReplicaDb, wrapSqlite } from "./db";
-import { serveRpc } from "./rpc";
+import { serveRpc, toPortLike } from "./rpc";
 import { buildHandlers } from "./workerHandlers";
 
 const DB_FILE = "/pkm-replica.sqlite3";
@@ -42,5 +42,5 @@ async function resetDb(): Promise<ReplicaDb> {
   return openDb();
 }
 
-serveRpc(self as unknown as { postMessage(msg: unknown): void; onmessage: null },
+serveRpc(toPortLike(self as unknown as { postMessage(msg: unknown): void; onmessage: unknown }),
          buildHandlers({ openDb, resetDb }));

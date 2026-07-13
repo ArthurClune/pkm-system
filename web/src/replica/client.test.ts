@@ -6,7 +6,7 @@ import type { Snapshot } from "./apply";
 import { createReplica, type Replica } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import { setMeta } from "./meta";
-import { serveRpc } from "./rpc";
+import { serveRpc, toPortLike } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 
@@ -23,7 +23,7 @@ async function setup(prep?: (t: TestDb) => void): Promise<{ replica: Replica; cu
   let t = await openRawTestDb();
   prep?.(t);
   const ch = new MessageChannel();
-  serveRpc(ch.port2, buildHandlers({
+  serveRpc(toPortLike(ch.port2), buildHandlers({
     openDb: async () => t.db,
     resetDb: async () => {
       t.close();
@@ -31,7 +31,7 @@ async function setup(prep?: (t: TestDb) => void): Promise<{ replica: Replica; cu
       return t.db;
     },
   }));
-  return { replica: createReplica(ch.port1), current: () => t };
+  return { replica: createReplica(toPortLike(ch.port1)), current: () => t };
 }
 
 test("init on a fresh database installs the schema and reports empty", async () => {
@@ -100,11 +100,11 @@ test("reset destroys the database and reinstalls a fresh schema", async () => {
 
 test("openDb failure degrades to no-replica mode instead of rejecting", async () => {
   const ch = new MessageChannel();
-  serveRpc(ch.port2, buildHandlers({
+  serveRpc(toPortLike(ch.port2), buildHandlers({
     openDb: async () => { throw new Error("OPFS unavailable"); },
     resetDb: async () => { throw new Error("unreachable"); },
   }));
-  const replica = createReplica(ch.port1);
+  const replica = createReplica(toPortLike(ch.port1));
   await expect(replica.init()).resolves.toEqual({
     ok: false, empty: true, cursor: 0, schemaMismatch: false, pendingBatches: [],
   });

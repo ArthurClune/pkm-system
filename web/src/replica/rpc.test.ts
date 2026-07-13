@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
-import { ReplicaError, createRpcClient, serveRpc } from "./rpc";
+import { ReplicaError, createRpcClient, serveRpc, toPortLike } from "./rpc";
 
 function pair() {
   const ch = new MessageChannel();
-  return { server: ch.port2, client: ch.port1 };
+  return { server: toPortLike(ch.port2), client: toPortLike(ch.port1) };
 }
 
 test("routes calls to handlers and returns results", async () => {

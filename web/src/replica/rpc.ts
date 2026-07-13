@@ -8,6 +8,16 @@ export interface PortLike {
   onmessage: ((ev: { data: unknown }) => void) | null;
 }
 
+/** MessagePort/Worker are PortLike in behaviour, but their `onmessage`
+ * property types (this-bound, full MessageEvent) defeat structural
+ * assignability — adapt via this one sanctioned cast. */
+export function toPortLike(port: {
+  postMessage(msg: unknown): void;
+  onmessage: unknown;
+}): PortLike {
+  return port as unknown as PortLike;
+}
+
 interface RpcRequest { id: number; method: string; payload: unknown }
 interface RpcResponse {
   id: number;

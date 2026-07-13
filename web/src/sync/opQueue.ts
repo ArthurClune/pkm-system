@@ -55,12 +55,17 @@ function listeners<T>() {
 function createReplicaQueue(replica: Replica,
                             onDesync: (e: unknown) => void): OpQueue {
   let online = true;
-  let chain = Promise.resolve();
+  // Persistence and pumping are decoupled on purpose: replica.enqueue
+  // (durability) must never wait on a drain's network round-trip, or a
+  // reload during one slow POST would lose every edit queued behind it.
+  let persistChain = Promise.resolve();
+  let drainRun: Promise<void> | null = null;
+  let drainAgain = false;
   const pending = listeners<number>();
   const poison = listeners<unknown>();
   const quota = listeners<unknown>();
 
-  const drain = async (): Promise<void> => {
+  const drainLoop = async (): Promise<void> => {
     while (online) {
       const batch = await replica.nextBatch();
       if (batch === null) return;
@@ -87,14 +92,29 @@ function createReplicaQueue(replica: Replica,
     }
   };
 
-  const append = (work: () => Promise<void>): void => {
-    chain = chain.then(work, work);
+  /** Single-flight pump: at most one drain loop runs; a kick during a
+   * run schedules exactly one follow-up pass. */
+  const kick = (): void => {
+    if (drainRun) {
+      drainAgain = true;
+      return;
+    }
+    drainRun = (async () => {
+      do {
+        drainAgain = false;
+        await drainLoop();
+      } while (drainAgain);
+    })()
+      // a worker RPC failure must not wedge idle(); the batch is durable
+      // and the next kick (edit or reconnect) retries it
+      .catch(() => undefined)
+      .finally(() => { drainRun = null; });
   };
 
   return {
     enqueue(ops) {
       if (ops.length === 0) return;
-      append(async () => {
+      const work = async () => {
         try {
           const res = await replica.enqueue(ops);
           pending.emit(res.pending);
@@ -119,20 +139,29 @@ function createReplicaQueue(replica: Replica,
           onDesync(e);
           return;
         }
-        await drain();
-      });
+        kick();
+      };
+      persistChain = persistChain.then(work, work);
     },
     setOnline(next) {
-      if (next === online) return;
       online = next;
-      if (online) append(drain);
+      // kick even when we already thought we were online: a fresh queue
+      // starts online, but the durable pending_ops table can hold batches
+      // from a previous page load (a reload kills in-flight POSTs), and
+      // the first socket connect is the only guaranteed drain moment
+      if (online) kick();
     },
     async idle() {
-      let tail: Promise<void>;
-      do {
-        tail = chain;
+      // quiescent = the persist chain we awaited is still the tail AND no
+      // drain is running (enqueue's work kicks the pump synchronously
+      // before resolving, so a fresh drainRun is visible here)
+      for (;;) {
+        const tail = persistChain;
         await tail;
-      } while (tail !== chain); // work appended while we waited
+        const run = drainRun;
+        if (run) await run;
+        if (tail === persistChain && drainRun === null) return;
+      }
     },
     onPending: pending.add,
     onPoison: poison.add,

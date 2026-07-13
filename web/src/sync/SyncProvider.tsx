@@ -135,7 +135,13 @@ export function SyncProvider({ children, replica }: {
     const r = replicaRef.current;
     if (!r) return;
     setOfflineGateway({
-      offline: () => statusRef.current !== "connected",
+      // only a DROPPED socket means offline. "connecting" (initial load,
+      // reload) must reach the network: the socket handshake lags the first
+      // fetches, and shimming those would serve stale local state that
+      // nothing refetches (the first connect does not bump resyncSeq). A
+      // cold start that is truly offline is caught by apiFetch's
+      // fetch-failure fallback instead.
+      offline: () => statusRef.current === "reconnecting",
       handle: async (path, init) => {
         if (modeRef.current !== "ready") return { handled: false };
         const method = init?.method ?? "GET";
@@ -157,6 +163,17 @@ export function SyncProvider({ children, replica }: {
   }, []);
 
   useEffect(() => {
+    // Leftovers from a previous page load (a reload can kill an in-flight
+    // POST): read before the first connect can start draining them.
+    const initialPending: Promise<number> =
+      replicaRef.current?.pendingCount().catch(() => 0) ?? Promise.resolve(0);
+    // Reconnect after a gap: flush the preserved ops first, then pull the
+    // changes feed, then bump resyncSeq so views refetch state that already
+    // reflects both (flush -> pull -> resync).
+    const reconnectFlow = () => queue.idle()
+      .then(() => replicaSync?.start())
+      .then(() => replicaSync?.idle())
+      .then(() => setResyncSeq((n) => n + 1));
     const handle = connectSocket({
       onBatch: (batch) => {
         if (batch.client_id === clientId) return; // our own echo
@@ -171,15 +188,15 @@ export function SyncProvider({ children, replica }: {
         statusRef.current = up ? "connected" : "reconnecting";
         if (up) {
           if (everConnectedRef.current) {
-            // Reconnect after a gap: flush the preserved ops first, then pull
-            // the changes feed, then bump resyncSeq so views refetch state
-            // that already reflects both (flush -> pull -> resync).
-            void queue.idle()
-              .then(() => replicaSync?.start())
-              .then(() => replicaSync?.idle())
-              .then(() => setResyncSeq((n) => n + 1));
+            void reconnectFlow();
           } else {
-            void replicaSync?.start();
+            // A first connect with a non-empty durable queue IS a reconnect
+            // after a gap — the gap just spans page loads. Views have already
+            // fetched server state that predates the flush, and the flushed
+            // batches echo back under this tab's own clientId (filtered), so
+            // only the resync bump can refresh them.
+            void initialPending.then((n) =>
+              n > 0 ? reconnectFlow() : replicaSync?.start());
           }
           everConnectedRef.current = true;
           setStatus("connected");

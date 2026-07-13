@@ -147,9 +147,10 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
   }
 }
 
-/** Apply a batch atomically; a throwing op rolls the whole batch back
- * (the editor never enqueues invalid ops — a failure here is a bug, and
- * partial application would desync the replica from the queue). */
+/** Apply a batch atomically; a throwing op rolls the whole batch back.
+ * Failures are expected while the replica is behind the editor (ops can
+ * reference rows the sync feed has not delivered yet) — callers treat the
+ * local apply as best-effort cache maintenance, never as durability. */
 export function applyLocalOps(db: ReplicaDb, ops: BlockOp[],
                               nowMs: number): void {
   db.transaction(() => {

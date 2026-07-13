@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { getMeta } from "./meta";
+import { enqueueBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 
 const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
@@ -56,6 +57,46 @@ describe("applySnapshot", () => {
     expect(getMeta(t.db, "generation")).toBe("gen-1");
   });
 
+  test("bootstrap re-applies queued optimistic batches over the snapshot", () => {
+    // edits race the snapshot fetch: they applied optimistically to the
+    // pre-snapshot database and sit in pending_ops. The wipe must not lose
+    // that state, or later ops on those blocks throw "block not found".
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_opt", page_title: "Machine Learning",
+        parent_uid: null, order_idx: 0, text: "typed during bootstrap" },
+    ], 5, "batch-opt");
+    applySnapshot(t.db, SNAP, 6);
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_opt'"))
+      .toEqual([{ text: "typed during bootstrap" }]);
+    // the batch itself still flushes to the server untouched
+    expect(count("SELECT COUNT(*) AS n FROM pending_ops WHERE poisoned = 0"))
+      .toBe(1);
+  });
+
+  test("a queued batch that no longer applies is skipped, not fatal", () => {
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_keep", page_title: "AI",
+        parent_uid: null, order_idx: 0, text: "kept" },
+    ], 5, "batch-keep");
+    // references a block that exists now but is not in the snapshot and
+    // is created by no queued batch: unappliable after the wipe
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
+      " heading, collapsed, created_at, updated_at)" +
+      " VALUES ('uid_gone_after_wipe', 1, NULL, 9, 'x', NULL, 0, 5, 5)");
+    enqueueBatch(t.db, [
+      { op: "set_heading", uid: "uid_gone_after_wipe", heading: 1 },
+    ], 5, "batch-doomed");
+    applySnapshot(t.db, SNAP, 6);
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_keep'"))
+      .toEqual([{ text: "kept" }]);
+    expect(count("SELECT COUNT(*) AS n FROM blocks" +
+                 " WHERE uid = 'uid_gone_after_wipe'")).toBe(0);
+    // snapshot content is intact despite the failed batch
+    expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid = 'uid_b1'"))
+      .toBe(1);
+  });
+
   test("re-bootstrap wipes stale rows first", () => {
     applySnapshot(t.db, {
       generation: "gen-2", seq: 4,
@@ -72,6 +113,22 @@ describe("applySnapshot", () => {
 });
 
 describe("applyChanges", () => {
+  test("feed windows preserve optimistically-applied pending state", () => {
+    // a feed window can deliver a block's OLDER server row while a newer
+    // local update_text is still queued; letting the row win would revert
+    // the visible text AND poison the next op's base_text_hash into a
+    // spurious server-side conflict copy
+    enqueueBatch(t.db, [
+      { op: "update_text", uid: "uid_b1", text: "local newer text" },
+    ], 5, "b-opt");
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      blocks: [block("uid_b1", 1, { text: "older server text" })],
+    }), 6);
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ text: "local newer text" }]);
+  });
+
   test("upserts new page + block with refs and advances the cursor", () => {
     const feed = emptyFeed({
       next_since: 15, latest_seq: 15,

@@ -32,6 +32,29 @@ describe("enqueueBatch", () => {
       .toEqual([{ text: "edited once" }]);
   });
 
+  test("persists even when optimistic apply cannot (un-hydrated blocks)", () => {
+    // during the bootstrap window the user edits server-rendered blocks the
+    // replica hasn't hydrated yet: the local apply is best-effort, but the
+    // batch MUST persist — dropping it loses the edit
+    const res = enqueueBatch(t.db, [
+      { op: "update_text", uid: "uid_ghost", text: "edited before hydration" },
+      { op: "create", uid: "uid_orphan", page_title: "AI",
+        parent_uid: "uid_ghost2", order_idx: 0, text: "child of a ghost" },
+      { op: "update_text", uid: "uid_q1", text: "this one applies" },
+    ], 99, "batch-ghost");
+    expect(res.pending).toBe(1);
+    const batch = nextBatch(t.db)!;
+    expect(batch.ops).toHaveLength(3);
+    // the un-hydrated update carries no base hash: plain LWW at the server
+    expect((batch.ops[0] as UpdateTextOp).base_text_hash).toBeUndefined();
+    // the appliable op in the same batch still applied locally
+    expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'"))
+      .toEqual([{ text: "this one applies" }]);
+    // the skipped ops left no partial rows behind
+    expect(t.db.select("SELECT uid FROM blocks WHERE uid='uid_orphan'"))
+      .toEqual([]);
+  });
+
   test("chained edits hash against the previous local text, not the base", () => {
     enqueueBatch(t.db, [
       { op: "update_text", uid: "uid_q1", text: "v2" },

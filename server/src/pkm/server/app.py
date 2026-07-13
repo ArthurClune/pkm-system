@@ -59,12 +59,25 @@ def create_app(config: Config) -> FastAPI:
                   name="app-assets")
         index_html = config.web_dist / "index.html"
 
+        web_dist_root = config.web_dist.resolve()
+
         @app.get("/{full_path:path}", include_in_schema=False)
         def spa(full_path: str) -> FileResponse:
             # Real API/asset routes are registered earlier and win; anything
             # still hitting these prefixes is a miss, not a client-side route.
             if full_path.split("/", 1)[0] in ("api", "assets", "app-assets"):
                 raise HTTPException(status_code=404, detail="not found")
+            # Root-level build files (sw.js, manifest.webmanifest, icons)
+            # must be served as themselves: a service worker script that
+            # falls back to index.html breaks registration outright. The SW
+            # byte-compares itself on update checks, so no-cache keeps
+            # deploys picked up promptly (matching index.html below).
+            candidate = (web_dist_root / full_path).resolve()
+            if (full_path
+                    and candidate.is_relative_to(web_dist_root)
+                    and candidate.is_file()):
+                return FileResponse(candidate,
+                                    headers={"Cache-Control": "no-cache"})
             # index.html references hashed bundle filenames, so it must be
             # revalidated on every request or browsers keep serving stale
             # bundle references after a deploy.

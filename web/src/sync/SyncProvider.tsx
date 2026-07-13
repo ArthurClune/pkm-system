@@ -119,8 +119,31 @@ export function SyncProvider({ children, replica }: {
   }, []);
 
   useEffect(() => {
-    if (replicaSync === null) setReplicaState({ mode: "no-replica" });
+    if (replicaSync === null) {
+      setReplicaState({ mode: "no-replica" });
+      return;
+    }
+    // Start the replica at mount, not just on socket connect: a cold start
+    // offline (PWA shell) has no socket, and a hydrated replica reaches
+    // ready without the network. An empty replica's bootstrap needs the
+    // server and fails quietly here — the first connect retries it.
+    void replicaSync.start().catch(() => undefined);
   }, [replicaSync]);
+
+  // Views that fetched while the replica was still starting got online-only
+  // errors (or stale server state); once it turns ready with the socket
+  // still down, only a resync bump can make them refetch through the shim.
+  const prevModeRef = useRef(replicaState.mode);
+  useEffect(() => {
+    const was = prevModeRef.current;
+    prevModeRef.current = replicaState.mode;
+    if (was !== "ready" && replicaState.mode === "ready"
+        && statusRef.current !== "connected") {
+      setResyncSeq((n) => n + 1);
+    }
+    // statusRef is a ref on purpose: this must react to MODE changes only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replicaState.mode]);
 
   // Offline routing (spec section 4): while the socket is down, apiFetch
   // serves shimmed reads (and page create) from the replica. Refs keep the

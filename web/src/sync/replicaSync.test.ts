@@ -78,6 +78,44 @@ test("no-replica init reports mode and never fetches", async () => {
   expect(fetchJson).not.toHaveBeenCalled();
 });
 
+test("a hydrated replica reaches ready with the network down (cold start offline)", async () => {
+  // start() must not need the socket: a cold start offline serves the app
+  // shell from the service worker and content from the replica
+  const replica = fakeReplica();
+  const fetchJson = vi.fn(async () => { throw new TypeError("offline"); });
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+  await sync.start(); // catch-up pull fails quietly; readiness is local
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+});
+
+test("concurrent start calls share one initialization", async () => {
+  // mount and the first socket connect both call start(): the bootstrap
+  // must run exactly once
+  const replica = fakeReplica({}, { empty: true, cursor: 0 });
+  const fetchJson = vi.fn(async (path: string) =>
+    path === "/api/sync/snapshot" ? SNAP : feed());
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+  await Promise.all([sync.start(), sync.start()]);
+  expect(replica.calls.filter((c) => c === "init")).toHaveLength(1);
+  expect(replica.calls.filter((c) => c === "applySnapshot")).toHaveLength(1);
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+});
+
+test("a failed empty-replica bootstrap (offline first visit) retries on next start", async () => {
+  const replica = fakeReplica({}, { empty: true, cursor: 0 });
+  const fetchJson = vi.fn()
+    .mockRejectedValueOnce(new TypeError("offline"))
+    .mockImplementation(async (path: string) =>
+      path === "/api/sync/snapshot" ? SNAP : feed());
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+  await expect(sync.start()).rejects.toThrow("offline");
+  await sync.start(); // reconnect: succeeds this time
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+});
+
 test("onSeq beyond the cursor pulls windows until latest, below it does nothing", async () => {
   const replica = fakeReplica();
   const windows = [

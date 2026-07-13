@@ -259,6 +259,22 @@ test("offline with a ready replica keeps editing enabled and counts pending", as
   expect(sync.readOnlyReason).toBeUndefined();
 });
 
+test("cold start offline: a hydrated replica reaches ready and bumps resync", async () => {
+  // no socket ever opens; init is local, and views that errored while the
+  // replica was starting must be told to refetch (through the shim)
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+  const replica = fakeReplicaForProvider();
+  replica.init = async () => ({ ok: true, empty: false, cursor: 5,
+                                schemaMismatch: false, pendingBatches: [] });
+  function Grab() {
+    const sync = useSync();
+    return <div data-testid="s">{sync.replicaMode}:{sync.resyncSeq}:{String(sync.canEdit)}</div>;
+  }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { await Promise.resolve(); });
+  expect(screen.getByTestId("s").textContent).toBe("ready:1:true");
+});
+
 test("offline without a replica stays read-only with a reason", async () => {
   stubFetch([["/api/ops", { ok: true }]]);
   let sync!: Sync;

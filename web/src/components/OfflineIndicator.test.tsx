@@ -3,8 +3,8 @@ import { expect, it } from "vitest";
 import { SyncContext, type Sync } from "../sync/SyncProvider";
 import { OfflineIndicator } from "./OfflineIndicator";
 
-function renderWith(overrides: Partial<Sync>) {
-  const sync: Sync = {
+function syncWith(overrides: Partial<Sync>): Sync {
+  return {
     status: "connected",
     resyncSeq: 0,
     replicaMode: "ready",
@@ -15,11 +15,18 @@ function renderWith(overrides: Partial<Sync>) {
     idle: () => Promise.resolve(),
     ...overrides,
   };
-  return render(
+}
+
+function indicator(sync: Sync) {
+  return (
     <SyncContext.Provider value={sync}>
       <OfflineIndicator />
-    </SyncContext.Provider>,
+    </SyncContext.Provider>
   );
+}
+
+function renderWith(overrides: Partial<Sync>) {
+  return render(indicator(syncWith(overrides)));
 }
 
 it("renders nothing when connected with an empty queue", () => {
@@ -27,14 +34,25 @@ it("renders nothing when connected with an empty queue", () => {
   expect(container).toBeEmptyDOMElement();
 });
 
+it("stays hidden for routine writes while connected", () => {
+  const { container } = renderWith({ status: "connected", pending: 1 });
+  expect(container).toBeEmptyDOMElement();
+});
+
 it("shows a syncing note while the queue drains after reconnect", () => {
-  renderWith({ status: "connected", pending: 3 });
+  const { rerender } = renderWith({ status: "reconnecting", pending: 3 });
+
+  rerender(indicator(syncWith({ status: "connected", pending: 3 })));
+
   expect(screen.getByRole("status"))
     .toHaveTextContent("Syncing — 3 changes pending…");
 });
 
-it("uses the singular for one pending change", () => {
-  renderWith({ status: "connected", pending: 1 });
+it("uses the singular for one pending change after reconnect", () => {
+  const { rerender } = renderWith({ status: "reconnecting", pending: 1 });
+
+  rerender(indicator(syncWith({ status: "connected", pending: 1 })));
+
   expect(screen.getByRole("status"))
     .toHaveTextContent("Syncing — 1 change pending…");
 });

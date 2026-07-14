@@ -3,7 +3,7 @@ import { block } from "../test-helpers";
 import { findNode } from "./tree";
 import { backspaceAtStart, clampCaret, indentBlock, moveBlockDown,
          moveBlockUp, outdentBlock, setCollapsed, setHeading,
-         splitBlock } from "./edits";
+         setViewType, splitBlock } from "./edits";
 
 describe("clampCaret", () => {
   test("keeps the offset when it fits the new length", () => {
@@ -229,5 +229,22 @@ describe("setHeading", () => {
 
   test("no-op for an unknown uid", () => {
     expect(setHeading(tree(), P, "ghost", 1).ops).toEqual([]);
+  });
+});
+
+describe("setViewType", () => {
+  test("emits one op and applies it optimistically", () => {
+    const r = setViewType(tree(), P, "b", "numbered");
+    expect(r.ops).toEqual([
+      { op: "set_view_type", uid: "b", view_type: "numbered" },
+    ]);
+    expect(findNode(r.blocks, "b")!.view_type).toBe("numbered");
+    expect(findNode(r.blocks, "b")!.text).toBe("beta");
+  });
+
+  test("explicit document mode and unknown-uid no-op", () => {
+    const r = setViewType(tree(), P, "b", "document");
+    expect(findNode(r.blocks, "b")!.view_type).toBe("document");
+    expect(setViewType(tree(), P, "ghost", "numbered").ops).toEqual([]);
   });
 });

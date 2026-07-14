@@ -41,6 +41,7 @@ export interface OutlineHandlers {
   onArrow(uid: string, dir: "up" | "down" | "left" | "right"): void;
   onToggleCollapsed(uid: string, collapsed: boolean): void;
   onSetHeading(uid: string, heading: number | null): void;
+  onSetViewType(uid: string, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
   /** Begin a multi-block selection from `uid` towards `dir` (Shift+Arrow at a

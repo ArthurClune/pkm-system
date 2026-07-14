@@ -7,7 +7,7 @@
 // note) — order_idx values are always read off the tree, never array
 // positions, because the server leaves gaps.
 import type { BlockNode } from "../api/payloads";
-import type { BlockOp } from "../api/ops";
+import type { BlockOp, SetViewTypeOp } from "../api/ops";
 import { applyOps, findNode, locate } from "./tree";
 
 export interface FocusTarget {
@@ -168,4 +168,12 @@ export function setHeading(blocks: BlockNode[], pageTitle: string,
                            uid: string, heading: number | null): EditResult {
   if (!findNode(blocks, uid)) return noop(blocks);
   return done(blocks, pageTitle, [{ op: "set_heading", uid, heading }], null);
+}
+
+export function setViewType(blocks: BlockNode[], pageTitle: string,
+                            uid: string,
+                            viewType: SetViewTypeOp["view_type"]): EditResult {
+  if (!findNode(blocks, uid)) return noop(blocks);
+  return done(blocks, pageTitle,
+              [{ op: "set_view_type", uid, view_type: viewType }], null);
 }

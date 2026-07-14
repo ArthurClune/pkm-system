@@ -48,7 +48,7 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
     case "attribute":
       return (
         <span className="attribute">
-          <PageLink title={seg.name} tag={false} />::
+          <PageLink title={seg.name} tag={false} />
         </span>
       );
     case "block-ref":

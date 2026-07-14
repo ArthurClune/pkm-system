@@ -170,7 +170,11 @@ body {
 a { color: var(--color-link-ext); font-weight: 600; text-decoration: none; }
 /* medium, not bold: bold page links make link-dense outlines shout */
 a.page-link { color: var(--color-link); font-weight: 500; }
-a.tag { color: var(--color-tag); font-weight: 400; }
+/* tags are metadata chips, not prose links (pkm-7t7o); the hairline border
+ * keeps them legible on .backlink-item cards whose bg matches the chip's */
+a.tag { color: var(--color-tag); font-weight: 400; font-size: 13px;
+  background: var(--color-bg-subtle); border: 1px solid var(--color-border-subtle);
+  border-radius: 999px; padding: 1px 8px; }
 a:hover { text-decoration: underline; }
 ::selection { background: var(--color-selection-bg); }
 button { font: inherit; }
@@ -295,8 +299,12 @@ h2.block-text { font-size: 1.25rem; font-weight: 600; }
 h3.block-text { font-size: 1.1rem; font-weight: 600; }
 
 /* inline */
-.tag:hover { color: var(--color-link); }
-.attribute a { font-weight: 600; color: var(--color-text); }
+a.tag:hover { color: var(--color-link); text-decoration: none;
+  border-color: var(--color-border); }
+/* the attribute name is a field label, not content: small caps, muted, and
+ * the source "::" stays in the textarea only (pkm-7t7o) */
+.attribute a { font-variant-caps: all-small-caps; letter-spacing: 0.03em;
+  font-weight: 500; color: var(--color-text-muted); }
 .inline-code { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: 3px;
   padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px; }

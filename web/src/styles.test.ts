@@ -40,6 +40,28 @@ describe("link styling (pkm-1eaj)", () => {
   });
 });
 
+describe("metadata chips (pkm-7t7o)", () => {
+  test("attribute names are small-caps muted labels, not bold text", () => {
+    const attr = ruleFor(".attribute a");
+    expect(attr).toContain("font-variant-caps: all-small-caps;");
+    expect(attr).toContain("color: var(--color-text-muted);");
+    expect(attr).not.toContain("font-weight: 600;");
+  });
+
+  test("tags are rounded chips with a subtle background", () => {
+    const tag = ruleFor("a.tag");
+    expect(tag).toContain("background: var(--color-bg-subtle);");
+    expect(tag).toContain("border-radius: 999px;");
+    expect(tag).toContain("border: 1px solid var(--color-border-subtle);");
+  });
+
+  test("tag chips shift to the link colour on hover without underlining", () => {
+    const hover = ruleFor("a.tag:hover");
+    expect(hover).toContain("color: var(--color-link);");
+    expect(hover).toContain("text-decoration: none;");
+  });
+});
+
 describe("typography hierarchy (pkm-b68q)", () => {
   test("heading blocks scale clearly below the page title", () => {
     expect(ruleFor("h1.block-text")).toContain("font-size: 1.4rem;");

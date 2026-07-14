@@ -12,8 +12,6 @@ Use beans (not TodoWrite) to track development work:
 - Mark beans complete when done
 - run `beans prime` for full info
 
-For general assistant tasks (research, calendar, email, etc.), just do them directly.
-
 ### Workflow
 
 Use superpowers skills for development:

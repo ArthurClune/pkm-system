@@ -85,8 +85,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         con.executescript(DDL)
         con.executemany("INSERT INTO pages VALUES (?,?,?,?)", rows.pages)
-        con.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)",
-                        rows.blocks)
+        con.executemany(
+            "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+            " heading, collapsed, created_at, updated_at, view_type)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)", rows.blocks)
         con.executemany("INSERT INTO refs VALUES (?,?,?)", rows.refs)
         con.executemany(
             "INSERT INTO assets VALUES (?,?,?,?,NULL)",

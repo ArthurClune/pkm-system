@@ -1,9 +1,10 @@
-from pkm.importer.parse_export import Block, Export, Page
+from pkm.edn import parse_edn
+from pkm.importer.parse_export import Block, Export, Page, parse_export
 from pkm.importer.rows import to_rows
 
 
-def _block(uid, text, children=(), heading=None, open_=True):
-    return Block(uid=uid, text=text, heading=heading, open=open_,
+def _block(uid, text, children=(), heading=None, open_=True, view_type=None):
+    return Block(uid=uid, text=text, heading=heading, view_type=view_type, open=open_,
                  created_at=None, edited_at=None, children=tuple(children))
 
 
@@ -36,13 +37,25 @@ def test_block_rows_shape_and_order():
     by_uid = {r[0]: r for r in rows.blocks}
     page_id = next(r[0] for r in rows.pages if r[1] == "Machine Learning")
     assert by_uid["uid-attr1"] == ("uid-attr1", page_id, None, 0, "Tags:: #AI",
-                                   None, 0, None, None)
+                                   None, 0, None, None, None)
     assert by_uid["uid-head1"][3] == 1          # order_idx
     assert by_uid["uid-head1"][5] == 2          # heading
     assert by_uid["uid-head1"][6] == 1          # collapsed (open=False)
     assert by_uid["uid-link1"][2] == "uid-head1"  # parent_uid
     uids = [r[0] for r in rows.blocks]
     assert uids.index("uid-head1") < uids.index("uid-link1")  # parent first
+
+
+def test_numbered_children_view_reaches_the_flat_block_row():
+    raw = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+     :datoms [[1 :node/title "P" 1]
+              [1 :block/children 2 1]
+              [2 :block/uid "uid-view1" 1]
+              [2 :block/string "parent" 1]
+              [2 :block/order 0 1]
+              [2 :children/view-type :numbered 1]]}"""
+    rows = to_rows(parse_export(parse_edn(raw)), lambda t: t)
+    assert rows.blocks[0][-1] == "numbered"
 
 
 def test_refs_rows():

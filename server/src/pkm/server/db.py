@@ -18,6 +18,15 @@ from pkm.server.config import Config
 BUSY_TIMEOUT_MS = 5000
 
 
+def _ensure_schema_migrations(con: sqlite3.Connection) -> None:
+    """Apply additive migrations that cannot be expressed with IF NOT EXISTS."""
+    columns = {row[1] for row in con.execute("PRAGMA table_info(blocks)")}
+    if "view_type" not in columns:
+        con.execute(
+            "ALTER TABLE blocks ADD COLUMN view_type TEXT "
+            "CHECK(view_type IN ('numbered','document'))")
+
+
 def init_db(path: Path) -> None:
     """One-time, idempotent database setup: switch to WAL journal mode and
     apply the base schema. Call this once at process startup (serve
@@ -27,20 +36,21 @@ def init_db(path: Path) -> None:
     transaction, so running them per-request (the pre-pkm-lhzd behavior)
     could raise 'database is locked' on an ordinary concurrent request.
 
-    schema.DDL is entirely IF-NOT-EXISTS (pkm-cqu2), so running it here is
-    safe for every database this can be pointed at: a brand-new, empty
+    schema.DDL is entirely IF-NOT-EXISTS (pkm-cqu2), and guarded column
+    migrations run immediately afterwards, so setup is safe for every
+    database this can be pointed at: a brand-new, empty
     data dir (no Roam import ever run -- previously left with zero
     tables, so every page route 500'd with 'no such table: pages'), a
     database the importer already built (same DDL, so this is a no-op),
     and a pre-pkm-lhzd already-populated database missing a table added
-    since (e.g. sidebar_entries), which picks it up with no manual
-    migration step. There is no migration runner in this project (see
-    schema.py) beyond this idempotent-replay strategy."""
+    since (e.g. sidebar_entries or blocks.view_type), which picks it up
+    with no manual migration step."""
     con = sqlite3.connect(path)
     try:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA recursive_triggers=ON")
         con.executescript(DDL)
+        _ensure_schema_migrations(con)
         con.commit()
     finally:
         con.close()

@@ -31,7 +31,10 @@ def _make_db(tmp_path):
     init_db(db_path)
     con = open_db(db_path)
     con.executemany("INSERT INTO pages VALUES (?,?,?,?)", PAGES)
-    con.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)", BLOCKS)
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)", BLOCKS)
     con.executemany("INSERT INTO refs VALUES (?,?,?)", REFS)
     con.commit()
     con.close()

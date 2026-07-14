@@ -40,7 +40,10 @@ def seeded_config(tmp_path) -> Config:
     init_db(db_path)  # WAL mode + base schema, once, before any open_db() call
     con = open_db(db_path)
     con.executemany("INSERT INTO pages VALUES (?,?,?,?)", SEED_PAGES)
-    con.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)", SEED_BLOCKS)
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)", SEED_BLOCKS)
     con.executemany("INSERT INTO refs VALUES (?,?,?)", SEED_REFS)
     con.commit()
     con.close()

@@ -50,7 +50,8 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         text = transform_text(fence if fence is not None else b.text)
         parsed = extract(text)  # runs on final text, so a fence has no [[mermaid]] ref
         blocks.append((b.uid, pid, parent_uid, order_idx, text, b.heading,
-                       0 if b.open else 1, b.created_at, b.edited_at))
+                       0 if b.open else 1, b.created_at, b.edited_at,
+                       b.view_type))
         for r in parsed.refs:
             refs.append((b.uid, page_id(r.title), r.kind))
         counts["block_ref"] += len(parsed.block_refs)

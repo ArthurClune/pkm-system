@@ -20,6 +20,19 @@ def test_tables_exist(db):
             "blocks_fts", "pages_fts", "sidebar_entries"} <= names
 
 
+def test_blocks_have_constrained_view_type(db):
+    columns = {r[1] for r in db.execute("PRAGMA table_info(blocks)")}
+    assert "view_type" in columns
+    db.execute("INSERT INTO pages VALUES (1, 'P', NULL, NULL)")
+    db.execute(
+        "INSERT INTO blocks(uid, page_id, order_idx, text, view_type) "
+        "VALUES ('u1', 1, 0, 'x', 'numbered')")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            "INSERT INTO blocks(uid, page_id, order_idx, text, view_type) "
+            "VALUES ('u2', 1, 1, 'x', 'table')")
+
+
 def test_sidebar_entries_title_is_unique(db):
     db.execute("INSERT INTO sidebar_entries(title, order_idx) VALUES ('AI', 0)")
     with pytest.raises(sqlite3.IntegrityError):
@@ -28,7 +41,8 @@ def test_sidebar_entries_title_is_unique(db):
 
 def test_fts_triggers_track_blocks(db):
     db.execute("INSERT INTO pages VALUES (1, 'P', NULL, NULL)")
-    db.execute("INSERT INTO blocks VALUES ('u1', 1, NULL, 0,"
+    db.execute("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+               " heading, collapsed, created_at, updated_at) VALUES ('u1', 1, NULL, 0,"
                " 'hello attention world', NULL, 0, NULL, NULL)")
     hit = db.execute("SELECT rowid FROM blocks_fts WHERE blocks_fts"
                      " MATCH 'attention'").fetchall()
@@ -51,7 +65,8 @@ def test_pages_fts_tracks_titles(db):
 
 def test_refs_kind_constraint(db):
     db.execute("INSERT INTO pages VALUES (1, 'P', NULL, NULL)")
-    db.execute("INSERT INTO blocks VALUES ('u1', 1, NULL, 0, 'x',"
+    db.execute("INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+               " heading, collapsed, created_at, updated_at) VALUES ('u1', 1, NULL, 0, 'x',"
                " NULL, 0, NULL, NULL)")
     with pytest.raises(sqlite3.IntegrityError):
         db.execute("INSERT INTO refs VALUES ('u1', 1, 'bogus')")

@@ -16,11 +16,14 @@ def graph(tmp_path):
         (2, "July 7th, 2026", None, None),
     ])
     sha = "ab" * 32
-    db.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)", [
+    db.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)", [
         ("u1u1u1", 1, None, 0, "root block", None, 0, None, None),
         ("u2u2u2", 1, "u1u1u1", 0, f"![pic](/assets/{sha}/pic.png)", None, 0, None, None),
         ("u3u3u3", 2, None, 0, "journal refs ((u1u1u1))", None, 0, None, None),
-    ])
+        ])
     db.execute("INSERT INTO assets VALUES (?,?,?,?,?)",
                (sha, "pic.png", "image/png", 3, None))
     db.commit()

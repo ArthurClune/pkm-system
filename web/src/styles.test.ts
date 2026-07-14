@@ -62,6 +62,35 @@ describe("metadata chips (pkm-7t7o)", () => {
   });
 });
 
+describe("top bar cohesion (pkm-absu)", () => {
+  test("the search input is a rounded pill", () => {
+    expect(ruleFor(".top-bar-search-input")).toContain("border-radius: 999px;");
+  });
+
+  test("the context label truncates and provides the bar's left/right split", () => {
+    const title = ruleFor(".top-bar-title");
+    expect(title).toContain("text-overflow: ellipsis;");
+    expect(title).toContain("margin-right: auto;");
+  });
+
+  test("the shortcut hint hides while the input is focused or has text", () => {
+    const hidden = ruleFor(
+      ".top-bar-search-input:not(:placeholder-shown) + .top-bar-search-hint",
+    );
+    expect(hidden).toContain("display: none;");
+    expect(styles).toContain(".top-bar-search-input:focus + .top-bar-search-hint,");
+  });
+
+  test("top-bar buttons share one ghost style", () => {
+    const ghost = ruleFor(".top-bar-menu-button, .sidebar-toggle-button");
+    expect(ghost).toContain("border: 1px solid transparent;");
+  });
+
+  test("phone top bar clears the fixed hamburger button", () => {
+    expect(styles).toContain("padding: 8px 16px 8px 52px;");
+  });
+});
+
 describe("typography hierarchy (pkm-b68q)", () => {
   test("heading blocks scale clearly below the page title", () => {
     expect(ruleFor("h1.block-text")).toContain("font-size: 1.4rem;");

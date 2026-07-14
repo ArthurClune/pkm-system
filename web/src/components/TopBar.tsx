@@ -20,6 +20,12 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   const { pathname } = useLocation();
   const onPageRoute = pathname.startsWith("/page/");
   const title = onPageRoute ? titleFromPathname(pathname) : null;
+  // Context label so the bar reads as one surface, not two orphaned
+  // controls (pkm-absu). Doubles as the flex spacer between the left
+  // and right button groups.
+  const barLabel = title
+    ?? (pathname === "/" ? "Daily Notes" : null)
+    ?? (pathname === "/current-work" ? "Current Work" : null);
   const { openInSidebar } = useContext(SidebarContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -66,6 +72,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
               onClick={onToggleSidebar}>
         <PanelLeftIcon />
       </button>
+      <span className="top-bar-title">{barLabel}</span>
       <SearchBar />
       {title !== null && (
         <div className="top-bar-page-menu" ref={menuRef}>

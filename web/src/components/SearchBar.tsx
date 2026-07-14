@@ -26,6 +26,11 @@ function toRows(p: SearchPayload): ResultRow[] {
 
 const CREATE_ROW_KEY = "create";
 
+// navigator.platform is legacy but still the reliable way to pick the
+// modifier glyph; iOS devices report iPhone/iPad and take ⌘ from a
+// paired keyboard.
+const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform);
+
 /** True when some PAGE hit's title equals `title` case-insensitively.
  * Block hits don't count -- their `title` is the containing page, not
  * necessarily a title match for the query itself. */
@@ -174,6 +179,11 @@ export function SearchBar() {
              onFocus={() => setOpen(true)}
              onChange={(e) => { setOpen(true); setQuery(e.target.value); }}
              onKeyDown={onKeyDown} />
+      {/* must directly follow the input: the CSS hides it via `+` when the
+        * input is focused or holds text (pkm-absu) */}
+      <kbd className="top-bar-search-hint" aria-hidden="true">
+        {IS_MAC ? "⌘U" : "Ctrl+U"}
+      </kbd>
       {open && displayRows.length > 0 && (
         <ul className="search-results">
           {displayRows.map((row, i) => (

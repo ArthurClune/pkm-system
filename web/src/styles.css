@@ -240,25 +240,36 @@ button { font: inherit; }
   width: var(--pane-width); margin: 0 auto 0 var(--pane-left); padding: 8px 4px; }
 /* ghost buttons: quiet until hovered, so the bar reads as one surface
  * (transparent border rather than none keeps hover from shifting layout) */
-.top-bar-menu-button { display: flex; align-items: center; background: none;
-  cursor: pointer; border: 1px solid transparent; border-radius: 4px;
-  padding: 5px 8px; color: var(--color-text-secondary); }
-.top-bar-menu-button:hover { background: var(--color-bg-subtle); color: var(--color-text); }
+.top-bar-menu-button, .sidebar-toggle-button { display: flex; align-items: center;
+  background: none; cursor: pointer; border: 1px solid transparent;
+  border-radius: 4px; padding: 5px 8px; color: var(--color-text-secondary); }
+.top-bar-menu-button:hover, .sidebar-toggle-button:hover {
+  background: var(--color-bg-subtle); color: var(--color-text); }
+/* context label (current page / view); also the spacer that splits the bar
+ * into its left and right button groups (pkm-absu) */
+.top-bar-title { margin-right: auto; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-size: 14px;
+  font-weight: 600; color: var(--color-text-secondary); padding: 0 4px; }
 .top-bar-search { position: relative; }
 .top-bar-search-icon { position: absolute; left: 9px; top: 50%;
   transform: translateY(-50%); display: flex; pointer-events: none;
   color: var(--color-text-secondary); }
-.top-bar-search-input { width: 220px; box-sizing: border-box; padding: 4px 10px 4px 30px;
-  border: 1px solid var(--color-border-strong); border-radius: 4px;
+.top-bar-search-input { width: 220px; box-sizing: border-box; padding: 4px 44px 4px 30px;
+  border: 1px solid var(--color-border-strong); border-radius: 999px;
   background: var(--color-bg-subtle); color: var(--color-text);
   font-size: 14px; outline: none; transition: width 0.15s; }
 .top-bar-search-input::placeholder { color: var(--color-text-secondary); }
 .top-bar-search-input:focus { width: 320px; background: var(--color-bg-surface);
   border-color: var(--color-border-input); }
-.sidebar-toggle-button { display: flex; align-items: center; background: none;
-  cursor: pointer; border: 1px solid transparent; border-radius: 4px;
-  padding: 5px 8px; color: var(--color-text-secondary); margin-right: auto; }
-.sidebar-toggle-button:hover { background: var(--color-bg-subtle); color: var(--color-text); }
+/* shortcut hint chip inside the pill; only advertises the shortcut while
+ * the search is idle */
+.top-bar-search-hint { position: absolute; right: 10px; top: 50%;
+  transform: translateY(-50%); pointer-events: none;
+  font-family: inherit; font-size: 11px; color: var(--color-text-faint);
+  border: 1px solid var(--color-border-subtle); border-radius: 4px;
+  padding: 0 4px; }
+.top-bar-search-input:focus + .top-bar-search-hint,
+.top-bar-search-input:not(:placeholder-shown) + .top-bar-search-hint { display: none; }
 .top-bar-page-menu { position: relative; }
 .top-bar-menu { position: absolute; top: 100%; right: 0; z-index: 21; margin: 4px 0 0;
   padding: 4px 0; list-style: none; min-width: 160px; background: var(--color-bg-surface);
@@ -436,7 +447,8 @@ mark.highlight { background: var(--color-highlight-bg); }
    * its button is hidden too, since collapse has no effect on phones */
   .left-nav.collapsed { display: flex; }
   .sidebar-toggle-button { display: none; }
-  .top-bar { width: auto; margin: 0; padding: 8px 16px; }
+  /* extra left padding clears the fixed hamburger button */
+  .top-bar { width: auto; margin: 0; padding: 8px 16px 8px 52px; }
   .main-pane { width: auto; margin: 0; padding: 24px 16px 120px;
     border: none; border-radius: 0; box-shadow: none; }
   .sidebar { width: 100vw; }

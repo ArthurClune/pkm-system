@@ -91,6 +91,37 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
   expect(document.querySelectorAll(".block-row")).toHaveLength(3);
 });
 
+test("stale initial rerender while the sync queue still has pending ops keeps optimistic heading", async () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const initial = [block("u1", "first", { order_idx: 0 })];
+  const sync = makeSync("reconnecting", {
+    canEdit: true,
+    pending: 1,
+    idle: () => Promise.resolve(),
+  });
+  const view = (blocks: typeof initial) => (
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={sync}>
+        <EditablePage title="Page" initial={blocks} />
+      </SyncContext.Provider>
+    </MemoryRouter>
+  );
+  const { rerender } = render(view(initial));
+
+  const ta = focusBlock("first");
+  fireEvent.keyDown(ta, { key: "1", code: "Digit1", ctrlKey: true, altKey: true });
+  await act(async () => undefined);
+  fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+  expect(screen.getByText("first").closest("h1")).not.toBeNull();
+
+  // Offline/replica idle means "persisted locally", not "server has accepted
+  // it". While Sync.pending is non-zero, a same-page refetch may still be
+  // server-stale and must not revert the optimistic heading.
+  rerender(view([block("u1", "first", { order_idx: 0, heading: null })]));
+
+  expect(screen.getByText("first").closest("h1")).not.toBeNull();
+});
+
 test("Tab indents the second block under the first", () => {
   stubFetch([]);
   const sync = mount();

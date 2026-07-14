@@ -23,7 +23,7 @@ export function Block({ node, viewMode = "document", number = 1 }: {
     node.heading === 2 ? "h2" :
     node.heading === 3 ? "h3" : "div";
   const quoted = quoteContent(node.text);
-  const childrenView = effectiveChildView(viewMode, node.view_type);
+  const childrenView = effectiveChildView(node.view_type);
   return (
     <div className="block">
       <div className="block-row" data-uid={node.uid}>

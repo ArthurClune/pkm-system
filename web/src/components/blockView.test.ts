@@ -2,13 +2,12 @@ import { describe, expect, test } from "vitest";
 import { effectiveChildView } from "./blockView";
 
 describe("effectiveChildView", () => {
-  test("inherits when a block has no explicit view", () => {
-    expect(effectiveChildView("document", null)).toBe("document");
-    expect(effectiveChildView("numbered", null)).toBe("numbered");
+  test("defaults to document when a block has no explicit view", () => {
+    expect(effectiveChildView(null)).toBe("document");
   });
 
-  test("an explicit mode creates a nested boundary", () => {
-    expect(effectiveChildView("document", "numbered")).toBe("numbered");
-    expect(effectiveChildView("numbered", "document")).toBe("document");
+  test("an explicit mode applies to direct children only", () => {
+    expect(effectiveChildView("numbered")).toBe("numbered");
+    expect(effectiveChildView("document")).toBe("document");
   });
 });

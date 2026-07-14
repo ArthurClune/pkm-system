@@ -764,7 +764,7 @@ test("block menu marks current heading/view and dispatches both control groups",
   expect(h.onSetViewType).toHaveBeenCalledWith("u1", "document");
 });
 
-test("block menu exposes all heading choices and inherited active view", () => {
+test("block menu exposes all heading choices; unset view shows document", () => {
   const h = handlers();
   const blocks = [block("root", "root", { view_type: "numbered", children: [
     block("child", "child", { heading: null, children: [block("leaf", "leaf")] }),
@@ -780,7 +780,9 @@ test("block menu exposes all heading choices and inherited active view", () => {
   }
   expect(screen.getByRole("menuitemradio", { name: "Plain text" }))
     .toHaveAttribute("aria-checked", "true");
-  expect(screen.getByRole("menuitemradio", { name: "View as numbered list" }))
+  // The child's own view is unset: it does not inherit the parent's numbered
+  // mode, so the menu reflects the document default.
+  expect(screen.getByRole("menuitemradio", { name: "View as document" }))
     .toHaveAttribute("aria-checked", "true");
 });
 
@@ -798,11 +800,11 @@ test("read-only block menus show but disable mutation controls", () => {
   expect(h.onSetHeading).not.toHaveBeenCalled();
 });
 
-test("editable rendering numbers nested descendants and restores document bullets", () => {
+test("editable rendering numbers direct children only", () => {
   const h = handlers();
   const blocks = [block("root", "root", { view_type: "numbered", children: [
     block("a", "A", { order_idx: 0, children: [block("a1", "A1")] }),
-    block("b", "B", { order_idx: 1, view_type: "document",
+    block("b", "B", { order_idx: 1, view_type: "numbered",
       children: [block("b1", "B1")] }),
   ] })];
   const view = render(
@@ -813,5 +815,5 @@ test("editable rendering numbers nested descendants and restores document bullet
   const marker = (uid: string) =>
     view.container.querySelector(`[data-uid="${uid}"] > .bullet`)?.textContent;
   expect([marker("root"), marker("a"), marker("b"), marker("a1"), marker("b1")])
-    .toEqual(["", "1.", "2.", "1.", ""]);
+    .toEqual(["", "1.", "2.", "", "1."]);
 });

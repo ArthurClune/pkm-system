@@ -94,15 +94,15 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               </NavLink>
               {editing && (
                 <span className="nav-sidebar-entry-controls">
-                  <button type="button" aria-label={`Move ${entry.title} up`}
+                  <button type="button" className="btn-secondary" aria-label={`Move ${entry.title} up`}
                           disabled={i === 0} onClick={() => moveEntry(i, -1)}>
                     ↑
                   </button>
-                  <button type="button" aria-label={`Move ${entry.title} down`}
+                  <button type="button" className="btn-secondary" aria-label={`Move ${entry.title} down`}
                           disabled={i === entries.length - 1} onClick={() => moveEntry(i, 1)}>
                     ↓
                   </button>
-                  <button type="button" aria-label={`Remove ${entry.title}`}
+                  <button type="button" className="btn-secondary" aria-label={`Remove ${entry.title}`}
                           onClick={() => removeEntry(entry.id)}>
                     ×
                   </button>
@@ -116,7 +116,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         <form className="nav-sidebar-add" onSubmit={addEntry}>
           <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
                  placeholder="Add page…" aria-label="New sidebar entry title" />
-          <button type="submit">Add</button>
+          <button type="submit" className="btn-secondary">Add</button>
           {addError && <p className="error nav-sidebar-error">{addError}</p>}
         </form>
       )}

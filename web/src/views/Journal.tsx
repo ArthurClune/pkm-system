@@ -120,7 +120,7 @@ export function Journal() {
       {autoLoad
         ? <div ref={sentinelRef} className="journal-sentinel" />
         : (
-          <button className="show-more"
+          <button className="show-more btn-secondary"
                   onClick={() => { setAutoLoad(true); void loadMore(); }}>
             Load older days
           </button>

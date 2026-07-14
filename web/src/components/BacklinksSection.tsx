@@ -56,7 +56,7 @@ export function BacklinksSection({ title, initial }:
         ))}
         {error && <p className="error">{error}</p>}
         {hasMore && (
-          <button className="show-more" onClick={() => void loadMore()} disabled={loading}>
+          <button className="show-more btn-secondary" onClick={() => void loadMore()} disabled={loading}>
             {loading ? "Loading…" : "Show more"}
           </button>
         )}

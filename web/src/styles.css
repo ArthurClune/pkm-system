@@ -33,8 +33,10 @@
   --color-link: #c25a28;
   --color-link-ext: #7056f2;
   --color-tag: #9dafca;
-  --color-bullet: #e3ecf2;
-  --color-bullet-ring: #d8e5ee;
+  /* a step darker than the old #e3ecf2/#d8e5ee, which vanished into the
+   * white pane and left the outline structureless (pkm-9kye) */
+  --color-bullet: #d2e0ea;
+  --color-bullet-ring: #c6d7e3;
   --color-error: #c23030;
   --color-highlight-bg: #fcc1786d;
   --color-selection-bg: #fcc1786d;
@@ -44,6 +46,12 @@
   --color-banner-bg: #bf7326;
   --color-banner-text: #ffffff;
   --shadow-rgb: 63, 71, 88;
+
+  /* one radius scale for the whole chrome (pkm-9kye); not re-declared by
+   * the dark blocks since geometry doesn't change with theme */
+  --radius-control: 4px; /* buttons, inputs, inline code */
+  --radius-card: 6px;    /* embedded content: code blocks, images, cards */
+  --radius-panel: 8px;   /* floating menus, dropdowns, the main pane */
 
   /* highlight.js token colors, ported from highlight.js/styles/github.css
    * (see components/CodeBlock.tsx for why these live here instead of that
@@ -178,6 +186,14 @@ a.tag { color: var(--color-tag); font-weight: 400; font-size: 13px;
 a:hover { text-decoration: underline; }
 ::selection { background: var(--color-selection-bg); }
 button { font: inherit; }
+/* the one secondary-button look (Show more, sidebar entry controls,
+ * composer send, ...); owning classes keep only their layout (pkm-9kye) */
+.btn-secondary { background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-input); border-radius: var(--radius-control);
+  color: var(--color-text-secondary); cursor: pointer; }
+.btn-secondary:hover:not(:disabled) { background: var(--color-selected-bg);
+  color: var(--color-text); }
+.btn-secondary:disabled { opacity: 0.35; cursor: default; }
 
 /* layout */
 .app { display: flex; min-height: 100vh; }
@@ -207,16 +223,11 @@ button { font: inherit; }
   gap: 4px; }
 .nav-sidebar-entry-controls { display: flex; gap: 2px; flex-shrink: 0; }
 .nav-sidebar-entry-controls button { width: 20px; height: 20px; line-height: 1;
-  font-size: 12px; color: var(--color-text-secondary); background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border); border-radius: 3px; cursor: pointer; padding: 0; }
-.nav-sidebar-entry-controls button:disabled { opacity: 0.35; cursor: default; }
-.nav-sidebar-entry-controls button:hover:not(:disabled) { color: var(--color-text); }
+  font-size: 12px; padding: 0; }
 .nav-sidebar-add { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .nav-sidebar-add input { font: inherit; padding: 4px 6px; border: 1px solid var(--color-border-input);
-  border-radius: 3px; background: var(--color-bg); color: var(--color-text); }
-.nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px;
-  border: 1px solid var(--color-border-input); border-radius: 3px; background: var(--color-bg-subtle);
-  color: var(--color-text); cursor: pointer; }
+  border-radius: var(--radius-control); background: var(--color-bg); color: var(--color-text); }
+.nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px; }
 .content-area { flex: 1; min-width: 0; display: flex; flex-direction: column;
   /* card geometry shared by .top-bar and .main-pane; --pane-left leans the
    * card left so the gutter is ~1/3 of what centering would give (pkm-7cbq) */
@@ -227,7 +238,7 @@ button { font: inherit; }
   padding: 30px 50px 120px;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-subtle);
-  border-radius: 6px;
+  border-radius: var(--radius-panel);
   box-shadow: 0 1px 3px rgba(var(--shadow-rgb), 0.05); }
 .page-title { font-size: 28px; font-weight: 600; letter-spacing: -0.01em;
   margin: 0 0 16px; }
@@ -242,7 +253,7 @@ button { font: inherit; }
  * (transparent border rather than none keeps hover from shifting layout) */
 .top-bar-menu-button, .sidebar-toggle-button { display: flex; align-items: center;
   background: none; cursor: pointer; border: 1px solid transparent;
-  border-radius: 4px; padding: 5px 8px; color: var(--color-text-secondary); }
+  border-radius: var(--radius-control); padding: 5px 8px; color: var(--color-text-secondary); }
 .top-bar-menu-button:hover, .sidebar-toggle-button:hover {
   background: var(--color-bg-subtle); color: var(--color-text); }
 /* context label (current page / view); also the spacer that splits the bar
@@ -266,14 +277,14 @@ button { font: inherit; }
 .top-bar-search-hint { position: absolute; right: 10px; top: 50%;
   transform: translateY(-50%); pointer-events: none;
   font-family: inherit; font-size: 11px; color: var(--color-text-faint);
-  border: 1px solid var(--color-border-subtle); border-radius: 4px;
+  border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control);
   padding: 0 4px; }
 .top-bar-search-input:focus + .top-bar-search-hint,
 .top-bar-search-input:not(:placeholder-shown) + .top-bar-search-hint { display: none; }
 .top-bar-page-menu { position: relative; }
 .top-bar-menu { position: absolute; top: 100%; right: 0; z-index: 21; margin: 4px 0 0;
   padding: 4px 0; list-style: none; min-width: 160px; background: var(--color-bg-surface);
-  border: 1px solid var(--color-border-input); border-radius: 4px;
+  border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
 .top-bar-menu button { display: block; width: 100%; text-align: left; background: none;
   border: none; padding: 6px 12px; cursor: pointer; color: var(--color-text); }
@@ -282,7 +293,7 @@ button { font: inherit; }
 /* outline */
 /* line-height set here (not on .block-text) so the edit-mode textarea
  * inherits the same value and the row doesn't jump on focus */
-.block-row { display: flex; align-items: baseline; padding: 3px 0; border-radius: 3px;
+.block-row { display: flex; align-items: baseline; padding: 3px 0; border-radius: var(--radius-control);
   line-height: 1.4; }
 .block-row:hover { background: var(--color-bg-subtle); }
 .chevron { background: none; border: none; cursor: pointer; color: var(--color-text-muted);
@@ -316,10 +327,10 @@ a.tag:hover { color: var(--color-link); text-decoration: none;
  * the source "::" stays in the textarea only (pkm-7t7o) */
 .attribute a { font-variant-caps: all-small-caps; letter-spacing: 0.03em;
   font-weight: 500; color: var(--color-text-muted); }
-.inline-code { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: 3px;
+.inline-code { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-control);
   padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px; }
-.code-block { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: 4px;
+.code-block { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-card);
   padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-block code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
@@ -327,27 +338,27 @@ a.tag:hover { color: var(--color-link); text-decoration: none;
 .block-ref.unresolved { color: var(--color-text-muted); }
 /* resolved refs navigate on click (pkm-pzdu) */
 .block-ref:not(.unresolved) { cursor: pointer; }
-.block-ref:not(.unresolved):hover { background: var(--color-bg-subtle); border-radius: 3px; }
+.block-ref:not(.unresolved):hover { background: var(--color-bg-subtle); border-radius: var(--radius-control); }
 .block-row.flash-target { animation: flash-target 1.6s ease-out; }
 @keyframes flash-target {
   from { background: var(--color-ac-selected-bg); }
   to { background: transparent; }
 }
 mark.highlight { background: var(--color-highlight-bg); }
-.asset-image { max-width: 100%; border-radius: 4px; display: block; margin: 4px 0; }
+.asset-image { max-width: 100%; border-radius: var(--radius-card); display: block; margin: 4px 0; }
 .asset-image-placeholder {
   display: block; margin: 4px 0; padding: 12px 16px;
-  border: 1px dashed var(--color-border); border-radius: 4px;
+  border: 1px dashed var(--color-border); border-radius: var(--radius-card);
   color: var(--color-text-muted); font-size: 13px; font-style: italic;
 }
 .pdf-embed { display: block; margin: 4px 0; }
-.pdf-viewer { width: 100%; height: 480px; border: 1px solid var(--color-border); border-radius: 4px; }
+.pdf-viewer { width: 100%; height: 480px; border: 1px solid var(--color-border); border-radius: var(--radius-card); }
 .pdf-download { display: inline-block; margin-top: 4px; font-size: 13px; }
 .mermaid-diagram { display: block; margin: 4px 0; overflow-x: auto; }
 .mermaid-diagram svg { max-width: 100%; }
 .mermaid-diagram-error-note { color: var(--color-text-muted); font-size: 13px; margin: 0 0 4px; }
 .bluesky-embed { display: block; width: 100%; max-width: 550px; height: 300px;
-  border: none; border-radius: 4px; margin: 4px 0; }
+  border: none; border-radius: var(--radius-card); margin: 4px 0; }
 .todo-checkbox { margin-right: 6px; vertical-align: middle; }
 .query-pending { color: var(--color-text-muted); font-style: italic; }
 
@@ -385,13 +396,11 @@ mark.highlight { background: var(--color-highlight-bg); }
 /* cards lean on the subtle bg alone; the transparent border reserves space
  * so a hover border (if ever added) wouldn't shift layout (pkm-mqvv) */
 .backlink-item, .query-item { margin: 6px 0; padding: 6px 10px;
-  border: 1px solid transparent; border-radius: 6px;
+  border: 1px solid transparent; border-radius: var(--radius-card);
   background: var(--color-bg-subtle); }
 .backlink-item:hover, .query-item:hover { background: var(--color-selected-bg); }
 .breadcrumbs { font-size: 12px; color: var(--color-text-muted); margin-bottom: 2px; }
-.show-more { margin-top: 8px; background: var(--color-bg-subtle); border: 1px solid var(--color-border-strong);
-  border-radius: 3px; padding: 4px 12px; cursor: pointer; color: var(--color-text-secondary); }
-.show-more:hover { background: var(--color-selected-bg); }
+.show-more { margin-top: 8px; padding: 4px 12px; }
 
 /* journal */
 .journal-day { margin-bottom: 40px; padding-bottom: 16px; border-bottom: 1px solid var(--color-border-subtle); }
@@ -402,7 +411,7 @@ mark.highlight { background: var(--color-highlight-bg); }
   width: min(480px, 80vw); margin: 4px 0 0; padding: 4px 0; list-style: none;
   max-height: 60vh; overflow-y: auto;
   background: var(--color-bg-surface); border: 1px solid var(--color-border-input);
-  border-radius: 4px; box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
+  border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
 .search-result { padding: 6px 16px; cursor: pointer; display: flex;
   flex-direction: column; }
 .search-result.selected { background: var(--color-selected-bg); }
@@ -411,7 +420,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .result-snippet mark { background: var(--color-highlight-bg); padding: 0 1px; }
 
 /* query blocks */
-.query-block { border: 1px solid var(--color-border); border-radius: 4px; padding: 8px 12px;
+.query-block { border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 8px 12px;
   margin: 4px 0; }
 .query-header { display: flex; justify-content: space-between; font-size: 12px;
   color: var(--color-text-muted); margin-bottom: 4px; }
@@ -428,7 +437,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .panel-close { background: none; border: none; cursor: pointer;
   color: var(--color-text-muted); font-size: 16px; }
 .hamburger { display: none; position: fixed; top: 10px; left: 10px; z-index: 30;
-  background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: 4px;
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-control);
   padding: 4px 8px; cursor: pointer; color: var(--color-text); }
 
 /* theme toggle */
@@ -482,7 +491,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 /* The /upload file picker is driven programmatically; keep it out of layout. */
 .upload-input { display: none; }
 .ac-popup { position: absolute; top: 100%; left: 0; z-index: 50;
-  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: 4px;
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); min-width: 240px;
   max-height: 40vh; overflow-y: auto; }
 .ac-row { padding: 4px 10px; cursor: pointer; }
@@ -490,7 +499,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 
 /* --- block context menu (pkm-y6af) --- */
 .block-menu { position: fixed; z-index: 60;
-  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: 4px;
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); min-width: 200px;
   padding: 4px 0; display: flex; flex-direction: column; }
 .block-menu-item { display: block; width: 100%; text-align: left;
@@ -516,12 +525,11 @@ mark.highlight { background: var(--color-highlight-bg); }
     padding: 8px; background: var(--color-bg-surface); border-top: 1px solid var(--color-border); }
   .composer-input-wrap { position: relative; flex: 1; min-width: 0; }
   .composer textarea { width: 100%; font: inherit; resize: none;
-    border: 1px solid var(--color-border-input); border-radius: 6px; padding: 6px 8px;
+    border: 1px solid var(--color-border-input); border-radius: var(--radius-control); padding: 6px 8px;
     background: var(--color-bg-surface); color: var(--color-text); }
   .composer .ac-popup { top: auto; bottom: 100%; }
   .composer-file { max-width: 90px; }
-  .composer-send { border: 1px solid var(--color-border-input); border-radius: 6px;
-    background: var(--color-bg-subtle); padding: 6px 12px; color: var(--color-text); }
+  .composer-send { padding: 6px 12px; }
   .main-pane { padding-bottom: 96px; }
 }
 

@@ -109,6 +109,39 @@ describe("backlink card polish (pkm-mqvv)", () => {
   });
 });
 
+describe("visual consistency (pkm-9kye)", () => {
+  test("border-radius scale is tokenised and stray 3px radii are gone", () => {
+    const root = ruleFor(":root");
+    expect(root).toContain("--radius-control: 4px;");
+    expect(root).toContain("--radius-card: 6px;");
+    expect(root).toContain("--radius-panel: 8px;");
+    expect(styles).not.toContain("border-radius: 3px;");
+  });
+
+  test("controls, cards, and panels use the radius tokens", () => {
+    expect(ruleFor(".inline-code")).toContain("border-radius: var(--radius-control);");
+    expect(ruleFor(".code-block")).toContain("border-radius: var(--radius-card);");
+    expect(ruleFor(".backlink-item, .query-item")).toContain("border-radius: var(--radius-card);");
+    expect(ruleFor(".main-pane")).toContain("border-radius: var(--radius-panel);");
+    expect(ruleFor(".block-menu")).toContain("border-radius: var(--radius-panel);");
+  });
+
+  test("secondary buttons share one style definition", () => {
+    const btn = ruleFor(".btn-secondary");
+    expect(btn).toContain("background: var(--color-bg-subtle);");
+    expect(btn).toContain("border: 1px solid var(--color-border-input);");
+    expect(btn).toContain("border-radius: var(--radius-control);");
+    expect(ruleFor(".show-more")).not.toContain("background:");
+    expect(ruleFor(".composer-send")).not.toContain("background:");
+  });
+
+  test("light-mode bullets are a step darker so outline structure reads", () => {
+    const root = ruleFor(":root");
+    expect(root).toContain("--color-bullet: #d2e0ea;");
+    expect(root).toContain("--color-bullet-ring: #c6d7e3;");
+  });
+});
+
 describe("typography hierarchy (pkm-b68q)", () => {
   test("heading blocks scale clearly below the page title", () => {
     expect(ruleFor("h1.block-text")).toContain("font-size: 1.4rem;");

@@ -63,3 +63,25 @@ it("renders exact-prefix quote content with inline segments but hides the prefix
   expect(screen.getByRole("link", { name: "World" })).toBeInTheDocument();
   expect(container.querySelector('[data-uid="uid_q2"] .quote-block')).toBeNull();
 });
+
+it("numbers every descendant level and honours an explicit document boundary", () => {
+  const { container } = renderTree([
+    block("root", "root", { view_type: "numbered", children: [
+      block("a", "A", { order_idx: 0, children: [
+        block("a1", "A1", { order_idx: 0 }),
+        block("a2", "A2", { order_idx: 1 }),
+      ] }),
+      block("b", "B", { order_idx: 1, view_type: "document", children: [
+        block("b1", "B1", { order_idx: 0 }),
+      ] }),
+    ] }),
+  ]);
+  const marker = (uid: string) =>
+    container.querySelector(`[data-uid="${uid}"] > .bullet`)?.textContent;
+  expect(marker("root")).toBe("");
+  expect(marker("a")).toBe("1.");
+  expect(marker("b")).toBe("2.");
+  expect(marker("a1")).toBe("1.");
+  expect(marker("a2")).toBe("2.");
+  expect(marker("b1")).toBe("");
+});

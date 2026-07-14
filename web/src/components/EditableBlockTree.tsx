@@ -16,6 +16,7 @@ import { autoPairBracket, wrapLink, BRACKET_CHARS,
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
 import { refTitleAtCaret } from "../outline/refAtCaret";
+import { findNode } from "../outline/tree";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
 import { pagePath } from "../paths";
@@ -24,6 +25,7 @@ import { AutocompletePopup, buildRows, useTitleOptions,
 import { BlockMenu } from "./BlockMenu";
 import { InlineSegments } from "./InlineSegments";
 import { quoteContent } from "./blockPresentation";
+import { effectiveChildView, type EffectiveBlockView } from "./blockView";
 
 export interface OutlineHandlers {
   onFocusBlock(uid: string, cursor: number): void;
@@ -66,7 +68,12 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                                     readOnly }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
   // Bullet context menu (pkm-y6af); one per tree, anchored at the pointer.
-  const [menu, setMenu] = useState<{ uid: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{
+    uid: string;
+    x: number;
+    y: number;
+    viewMode: EffectiveBlockView;
+  } | null>(null);
   const selected = selection
     ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
 
@@ -97,18 +104,22 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   return (
     <div className="block-tree" ref={treeRef}
          tabIndex={selection ? -1 : undefined} onKeyDown={onKeyDown}>
-      {blocks.map((b) => (
+      {blocks.map((b, index) => (
         <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
                        handlers={handlers} readOnly={readOnly}
-                       onOpenMenu={(uid, x, y) => setMenu({ uid, x, y })} />
+                       viewMode="document" number={index + 1}
+                       onOpenMenu={(uid, x, y, viewMode) =>
+                         setMenu({ uid, x, y, viewMode })} />
       ))}
       {menu && (
         <BlockMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}
-          items={[{
-            label: "Copy block reference",
-            // Copying is read-only-safe (same rationale as multi-block copy).
-            action: () => void navigator.clipboard?.writeText(`((${menu.uid}))`),
-          }]} />
+          items={blockMenuItems(
+            menu.uid,
+            findNode(blocks, menu.uid)?.heading ?? null,
+            menu.viewMode,
+            handlers,
+            readOnly,
+          )} />
       )}
     </div>
   );
@@ -116,12 +127,51 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
 
+function blockMenuItems(
+  uid: string,
+  heading: number | null,
+  viewMode: EffectiveBlockView,
+  handlers: OutlineHandlers,
+  readOnly: boolean,
+) {
+  const headingItem = (label: string, value: number | null) => ({
+    label,
+    group: "Text style",
+    checked: heading === value,
+    disabled: readOnly,
+    action: () => handlers.onSetHeading(uid, value),
+  });
+  const viewItem = (label: string, value: EffectiveBlockView) => ({
+    label,
+    group: "Children view",
+    checked: viewMode === value,
+    disabled: readOnly,
+    action: () => handlers.onSetViewType(uid, value),
+  });
+  return [
+    {
+      label: "Copy block reference",
+      // Copying is read-only-safe (same rationale as multi-block copy).
+      action: () => void navigator.clipboard?.writeText(`((${uid}))`),
+    },
+    headingItem("Plain text", null),
+    headingItem("Heading 1", 1),
+    headingItem("Heading 2", 2),
+    headingItem("Heading 3", 3),
+    viewItem("View as numbered list", "numbered"),
+    viewItem("View as document", "document"),
+  ];
+}
+
 function EditableBlock({ node, focus, selected, handlers, readOnly,
-                         onOpenMenu }: {
+                         viewMode, number, onOpenMenu }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean;
-  onOpenMenu: (uid: string, x: number, y: number) => void;
+  viewMode: EffectiveBlockView;
+  number: number;
+  onOpenMenu: (uid: string, x: number, y: number,
+               viewMode: EffectiveBlockView) => void;
 }) {
   const focused = focus?.uid === node.uid;
   const isSelected = selected.has(node.uid);
@@ -131,6 +181,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
     node.heading === 2 ? "h2" :
     node.heading === 3 ? "h3" : "div";
   const quoted = quoteContent(node.text);
+  const childrenView = effectiveChildView(viewMode, node.view_type);
   return (
     <div className="block">
       <div className={"block-row" + (focused ? " focused" : "")
@@ -144,7 +195,8 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
         >
           ▸
         </button>
-        <span className={"bullet" + (hasChildren && node.collapsed ? " closed" : "")}
+        <span className={"bullet" + (viewMode === "numbered" ? " numbered" : "")
+              + (hasChildren && node.collapsed ? " closed" : "")}
               draggable={!readOnly}
               onDragStart={(e) => {
                 e.dataTransfer.setData("text/plain", node.uid);
@@ -154,11 +206,16 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
               // Click or right-click opens the block menu (pkm-y6af); plain
               // click included because iPad Safari doesn't fire contextmenu
               // from touch. Drag suppresses click, so DnD is unaffected.
-              onClick={(e) => onOpenMenu(node.uid, e.clientX, e.clientY)}
+              onClick={(e) => onOpenMenu(
+                node.uid, e.clientX, e.clientY, childrenView,
+              )}
               onContextMenu={(e) => {
                 e.preventDefault();
-                onOpenMenu(node.uid, e.clientX, e.clientY);
-              }} />
+                onOpenMenu(node.uid, e.clientX, e.clientY, childrenView);
+              }}
+              aria-hidden="true">
+          {viewMode === "numbered" ? `${number}.` : ""}
+        </span>
         {focused ? (
           <BlockInput node={node} cursor={focus.cursor} handlers={handlers}
                       readOnly={readOnly} />
@@ -173,10 +230,11 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
         )}
       </div>
       {hasChildren && !node.collapsed && (
-        <div className="block-children">
-          {node.children.map((c) => (
+        <div className={`block-children ${childrenView}-view`}>
+          {node.children.map((c, index) => (
             <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}
                            handlers={handlers} readOnly={readOnly}
+                           viewMode={childrenView} number={index + 1}
                            onOpenMenu={onOpenMenu} />
           ))}
         </div>
@@ -394,6 +452,20 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
       }
     }
     if (readOnly) return;
+    // Roam-compatible direct heading controls. Plain text is 0; 1-3 select
+    // the matching heading level. This is metadata-only and leaves the draft
+    // (including any active selection) untouched.
+    const headingDigit = /^Digit([0-3])$/.exec(e.code)?.[1]
+      ?? (/^[0-3]$/.test(e.key) ? e.key : null);
+    if (e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey
+        && headingDigit !== null) {
+      e.preventDefault();
+      handlers.onSetHeading(
+        node.uid,
+        headingDigit === "0" ? null : Number(headingDigit),
+      );
+      return;
+    }
     // Cmd-K (mac): wrap the selection as a markdown link, or insert an empty
     // []() ready for the link text. Ctrl-K is left alone (emacs kill-line).
     if (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "k") {

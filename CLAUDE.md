@@ -5,7 +5,8 @@
 **IMPORTANT:** Run `beans prime` at the start of every development session. This loads the beans workflow.
 
 Use beans (not TodoWrite) to track development work:
-- Create beans for bugs, features, and tasks
+- Create beans only for feature changes, bug fixes, or epics
+- Do not create beans for deployments or other operational/release actions; perform those directly
 - Update bean checklists as you work
 - Commit bean files with code changes
 - Mark beans complete when done

@@ -6,7 +6,7 @@ import type { BlockNode } from "../api/payloads";
 import { BlockTree } from "./BlockTree";
 
 function block(uid: string, text: string, over: Partial<BlockNode> = {}): BlockNode {
-  return { uid, text, heading: null, collapsed: false, order_idx: 0,
+  return { uid, text, heading: null, view_type: null, collapsed: false, order_idx: 0,
            created_at: 1000, updated_at: 2000, children: [], ...over };
 }
 

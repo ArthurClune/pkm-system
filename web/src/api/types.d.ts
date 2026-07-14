@@ -439,6 +439,8 @@ export interface components {
             text: string;
             /** Heading */
             heading: number | null;
+            /** View Type */
+            view_type: ("numbered" | "document") | null;
             /** Collapsed */
             collapsed: boolean;
             /** Order Idx */
@@ -614,7 +616,7 @@ export interface components {
             /** Batch Id */
             batch_id?: string | null;
             /** Ops */
-            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["CreatePageOp"])[];
+            ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["SetViewTypeOp"] | components["schemas"]["CreatePageOp"])[];
         };
         /** PageMeta */
         PageMeta: {
@@ -690,6 +692,21 @@ export interface components {
             /** Heading */
             heading?: number | null;
         };
+        /** SetViewTypeOp */
+        SetViewTypeOp: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "set_view_type";
+            /** Uid */
+            uid: string;
+            /**
+             * View Type
+             * @enum {string}
+             */
+            view_type: "numbered" | "document";
+        };
         /** SidebarNavEntry */
         SidebarNavEntry: {
             /** Id */
@@ -729,6 +746,8 @@ export interface components {
             text: string;
             /** Heading */
             heading: number | null;
+            /** View Type */
+            view_type: ("numbered" | "document") | null;
             /** Collapsed */
             collapsed: number;
             /** Created At */

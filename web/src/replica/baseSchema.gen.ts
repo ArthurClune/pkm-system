@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS blocks(
   heading     INTEGER,
   collapsed   INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER,
-  updated_at  INTEGER
+  updated_at  INTEGER,
+  view_type   TEXT CHECK(view_type IN ('numbered','document'))
 );
 CREATE INDEX IF NOT EXISTS idx_blocks_page ON blocks(page_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_parent ON blocks(parent_uid);

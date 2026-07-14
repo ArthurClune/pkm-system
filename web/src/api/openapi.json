@@ -1084,6 +1084,21 @@
             ],
             "title": "Heading"
           },
+          "view_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "numbered",
+                  "document"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "View Type"
+          },
           "collapsed": {
             "type": "boolean",
             "title": "Collapsed"
@@ -1127,6 +1142,7 @@
           "uid",
           "text",
           "heading",
+          "view_type",
           "collapsed",
           "order_idx",
           "created_at",
@@ -1569,6 +1585,9 @@
                   "$ref": "#/components/schemas/SetHeadingOp"
                 },
                 {
+                  "$ref": "#/components/schemas/SetViewTypeOp"
+                },
+                {
                   "$ref": "#/components/schemas/CreatePageOp"
                 }
               ],
@@ -1581,6 +1600,7 @@
                   "move": "#/components/schemas/MoveOp",
                   "set_collapsed": "#/components/schemas/SetCollapsedOp",
                   "set_heading": "#/components/schemas/SetHeadingOp",
+                  "set_view_type": "#/components/schemas/SetViewTypeOp",
                   "update_text": "#/components/schemas/UpdateTextOp"
                 }
               }
@@ -1809,6 +1829,34 @@
         ],
         "title": "SetHeadingOp"
       },
+      "SetViewTypeOp": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "const": "set_view_type",
+            "title": "Op"
+          },
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "view_type": {
+            "type": "string",
+            "enum": [
+              "numbered",
+              "document"
+            ],
+            "title": "View Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "op",
+          "uid",
+          "view_type"
+        ],
+        "title": "SetViewTypeOp"
+      },
       "SidebarNavEntry": {
         "properties": {
           "id": {
@@ -1925,6 +1973,21 @@
             ],
             "title": "Heading"
           },
+          "view_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "numbered",
+                  "document"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "View Type"
+          },
           "collapsed": {
             "type": "integer",
             "title": "Collapsed"
@@ -1967,6 +2030,7 @@
           "order_idx",
           "text",
           "heading",
+          "view_type",
           "collapsed",
           "created_at",
           "updated_at",

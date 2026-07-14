@@ -18,8 +18,9 @@ beforeEach(async () => {
 const rows = <T>(sql: string): T[] => t.db.select<T>(sql);
 const blockRow = (uid: string) =>
   rows<{ page_id: number; parent_uid: string | null; order_idx: number;
-         text: string; collapsed: number; heading: number | null }>(
-    `SELECT page_id, parent_uid, order_idx, text, collapsed, heading
+         text: string; collapsed: number; heading: number | null;
+         view_type: "numbered" | "document" | null }>(
+    `SELECT page_id, parent_uid, order_idx, text, collapsed, heading, view_type
      FROM blocks WHERE uid = '${uid}'`)[0];
 
 describe("getOrCreateLocalPage", () => {
@@ -97,6 +98,15 @@ describe("applyLocalOps", () => {
     ], 99);
     expect(blockRow("uid_r2").collapsed).toBe(1);
     expect(blockRow("uid_r1").heading).toBe(2);
+  });
+
+  test("set_view_type updates persistent metadata", () => {
+    applyLocalOps(t.db, [
+      { op: "set_view_type", uid: "uid_r1", view_type: "numbered" },
+    ], 99);
+    expect(blockRow("uid_r1").view_type).toBe("numbered");
+    expect(blockRow("uid_r1").text).toBe("first");
+    expect(blockRow("uid_r1").parent_uid).toBeNull();
   });
 
   test("create_page is a local get-or-create (idempotent, negative id)", () => {

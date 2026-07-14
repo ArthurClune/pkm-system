@@ -32,7 +32,10 @@ beforeAll(async () => {
     t.db.exec("INSERT INTO pages VALUES (?,?,?,?)", p);
   }
   for (const b of fixture.seed.blocks) {
-    t.db.exec("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)", b);
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+      + " heading, collapsed, created_at, updated_at)"
+      + " VALUES (?,?,?,?,?,?,?,?,?)", b);
   }
   for (const r of fixture.seed.refs) {
     t.db.exec("INSERT INTO refs VALUES (?,?,?)", r);

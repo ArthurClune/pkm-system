@@ -144,6 +144,13 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
       touchPage(db, info.page_id, nowMs);
       return;
     }
+    case "set_view_type": {
+      const info = requireBlock(db, op.uid);
+      db.exec("UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
+              [op.view_type, nowMs, op.uid]);
+      touchPage(db, info.page_id, nowMs);
+      return;
+    }
   }
 }
 

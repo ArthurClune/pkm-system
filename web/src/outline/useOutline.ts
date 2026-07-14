@@ -53,10 +53,15 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   // local block; adopting that stale payload would remove the new block and
   // leave focus pointing at a uid no longer in the tree.
   useEffect(() => {
-    if (localWritesRef.current > 0) return;
+    if (localWritesRef.current > 0 || sync.pending > 0) return;
     setBlocks(initial);
     blocksRef.current = initial;
     pendingRef.current = null;
+    // This effect intentionally reacts only to a new authoritative payload.
+    // If a stale payload arrives while the durable queue still has pending
+    // ops, do not adopt it later just because `pending` drops to zero; wait
+    // for the next refetch payload instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial]);
 
   const takePendingTextOps = useCallback((): BlockOp[] => {

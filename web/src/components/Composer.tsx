@@ -75,7 +75,7 @@ export function Composer({ onSend, readOnly }: {
       </div>
       <input type="file" accept="image/*" aria-label="Add photo"
              className="composer-file" onChange={onPickFile} disabled={readOnly} />
-      <button className="composer-send" onClick={send}
+      <button className="composer-send btn-secondary" onClick={send}
               disabled={readOnly || draft.trim() === ""}>
         Add
       </button>

@@ -78,7 +78,7 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
         </div>
       ))}
       {total !== null && offset < total && (
-        <button className="show-more" onClick={() => void load(offset)} disabled={loading}>
+        <button className="show-more btn-secondary" onClick={() => void load(offset)} disabled={loading}>
           {loading ? "Loading…" : "Show more"}
         </button>
       )}

@@ -155,3 +155,26 @@ it("a failed delete closes the menu but does not navigate", async () => {
   expect(screen.getByText("page view here")).toBeInTheDocument();
   expect(screen.queryByText("home")).toBeNull();
 });
+
+it("shows the current page title in the bar on page routes (pkm-absu)", () => {
+  renderTopBar("/page/AWS/SCP");
+  const label = screen.getByText("AWS/SCP");
+  expect(label).toHaveClass("top-bar-title");
+});
+
+it("labels the journal route 'Daily Notes' in the bar (pkm-absu)", () => {
+  renderTopBar("/");
+  expect(screen.getByText("Daily Notes")).toHaveClass("top-bar-title");
+});
+
+it("labels the current-work route in the bar (pkm-absu)", () => {
+  renderTopBar("/current-work");
+  expect(screen.getByText("Current Work")).toHaveClass("top-bar-title");
+});
+
+it("shows the search shortcut hint inside the search pill (pkm-absu)", () => {
+  const { container } = renderTopBar("/");
+  const hint = container.querySelector("kbd.top-bar-search-hint");
+  expect(hint).not.toBeNull();
+  expect(hint!.textContent).toMatch(/U$/);
+});

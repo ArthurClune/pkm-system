@@ -62,7 +62,7 @@ export function UnlinkedSection({ title }: { title: string }) {
           ))}
           {error && <p className="error">{error}</p>}
           {total !== null && offset < total && (
-            <button className="show-more" onClick={() => void load(offset)} disabled={loading}>
+            <button className="show-more btn-secondary" onClick={() => void load(offset)} disabled={loading}>
               {loading ? "Loading…" : "Show more"}
             </button>
           )}

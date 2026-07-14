@@ -37,10 +37,11 @@ it("renders tags with a # prefix and tag class", () => {
   expect(link).toHaveAttribute("href", "/page/AI");
 });
 
-it("renders attributes as a link to the attribute page followed by ::", () => {
-  renderText("Tags:: #AI");
+it("renders attributes as a label link without the :: markup", () => {
+  const { container } = renderText("Tags:: #AI");
   expect(screen.getByRole("link", { name: "Tags" }))
     .toHaveAttribute("href", "/page/Tags");
+  expect(container.textContent).not.toContain("::");
 });
 
 it("renders fenced code inside pre.code-block", () => {

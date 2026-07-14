@@ -147,3 +147,13 @@ it("shows an error and re-enables the button when unlinked show-more fails", asy
   expect(await screen.findByText(/500/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /show more/i })).not.toBeDisabled();
 });
+
+it("show-more buttons carry the shared secondary-button style (pkm-9kye)", () => {
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="Machine Learning" initial={initial} />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole("button", { name: /show more/i }))
+    .toHaveClass("btn-secondary");
+});

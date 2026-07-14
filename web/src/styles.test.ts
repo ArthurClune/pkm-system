@@ -44,6 +44,108 @@ describe("link styling (pkm-1eaj)", () => {
   });
 });
 
+describe("metadata chips (pkm-7t7o)", () => {
+  test("attribute names are small-caps muted labels, not bold text", () => {
+    const attr = ruleFor(".attribute a");
+    expect(attr).toContain("font-variant-caps: all-small-caps;");
+    expect(attr).toContain("color: var(--color-text-muted);");
+    expect(attr).not.toContain("font-weight: 600;");
+  });
+
+  test("tags are rounded chips with a subtle background", () => {
+    const tag = ruleFor("a.tag");
+    expect(tag).toContain("background: var(--color-bg-subtle);");
+    expect(tag).toContain("border-radius: 999px;");
+    expect(tag).toContain("border: 1px solid var(--color-border-subtle);");
+  });
+
+  test("tag chips shift to the link colour on hover without underlining", () => {
+    const hover = ruleFor("a.tag:hover");
+    expect(hover).toContain("color: var(--color-link);");
+    expect(hover).toContain("text-decoration: none;");
+  });
+});
+
+describe("top bar cohesion (pkm-absu)", () => {
+  test("the search input is a rounded pill", () => {
+    expect(ruleFor(".top-bar-search-input")).toContain("border-radius: 999px;");
+  });
+
+  test("the context label truncates and provides the bar's left/right split", () => {
+    const title = ruleFor(".top-bar-title");
+    expect(title).toContain("text-overflow: ellipsis;");
+    expect(title).toContain("margin-right: auto;");
+  });
+
+  test("the shortcut hint hides while the input is focused or has text", () => {
+    const hidden = ruleFor(
+      ".top-bar-search-input:not(:placeholder-shown) + .top-bar-search-hint",
+    );
+    expect(hidden).toContain("display: none;");
+    expect(styles).toContain(".top-bar-search-input:focus + .top-bar-search-hint,");
+  });
+
+  test("top-bar buttons share one ghost style", () => {
+    const ghost = ruleFor(".top-bar-menu-button, .sidebar-toggle-button");
+    expect(ghost).toContain("border: 1px solid transparent;");
+  });
+
+  test("phone top bar clears the fixed hamburger button", () => {
+    expect(styles).toContain("padding: 8px 16px 8px 52px;");
+  });
+});
+
+describe("backlink card polish (pkm-mqvv)", () => {
+  test("cards keep the subtle bg, drop the visible border, and tighten padding", () => {
+    const card = ruleFor(".backlink-item, .query-item");
+    expect(card).toContain("background: var(--color-bg-subtle);");
+    expect(card).toContain("border: 1px solid transparent;");
+    expect(card).toContain("padding: 6px 10px;");
+  });
+
+  test("cards get a hover state", () => {
+    const hover = ruleFor(".backlink-item:hover, .query-item:hover");
+    expect(hover).toContain("background: var(--color-selected-bg);");
+  });
+
+  test("breadcrumbs are legible (muted, not faint)", () => {
+    expect(ruleFor(".breadcrumbs")).toContain("color: var(--color-text-muted);");
+  });
+});
+
+describe("visual consistency (pkm-9kye)", () => {
+  test("border-radius scale is tokenised and stray 3px radii are gone", () => {
+    const root = ruleFor(":root");
+    expect(root).toContain("--radius-control: 4px;");
+    expect(root).toContain("--radius-card: 6px;");
+    expect(root).toContain("--radius-panel: 8px;");
+    expect(styles).not.toContain("border-radius: 3px;");
+  });
+
+  test("controls, cards, and panels use the radius tokens", () => {
+    expect(ruleFor(".inline-code")).toContain("border-radius: var(--radius-control);");
+    expect(ruleFor(".code-block")).toContain("border-radius: var(--radius-card);");
+    expect(ruleFor(".backlink-item, .query-item")).toContain("border-radius: var(--radius-card);");
+    expect(ruleFor(".main-pane")).toContain("border-radius: var(--radius-panel);");
+    expect(ruleFor(".block-menu")).toContain("border-radius: var(--radius-panel);");
+  });
+
+  test("secondary buttons share one style definition", () => {
+    const btn = ruleFor(".btn-secondary");
+    expect(btn).toContain("background: var(--color-bg-subtle);");
+    expect(btn).toContain("border: 1px solid var(--color-border-input);");
+    expect(btn).toContain("border-radius: var(--radius-control);");
+    expect(ruleFor(".show-more")).not.toContain("background:");
+    expect(ruleFor(".composer-send")).not.toContain("background:");
+  });
+
+  test("light-mode bullets are a step darker so outline structure reads", () => {
+    const root = ruleFor(":root");
+    expect(root).toContain("--color-bullet: #d2e0ea;");
+    expect(root).toContain("--color-bullet-ring: #c6d7e3;");
+  });
+});
+
 describe("typography hierarchy (pkm-b68q)", () => {
   test("heading blocks scale clearly below the page title", () => {
     expect(ruleFor("h1.block-text")).toContain("font-size: 1.4rem;");

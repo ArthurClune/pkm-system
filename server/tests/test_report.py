@@ -22,8 +22,9 @@ def test_render_headline_numbers():
 def test_render_lists_ignored_attrs_and_missing_assets():
     text = render(REPORT)
     assert ":block/refs (4)" in text
-    assert ":children/view-type (1)" in text
-    assert ":node/title" not in text.split("ignored attributes")[1].split("missing")[0]
+    ignored = text.split("ignored attributes")[1].split("missing")[0]
+    assert ":children/view-type" not in ignored
+    assert ":node/title" not in ignored
     assert "gone.png" in text
 
 

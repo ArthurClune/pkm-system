@@ -45,7 +45,7 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
     for page in db.execute("SELECT id, title FROM pages ORDER BY title"):
         rows = db.execute(
             "SELECT uid, parent_uid, order_idx, text, heading, collapsed,"
-            " created_at, updated_at FROM blocks WHERE page_id = ?",
+            " created_at, updated_at, view_type FROM blocks WHERE page_id = ?",
             (page["id"],)).fetchall()
         body = render_page(page["title"], build_tree(rows), uid_to_text)
         day = date_for_title(page["title"])

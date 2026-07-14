@@ -45,10 +45,15 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   blocksRef.current = blocks;
   const pendingRef = useRef<{ uid: string; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localWritesRef = useRef(0);
 
-  // A new `initial` identity is authoritative state (refetch / navigation):
-  // adopt it and drop any pending draft op.
+  // A new `initial` identity is authoritative state (refetch / navigation),
+  // except while a local optimistic write is still draining. Startup/reconnect
+  // refetches can return the pre-edit page after Enter has already inserted a
+  // local block; adopting that stale payload would remove the new block and
+  // leave focus pointing at a uid no longer in the tree.
   useEffect(() => {
+    if (localWritesRef.current > 0) return;
     setBlocks(initial);
     blocksRef.current = initial;
     pendingRef.current = null;
@@ -84,7 +89,11 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     const next = result.ops.length > 0 ? result.blocks : base;
     blocksRef.current = next;
     setBlocks(next);
+    localWritesRef.current += 1;
     sync.enqueue(ops);
+    void sync.idle().finally(() => {
+      localWritesRef.current = Math.max(0, localWritesRef.current - 1);
+    });
     if (result.focus) setFocus(result.focus);
   }, [takePendingTextOps, pageTitle, sync]);
 

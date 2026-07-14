@@ -56,6 +56,41 @@ test("Enter splits: pending text flushes first, create follows, focus moves", ()
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
 });
 
+test("stale initial rerender during a pending split keeps the optimistic new block focused", () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const initial = [
+    block("u1", "first", { order_idx: 0 }),
+    block("u2", "second", { order_idx: 1 }),
+  ];
+  const sync = makeSync("connected", { idle: () => new Promise(() => undefined) });
+  const view = (
+    blocks: typeof initial,
+  ) => (
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={sync}>
+        <EditablePage title="Page" initial={blocks} />
+      </SyncContext.Provider>
+    </MemoryRouter>
+  );
+  const { rerender } = render(view(initial));
+
+  const ta = focusBlock("first");
+  ta.setSelectionRange(5, 5);
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(screen.getByRole("textbox")).toHaveValue("");
+
+  // A startup/reconnect refetch can return the old page payload while the
+  // local create is still queued. That stale `initial` must not replace the
+  // optimistic split and send the caret back to the previous line.
+  rerender(view([
+    block("u1", "first", { order_idx: 0 }),
+    block("u2", "second", { order_idx: 1 }),
+  ]));
+
+  expect(screen.getByRole("textbox")).toHaveValue("");
+  expect(document.querySelectorAll(".block-row")).toHaveLength(3);
+});
+
 test("Tab indents the second block under the first", () => {
   stubFetch([]);
   const sync = mount();

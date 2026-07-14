@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -62,13 +62,31 @@ it("renders the first batch newest-first and loads older days on intersect", asy
   expect(await screen.findByRole("link", { name: "July 8th, 2026" }))
     .toHaveAttribute("href", "/page/July%208th%2C%202026");
   expect(screen.getByText("entry 2026-07-06")).toBeInTheDocument();
-  expect(screen.getAllByRole("button", { name: /start writing/i }).length).toBe(2);
+  expect(screen.queryByRole("link", { name: "July 7th, 2026" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "July 5th, 2026" })).not.toBeInTheDocument();
+  expect(screen.queryAllByRole("button", { name: /start writing/i })).toHaveLength(0);
 
   intersect();
   expect(await screen.findByRole("link", { name: "July 3rd, 2026" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "July 2nd, 2026" })).not.toBeInTheDocument();
   // oldest already-loaded date is passed as the exclusive `before`
   expect(fetchMock).toHaveBeenLastCalledWith(
     "/api/journal?days=5&before=2026-07-04", undefined);
+});
+
+it("keeps today visible for composing even when its page does not exist yet", async () => {
+  stubFetch([
+    ["/api/journal?days=5", { days: [
+      day("2026-07-08", "July 8th, 2026", [], false),
+      day("2026-07-07", "July 7th, 2026", [], false),
+    ] }],
+  ]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+
+  expect(await screen.findByRole("link", { name: "July 8th, 2026" }))
+    .toHaveAttribute("href", "/page/July%208th%2C%202026");
+  expect(screen.getAllByRole("button", { name: /start writing/i })).toHaveLength(1);
+  expect(screen.queryByRole("link", { name: "July 7th, 2026" })).not.toBeInTheDocument();
 });
 
 it("resolves ((block refs)) from every batch's block_ref_texts", async () => {
@@ -140,7 +158,7 @@ it("stops auto-loading after 3 consecutive empty batches", async () => {
   const empty = (from: string, dates: string[]) =>
     [`/api/journal?days=5&before=${from}`,
      { days: dates.map((d) => day(d, d, [], false)) }] as [string, unknown];
-  stubFetch([
+  const fetchMock = stubFetch([
     empty("2026-07-04", ["2026-07-03", "2026-07-02", "2026-07-01", "2026-06-30", "2026-06-29"]),
     empty("2026-06-29", ["2026-06-28", "2026-06-27", "2026-06-26", "2026-06-25", "2026-06-24"]),
     empty("2026-06-24", ["2026-06-23", "2026-06-22", "2026-06-21", "2026-06-20", "2026-06-19"]),
@@ -155,11 +173,14 @@ it("stops auto-loading after 3 consecutive empty batches", async () => {
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
   await screen.findByRole("link", { name: "July 8th, 2026" });
   intersect();
-  await screen.findByText("2026-07-03");
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5&before=2026-07-04", undefined));
   intersect();
-  await screen.findByText("2026-06-28");
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5&before=2026-06-29", undefined));
   intersect();
-  await screen.findByText("2026-06-23");
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5&before=2026-06-24", undefined));
   // three all-empty batches in a row -> sentinel replaced by a manual button
   expect(await screen.findByRole("button", { name: /load older days/i }))
     .toBeInTheDocument();

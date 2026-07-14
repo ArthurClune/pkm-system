@@ -100,16 +100,18 @@ export function Journal() {
   return (
     <div className="journal">
       <BlockRefProvider seed={refTexts}>
-        {days.map((day, i) => (
-          <section className="journal-day" key={day.date}>
-            <h1 className="page-title">
-              <Link to={pagePath(day.title)}>{day.title}</Link>
-            </h1>
-            {/* the first loaded day is today by construction */}
-            <EditablePage title={day.title} initial={day.blocks}
-                          composer={i === 0} />
-          </section>
-        ))}
+        {days.map((day, i) => ({ day, i }))
+          .filter(({ day, i }) => day.exists || i === 0)
+          .map(({ day, i }) => (
+            <section className="journal-day" key={day.date}>
+              <h1 className="page-title">
+                <Link to={pagePath(day.title)}>{day.title}</Link>
+              </h1>
+              {/* the first loaded day is today by construction */}
+              <EditablePage title={day.title} initial={day.blocks}
+                            composer={i === 0} />
+            </section>
+          ))}
       </BlockRefProvider>
       {error && <p className="error">{error}</p>}
       <p className="journal-status" role="status" aria-live="polite">

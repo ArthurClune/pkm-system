@@ -1,10 +1,11 @@
 ---
 # pkm-93w9
 title: Render blocks beginning with > as quote text
-status: todo
+status: in-progress
 type: feature
+priority: normal
 created_at: 2026-07-13T18:57:34Z
-updated_at: 2026-07-13T18:57:34Z
+updated_at: 2026-07-14T14:24:19Z
 ---
 
 Treat a block whose text begins with `> ` as quoted content in both imported data and newly edited blocks.

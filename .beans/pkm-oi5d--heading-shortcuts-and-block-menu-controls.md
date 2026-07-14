@@ -1,10 +1,11 @@
 ---
 # pkm-oi5d
 title: Heading shortcuts and block-menu controls
-status: todo
+status: in-progress
 type: feature
+priority: normal
 created_at: 2026-07-13T18:57:34Z
-updated_at: 2026-07-13T18:57:34Z
+updated_at: 2026-07-14T14:24:19Z
 ---
 
 Blocks already store and render heading levels 1-3, and pkm-kiip added the `set_heading` op plus slash commands. Add faster keyboard and context-menu controls for new and imported blocks.

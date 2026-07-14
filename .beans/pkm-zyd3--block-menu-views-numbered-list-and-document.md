@@ -1,10 +1,11 @@
 ---
 # pkm-zyd3
 title: 'Block menu views: numbered list and document'
-status: todo
+status: in-progress
 type: feature
+priority: normal
 created_at: 2026-07-13T18:57:34Z
-updated_at: 2026-07-13T18:57:34Z
+updated_at: 2026-07-14T14:24:19Z
 ---
 
 Add persistent subtree display modes to the block right-click menu. A numbered-list view numbers the selected block's descendants; document view restores the normal document/bullet presentation.

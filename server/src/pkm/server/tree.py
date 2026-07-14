@@ -27,6 +27,7 @@ def build_tree(rows: Sequence[Mapping]) -> list[dict]:
             "uid": r["uid"],
             "text": r["text"],
             "heading": r["heading"],
+            "view_type": r["view_type"],
             "collapsed": bool(r["collapsed"]),
             "order_idx": r["order_idx"],
             "created_at": r["created_at"],

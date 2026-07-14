@@ -64,6 +64,15 @@ class SetHeadingOp(BaseModel):
     heading: int | None = Field(default=None, ge=1, le=3)
 
 
+ViewType = Literal["numbered", "document"]
+
+
+class SetViewTypeOp(BaseModel):
+    op: Literal["set_view_type"]
+    uid: str
+    view_type: ViewType
+
+
 class CreatePageOp(BaseModel):
     """Durable push path for offline page creation (spec section 1): an
     empty page created offline has no block op to carry its title, so page
@@ -73,7 +82,8 @@ class CreatePageOp(BaseModel):
 
 
 BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
-                          SetCollapsedOp, SetHeadingOp, CreatePageOp],
+                          SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
+                          CreatePageOp],
                     Field(discriminator="op")]
 
 
@@ -186,6 +196,12 @@ class SetHeading:
 
 
 @dataclass(frozen=True)
+class SetViewType:
+    uid: str
+    view_type: ViewType
+
+
+@dataclass(frozen=True)
 class ReindexRefs:
     uid: str
     text: str
@@ -203,8 +219,8 @@ class SetPageId:
 
 
 Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
-               DeleteBlocks, SetCollapsed, SetHeading, ReindexRefs, TouchPage,
-               SetPageId]
+               DeleteBlocks, SetCollapsed, SetHeading, SetViewType,
+               ReindexRefs, TouchPage, SetPageId]
 
 
 def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
@@ -293,5 +309,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
     if isinstance(op, SetCollapsedOp):
         return (SetCollapsed(op.uid, op.collapsed),
                 TouchPage(ctx.block.page_id))
-    # SetHeadingOp (the discriminated union admits nothing else)
-    return (SetHeading(op.uid, op.heading), TouchPage(ctx.block.page_id))
+    if isinstance(op, SetHeadingOp):
+        return (SetHeading(op.uid, op.heading), TouchPage(ctx.block.page_id))
+    # SetViewTypeOp (the discriminated union admits nothing else)
+    return (SetViewType(op.uid, op.view_type), TouchPage(ctx.block.page_id))

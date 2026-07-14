@@ -13,6 +13,7 @@ def test_page_tree_shape(client):
     assert texts == ["Tags:: #AI", "Papers"]
     papers = body["blocks"][1]
     assert papers["heading"] == 2
+    assert papers["view_type"] is None
     assert [c["text"] for c in papers["children"]] == \
         ["[[Attention Is All You Need]] is a [[Paper]]"]
 

@@ -17,6 +17,7 @@ def test_bootstrap_snapshot_has_everything_and_a_seq(client):
     assert {p["title"] for p in snap["pages"]} >= {"Machine Learning", "AI"}
     blocks = {b["uid"]: b for b in snap["blocks"]}
     assert blocks["uid_b3"]["text"].startswith("[[Attention")
+    assert blocks["uid_b3"]["view_type"] is None
     assert {r_["target_page_id"] for r_ in blocks["uid_b3"]["refs"]} == {4, 5}
 
 
@@ -35,6 +36,19 @@ def test_feed_returns_full_block_payload_and_advances_cursor(client):
     # feed is empty when drained from next_since
     again = _drain(client, since=feed["next_since"])
     assert again["blocks"] == [] and again["tombstones"] == []
+
+
+def test_view_type_change_reaches_changes_feed_and_snapshot(client):
+    start = _drain(client)["latest_seq"]
+    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+        {"op": "set_view_type", "uid": "uid_b2", "view_type": "numbered"}]})
+    assert r.status_code == 200
+    feed = _drain(client, since=start)
+    block = next(b for b in feed["blocks"] if b["uid"] == "uid_b2")
+    assert block["view_type"] == "numbered"
+    snap = client.get("/api/sync/snapshot").json()
+    persisted = next(b for b in snap["blocks"] if b["uid"] == "uid_b2")
+    assert persisted["view_type"] == "numbered"
 
 
 def test_window_split_ships_dependency_page_for_refs(client):

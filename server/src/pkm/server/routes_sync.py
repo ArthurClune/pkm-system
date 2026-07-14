@@ -44,7 +44,8 @@ def _block_payloads(db: sqlite3.Connection,
     for uid in uids:
         row = db.execute(
             "SELECT uid, page_id, parent_uid, order_idx, text, heading,"
-            " collapsed, created_at, updated_at FROM blocks WHERE uid = ?",
+            " collapsed, created_at, updated_at, view_type"
+            " FROM blocks WHERE uid = ?",
             (uid,)).fetchone()
         if row is None:
             continue  # deleted again since -- the tombstone row covers it
@@ -57,6 +58,7 @@ def _block_payloads(db: sqlite3.Connection,
             uid=row["uid"], page_id=row["page_id"],
             parent_uid=row["parent_uid"], order_idx=row["order_idx"],
             text=row["text"], heading=row["heading"],
+            view_type=row["view_type"],
             collapsed=row["collapsed"], created_at=row["created_at"],
             updated_at=row["updated_at"], refs=refs))
     return blocks, dep_pages

@@ -70,6 +70,26 @@ def test_set_heading_rejects_out_of_range(client):
     assert r.status_code == 422
 
 
+def test_set_view_type_persists_and_roundtrips_in_page_reads(client):
+    before = client.get("/api/page/Machine Learning").json()["blocks"][1]
+    assert before["view_type"] is None
+    r = _post(client, {"op": "set_view_type", "uid": "uid_b2",
+                       "view_type": "numbered"})
+    assert r.status_code == 200
+    after = client.get("/api/page/Machine Learning").json()["blocks"][1]
+    assert after["view_type"] == "numbered"
+    assert after["text"] == before["text"]
+    assert after["collapsed"] == before["collapsed"]
+    assert [c["uid"] for c in after["children"]] == \
+        [c["uid"] for c in before["children"]]
+
+
+def test_set_view_type_rejects_unknown_value(client):
+    r = _post(client, {"op": "set_view_type", "uid": "uid_b2",
+                       "view_type": "table"})
+    assert r.status_code == 422
+
+
 def test_delete_subtree_via_endpoint(client):
     assert _post(client, {"op": "delete", "uid": "uid_b2"}).status_code == 200
     page = client.get("/api/page/Machine Learning").json()

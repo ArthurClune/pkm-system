@@ -12,7 +12,7 @@ from pkm.server.daily import title_for_date
 from pkm.server.ops_core import (BlockInfo, CreateOp, CreatePageOp, DeleteBlocks,
                                  DeleteOp, Effect, InsertBlock, MoveOp,
                                  OpBatch, OpContext, ReindexRefs, SetCollapsed,
-                                 SetHeading, SetPageId, SetParent,
+                                 SetHeading, SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  UpdateTextOp, plan_op)
 from pkm.server.store import get_or_create_page
@@ -131,6 +131,10 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         db.execute(
             "UPDATE blocks SET heading = ?, updated_at = ? WHERE uid = ?",
             (eff.heading, now_ms, eff.uid))
+    elif isinstance(eff, SetViewType):
+        db.execute(
+            "UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
+            (eff.view_type, now_ms, eff.uid))
     elif isinstance(eff, ReindexRefs):
         db.execute("DELETE FROM refs WHERE src_block_uid = ?", (eff.uid,))
         for ref in extract(eff.text).refs:

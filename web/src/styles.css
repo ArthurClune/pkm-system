@@ -193,6 +193,9 @@ button { font: inherit; }
   color: var(--color-text-secondary); font-weight: 500; cursor: pointer; }
 .nav-link:hover { color: var(--color-accent); text-decoration: none; }
 .nav-link.active { color: var(--color-accent); }
+/* primary destinations (Daily Notes, Current Work) stay highlighted on every
+ * route; active-state colouring only differentiates the pinned pages */
+.nav-link.primary { color: var(--color-accent); }
 .nav-sidebar-entries { list-style: none; margin: 8px 0 0; padding: 8px 0 0;
   border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 2px; }
 .nav-sidebar-entries .nav-link { display: block; }

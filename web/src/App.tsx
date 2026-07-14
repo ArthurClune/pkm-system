@@ -80,12 +80,14 @@ export function App() {
             </button>
             <nav className={"left-nav" + (navOpen ? " open" : "") + (sidebarCollapsed ? " collapsed" : "")}>
               <div className="nav-title">pkm</div>
+              {/* "primary": always accent-coloured, unlike the pinned pages
+                * below which are muted until active (pkm-nn7o) */}
               <NavLink to="/" end onClick={() => setNavOpen(false)}
-                       className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
+                       className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                 Daily Notes
               </NavLink>
               <NavLink to="/current-work" onClick={() => setNavOpen(false)}
-                       className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
+                       className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                 Current Work
               </NavLink>
               <ThemeToggle />

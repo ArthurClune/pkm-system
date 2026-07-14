@@ -30,6 +30,10 @@ describe("link styling (pkm-1eaj)", () => {
     expect(ruleFor(".nav-link.active")).toContain("color: var(--color-accent);");
   });
 
+  test("primary nav links (Daily Notes, Current Work) are always accent-coloured", () => {
+    expect(ruleFor(".nav-link.primary")).toContain("color: var(--color-accent);");
+  });
+
   test("link colour is its own token, calmer than the accent", () => {
     const root = ruleFor(":root");
     const link = root.match(/--color-link: (#[0-9a-fA-F]+);/)?.[1];

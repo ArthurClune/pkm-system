@@ -254,7 +254,7 @@ button { font: inherit; }
 /* line-height set here (not on .block-text) so the edit-mode textarea
  * inherits the same value and the row doesn't jump on focus */
 .block-row { display: flex; align-items: baseline; padding: 3px 0; border-radius: 3px;
-  line-height: 1.6; }
+  line-height: 1.4; }
 .block-row:hover { background: var(--color-bg-subtle); }
 .chevron { background: none; border: none; cursor: pointer; color: var(--color-text-muted);
   width: 16px; padding: 0; flex-shrink: 0; transform: rotate(90deg);
@@ -269,7 +269,7 @@ button { font: inherit; }
 .bullet.numbered { box-sizing: border-box; width: 21px; height: auto;
   margin: 0 8px 0 0; border: 0; border-radius: 0;
   background: none; color: var(--color-text-muted); font-size: 13px;
-  line-height: 1.6; text-align: right; }
+  line-height: 1.4; text-align: right; }
 .bullet.numbered.closed { border-color: transparent; }
 .block-children { margin-left: 22px; border-left: 1px solid var(--color-border-subtle); padding-left: 8px; }
 .block-text { flex: 1; margin: 0; font-weight: normal; min-width: 0; overflow-wrap: break-word; }

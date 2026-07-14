@@ -21,7 +21,8 @@ def _batch(*ops) -> OpBatch:
 def test_create_inserts_shifts_and_derives_refs(db):
     apply_batch(db, _batch(
         {"op": "create", "uid": "newuid1", "page_title": "Machine Learning",
-         "parent_uid": None, "order_idx": 0, "text": "see [[Brand New]] #AI"},
+         "parent_uid": None, "order_idx": 0, "text": "see [[Brand New]] #AI",
+         "view_type": "numbered"},
     ), NOW)
     db.commit()
     rows = db.execute(
@@ -29,6 +30,9 @@ def test_create_inserts_shifts_and_derives_refs(db):
         "  AND parent_uid IS NULL ORDER BY order_idx").fetchall()
     assert [(r["uid"], r["order_idx"]) for r in rows] == \
         [("newuid1", 0), ("uid_b1", 1), ("uid_b2", 2)]
+    assert db.execute(
+        "SELECT view_type FROM blocks WHERE uid = 'newuid1'"
+    ).fetchone()[0] == "numbered"
     # implicit page creation + refs
     new_page = db.execute(
         "SELECT id FROM pages WHERE title = 'Brand New'").fetchone()

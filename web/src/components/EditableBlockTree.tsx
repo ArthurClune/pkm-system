@@ -73,9 +73,14 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     x: number;
     y: number;
     viewMode: EffectiveBlockView;
+    trigger: HTMLElement;
   } | null>(null);
   const selected = selection
     ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
+  const closeMenu = () => {
+    menu?.trigger.focus();
+    setMenu(null);
+  };
 
   // When a block selection is active there is no focused textarea, so the tree
   // container itself takes focus and owns the keyboard (extend / copy / clear).
@@ -108,11 +113,12 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
         <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
                        handlers={handlers} readOnly={readOnly}
                        viewMode="document" number={index + 1}
-                       onOpenMenu={(uid, x, y, viewMode) =>
-                         setMenu({ uid, x, y, viewMode })} />
+                       openMenuUid={menu?.uid ?? null}
+                       onOpenMenu={(uid, x, y, viewMode, trigger) =>
+                         setMenu({ uid, x, y, viewMode, trigger })} />
       ))}
       {menu && (
-        <BlockMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}
+        <BlockMenu x={menu.x} y={menu.y} onClose={closeMenu}
           items={blockMenuItems(
             menu.uid,
             findNode(blocks, menu.uid)?.heading ?? null,
@@ -164,14 +170,15 @@ function blockMenuItems(
 }
 
 function EditableBlock({ node, focus, selected, handlers, readOnly,
-                         viewMode, number, onOpenMenu }: {
+                         viewMode, number, openMenuUid, onOpenMenu }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean;
   viewMode: EffectiveBlockView;
   number: number;
+  openMenuUid: string | null;
   onOpenMenu: (uid: string, x: number, y: number,
-               viewMode: EffectiveBlockView) => void;
+               viewMode: EffectiveBlockView, trigger: HTMLElement) => void;
 }) {
   const focused = focus?.uid === node.uid;
   const isSelected = selected.has(node.uid);
@@ -207,13 +214,29 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
               // click included because iPad Safari doesn't fire contextmenu
               // from touch. Drag suppresses click, so DnD is unaffected.
               onClick={(e) => onOpenMenu(
-                node.uid, e.clientX, e.clientY, childrenView,
+                node.uid, e.clientX, e.clientY, childrenView, e.currentTarget,
               )}
               onContextMenu={(e) => {
                 e.preventDefault();
-                onOpenMenu(node.uid, e.clientX, e.clientY, childrenView);
+                onOpenMenu(
+                  node.uid, e.clientX, e.clientY, childrenView, e.currentTarget,
+                );
               }}
-              aria-hidden="true">
+              onKeyDown={(e) => {
+                const opens = e.key === "Enter" || e.key === " "
+                  || e.key === "ContextMenu" || (e.shiftKey && e.key === "F10");
+                if (!opens) return;
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                onOpenMenu(
+                  node.uid, rect.left, rect.bottom, childrenView, e.currentTarget,
+                );
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label="Open block menu"
+              aria-haspopup="menu"
+              aria-expanded={openMenuUid === node.uid}>
           {viewMode === "numbered" ? `${number}.` : ""}
         </span>
         {focused ? (
@@ -235,6 +258,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
             <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}
                            handlers={handlers} readOnly={readOnly}
                            viewMode={childrenView} number={index + 1}
+                           openMenuUid={openMenuUid}
                            onOpenMenu={onOpenMenu} />
           ))}
         </div>

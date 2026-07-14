@@ -13,6 +13,7 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, Field
 
 UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
+ViewType = Literal["numbered", "document"]
 
 
 class CreateOp(BaseModel):
@@ -23,6 +24,7 @@ class CreateOp(BaseModel):
     order_idx: int
     text: str
     heading: int | None = Field(default=None, ge=1, le=3)
+    view_type: ViewType | None = None
 
 
 class UpdateTextOp(BaseModel):
@@ -62,9 +64,6 @@ class SetHeadingOp(BaseModel):
     op: Literal["set_heading"]
     uid: str
     heading: int | None = Field(default=None, ge=1, le=3)
-
-
-ViewType = Literal["numbered", "document"]
 
 
 class SetViewTypeOp(BaseModel):
@@ -163,6 +162,7 @@ class InsertBlock:
     order_idx: int
     text: str
     heading: int | None
+    view_type: ViewType | None = None
 
 
 @dataclass(frozen=True)
@@ -244,7 +244,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                 raise OpError(index, "parent is on a different page")
         return (ShiftSiblings(ctx.page_id, op.parent_uid, op.order_idx),
                 InsertBlock(op.uid, ctx.page_id, op.parent_uid, op.order_idx,
-                            op.text, op.heading),
+                            op.text, op.heading, op.view_type),
                 ReindexRefs(op.uid, op.text),
                 TouchPage(ctx.page_id))
     if (isinstance(op, UpdateTextOp) and op.base_text_hash is not None

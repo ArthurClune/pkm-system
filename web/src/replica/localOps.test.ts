@@ -39,9 +39,10 @@ describe("applyLocalOps", () => {
   test("create shifts following siblings and reindexes refs", () => {
     applyLocalOps(t.db, [{
       op: "create", uid: "uid_new1", page_title: "AI", parent_uid: null,
-      order_idx: 1, text: "links [[ML]] and [[Brand New]]",
+      order_idx: 1, text: "links [[ML]] and [[Brand New]]", view_type: "numbered",
     }], 99);
     expect(blockRow("uid_new1").order_idx).toBe(1);
+    expect(blockRow("uid_new1").view_type).toBe("numbered");
     expect(blockRow("uid_r2").order_idx).toBe(2); // shifted
     expect(blockRow("uid_r1").order_idx).toBe(0); // untouched
     const refs = rows<{ target_page_id: number }>(

@@ -95,7 +95,7 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
     shiftFrom(siblings, op.order_idx);
     siblings.push({
       uid: op.uid, text: op.text, heading: op.heading ?? null,
-      view_type: null, collapsed: false, order_idx: op.order_idx,
+      view_type: op.view_type ?? null, collapsed: false, order_idx: op.order_idx,
       created_at: null, updated_at: null, children: [],
     });
     sortSiblings(siblings);

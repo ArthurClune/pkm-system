@@ -75,6 +75,17 @@ test("quoted display hides the prefix while editing exposes the raw source", () 
   expect(focusedTextarea()).toHaveValue("> **hello** [[World]]");
 });
 
+test("a TODO inside a quote remains interactive", () => {
+  const h = handlers();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[block("q1", "> {{[[TODO]]}} task")]}
+                         focus={null} handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  fireEvent.click(screen.getByRole("checkbox", { name: "TODO" }));
+  expect(h.onToggleTodo).toHaveBeenCalledWith("q1");
+});
+
 test("removing the quote prefix removes quote presentation", () => {
   const h = handlers();
   const view = render(
@@ -670,6 +681,31 @@ test("clicking a bullet opens the block menu (pkm-y6af)", () => {
 test("right-clicking a bullet opens the block menu (pkm-y6af)", () => {
   const { container } = mount(handlers(), null);
   fireEvent.contextMenu(bullet(container, "u2"));
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+});
+
+test("keyboard opens and navigates the block menu, then restores trigger focus", () => {
+  const { container } = mount(handlers(), null);
+  const trigger = bullet(container, "u1") as HTMLElement;
+  trigger.focus();
+  expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+  expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.keyDown(trigger, { key: "Enter" });
+  expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const copy = screen.getByRole("menuitem", { name: "Copy block reference" });
+  expect(copy).toHaveFocus();
+  fireEvent.keyDown(copy, { key: "ArrowDown" });
+  expect(screen.getByRole("menuitemradio", { name: "Plain text" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: "End" });
+  expect(screen.getByRole("menuitemradio", { name: "View as document" }))
+    .toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(trigger).toHaveFocus();
+  expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.keyDown(trigger, { key: "ContextMenu" });
   expect(screen.getByRole("menu")).toBeInTheDocument();
 });
 

@@ -33,12 +33,13 @@ def test_batch_rejects_unknown_op_and_empty():
 
 def test_plan_create():
     op = CreateOp(op="create", uid="newuid1", page_title="P",
-                  parent_uid="uid_b2", order_idx=1, text="t [[X]]")
+                  parent_uid="uid_b2", order_idx=1, text="t [[X]]",
+                  view_type="numbered")
     ctx = OpContext(page_id=1, parent=BlockInfo("uid_b2", 1, None))
     effects = plan_op(0, op, ctx)
     assert effects == (
         ShiftSiblings(1, "uid_b2", 1),
-        InsertBlock("newuid1", 1, "uid_b2", 1, "t [[X]]", None),
+        InsertBlock("newuid1", 1, "uid_b2", 1, "t [[X]]", None, "numbered"),
         ReindexRefs("newuid1", "t [[X]]"),
         TouchPage(1),
     )

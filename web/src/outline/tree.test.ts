@@ -43,10 +43,12 @@ describe("locate / visibility", () => {
 describe("applyOps mirrors ops_apply.py", () => {
   test("create shifts later siblings and inserts sorted", () => {
     const op: BlockOp = { op: "create", uid: "n1", page_title: "P",
-                          parent_uid: null, order_idx: 5, text: "new" };
+                          parent_uid: null, order_idx: 5, text: "new",
+                          view_type: "numbered" };
     const out = applyOps(tree(), [op], "P");
     expect(out.map((n) => [n.uid, n.order_idx])).toEqual(
       [["a", 0], ["n1", 5], ["b", 6], ["c", 8]]);
+    expect(findNode(out, "n1")!.view_type).toBe("numbered");
   });
 
   test("create for another page is skipped", () => {

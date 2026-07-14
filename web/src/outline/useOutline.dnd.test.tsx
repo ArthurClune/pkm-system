@@ -72,6 +72,19 @@ it("remote set_view_type batches update the same tree path", () => {
   expect(sync.sent).toEqual([]);
 });
 
+it("quoted TODO controls preserve the quote prefix and update optimistically", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", [
+    block("u1", "> {{[[TODO]]}} quoted task"),
+  ]);
+  act(() => getOutline().handlers.onToggleTodo("u1"));
+  expect(sync.sent).toEqual([[
+    { op: "update_text", uid: "u1", text: "> {{[[DONE]]}} quoted task" },
+  ]]);
+  expect(findNode(getOutline().blocks, "u1")!.text)
+    .toBe("> {{[[DONE]]}} quoted task");
+});
+
 it("dnd.removeSubtreeLocal detaches the subtree, sends no ops, and clears focus inside it", () => {
   const sync = makeSync();
   const initial = [

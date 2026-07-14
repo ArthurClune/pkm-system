@@ -84,9 +84,10 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
       shiftSiblings(db, pageId, op.parent_uid ?? null, op.order_idx);
       db.exec(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
-        " heading, collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,0,?,?)",
+        " heading, collapsed, created_at, updated_at, view_type)" +
+        " VALUES (?,?,?,?,?,?,0,?,?,?)",
         [op.uid, pageId, op.parent_uid ?? null, op.order_idx, op.text,
-         op.heading ?? null, nowMs, nowMs]);
+         op.heading ?? null, nowMs, nowMs, op.view_type ?? null]);
       reindexRefs(db, op.uid, op.text, nowMs);
       touchPage(db, pageId, nowMs);
       return;

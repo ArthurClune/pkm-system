@@ -515,6 +515,8 @@ export interface components {
             text: string;
             /** Heading */
             heading?: number | null;
+            /** View Type */
+            view_type?: ("numbered" | "document") | null;
         };
         /**
          * CreatePageOp

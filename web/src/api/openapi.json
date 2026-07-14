@@ -1307,6 +1307,21 @@
               }
             ],
             "title": "Heading"
+          },
+          "view_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "numbered",
+                  "document"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "View Type"
           }
         },
         "type": "object",

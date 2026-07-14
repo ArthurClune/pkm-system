@@ -65,3 +65,10 @@ def test_unknown_children_view_type_is_ignored():
                          ":children/view-type :kanban")
     export = parse_export(parse_edn(raw))
     assert export.pages[0].children[0].view_type is None
+
+
+def test_document_children_view_type_is_imported():
+    raw = EXPORT.replace(":children/view-type :numbered",
+                         ":children/view-type :document")
+    export = parse_export(parse_edn(raw))
+    assert export.pages[0].children[0].view_type == "document"

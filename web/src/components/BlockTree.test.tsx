@@ -49,3 +49,17 @@ it("bullet shows the closed ring only when collapsed with children", () => {
   expect(container.querySelector('[data-uid="uid_a1"] .bullet.closed')).not.toBeNull();
   expect(container.querySelector('[data-uid="uid_a3"] .bullet.closed')).toBeNull();
 });
+
+it("renders exact-prefix quote content with inline segments but hides the prefix", () => {
+  const { container } = renderTree([
+    block("uid_q1", "> **quoted** [[World]]"),
+    block("uid_q2", "ordinary > text"),
+  ]);
+  const quote = container.querySelector('[data-uid="uid_q1"] .quote-block');
+  expect(quote).not.toBeNull();
+  expect(quote).toHaveTextContent("quoted World");
+  expect(quote).not.toHaveTextContent("> ");
+  expect(quote!.querySelector("strong")).toHaveTextContent("quoted");
+  expect(screen.getByRole("link", { name: "World" })).toBeInTheDocument();
+  expect(container.querySelector('[data-uid="uid_q2"] .quote-block')).toBeNull();
+});

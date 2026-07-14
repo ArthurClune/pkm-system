@@ -23,6 +23,7 @@ import { AutocompletePopup, buildRows, useTitleOptions,
          type AcRow } from "./AutocompletePopup";
 import { BlockMenu } from "./BlockMenu";
 import { InlineSegments } from "./InlineSegments";
+import { quoteContent } from "./blockPresentation";
 
 export interface OutlineHandlers {
   onFocusBlock(uid: string, cursor: number): void;
@@ -128,6 +129,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
     node.heading === 1 ? "h1" :
     node.heading === 2 ? "h2" :
     node.heading === 3 ? "h3" : "div";
+  const quoted = quoteContent(node.text);
   return (
     <div className="block">
       <div className={"block-row" + (focused ? " focused" : "")
@@ -160,11 +162,11 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
           <BlockInput node={node} cursor={focus.cursor} handlers={handlers}
                       readOnly={readOnly} />
         ) : (
-          <Tag className="block-text"
+          <Tag className={"block-text" + (quoted !== null ? " quote-block" : "")}
                onClick={() => handlers.onFocusBlock(node.uid, node.text.length)}>
             <BlockEditContext.Provider
                 value={readOnly ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
-              <InlineSegments segments={tokenizeBlock(node.text)} />
+              <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
             </BlockEditContext.Provider>
           </Tag>
         )}

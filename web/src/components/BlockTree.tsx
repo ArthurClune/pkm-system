@@ -6,6 +6,7 @@ import { useState } from "react";
 import type { BlockNode } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
+import { quoteContent } from "./blockPresentation";
 
 export function Block({ node }: { node: BlockNode }) {
   // node.collapsed seeds the state; toggling is view-only in plan 4
@@ -16,6 +17,7 @@ export function Block({ node }: { node: BlockNode }) {
     node.heading === 1 ? "h1" :
     node.heading === 2 ? "h2" :
     node.heading === 3 ? "h3" : "div";
+  const quoted = quoteContent(node.text);
   return (
     <div className="block">
       <div className="block-row" data-uid={node.uid}>
@@ -27,8 +29,8 @@ export function Block({ node }: { node: BlockNode }) {
           ▸
         </button>
         <span className={"bullet" + (hasChildren && collapsed ? " closed" : "")} />
-        <Tag className="block-text">
-          <InlineSegments segments={tokenizeBlock(node.text)} />
+        <Tag className={"block-text" + (quoted !== null ? " quote-block" : "")}>
+          <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
         </Tag>
       </div>
       {hasChildren && !collapsed && (

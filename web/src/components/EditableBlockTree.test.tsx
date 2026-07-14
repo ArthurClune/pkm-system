@@ -53,6 +53,43 @@ test("the focused block is a textarea with the raw markdown", () => {
   expect(ta.selectionStart).toBe(5);
 });
 
+test("quoted display hides the prefix while editing exposes the raw source", () => {
+  const quoted = [block("q1", "> **hello** [[World]]")];
+  const h = handlers();
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={quoted} focus={null} handlers={h}
+                         readOnly={false} />
+    </MemoryRouter>);
+  const display = view.container.querySelector('[data-uid="q1"] .quote-block');
+  expect(display).not.toBeNull();
+  expect(display).toHaveTextContent("hello World");
+  expect(display).not.toHaveTextContent("> ");
+
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={quoted} focus={{ uid: "q1", cursor: 0 }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  expect(focusedTextarea()).toHaveValue("> **hello** [[World]]");
+});
+
+test("removing the quote prefix removes quote presentation", () => {
+  const h = handlers();
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[block("q1", "> hello")]} focus={null}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  expect(view.container.querySelector('[data-uid="q1"] .quote-block')).not.toBeNull();
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[block("q1", "hello")]} focus={null}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  expect(view.container.querySelector('[data-uid="q1"] .quote-block')).toBeNull();
+});
+
 test("typing reports the draft", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });

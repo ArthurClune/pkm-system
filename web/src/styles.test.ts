@@ -91,6 +91,24 @@ describe("top bar cohesion (pkm-absu)", () => {
   });
 });
 
+describe("backlink card polish (pkm-mqvv)", () => {
+  test("cards keep the subtle bg, drop the visible border, and tighten padding", () => {
+    const card = ruleFor(".backlink-item, .query-item");
+    expect(card).toContain("background: var(--color-bg-subtle);");
+    expect(card).toContain("border: 1px solid transparent;");
+    expect(card).toContain("padding: 6px 10px;");
+  });
+
+  test("cards get a hover state", () => {
+    const hover = ruleFor(".backlink-item:hover, .query-item:hover");
+    expect(hover).toContain("background: var(--color-selected-bg);");
+  });
+
+  test("breadcrumbs are legible (muted, not faint)", () => {
+    expect(ruleFor(".breadcrumbs")).toContain("color: var(--color-text-muted);");
+  });
+});
+
 describe("typography hierarchy (pkm-b68q)", () => {
   test("heading blocks scale clearly below the page title", () => {
     expect(ruleFor("h1.block-text")).toContain("font-size: 1.4rem;");

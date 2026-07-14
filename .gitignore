@@ -15,3 +15,7 @@ coverage/
 
 # claude code worktrees
 .claude/worktrees/
+
+# pi superpowers checkout
+.pi/git/
+

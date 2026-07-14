@@ -1,0 +1,10 @@
+{
+  "enableSkillCommands": true,
+  "packages": [
+    "git:github.com/obra/superpowers"
+  ],
+  "skills": [
+    "../.claude/skills",
+    "~/.claude/skills"
+  ]
+}

@@ -74,6 +74,20 @@ it("links to Current Work under Daily Notes and renders the route", async () => 
   expect(await screen.findByRole("heading", { name: "Current Work" })).toBeInTheDocument();
 });
 
+it("Daily Notes and Current Work are both primary links, whatever the route (pkm-nn7o)", async () => {
+  stubFetch([["/api/current-work", { sections: [
+    { id: "last-24-hours", title: "Last 24 hours", pages: [] },
+    { id: "24-to-48-hours", title: "24–48 hours", pages: [] },
+    { id: "48-hours-to-7-days", title: "48 hours–7 days", pages: [] },
+  ] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/current-work"]}><App /></MemoryRouter>);
+
+  // both carry the always-highlighted variant even though only /current-work
+  // is the active route
+  expect(screen.getByRole("link", { name: "Daily Notes" }).className).toContain("primary");
+  expect(screen.getByRole("link", { name: "Current Work" }).className).toContain("primary");
+});
+
 it("the top bar has a focusable search bar; the left nav has no search entry", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);

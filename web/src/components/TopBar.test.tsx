@@ -51,6 +51,12 @@ it("reflects a collapsed sidebar with a 'Show sidebar' label and aria-expanded=f
   expect(button).toHaveAttribute("aria-expanded", "false");
 });
 
+it("renders svg icons in the sidebar toggle and page menu buttons (pkm-mijo)", () => {
+  renderTopBar("/page/AWS");
+  expect(screen.getByRole("button", { name: "Hide sidebar" }).querySelector("svg")).not.toBeNull();
+  expect(screen.getByRole("button", { name: "Page menu" }).querySelector("svg")).not.toBeNull();
+});
+
 it("clicking the sidebar toggle calls onToggleSidebar", () => {
   const onToggleSidebar = vi.fn();
   renderTopBar("/", vi.fn(), false, onToggleSidebar);

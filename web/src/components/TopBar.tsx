@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
+import { MoreHorizontalIcon, PanelLeftIcon } from "./icons";
 import { SearchBar } from "./SearchBar";
 
 /** Menu bar spanning the top of the main pane. Houses the left-nav collapse
@@ -63,7 +64,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
               aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
               aria-expanded={!sidebarCollapsed}
               onClick={onToggleSidebar}>
-        {sidebarCollapsed ? "⟩" : "⟨"}
+        <PanelLeftIcon />
       </button>
       <SearchBar />
       {title !== null && (
@@ -71,7 +72,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
           <button type="button" className="top-bar-menu-button"
                   aria-label="Page menu" aria-haspopup="menu" aria-expanded={menuOpen}
                   onClick={() => setMenuOpen((o) => !o)}>
-            …
+            <MoreHorizontalIcon />
           </button>
           {menuOpen && (
             <ul className="top-bar-menu" role="menu">

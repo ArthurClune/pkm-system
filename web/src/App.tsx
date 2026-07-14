@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { MenuIcon } from "./components/icons";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
@@ -74,13 +75,14 @@ export function App() {
             <OfflineIndicator />
             <button className="hamburger" aria-label="menu"
                     onClick={() => setNavOpen((o) => !o)}>
-              ☰
+              <MenuIcon />
             </button>
             <nav className={"left-nav" + (navOpen ? " open" : "") + (sidebarCollapsed ? " collapsed" : "")}>
               <div className="nav-title">pkm</div>
-              <Link to="/" className="nav-link" onClick={() => setNavOpen(false)}>
+              <NavLink to="/" end onClick={() => setNavOpen(false)}
+                       className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
                 Daily Notes
-              </Link>
+              </NavLink>
               <ThemeToggle />
               <SidebarNav onNavigate={() => setNavOpen(false)} />
             </nav>

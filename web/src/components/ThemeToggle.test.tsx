@@ -48,6 +48,13 @@ it("ignores a garbage stored value and falls back to system", () => {
   expect(screen.getByRole("button", { name: /theme: auto/i })).toBeInTheDocument();
 });
 
+it("renders an inline svg icon, not emoji text (pkm-mijo)", () => {
+  render(<ThemeToggle />);
+  const button = screen.getByRole("button");
+  expect(button.querySelector("svg")).not.toBeNull();
+  expect(button.textContent).not.toMatch(/[\u{1F311}-\u{1F320}☀-⛿]/u);
+});
+
 it("reflects the OS setting while preference is system", () => {
   stubMatchMedia(true); // OS is in dark mode
   render(<ThemeToggle />);

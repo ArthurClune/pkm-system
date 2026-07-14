@@ -5,6 +5,7 @@ import { apiFetch } from "../api/client";
 import type { SearchPayload } from "../api/payloads";
 import { parseSnippet } from "../grammar/snippet";
 import { pagePath } from "../paths";
+import { SearchIcon } from "./icons";
 
 interface ResultRow {
   key: string;
@@ -167,6 +168,7 @@ export function SearchBar() {
 
   return (
     <div className="top-bar-search" ref={wrapRef}>
+      <span className="top-bar-search-icon"><SearchIcon /></span>
       <input ref={inputRef} className="top-bar-search-input" placeholder="Search…"
              aria-label="Search" value={query}
              onFocus={() => setOpen(true)}

@@ -28,7 +28,9 @@
   --color-text-faint: #a3b2c9;
   --color-text-secondary: #5d6f8f;
   --color-accent: #ec6f35;
-  --color-link: #ec6f35;
+  /* calmer than the accent: page links are most of a PKM page's text, so
+   * they must read as "linked text", not "warning" (pkm-1eaj) */
+  --color-link: #c25a28;
   --color-link-ext: #7056f2;
   --color-tag: #9dafca;
   --color-bullet: #e3ecf2;
@@ -77,7 +79,7 @@
     --color-text-faint: #5c6b78;
     --color-text-secondary: #9fb0bd;
     --color-accent: #ff9d5c;
-    --color-link: #ff9d5c;
+    --color-link: #e8935a;
     --color-link-ext: #a394f8;
     --color-tag: #6f80a0;
     --color-bullet: #39434d;
@@ -123,7 +125,7 @@
   --color-text-faint: #5c6b78;
   --color-text-secondary: #9fb0bd;
   --color-accent: #ff9d5c;
-  --color-link: #ff9d5c;
+  --color-link: #e8935a;
   --color-link-ext: #a394f8;
   --color-tag: #6f80a0;
   --color-bullet: #39434d;
@@ -166,7 +168,8 @@ body {
   background: var(--color-bg);
 }
 a { color: var(--color-link-ext); font-weight: 600; text-decoration: none; }
-a.page-link { color: var(--color-link); }
+/* medium, not bold: bold page links make link-dense outlines shout */
+a.page-link { color: var(--color-link); font-weight: 500; }
 a.tag { color: var(--color-tag); font-weight: 400; }
 a:hover { text-decoration: underline; }
 ::selection { background: var(--color-selection-bg); }
@@ -184,8 +187,12 @@ button { font: inherit; }
  * that governs visibility. */
 .left-nav.collapsed { display: none; }
 .nav-title { font-weight: 700; margin-bottom: 8px; }
+/* muted by default so the accent is reserved for the active page + hover;
+ * a solid column of accent-coloured links drowned the rest of the UI */
 .nav-link { background: none; border: none; padding: 4px 0; text-align: left;
-  color: var(--color-accent); cursor: pointer; }
+  color: var(--color-text-secondary); font-weight: 500; cursor: pointer; }
+.nav-link:hover { color: var(--color-accent); text-decoration: none; }
+.nav-link.active { color: var(--color-accent); }
 .nav-sidebar-entries { list-style: none; margin: 8px 0 0; padding: 8px 0 0;
   border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 2px; }
 .nav-sidebar-entries .nav-link { display: block; }
@@ -218,7 +225,8 @@ button { font: inherit; }
   border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   box-shadow: 0 1px 3px rgba(var(--shadow-rgb), 0.05); }
-.page-title { font-size: 26px; font-weight: 600; margin: 0 0 12px; }
+.page-title { font-size: 28px; font-weight: 600; letter-spacing: -0.01em;
+  margin: 0 0 16px; }
 .page-title a { color: inherit; }
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
@@ -226,21 +234,27 @@ button { font: inherit; }
 /* top bar: spans the main pane, houses the search bar + the page ("...") menu */
 .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px;
   width: var(--pane-width); margin: 0 auto 0 var(--pane-left); padding: 8px 4px; }
-.top-bar-menu-button { background: none; cursor: pointer;
-  border: 1px solid var(--color-border-strong); border-radius: 4px; padding: 4px 10px;
-  color: var(--color-text-secondary); }
-.top-bar-menu-button:hover { background: var(--color-bg-subtle); }
+/* ghost buttons: quiet until hovered, so the bar reads as one surface
+ * (transparent border rather than none keeps hover from shifting layout) */
+.top-bar-menu-button { display: flex; align-items: center; background: none;
+  cursor: pointer; border: 1px solid transparent; border-radius: 4px;
+  padding: 5px 8px; color: var(--color-text-secondary); }
+.top-bar-menu-button:hover { background: var(--color-bg-subtle); color: var(--color-text); }
 .top-bar-search { position: relative; }
-.top-bar-search-input { width: 220px; box-sizing: border-box; padding: 4px 10px;
+.top-bar-search-icon { position: absolute; left: 9px; top: 50%;
+  transform: translateY(-50%); display: flex; pointer-events: none;
+  color: var(--color-text-secondary); }
+.top-bar-search-input { width: 220px; box-sizing: border-box; padding: 4px 10px 4px 30px;
   border: 1px solid var(--color-border-strong); border-radius: 4px;
   background: var(--color-bg-subtle); color: var(--color-text);
   font-size: 14px; outline: none; transition: width 0.15s; }
 .top-bar-search-input::placeholder { color: var(--color-text-secondary); }
 .top-bar-search-input:focus { width: 320px; background: var(--color-bg-surface);
   border-color: var(--color-border-input); }
-.sidebar-toggle-button { background: none; cursor: pointer; border: 1px solid var(--color-border-strong);
-  border-radius: 4px; padding: 4px 8px; color: var(--color-text-secondary); margin-right: auto; }
-.sidebar-toggle-button:hover { background: var(--color-bg-subtle); }
+.sidebar-toggle-button { display: flex; align-items: center; background: none;
+  cursor: pointer; border: 1px solid transparent; border-radius: 4px;
+  padding: 5px 8px; color: var(--color-text-secondary); margin-right: auto; }
+.sidebar-toggle-button:hover { background: var(--color-bg-subtle); color: var(--color-text); }
 .top-bar-page-menu { position: relative; }
 .top-bar-menu { position: absolute; top: 100%; right: 0; z-index: 21; margin: 4px 0 0;
   padding: 4px 0; list-style: none; min-width: 160px; background: var(--color-bg-surface);
@@ -275,9 +289,10 @@ button { font: inherit; }
 .block-text { flex: 1; margin: 0; font-weight: normal; min-width: 0; overflow-wrap: break-word; }
 .block-text.quote-block { border-left: 3px solid var(--color-border-strong);
   color: var(--color-text-muted); padding-left: 12px; }
-h1.block-text { font-size: 1.8rem; font-weight: 600; }
-h2.block-text { font-size: 1.6rem; font-weight: 600; }
-h3.block-text { font-size: 1.4rem; font-weight: 400; color: var(--color-text-secondary); }
+/* all clearly below the 28px page title so the page keeps one visual root */
+h1.block-text { font-size: 1.4rem; font-weight: 600; }
+h2.block-text { font-size: 1.25rem; font-weight: 600; }
+h3.block-text { font-size: 1.1rem; font-weight: 600; }
 
 /* inline */
 .tag:hover { color: var(--color-link); }

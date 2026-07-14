@@ -24,6 +24,20 @@ it("renders nothing when there are no entries", async () => {
   expect(container.querySelector("ul")).toBeNull();
 });
 
+it("marks the entry for the current route as active (pkm-1eaj)", async () => {
+  stubFetch([["/api/sidebar", { entries: [
+    { id: 1, title: "AWS" }, { id: 2, title: "AI" },
+  ] }]]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/AWS"]}>
+      <SidebarNav />
+    </MemoryRouter>,
+  );
+  const aws = await screen.findByRole("link", { name: "AWS" });
+  expect(aws.className).toContain("active");
+  expect(screen.getByRole("link", { name: "AI" }).className).not.toContain("active");
+});
+
 it("calls onNavigate when an entry link is clicked", async () => {
   stubFetch([["/api/sidebar", { entries: [{ id: 1, title: "AI" }] }]]);
   const onNavigate = vi.fn();

@@ -18,7 +18,8 @@ from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
 from pkm.server.ops_core import UID_RE as _UID_RE
 from pkm.server.response_models import (
-    BlockRefsPayload, GroupsPayload, JournalPayload, PageMeta, PagePayload)
+    BlockRefsPayload, CurrentWorkPayload, GroupsPayload, JournalPayload,
+    PageMeta, PagePayload)
 from pkm.server.store import delete_page_rows, fetch_page, get_or_create_page
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
@@ -208,6 +209,39 @@ def get_unlinked(title: str, limit: int = 20, offset: int = 0,
             groups.append(group)
         group["items"].append({"uid": r["uid"], "text": r["text"]})
     return {"groups": groups, "total": total}
+
+
+_HOUR_MS = 60 * 60 * 1000
+_CURRENT_WORK_SECTIONS = [
+    ("last-24-hours", "Last 24 hours", 0, 24 * _HOUR_MS),
+    ("24-to-48-hours", "24–48 hours", 24 * _HOUR_MS, 48 * _HOUR_MS),
+    ("48-hours-to-7-days", "48 hours–7 days", 48 * _HOUR_MS, 7 * 24 * _HOUR_MS),
+]
+
+
+@router.get("/api/current-work", response_model=CurrentWorkPayload)
+def get_current_work(now_ms: int | None = None,
+                     db: sqlite3.Connection = Depends(get_db)) -> dict:
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    sections = []
+    for section_id, title, min_age, max_age in _CURRENT_WORK_SECTIONS:
+        newer_than = now - max_age
+        older_than = now - min_age
+        lower_operator = ">=" if max_age == 7 * 24 * _HOUR_MS else ">"
+        rows = db.execute(
+            f"""SELECT id, title, updated_at FROM pages
+                WHERE updated_at IS NOT NULL
+                  AND updated_at {lower_operator} ?
+                  AND updated_at <= ?
+                ORDER BY updated_at DESC, title""",
+            (newer_than, older_than),
+        ).fetchall()
+        sections.append({
+            "id": section_id,
+            "title": title,
+            "pages": [dict(r) for r in rows],
+        })
+    return {"sections": sections}
 
 
 @router.get("/api/journal", response_model=JournalPayload)

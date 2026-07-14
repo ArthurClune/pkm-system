@@ -360,6 +360,52 @@
         }
       }
     },
+    "/api/current-work": {
+      "get": {
+        "summary": "Get Current Work",
+        "operationId": "get_current_work_api_current_work_get",
+        "parameters": [
+          {
+            "name": "now_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Now Ms"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentWorkPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/journal": {
       "get": {
         "summary": "Get Journal",
@@ -1368,6 +1414,71 @@
           "title"
         ],
         "title": "CreatePageRequest"
+      },
+      "CurrentWorkPage": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "updated_at": {
+            "type": "integer",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "updated_at"
+        ],
+        "title": "CurrentWorkPage"
+      },
+      "CurrentWorkPayload": {
+        "properties": {
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/CurrentWorkSection"
+            },
+            "type": "array",
+            "title": "Sections"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sections"
+        ],
+        "title": "CurrentWorkPayload"
+      },
+      "CurrentWorkSection": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/CurrentWorkPage"
+            },
+            "type": "array",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "pages"
+        ],
+        "title": "CurrentWorkSection"
       },
       "DeleteOp": {
         "properties": {

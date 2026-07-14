@@ -99,6 +99,22 @@ class JournalPayload(BaseModel):
     block_ref_texts: dict[str, BlockRefText]
 
 
+class CurrentWorkPage(BaseModel):
+    id: int
+    title: str
+    updated_at: int
+
+
+class CurrentWorkSection(BaseModel):
+    id: str
+    title: str
+    pages: list[CurrentWorkPage]
+
+
+class CurrentWorkPayload(BaseModel):
+    sections: list[CurrentWorkSection]
+
+
 class SearchPageHit(BaseModel):
     id: int
     title: str

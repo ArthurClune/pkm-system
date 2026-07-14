@@ -33,6 +33,16 @@ interface BacklinkRow {
   src_page_title: string;
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+const CURRENT_WORK_SECTIONS = [
+  { id: "last-24-hours", title: "Last 24 hours", minAge: 0,
+    maxAge: 24 * HOUR_MS },
+  { id: "24-to-48-hours", title: "24–48 hours", minAge: 24 * HOUR_MS,
+    maxAge: 48 * HOUR_MS },
+  { id: "48-hours-to-7-days", title: "48 hours–7 days", minAge: 48 * HOUR_MS,
+    maxAge: 7 * 24 * HOUR_MS },
+] as const;
+
 function backlinks(db: ReplicaDb, pageId: number, offset: number,
                    limit: number) {
   const total = Number(db.select<{ n: number }>(
@@ -131,6 +141,28 @@ export function unlinked(db: ReplicaDb, title: string, limit: number,
     group.items.push({ uid: r.uid, text: r.text });
   }
   return { groups, total };
+}
+
+export function currentWorkPayload(db: ReplicaDb, nowMs: number): unknown {
+  return {
+    sections: CURRENT_WORK_SECTIONS.map((section) => {
+      const newerThan = nowMs - section.maxAge;
+      const olderThan = nowMs - section.minAge;
+      const lowerOperator = section.maxAge === 7 * 24 * HOUR_MS ? ">=" : ">";
+      return {
+        id: section.id,
+        title: section.title,
+        pages: db.select(
+          `SELECT id, title, updated_at FROM pages
+             WHERE updated_at IS NOT NULL
+               AND updated_at ${lowerOperator} ?
+               AND updated_at <= ?
+             ORDER BY updated_at DESC, title`,
+          [newerThan, olderThan],
+        ),
+      };
+    }),
+  };
 }
 
 export { fetchPage };

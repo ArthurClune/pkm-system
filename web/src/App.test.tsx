@@ -59,6 +59,21 @@ it("ctrl-u focuses the top bar's search bar", async () => {
   expect(screen.getByPlaceholderText("Search…")).toHaveFocus();
 });
 
+it("links to Current Work under Daily Notes and renders the route", async () => {
+  stubFetch([["/api/current-work", { sections: [
+    { id: "last-24-hours", title: "Last 24 hours", pages: [] },
+    { id: "24-to-48-hours", title: "24–48 hours", pages: [] },
+    { id: "48-hours-to-7-days", title: "48 hours–7 days", pages: [] },
+  ] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/current-work"]}><App /></MemoryRouter>);
+
+  const links = screen.getAllByRole("link").map((link) => link.textContent);
+  expect(links.slice(0, 2)).toEqual(["Daily Notes", "Current Work"]);
+  expect(screen.getByRole("link", { name: "Current Work" }))
+    .toHaveAttribute("href", "/current-work");
+  expect(await screen.findByRole("heading", { name: "Current Work" })).toBeInTheDocument();
+});
+
 it("the top bar has a focusable search bar; the left nav has no search entry", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);

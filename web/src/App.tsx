@@ -11,6 +11,7 @@ import { SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
 import { SyncProvider } from "./sync/SyncProvider";
 import { useSidebarCollapsed } from "./useSidebarCollapsed";
+import { CurrentWork } from "./views/CurrentWork";
 import { Journal } from "./views/Journal";
 import { PageView } from "./views/PageView";
 
@@ -83,6 +84,10 @@ export function App() {
                        className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
                 Daily Notes
               </NavLink>
+              <NavLink to="/current-work" onClick={() => setNavOpen(false)}
+                       className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
+                Current Work
+              </NavLink>
               <ThemeToggle />
               <SidebarNav onNavigate={() => setNavOpen(false)} />
             </nav>
@@ -91,6 +96,7 @@ export function App() {
               <main className="main-pane">
                 <Routes>
                   <Route path="/" element={<Journal />} />
+                  <Route path="/current-work" element={<CurrentWork />} />
                   <Route path="/page/*" element={<PageView />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>

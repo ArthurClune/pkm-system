@@ -10,7 +10,7 @@ import { getOrCreateLocalPage } from "../localOps";
 import { enqueueBatch } from "../queue";
 import { escapeFtsQuery } from "./fts";
 import { journalPayload } from "./journal";
-import { fetchPage, pagePayload, unlinked } from "./pages";
+import { currentWorkPayload, fetchPage, pagePayload, unlinked } from "./pages";
 import { searchPayload } from "./search";
 import { resolveRefUids } from "./tree";
 
@@ -62,6 +62,9 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
     const body = journalPayload(db, q.get("before"),
                                 Number(q.get("days") ?? 7), req.nowMs);
     return body === null ? err(400, "invalid before date") : ok(body);
+  }
+  if (method === "GET" && path === "/api/current-work") {
+    return ok(currentWorkPayload(db, req.nowMs));
   }
   if (method === "GET" && path === "/api/titles") {
     return ok(titles(db, q.get("q") ?? "", Number(q.get("limit") ?? 10)));

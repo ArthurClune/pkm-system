@@ -24,6 +24,10 @@ export type GroupsPayload = Schemas["GroupsPayload"];
 export type JournalDay = Schemas["JournalDay"];
 export type JournalPayload = Schemas["JournalPayload"];
 
+export type CurrentWorkPage = Schemas["CurrentWorkPage"];
+export type CurrentWorkSection = Schemas["CurrentWorkSection"];
+export type CurrentWorkPayload = Schemas["CurrentWorkPayload"];
+
 export type SearchPageHit = Schemas["SearchPageHit"];
 export type SearchBlockHit = Schemas["SearchBlockHit"];
 export type SearchPayload = Schemas["SearchPayload"];

@@ -154,6 +154,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/current-work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Current Work */
+        get: operations["get_current_work_api_current_work_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/journal": {
         parameters: {
             query?: never;
@@ -537,6 +554,29 @@ export interface components {
         CreatePageRequest: {
             /** Title */
             title: string;
+        };
+        /** CurrentWorkPage */
+        CurrentWorkPage: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: number;
+        };
+        /** CurrentWorkPayload */
+        CurrentWorkPayload: {
+            /** Sections */
+            sections: components["schemas"]["CurrentWorkSection"][];
+        };
+        /** CurrentWorkSection */
+        CurrentWorkSection: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Pages */
+            pages: components["schemas"]["CurrentWorkPage"][];
         };
         /** DeleteOp */
         DeleteOp: {
@@ -1097,6 +1137,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GroupsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_current_work_api_current_work_get: {
+        parameters: {
+            query?: {
+                now_ms?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentWorkPayload"];
                 };
             };
             /** @description Validation Error */

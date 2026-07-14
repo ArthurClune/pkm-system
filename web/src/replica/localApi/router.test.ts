@@ -97,6 +97,56 @@ describe("daily auto-creation", () => {
   });
 });
 
+describe("current work", () => {
+  test("groups pages into exclusive changed-time windows", () => {
+    const hour = 60 * 60 * 1000;
+    t.db.exec(
+      "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+      [1, "Recent B", null, NOW - hour],
+    );
+    t.db.exec(
+      "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+      [2, "Recent A", null, NOW - hour],
+    );
+    t.db.exec(
+      "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+      [3, "Exactly 24h", null, NOW - 24 * hour],
+    );
+    t.db.exec(
+      "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+      [4, "Exactly 48h", null, NOW - 48 * hour],
+    );
+    t.db.exec(
+      "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+      [5, "Exactly 7d", null, NOW - 7 * 24 * hour],
+    );
+    t.db.exec(
+      "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+      [6, "Old", null, NOW - 8 * 24 * hour],
+    );
+    t.db.exec(
+      "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+      [7, "Never Changed", null, null],
+    );
+
+    expect(expectStatus(call("GET", "/api/current-work"), 200)).toEqual({
+      sections: [
+        { id: "last-24-hours", title: "Last 24 hours", pages: [
+          { id: 2, title: "Recent A", updated_at: NOW - hour },
+          { id: 1, title: "Recent B", updated_at: NOW - hour },
+        ] },
+        { id: "24-to-48-hours", title: "24–48 hours", pages: [
+          { id: 3, title: "Exactly 24h", updated_at: NOW - 24 * hour },
+        ] },
+        { id: "48-hours-to-7-days", title: "48 hours–7 days", pages: [
+          { id: 4, title: "Exactly 48h", updated_at: NOW - 48 * hour },
+          { id: 5, title: "Exactly 7d", updated_at: NOW - 7 * 24 * hour },
+        ] },
+      ],
+    });
+  });
+});
+
 describe("titles", () => {
   test("empty query returns no titles", () => {
     expect(expectStatus(call("GET", "/api/titles?q="), 200))

@@ -21,7 +21,7 @@ Use superpowers skills for development:
 - systematic-debugging -- for bugs, investigate before fixing
 - verification-before-completion -- run tests before claiming done
 
-Use worktrees and branches to enable parallel sessions.
+For ALL code changes, use worktrees and branches to enable parallel sessions.
 
 ### Testing
 

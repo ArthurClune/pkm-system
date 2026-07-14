@@ -6,8 +6,14 @@ import { useState } from "react";
 import type { BlockNode } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
+import { quoteContent } from "./blockPresentation";
+import { effectiveChildView, type EffectiveBlockView } from "./blockView";
 
-export function Block({ node }: { node: BlockNode }) {
+export function Block({ node, viewMode = "document", number = 1 }: {
+  node: BlockNode;
+  viewMode?: EffectiveBlockView;
+  number?: number;
+}) {
   // node.collapsed seeds the state; toggling is view-only in plan 4
   // (persisting collapse is a plan-5 set_collapsed op).
   const [collapsed, setCollapsed] = useState(node.collapsed);
@@ -16,6 +22,8 @@ export function Block({ node }: { node: BlockNode }) {
     node.heading === 1 ? "h1" :
     node.heading === 2 ? "h2" :
     node.heading === 3 ? "h3" : "div";
+  const quoted = quoteContent(node.text);
+  const childrenView = effectiveChildView(viewMode, node.view_type);
   return (
     <div className="block">
       <div className="block-row" data-uid={node.uid}>
@@ -26,14 +34,22 @@ export function Block({ node }: { node: BlockNode }) {
         >
           ▸
         </button>
-        <span className={"bullet" + (hasChildren && collapsed ? " closed" : "")} />
-        <Tag className="block-text">
-          <InlineSegments segments={tokenizeBlock(node.text)} />
+        <span
+          className={"bullet" + (viewMode === "numbered" ? " numbered" : "")
+            + (hasChildren && collapsed ? " closed" : "")}
+          aria-hidden="true"
+        >
+          {viewMode === "numbered" ? `${number}.` : ""}
+        </span>
+        <Tag className={"block-text" + (quoted !== null ? " quote-block" : "")}>
+          <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
         </Tag>
       </div>
       {hasChildren && !collapsed && (
-        <div className="block-children">
-          {node.children.map((c) => <Block key={c.uid} node={c} />)}
+        <div className={`block-children ${childrenView}-view`}>
+          {node.children.map((c, index) => (
+            <Block key={c.uid} node={c} viewMode={childrenView} number={index + 1} />
+          ))}
         </div>
       )}
     </div>
@@ -43,7 +59,9 @@ export function Block({ node }: { node: BlockNode }) {
 export function BlockTree({ blocks }: { blocks: BlockNode[] }) {
   return (
     <div className="block-tree">
-      {blocks.map((b) => <Block key={b.uid} node={b} />)}
+      {blocks.map((b, index) => (
+        <Block key={b.uid} node={b} viewMode="document" number={index + 1} />
+      ))}
     </div>
   );
 }

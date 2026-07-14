@@ -11,6 +11,7 @@ export interface BlockRow {
   order_idx: number;
   text: string;
   heading: number | null;
+  view_type: "numbered" | "document" | null;
   collapsed: number;
   created_at: number | null;
   updated_at: number | null;
@@ -18,12 +19,13 @@ export interface BlockRow {
 
 export const BLOCK_COLS =
   "uid, parent_uid, order_idx, text, heading, collapsed," +
-  " created_at, updated_at";
+  " created_at, updated_at, view_type";
 
 export interface BlockNodeOut {
   uid: string;
   text: string;
   heading: number | null;
+  view_type: "numbered" | "document" | null;
   collapsed: boolean;
   order_idx: number;
   created_at: number | null;
@@ -57,6 +59,7 @@ export function buildTree(rows: BlockRow[]): BlockNodeOut[] {
       uid: r.uid,
       text: r.text,
       heading: r.heading,
+      view_type: r.view_type,
       collapsed: r.collapsed !== 0,
       order_idx: r.order_idx,
       created_at: r.created_at,

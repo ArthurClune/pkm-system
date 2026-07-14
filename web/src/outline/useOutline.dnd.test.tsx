@@ -51,6 +51,40 @@ it("dnd.moveTo enqueues one move op with no page_title and reorders optimistical
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["u2", "u1"]);
 });
 
+it("onSetViewType enqueues one op and updates the tree optimistically", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", [block("u1", "first")]);
+  act(() => getOutline().handlers.onSetViewType("u1", "numbered"));
+  expect(sync.sent).toEqual([[
+    { op: "set_view_type", uid: "u1", view_type: "numbered" },
+  ]]);
+  expect(findNode(getOutline().blocks, "u1")!.view_type).toBe("numbered");
+});
+
+it("remote set_view_type batches update the same tree path", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", [block("u1", "first")]);
+  act(() => sync.emit({
+    client_id: "other", ts: 1,
+    ops: [{ op: "set_view_type", uid: "u1", view_type: "numbered" }],
+  }));
+  expect(findNode(getOutline().blocks, "u1")!.view_type).toBe("numbered");
+  expect(sync.sent).toEqual([]);
+});
+
+it("quoted TODO controls preserve the quote prefix and update optimistically", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", [
+    block("u1", "> {{[[TODO]]}} quoted task"),
+  ]);
+  act(() => getOutline().handlers.onToggleTodo("u1"));
+  expect(sync.sent).toEqual([[
+    { op: "update_text", uid: "u1", text: "> {{[[DONE]]}} quoted task" },
+  ]]);
+  expect(findNode(getOutline().blocks, "u1")!.text)
+    .toBe("> {{[[DONE]]}} quoted task");
+});
+
 it("dnd.removeSubtreeLocal detaches the subtree, sends no ops, and clears focus inside it", () => {
   const sync = makeSync();
   const initial = [

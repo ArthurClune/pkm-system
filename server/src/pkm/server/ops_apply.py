@@ -12,7 +12,7 @@ from pkm.server.daily import title_for_date
 from pkm.server.ops_core import (BlockInfo, CreateOp, CreatePageOp, DeleteBlocks,
                                  DeleteOp, Effect, InsertBlock, MoveOp,
                                  OpBatch, OpContext, ReindexRefs, SetCollapsed,
-                                 SetHeading, SetPageId, SetParent,
+                                 SetHeading, SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  UpdateTextOp, plan_op)
 from pkm.server.store import get_or_create_page
@@ -108,10 +108,10 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
     elif isinstance(eff, InsertBlock):
         db.execute(
             "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
-            " heading, collapsed, created_at, updated_at)"
-            " VALUES (?,?,?,?,?,?,0,?,?)",
+            " heading, collapsed, created_at, updated_at, view_type)"
+            " VALUES (?,?,?,?,?,?,0,?,?,?)",
             (eff.uid, eff.page_id, eff.parent_uid, eff.order_idx, eff.text,
-             eff.heading, now_ms, now_ms))
+             eff.heading, now_ms, now_ms, eff.view_type))
     elif isinstance(eff, UpdateText):
         db.execute("UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
                    (eff.text, now_ms, eff.uid))
@@ -131,6 +131,10 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         db.execute(
             "UPDATE blocks SET heading = ?, updated_at = ? WHERE uid = ?",
             (eff.heading, now_ms, eff.uid))
+    elif isinstance(eff, SetViewType):
+        db.execute(
+            "UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
+            (eff.view_type, now_ms, eff.uid))
     elif isinstance(eff, ReindexRefs):
         db.execute("DELETE FROM refs WHERE src_block_uid = ?", (eff.uid,))
         for ref in extract(eff.text).refs:

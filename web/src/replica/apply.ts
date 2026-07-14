@@ -34,14 +34,14 @@ const upsertPage = (db: ReplicaDb, p: SyncPage): void => {
 const upsertBlock = (db: ReplicaDb, b: SyncBlock): void => {
   db.exec(
     "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading," +
-    " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)" +
+    " collapsed, created_at, updated_at, view_type) VALUES (?,?,?,?,?,?,?,?,?,?)" +
     " ON CONFLICT(uid) DO UPDATE SET page_id = excluded.page_id," +
     " parent_uid = excluded.parent_uid, order_idx = excluded.order_idx," +
     " text = excluded.text, heading = excluded.heading," +
     " collapsed = excluded.collapsed, created_at = excluded.created_at," +
-    " updated_at = excluded.updated_at",
+    " updated_at = excluded.updated_at, view_type = excluded.view_type",
     [b.uid, b.page_id, b.parent_uid, b.order_idx, b.text, b.heading,
-     b.collapsed, b.created_at, b.updated_at]);
+     b.collapsed, b.created_at, b.updated_at, b.view_type]);
   // refs are server-derived from the block's current text: replace wholesale
   db.exec("DELETE FROM refs WHERE src_block_uid = ?", [b.uid]);
   for (const r of b.refs) {

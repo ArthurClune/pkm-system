@@ -43,10 +43,12 @@ describe("locate / visibility", () => {
 describe("applyOps mirrors ops_apply.py", () => {
   test("create shifts later siblings and inserts sorted", () => {
     const op: BlockOp = { op: "create", uid: "n1", page_title: "P",
-                          parent_uid: null, order_idx: 5, text: "new" };
+                          parent_uid: null, order_idx: 5, text: "new",
+                          view_type: "numbered" };
     const out = applyOps(tree(), [op], "P");
     expect(out.map((n) => [n.uid, n.order_idx])).toEqual(
       [["a", 0], ["n1", 5], ["b", 6], ["c", 8]]);
+    expect(findNode(out, "n1")!.view_type).toBe("numbered");
   });
 
   test("create for another page is skipped", () => {
@@ -96,6 +98,18 @@ describe("applyOps mirrors ops_apply.py", () => {
     expect(findNode(cleared, "a")!.heading).toBeNull();
   });
 
+  test("set_view_type updates only persistent presentation metadata", () => {
+    const before = tree();
+    const out = applyOps(before, [
+      { op: "set_view_type", uid: "b", view_type: "numbered" },
+    ], "P");
+    expect(findNode(out, "b")!.view_type).toBe("numbered");
+    expect(findNode(out, "b")!.text).toBe(findNode(before, "b")!.text);
+    expect(findNode(out, "b")!.collapsed).toBe(findNode(before, "b")!.collapsed);
+    expect(findNode(out, "b")!.children.map((n) => n.uid))
+      .toEqual(findNode(before, "b")!.children.map((n) => n.uid));
+  });
+
   test("ops for uids not in this tree (other pages on the ws) are skipped", () => {
     const out = applyOps(tree(), [
       { op: "update_text", uid: "zz", text: "x" },
@@ -103,6 +117,7 @@ describe("applyOps mirrors ops_apply.py", () => {
       { op: "move", uid: "zz", parent_uid: null, order_idx: 0 },
       { op: "set_collapsed", uid: "zz", collapsed: true },
       { op: "set_heading", uid: "zz", heading: 1 },
+      { op: "set_view_type", uid: "zz", view_type: "numbered" },
     ], "P");
     expect(out.map((n) => n.uid)).toEqual(["a", "b", "c"]);
   });

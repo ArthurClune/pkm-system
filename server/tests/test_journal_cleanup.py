@@ -11,7 +11,9 @@ def _insert_page(db_path, page_id: int, title: str,
     con = sqlite3.connect(db_path)
     con.execute("INSERT INTO pages(id, title) VALUES (?, ?)", (page_id, title))
     con.executemany(
-        "INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
         [(uid, page_id, None, i, text, None, 0, None, None)
          for i, (uid, text) in enumerate(blocks)])
     con.commit()
@@ -102,7 +104,9 @@ def test_spares_daily_whose_blank_block_is_referenced(client, seeded_config):
     # a block on another page (seeded page id 2, "AI") embeds ((uid_r1))
     con = sqlite3.connect(seeded_config.db_path)
     con.execute(
-        "INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
         ("uid_r2", 2, None, 5, "see ((uid_r1))", None, 0, None, None))
     con.commit()
     con.close()

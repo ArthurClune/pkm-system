@@ -12,6 +12,7 @@ function handlers(): OutlineHandlers {
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveUp: vi.fn(), onMoveDown: vi.fn(), onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
+    onSetViewType: vi.fn(),
     onToggleTodo: vi.fn(), onFiles: vi.fn(),
     onStartBlockSelection: vi.fn(), onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
@@ -51,6 +52,54 @@ test("the focused block is a textarea with the raw markdown", () => {
   expect(ta.value).toBe("hello [[World]]");
   expect(document.activeElement).toBe(ta);
   expect(ta.selectionStart).toBe(5);
+});
+
+test("quoted display hides the prefix while editing exposes the raw source", () => {
+  const quoted = [block("q1", "> **hello** [[World]]")];
+  const h = handlers();
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={quoted} focus={null} handlers={h}
+                         readOnly={false} />
+    </MemoryRouter>);
+  const display = view.container.querySelector('[data-uid="q1"] .quote-block');
+  expect(display).not.toBeNull();
+  expect(display).toHaveTextContent("hello World");
+  expect(display).not.toHaveTextContent("> ");
+
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={quoted} focus={{ uid: "q1", cursor: 0 }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  expect(focusedTextarea()).toHaveValue("> **hello** [[World]]");
+});
+
+test("a TODO inside a quote remains interactive", () => {
+  const h = handlers();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[block("q1", "> {{[[TODO]]}} task")]}
+                         focus={null} handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  fireEvent.click(screen.getByRole("checkbox", { name: "TODO" }));
+  expect(h.onToggleTodo).toHaveBeenCalledWith("q1");
+});
+
+test("removing the quote prefix removes quote presentation", () => {
+  const h = handlers();
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[block("q1", "> hello")]} focus={null}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  expect(view.container.querySelector('[data-uid="q1"] .quote-block')).not.toBeNull();
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[block("q1", "hello")]} focus={null}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  expect(view.container.querySelector('[data-uid="q1"] .quote-block')).toBeNull();
 });
 
 test("typing reports the draft", () => {
@@ -97,6 +146,38 @@ test("keyboard map dispatches to the right handlers", () => {
   expect(h.onBackspaceAtStart).toHaveBeenCalledWith("u1");
   fireEvent.keyDown(ta, { key: "ArrowLeft" });
   expect(h.onArrow).toHaveBeenCalledWith("u1", "left");
+});
+
+test("Ctrl-Alt-0 through Ctrl-Alt-3 set plain text and heading levels", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  for (const key of ["0", "1", "2", "3"]) {
+    fireEvent.keyDown(ta, { key, ctrlKey: true, altKey: true });
+  }
+  expect(h.onSetHeading).toHaveBeenNthCalledWith(1, "u1", null);
+  expect(h.onSetHeading).toHaveBeenNthCalledWith(2, "u1", 1);
+  expect(h.onSetHeading).toHaveBeenNthCalledWith(3, "u1", 2);
+  expect(h.onSetHeading).toHaveBeenNthCalledWith(4, "u1", 3);
+  expect(h.onDraftChange).not.toHaveBeenCalled();
+});
+
+test("heading shortcuts do not mutate a read-only outline", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 }, true);
+  fireEvent.keyDown(focusedTextarea(), {
+    key: "2", ctrlKey: true, altKey: true,
+  });
+  expect(h.onSetHeading).not.toHaveBeenCalled();
+});
+
+test("heading shortcuts use the physical digit when Alt changes the key glyph", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  fireEvent.keyDown(focusedTextarea(), {
+    key: "™", code: "Digit2", ctrlKey: true, altKey: true,
+  });
+  expect(h.onSetHeading).toHaveBeenCalledWith("u1", 2);
 });
 
 test("Shift-Enter does not split (literal newline)", () => {
@@ -603,6 +684,31 @@ test("right-clicking a bullet opens the block menu (pkm-y6af)", () => {
   expect(screen.getByRole("menu")).toBeInTheDocument();
 });
 
+test("keyboard opens and navigates the block menu, then restores trigger focus", () => {
+  const { container } = mount(handlers(), null);
+  const trigger = bullet(container, "u1") as HTMLElement;
+  trigger.focus();
+  expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+  expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.keyDown(trigger, { key: "Enter" });
+  expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const copy = screen.getByRole("menuitem", { name: "Copy block reference" });
+  expect(copy).toHaveFocus();
+  fireEvent.keyDown(copy, { key: "ArrowDown" });
+  expect(screen.getByRole("menuitemradio", { name: "Plain text" })).toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: "End" });
+  expect(screen.getByRole("menuitemradio", { name: "View as document" }))
+    .toHaveFocus();
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(trigger).toHaveFocus();
+  expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.keyDown(trigger, { key: "ContextMenu" });
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+});
+
 test("Copy block reference writes ((uid)) and closes the menu (pkm-y6af)", () => {
   const writeText = vi.fn();
   Object.defineProperty(navigator, "clipboard", {
@@ -631,4 +737,81 @@ test("the block menu also opens in read-only mode (pkm-y6af)", () => {
   fireEvent.click(bullet(container, "u1"));
   expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
     .toBeInTheDocument();
+});
+
+test("block menu marks current heading/view and dispatches both control groups", () => {
+  const h = handlers();
+  const blocks = [block("u1", "hello", {
+    heading: 2, view_type: "numbered",
+    children: [block("u2", "child")],
+  })];
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={blocks} focus={null} handlers={h}
+                         readOnly={false} />
+    </MemoryRouter>);
+
+  fireEvent.click(bullet(view.container, "u1"));
+  expect(screen.getByRole("menuitemradio", { name: "Heading 2" }))
+    .toHaveAttribute("aria-checked", "true");
+  expect(screen.getByRole("menuitemradio", { name: "View as numbered list" }))
+    .toHaveAttribute("aria-checked", "true");
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Heading 1" }));
+  expect(h.onSetHeading).toHaveBeenCalledWith("u1", 1);
+
+  fireEvent.click(bullet(view.container, "u1"));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "View as document" }));
+  expect(h.onSetViewType).toHaveBeenCalledWith("u1", "document");
+});
+
+test("block menu exposes all heading choices and inherited active view", () => {
+  const h = handlers();
+  const blocks = [block("root", "root", { view_type: "numbered", children: [
+    block("child", "child", { heading: null, children: [block("leaf", "leaf")] }),
+  ] })];
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={blocks} focus={null} handlers={h}
+                         readOnly={false} />
+    </MemoryRouter>);
+  fireEvent.click(bullet(view.container, "child"));
+  for (const name of ["Plain text", "Heading 1", "Heading 2", "Heading 3"]) {
+    expect(screen.getByRole("menuitemradio", { name })).toBeInTheDocument();
+  }
+  expect(screen.getByRole("menuitemradio", { name: "Plain text" }))
+    .toHaveAttribute("aria-checked", "true");
+  expect(screen.getByRole("menuitemradio", { name: "View as numbered list" }))
+    .toHaveAttribute("aria-checked", "true");
+});
+
+test("read-only block menus show but disable mutation controls", () => {
+  const h = handlers();
+  const view = mount(h, null, true);
+  fireEvent.click(bullet(view.container, "u1"));
+  expect(screen.getByRole("menuitem", { name: "Copy block reference" }))
+    .toBeEnabled();
+  for (const name of ["Plain text", "Heading 1", "Heading 2", "Heading 3",
+                      "View as numbered list", "View as document"]) {
+    expect(screen.getByRole("menuitemradio", { name })).toBeDisabled();
+  }
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Heading 3" }));
+  expect(h.onSetHeading).not.toHaveBeenCalled();
+});
+
+test("editable rendering numbers nested descendants and restores document bullets", () => {
+  const h = handlers();
+  const blocks = [block("root", "root", { view_type: "numbered", children: [
+    block("a", "A", { order_idx: 0, children: [block("a1", "A1")] }),
+    block("b", "B", { order_idx: 1, view_type: "document",
+      children: [block("b1", "B1")] }),
+  ] })];
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={blocks} focus={null} handlers={h}
+                         readOnly={false} />
+    </MemoryRouter>);
+  const marker = (uid: string) =>
+    view.container.querySelector(`[data-uid="${uid}"] > .bullet`)?.textContent;
+  expect([marker("root"), marker("a"), marker("b"), marker("a1"), marker("b1")])
+    .toEqual(["", "1.", "2.", "1.", ""]);
 });

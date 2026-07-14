@@ -13,6 +13,7 @@ def test_page_tree_shape(client):
     assert texts == ["Tags:: #AI", "Papers"]
     papers = body["blocks"][1]
     assert papers["heading"] == 2
+    assert papers["view_type"] is None
     assert [c["text"] for c in papers["children"]] == \
         ["[[Attention Is All You Need]] is a [[Paper]]"]
 
@@ -32,11 +33,14 @@ def test_block_ref_resolution_is_transitive(client, seeded_config):
     # uid_n1's text and needs uid_n2 in the map too (nested expansion).
     import sqlite3
     con = sqlite3.connect(seeded_config.db_path)
-    con.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)", [
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)", [
         ("uid_n0", 2, None, 1, "c.f. ((uid_n1))", None, 0, None, None),
         ("uid_n1", 1, None, 2, "((uid_n2))", None, 0, None, None),
         ("uid_n2", 4, None, 0, "the actual content", None, 0, None, None),
-    ])
+        ])
     con.commit()
     con.close()
 
@@ -51,11 +55,14 @@ def test_block_ref_resolution_survives_cycles(client, seeded_config):
     # Mutually-referencing blocks must not hang resolution.
     import sqlite3
     con = sqlite3.connect(seeded_config.db_path)
-    con.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)", [
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)", [
         ("uid_c0", 2, None, 1, "start ((uid_c1))", None, 0, None, None),
         ("uid_c1", 4, None, 0, "a ((uid_c2))", None, 0, None, None),
         ("uid_c2", 4, None, 1, "b ((uid_c1)) and ((uid_gone))", None, 0, None, None),
-    ])
+        ])
     con.commit()
     con.close()
 

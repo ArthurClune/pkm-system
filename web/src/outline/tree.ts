@@ -95,7 +95,7 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
     shiftFrom(siblings, op.order_idx);
     siblings.push({
       uid: op.uid, text: op.text, heading: op.heading ?? null,
-      collapsed: false, order_idx: op.order_idx,
+      view_type: op.view_type ?? null, collapsed: false, order_idx: op.order_idx,
       created_at: null, updated_at: null, children: [],
     });
     sortSiblings(siblings);
@@ -110,6 +110,8 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
     found.node.collapsed = op.collapsed;
   } else if (op.op === "set_heading") {
     found.node.heading = op.heading ?? null;
+  } else if (op.op === "set_view_type") {
+    found.node.view_type = op.view_type;
   } else if (op.op === "delete") {
     found.siblings.splice(found.index, 1);
   } else { // move — order_idx counted BEFORE the moved block is removed

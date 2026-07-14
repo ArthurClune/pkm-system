@@ -90,8 +90,10 @@ def fixture() -> dict:
         init_db(db_path)
         con = open_db(db_path)
         con.executemany("INSERT INTO pages VALUES (?,?,?,?)", SEED["pages"])
-        con.executemany("INSERT INTO blocks VALUES (?,?,?,?,?,?,?,?,?)",
-                        SEED["blocks"])
+        con.executemany(
+            "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+            " heading, collapsed, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?)", SEED["blocks"])
         con.executemany("INSERT INTO refs VALUES (?,?,?)", SEED["refs"])
         con.executemany("INSERT INTO sidebar_entries VALUES (?,?,?)",
                         SEED["sidebar"])

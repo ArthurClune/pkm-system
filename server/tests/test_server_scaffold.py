@@ -121,3 +121,33 @@ def test_init_db_backfills_sidebar_entries_on_legacy_db(tmp_path):
     con.execute("INSERT INTO sidebar_entries(title, order_idx) VALUES ('AI', 0)")
     con.commit()
     con.close()
+
+
+def test_init_db_adds_view_type_to_existing_blocks_without_data_loss(tmp_path):
+    path = tmp_path / "legacy-blocks.sqlite3"
+    legacy = sqlite3.connect(path)
+    legacy.executescript("""
+        CREATE TABLE pages(
+          id INTEGER PRIMARY KEY, title TEXT NOT NULL UNIQUE,
+          created_at INTEGER, updated_at INTEGER);
+        CREATE TABLE blocks(
+          uid TEXT PRIMARY KEY, page_id INTEGER NOT NULL,
+          parent_uid TEXT, order_idx INTEGER NOT NULL, text TEXT NOT NULL,
+          heading INTEGER, collapsed INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER, updated_at INTEGER);
+        INSERT INTO pages VALUES (1, 'P', NULL, NULL);
+        INSERT INTO blocks VALUES ('uid_old', 1, NULL, 0, 'kept', NULL, 0,
+                                   NULL, NULL);
+    """)
+    legacy.commit()
+    legacy.close()
+
+    init_db(path)
+
+    con = sqlite3.connect(path)
+    columns = {r[1] for r in con.execute("PRAGMA table_info(blocks)")}
+    assert "view_type" in columns
+    assert con.execute(
+        "SELECT text, view_type FROM blocks WHERE uid = 'uid_old'"
+    ).fetchone() == ("kept", None)
+    con.close()

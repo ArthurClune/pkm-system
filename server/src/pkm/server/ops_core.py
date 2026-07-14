@@ -13,6 +13,7 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, Field
 
 UID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,32}$")
+ViewType = Literal["numbered", "document"]
 
 
 class CreateOp(BaseModel):
@@ -23,6 +24,7 @@ class CreateOp(BaseModel):
     order_idx: int
     text: str
     heading: int | None = Field(default=None, ge=1, le=3)
+    view_type: ViewType | None = None
 
 
 class UpdateTextOp(BaseModel):
@@ -64,6 +66,12 @@ class SetHeadingOp(BaseModel):
     heading: int | None = Field(default=None, ge=1, le=3)
 
 
+class SetViewTypeOp(BaseModel):
+    op: Literal["set_view_type"]
+    uid: str
+    view_type: ViewType
+
+
 class CreatePageOp(BaseModel):
     """Durable push path for offline page creation (spec section 1): an
     empty page created offline has no block op to carry its title, so page
@@ -73,7 +81,8 @@ class CreatePageOp(BaseModel):
 
 
 BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
-                          SetCollapsedOp, SetHeadingOp, CreatePageOp],
+                          SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
+                          CreatePageOp],
                     Field(discriminator="op")]
 
 
@@ -153,6 +162,7 @@ class InsertBlock:
     order_idx: int
     text: str
     heading: int | None
+    view_type: ViewType | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +196,12 @@ class SetHeading:
 
 
 @dataclass(frozen=True)
+class SetViewType:
+    uid: str
+    view_type: ViewType
+
+
+@dataclass(frozen=True)
 class ReindexRefs:
     uid: str
     text: str
@@ -203,8 +219,8 @@ class SetPageId:
 
 
 Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
-               DeleteBlocks, SetCollapsed, SetHeading, ReindexRefs, TouchPage,
-               SetPageId]
+               DeleteBlocks, SetCollapsed, SetHeading, SetViewType,
+               ReindexRefs, TouchPage, SetPageId]
 
 
 def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
@@ -228,7 +244,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                 raise OpError(index, "parent is on a different page")
         return (ShiftSiblings(ctx.page_id, op.parent_uid, op.order_idx),
                 InsertBlock(op.uid, ctx.page_id, op.parent_uid, op.order_idx,
-                            op.text, op.heading),
+                            op.text, op.heading, op.view_type),
                 ReindexRefs(op.uid, op.text),
                 TouchPage(ctx.page_id))
     if (isinstance(op, UpdateTextOp) and op.base_text_hash is not None
@@ -293,5 +309,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
     if isinstance(op, SetCollapsedOp):
         return (SetCollapsed(op.uid, op.collapsed),
                 TouchPage(ctx.block.page_id))
-    # SetHeadingOp (the discriminated union admits nothing else)
-    return (SetHeading(op.uid, op.heading), TouchPage(ctx.block.page_id))
+    if isinstance(op, SetHeadingOp):
+        return (SetHeading(op.uid, op.heading), TouchPage(ctx.block.page_id))
+    # SetViewTypeOp (the discriminated union admits nothing else)
+    return (SetViewType(op.uid, op.view_type), TouchPage(ctx.block.page_id))

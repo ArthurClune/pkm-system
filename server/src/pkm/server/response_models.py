@@ -8,7 +8,11 @@ Keep every field required (no defaults): the routes always populate them, and
 optionality here would surface as `?:` in the generated TypeScript."""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
+
+ViewType = Literal["numbered", "document"]
 
 
 class PageMeta(BaseModel):
@@ -22,6 +26,7 @@ class BlockNode(BaseModel):
     uid: str
     text: str
     heading: int | None
+    view_type: ViewType | None
     collapsed: bool
     order_idx: int
     created_at: int | None
@@ -143,6 +148,7 @@ class SyncBlock(BaseModel):
     order_idx: int
     text: str
     heading: int | None
+    view_type: ViewType | None
     collapsed: int
     created_at: int | None
     updated_at: int | None

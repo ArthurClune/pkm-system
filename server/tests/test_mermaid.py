@@ -3,7 +3,7 @@ from pkm.importer.parse_export import Block
 
 
 def _block(text, children=()):
-    return Block(uid="u", text=text, heading=None, open=True,
+    return Block(uid="u", text=text, heading=None, view_type=None, open=True,
                  created_at=None, edited_at=None, children=tuple(children))
 
 

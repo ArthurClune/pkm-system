@@ -6,6 +6,7 @@ from pkm.server.ops_core import (BlockInfo, CreateOp, DeleteBlocks,
                                  OpContext, OpError, ReindexRefs,
                                  SetCollapsed, SetCollapsedOp, SetHeading,
                                  SetHeadingOp, SetPageId, SetParent,
+                                 SetViewType, SetViewTypeOp,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  UpdateTextOp, plan_op, text_hash)
 
@@ -32,12 +33,13 @@ def test_batch_rejects_unknown_op_and_empty():
 
 def test_plan_create():
     op = CreateOp(op="create", uid="newuid1", page_title="P",
-                  parent_uid="uid_b2", order_idx=1, text="t [[X]]")
+                  parent_uid="uid_b2", order_idx=1, text="t [[X]]",
+                  view_type="numbered")
     ctx = OpContext(page_id=1, parent=BlockInfo("uid_b2", 1, None))
     effects = plan_op(0, op, ctx)
     assert effects == (
         ShiftSiblings(1, "uid_b2", 1),
-        InsertBlock("newuid1", 1, "uid_b2", 1, "t [[X]]", None),
+        InsertBlock("newuid1", 1, "uid_b2", 1, "t [[X]]", None, "numbered"),
         ReindexRefs("newuid1", "t [[X]]"),
         TouchPage(1),
     )
@@ -120,6 +122,28 @@ def test_set_heading_op_rejects_out_of_range():
         SetHeadingOp(op="set_heading", uid="uid_b2", heading=5)  # pyrefly: ignore[bad-argument-type] (deliberately out of range: asserting ValidationError)
     with pytest.raises(ValidationError):
         SetHeadingOp(op="set_heading", uid="uid_b2", heading=0)  # pyrefly: ignore[bad-argument-type] (deliberately out of range: asserting ValidationError)
+
+
+def test_plan_set_view_type_and_reject_unknown_value():
+    assert plan_op(
+        0, SetViewTypeOp(op="set_view_type", uid="uid_b2",
+                         view_type="numbered"),
+        OpContext(block=BlockInfo("uid_b2", 1, None)),
+    ) == (SetViewType("uid_b2", "numbered"), TouchPage(1))
+    assert plan_op(
+        0, SetViewTypeOp(op="set_view_type", uid="uid_b2",
+                         view_type="document"),
+        OpContext(block=BlockInfo("uid_b2", 1, None)),
+    ) == (SetViewType("uid_b2", "document"), TouchPage(1))
+    with pytest.raises(ValidationError):
+        SetViewTypeOp(op="set_view_type", uid="uid_b2", view_type="table")  # pyrefly: ignore[bad-argument-type] (deliberately invalid: asserting ValidationError)
+
+
+def test_set_view_type_requires_an_existing_block():
+    with pytest.raises(OpError, match="block not found"):
+        plan_op(
+            0, SetViewTypeOp(op="set_view_type", uid="ghost99",
+                             view_type="numbered"), OpContext())
 
 
 def test_op_error_carries_index():

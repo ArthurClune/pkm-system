@@ -15,6 +15,7 @@ import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
          outdentBlock, setCollapsed, setHeading, splitBlock,
+         setViewType,
          type EditResult, type FocusTarget } from "./edits";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
@@ -175,6 +176,8 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       run((b) => setCollapsed(b, pageTitle, uid, collapsed)),
     onSetHeading: (uid, heading) =>
       run((b) => setHeading(b, pageTitle, uid, heading)),
+    onSetViewType: (uid, viewType) =>
+      run((b) => setViewType(b, pageTitle, uid, viewType)),
     onToggleTodo: (uid) => run((b) => {
       const node = findNode(b, uid);
       const flipped = node ? toggleTodo(node.text) : null;

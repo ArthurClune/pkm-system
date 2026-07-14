@@ -25,7 +25,7 @@ from pkm.server.tree import build_tree, collect_block_ref_uids
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
-               " created_at, updated_at")
+               " created_at, updated_at, view_type")
 
 
 class CreatePageRequest(BaseModel):

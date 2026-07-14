@@ -8,7 +8,8 @@ import { openTestDb, type TestDb } from "./testDb";
 
 const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
   uid, page_id: pageId, parent_uid: null, order_idx: 0, text: `text of ${uid}`,
-  heading: null, collapsed: 0, created_at: 1, updated_at: 1, refs: [], ...over,
+  heading: null, view_type: null, collapsed: 0, created_at: 1, updated_at: 1,
+  refs: [], ...over,
 });
 
 const page = (id: number, title: string) =>
@@ -55,6 +56,24 @@ describe("applySnapshot", () => {
     expect(ftsHits("searchable")).toEqual(["uid_b3"]);
     expect(getMeta(t.db, "cursor")).toBe("10");
     expect(getMeta(t.db, "generation")).toBe("gen-1");
+  });
+
+  test("stores view metadata from snapshots and change feeds", () => {
+    applySnapshot(t.db, {
+      ...SNAP,
+      blocks: [block("uid_b1", 1, { view_type: "numbered" })],
+    });
+    expect(t.db.select(
+      "SELECT view_type FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ view_type: "numbered" }]);
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      blocks: [block("uid_b1", 1, { view_type: "document" })],
+    }));
+    expect(t.db.select(
+      "SELECT view_type FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ view_type: "document" }]);
   });
 
   test("bootstrap re-applies queued optimistic batches over the snapshot", () => {

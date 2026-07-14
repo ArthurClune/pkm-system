@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pkm.edn import Tagged
 
 CONSUMED_ATTRS: frozenset[str] = frozenset({
     ":node/title", ":block/uid", ":block/string", ":block/order",
     ":block/children", ":block/heading", ":block/open",
+    ":children/view-type",
     ":create/time", ":edit/time",
 })
 
@@ -19,6 +20,7 @@ class Block:
     uid: str
     text: str
     heading: int | None
+    view_type: Literal["numbered", "document"] | None
     open: bool
     created_at: int | None
     edited_at: int | None
@@ -39,6 +41,14 @@ class Export:
     orphan_block_count: int
     skipped_entities: int
     attr_counts: dict[str, int]
+
+
+def _view_type(value: Any) -> Literal["numbered", "document"] | None:
+    if value == ":numbered":
+        return "numbered"
+    if value == ":document":
+        return "document"
+    return None
 
 
 def parse_export(db: object) -> Export:
@@ -78,6 +88,7 @@ def parse_export(db: object) -> Export:
             uid=ent[":block/uid"],
             text=ent[":block/string"],
             heading=ent.get(":block/heading"),
+            view_type=_view_type(ent.get(":children/view-type")),
             open=bool(ent.get(":block/open", True)),
             created_at=ent.get(":create/time"),
             edited_at=ent.get(":edit/time"),

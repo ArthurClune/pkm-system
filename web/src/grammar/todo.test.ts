@@ -18,3 +18,10 @@ test("returns null when the block has no leading marker", () => {
   expect(toggleTodo("no marker {{[[TODO]]}} not at start")).toBeNull();
   expect(toggleTodo("plain")).toBeNull();
 });
+
+test("flips a leading marker inside an exact-prefix quote", () => {
+  expect(toggleTodo("> {{[[TODO]]}} quoted task"))
+    .toBe("> {{[[DONE]]}} quoted task");
+  expect(toggleTodo("> {{DONE}} quoted task"))
+    .toBe("> {{TODO}} quoted task");
+});

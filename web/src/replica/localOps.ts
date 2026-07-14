@@ -84,9 +84,10 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
       shiftSiblings(db, pageId, op.parent_uid ?? null, op.order_idx);
       db.exec(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
-        " heading, collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,0,?,?)",
+        " heading, collapsed, created_at, updated_at, view_type)" +
+        " VALUES (?,?,?,?,?,?,0,?,?,?)",
         [op.uid, pageId, op.parent_uid ?? null, op.order_idx, op.text,
-         op.heading ?? null, nowMs, nowMs]);
+         op.heading ?? null, nowMs, nowMs, op.view_type ?? null]);
       reindexRefs(db, op.uid, op.text, nowMs);
       touchPage(db, pageId, nowMs);
       return;
@@ -141,6 +142,13 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
       const info = requireBlock(db, op.uid);
       db.exec("UPDATE blocks SET heading = ?, updated_at = ? WHERE uid = ?",
               [op.heading ?? null, nowMs, op.uid]);
+      touchPage(db, info.page_id, nowMs);
+      return;
+    }
+    case "set_view_type": {
+      const info = requireBlock(db, op.uid);
+      db.exec("UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
+              [op.view_type, nowMs, op.uid]);
       touchPage(db, info.page_id, nowMs);
       return;
     }

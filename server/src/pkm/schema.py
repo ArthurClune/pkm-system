@@ -7,10 +7,10 @@ against both a brand-new (empty) file and an already-populated database:
 it is the single source of truth for the base schema, run by the importer
 when it builds a fresh sqlite file from a Roam export, and by
 server/db.py's init_db() at process startup so an empty data dir (no
-import ever run) still gets working tables (pkm-cqu2). There is no
-migration runner in this project -- any future column/table addition
-needs to be its own idempotent statement appended here so init_db() picks
-it up on existing (already-populated) databases with no manual step.
+import ever run) still gets working tables (pkm-cqu2). Additive tables use
+replayable IF-NOT-EXISTS statements here. Columns also need a guarded
+migration in server/db.py because SQLite has no ADD COLUMN IF NOT EXISTS;
+client replicas use the generated schema hash to rebootstrap on change.
 
 BASE_DDL contains the client-facing schema (replicated to all clients).
 SERVER_DDL contains server-only tables and triggers (change journal, batch
@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS blocks(
   heading     INTEGER,
   collapsed   INTEGER NOT NULL DEFAULT 0,
   created_at  INTEGER,
-  updated_at  INTEGER
+  updated_at  INTEGER,
+  view_type   TEXT CHECK(view_type IN ('numbered','document'))
 );
 CREATE INDEX IF NOT EXISTS idx_blocks_page ON blocks(page_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_parent ON blocks(parent_uid);

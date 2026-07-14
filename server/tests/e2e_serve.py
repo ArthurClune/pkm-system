@@ -13,6 +13,7 @@ from __future__ import annotations
 import atexit
 import copy
 import logging
+import os
 import shutil
 import signal
 import sqlite3
@@ -31,7 +32,7 @@ from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
 from pkm.server.db import init_db
 
-PORT = 8975
+PORT = int(os.environ.get("E2E_PORT", "8975"))
 PASSWORD = "e2e-pw"
 SALT = bytes.fromhex("11" * 16)
 

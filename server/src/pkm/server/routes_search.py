@@ -15,6 +15,10 @@ from pkm.server.response_models import (
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
+_QUERY_SOURCE_FILTER = (
+    "NOT (ltrim(b.text) LIKE '{{[[query]]:%' OR ltrim(b.text) LIKE '{{query:%')"
+)
+
 
 @router.get("/api/search", response_model=SearchPayload)
 def search(q: str = "", limit: int = 20,
@@ -49,11 +53,16 @@ def run_query(expr: str, limit: int = 100, offset: int = 0,
     except QueryParseError as e:
         raise HTTPException(status_code=400, detail=str(e))
     total = db.execute(
-        f"SELECT count(*) FROM ({sql})", params).fetchone()[0]
+        f"""SELECT count(*) FROM ({sql}) m
+              JOIN blocks b ON b.uid = m.uid
+             WHERE {_QUERY_SOURCE_FILTER}""",
+        params,
+    ).fetchone()[0]
     rows = db.execute(
         f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
               FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
               JOIN pages p ON p.id = b.page_id
+             WHERE {_QUERY_SOURCE_FILTER}
              ORDER BY p.title, b.uid LIMIT ? OFFSET ?""",
         [*params, limit, offset]).fetchall()
     groups: list[dict] = []

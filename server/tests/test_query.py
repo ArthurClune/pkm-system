@@ -1,5 +1,6 @@
 import pytest
 
+from pkm.server.db import open_db
 from pkm.server.query import QueryParseError, parse_query
 
 
@@ -54,6 +55,31 @@ def test_query_endpoint_or_and_not(client):
         params={"expr": "{and: [[Paper]] {not: [[Attention Is All You Need]]}}"},
     ).json()
     assert body["total"] == 0
+
+
+def test_query_endpoint_excludes_query_source_blocks(client, seeded_config):
+    con = open_db(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        ("uid_query", 1, None, 2,
+         "{{[[query]]: {and: [[Paper]] [[Attention Is All You Need]]}}}",
+         None, 0, None, None),
+    )
+    con.executemany("INSERT INTO refs VALUES (?,?,?)", [
+        ("uid_query", 4, "link"),
+        ("uid_query", 5, "link"),
+    ])
+    con.commit()
+    con.close()
+
+    body = client.get(
+        "/api/query",
+        params={"expr": "{and: [[Paper]] [[Attention Is All You Need]]}"},
+    ).json()
+
+    assert body["total"] == 1
+    assert [i["uid"] for g in body["groups"] for i in g["items"]] == ["uid_b3"]
 
 
 def test_query_endpoint_bad_expr_400(client):

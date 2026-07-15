@@ -152,8 +152,18 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     },
     async markPoisoned(payload) {
       return gate.run(async () => {
-        const { id, error } = payload as { id: number; error: string };
-        return { pending: markPoisoned(await db(), id, error) };
+        const { id, error, batchId } = payload as {
+          id: number; error: string; batchId?: string;
+        };
+        const d = await db();
+        const matched = markPoisoned(d, id, error, batchId);
+        const result: { pending: number; matched?: boolean } = {
+          pending: pendingCount(d),
+        };
+        // Older direct handler callers omitted batch identity. Preserve their
+        // response shape while typed clients always receive match evidence.
+        if (batchId !== undefined) result.matched = matched;
+        return result;
       });
     },
     async init() {

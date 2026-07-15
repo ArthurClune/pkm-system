@@ -159,6 +159,32 @@ test("commit detects an error-only durable row mutation hidden from the public l
   })).rejects.toThrow("pending rows changed during recovery");
 });
 
+test("markPoisoned validates batch identity and remains idempotent", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({
+    openDb: async () => t.db,
+    newBatchId: () => "replacement-batch",
+  });
+  await handlers.init(undefined);
+  await handlers.enqueue([{ op: "delete", uid: "uid_new" }]);
+
+  await expect(handlers.markPoisoned({
+    id: 1, batchId: "deleted-batch", error: "old rejection",
+  })).resolves.toEqual({ pending: 1, matched: false });
+  await expect(handlers.pendingBatches(undefined)).resolves.toEqual([
+    expect.objectContaining({
+      id: 1, batch_id: "replacement-batch", poisoned: false,
+    }),
+  ]);
+
+  await expect(handlers.markPoisoned({
+    id: 1, batchId: "replacement-batch", error: "current rejection",
+  })).resolves.toEqual({ pending: 0, matched: true });
+  await expect(handlers.markPoisoned({
+    id: 1, batchId: "replacement-batch", error: "same rejection retry",
+  })).resolves.toEqual({ pending: 0, matched: true });
+});
+
 test("schema reset removes obsolete user and virtual-table objects atomically", async () => {
   const t = await openRawTestDb();
   const handlers = buildHandlers({ openDb: async () => t.db });

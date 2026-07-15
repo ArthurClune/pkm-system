@@ -318,3 +318,51 @@ Fresh third-review verification:
 - Canonical `cd web && pnpm verify`: passed; 69 unit files / 723 tests,
   production/PWA build with 78 entries / 5120.76 KiB, and Playwright 6/6.
 - `git diff --check`: passed and rerun after tracking updates.
+
+## Fourth independent review fix: startup evidence and durable identity
+
+The fourth review found two remaining startup hazards. First, startup discarded
+the events returned by successful fallback marking and suppressed their public
+events. If the subsequent `poisonedBatches` read failed, it treated that as an
+empty result and resumed/init/drained without the authoritative repair. Second,
+a syntactically valid stale fallback identified only by row id, so a database
+whose ids had been reused could poison an unrelated newer batch.
+
+### Deterministic RED
+
+Focused queue/worker/provider tests produced 4 intended assertion failures and
+57 passes. A successful fallback mark followed by discovery failure did not
+start the snapshot and proceeded toward initialization; discovery failure with
+no returned intent exposed no visible problem; the worker poisoned a reused id
+despite a different batch id; and the queue published the stale fallback rather
+than discarding it. The separate indicator regression also showed that the new
+discovery-failure state had no renderable Retry UI.
+
+### Evidence merge, Retry, and identity design
+
+Startup now captures the events returned by mark-only recovery and
+deterministically deduplicates them with rows returned by poison discovery. If
+discovery fails but returned mark evidence exists, those marked rows still enter
+authoritative snapshot repair before any init, resume, or drain. If discovery
+fails without returned evidence, startup keeps its discovery gate and queue
+barrier and exposes a distinct `poison-discovery` alert with Retry. Retry repeats
+discovery, then either repairs the discovered rows or resumes normal startup;
+the state cannot be dismissed.
+
+The typed replica mark API now requires `batchId`. The worker validates the
+durable `(id, batch_id)` identity and returns `matched`; it updates only an exact
+match. The worker still tolerates legacy direct payloads that omit batch id.
+`matched:false` is a stale/missing fallback, so the queue removes only that
+intent, continues the retained list in deterministic order, and emits no false
+public poison event. Normal marks and already-poisoned idempotent retries remain
+compatible. No schema or Task 2 recovery-lease behavior changed.
+
+Fresh fourth-review verification:
+
+- Focused queue/worker/provider/indicator: 4 files / 73 tests passed.
+- Exact Task 3 Step 5: 5 files / 90 tests passed.
+- Exact Task 2 compatibility: 6 files / 97 tests passed.
+- `cd web && pnpm typecheck`: passed.
+- Canonical `cd web && pnpm verify`: passed; 69 unit files / 728 tests,
+  production/PWA build with 78 entries / 5121.66 KiB, and Playwright 6/6.
+- `git diff --check`: passed and rerun after tracking updates.

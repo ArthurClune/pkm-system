@@ -21,7 +21,19 @@ export type SyncStatus = "connecting" | "connected" | "reconnecting";
 export type SyncProblem =
   | { kind: "rejected-batch"; event: PoisonEvent;
       repair: "mark-failed" | "running" | "failed" | "repaired";
-      error?: string };
+      error?: string }
+  | { kind: "poison-discovery"; error: string };
+
+const mergePoisonEvents = (
+  ...groups: ReadonlyArray<readonly PoisonEvent[]>
+): PoisonEvent[] => {
+  const merged = new Map<string, PoisonEvent>();
+  groups.flat().forEach((event) => {
+    merged.set(`${event.rowId}\u0000${event.batchId}`, event);
+  });
+  return [...merged.values()].sort((a, b) =>
+    a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
+};
 
 export interface Sync {
   status: SyncStatus;
@@ -119,6 +131,9 @@ export function SyncProvider({ children, replica }: {
   const repairTargetsRef = useRef<readonly PoisonEvent[]>([]);
   const repairSucceededRef = useRef(false);
   const startupDiscoveringPoisonRef = useRef(true);
+  const continueStartupRef = useRef<(
+    marked: readonly PoisonEvent[],
+  ) => Promise<void>>(async () => undefined);
   const problemRef = useRef<SyncProblem>();
   problemRef.current = problem;
 
@@ -178,20 +193,13 @@ export function SyncProvider({ children, replica }: {
     async () => undefined);
   repairEventsRef.current = (events) => {
     if (events.length === 0) return Promise.resolve();
-    const mergeTargets = (current: readonly PoisonEvent[]) => {
-      const merged = new Map(current.map((event) =>
-        [`${event.rowId}\u0000${event.batchId}`, event]));
-      events.forEach((event) => {
-        merged.set(`${event.rowId}\u0000${event.batchId}`, event);
-      });
-      return [...merged.values()].sort((a, b) =>
-        a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
-    };
     if (repairRunRef.current) {
-      repairTargetsRef.current = mergeTargets(repairTargetsRef.current);
+      repairTargetsRef.current = mergePoisonEvents(
+        repairTargetsRef.current, events,
+      );
       return repairRunRef.current;
     }
-    repairTargetsRef.current = mergeTargets([]);
+    repairTargetsRef.current = mergePoisonEvents(events);
     repairSucceededRef.current = false;
     const event = repairTargetsRef.current[0];
     if (mountedRef.current) {
@@ -228,39 +236,58 @@ export function SyncProvider({ children, replica }: {
     return repairRunRef.current;
   };
 
+  continueStartupRef.current = async (marked) => {
+    let discovered: PoisonEvent[] = [];
+    try {
+      discovered = await replicaRef.current!.poisonedBatches();
+    } catch (error: unknown) {
+      if (marked.length === 0) {
+        if (mountedRef.current) {
+          setProblem({
+            kind: "poison-discovery",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return;
+      }
+      // Returned mark evidence is sufficient to repair those rows safely;
+      // never discard it merely because the broader discovery read failed.
+    }
+    const repairable = mergePoisonEvents(marked, discovered);
+    startupDiscoveringPoisonRef.current = false;
+    if (repairable.length > 0) {
+      await repairEventsRef.current(repairable);
+      if (!repairSucceededRef.current) return;
+    } else {
+      if (mountedRef.current && problemRef.current?.kind === "poison-discovery") {
+        setProblem(undefined);
+      }
+      queue.resume("recovery");
+    }
+    await replicaSync!.start();
+  };
+
   useEffect(() => {
     if (replicaSync === null) {
       setReplicaState({ mode: "no-replica" });
       return;
     }
-    const r = replicaRef.current!;
     // Close the reload window where later durable work could post before a
     // previously rejected optimistic batch is repaired.
     queue.setOnline(false);
     queue.pause("recovery");
     startupRunRef.current = (async () => {
+      let marked: readonly PoisonEvent[];
       try {
         // Reload fallback intents are marked before any database discovery,
         // initialization, or delivery. This path never calls /api/ops.
-        await queue.retryPoisonMarks();
+        marked = await queue.retryPoisonMarks();
       } catch {
         // The typed failure listener owns the visible Retry state; retain the
         // startup gate and recovery barrier until marking succeeds.
         return;
       }
-      let poisoned: PoisonEvent[] = [];
-      try { poisoned = await r.poisonedBatches(); } catch { /* init owns degradation */ }
-      startupDiscoveringPoisonRef.current = false;
-      if (poisoned.length > 0) {
-        await repairEventsRef.current(poisoned);
-        if (!repairSucceededRef.current) return;
-      } else {
-        queue.resume("recovery");
-      }
-      // Start at mount, not just socket connect: a cold offline PWA with a
-      // hydrated replica still becomes ready. Poison repair runs first so a
-      // schema recovery cannot erase its durable details before repair.
-      await replicaSync.start();
+      await continueStartupRef.current(marked);
     })().catch(() => undefined);
   }, [queue, replicaSync]);
 
@@ -436,31 +463,37 @@ export function SyncProvider({ children, replica }: {
     readOnlyReason,
     problem,
     retryProblem: () => {
-      if (problemRef.current?.repair === "mark-failed") {
+      const currentProblem = problemRef.current;
+      if (currentProblem?.kind === "rejected-batch" &&
+          currentProblem.repair === "mark-failed") {
         const retryBlockedStartup = startupDiscoveringPoisonRef.current;
         return (async () => {
           try {
-            await queue.retryPoisonMarks();
+            const marked = await queue.retryPoisonMarks();
+            if (retryBlockedStartup) {
+              await continueStartupRef.current(marked);
+              return;
+            }
           } catch {
             return;
           }
-          if (retryBlockedStartup) {
-            const poisoned = await replicaRef.current!.poisonedBatches();
-            startupDiscoveringPoisonRef.current = false;
-            await repairEventsRef.current(poisoned);
-          } else {
-            await (repairRunRef.current ?? Promise.resolve());
-          }
+          await (repairRunRef.current ?? Promise.resolve());
           if (repairSucceededRef.current) await replicaSync?.start();
         })();
       }
-      if (problemRef.current?.repair !== "failed") return Promise.resolve();
+      if (currentProblem?.kind === "poison-discovery") {
+        return continueStartupRef.current([]);
+      }
+      if (currentProblem?.kind !== "rejected-batch" ||
+          currentProblem.repair !== "failed") return Promise.resolve();
       return repairEventsRef.current(repairTargetsRef.current).then(async () => {
         if (repairSucceededRef.current) await replicaSync?.start();
       });
     },
     dismissProblem: () => {
-      if (problemRef.current?.repair !== "repaired") return;
+      const currentProblem = problemRef.current;
+      if (currentProblem?.kind !== "rejected-batch" ||
+          currentProblem.repair !== "repaired") return;
       repairTargetsRef.current = [];
       setProblem(undefined);
     },

@@ -64,7 +64,9 @@ export interface Replica {
   /** Rejected durable rows, oldest first, for startup repair. */
   poisonedBatches(): Promise<PoisonedBatch[]>;
   deleteBatch(id: number): Promise<{ pending: number }>;
-  markPoisoned(id: number, error: string): Promise<{ pending: number }>;
+  markPoisoned(id: number, error: string, batchId: string): Promise<{
+    pending: number; matched?: boolean;
+  }>;
   pendingCount(): Promise<number>;
   /** Offline API shim: handled:false = route not shimmed (online-only). */
   localApi(req: LocalApiRequest): Promise<LocalApiResult>;
@@ -94,7 +96,8 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
     pendingBatches: () => rpc.call("pendingBatches"),
     poisonedBatches: () => rpc.call("poisonedBatches"),
     deleteBatch: (id) => rpc.call("deleteBatch", id),
-    markPoisoned: (id, error) => rpc.call("markPoisoned", { id, error }),
+    markPoisoned: (id, error, batchId) =>
+      rpc.call("markPoisoned", { id, error, batchId }),
     pendingCount: () => rpc.call("pendingCount"),
     localApi: (req) => rpc.call("localApi", req),
     prepareRecovery: () => rpc.call(

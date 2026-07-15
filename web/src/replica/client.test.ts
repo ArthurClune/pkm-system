@@ -264,7 +264,7 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   expect(await replica.pendingBatches()).toHaveLength(1);
   await replica.markPoisoned(batch.id, JSON.stringify({
     status: 422, message: "request failed: 422 /api/ops",
-  }));
+  }), batch.batch_id);
   await expect(replica.poisonedBatches()).resolves.toEqual([{
     rowId: batch.id,
     batchId: batch.batch_id,
@@ -274,7 +274,9 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   }]);
   await replica.deleteBatch(batch.id);
   expect(await replica.pendingCount()).toBe(0);
-  await expect(replica.markPoisoned(99, "gone")).resolves.toEqual({ pending: 0 });
+  await expect(replica.markPoisoned(99, "gone", "gone-batch")).resolves.toEqual({
+    pending: 0, matched: false,
+  });
 });
 
 test("a recovery lease gates enqueue and offline POST until the fresh database is ready", async () => {

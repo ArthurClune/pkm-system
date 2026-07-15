@@ -221,12 +221,14 @@ function createReplicaQueue(replica: Replica,
     if (intents.length === 0) return [];
     recovering = true;
     cancelRetry(false);
-    let result: { pending: number } | null = null;
+    let result: { pending: number; matched?: boolean } | null = null;
+    const matchedIntents: PoisonEvent[] = [];
     for (const event of intents) {
       try {
         result = await replica.markPoisoned(event.rowId, JSON.stringify({
           status: event.status, message: event.message,
-        }));
+        }), event.batchId);
+        if (result.matched !== false) matchedIntents.push(event);
       } catch (error: unknown) {
         poisonMarkFailed.emit({ event, error });
         throw error;
@@ -241,8 +243,8 @@ function createReplicaQueue(replica: Replica,
     // poisoned database rows. If removal fails, marking is idempotent.
     writePoisonMarkIntents([]);
     poisonMarkIntents = [];
-    intents.forEach((event) => poison.emit(event));
-    return intents;
+    matchedIntents.forEach((event) => poison.emit(event));
+    return matchedIntents;
   };
 
   const runDrain = async (): Promise<DrainOutcome> => {

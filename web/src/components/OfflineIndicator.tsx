@@ -17,7 +17,13 @@ export function OfflineIndicator() {
     else if (pending === 0) setSyncingAfterReconnect(false);
   }, [status, pending]);
 
-  const deliveryProblem = problem === undefined ? null : (
+  const deliveryProblem = problem === undefined ? null
+    : problem.kind === "poison-discovery" ? (
+      <div className="ws-banner" role="alert">
+        Checking rejected changes failed: {problem.error}
+        <button type="button" onClick={() => { void retryProblem(); }}>Retry</button>
+      </div>
+    ) : (
     <div className="ws-banner" role={
       problem.repair === "failed" || problem.repair === "mark-failed"
         ? "alert" : "status"
@@ -46,7 +52,7 @@ export function OfflineIndicator() {
         <pre>{JSON.stringify(problem.event.ops, null, 2)}</pre>
       </details>
     </div>
-  );
+    );
 
   let connectivity = null;
   if (status === "connected") {

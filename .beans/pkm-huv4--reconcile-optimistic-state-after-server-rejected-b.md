@@ -9,7 +9,7 @@ tags:
     - sync
     - data-integrity
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T17:54:21Z
+updated_at: 2026-07-15T18:05:39Z
 parent: pkm-c1cg
 ---
 
@@ -45,3 +45,7 @@ Established synchronous poison-pending ownership before the durable mark, preemp
 ## Third Review Mark-Failure Fix
 
 Added versioned durable fallback intents, typed visible mark-failure state, mark-only Retry, and startup gating before poison discovery/init/drain. Retained intents are exception-safe, corruption-tolerant, deduplicated, deterministic, and cleanup is crash-safe after idempotent database marking. Fresh verification passed: focused 81/81, exact Step 5 86/86, Task 2 compatibility 93/93, typecheck, canonical 69 files / 723 unit tests, build, and Playwright 6/6.
+
+## Fourth Review Startup/Identity Fix
+
+Startup now preserves successful mark-only evidence across poison-discovery failure, merges returned/discovered rows deterministically, and blocks behind a visible non-dismissible discovery Retry when no evidence exists. Durable marking validates row id plus batch id; stale or missing intents are removed without publication while normal/idempotent marks remain compatible. Fresh verification passed: focused 73/73, exact Step 5 90/90, Task 2 compatibility 97/97, typecheck, canonical 69 files / 728 unit tests, build, and Playwright 6/6.

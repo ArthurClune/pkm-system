@@ -546,8 +546,45 @@ test("a stale post-mark intent is retried idempotently without delivery", async 
   await expect(q.drain()).resolves.toMatchObject({ reason: "recovering" });
   await recovery.retryPoisonMarks();
 
-  expect(mark).toHaveBeenCalledWith(1, expect.any(String));
+  expect(mark).toHaveBeenCalledWith(1, expect.any(String), "batch-1");
   expect(bodies).toEqual([]);
+});
+
+test("a retained intent cannot poison a reused row id from another batch",
+async () => {
+  const stale: PoisonEvent = {
+    rowId: 1, batchId: "deleted-batch", ops: [op("old")], status: 400,
+    message: "old rejection",
+  };
+  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+    version: 1, intents: [stale],
+  }));
+  const replica = memReplica();
+  replica.rows.push({
+    id: 1, batch_id: "replacement-batch", ops: [op("new")], poisoned: false,
+  });
+  const mark = vi.fn(async (id: number, _error: string, batchId?: string) => {
+    const row = replica.rows.find((candidate) =>
+      candidate.id === id && candidate.batch_id === batchId);
+    if (row) row.poisoned = true;
+    return {
+      pending: replica.rows.filter((candidate) => !candidate.poisoned).length,
+      matched: row !== undefined,
+    };
+  });
+  (replica as unknown as { markPoisoned: typeof mark }).markPoisoned = mark;
+  const q = createOpQueue(replica, () => undefined);
+  const published: PoisonEvent[] = [];
+  q.onPoison((event) => published.push(event));
+
+  await expect(q.retryPoisonMarks()).resolves.toEqual([]);
+
+  expect(mark).toHaveBeenCalledWith(1, expect.any(String), "deleted-batch");
+  expect(replica.rows[0]).toMatchObject({
+    batch_id: "replacement-batch", poisoned: false,
+  });
+  expect(q.poisonMarkIntents()).toEqual([]);
+  expect(published).toEqual([]);
 });
 
 test("corrupt retained mark metadata is ignored safely", async () => {

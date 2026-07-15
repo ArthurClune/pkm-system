@@ -122,9 +122,20 @@ export function deleteBatch(db: ReplicaDb, id: number): number {
   return pendingCount(db);
 }
 
-export function markPoisoned(db: ReplicaDb, id: number,
-                             error: string): number {
-  db.exec("UPDATE pending_ops SET poisoned = 1, error = ? WHERE id = ?",
-          [error, id]);
-  return pendingCount(db);
+export function markPoisoned(db: ReplicaDb, id: number, error: string,
+                             batchId?: string): boolean {
+  const matches = batchId === undefined
+    ? db.select<{ id: number }>("SELECT id FROM pending_ops WHERE id = ?", [id])
+    : db.select<{ id: number }>(
+      "SELECT id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
+  if (matches.length === 0) return false;
+  if (batchId === undefined) {
+    db.exec("UPDATE pending_ops SET poisoned = 1, error = ? WHERE id = ?",
+            [error, id]);
+  } else {
+    db.exec(
+      "UPDATE pending_ops SET poisoned = 1, error = ? WHERE id = ? AND batch_id = ?",
+      [error, id, batchId]);
+  }
+  return true;
 }

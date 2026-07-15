@@ -427,7 +427,9 @@ async () => {
   function Grab() { sync = useSync(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); });
-  await vi.waitFor(() => { expect(sync.problem?.repair).toBe("mark-failed"); });
+  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "mark-failed",
+  }); });
 
   expect(sync.problem).toMatchObject({
     kind: "rejected-batch", repair: "mark-failed",
@@ -439,11 +441,114 @@ async () => {
   expect(initCalls).toBe(0);
 
   await act(async () => { await sync.retryProblem(); });
-  await vi.waitFor(() => { expect(sync.problem?.repair).toBe("repaired"); });
+  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "repaired",
+  }); });
 
   expect(markAttempts).toBe(3);
   expect(posts.filter((batchId) => batchId === "bad-batch")).toHaveLength(1);
   expect(poisonDiscoveryCalls).toBe(1);
+  expect(initCalls).toBe(1);
+});
+
+test("startup repairs returned marks even when poison discovery fails", async () => {
+  const event = {
+    rowId: 1, batchId: "bad-batch",
+    ops: [{ op: "delete", uid: "bad" } as const],
+    status: 400, message: "request failed: 400 /api/ops",
+  };
+  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+    version: 1, intents: [event],
+  }));
+  let releaseSnapshot!: () => void;
+  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+  let snapshotStarted = false;
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/sync/snapshot") {
+      snapshotStarted = true;
+      await snapshotGate;
+      return jsonResponse(SNAPSHOT);
+    }
+    if (url === "/api/ops") {
+      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return jsonResponse({ ok: true });
+    }
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const rows = [
+    { id: 1, batch_id: "bad-batch", ops: [...event.ops], poisoned: false },
+    { id: 2, batch_id: "later-good",
+      ops: [{ op: "delete", uid: "good" } as const], poisoned: false },
+  ];
+  const replica = fakeReplicaForProvider();
+  let discoveryCalls = 0;
+  let initCalls = 0;
+  replica.markPoisoned = async (id) => {
+    rows.find((row) => row.id === id)!.poisoned = true;
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.poisonedBatches = async () => {
+    discoveryCalls += 1;
+    throw new Error("poison discovery unavailable");
+  };
+  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+  replica.pendingBatches = async () => [...rows];
+  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+  replica.init = async () => {
+    initCalls += 1;
+    return { ok: true, empty: false, cursor: 5, schemaMismatch: false,
+             pendingBatches: [...rows] };
+  };
+  replica.prepareRecovery = async () => ({ token: "returned-mark", batches: [...rows] });
+  replica.commitRecovery = async () => undefined;
+  replica.deleteBatch = async (id) => {
+    rows.splice(rows.findIndex((row) => row.id === id), 1);
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+
+  render(<SyncProvider replica={replica}><div /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(discoveryCalls).toBe(1); });
+
+  expect(snapshotStarted).toBe(true);
+  expect(initCalls).toBe(0);
+  expect(posts).toEqual([]);
+
+  await act(async () => { releaseSnapshot(); await snapshotGate; });
+});
+
+test("startup discovery failure without fallback is visible and retryable",
+async () => {
+  const replica = fakeReplicaForProvider();
+  let discoveryCalls = 0;
+  let initCalls = 0;
+  replica.poisonedBatches = async () => {
+    discoveryCalls += 1;
+    if (discoveryCalls === 1) throw new Error("poison discovery unavailable");
+    return [];
+  };
+  replica.init = async () => {
+    initCalls += 1;
+    return { ok: true, empty: false, cursor: 5, schemaMismatch: false,
+             pendingBatches: [] };
+  };
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(discoveryCalls).toBe(1); });
+
+  expect(sync.problem).toMatchObject({
+    kind: "poison-discovery", error: "poison discovery unavailable",
+  });
+  expect(initCalls).toBe(0);
+
+  await act(async () => { await sync.retryProblem(); });
+  expect(discoveryCalls).toBe(2);
   expect(initCalls).toBe(1);
 });
 
@@ -507,7 +612,9 @@ test("failed poison repair stays visible and Retry succeeds without reapplying i
     await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
     await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
   });
-  await vi.waitFor(() => { expect(sync.problem?.repair).toBe("failed"); });
+  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "failed",
+  }); });
   expect(sync.status).toBe("connected");
   expect(sync.problem).toMatchObject({
     kind: "rejected-batch", repair: "failed",
@@ -523,11 +630,15 @@ test("failed poison repair stays visible and Retry succeeds without reapplying i
   expect(controls.retryProblem).toBeTypeOf("function");
   expect(controls.dismissProblem).toBeTypeOf("function");
   act(() => { controls.dismissProblem(); });
-  expect(sync.problem?.repair).toBe("failed");
+  expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "failed",
+  });
 
   await act(async () => { await controls.retryProblem(); });
   await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
-  expect(sync.problem?.repair).toBe("repaired");
+  expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "repaired",
+  });
   expect(snapshotCalls).toBe(2);
 
   act(() => { controls.dismissProblem(); });

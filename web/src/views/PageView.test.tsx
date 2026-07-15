@@ -781,6 +781,131 @@ it("a captured Journal response superseding recovery elects one full parent", as
   expect(isOutlineSessionActive(title)).toBe(false);
 });
 
+it("a dormant Journal capture cannot strand parent recovery", async () => {
+  const title = "Dormant Capture Paper";
+  const older = deferred<Response>();
+  const current = deferred<Response>();
+  const recovery = deferred<Response>();
+  const journal = deferred<Response>();
+  let parentCalls = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    if (url.startsWith("/api/journal?")) return journal.promise;
+    if (url !== "/api/page/Dormant%20Capture%20Paper") {
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    }
+    parentCalls += 1;
+    if (parentCalls === 1) return older.promise;
+    if (parentCalls === 2) return current.promise;
+    if (parentCalls === 3) return recovery.promise;
+    return Promise.reject(new Error("unexpected parent fetch storm"));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("IntersectionObserver", NoopIntersectionObserver);
+  const sync = makeSync();
+  const tree = (showJournal: boolean) => (
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Dormant%20Capture%20Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        <EditableSidebarPanel title={title} />
+        {showJournal && <Journal />}
+      </MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const view = render(tree(false));
+  let copiesBeforeJournal = 0;
+  let copiesAfterJournal = 0;
+  let metadataCopies = 0;
+  let staleCopies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(parentCalls).toBe(2));
+    view.rerender(tree(true));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/journal?days=5", undefined,
+    ));
+
+    await act(async () => {
+      current.reject(new Error(
+        "current parent failed during dormant capture",
+      ));
+      await current.promise.catch(() => undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(parentCalls).toBe(3));
+
+    await act(async () => {
+      recovery.resolve(jsonResponse(pagePayload(title, [
+        block("recovery", "dormant-capture recovery"),
+        block("recovery-ref", "((dormant_ref))"),
+      ], {
+        block_ref_texts: {
+          dormant_ref: {
+            text: "dormant-capture metadata",
+            page_title: "Source",
+          },
+        },
+      })));
+      await recovery.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copiesBeforeJournal = screen.queryAllByText(
+      "dormant-capture recovery",
+    ).length;
+
+    await act(async () => {
+      journal.resolve(jsonResponse({
+        days: [{
+          date: "2026-07-09",
+          title,
+          exists: true,
+          blocks: [block("late-journal", "late dormant capture")],
+        }],
+        block_ref_texts: {},
+      }));
+      await journal.promise;
+      older.resolve(jsonResponse(pagePayload(title, [
+        block("late-older", "late older parent"),
+      ])));
+      await older.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(parentCalls).toBe(3);
+    view.rerender(tree(false));
+    copiesAfterJournal = screen.queryAllByText(
+      "dormant-capture recovery",
+    ).length;
+    metadataCopies = screen.queryAllByText("dormant-capture metadata").length;
+    staleCopies = screen.queryAllByText(
+      /late dormant capture|late older parent/,
+    ).length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload(title, [])));
+    current.resolve(jsonResponse(pagePayload(title, [])));
+    recovery.resolve(jsonResponse(pagePayload(title, [])));
+    journal.resolve(jsonResponse({ days: [], block_ref_texts: {} }));
+    view.unmount();
+  }
+
+  expect(parentCalls).toBe(3);
+  expect(copiesBeforeJournal).toBe(2);
+  expect(copiesAfterJournal).toBe(2);
+  expect(metadataCopies).toBe(2);
+  expect(staleCopies).toBe(0);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive(title)).toBe(false);
+});
+
 it("a superseded resync failure cannot replace a newer parent winner with error", async () => {
   const title = "Resync Paper";
   const resync = deferred<Response>();

@@ -93,6 +93,7 @@ interface Session {
   authoritativeRead: Promise<void> | null;
   authoritativeAgain: boolean;
   reservations: number;
+  activatedCaptures: Set<number>;
   loaders: Map<symbol, () => Promise<BlockNode[]>>;
   trackedWrites: Set<string>;
   manualReads: Set<number>;
@@ -249,7 +250,8 @@ function scheduleParentElection(session: Session): void {
   session.parentElectionScheduled = true;
   void Promise.resolve().then(() => {
     session.parentElectionScheduled = false;
-    if (session.parentWaiters.size === 0 || session.reservations > 0 ||
+    if (session.parentWaiters.size === 0 ||
+        session.activatedCaptures.has(session.state.latestRequestId) ||
         session.manualReads.size > 0 ||
         session.authoritativeRead !== null || activeRepairEpoch !== null) return;
     const controller = [...session.parentControllers.values()].at(-1);
@@ -505,6 +507,7 @@ export function acquireOutlineSession(
       authoritativeRead: null,
       authoritativeAgain: false,
       reservations: 0,
+      activatedCaptures: new Set(),
       loaders: new Map(),
       trackedWrites: new Set(),
       manualReads: new Set(),
@@ -807,21 +810,27 @@ export function captureActiveOutlineReads(
     session.reservations += 1;
     let released = false;
     let received = false;
+    let captureActivated = false;
     captures.set(title, {
       receive: (blocks) => {
         if (released || received) return;
         received = true;
-        const activated = activateAuthoritativeRead(
+        const activatedState = activateAuthoritativeRead(
           session.state, reserved.token,
         );
-        if (activated === null) return;
-        session.state = activated;
+        if (activatedState === null) return;
+        session.state = activatedState;
+        captureActivated = true;
+        session.activatedCaptures.add(reserved.token.requestId);
         expireManualReadsBefore(session, reserved.token.requestId);
         receiveAuthoritative(session, reserved.token, blocks);
       },
       release: () => {
         if (released) return;
         released = true;
+        if (captureActivated) {
+          session.activatedCaptures.delete(reserved.token.requestId);
+        }
         session.reservations -= 1;
         scheduleParentElection(session);
         maybeDeleteSession(session);

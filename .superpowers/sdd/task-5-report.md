@@ -895,3 +895,87 @@ stale error.
 - Full metadata sharing, repair epochs, deferred writes, DnD replay, shared
   editor leases, queue/replica recovery, Journal cleanup, and session deletion
   retain their targeted and canonical coverage.
+
+## Eleventh independent-review fix wave
+
+Review of `3137910` found that the scheduler treated a dormant captured read as
+active authoritative ownership. A Journal transport that never settled could
+therefore pin `reservations` and strand full-payload parent readiness after the
+current parent failed.
+
+### Root cause
+
+- `captureActiveOutlineReads()` reserves a request id and increments the
+  lifecycle reservation count before the Journal request dispatches, but it
+  deliberately does not advance `latestRequestId` until the response actually
+  contains that title.
+- Parent election guarded on the aggregate `reservations > 0`. That count
+  combines manual-parent reservations with dormant and activated captures, so
+  it could not distinguish a harmless dispatch-time pin from the captured read
+  that currently owns authoritative causality.
+- Journal releases its captures in the fetch `finally`. If that transport hung,
+  the dormant reservation never reached the release wakeup added in the tenth
+  wave, even though a newer parent controller could safely supersede its token.
+
+### RED evidence
+
+- `pnpm vitest run src/views/PageView.test.tsx -t "dormant Journal capture
+  cannot strand parent recovery"` failed before production changes at the
+  recovery boundary: the parent fetch count remained 2 instead of electing the
+  required third controller.
+- The integration mounts overlapping PageView and Sidebar parent shells,
+  starts and indefinitely holds a real Journal request, fails the current
+  parent, and requires exactly one full-payload recovery with two rendered
+  trees and two reference-metadata copies.
+- It then resolves the Journal and older parent transports late, requires zero
+  extra parent requests, rejects both stale payloads, and verifies no error or
+  retained session.
+
+### Production design
+
+- Sessions now retain the request ids of captures that successfully activated.
+  The election guard checks whether the session's current `latestRequestId` is
+  in that set, rather than treating every reservation as active ownership.
+- A dormant capture still pins session lifetime, blocks idle bootstrap, and
+  retains its dispatch revision, but it does not stop a needed parent election.
+  The elected parent receives a later request id, so the delayed capture cannot
+  activate or overwrite the full-payload winner.
+- An activated capture records its request id before expiring older manual
+  reads and remains the current ownership guard until exact-once release. If a
+  still newer controller supersedes it, request-id identity prevents the older
+  activated capture from over-blocking unrelated recovery.
+- Capture release removes only its own activated id, decrements the aggregate
+  reservation exactly once, wakes the coalesced scheduler, and retains the
+  existing deletion check. Active manual, automatic, and repair guards and the
+  bounded parent-recovery cap are unchanged.
+
+### GREEN verification
+
+- Focused dormant/activated capture pair: 1 file / 2 selected tests passed,
+  with `pnpm typecheck` passing in the same command.
+- Full parent and Journal integration matrix: 3 files / 35 tests passed.
+- DnD/session/provider matrix: 4 files / 77 tests passed.
+- Epoch/replay matrix: 5 files / 93 tests passed.
+- Queue/replica matrix: 15 files / 192 tests passed.
+- Exact Task 5 UI gate: 7 files / 94 tests passed.
+- Outline gate: 4 files / 54 tests passed.
+- Canonical `pnpm verify`: passed: 72 files / 818 unit tests; 97.70%
+  statements and lines, 91.35% branches, and 95.52% functions; production/PWA
+  build with 78 precache entries / 5140.51 KiB; Playwright 6/6.
+
+### Self-review
+
+- Dormant and activated capture state remain separate from the total lifetime
+  reservation count. Ignoring dormant captures for election cannot collect or
+  rebootstrap their session because deletion/bootstrap still require zero
+  aggregate reservations.
+- The active-capture guard is request-id based, so only the capture that still
+  owns `latestRequestId` can delay election. Superseded activated captures and
+  dormant late responses cannot revive stale state or hold recovery forever.
+- The held-Journal regression asserts the recovery happens before Journal
+  settlement and that settlement causes neither an overwrite nor another
+  fetch. The prior post-activation supersession regression proves release still
+  wakes one replacement full parent after the block-only capture wins.
+- Manual parents, automatic reads, repair epochs, readiness cleanup, the
+  one-recovery cap, full-payload metadata sharing, DnD replay, queue/replica
+  recovery, and session deletion retain their focused and canonical gates.

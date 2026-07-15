@@ -122,3 +122,51 @@ Tracking/report:
   The canonical run continues to print only the pre-existing expected SQLite
   foreign-key diagnostic, route warning, Node localStorage warning, and build
   chunk-size warning.
+
+## Independent review fix: once-only remote session dispatch
+
+Independent review identified that sharing block snapshots alone did not make
+remote reduction single-owned. Every same-title `useOutline` still subscribed
+to `Sync`; the first listener applied and synchronously published a batch, then
+the second listener reduced the same batch against that advanced tree. Moves
+therefore shifted sibling `order_idx` values twice, and an unknown cross-page
+target launched one authoritative GET per mounted view.
+
+### Review RED
+
+Command:
+
+```text
+cd web && pnpm vitest run src/outline/useOutline.dnd.test.tsx
+```
+
+Result: exit 1; 2 intended failures and 8 passes. One move produced sibling
+indices `0,2,3` instead of once-applied `0,1,2`, and one target batch issued two
+GETs instead of one. A separate session single-flight test failed at the absent
+`requestAuthoritative` boundary while its existing 4 tests passed.
+
+### Session-owned GREEN
+
+The session now weakly records the exact `WsBatch` objects fanned out by
+`SyncProvider`. The first handle atomically reduces the batch against the
+session snapshot and publishes before notifications; later same-title
+listeners see the object and do nothing. This ownership belongs to the session,
+not the editor lease, so fallback subscriptions and lease handoff have no
+delivery gap.
+
+Authoritative target reads are also session-owned and single-flight. All
+callers share the active promise, the loaded tree is published once, and
+`finally` clears the flight so a failed read can retry. Shared adoption
+revalidates each view's focus against the tree while drafts and block selection
+remain view-local.
+
+Fresh review-fix verification:
+
+- Remote/session focused: 2 files / 15 tests passed.
+- Exact Task 4 Step 5: 6 files / 60 tests passed.
+- Expanded ownership, reconciliation, DnD, sidebar, and PageView matrix:
+  8 files / 75 tests passed.
+- `cd web && pnpm typecheck`: passed.
+- Canonical `cd web && pnpm verify`: passed; 70 unit files / 743 tests,
+  98.21% statements and lines, 91.96% branches, 95.38% functions, production
+  PWA build with 78 entries / 5123.43 KiB, and Playwright 6/6.

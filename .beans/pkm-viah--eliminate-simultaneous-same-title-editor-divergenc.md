@@ -9,7 +9,7 @@ tags:
     - outline
     - dnd
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T18:23:00Z
+updated_at: 2026-07-15T18:36:21Z
 parent: pkm-c1cg
 ---
 
@@ -33,3 +33,7 @@ Provide shared per-title outline state or atomic subscription-backed editor owne
 ## Completion summary
 
 Same-title views now acquire one ref-counted session after commit, share every flushed tree, and contend for a single idempotent editor lease. Pending and fallback views remain inert while preserving stable block DOM; owner cleanup promotes the next live claimant. DnD registrations reject duplicates and use token-checked cleanup. Simultaneous, StrictMode, shared-flush, handoff, main/sidebar ordering, hash-scroll, canonical unit/build, and Playwright coverage pass.
+
+## Independent review fix
+
+Remote WebSocket reduction and cross-page authoritative reads are now session-owned rather than repeated by each same-title hook subscriber. Exact WsBatch object fanout is applied once, overlapping authoritative reads share one retryable single-flight promise, and shared adoption revalidates view-local focus. Deterministic once-only move/GET regressions, the expanded Task 4 matrix, canonical 743-test/build suite, and Playwright 6/6 pass.

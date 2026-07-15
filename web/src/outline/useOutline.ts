@@ -68,6 +68,8 @@ export function useOutline(
       const shared = handle.getSnapshot().blocks;
       blocksRef.current = shared;
       setBlocks(shared);
+      setFocus((current) =>
+        current && findNode(shared, current.uid) ? current : null);
     };
     const unsubscribe = handle.subscribe(adoptShared);
     const lease = editorOwner ? handle.claimEditor(editorOwner) : null;
@@ -170,14 +172,17 @@ export function useOutline(
   // from still being in the enqueue handoff when the refetch starts; delivery
   // completion remains provider-internal.
   const refetch = useCallback(() => {
-    void sync.settled()
-      .then(() => apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`))
-      .then((p) => {
-        publishBlocks(p.blocks);
-        setFocus((f) => (f && findNode(p.blocks, f.uid) ? f : null));
-      })
+    const handle = sessionRef.current;
+    if (!handle) return;
+    void handle.requestAuthoritative(async () => {
+      await sync.settled();
+      const page = await apiFetch<PagePayload>(
+        `/api/page/${encodeTitle(pageTitle)}`,
+      );
+      return page.blocks;
+    })
       .catch(() => undefined); // next resync will repair
-  }, [sync, pageTitle, publishBlocks]);
+  }, [sync, pageTitle]);
 
   // Remote batches: the same applyOps as local edits. Text updates always
   // land on the block tree, even for the focused block — focus does not imply
@@ -185,17 +190,13 @@ export function useOutline(
   // keeps showing it (BlockInput owns that decision); its next flush then
   // becomes the legitimate last-writer (per-block last-write-wins).
   useEffect(() => sync.subscribe((batch) => {
-    const needsRefetch = batch.ops.some((op) =>
-      op.op === "move" && op.page_title != null &&
-      op.page_title === pageTitle &&
-      !findNode(blocksRef.current, op.uid));
-    publishBlocks(applyOps(blocksRef.current, batch.ops, pageTitle));
-    if (needsRefetch) {
+    const remote = sessionRef.current?.applyRemote(batch);
+    if (remote?.needsAuthoritative) {
       // we are the target of a cross-page move: the op carries no block
       // content, so adopt the authoritative tree.
       refetch();
     }
-  }), [sync, pageTitle, refetch, publishBlocks]);
+  }), [sync, refetch]);
 
   const handlers = useMemo<OutlineHandlers>(() => ({
     onFocusBlock: (uid, cursor) => {

@@ -67,3 +67,28 @@ it("deletes a released session so a later mount gets a fresh bootstrap", () => {
   expect(fresh.getSnapshot().blocks.map((node) => node.uid)).toEqual(["new"]);
   fresh.release();
 });
+
+it("coalesces overlapping authoritative reads and publishes their tree once", async () => {
+  const first = acquireOutlineSession("Authoritative", [block("old", "old")]);
+  const second = acquireOutlineSession("Authoritative", [block("old", "old")]);
+  let resolve!: (blocks: ReturnType<typeof block>[]) => void;
+  const response = new Promise<ReturnType<typeof block>[]>((done) => {
+    resolve = done;
+  });
+  const load = vi.fn(() => response);
+  const duplicateLoad = vi.fn(() => Promise.resolve([block("wrong", "wrong")]));
+  const onChange = vi.fn();
+  second.subscribe(onChange);
+
+  const firstRead = first.requestAuthoritative(load);
+  const secondRead = second.requestAuthoritative(duplicateLoad);
+  resolve([block("new", "new")]);
+  await Promise.all([firstRead, secondRead]);
+
+  expect(load).toHaveBeenCalledTimes(1);
+  expect(duplicateLoad).not.toHaveBeenCalled();
+  expect(second.getSnapshot().blocks.map((node) => node.uid)).toEqual(["new"]);
+  expect(onChange).toHaveBeenCalledTimes(1);
+  first.release();
+  second.release();
+});

@@ -2,6 +2,8 @@
 // Per-title external store for flushed outline trees and the single editable
 // view lease. Registry acquisition happens from layout effects, never render.
 import type { BlockNode } from "../api/payloads";
+import type { WsBatch } from "../sync/socket";
+import { applyOps, findNode } from "./tree";
 
 export interface SharedOutlineSnapshot {
   blocks: BlockNode[];
@@ -19,6 +21,11 @@ export interface OutlineSessionHandle {
   subscribe(listener: () => void): () => void;
   claimEditor(owner: symbol): EditorLease;
   applyOptimistic(blocks: BlockNode[]): void;
+  applyRemote(batch: WsBatch): {
+    applied: boolean;
+    needsAuthoritative: boolean;
+  };
+  requestAuthoritative(load: () => Promise<BlockNode[]>): Promise<void>;
   release(): void;
 }
 
@@ -37,9 +44,19 @@ interface Session {
   listeners: Set<() => void>;
   editor: LeaseRecord | null;
   waiters: LeaseRecord[];
+  seenRemote: WeakSet<WsBatch>;
+  authoritativeRead: Promise<void> | null;
 }
 
 const sessions = new Map<string, Session>();
+
+function publish(session: Session, blocks: BlockNode[]): void {
+  session.snapshot = {
+    blocks,
+    revision: session.snapshot.revision + 1,
+  };
+  for (const listener of session.listeners) listener();
+}
 
 function notifyLease(lease: LeaseRecord): void {
   for (const listener of lease.listeners) listener();
@@ -85,6 +102,8 @@ export function acquireOutlineSession(
       listeners: new Set(),
       editor: null,
       waiters: [],
+      seenRemote: new WeakSet(),
+      authoritativeRead: null,
     };
     sessions.set(title, session);
   } else if (!session.bootstrapped && bootstrap !== null) {
@@ -148,11 +167,33 @@ export function acquireOutlineSession(
     },
     applyOptimistic: (blocks) => {
       if (released) return;
-      session.snapshot = {
-        blocks,
-        revision: session.snapshot.revision + 1,
-      };
-      for (const listener of session.listeners) listener();
+      publish(session, blocks);
+    },
+    applyRemote: (batch) => {
+      if (released || session.seenRemote.has(batch)) {
+        return { applied: false, needsAuthoritative: false };
+      }
+      session.seenRemote.add(batch);
+      const needsAuthoritative = batch.ops.some((op) =>
+        op.op === "move" && op.page_title != null &&
+        op.page_title === session.title &&
+        !findNode(session.snapshot.blocks, op.uid));
+      publish(session,
+        applyOps(session.snapshot.blocks, batch.ops, session.title));
+      return { applied: true, needsAuthoritative };
+    },
+    requestAuthoritative: (load) => {
+      if (session.authoritativeRead) return session.authoritativeRead;
+      let request!: Promise<void>;
+      request = load()
+        .then((blocks) => publish(session, blocks))
+        .finally(() => {
+          if (session.authoritativeRead === request) {
+            session.authoritativeRead = null;
+          }
+        });
+      session.authoritativeRead = request;
+      return request;
     },
     release: () => {
       if (released) return;

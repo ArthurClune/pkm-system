@@ -9,7 +9,7 @@ tags:
     - architecture
     - fcis
 created_at: 2026-07-15T14:22:26Z
-updated_at: 2026-07-15T16:15:28Z
+updated_at: 2026-07-15T16:56:17Z
 ---
 
 ## Goal
@@ -33,7 +33,7 @@ Address the correctness, complexity, design, maintainability, and FCIS findings 
 
 ## Child roadmap
 
-- [ ] 1. pkm-qvqz — Make replica recovery atomic with concurrent enqueues
+- [x] 1. pkm-qvqz — Make replica recovery atomic with concurrent enqueues
 - [ ] 2. pkm-huv4 — Reconcile optimistic state after server-rejected batches
 - [ ] 3. pkm-z77x — Prevent outline refetches from overwriting or discarding newer state
 - [ ] 4. pkm-viah — Eliminate simultaneous same-title editor divergence

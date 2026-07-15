@@ -488,6 +488,7 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
   let recovering = false;
   let disposed = false;
   let drainRun: Promise<DrainOutcome> | null = null;
+  let drainAgain = false;
   let kickScheduled = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryIndex = 0;
@@ -604,12 +605,22 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
         try { onDrain(outcome); } catch { /* observer isolation */ }
         return outcome;
       })
-      .finally(() => { drainRun = null; });
+      .finally(() => {
+        const missedKick = drainAgain;
+        drainAgain = false;
+        drainRun = null;
+        if (missedKick && pending.length > 0) kick();
+      });
     return drainRun;
   };
 
   const kick = (): void => {
-    if (kickScheduled || drainRun || !online || recovering || disposed) return;
+    if (kickScheduled || !online || recovering || disposed ||
+        retryTimer !== null) return;
+    if (drainRun) {
+      drainAgain = true;
+      return;
+    }
     kickScheduled = true;
     void Promise.resolve().then(() => {
       kickScheduled = false;

@@ -195,6 +195,36 @@ test("without a replica the provider reports no-replica mode", async () => {
   expect(screen.getByTestId("mode").textContent).toBe("no-replica");
 });
 
+test("empty legacy repair resumes a wholly later ticket after drain handoff", async () => {
+  let postCount = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+    postCount += 1;
+    return postCount === 1
+      ? jsonResponse({ detail: "bad op" }, 400)
+      : jsonResponse({ ok: true });
+  }));
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return null;
+  }
+  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+  let later: ReturnType<Sync["enqueue"]> | undefined;
+  try {
+    const rejected = sync.enqueue(Array.from(
+      { length: 500 }, (_, i) => ({ op: "delete" as const, uid: `bad-${i}` }),
+    ));
+    later = sync.enqueue([{ op: "delete", uid: "later" }]);
+
+    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+    await vi.waitFor(() => expect(postCount).toBe(2));
+    await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+  } finally {
+    view.unmount();
+  }
+});
+
 test("legacy rejection resumes later delivery only after active outline repair", async () => {
   let postCount = 0;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {

@@ -453,3 +453,66 @@ session cohort.
 - Existing automatic-read invalidation, manual reservations, Journal capture,
   late session tracking, queue FIFO/4xx/dispose behavior, retry UI, and
   Task 4 editor/DnD/view-local ownership continue through their prior paths.
+
+## Fifth independent-review fix wave
+
+Review of `2ebd54d` found one legacy-queue ownership handoff where an empty
+repair could resume delivery while the rejected drain still owned the pump.
+
+### Root cause
+
+- Legacy `runDrain()` invokes `onDesync` before its promise finalizer clears
+  `drainRun`. An empty asynchronous repair can therefore call `resume()` while
+  the old drain is still present; its `kick()` was discarded, even though the
+  old drain had already chosen the blocked outcome.
+- A wholly later ticket then remained pending indefinitely because the old
+  drain returned without another loop iteration and its finalizer only cleared
+  ownership. This affected the legacy path only; replica delivery already has
+  its own `drainAgain` handoff.
+
+### RED evidence
+
+- `pnpm vitest run src/sync/opQueue.test.ts src/sync/SyncProvider.test.tsx -t
+  "async recovery resume|empty legacy repair"` failed both selected tests: the
+  direct queue and provider integration each observed only one POST instead of
+  the later ticket's second POST.
+- Before the production change, `pnpm vitest run src/sync/opQueue.test.ts -t
+  "missed in-flight kick remains|dispose drops a missed|missed in-flight kick
+  does not bypass|in-flight POST completes after going offline|ops enqueued
+  while a batch is in flight"` passed all 5 selected guard tests.
+
+### Production design
+
+- The legacy queue now remembers an eligible kick that arrives while
+  `drainRun` owns the pump. Its finalizer consumes that intent, clears ownership
+  first, and hands the pending work back through the ordinary guarded `kick()`.
+- `kick()` rejects intent before recording it when the queue is offline,
+  recovering, disposed, or waiting on a 5xx retry timer. Normal in-flight
+  enqueue still coalesces into one successor drain, and dispose/recovery remain
+  authoritative.
+- No replica code changed.
+
+### GREEN verification
+
+- Focused primary and guard matrix: 2 files / 7 selected tests passed.
+- Full focused matrix: 2 files / 56 tests passed.
+- Controller queue/replica gate: 4 files / 74 tests passed.
+- Controller Task 5 UI gate: 7 files / 82 tests passed.
+- Controller outline gate: 4 files / 49 tests passed.
+- Controller epoch/replay integration gate: 5 files / 91 tests passed.
+- `pnpm typecheck`: passed.
+- Canonical `pnpm verify`: passed: 72 files / 801 unit tests; 97.84%
+  statements and lines, 91.51% branches, and 95.57% functions; production/PWA
+  build with 78 precache entries / 5136.21 KiB; Playwright 6/6.
+
+### Self-review
+
+- The handoff flag is set only after all normal eligibility guards pass, so a
+  missed in-flight enqueue cannot bypass offline, recovery, disposal, or the
+  scheduled 5xx backoff.
+- The finalizer clears both the flag and drain ownership before re-entering
+  `kick()`, preserving a single pump owner and allowing current state to veto
+  stale intent.
+- The pending-length check avoids scheduling an empty successor. Existing
+  FIFO, batching, terminal delivery, and replica contracts retain their prior
+  implementations.

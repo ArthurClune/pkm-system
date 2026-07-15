@@ -87,6 +87,32 @@ test("ops re-enqueued synchronously from onDesync are not stranded", async () =>
   expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u9")]);
 });
 
+test("an async recovery resume hands a missed kick to the next drain owner", async () => {
+  const { bodies, mock } = capturingFetch([
+    () => jsonResponse({ detail: { index: 0, reason: "boom" } }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  let q!: ReturnType<typeof createOpQueue>;
+  q = createOpQueue(null, () => {
+    void Promise.resolve().then(() => q.resume("recovery"));
+  });
+  q.setOnline(false);
+  const rejected = q.enqueue(
+    Array.from({ length: 500 }, (_, i) => op(`rejected-${i}`)),
+  );
+  const later = q.enqueue([op("later")]);
+
+  try {
+    q.setOnline(true);
+    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+    await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(2));
+    await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+    expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("later")]);
+  } finally {
+    q.dispose();
+  }
+});
+
 test("a throwing onDesync does not poison the queue or drain()", async () => {
   const { mock } = capturingFetch([
     () => jsonResponse({ detail: { index: 0, reason: "boom" } }, 400),
@@ -149,6 +175,49 @@ test("an in-flight POST completes after going offline without starting a new pum
   await q.drain();
   expect(mock).toHaveBeenCalledTimes(2);
   expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u2")]);
+});
+
+test("a missed in-flight kick remains barred by recovery until explicit resume", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((done) => { release = done; });
+  const mock = vi.fn(async () => {
+    if (mock.mock.calls.length === 1) await gate;
+    return jsonResponse({ ok: true });
+  });
+  vi.stubGlobal("fetch", mock);
+  const q = createOpQueue(null, () => undefined);
+  const first = q.enqueue([op("u1")]);
+  await Promise.resolve();
+  const later = q.enqueue([op("u2")]);
+  q.pause("recovery");
+
+  release();
+  await expect(first.delivered).resolves.toEqual({ status: "delivered" });
+  await Promise.resolve();
+  expect(mock).toHaveBeenCalledTimes(1);
+  q.resume("recovery");
+  await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+  expect(mock).toHaveBeenCalledTimes(2);
+});
+
+test("dispose drops a missed in-flight kick without another POST", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((done) => { release = done; });
+  const mock = vi.fn(async () => {
+    await gate;
+    return jsonResponse({ ok: true });
+  });
+  vi.stubGlobal("fetch", mock);
+  const q = createOpQueue(null, () => undefined);
+  q.enqueue([op("u1")]);
+  await Promise.resolve();
+  const later = q.enqueue([op("u2")]);
+  q.dispose();
+
+  release();
+  await expect(later.delivered).resolves.toMatchObject({ status: "failed" });
+  await Promise.resolve();
+  expect(mock).toHaveBeenCalledTimes(1);
 });
 
 test("batches larger than 500 ops split into sequential POSTs", async () => {
@@ -256,6 +325,38 @@ test("legacy 503 retains work and retries after 250ms", async () => {
     await vi.advanceTimersByTimeAsync(250);
     await expect(q.drain()).resolves.toEqual({ status: "drained" });
     expect(mock).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a missed in-flight kick does not bypass the scheduled 5xx backoff", async () => {
+  vi.useFakeTimers();
+  try {
+    let release!: () => void;
+    const gate = new Promise<void>((done) => { release = done; });
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await gate;
+        return jsonResponse({ detail: "busy" }, 503);
+      }
+      return jsonResponse({ ok: true });
+    }));
+    const q = createOpQueue(null, () => undefined);
+    q.enqueue([op("u1")]);
+    await Promise.resolve();
+    const later = q.enqueue([op("u2")]);
+
+    release();
+    await q.drain();
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+    expect(calls).toBe(2);
   } finally {
     vi.useRealTimers();
   }

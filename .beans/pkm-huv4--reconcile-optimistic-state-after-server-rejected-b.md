@@ -9,7 +9,7 @@ tags:
     - sync
     - data-integrity
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T17:25:28Z
+updated_at: 2026-07-15T17:37:39Z
 parent: pkm-c1cg
 ---
 
@@ -37,3 +37,7 @@ Implemented typed durable poison events and deterministic 4xx ordering: mark, pa
 ## Independent Review Fix
 
 Added shared poison recovery ownership before waiting on an in-flight feed. A concurrent feed that returns needs-bootstrap now defers normal Task 2 recovery while poison repair is pending, so later non-poisoned rows cannot flush and the queue boolean pause cannot resume early. Ownership survives failed repair and Retry; SyncProvider releases it only after poison deletion and resync scheduling, immediately before provider-owned resume. Fresh verification passed: focused 62/62, exact Step 5 78/78, Task 2 compatibility 85/85, typecheck, canonical 69 files / 714 unit tests, build, and Playwright 6/6.
+
+## Second Review Race Fix
+
+Established synchronous poison-pending ownership before the durable mark, preempted and aborted stale normal recovery leases before every flush POST, suppressed their normal failure/resume path, and retained the barrier when marking fails. Public poison details still follow durable marking; no-poison Task 2 recovery is unchanged. Fresh verification passed: focused 64/64, exact Step 5 79/79, Task 2 compatibility 87/87, typecheck, canonical 69 files / 716 unit tests, build, and Playwright 6/6.

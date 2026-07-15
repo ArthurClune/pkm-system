@@ -294,6 +294,68 @@ test("poison owns recovery when a held feed needs bootstrap through failure and 
   sync.completeAuthoritativeRepair("poison");
 });
 
+test("poison preempts a normal recovery lease before its stale flush starts", async () => {
+  const staleLease: PendingBatch[] = [
+    { id: 1, batch_id: "rejected", ops: [{ op: "delete", uid: "uid_bad" }],
+      poisoned: false },
+    { id: 2, batch_id: "later-valid", ops: [{ op: "delete", uid: "uid_good" }],
+      poisoned: false },
+  ];
+  let applyCall = 0;
+  let leaseAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => { leaseAcquired = resolve; });
+  let releaseLease!: () => void;
+  const leaseGate = new Promise<void>((resolve) => { releaseLease = resolve; });
+  const abortRecovery = vi.fn(async () => undefined);
+  const replica = fakeReplica({
+    applyChanges: vi.fn(async (window: Changes) => {
+      applyCall += 1;
+      return applyCall === 1
+        ? { status: "applied" as const, cursor: window.next_since }
+        : { status: "needs-bootstrap" as const };
+    }),
+    prepareRecovery: vi.fn(async () => {
+      leaseAcquired();
+      await leaseGate;
+      return { token: "stale-normal-lease", batches: staleLease };
+    }),
+    abortRecovery,
+  });
+  const posted: string[] = [];
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      posted.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") return { ...SNAP, seq: 10 };
+    return feed({ next_since: 6, latest_seq: 6 });
+  });
+  let signalPoisonPending: () => void = () => undefined;
+  const queue = {
+    pause: vi.fn(),
+    resume: vi.fn(),
+    onPoisonPending: (listener: () => void) => {
+      signalPoisonPending = listener;
+      return () => undefined;
+    },
+  };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+
+  sync.onSeq(9);
+  await acquired; // normal recovery owns a stale pre-mark lease snapshot
+  signalPoisonPending(); // 4xx observed; markPoisoned is blocked by that lease
+  releaseLease();
+  await sync.idle();
+
+  expect(posted).toEqual([]);
+  expect(abortRecovery).toHaveBeenCalledWith("stale-normal-lease");
+  expect(queue.resume).not.toHaveBeenCalled();
+});
+
 test("a needs-bootstrap feed answer re-bootstraps when the queue is empty", async () => {
   const replica = fakeReplica({
     applyChanges: vi.fn()

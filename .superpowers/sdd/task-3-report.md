@@ -216,3 +216,54 @@ Fresh review-fix verification:
 - `cd web && pnpm typecheck`: passed.
 - Canonical `cd web && pnpm verify`: passed; 69 unit files / 714 tests,
   production/PWA build with 78 entries / 5117.94 KiB, and Playwright 6/6.
+
+## Second independent review fix: pre-mark poison ownership
+
+The second review found an earlier lease race: normal Task 2 recovery could
+receive `needs-bootstrap` and acquire its worker lease immediately before the
+queue durably marked a rejected row. That lease's batch snapshot still called
+the rejected row non-poisoned. Because poison ownership previously began only
+with the post-mark public event, normal recovery could POST both the rejected
+batch and later valid work while `markPoisoned` waited for the lease.
+
+### Deterministic RED
+
+Command:
+
+```text
+cd web && pnpm vitest run src/sync/opQueue.replica.test.ts src/sync/replicaSync.test.ts
+```
+
+Result: exit 1; 2 intended failures, 38 passes. The queue regression held the
+durable poison mark and observed that no synchronous internal ownership hook
+existed. The coordinator regression acquired and held a stale pre-mark lease,
+then signalled the observed 4xx; current code POSTed both `rejected` and
+`later-valid` instead of aborting the stale lease.
+
+### Ownership design and GREEN
+
+The replica queue now claims its boolean recovery barrier and synchronously
+emits an internal poison-pending signal at the instant a 4xx is observed,
+before awaiting `markPoisoned`. The public typed poison event remains strictly
+after that durable mark. `replicaSync` subscribes to the internal signal and
+re-checks poison ownership after acquiring a normal recovery lease and before
+every non-poison POST. A stale normal lease is aborted without reporting a
+normal recovery failure, and its `finally` cannot balance/resume a barrier now
+owned by poison. Failed poison repair and Retry continue to retain ownership
+until the provider completes deletion and resync scheduling. With no poison,
+normal Task 2 recovery is unchanged.
+
+If `markPoisoned` itself fails after the server rejection, the queue retains
+the barrier, surfaces the replica fault through the existing desync callback,
+does not publish incomplete poison details, and never schedules or performs a
+second POST of the rejected batch.
+
+Fresh second-review verification:
+
+- Focused queue/provider/coordinator: 3 files / 64 tests passed.
+- Exact Task 3 Step 5: 5 files / 79 tests passed.
+- Exact Task 2 compatibility: 6 files / 87 tests passed.
+- `cd web && pnpm typecheck`: passed.
+- Canonical `cd web && pnpm verify`: passed; 69 unit files / 716 tests,
+  production/PWA build with 78 entries / 5118.26 KiB, and Playwright 6/6.
+- `git diff --check`: passed before report/bean finalization and rerun below.

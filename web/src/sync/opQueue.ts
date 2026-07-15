@@ -39,6 +39,9 @@ export interface OpQueue {
   resume(reason: "recovery"): void;
   dispose(): void;
   onPending(fn: (n: number) => void): () => void;
+  /** Internal recovery ownership signal. Unlike onPoison, this fires before
+   * the durable poison mark so a recovery lease cannot flush a stale row. */
+  onPoisonPending(fn: () => void): () => void;
   onPoison(fn: (event: PoisonEvent) => void): () => void;
   onQuota(fn: (e: unknown) => void): () => void;
 }
@@ -92,6 +95,7 @@ function createReplicaQueue(replica: Replica,
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryIndex = 0;
   const pending = listeners<number>();
+  const poisonPending = listeners<void>();
   const poison = listeners<PoisonEvent>();
   const quota = listeners<unknown>();
 
@@ -175,21 +179,28 @@ function createReplicaQueue(replica: Replica,
             status: error.status,
             message: error.message,
           };
+          // Claim the shared recovery barrier as soon as the server rejects
+          // the batch. markPoisoned may wait behind a recovery lease whose
+          // snapshot still says this row is valid; that lease must learn it
+          // is stale before it begins its next POST.
+          recovering = true;
+          cancelRetry(false);
+          poisonPending.emit(undefined);
           let result;
           try {
             result = await replica.markPoisoned(batch.id, JSON.stringify({
               status: event.status, message: event.message,
             }));
           } catch (rpcError: unknown) {
+            // The server has already rejected this batch, so never release
+            // the barrier or schedule another POST merely because the local
+            // durable mark failed. Surface the replica fault for resync/UI.
+            try { onDesync(rpcError); } catch { /* listener isolation */ }
             return failed(rpcError);
           }
           pendingCount = result.pending;
           pending.emit(pendingCount);
-          // Poison is a recovery barrier, not just an error notification.
-          // Establish the pause synchronously before listeners can start the
-          // authoritative rebase or any later durable row can POST.
-          recovering = true;
-          cancelRetry(false);
+          // Public details remain ordered after the durable poison mark.
           poison.emit(event);
           return blocked("recovering");
         }
@@ -297,6 +308,7 @@ function createReplicaQueue(replica: Replica,
       cancelRetry(false);
     },
     onPending: pending.add,
+    onPoisonPending: poisonPending.add,
     onPoison: poison.add,
     onQuota: quota.add,
   };
@@ -432,6 +444,7 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
       cancelRetry(false);
     },
     onPending: () => () => undefined,
+    onPoisonPending: () => () => undefined,
     onPoison: () => () => undefined,
     onQuota: () => () => undefined,
   };

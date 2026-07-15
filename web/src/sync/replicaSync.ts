@@ -41,7 +41,8 @@ export interface ReplicaSyncDeps {
   clientId: string;
   onState: (s: ReplicaState) => void;
   /** Delivery is paused while the worker recovery lease owns the database. */
-  queue?: Pick<OpQueue, "pause" | "resume">;
+  queue?: Pick<OpQueue, "pause" | "resume"> &
+    Partial<Pick<OpQueue, "onPoisonPending">>;
 }
 
 const errText = (e: unknown): string =>
@@ -59,6 +60,12 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let pulling: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
+  const poisonPreempted = Symbol("poison-preempted-normal-recovery");
+
+  // The queue fires this synchronously on the 4xx path, before the durable
+  // poison mark and its public event. A normal recovery lease acquired just
+  // before that mark therefore cannot flush its stale pre-mark batch list.
+  queue.onPoisonPending?.(() => { authoritativeRepair = "poison"; });
 
   const bootstrap = async (): Promise<void> => {
     const snap = (await fetchJson("/api/sync/snapshot")) as Snapshot;
@@ -66,11 +73,19 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     cursor = snap.seq;
   };
 
-  const flushBatches = async (batches: PendingBatch[]): Promise<void> => {
+  const assertNormalRecoveryStillOwnsFlush = (): void => {
+    if (authoritativeRepair === "poison") throw poisonPreempted;
+  };
+
+  const flushBatches = async (
+    batches: PendingBatch[],
+    beforePost: () => void,
+  ): Promise<void> => {
     for (const b of batches) {
       // poisoned batches were already rejected by the server; retrying
       // them forever would wedge recovery (spec section 6)
       if (b.poisoned) continue;
+      beforePost();
       await fetchJson("/api/ops", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,13 +105,20 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     try {
       const lease = await replica.prepareRecovery();
       token = lease.token;
-      if (options.flush) await flushBatches([...lease.batches]);
+      if (options.flush) {
+        assertNormalRecoveryStillOwnsFlush();
+        await flushBatches(
+          [...lease.batches], assertNormalRecoveryStillOwnsFlush,
+        );
+      }
       const snapshot = (await fetchJson("/api/sync/snapshot")) as Snapshot;
       await replica.commitRecovery(token, { kind, snapshot });
       token = null; // commit released the worker gate
       cursor = snapshot.seq;
     } catch (error: unknown) {
-      if (options.reportReplicaFailure) {
+      const poisonOwnsRecovery = authoritativeRepair === "poison" ||
+        error === poisonPreempted;
+      if (options.reportReplicaFailure && !poisonOwnsRecovery) {
         onState({ mode: "recovery-failed", error: errText(error) });
       }
       if (token !== null) {
@@ -107,7 +129,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       }
       throw error;
     } finally {
-      if (options.resume) queue.resume("recovery");
+      if (options.resume && authoritativeRepair !== "poison") {
+        queue.resume("recovery");
+      }
     }
   };
 

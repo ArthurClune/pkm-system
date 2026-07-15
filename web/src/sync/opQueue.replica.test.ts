@@ -128,6 +128,52 @@ test("a 4xx emits batch details and pauses later delivery before notifying", asy
   expect(bodies).toHaveLength(2);
 });
 
+test("a 4xx raises the internal poison barrier before durable mark resolves", async () => {
+  const { bodies } = fetchSeq([
+    () => jsonResponse({ detail: "bad op" }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  let releaseMark!: () => void;
+  const markGate = new Promise<void>((resolve) => { releaseMark = resolve; });
+  let markStarted!: () => void;
+  const marking = new Promise<void>((resolve) => { markStarted = resolve; });
+  const replica = memReplica({
+    markPoisoned: async (id) => {
+      markStarted();
+      await markGate;
+      replica.rows.find((row) => row.id === id)!.poisoned = true;
+      return { pending: replica.rows.filter((row) => !row.poisoned).length };
+    },
+  });
+  const q = createOpQueue(replica, () => undefined);
+  let pendingSignals = 0;
+  const publicEvents: PoisonEvent[] = [];
+  q.onPoisonPending(() => { pendingSignals += 1; });
+  q.onPoison((event) => publicEvents.push(event));
+
+  q.enqueue([op("bad")]);
+  q.enqueue([op("good")]);
+  await marking;
+  const observedWhileMarkBlocked = {
+    pendingSignals,
+    publicEvents: [...publicEvents],
+    postedBatchIds: bodies.map((body) =>
+      (body.body as { batch_id: string }).batch_id),
+  };
+  releaseMark();
+  await q.drain();
+
+  expect(q.onPoisonPending).toBeTypeOf("function");
+  expect(observedWhileMarkBlocked).toEqual({
+    pendingSignals: 1,
+    publicEvents: [], // public details follow durable mark
+    postedBatchIds: ["batch-1"],
+  });
+  expect(publicEvents).toHaveLength(1);
+  expect(bodies.map((body) => (body.body as { batch_id: string }).batch_id))
+    .toEqual(["batch-1"]); // rejected exactly once; later batch still held
+});
+
 test("a durable batch from a previous page load drains on the first connect", async () => {
   // a reload can kill an in-flight POST: the batch survives in the replica,
   // and the first socket connect of the next session must drain it even
@@ -286,8 +332,6 @@ test.each([
     { nextBatch: async () => { throw new Error("next RPC failed"); } }],
   ["deleteBatch", 200,
     { deleteBatch: async () => { throw new Error("delete RPC failed"); } }],
-  ["markPoisoned", 400,
-    { markPoisoned: async () => { throw new Error("poison RPC failed"); } }],
 ] as const)("%s RPC failure fulfills drain with a retryable outcome",
 async (_method, status, over) => {
   vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({}, status)));
@@ -301,6 +345,38 @@ async (_method, status, over) => {
   await expect(outcome).resolves.toMatchObject({
     status: "blocked", reason: "retryable", pending: 1,
   });
+  q.dispose();
+});
+
+test("markPoisoned RPC failure preserves the barrier without re-POSTing",
+async () => {
+  const fetchMock = vi.fn(async () => jsonResponse({}, 400));
+  vi.stubGlobal("fetch", fetchMock);
+  const error = new Error("poison RPC failed");
+  const replica = memReplica({
+    markPoisoned: async () => { throw error; },
+  });
+  const desync = vi.fn();
+  const q = createOpQueue(replica, desync);
+  const pending = vi.fn();
+  const published = vi.fn();
+  q.onPoisonPending(pending);
+  q.onPoison(published);
+
+  const write = q.enqueue([op("u1")]);
+  const outcome = q.drain();
+  await write.settled;
+
+  await expect(outcome).resolves.toMatchObject({
+    status: "blocked", reason: "recovering", pending: 1, error,
+  });
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering", pending: 1,
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(pending).toHaveBeenCalledTimes(1);
+  expect(published).not.toHaveBeenCalled();
+  expect(desync).toHaveBeenCalledWith(error);
   q.dispose();
 });
 

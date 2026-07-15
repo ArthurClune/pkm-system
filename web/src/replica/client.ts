@@ -16,6 +16,17 @@ export interface PendingBatch {
   poisoned: boolean;
 }
 
+/** Durable rejected-row details used to resume authoritative repair after a
+ * reload. The worker reconstructs these from pending_ops, including rows
+ * written by the pre-typed poison implementation. */
+export interface PoisonedBatch {
+  rowId: number;
+  batchId: string;
+  ops: readonly BlockOp[];
+  status: number;
+  message: string;
+}
+
 export interface ReplicaInit {
   /** false => no-replica mode: wasm/OPFS unavailable, app runs online-only */
   ok: boolean;
@@ -50,6 +61,8 @@ export interface Replica {
   nextBatch(): Promise<PendingBatch | null>;
   /** All queued batches, oldest first (recovery flush reads). */
   pendingBatches(): Promise<PendingBatch[]>;
+  /** Rejected durable rows, oldest first, for startup repair. */
+  poisonedBatches(): Promise<PoisonedBatch[]>;
   deleteBatch(id: number): Promise<{ pending: number }>;
   markPoisoned(id: number, error: string): Promise<{ pending: number }>;
   pendingCount(): Promise<number>;
@@ -79,6 +92,7 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
     enqueue: (ops) => rpc.call("enqueue", ops),
     nextBatch: () => rpc.call("nextBatch"),
     pendingBatches: () => rpc.call("pendingBatches"),
+    poisonedBatches: () => rpc.call("poisonedBatches"),
     deleteBatch: (id) => rpc.call("deleteBatch", id),
     markPoisoned: (id, error) => rpc.call("markPoisoned", { id, error }),
     pendingCount: () => rpc.call("pendingCount"),

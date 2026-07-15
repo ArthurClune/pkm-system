@@ -129,6 +129,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     enqueue: async () => ({ pending: 0 }),
     nextBatch: async () => null,
     pendingBatches: async () => [],
+    poisonedBatches: async () => [],
     deleteBatch: async () => ({ pending: 0 }),
     markPoisoned: async () => ({ pending: 0 }),
     pendingCount: async () => 0,
@@ -213,6 +214,233 @@ test("leftover durable batches flush on first connect, then views resync", async
   const opsPosts = fetchMock.mock.calls.filter((c) => String(c[0]) === "/api/ops");
   expect(opsPosts.length).toBe(1);
   expect(screen.getByTestId("status").textContent).toBe("connected:1"); // resync
+});
+
+test("rejected batch repair finishes before resync and later delivery", async () => {
+  let releaseSnapshot!: () => void;
+  let snapshotHasStarted = false;
+  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      const body = JSON.parse(String(init?.body)) as { batch_id: string };
+      posts.push(body.batch_id);
+      return body.batch_id === "bad-batch"
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") {
+      snapshotHasStarted = true;
+      await snapshotGate;
+      return jsonResponse(SNAPSHOT);
+    }
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+
+  const replica = fakeReplicaForProvider();
+  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                     poisoned: boolean }> = [];
+  let nextId = 1;
+  const trace: string[] = [];
+  replica.init = async () => ({
+    ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    pendingBatches: [],
+  });
+  replica.enqueue = async (ops) => {
+    const id = nextId++;
+    rows.push({ id, batch_id: id === 1 ? "bad-batch" : "good-batch",
+                ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+  replica.markPoisoned = async (id) => {
+    trace.push("mark poison");
+    rows.find((row) => row.id === id)!.poisoned = true;
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+  replica.pendingBatches = async () => [...rows];
+  replica.prepareRecovery = async () => {
+    trace.push("prepare repair");
+    return { token: "poison-lease", batches: [...rows] };
+  };
+  replica.commitRecovery = async () => { trace.push("commit repair"); };
+  replica.deleteBatch = async (id) => {
+    trace.push(`delete ${id}`);
+    rows.splice(rows.findIndex((row) => row.id === id), 1);
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  const baselineResync = sync.resyncSeq;
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+    await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+    await Promise.resolve();
+  });
+  await vi.waitFor(() => { expect(snapshotHasStarted).toBe(true); });
+
+  expect(posts).toEqual(["bad-batch"]);
+  expect(trace).toEqual(["mark poison", "prepare repair"]);
+  expect(sync.resyncSeq).toBe(baselineResync);
+
+  await act(async () => { releaseSnapshot(); await snapshotGate; });
+  await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
+  expect(trace).toEqual([
+    "mark poison", "prepare repair", "commit repair", "delete 1", "delete 2",
+  ]);
+  expect(sync.resyncSeq).toBe(baselineResync + 1);
+});
+
+test("startup repairs durable poison before posting a later batch", async () => {
+  let releaseSnapshot!: () => void;
+  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+  let snapshotStarted = false;
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/sync/snapshot") {
+      snapshotStarted = true;
+      await snapshotGate;
+      return jsonResponse(SNAPSHOT);
+    }
+    if (url === "/api/ops") {
+      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return jsonResponse({ ok: true });
+    }
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+
+  const rejectedOp = { op: "delete", uid: "rejected" } as const;
+  const goodOp = { op: "delete", uid: "good" } as const;
+  const rows = [
+    { id: 1, batch_id: "old-poison", ops: [rejectedOp], poisoned: true },
+    { id: 2, batch_id: "later-good", ops: [goodOp], poisoned: false },
+  ];
+  const replica = fakeReplicaForProvider();
+  replica.init = async () => ({
+    ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    pendingBatches: [...rows],
+  });
+  replica.poisonedBatches = async () => [{
+    rowId: 1, batchId: "old-poison", ops: [rejectedOp], status: 400,
+    message: "request failed: 400 /api/ops",
+  }];
+  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+  replica.pendingBatches = async () => [...rows];
+  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+  replica.prepareRecovery = async () => ({ token: "startup-poison", batches: [...rows] });
+  replica.commitRecovery = async () => undefined;
+  replica.deleteBatch = async (id) => {
+    rows.splice(rows.findIndex((row) => row.id === id), 1);
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+
+  render(<SyncProvider replica={replica}><div /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(snapshotStarted).toBe(true); });
+  expect(posts).toEqual([]);
+
+  await act(async () => { releaseSnapshot(); await snapshotGate; });
+  await vi.waitFor(() => { expect(posts).toEqual(["later-good"]); });
+  expect(rows).toEqual([]);
+});
+
+test("failed poison repair stays visible and Retry succeeds without reapplying it", async () => {
+  let snapshotCalls = 0;
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+      posts.push(batchId);
+      return batchId === "bad-batch"
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") {
+      snapshotCalls += 1;
+      return snapshotCalls === 1
+        ? jsonResponse({ detail: "snapshot unavailable" }, 503)
+        : jsonResponse(SNAPSHOT);
+    }
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+
+  const replica = fakeReplicaForProvider();
+  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                     poisoned: boolean }> = [];
+  let nextId = 1;
+  replica.init = async () => ({
+    ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    pendingBatches: [],
+  });
+  replica.enqueue = async (ops) => {
+    const id = nextId++;
+    rows.push({ id, batch_id: id === 1 ? "bad-batch" : "good-batch",
+                ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+  replica.markPoisoned = async (id) => {
+    rows.find((row) => row.id === id)!.poisoned = true;
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+  replica.pendingBatches = async () => [...rows];
+  replica.prepareRecovery = async () => ({ token: `lease-${snapshotCalls}`, batches: [...rows] });
+  replica.commitRecovery = async () => undefined;
+  replica.abortRecovery = async () => undefined;
+  replica.deleteBatch = async (id) => {
+    rows.splice(rows.findIndex((row) => row.id === id), 1);
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+    await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+  });
+  await vi.waitFor(() => { expect(sync.problem?.repair).toBe("failed"); });
+  expect(sync.status).toBe("connected");
+  expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "failed",
+    event: { batchId: "bad-batch", status: 400 },
+    error: "request failed: 503 /api/sync/snapshot",
+  });
+  expect(posts).toEqual(["bad-batch"]);
+
+  const controls = sync as unknown as {
+    retryProblem(): Promise<void>;
+    dismissProblem(): void;
+  };
+  expect(controls.retryProblem).toBeTypeOf("function");
+  expect(controls.dismissProblem).toBeTypeOf("function");
+  act(() => { controls.dismissProblem(); });
+  expect(sync.problem?.repair).toBe("failed");
+
+  await act(async () => { await controls.retryProblem(); });
+  await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
+  expect(sync.problem?.repair).toBe("repaired");
+  expect(snapshotCalls).toBe(2);
+
+  act(() => { controls.dismissProblem(); });
+  expect(sync.problem).toBeUndefined();
+  await act(async () => { await Promise.resolve(); });
+  expect(posts).toEqual(["bad-batch", "good-batch"]);
 });
 
 test("gateway: requests reach the network until the socket has actually dropped", async () => {

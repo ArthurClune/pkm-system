@@ -33,6 +33,7 @@ function fakeReplica(over: Partial<Replica> = {},
     markPoisoned: () => rec("markPoisoned", { pending: 0 }),
     pendingCount: () => rec("pendingCount", 0),
     pendingBatches: () => rec<PendingBatch[]>("pendingBatches", []),
+    poisonedBatches: () => rec("poisonedBatches", []),
     localApi: () => rec("localApi", { handled: false as const }),
     prepareRecovery: () => rec("prepareRecovery", {
       token: "lease-1", batches: init.pendingBatches ?? [],
@@ -168,6 +169,40 @@ test("onSeq beyond the cursor pulls windows until latest, below it does nothing"
   sync.onSeq(12);
   await sync.idle();
   expect(fetchJson.mock.calls.at(-1)?.[0]).toBe("/api/sync/changes?since=9");
+});
+
+test("poison rebase waits for an in-flight guarded feed before its snapshot", async () => {
+  let releaseFeed!: () => void;
+  const feedGate = new Promise<void>((resolve) => { releaseFeed = resolve; });
+  let changeCalls = 0;
+  let snapshotCalls = 0;
+  const replica = fakeReplica();
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/sync/snapshot") {
+      snapshotCalls += 1;
+      return SNAP;
+    }
+    changeCalls += 1;
+    if (changeCalls === 2) await feedGate;
+    return feed({ next_since: 6, latest_seq: 6 });
+  });
+  const queue = { pause: vi.fn(), resume: vi.fn() };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+
+  sync.onSeq(9);
+  await vi.waitFor(() => { expect(changeCalls).toBe(2); });
+  const repair = sync.rebaseAuthoritative("poison");
+  await Promise.resolve();
+  expect(snapshotCalls).toBe(0);
+
+  releaseFeed();
+  await repair;
+  expect(snapshotCalls).toBe(1);
+  expect(queue.resume).not.toHaveBeenCalled();
 });
 
 test("a needs-bootstrap feed answer re-bootstraps when the queue is empty", async () => {

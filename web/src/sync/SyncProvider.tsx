@@ -12,11 +12,15 @@ import { apiFetch, setOfflineGateway } from "../api/client";
 import { createReplica, type Replica } from "../replica/client";
 import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue, type DrainOutcome,
-         type WriteTicket } from "./opQueue";
+         type PoisonEvent, type WriteTicket } from "./opQueue";
 import { createReplicaSync, type ReplicaState } from "./replicaSync";
 import { connectSocket, type WsBatch } from "./socket";
 
 export type SyncStatus = "connecting" | "connected" | "reconnecting";
+
+export type SyncProblem =
+  | { kind: "rejected-batch"; event: PoisonEvent;
+      repair: "running" | "failed" | "repaired"; error?: string };
 
 export interface Sync {
   status: SyncStatus;
@@ -31,6 +35,12 @@ export interface Sync {
   pending: number;
   /** Why editing is blocked, when it is. */
   readOnlyReason?: string;
+  /** Delivery health is separate from websocket connectivity. */
+  problem?: SyncProblem;
+  /** Retry the retained rejected-batch repair, if it failed. */
+  retryProblem(): Promise<void>;
+  /** Clear repaired details. Failed/running problems cannot be dismissed. */
+  dismissProblem(): void;
   enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
   /** Remote batches only — own echoes are filtered out here. */
   subscribe(fn: (batch: WsBatch) => void): () => void;
@@ -44,6 +54,8 @@ export const SyncContext = createContext<Sync>({
   replicaMode: "starting",
   canEdit: false,
   pending: 0,
+  retryProblem: () => Promise.resolve(),
+  dismissProblem: () => undefined,
   enqueue: () => {
     // a silent default would drop writes without a trace
     throw new Error("enqueue called outside <SyncProvider>");
@@ -95,11 +107,18 @@ export function SyncProvider({ children, replica }: {
     useState<ReplicaState>({ mode: "starting" });
   const [pending, setPending] = useState(0);
   const [quotaExhausted, setQuotaExhausted] = useState(false);
+  const [problem, setProblem] = useState<SyncProblem>();
   const subsRef = useRef(new Set<(b: WsBatch) => void>());
   const everConnectedRef = useRef(false);
   const mountedRef = useRef(true);
   const drainObserverRef = useRef<(outcome: DrainOutcome) => void>(
     () => undefined);
+  const startupRunRef = useRef<Promise<void>>(Promise.resolve());
+  const repairRunRef = useRef<Promise<void> | null>(null);
+  const repairTargetsRef = useRef<readonly PoisonEvent[]>([]);
+  const repairSucceededRef = useRef(false);
+  const problemRef = useRef<SyncProblem>();
+  problemRef.current = problem;
 
   const replicaRef = useRef<Replica | null | undefined>(undefined);
   const ownedReplicaRef = useRef<OwnedReplica | null>(null);
@@ -143,17 +162,74 @@ export function SyncProvider({ children, replica }: {
     }) : null;
   }, []);
 
+  const repairEventsRef = useRef<(events: readonly PoisonEvent[]) => Promise<void>>(
+    async () => undefined);
+  repairEventsRef.current = (events) => {
+    if (events.length === 0) return Promise.resolve();
+    if (repairRunRef.current) return repairRunRef.current;
+    repairTargetsRef.current = [...events];
+    repairSucceededRef.current = false;
+    const event = events[0];
+    if (mountedRef.current) {
+      setProblem({ kind: "rejected-batch", event, repair: "running" });
+    }
+    const run = (async () => {
+      try {
+        await replicaSync!.rebaseAuthoritative("poison");
+        let remaining = 0;
+        for (const poisonEvent of events) {
+          const result = await replicaRef.current!.deleteBatch(poisonEvent.rowId);
+          remaining = result.pending;
+        }
+        if (mountedRef.current) {
+          setPending(remaining);
+          setProblem({ kind: "rejected-batch", event, repair: "repaired" });
+          setResyncSeq((n) => n + 1);
+          queue.resume("recovery");
+        }
+        repairSucceededRef.current = true;
+      } catch (error: unknown) {
+        if (mountedRef.current) {
+          setProblem({
+            kind: "rejected-batch", event, repair: "failed",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    })();
+    repairRunRef.current = run.finally(() => { repairRunRef.current = null; });
+    return repairRunRef.current;
+  };
+
   useEffect(() => {
     if (replicaSync === null) {
       setReplicaState({ mode: "no-replica" });
       return;
     }
-    // Start the replica at mount, not just on socket connect: a cold start
-    // offline (PWA shell) has no socket, and a hydrated replica reaches
-    // ready without the network. An empty replica's bootstrap needs the
-    // server and fails quietly here — the first connect retries it.
-    void replicaSync.start().catch(() => undefined);
-  }, [replicaSync]);
+    const r = replicaRef.current!;
+    // Close the reload window where later durable work could post before a
+    // previously rejected optimistic batch is repaired.
+    queue.setOnline(false);
+    queue.pause("recovery");
+    startupRunRef.current = (async () => {
+      let poisoned: PoisonEvent[] = [];
+      try { poisoned = await r.poisonedBatches(); } catch { /* init owns degradation */ }
+      if (poisoned.length > 0) {
+        await repairEventsRef.current(poisoned);
+        if (!repairSucceededRef.current) return;
+      } else {
+        queue.resume("recovery");
+      }
+      // Start at mount, not just socket connect: a cold offline PWA with a
+      // hydrated replica still becomes ready. Poison repair runs first so a
+      // schema recovery cannot erase its durable details before repair.
+      await replicaSync.start();
+    })().catch(() => undefined);
+  }, [queue, replicaSync]);
+
+  useEffect(() => queue.onPoison((event) => {
+    void repairEventsRef.current([event]);
+  }), [queue]);
 
   // Views that fetched while the replica was still starting got online-only
   // errors (or stale server state); once it turns ready with the socket
@@ -267,8 +343,10 @@ export function SyncProvider({ children, replica }: {
             // fetched server state that predates the flush, and the flushed
             // batches echo back under this tab's own clientId (filtered), so
             // only the resync bump can refresh them.
-            void initialPending.then((n) =>
-              n > 0 ? reconnectFlow() : replicaSync?.start());
+            void initialPending.then(async (n) => {
+              await startupRunRef.current;
+              if (n > 0) await reconnectFlow();
+            });
           }
           everConnectedRef.current = true;
           if (mountedRef.current) setStatus("connected");
@@ -315,6 +393,18 @@ export function SyncProvider({ children, replica }: {
     canEdit,
     pending,
     readOnlyReason,
+    problem,
+    retryProblem: () => {
+      if (problemRef.current?.repair !== "failed") return Promise.resolve();
+      return repairEventsRef.current(repairTargetsRef.current).then(async () => {
+        if (repairSucceededRef.current) await replicaSync?.start();
+      });
+    },
+    dismissProblem: () => {
+      if (problemRef.current?.repair !== "repaired") return;
+      repairTargetsRef.current = [];
+      setProblem(undefined);
+    },
     enqueue: (ops, scope) => queue.enqueue(ops, scope),
     subscribe: (fn) => {
       subsRef.current.add(fn);
@@ -322,7 +412,7 @@ export function SyncProvider({ children, replica }: {
     },
     settled: () => queue.settled(),
   }), [status, resyncSeq, replicaState, canEdit, pending, readOnlyReason,
-       queue]);
+       problem, queue]);
 
   return <SyncContext.Provider value={api}>{children}</SyncContext.Provider>;
 }

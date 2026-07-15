@@ -8,7 +8,7 @@
 // 4xx) are set aside, never retried forever (spec section 6).
 
 import type { BlockOp, UpdateTextOp } from "../api/ops";
-import type { PendingBatch } from "./client";
+import type { PendingBatch, PoisonedBatch } from "./client";
 import type { ReplicaDb } from "./db";
 import { applyLocalOps } from "./localOps";
 import { sha256Hex } from "./sha256";
@@ -80,6 +80,36 @@ export function allBatches(db: ReplicaDb): PendingBatch[] {
                      poisoned: number }>(
     "SELECT id, batch_id, ops_json, poisoned FROM pending_ops ORDER BY id",
   ).map(toBatch);
+}
+
+const poisonDetails = (error: string | null): Pick<PoisonedBatch,
+  "status" | "message"> => {
+  if (error !== null) {
+    try {
+      const parsed = JSON.parse(error) as { status?: unknown; message?: unknown };
+      if (typeof parsed.status === "number" && typeof parsed.message === "string") {
+        return { status: parsed.status, message: parsed.message };
+      }
+    } catch { /* rows from older builds stored the display string directly */ }
+  }
+  const message = error ?? "rejected batch from a previous session";
+  const match = message.match(/request failed:\s*(\d+)/);
+  return { status: match ? Number(match[1]) : 400, message };
+};
+
+/** Rejected rows are queried separately from allBatches so Task 2's
+ * schema-mismatch recovery read remains limited to migration-stable columns. */
+export function poisonedBatches(db: ReplicaDb): PoisonedBatch[] {
+  return db.select<{ id: number; batch_id: string; ops_json: string;
+                     error: string | null }>(
+    "SELECT id, batch_id, ops_json, error FROM pending_ops" +
+    " WHERE poisoned != 0 ORDER BY id",
+  ).map((row) => ({
+    rowId: row.id,
+    batchId: row.batch_id,
+    ops: JSON.parse(row.ops_json) as BlockOp[],
+    ...poisonDetails(row.error),
+  }));
 }
 
 export function pendingCount(db: ReplicaDb): number {

@@ -4,7 +4,7 @@
 // reports whether every retained write reached the server.
 import { ApiError, apiFetch } from "../api/client";
 import type { BlockOp } from "../api/ops";
-import type { Replica } from "../replica/client";
+import type { PoisonedBatch, Replica } from "../replica/client";
 import { ReplicaError } from "../replica/rpc";
 import { newUid } from "../uid";
 
@@ -23,6 +23,8 @@ export interface WriteTicket {
   settled: Promise<WriteOutcome>;
 }
 
+export interface PoisonEvent extends PoisonedBatch {}
+
 export type DrainOutcome =
   | { status: "drained" }
   | { status: "blocked"; reason: "offline" | "retryable" |
@@ -37,7 +39,7 @@ export interface OpQueue {
   resume(reason: "recovery"): void;
   dispose(): void;
   onPending(fn: (n: number) => void): () => void;
-  onPoison(fn: (e: unknown) => void): () => void;
+  onPoison(fn: (event: PoisonEvent) => void): () => void;
   onQuota(fn: (e: unknown) => void): () => void;
 }
 
@@ -90,7 +92,7 @@ function createReplicaQueue(replica: Replica,
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryIndex = 0;
   const pending = listeners<number>();
-  const poison = listeners<unknown>();
+  const poison = listeners<PoisonEvent>();
   const quota = listeners<unknown>();
 
   const cancelRetry = (reset: boolean): void => {
@@ -166,18 +168,30 @@ function createReplicaQueue(replica: Replica,
         await postOps(batch.ops, batch.batch_id);
       } catch (error: unknown) {
         if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+          const event: PoisonEvent = {
+            rowId: batch.id,
+            batchId: batch.batch_id,
+            ops: batch.ops,
+            status: error.status,
+            message: error.message,
+          };
           let result;
           try {
-            result = await replica.markPoisoned(batch.id, String(error));
+            result = await replica.markPoisoned(batch.id, JSON.stringify({
+              status: event.status, message: event.message,
+            }));
           } catch (rpcError: unknown) {
             return failed(rpcError);
           }
           pendingCount = result.pending;
           pending.emit(pendingCount);
-          poison.emit(error);
-          const reason = terminalReason();
-          if (reason !== null) return blocked(reason);
-          continue;
+          // Poison is a recovery barrier, not just an error notification.
+          // Establish the pause synchronously before listeners can start the
+          // authoritative rebase or any later durable row can POST.
+          recovering = true;
+          cancelRetry(false);
+          poison.emit(event);
+          return blocked("recovering");
         }
         return failed(error);
       }

@@ -5,7 +5,7 @@ import type { BlockOp } from "../api/ops";
 import type { PendingBatch, Replica } from "../replica/client";
 import { ReplicaError } from "../replica/rpc";
 import { jsonResponse } from "../test-helpers";
-import { clientId, createOpQueue } from "./opQueue";
+import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 
 const op = (uid: string): BlockOp => ({ op: "delete", uid });
 
@@ -27,6 +27,7 @@ function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch
     },
     nextBatch: async () => rows.find((r) => !r.poisoned) ?? null,
     pendingBatches: async () => [...rows],
+    poisonedBatches: async () => [],
     deleteBatch: async (id) => {
       rows.splice(rows.findIndex((r) => r.id === id), 1);
       return { pending: pending() };
@@ -95,24 +96,36 @@ test("offline: batches persist without posting; reconnect drains in order", asyn
     .toEqual(["batch-1", "batch-2"]);
 });
 
-test("a 4xx response poisons the batch and the queue keeps flowing", async () => {
+test("a 4xx emits batch details and pauses later delivery before notifying", async () => {
   const { bodies } = fetchSeq([
     () => jsonResponse({ detail: "bad op" }, 400),
     () => jsonResponse({ ok: true }),
   ]);
   const replica = memReplica();
   const q = createOpQueue(replica, () => undefined);
-  const poisons: unknown[] = [];
-  q.onPoison((e) => poisons.push(e));
+  const poisons: PoisonEvent[] = [];
+  q.onPoison((event) => poisons.push(event));
   q.enqueue([op("bad")]);
   q.enqueue([op("good")]);
   await q.settled();
-  await q.drain();
-  expect(poisons.length).toBe(1);
+  const outcome = await q.drain();
+  expect(poisons).toEqual([{
+    rowId: 1,
+    batchId: "batch-1",
+    ops: [op("bad")],
+    status: 400,
+    message: "request failed: 400 /api/ops",
+  }]);
+  expect(outcome).toMatchObject({ status: "blocked", reason: "recovering" });
   expect(replica.rows).toEqual([
     expect.objectContaining({ batch_id: "batch-1", poisoned: true }),
+    expect.objectContaining({ batch_id: "batch-2", poisoned: false }),
   ]);
-  expect(bodies.length).toBe(2); // rejected batch + the good one
+  expect(bodies).toHaveLength(1); // the good batch waits for repair
+
+  q.resume("recovery");
+  await q.drain();
+  expect(bodies).toHaveLength(2);
 });
 
 test("a durable batch from a previous page load drains on the first connect", async () => {

@@ -262,6 +262,16 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   expect(batch.ops[0]).toMatchObject({ op: "update_text", text: "offline edit" });
   expect(batch.batch_id.length).toBeGreaterThanOrEqual(8);
   expect(await replica.pendingBatches()).toHaveLength(1);
+  await replica.markPoisoned(batch.id, JSON.stringify({
+    status: 422, message: "request failed: 422 /api/ops",
+  }));
+  await expect(replica.poisonedBatches()).resolves.toEqual([{
+    rowId: batch.id,
+    batchId: batch.batch_id,
+    ops: batch.ops,
+    status: 422,
+    message: "request failed: 422 /api/ops",
+  }]);
   await replica.deleteBatch(batch.id);
   expect(await replica.pendingCount()).toBe(0);
   await expect(replica.markPoisoned(99, "gone")).resolves.toEqual({ pending: 0 });

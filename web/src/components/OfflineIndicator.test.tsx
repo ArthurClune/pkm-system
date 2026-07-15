@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
 import { SyncContext, type Sync } from "../sync/SyncProvider";
 import { OfflineIndicator } from "./OfflineIndicator";
 
@@ -10,6 +10,8 @@ function syncWith(overrides: Partial<Sync>): Sync {
     replicaMode: "ready",
     canEdit: true,
     pending: 0,
+    retryProblem: () => Promise.resolve(),
+    dismissProblem: () => undefined,
     enqueue: () => ({
       id: "test-write", scope: [],
       settled: Promise.resolve({ status: "persisted", pending: 0 }),
@@ -80,4 +82,50 @@ it("offline without editing shows the read-only reason", () => {
   });
   expect(screen.getByRole("status")).toHaveTextContent(
     "Offline — editing paused: offline — this graph is not yet available locally");
+});
+
+const rejected = {
+  kind: "rejected-batch" as const,
+  event: {
+    rowId: 7, batchId: "batch-rejected",
+    ops: [{ op: "delete" as const, uid: "uid_bad" }],
+    status: 400, message: "request failed: 400 /api/ops",
+  },
+};
+
+it("shows connected rejected-delivery details while repair is running", () => {
+  renderWith({ problem: { ...rejected, repair: "running" } });
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Server rejected a change (HTTP 400). Repairing local state…");
+  expect(screen.getByText("Details")).toBeInTheDocument();
+  expect(screen.getByText(/batch-rejected/)).toBeInTheDocument();
+});
+
+it("failed repair offers Retry but cannot be dismissed", () => {
+  const retryProblem = vi.fn(async () => undefined);
+  const dismissProblem = vi.fn();
+  renderWith({
+    problem: { ...rejected, repair: "failed", error: "snapshot unavailable" },
+    ...({ retryProblem, dismissProblem } as unknown as Partial<Sync>),
+  });
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Local repair failed: snapshot unavailable");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(retryProblem).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+  expect(dismissProblem).not.toHaveBeenCalled();
+});
+
+it("repaired rejection keeps details until Dismiss", () => {
+  const retryProblem = vi.fn(async () => undefined);
+  const dismissProblem = vi.fn();
+  renderWith({
+    problem: { ...rejected, repair: "repaired" },
+    ...({ retryProblem, dismissProblem } as unknown as Partial<Sync>),
+  });
+  expect(screen.getByRole("status")).toHaveTextContent("Local state repaired");
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(dismissProblem).toHaveBeenCalledTimes(1);
+  expect(retryProblem).not.toHaveBeenCalled();
 });

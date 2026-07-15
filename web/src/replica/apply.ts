@@ -79,6 +79,9 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * protocol on every bootstrap and pull). Losing that state doesn't just
  * revert the visible text — the NEXT update_text would capture a stale
  * base_text_hash and manufacture a spurious conflict copy server-side.
+ * Rejected batches remain durable only while repair is pending: they are
+ * skipped here so the authoritative snapshot removes their optimistic effect,
+ * then the provider deletes their rows before delivery resumes.
  * Re-applying is safe: batches flush to the server unchanged, and a batch
  * that can no longer apply (e.g. its rows were superseded or tombstoned)
  * is skipped via savepoint rollback — push-time resolution owns it. */

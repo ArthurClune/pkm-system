@@ -25,6 +25,10 @@ export interface ReplicaSync {
   onSeq(seq: number): void;
   /** Resolves when no pull is in flight (tests, reconnect ordering). */
   idle(): Promise<void>;
+  /** Full-snapshot poison repair under the shared recovery lease. Delivery
+   * remains paused on return so the provider can delete the poison row, bump
+   * view resync, and only then resume the queue. */
+  rebaseAuthoritative(reason: "poison"): Promise<void>;
 }
 
 export interface ReplicaSyncDeps {
@@ -72,29 +76,45 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
   };
 
-  const recover = async (kind: RecoveryCommit["kind"]): Promise<boolean> => {
+  const runRecovery = async (kind: RecoveryCommit["kind"], options: {
+    flush: boolean;
+    resume: boolean;
+    reportReplicaFailure: boolean;
+  }): Promise<void> => {
     queue.pause("recovery");
     let token: string | null = null;
     try {
       const lease = await replica.prepareRecovery();
       token = lease.token;
-      await flushBatches([...lease.batches]);
+      if (options.flush) await flushBatches([...lease.batches]);
       const snapshot = (await fetchJson("/api/sync/snapshot")) as Snapshot;
       await replica.commitRecovery(token, { kind, snapshot });
       token = null; // commit released the worker gate
       cursor = snapshot.seq;
-      return true;
     } catch (error: unknown) {
-      onState({ mode: "recovery-failed", error: errText(error) });
+      if (options.reportReplicaFailure) {
+        onState({ mode: "recovery-failed", error: errText(error) });
+      }
       if (token !== null) {
         // Commit failures release in the worker; abort is still attempted so
         // transport failures cannot leave a known lease held. Double-token
         // rejection is deliberately ignored in favor of the original error.
         try { await replica.abortRecovery(token); } catch { /* already released */ }
       }
-      return false;
+      throw error;
     } finally {
-      queue.resume("recovery");
+      if (options.resume) queue.resume("recovery");
+    }
+  };
+
+  const recover = async (kind: RecoveryCommit["kind"]): Promise<boolean> => {
+    try {
+      await runRecovery(kind, {
+        flush: true, resume: true, reportReplicaFailure: true,
+      });
+      return true;
+    } catch {
+      return false;
     }
   };
 
@@ -177,6 +197,18 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     },
     idle() {
       return pulling ?? Promise.resolve();
+    },
+    async rebaseAuthoritative(_reason) {
+      // Unlike schema/generation recovery, poison repair must not flush later
+      // valid rows before the rejected optimistic state has been removed. A
+      // pull that already passed Task 1's pending-id guard must finish first;
+      // otherwise its stale window could apply after the full snapshot and
+      // move the cursor/state backwards.
+      queue.pause("recovery");
+      await (pulling ?? Promise.resolve());
+      await runRecovery("rebase", {
+        flush: false, resume: false, reportReplicaFailure: false,
+      });
     },
   };
 }

@@ -128,6 +128,8 @@ export function makeSync(status: SyncStatus = "connected",
     replicaMode: "ready",
     canEdit: status === "connected",
     pending: 0,
+    retryProblem: () => Promise.resolve(),
+    dismissProblem: () => undefined,
     enqueue: (ops, scope): WriteTicket => {
       sent.push(ops);
       return {

@@ -11,7 +11,7 @@ import type { ReplicaDb } from "./db";
 import { getMeta } from "./meta";
 import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
-         pendingCount } from "./queue";
+         pendingCount, poisonedBatches } from "./queue";
 import { createRecoveryGate } from "./recoveryGate";
 import type { RpcHandlers } from "./rpc";
 
@@ -202,6 +202,12 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     },
     async pendingBatches() {
       return gate.run(async () => readPendingBatches(await db()));
+    },
+    async poisonedBatches() {
+      return gate.run(async () => {
+        const d = await db();
+        return tableExists(d, "pending_ops") ? poisonedBatches(d) : [];
+      });
     },
     async pendingCount() {
       return gate.run(async () => pendingCount(await db()));

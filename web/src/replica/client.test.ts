@@ -198,6 +198,56 @@ test("snapshot and recovery RPCs use the long timeout; ordinary calls use the de
   }
 });
 
+test("a prepare delayed past its client timeout cannot later orphan the worker lease", async () => {
+  vi.useFakeTimers();
+  try {
+    const t = await openRawTestDb();
+    const openStarted = deferred();
+    const releaseOpen = deferred<TestDb["db"]>();
+    const workerPrepareFinished = deferred();
+    let workerPrepareOutcome: "pending" | "resolved" | "rejected" = "pending";
+    const ch = new MessageChannel();
+    const base = buildHandlers({
+      openDb: async () => {
+        openStarted.resolve();
+        return releaseOpen.promise;
+      },
+      newBatchId: () => "batch-after-timeout",
+    });
+    serveRpc(toPortLike(ch.port2), {
+      ...base,
+      prepareRecovery: async (payload) => {
+        try {
+          const result = await base.prepareRecovery(payload);
+          workerPrepareOutcome = "resolved";
+          return result;
+        } catch (error: unknown) {
+          workerPrepareOutcome = "rejected";
+          throw error;
+        } finally {
+          workerPrepareFinished.resolve();
+        }
+      },
+    });
+    const replica = createReplica(toPortLike(ch.port1));
+
+    const earlier = replica.pendingCount().catch((error: unknown) => error);
+    await openStarted.promise;
+    const prepare = replica.prepareRecovery().catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await expect(prepare).resolves.toMatchObject({ kind: "timeout" });
+
+    releaseOpen.resolve(t.db);
+    await workerPrepareFinished.promise;
+    expect(workerPrepareOutcome).toBe("rejected");
+    await expect(replica.enqueue([{ op: "delete", uid: "uid_after" }]))
+      .resolves.toEqual({ pending: 1 });
+    await earlier;
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   const { replica, current } = await setup();
   await replica.init();

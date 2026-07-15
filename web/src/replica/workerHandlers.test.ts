@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { applySnapshot, type Snapshot } from "./apply";
 import { openRawTestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
@@ -134,4 +134,74 @@ test("a reset commit rolls back schema rebuild when snapshot application fails",
   expect(t.db.select("SELECT id FROM pages WHERE id=999")).toEqual([]);
   expect(t.db.select("SELECT uid, text FROM blocks ORDER BY uid"))
     .toEqual(blocksBefore);
+});
+
+test("commit detects an error-only durable row mutation hidden from the public lease", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({
+    openDb: async () => t.db,
+    newBatchId: () => "batch-error",
+  });
+  await handlers.init(undefined);
+  await handlers.enqueue([{ op: "delete", uid: "uid_error" }]);
+  await handlers.markPoisoned({ id: 1, error: "first rejection" });
+  const lease = await handlers.prepareRecovery(undefined) as {
+    token: string;
+    batches: Array<Record<string, unknown>>;
+  };
+  expect(lease.batches[0]).not.toHaveProperty("error");
+
+  t.db.exec("UPDATE pending_ops SET error = ? WHERE id = 1", ["changed only error"]);
+
+  await expect(handlers.commitRecovery({
+    token: lease.token,
+    input: { kind: "rebase", snapshot: SNAP },
+  })).rejects.toThrow("pending rows changed during recovery");
+});
+
+test("schema reset removes obsolete user and virtual-table objects atomically", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db });
+  await handlers.init(undefined);
+  t.db.exec("CREATE TABLE obsolete_cache(id INTEGER PRIMARY KEY, value TEXT)");
+  t.db.exec("CREATE VIEW obsolete_view AS SELECT id FROM obsolete_cache");
+  t.db.exec("CREATE VIRTUAL TABLE obsolete_fts USING fts5(value)");
+  const lease = await handlers.prepareRecovery(undefined) as { token: string };
+
+  await handlers.commitRecovery({
+    token: lease.token,
+    input: { kind: "reset", snapshot: SNAP },
+  });
+
+  expect(t.db.select<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE name LIKE 'obsolete_%' ORDER BY name",
+  )).toEqual([]);
+  expect(t.db.select("PRAGMA foreign_keys")).toEqual([{ foreign_keys: 1 }]);
+});
+
+test("an acquired recovery lease expires if its client forgets the token", async () => {
+  vi.useFakeTimers();
+  try {
+    let clock = 0;
+    const t = await openRawTestDb();
+    const handlers = buildHandlers({
+      openDb: async () => t.db,
+      clockMs: () => clock,
+      newBatchId: () => "batch-after-expiry",
+    });
+    await handlers.init(undefined);
+    const lease = await handlers.prepareRecovery({ expiresAtMs: 100 }) as {
+      token: string;
+    };
+    const later = handlers.enqueue([{ op: "delete", uid: "uid_later" }]);
+
+    clock = 100;
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(later).resolves.toEqual({ pending: 1 });
+    await expect(handlers.abortRecovery(lease.token))
+      .rejects.toThrow("invalid or inactive recovery token");
+  } finally {
+    vi.useRealTimers();
+  }
 });

@@ -7,6 +7,8 @@ import type { ApplyResult, Changes, Snapshot } from "./apply";
 import type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 import { createRpcClient, type PortLike } from "./rpc";
 
+const RECOVERY_TIMEOUT_MS = 120_000;
+
 export interface PendingBatch {
   id: number;
   batch_id: string;
@@ -82,7 +84,9 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
     pendingCount: () => rpc.call("pendingCount"),
     localApi: (req) => rpc.call("localApi", req),
     prepareRecovery: () => rpc.call(
-      "prepareRecovery", undefined, { timeoutMs: 120_000 }),
+      "prepareRecovery",
+      { expiresAtMs: Date.now() + RECOVERY_TIMEOUT_MS },
+      { timeoutMs: RECOVERY_TIMEOUT_MS }),
     commitRecovery: (token, input) => rpc.call(
       "commitRecovery", { token, input }, { timeoutMs: 120_000 }),
     abortRecovery: (token) => rpc.call("abortRecovery", token),

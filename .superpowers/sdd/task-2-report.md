@@ -12,15 +12,20 @@ and schema mismatch plus feed rebootstrap share one queue-aware coordinator.
   through it, including `Replica.enqueue`, queue row mutation/read handlers,
   snapshots/feeds, and offline `localApi` POST/GET calls.
 - `prepareRecovery` waits for earlier database work, captures the complete
-  oldest-first durable row set, fingerprints it, and holds one active token.
+  oldest-first durable row set, fingerprints every persisted column (including
+  private `error`), and holds one active token. The client sends its timeout
+  deadline; late acquisition rejects, and an acquired lease auto-expires at the
+  same deadline if the client has forgotten its token.
   Later database calls cannot acknowledge or touch the old database until the
   lease commits or aborts.
 - `commitRecovery` validates the active token and compares the complete durable
   rows immediately before authoritative work. A mismatch refuses reset/rebase.
-  Schema reset transactionally drops/reinstalls known schema objects and applies
-  the snapshot on the active OPFS connection, so any DDL/snapshot exception
-  rolls back to the complete old database. Feed rebase applies the snapshot in
-  place and preserves/reapplies stable pending and poisoned rows.
+  Schema reset discovers and transactionally removes all user triggers, views,
+  indexes, virtual-table roots/shadows, and ordinary tables before reinstalling
+  the current schema and applying the snapshot on the active OPFS connection,
+  so any DDL/snapshot exception rolls back to the complete old database. Feed
+  rebase applies the snapshot in place and preserves/reapplies stable pending
+  and poisoned rows.
 - Commit success, commit failure, prepare failure, and abort release exactly one
   FIFO slot. Invalid and reused commit/abort tokens reject.
 - Kept the legacy direct `reset()` compatibility RPC, but serialized it and made
@@ -210,10 +215,58 @@ GREEN changes and evidence:
   build, and Playwright 6/6.
 - Focused re-review approved both fixes with no remaining blocker.
 
+## Independent review fix pass
+
+A later independent review returned three Important findings. The bean was
+reopened and each fix followed a focused RED/GREEN cycle.
+
+### RED evidence
+
+Command:
+
+```text
+cd web && pnpm vitest run src/replica/client.test.ts src/replica/workerHandlers.test.ts
+```
+
+Result: exit 1; 3 failed, 16 passed.
+
+- A prepare request delayed behind earlier gate work timed out in the client,
+  then resolved in the worker and acquired an ownerless lease.
+- Changing only persisted `pending_ops.error` after prepare was not detected,
+  because the private fingerprint reused the public `PendingBatch` shape.
+- An obsolete ordinary table, view, FTS virtual root, and its five shadow tables
+  all survived schema reset.
+
+### Fixes
+
+- `prepareRecovery` now sends the exact client deadline to the worker. Capture
+  rejects if that deadline elapsed while queued. If it acquired before expiry,
+  the worker owns an expiry timer that aborts/releases the lease at the same
+  deadline; valid commit/abort clears the timer. Worker failure and Replica
+  disposal remain under Task 1 lifecycle ownership. Deterministic tests cover
+  both delayed acquisition after client timeout and an acquired token forgotten
+  by its client, proving later FIFO work is released.
+- The public lease still returns unchanged `PendingBatch[]`, while the private
+  comparison reads raw durable rows with `id`, `batch_id`, `ops_json`,
+  `poisoned`, and `error`. An error-only mutation now refuses commit.
+- Reset enumerates `sqlite_master`: user triggers/views/explicit indexes are
+  dropped first, virtual-table roots next so SQLite removes their shadows, then
+  remaining ordinary tables from a fresh query. FK enforcement is disabled
+  outside the atomic teardown transaction because retired dependency order is
+  unknowable and restored in `finally`; success coverage asserts it is back on.
+  DDL/install/snapshot remain one rollback-capable transaction.
+
+### GREEN and final verification
+
+- Covering gate/client/worker/coordinator command: 4 files / 39 tests passed.
+- Exact Task 2 Step 5 command: 6 files / 80 tests passed.
+- `cd web && pnpm typecheck`: exit 0.
+- `git diff --check`: exit 0.
+- Fresh canonical `cd web && pnpm verify`: exit 0; 69 files / 704 unit tests,
+  production Vite/PWA build, and Playwright 6/6 passed.
+
 ## Concerns
 
-No blocking concerns. Like the existing long snapshot RPC, recovery RPC
-timeouts do not cancel worker execution at the transport layer; the 120-second
-budget materially reduces accidental timeout while waiting behind a long
-database operation, and Task 1 disposal still terminates the owned worker on a
-terminal lifecycle path.
+No blocking concerns. The former timeout concern is resolved at the recovery
+protocol layer: a timed-out prepare can no longer acquire or retain an orphaned
+lease, while Task 1 still owns terminal RPC failure and worker disposal.

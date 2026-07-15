@@ -21,6 +21,7 @@ export interface WorkerDeps {
   closeDb?(): Promise<void> | void;
   /** Injectable for tests; the worker uses Date.now/crypto.randomUUID. */
   nowMs?: () => number;
+  clockMs?: () => number;
   newBatchId?: () => string;
   newRecoveryToken?: () => string;
   applySnapshot?: (db: ReplicaDb, snapshot: Snapshot, nowMs: number) => void;
@@ -38,40 +39,95 @@ function readPendingBatches(db: ReplicaDb): PendingBatch[] {
   return allBatches(db);
 }
 
+interface DurablePendingRow {
+  id: number;
+  batch_id: string;
+  ops_json: string;
+  poisoned: number;
+  error: string | null;
+}
+
+function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {
+  if (!tableExists(db, "pending_ops")) return [];
+  return db.select<DurablePendingRow>(
+    "SELECT id, batch_id, ops_json, poisoned, error" +
+    " FROM pending_ops ORDER BY id",
+  );
+}
+
+const quoteIdentifier = (name: string): string =>
+  `"${name.replaceAll('"', '""')}"`;
+
 export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   let dbPromise: Promise<ReplicaDb> | null = null;
   const db = (): Promise<ReplicaDb> => (dbPromise ??= deps.openDb());
   const nowMs = deps.nowMs ?? (() => Date.now());
+  const clockMs = deps.clockMs ?? (() => Date.now());
   const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID());
   const applySnapshotToDb = deps.applySnapshot ?? applySnapshot;
   const gate = createRecoveryGate(
     deps.newRecoveryToken ?? (() => crypto.randomUUID()));
-  let preparedRows: { token: string; fingerprint: string } | null = null;
-  const fingerprint = (batches: readonly PendingBatch[]): string =>
-    JSON.stringify(batches);
+  let preparedRows: {
+    token: string;
+    fingerprint: string;
+    expiryTimer: ReturnType<typeof setTimeout> | null;
+  } | null = null;
+  const fingerprint = (rows: readonly DurablePendingRow[]): string =>
+    JSON.stringify(rows);
+  const clearPrepared = (token: string): void => {
+    if (preparedRows?.token !== token) return;
+    if (preparedRows.expiryTimer !== null) {
+      clearTimeout(preparedRows.expiryTimer);
+    }
+    preparedRows = null;
+  };
   const rebuildSchema = (d: ReplicaDb, snapshot?: Snapshot): void => {
     // SQLite DDL is transactional. Keeping the active connection and doing the
     // logical rebuild in one transaction means schema or snapshot failure rolls
     // back to the complete old database, including poisoned durable rows.
-    d.transaction(() => {
-      d.exec("DROP TRIGGER IF EXISTS blocks_fts_ai");
-      d.exec("DROP TRIGGER IF EXISTS blocks_fts_ad");
-      d.exec("DROP TRIGGER IF EXISTS blocks_fts_au");
-      d.exec("DROP TRIGGER IF EXISTS pages_fts_ai");
-      d.exec("DROP TRIGGER IF EXISTS pages_fts_ad");
-      d.exec("DROP TRIGGER IF EXISTS pages_fts_au");
-      d.exec("DROP TABLE IF EXISTS blocks_fts");
-      d.exec("DROP TABLE IF EXISTS pages_fts");
-      d.exec("DROP TABLE IF EXISTS refs");
-      d.exec("DROP TABLE IF EXISTS blocks");
-      d.exec("DROP TABLE IF EXISTS pages");
-      d.exec("DROP TABLE IF EXISTS sidebar_entries");
-      d.exec("DROP TABLE IF EXISTS assets");
-      d.exec("DROP TABLE IF EXISTS pending_ops");
-      d.exec("DROP TABLE IF EXISTS sync_client_meta");
-      installSchema(d);
-      if (snapshot) applySnapshotToDb(d, snapshot, nowMs());
-    });
+    // Teardown order cannot be known for retired schemas. Disable FK actions
+    // outside the transaction, then restore enforcement whether commit or
+    // rollback wins; the transaction remains the atomic durability boundary.
+    d.exec("PRAGMA foreign_keys=OFF");
+    try {
+      d.transaction(() => {
+        for (const type of ["trigger", "view", "index"] as const) {
+          const objects = d.select<{ name: string }>(
+            "SELECT name FROM sqlite_master WHERE type = ?" +
+            " AND name NOT LIKE 'sqlite_%'" +
+            (type === "index" ? " AND sql IS NOT NULL" : "") +
+            " ORDER BY name",
+            [type],
+          );
+          const keyword = type.toUpperCase();
+          for (const object of objects) {
+            d.exec(`DROP ${keyword} IF EXISTS ${quoteIdentifier(object.name)}`);
+          }
+        }
+        // Drop virtual roots first; SQLite removes their implementation-owned
+        // shadow tables. Re-query afterward so only genuinely remaining user
+        // tables are dropped directly.
+        const virtualTables = d.select<{ name: string }>(
+          "SELECT name FROM sqlite_master WHERE type = 'table'" +
+          " AND name NOT LIKE 'sqlite_%'" +
+          " AND upper(sql) LIKE 'CREATE VIRTUAL TABLE%' ORDER BY name",
+        );
+        for (const table of virtualTables) {
+          d.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(table.name)}`);
+        }
+        const tables = d.select<{ name: string }>(
+          "SELECT name FROM sqlite_master WHERE type = 'table'" +
+          " AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        );
+        for (const table of tables) {
+          d.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(table.name)}`);
+        }
+        installSchema(d);
+        if (snapshot) applySnapshotToDb(d, snapshot, nowMs());
+      });
+    } finally {
+      d.exec("PRAGMA foreign_keys=ON");
+    }
   };
 
   return {
@@ -154,15 +210,35 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       return gate.run(async () => handleLocalApi(
         await db(), payload as LocalApiRequest, { newBatchId }));
     },
-    async prepareRecovery() {
+    async prepareRecovery(payload) {
+      const expiresAtMs = Number(
+        (payload as { expiresAtMs?: unknown } | undefined)?.expiresAtMs,
+      );
+      const hasDeadline = Number.isFinite(expiresAtMs);
       const prepared = await gate.prepare(async () => {
         const batches = readPendingBatches(await db());
-        return { batches, fingerprint: fingerprint(batches) };
+        const durableRows = readDurablePendingRows(await db());
+        if (hasDeadline && clockMs() >= expiresAtMs) {
+          throw new Error("recovery preparation expired");
+        }
+        return { batches, fingerprint: fingerprint(durableRows) };
       });
+      if (hasDeadline && clockMs() >= expiresAtMs) {
+        await gate.abort(prepared.token);
+        throw new Error("recovery preparation expired");
+      }
       preparedRows = {
         token: prepared.token,
         fingerprint: prepared.value.fingerprint,
+        expiryTimer: null,
       };
+      if (hasDeadline) {
+        preparedRows.expiryTimer = setTimeout(() => {
+          void gate.abort(prepared.token)
+            .catch(() => undefined)
+            .finally(() => { clearPrepared(prepared.token); });
+        }, Math.max(0, expiresAtMs - clockMs()));
+      }
       return { token: prepared.token, batches: prepared.value.batches };
     },
     async commitRecovery(payload) {
@@ -170,12 +246,17 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         token: string;
         input: RecoveryCommit;
       };
+      if (preparedRows?.token === token
+          && preparedRows.expiryTimer !== null) {
+        clearTimeout(preparedRows.expiryTimer);
+        preparedRows.expiryTimer = null;
+      }
       try {
         await gate.commit(token, async () => {
           if (preparedRows?.token !== token) {
             throw new Error("invalid or inactive recovery token");
           }
-          const current = readPendingBatches(await db());
+          const current = readDurablePendingRows(await db());
           if (fingerprint(current) !== preparedRows.fingerprint) {
             throw new Error("pending rows changed during recovery");
           }
@@ -188,13 +269,18 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         });
         return null;
       } finally {
-        if (preparedRows?.token === token) preparedRows = null;
+        clearPrepared(token);
       }
     },
     async abortRecovery(payload) {
       const token = payload as string;
+      if (preparedRows?.token === token
+          && preparedRows.expiryTimer !== null) {
+        clearTimeout(preparedRows.expiryTimer);
+        preparedRows.expiryTimer = null;
+      }
       await gate.abort(token);
-      if (preparedRows?.token === token) preparedRows = null;
+      clearPrepared(token);
       return null;
     },
     async reset() {

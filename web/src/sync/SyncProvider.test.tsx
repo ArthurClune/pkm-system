@@ -452,6 +452,66 @@ test("automatic retry completes reconnect feed pull and resync exactly once", as
   }
 });
 
+test("overlapping reconnects share one completion and leave no stale intent", async () => {
+  vi.useFakeTimers();
+  try {
+    let changeCalls = 0;
+    let holdNextFeed = false;
+    let releaseFeed!: () => void;
+    let feedStarted!: () => void;
+    const feedGate = new Promise<void>((resolve) => { releaseFeed = resolve; });
+    const started = new Promise<void>((resolve) => { feedStarted = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/sync/changes")) {
+        changeCalls += 1;
+        if (holdNextFeed) {
+          holdNextFeed = false;
+          feedStarted();
+          await feedGate;
+        }
+        return jsonResponse(EMPTY_FEED);
+      }
+      return jsonResponse({ ok: true });
+    }));
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => ({
+      ok: true, empty: false, cursor: 5, schemaMismatch: false,
+      pendingBatches: [],
+    });
+    let sync!: Sync;
+    function Grab() { sync = useSync(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    const baselineChanges = changeCalls;
+    const baselineResync = sync.resyncSeq;
+
+    holdNextFeed = true;
+    act(() => lastWs().drop());
+    act(() => { vi.advanceTimersByTime(2_000); });
+    await act(async () => { lastWs().open(); await started; });
+
+    act(() => lastWs().drop());
+    act(() => { vi.advanceTimersByTime(2_000); });
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    expect(changeCalls).toBe(baselineChanges + 1);
+    expect(sync.resyncSeq).toBe(baselineResync);
+
+    await act(async () => { releaseFeed(); await feedGate; });
+    expect(changeCalls).toBe(baselineChanges + 1);
+    expect(sync.resyncSeq).toBe(baselineResync + 1);
+
+    await act(async () => {
+      await sync.enqueue([{ op: "delete", uid: "unrelated" }]).settled;
+      await Promise.resolve();
+    });
+    expect(changeCalls).toBe(baselineChanges + 1);
+    expect(sync.resyncSeq).toBe(baselineResync + 1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("provider cleanup disposes the queue and cancels its retry timer", async () => {
   vi.useFakeTimers();
   try {

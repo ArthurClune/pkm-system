@@ -223,9 +223,10 @@ export function SyncProvider({ children, replica }: {
     let reconnectPending = false;
     let finishRun: Promise<void> | null = null;
     const finishReconnect = (): Promise<void> => {
-      if (finishRun) return finishRun;
-      if (!reconnectPending || !mountedRef.current) return Promise.resolve();
+      if (!mountedRef.current) return Promise.resolve();
+      if (!reconnectPending) return finishRun ?? Promise.resolve();
       reconnectPending = false;
+      if (finishRun) return finishRun;
       finishRun = (async () => {
         await replicaSync?.start();
         await replicaSync?.idle();

@@ -9,7 +9,7 @@ tags:
     - sync
     - lifecycle
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T15:28:10Z
+updated_at: 2026-07-15T15:35:52Z
 parent: pkm-c1cg
 ---
 
@@ -52,6 +52,8 @@ Add explicit replica disposal and failure propagation, and distinguish settled p
 - Reconnect now advances to replica feed pull and view resync only after a
   drained outcome, including when an automatic retry later reaches drained; the
   continuation is single-flight so feed pull and resync happen exactly once.
+  Overlapping reconnect intents are consumed before reusing an active
+  completion, so a later unrelated drain cannot trigger stale reconnect work.
   Outline-facing code waits for ticket/persistence settlement, not the provider-
   internal global delivery drain.
 - Replica `nextBatch`, `deleteBatch`, and `markPoisoned` failures fulfill drain

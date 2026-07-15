@@ -13,6 +13,7 @@ import {
   reserveAuthoritativeRead,
   transitionOutline,
   type OutlineEffect,
+  type OutlineReplayAction,
   type OutlineState,
   type ReadToken,
 } from "./outlineState";
@@ -74,7 +75,6 @@ interface Session {
   waiters: LeaseRecord[];
   seenRemote: WeakSet<WsBatch>;
   authoritativeRead: Promise<void> | null;
-  authoritativeRepair: Promise<void> | null;
   authoritativeAgain: boolean;
   reservations: number;
   loaders: Map<symbol, () => Promise<BlockNode[]>>;
@@ -85,13 +85,23 @@ interface Session {
 const sessions = new Map<string, Session>();
 const unresolvedWrites = new Map<string, {
   ticket: WriteTicket;
-  ops: readonly BlockOp[];
+  replayByTitle: Map<string, readonly OutlineReplayAction[]>;
 }>();
+
+interface RepairEpoch {
+  id: number;
+  repairedState: Map<Session, OutlineState>;
+  inFlight: Map<Session, Promise<void>>;
+  onStable: Set<() => void>;
+  completion: Promise<void>;
+}
+
+let nextRepairEpoch = 1;
+let activeRepairEpoch: RepairEpoch | null = null;
 
 function maybeDeleteSession(session: Session): void {
   if (session.handles === 0 && session.reservations === 0 &&
       session.trackedWrites.size === 0 && session.authoritativeRead === null &&
-      session.authoritativeRepair === null &&
       sessions.get(session.title) === session) {
     sessions.delete(session.title);
   }
@@ -150,7 +160,8 @@ function receiveAuthoritativeRepair(
   token: ReadToken,
   blocks: BlockNode[],
 ): boolean {
-  if (token.requestId !== session.state.latestRequestId) return false;
+  if (token.requestId !== session.state.latestRequestId ||
+      token.revisionAtDispatch !== session.state.revision) return false;
   session.bootstrapped = true;
   applyTransition(session, transitionOutline(session.state, {
     type: "authoritative-repair", token, blocks,
@@ -176,7 +187,7 @@ function requestAuthoritative(
   session: Session,
   load?: () => Promise<BlockNode[]>,
 ): Promise<void> {
-  if (session.authoritativeRepair) return session.authoritativeRepair;
+  if (activeRepairEpoch) return activeRepairEpoch.completion;
   if (session.authoritativeRead) return session.authoritativeRead;
   const loader = load ?? [...session.loaders.values()].at(-1);
   if (!loader) return Promise.resolve();
@@ -187,7 +198,7 @@ function requestAuthoritative(
     .finally(() => {
       if (session.authoritativeRead === request) {
         session.authoritativeRead = null;
-        if (session.authoritativeAgain && !session.authoritativeRepair) {
+        if (session.authoritativeAgain && !activeRepairEpoch) {
           session.authoritativeAgain = false;
           void requestAuthoritative(session).catch(() => undefined);
         }
@@ -198,65 +209,81 @@ function requestAuthoritative(
   return request;
 }
 
-function forceAuthoritativeRepair(session: Session): Promise<void> {
-  if (session.authoritativeRepair) return session.authoritativeRepair;
+function repairEpochSession(
+  epoch: RepairEpoch,
+  session: Session,
+): Promise<void> {
+  const current = epoch.inFlight.get(session);
+  if (current) return current;
   const previous = session.authoritativeRead;
   session.authoritativeAgain = false;
-  // Invalidate any current automatic/manual controller before waiting for its
-  // transport. The forced loader below receives a still newer real token.
+  // The epoch owns the next controller. Invalidate every older automatic or
+  // manual token immediately, then wait for existing transport to wind down.
   startAuthoritativeRead(session);
+  const run = (async () => {
+    if (previous) await previous.catch(() => undefined);
+    if (session.handles === 0) return;
+    const loader = [...session.loaders.values()].at(-1);
+    if (!loader) {
+      throw new Error(
+        `No authoritative loader for active outline ${session.title}`,
+      );
+    }
+    const token = startAuthoritativeRead(session);
+    let adopted = false;
+    const request = loader().then((blocks) => {
+      adopted = receiveAuthoritativeRepair(session, token, blocks);
+    });
+    session.authoritativeRead = request;
+    try {
+      await request;
+    } finally {
+      if (session.authoritativeRead === request) {
+        session.authoritativeRead = null;
+      }
+    }
+    if (adopted) epoch.repairedState.set(session, session.state);
+  })().finally(() => {
+    epoch.inFlight.delete(session);
+    maybeDeleteSession(session);
+  });
+  epoch.inFlight.set(session, run);
+  return run;
+}
 
-  let start!: () => void;
-  const repair = new Promise<void>((resolve, reject) => {
-    start = () => {
-      void (async () => {
-        if (previous) await previous.catch(() => undefined);
-        for (;;) {
-          const loader = [...session.loaders.values()].at(-1);
-          if (!loader) {
-            throw new Error(
-              `No authoritative loader for active outline ${session.title}`,
-            );
-          }
-          const token = startAuthoritativeRead(session);
-          let adopted = false;
-          const request = loader().then((blocks) => {
-            adopted = receiveAuthoritativeRepair(session, token, blocks);
-          });
-          session.authoritativeRead = request;
-          try {
-            await request;
-          } finally {
-            if (session.authoritativeRead === request) {
-              session.authoritativeRead = null;
-            }
-          }
-          if (adopted) return;
-          // A newer controller superseded this repair while its transport was
-          // in flight. Run one more forced read and await actual integration.
-        }
-      })().then(resolve, reject);
-    };
-  });
-  session.authoritativeRepair = repair;
-  repair.then(() => {
-    if (session.authoritativeRepair === repair) {
-      session.authoritativeRepair = null;
-      maybeDeleteSession(session);
+async function runRepairEpoch(epoch: RepairEpoch): Promise<void> {
+  // Rejected delivery resolves before its settlement callbacks remove replay
+  // data. Begin cohort selection only after those callbacks have run.
+  await Promise.resolve();
+  while (activeRepairEpoch === epoch) {
+    const cohort = [...sessions.values()].filter(
+      (session) => session.handles > 0,
+    );
+    const pending = cohort.filter(
+      (session) => epoch.repairedState.get(session) !== session.state,
+    );
+    if (pending.length > 0) {
+      await Promise.all(pending.map((session) =>
+        repairEpochSession(epoch, session)));
+      continue;
     }
-  }, () => {
-    if (session.authoritativeRepair === repair) {
-      session.authoritativeRepair = null;
-      maybeDeleteSession(session);
-    }
-  });
-  start();
-  return repair;
+
+    // Let acquisitions/releases queued by the completed loaders run, then
+    // rescan. The final callbacks (including queue resume) run synchronously
+    // while this epoch is still active, closing the cohort/resume race.
+    await Promise.resolve();
+    const stable = [...sessions.values()]
+      .filter((session) => session.handles > 0)
+      .every((session) => epoch.repairedState.get(session) === session.state);
+    if (!stable) continue;
+    for (const callback of epoch.onStable) callback();
+    return;
+  }
 }
 
 function runEffects(session: Session, effects: readonly OutlineEffect[]): void {
   if (effects.some((effect) => effect.type === "request-authoritative")) {
-    if (session.authoritativeRepair) return;
+    if (activeRepairEpoch) return;
     if (session.authoritativeRead) {
       // Settlement requires a post-delivery read. Supersede the current token
       // immediately so its pre-delivery response can never publish while the
@@ -275,13 +302,13 @@ function scopeContainsTitle(scope: readonly string[], title: string): boolean {
 function trackWrite(
   session: Session,
   ticket: WriteTicket,
-  ops: readonly BlockOp[] = [],
+  replay: readonly OutlineReplayAction[] = [],
 ): void {
   if (!scopeContainsTitle(ticket.scope, session.title) ||
       session.trackedWrites.has(ticket.id)) return;
   session.trackedWrites.add(ticket.id);
   applyTransition(session, transitionOutline(session.state, {
-    type: "write-started", ticketId: ticket.id, scope: ticket.scope, ops,
+    type: "write-started", ticketId: ticket.id, scope: ticket.scope, replay,
   }));
   void ticket.delivered.finally(() => {
     session.trackedWrites.delete(ticket.id);
@@ -340,7 +367,6 @@ export function acquireOutlineSession(
       waiters: [],
       seenRemote: new WeakSet(),
       authoritativeRead: null,
-      authoritativeRepair: null,
       authoritativeAgain: false,
       reservations: 0,
       loaders: new Map(),
@@ -355,7 +381,11 @@ export function acquireOutlineSession(
   }
   session.handles += 1;
   for (const unresolved of unresolvedWrites.values()) {
-    trackWrite(session, unresolved.ticket, unresolved.ops);
+    trackWrite(
+      session,
+      unresolved.ticket,
+      unresolved.replayByTitle.get(title) ?? [],
+    );
   }
 
   let released = false;
@@ -491,16 +521,44 @@ export function trackActiveOutlineWrite(
 ): void {
   if (ticket.scope[0] !== "page") return;
   if (!unresolvedWrites.has(ticket.id)) {
-    unresolvedWrites.set(ticket.id, { ticket, ops: [...ops] });
+    const genericReplay = new Map<string, readonly OutlineReplayAction[]>();
+    for (const title of new Set(ticket.scope.slice(1))) {
+      genericReplay.set(title, [{ type: "ops", ops: [...ops] }]);
+    }
+    unresolvedWrites.set(ticket.id, { ticket, replayByTitle: genericReplay });
     void ticket.delivered.finally(() => {
       if (unresolvedWrites.get(ticket.id)?.ticket === ticket) {
         unresolvedWrites.delete(ticket.id);
       }
     });
   }
+  const unresolved = unresolvedWrites.get(ticket.id);
+  if (!unresolved || unresolved.ticket !== ticket) return;
   for (const title of new Set(ticket.scope.slice(1))) {
     const session = sessions.get(title);
-    if (session) trackWrite(session, ticket, ops);
+    if (session) {
+      trackWrite(session, ticket, unresolved.replayByTitle.get(title) ?? []);
+    }
+  }
+}
+
+/** Replace one title's generic wire-op replay with deterministic optimistic
+ * metadata captured by the UI that performed the local tree surgery. */
+export function attachActiveOutlineWriteReplay(
+  ticket: WriteTicket,
+  title: string,
+  replay: readonly OutlineReplayAction[],
+): void {
+  const unresolved = unresolvedWrites.get(ticket.id);
+  if (!unresolved || unresolved.ticket !== ticket ||
+      !scopeContainsTitle(ticket.scope, title)) return;
+  const captured = [...replay];
+  unresolved.replayByTitle.set(title, captured);
+  const session = sessions.get(title);
+  if (session?.trackedWrites.has(ticket.id)) {
+    applyTransition(session, transitionOutline(session.state, {
+      type: "write-replay", ticketId: ticket.id, replay: captured,
+    }));
   }
 }
 
@@ -546,10 +604,24 @@ export function isOutlineSessionActive(title: string): boolean {
 
 /** Force every active outline through a post-settlement authoritative read,
  * rebase wholly later unresolved writes, and only then release legacy delivery. */
-export async function repairActiveOutlineSessions(): Promise<void> {
-  // Delivery promises resolve before their settlement callbacks run. Let the
-  // rejected ticket leave every session before selecting the pending ops that
-  // must be rebased over the authoritative snapshot.
-  await Promise.resolve();
-  await Promise.all([...sessions.values()].map(forceAuthoritativeRepair));
+export function repairActiveOutlineSessions(
+  onStable?: () => void,
+): Promise<void> {
+  if (activeRepairEpoch) {
+    if (onStable) activeRepairEpoch.onStable.add(onStable);
+    return activeRepairEpoch.completion;
+  }
+  const epoch: RepairEpoch = {
+    id: nextRepairEpoch++,
+    repairedState: new Map(),
+    inFlight: new Map(),
+    onStable: new Set(onStable ? [onStable] : []),
+    completion: Promise.resolve(),
+  };
+  activeRepairEpoch = epoch;
+  epoch.completion = runRepairEpoch(epoch).finally(() => {
+    if (activeRepairEpoch === epoch) activeRepairEpoch = null;
+    for (const session of sessions.values()) maybeDeleteSession(session);
+  });
+  return epoch.completion;
 }

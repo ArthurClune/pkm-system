@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import { useEffect } from "react";
 import { expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
-import { SyncContext } from "../sync/SyncProvider";
+import { SyncContext, type Sync } from "../sync/SyncProvider";
 import { block, makeSync } from "../test-helpers";
 import { DndProvider, useDnd, type OutlineDndApi } from "./DndContext";
 
@@ -12,8 +12,8 @@ function Harness({ onReady }: { onReady: (dnd: ReturnType<typeof useDnd>) => voi
   return null;
 }
 
-function setup() {
-  const sync = makeSync();
+function setup(over: Record<string, unknown> = {}) {
+  const sync = makeSync("connected", over as Partial<Sync>);
   let dnd!: ReturnType<typeof useDnd>;
   render(
     <SyncContext.Provider value={sync}>
@@ -48,8 +48,11 @@ it("same-page drop with no registered outline enqueues the op directly", () => {
 });
 
 it("cross-page drop does two-outline surgery and one op with page_title", () => {
-  const { sync, dnd } = setup();
-  const moved: BlockNode = block("u1", "hi");
+  const attachOutlineReplay = vi.fn();
+  const { sync, dnd } = setup({ attachOutlineReplay });
+  const moved: BlockNode = block("u1", "hi", {
+    children: [block("child", "child")],
+  });
   const src = fakeOutline({ removeSubtreeLocal: vi.fn(() => moved) });
   const dst = fakeOutline();
   dnd().registerOutline("A", src);
@@ -63,6 +66,11 @@ it("cross-page drop does two-outline surgery and one op with page_title", () => 
     { op: "move", uid: "u1", parent_uid: null, order_idx: 1,
       page_title: "B" }]]);
   expect(sync.tickets[0].scope).toEqual(["page", "A", "B"]);
+  expect(attachOutlineReplay).toHaveBeenCalledWith(
+    sync.tickets[0], "B", [{
+      type: "insert-subtree", node: moved, parentUid: null, orderIdx: 1,
+    }],
+  );
 });
 
 it("cross-page drop with unregistered target only removes from the source", () => {

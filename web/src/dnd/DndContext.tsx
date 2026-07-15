@@ -87,9 +87,15 @@ export function DndProvider({ children }: { children: ReactNode }) {
         const ops: BlockOp[] = [{ op: "move", uid: d.uid,
           parent_uid: target.parent_uid, order_idx: target.order_idx,
           page_title: target.page_title }];
-        sync.enqueue(
+        const ticket = sync.enqueue(
           ops, ["page", d.pageTitle, target.page_title],
         );
+        if (dst && node) {
+          sync.attachOutlineReplay(ticket, target.page_title, [{
+            type: "insert-subtree", node,
+            parentUid: target.parent_uid, orderIdx: target.order_idx,
+          }]);
+        }
       }
       setDrag(null);
     },

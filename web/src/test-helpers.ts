@@ -143,6 +143,7 @@ export function makeSync(status: SyncStatus = "connected",
       tickets.push(write);
       return write;
     },
+    attachOutlineReplay: () => undefined,
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
     settled: () => Promise.resolve(),
     sent,

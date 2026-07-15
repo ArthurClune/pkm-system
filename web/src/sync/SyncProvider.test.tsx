@@ -312,6 +312,69 @@ test("legacy repair waits for a forced read after an existing stale automatic re
   }
 });
 
+test("legacy repair enrolls a session opened before queue resume", async () => {
+  let postCount = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+    postCount += 1;
+    return postCount === 1
+      ? jsonResponse({ detail: "bad op" }, 400)
+      : jsonResponse({ ok: true });
+  }));
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((done) => { releaseFirst = done; });
+  let releaseSecond!: () => void;
+  const secondGate = new Promise<void>((done) => { releaseSecond = done; });
+  const first = acquireOutlineSession("Dynamic repair first", []);
+  const firstLoad = vi.fn(async () => {
+    await firstGate;
+    return [];
+  });
+  const removeFirstLoader = first.setAuthoritativeLoader(firstLoad);
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return null;
+  }
+  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+  let second: ReturnType<typeof acquireOutlineSession> | undefined;
+  let removeSecondLoader: (() => void) | undefined;
+  try {
+    await act(async () => { lastWs().open(); });
+    const rejected = sync.enqueue(
+      [{ op: "delete", uid: "bad" }], ["page", "Dynamic repair first"],
+    );
+    first.applyLocal(rejected, []);
+    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+    await vi.waitFor(() => expect(firstLoad).toHaveBeenCalledTimes(1));
+
+    second = acquireOutlineSession("Dynamic repair second", []);
+    const secondLoad = vi.fn(async () => {
+      await secondGate;
+      return [];
+    });
+    removeSecondLoader = second.setAuthoritativeLoader(secondLoad);
+    const later = sync.enqueue([{ op: "delete", uid: "later" }]);
+    expect(postCount).toBe(1);
+
+    releaseFirst();
+    await vi.waitFor(() => expect(secondLoad).toHaveBeenCalledTimes(1));
+    expect(postCount).toBe(1);
+
+    releaseSecond();
+    await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+    expect(postCount).toBe(2);
+  } finally {
+    releaseFirst();
+    releaseSecond();
+    view.unmount();
+    removeSecondLoader?.();
+    second?.release();
+    removeFirstLoader();
+    first.release();
+  }
+});
+
 test("the Sync enqueue boundary registers a page ticket before its session opens", async () => {
   let releasePost!: () => void;
   const postGate = new Promise<void>((done) => { releasePost = done; });

@@ -7,6 +7,7 @@ import {
   transitionOutline,
   validateOutlineFocus,
 } from "./outlineState";
+import { findNode } from "./tree";
 
 const update = (text: string): BlockOp => ({
   op: "update_text", uid: "u1", text,
@@ -246,5 +247,106 @@ describe("outline causality", () => {
       "later local", "server repaired",
     ]);
     expect(repaired.state.relevantWrites).toEqual(new Set(["later"]));
+  });
+
+  it("rejects a repair response when the revision advanced after dispatch", () => {
+    const started = beginAuthoritativeRead(
+      createOutlineState("Page", [block("u1", "old")]),
+    );
+    const advanced = transitionOutline(started.state, {
+      type: "remote-ops", ops: [update("remote advance")],
+    }).state;
+
+    const stale = transitionOutline(advanced, {
+      type: "authoritative-repair", token: started.token,
+      blocks: [block("u1", "stale repair")],
+    } as Parameters<typeof transitionOutline>[1]);
+
+    expect(stale.state.blocks[0].text).toBe("remote advance");
+    expect(stale.state.revision).toBe(advanced.revision);
+  });
+
+  it("replays an explicit target subtree before later ticket operations", () => {
+    const targetParent = block("target", "target", { children: [] });
+    const moved = block("moved", "moved", {
+      children: [block("child", "child")],
+    });
+    const initial = createOutlineState("Target", [targetParent]);
+    const moveTracked = transitionOutline(initial, {
+      type: "write-started", ticketId: "move",
+      scope: ["page", "Source", "Target"],
+      replay: [{
+        type: "insert-subtree", node: moved,
+        parentUid: "target", orderIdx: 0,
+      }],
+    } as Parameters<typeof transitionOutline>[1]).state;
+    const childEdit = transitionOutline(moveTracked, {
+      type: "local-ops", ticketId: "edit",
+      ops: [{ op: "update_text", uid: "child", text: "later child edit" }],
+    }).state;
+    const started = beginAuthoritativeRead(childEdit);
+
+    const repaired = transitionOutline(started.state, {
+      type: "authoritative-repair", token: started.token,
+      blocks: [targetParent],
+    } as Parameters<typeof transitionOutline>[1]);
+
+    expect(repaired.state.blocks[0].children[0]).toMatchObject({
+      uid: "moved",
+      children: [expect.objectContaining({
+        uid: "child", text: "later child edit",
+      })],
+    });
+  });
+
+  it("relocates an already-present target subtree without duplicating it", () => {
+    const moved = block("moved", "server moved");
+    const target = block("target", "target", { children: [] });
+    const tracked = transitionOutline(
+      createOutlineState("Target", [target]),
+      {
+        type: "write-started", ticketId: "move",
+        scope: ["page", "Source", "Target"],
+        replay: [{
+          type: "insert-subtree", node: moved,
+          parentUid: "target", orderIdx: 0,
+        }],
+      } as Parameters<typeof transitionOutline>[1],
+    ).state;
+    const started = beginAuthoritativeRead(tracked);
+
+    const repaired = transitionOutline(started.state, {
+      type: "authoritative-repair", token: started.token,
+      blocks: [moved, target],
+    } as Parameters<typeof transitionOutline>[1]);
+
+    expect(repaired.state.blocks.map((node) => node.uid)).toEqual(["target"]);
+    expect(repaired.state.blocks[0].children.map((node) => node.uid))
+      .toEqual(["moved"]);
+  });
+
+  it("does not replay explicit subtree metadata after its ticket settles", () => {
+    const target = block("target", "target", { children: [] });
+    const tracked = transitionOutline(
+      createOutlineState("Target", [target]),
+      {
+        type: "write-started", ticketId: "terminal-move",
+        scope: ["page", "Source", "Target"],
+        replay: [{
+          type: "insert-subtree", node: block("moved", "rejected"),
+          parentUid: "target", orderIdx: 0,
+        }],
+      } as Parameters<typeof transitionOutline>[1],
+    ).state;
+    const settled = transitionOutline(tracked, {
+      type: "write-settled", ticketId: "terminal-move",
+    }).state;
+    const started = beginAuthoritativeRead(settled);
+
+    const repaired = transitionOutline(started.state, {
+      type: "authoritative-repair", token: started.token, blocks: [target],
+    } as Parameters<typeof transitionOutline>[1]);
+
+    expect(findNode(repaired.state.blocks, "moved")).toBeNull();
   });
 });

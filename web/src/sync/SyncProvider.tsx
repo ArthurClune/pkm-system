@@ -9,8 +9,9 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState,
          type ReactNode } from "react";
 import type { BlockOp } from "../api/ops";
 import { apiFetch, setOfflineGateway } from "../api/client";
-import { repairActiveOutlineSessions,
+import { attachActiveOutlineWriteReplay, repairActiveOutlineSessions,
          trackActiveOutlineWrite } from "../outline/outlineSessions";
+import type { OutlineReplayAction } from "../outline/outlineState";
 import { createReplica, type Replica } from "../replica/client";
 import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue, type DrainOutcome,
@@ -59,6 +60,8 @@ export interface Sync {
   /** Clear repaired details. Failed/running problems cannot be dismissed. */
   dismissProblem(): void;
   enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
+  attachOutlineReplay(ticket: WriteTicket, title: string,
+                      replay: readonly OutlineReplayAction[]): void;
   /** Remote batches only — own echoes are filtered out here. */
   subscribe(fn: (batch: WsBatch) => void): () => void;
   /** Resolves when all accepted writes have finished persistence. */
@@ -77,6 +80,7 @@ export const SyncContext = createContext<Sync>({
     // a silent default would drop writes without a trace
     throw new Error("enqueue called outside <SyncProvider>");
   },
+  attachOutlineReplay: () => undefined,
   subscribe: () => () => undefined,
   settled: () => Promise.resolve(),
 });
@@ -169,8 +173,7 @@ export function SyncProvider({ children, replica }: {
     if (mountedRef.current) {
       setProblem({ kind: "legacy-rejected", repair: "running", error: message });
     }
-    const run = repairActiveOutlineSessions()
-      .then(() => {
+    const run = repairActiveOutlineSessions(() => {
         if (!mountedRef.current) return;
         setProblem({ kind: "legacy-rejected", repair: "repaired", error: message });
         setResyncSeq((n) => n + 1);
@@ -549,6 +552,9 @@ export function SyncProvider({ children, replica }: {
       const ticket = queue.enqueue(ops, scope);
       trackActiveOutlineWrite(ticket, ops);
       return ticket;
+    },
+    attachOutlineReplay: (ticket, title, replay) => {
+      attachActiveOutlineWriteReplay(ticket, title, replay);
     },
     subscribe: (fn) => {
       subsRef.current.add(fn);

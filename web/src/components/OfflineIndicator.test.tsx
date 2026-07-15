@@ -17,6 +17,7 @@ function syncWith(overrides: Partial<Sync>): Sync {
       settled: Promise.resolve({ status: "persisted", pending: 0 }),
       delivered: Promise.resolve({ status: "delivered" }),
     }),
+    attachOutlineReplay: () => undefined,
     subscribe: () => () => undefined,
     settled: () => Promise.resolve(),
     ...overrides,

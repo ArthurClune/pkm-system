@@ -1,9 +1,11 @@
 import { expect, it, vi } from "vitest";
-import type { DeliveryOutcome, WriteOutcome } from "../sync/opQueue";
+import type { DeliveryOutcome, WriteOutcome, WriteTicket } from "../sync/opQueue";
 import { block } from "../test-helpers";
-import { acquireOutlineSession, isOutlineSessionActive,
+import { acquireOutlineSession, attachActiveOutlineWriteReplay,
+         isOutlineSessionActive,
          repairActiveOutlineSessions,
          trackActiveOutlineWrite } from "./outlineSessions";
+import { findNode, insertSubtree, removeSubtree } from "./tree";
 
 const update = (text: string) => ({
   op: "update_text" as const, uid: "u1", text,
@@ -446,5 +448,196 @@ it("legacy repair rejects when an active session has no loader", async () => {
     );
   } finally {
     session.release();
+  }
+});
+
+it("keeps repair pending when a remote revision advances during its GET", async () => {
+  const stale = deferred<ReturnType<typeof block>[]>();
+  const fresh = deferred<ReturnType<typeof block>[]>();
+  const responses = [stale.promise, fresh.promise];
+  const session = acquireOutlineSession(
+    "Repair remote advance", [block("u1", "before repair")],
+  );
+  const load = vi.fn(() => responses.shift()!);
+  const removeLoader = session.setAuthoritativeLoader(load);
+  const repairing = repairActiveOutlineSessions();
+  try {
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    session.applyRemote({
+      client_id: "remote", ts: 1, ops: [update("remote advance")],
+    });
+
+    stale.resolve([block("u1", "stale forced response")]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(session.getSnapshot().blocks[0].text).toBe("remote advance");
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+
+    let repaired = false;
+    void repairing.then(() => { repaired = true; });
+    await Promise.resolve();
+    expect(repaired).toBe(false);
+    fresh.resolve([block("u1", "fresh forced response")]);
+    await repairing;
+    expect(session.getSnapshot().blocks[0].text).toBe("fresh forced response");
+  } finally {
+    stale.resolve([block("u1", "cleanup stale")]);
+    fresh.resolve([block("u1", "cleanup fresh")]);
+    await repairing.catch(() => undefined);
+    removeLoader();
+    session.release();
+  }
+});
+
+it("enrolls sessions acquired during a repair and ignores released newcomers", async () => {
+  const firstResponse = deferred<ReturnType<typeof block>[]>();
+  const secondResponse = deferred<ReturnType<typeof block>[]>();
+  const first = acquireOutlineSession("Repair cohort first", [
+    block("u1", "first optimistic"),
+  ]);
+  const firstLoad = vi.fn(() => firstResponse.promise);
+  const removeFirstLoader = first.setAuthoritativeLoader(firstLoad);
+  const repairing = repairActiveOutlineSessions();
+  let second: ReturnType<typeof acquireOutlineSession> | undefined;
+  let removeSecondLoader: (() => void) | undefined;
+  try {
+    await vi.waitFor(() => expect(firstLoad).toHaveBeenCalledTimes(1));
+    second = acquireOutlineSession("Repair cohort second", [
+      block("u2", "second optimistic"),
+    ]);
+    const secondLoad = vi.fn(() => secondResponse.promise);
+    removeSecondLoader = second.setAuthoritativeLoader(secondLoad);
+    const released = acquireOutlineSession("Repair cohort released", [
+      block("gone", "released immediately"),
+    ]);
+    released.release();
+
+    firstResponse.resolve([block("u1", "first repaired")]);
+    await vi.waitFor(() => expect(secondLoad).toHaveBeenCalledTimes(1));
+    let repaired = false;
+    void repairing.then(() => { repaired = true; });
+    await Promise.resolve();
+    expect(repaired).toBe(false);
+
+    secondResponse.resolve([block("u2", "second repaired")]);
+    await repairing;
+    expect(first.getSnapshot().blocks[0].text).toBe("first repaired");
+    expect(second.getSnapshot().blocks[0].text).toBe("second repaired");
+    expect(isOutlineSessionActive("Repair cohort released")).toBe(false);
+  } finally {
+    firstResponse.resolve([block("u1", "cleanup first")]);
+    secondResponse.resolve([block("u2", "cleanup second")]);
+    await repairing.catch(() => undefined);
+    removeSecondLoader?.();
+    second?.release();
+    removeFirstLoader();
+    first.release();
+  }
+});
+
+it("reports a missing loader for a live session that joins a repair", async () => {
+  const firstResponse = deferred<ReturnType<typeof block>[]>();
+  const first = acquireOutlineSession("Repair loader first", [
+    block("u1", "first optimistic"),
+  ]);
+  const removeLoader = first.setAuthoritativeLoader(
+    vi.fn(() => firstResponse.promise),
+  );
+  const repairing = repairActiveOutlineSessions();
+  let missing: ReturnType<typeof acquireOutlineSession> | undefined;
+  try {
+    await Promise.resolve();
+    missing = acquireOutlineSession("Repair loader late missing", [
+      block("u2", "late optimistic"),
+    ]);
+    firstResponse.resolve([block("u1", "first repaired")]);
+    await expect(repairing).rejects.toThrow(
+      /authoritative loader.*Repair loader late missing/i,
+    );
+  } finally {
+    firstResponse.resolve([block("u1", "cleanup first")]);
+    await repairing.catch(() => undefined);
+    missing?.release();
+    removeLoader();
+    first.release();
+  }
+});
+
+it("rebases a cross-page target subtree and later ticket in ticket order", async () => {
+  const rejectedDelivery = deferred<DeliveryOutcome>();
+  const moveDelivery = deferred<DeliveryOutcome>();
+  const editDelivery = deferred<DeliveryOutcome>();
+  const moved = block("moved", "moved", {
+    children: [block("child", "child")],
+  });
+  const source = acquireOutlineSession("Replay source", [
+    block("source-root", "source", { children: [moved] }),
+  ]);
+  const target = acquireOutlineSession("Replay target", [
+    block("target-root", "target", { children: [] }),
+  ]);
+  source.applyLocal({
+    id: "rejected-before-move", scope: ["page", "Replay source"],
+    settled: Promise.resolve({ status: "persisted", pending: 3 }),
+    delivered: rejectedDelivery.promise,
+  }, [{ op: "update_text", uid: "source-root", text: "rejected text" }]);
+
+  const detached = removeSubtree(source.getSnapshot().blocks, "moved");
+  source.applyOptimistic(detached.tree);
+  target.applyOptimistic(insertSubtree(
+    target.getSnapshot().blocks, detached.node!, "target-root", 0,
+  ));
+  const move = {
+    id: "later-cross-page-move",
+    scope: ["page", "Replay source", "Replay target"],
+    settled: Promise.resolve({ status: "persisted", pending: 3 }),
+    delivered: moveDelivery.promise,
+  } satisfies WriteTicket;
+  const moveOps = [{
+    op: "move" as const, uid: "moved", parent_uid: "target-root",
+    order_idx: 0, page_title: "Replay target",
+  }];
+  trackActiveOutlineWrite(move, moveOps);
+  attachActiveOutlineWriteReplay(move, "Replay target", [{
+    type: "insert-subtree", node: detached.node!,
+    parentUid: "target-root", orderIdx: 0,
+  }]);
+  target.applyLocal({
+    id: "later-child-edit", scope: ["page", "Replay target"],
+    settled: Promise.resolve({ status: "persisted", pending: 3 }),
+    delivered: editDelivery.promise,
+  }, [{ op: "update_text", uid: "child", text: "later child edit" }]);
+
+  const removeSourceLoader = source.setAuthoritativeLoader(async () => [
+    block("source-root", "server repaired", { children: [moved] }),
+  ]);
+  const removeTargetLoader = target.setAuthoritativeLoader(async () => [
+    block("target-root", "target", { children: [] }),
+  ]);
+  try {
+    rejectedDelivery.resolve({
+      status: "failed", error: new Error("rejected before move"),
+    });
+    await rejectedDelivery.promise;
+    await Promise.resolve();
+    await repairActiveOutlineSessions();
+
+    expect(source.getSnapshot().blocks[0].text).toBe("server repaired");
+    expect(findNode(source.getSnapshot().blocks, "moved")).toBeNull();
+    expect(findNode(target.getSnapshot().blocks, "moved")).toMatchObject({
+      children: [expect.objectContaining({
+        uid: "child", text: "later child edit",
+      })],
+    });
+    expect(findNode(target.getSnapshot().blocks, "moved")?.order_idx).toBe(0);
+  } finally {
+    removeSourceLoader();
+    removeTargetLoader();
+    moveDelivery.resolve({ status: "delivered" });
+    editDelivery.resolve({ status: "delivered" });
+    await Promise.all([moveDelivery.promise, editDelivery.promise]);
+    await Promise.resolve();
+    source.release();
+    target.release();
   }
 });

@@ -368,3 +368,88 @@ registration boundaries.
   not block adoption, and the registry entry disappears at terminal delivery.
 - Token expiry is monotonic by request id and adjusts the shared reservation
   count exactly once, preserving session lifetime without accepting stale calls.
+
+## Fourth independent-review fix wave
+
+Review of `c461d6c` showed that forced repair still lacked one coherent
+transaction boundary across revision checks, optimistic replay, and the live
+session cohort.
+
+### Root causes
+
+- `authoritative-repair` checked only the latest request id. A real remote
+  transition changed the tree revision without changing that id, so an older
+  forced GET could overwrite the remote state and falsely complete repair.
+- Replay retained only wire `BlockOp`s. A target-side cross-page move inserts a
+  detached subtree locally, but its wire move cannot reconstruct a UID absent
+  from the pre-POST target snapshot; later child operations were consequently
+  skipped as well.
+- `repairActiveOutlineSessions()` snapshotted `sessions` once and stored repair
+  ownership per session. A session acquired while another loader was held was
+  outside the barrier, allowing SyncProvider to resume later POSTs first.
+
+### RED evidence
+
+- `pnpm vitest run src/outline/outlineState.test.ts -t "rejects a repair
+  response|replays an explicit target subtree"` failed 2/2 selected tests: the
+  stale repair replaced `remote advance`, and the target subtree was absent.
+- `pnpm vitest run src/outline/outlineSessions.test.ts -t "keeps repair
+  pending|enrolls sessions acquired|reports a missing loader|rebases a
+  cross-page"` failed 4/4 selected tests: stale forced data published, the late
+  loader was never called, a live missing loader silently succeeded, and the
+  target move/child edit disappeared.
+- `pnpm vitest run src/dnd/DndContext.test.tsx -t "cross-page drop does"`
+  failed 1/1 because DnD attached no target replay metadata.
+- `pnpm vitest run src/sync/SyncProvider.test.tsx -t "legacy repair enrolls a
+  session"` failed 1/1 because the second active page was not repaired before
+  queue resume.
+- The self-review RED for already-present target UIDs failed 1/1: insertion
+  left both a root copy and a nested copy instead of relocating one subtree.
+
+### Production design
+
+- The pure core now models replay as ordered `OutlineReplayAction` descriptors
+  keyed by ticket. Generic writes use an ops action; cross-page DnD attaches a
+  title-specific detached-subtree action, including its parent and order. The
+  Sync enqueue boundary remains the only global ticket registration point.
+- Target metadata replaces only that title's generic replay in the existing
+  registry record. Source semantics remain the wire move, later ticket actions
+  run in insertion order, and terminal settlement removes all descriptor data.
+  An already-present target UID is moved rather than duplicated.
+- Repair adoption requires both the latest request id and the unchanged
+  dispatch revision. A remote advance makes the response a no-op and leaves the
+  member pending for one newer awaited loader response.
+- One Shell-owned repair epoch repeatedly scans all sessions with live handles.
+  It records the exact adopted core state per member, so acquisitions and any
+  post-adoption state change re-enter the cohort. Released newcomers are
+  ignored and collect normally; live missing loaders reject visibly. The final
+  stable-cohort callbacks include SyncProvider queue resume and run
+  synchronously before the epoch is cleared.
+
+### GREEN verification
+
+- Focused review matrix: 5 files / 90 tests passed.
+- Controller outline gate: 4 files / 49 tests passed.
+- Controller queue/replica gate: 4 files / 70 tests passed.
+- Controller Task 5 UI gate: 7 files / 82 tests passed.
+- Controller integration gate: 5 files / 101 tests passed.
+- `pnpm typecheck`: passed.
+- Canonical `pnpm verify`: passed: 72 files / 796 unit tests; 97.84%
+  statements and lines, 91.43% branches, and 95.57% functions; production/PWA
+  build with 78 precache entries / 5136.13 KiB; Playwright 6/6.
+- `git diff --check c461d6c`: passed before documentation updates and is rerun
+  at the final commit boundary.
+
+### Self-review
+
+- The epoch has no broad revision bypass and no per-session repair flag. Every
+  retry follows an awaited transport or cohort rescan, and completion proves an
+  adopted state for every currently handled session.
+- The provider resumes the legacy queue inside the epoch's stable callback, so
+  there is no promise boundary between the final cohort check and later POSTs.
+- Replay descriptors contain only the optimistic information the server op
+  lacks. They remain title-scoped, ordered by the existing ticket set, and are
+  removed before rejected/terminal tickets can participate in repair.
+- Existing automatic-read invalidation, manual reservations, Journal capture,
+  late session tracking, queue FIFO/4xx/dispose behavior, retry UI, and
+  Task 4 editor/DnD/view-local ownership continue through their prior paths.

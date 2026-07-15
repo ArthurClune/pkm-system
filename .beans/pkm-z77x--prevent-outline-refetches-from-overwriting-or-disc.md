@@ -9,7 +9,7 @@ tags:
     - outline
     - concurrency
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T20:51:49Z
+updated_at: 2026-07-15T21:18:20Z
 parent: pkm-c1cg
 ---
 
@@ -32,4 +32,4 @@ Introduce per-outline versioning/reconciliation and retain deferred authoritativ
 
 ## Summary of Changes
 
-Added a pure per-outline causality core and session-owned dispatch-time read tokens, revisions, deferred payloads, title-scoped write relevance, and in-flight lifecycle retention. Responses captured before delivery trigger guarded fresh reads, while Journal pagination protects sessions created or changed during flight. Independent-review fixes retain every page-scoped unresolved ticket at the Sync enqueue boundary, attach matching sessions opened after dispatch, expire superseded manual reservations, and make legacy 4xx delivery ticket-aware: rejected and spanning tickets are terminal, while repair forces a post-settlement server adoption and rebases only wholly later unresolved operations before releasing delivery. Missing loaders and failed repair expose Retry without reapplying rejected ops. Durable settlement, replica poison recovery, offline and 5xx retry, dispose, single-flight reads, and view-local editor state remain intact. Canonical pnpm verify passes (72 files / 787 unit tests and 6/6 Playwright tests).
+Added a pure per-outline causality core with revision-checked reads, deferred payloads, title-scoped write relevance, and in-flight lifecycle retention. Every page-scoped ticket is retained at the Sync enqueue boundary, while cross-page DnD attaches only the target subtree/location metadata that its wire move cannot reconstruct. A Shell-owned repair epoch invalidates older controllers, dynamically enrolls every live session, requires an unchanged dispatch revision, adopts fresh server state, and replays only still-unresolved title-specific ticket actions in order before synchronously releasing legacy delivery. Released newcomers collect normally; live missing loaders and failed reads expose Retry without reapplying rejected or spanning operations. Journal reservations, durable settlement, replica FIFO/poison recovery, offline and 5xx retry, dispose, single-flight reads, and Task 4 editor/DnD/view-local state remain intact. Canonical pnpm verify passes (72 files / 796 unit tests and 6/6 Playwright tests).

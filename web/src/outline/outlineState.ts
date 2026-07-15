@@ -5,7 +5,7 @@
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { FocusTarget } from "./edits";
-import { applyOps, findNode } from "./tree";
+import { applyOps, findNode, insertSubtree } from "./tree";
 
 export interface ReadToken {
   requestId: number;
@@ -17,6 +17,11 @@ export interface DeferredAuthoritative {
   blocks: BlockNode[];
 }
 
+export type OutlineReplayAction =
+  | { type: "ops"; ops: readonly BlockOp[] }
+  | { type: "insert-subtree"; node: BlockNode;
+      parentUid: string | null; orderIdx: number };
+
 export interface OutlineState {
   title: string;
   blocks: BlockNode[];
@@ -24,7 +29,7 @@ export interface OutlineState {
   nextRequestId: number;
   latestRequestId: number;
   relevantWrites: ReadonlySet<string>;
-  relevantWriteOps: ReadonlyMap<string, readonly BlockOp[]>;
+  relevantWriteReplays: ReadonlyMap<string, readonly OutlineReplayAction[]>;
   deferredAuthoritative: DeferredAuthoritative | null;
 }
 
@@ -33,7 +38,9 @@ export type OutlineEvent =
   | { type: "local-tree"; blocks: BlockNode[] }
   | { type: "remote-ops"; ops: readonly BlockOp[] }
   | { type: "write-started"; ticketId: string; scope: readonly string[];
-      ops?: readonly BlockOp[] }
+      replay?: readonly OutlineReplayAction[]; ops?: readonly BlockOp[] }
+  | { type: "write-replay"; ticketId: string;
+      replay: readonly OutlineReplayAction[] }
   | { type: "authoritative"; token: ReadToken; blocks: BlockNode[] }
   | { type: "authoritative-repair"; token: ReadToken; blocks: BlockNode[] }
   | { type: "write-settled"; ticketId: string };
@@ -59,7 +66,7 @@ export function createOutlineState(
     nextRequestId: 1,
     latestRequestId: 0,
     relevantWrites: new Set(),
-    relevantWriteOps: new Map(),
+    relevantWriteReplays: new Map(),
     deferredAuthoritative: null,
   };
 }
@@ -123,6 +130,29 @@ function adopt(state: OutlineState, blocks: BlockNode[]): OutlineState {
   };
 }
 
+function replayActions(
+  blocks: BlockNode[],
+  actions: readonly OutlineReplayAction[],
+  title: string,
+): BlockNode[] {
+  let replayed = blocks;
+  for (const action of actions) {
+    if (action.type === "ops") {
+      replayed = applyOps(replayed, [...action.ops], title);
+    } else if (findNode(replayed, action.node.uid)) {
+      replayed = applyOps(replayed, [{
+        op: "move", uid: action.node.uid, parent_uid: action.parentUid,
+        order_idx: action.orderIdx, page_title: title,
+      }], title);
+    } else {
+      replayed = insertSubtree(
+        replayed, action.node, action.parentUid, action.orderIdx,
+      );
+    }
+  }
+  return replayed;
+}
+
 export function transitionOutline(
   state: OutlineState,
   event: OutlineEvent,
@@ -130,14 +160,16 @@ export function transitionOutline(
   if (event.type === "local-ops") {
     const relevantWrites = new Set(state.relevantWrites);
     relevantWrites.add(event.ticketId);
-    const relevantWriteOps = new Map(state.relevantWriteOps);
-    relevantWriteOps.set(event.ticketId, [...event.ops]);
+    const relevantWriteReplays = new Map(state.relevantWriteReplays);
+    relevantWriteReplays.set(event.ticketId, [{
+      type: "ops", ops: [...event.ops],
+    }]);
     return {
       state: {
         ...withBlocks(state,
           applyOps(state.blocks, [...event.ops], state.title)),
         relevantWrites,
-        relevantWriteOps,
+        relevantWriteReplays,
       },
       effects: [],
     };
@@ -159,24 +191,39 @@ export function transitionOutline(
     }
     const relevantWrites = new Set(state.relevantWrites);
     relevantWrites.add(event.ticketId);
-    const relevantWriteOps = new Map(state.relevantWriteOps);
-    if (event.ops !== undefined) {
-      relevantWriteOps.set(event.ticketId, [...event.ops]);
+    const relevantWriteReplays = new Map(state.relevantWriteReplays);
+    if (event.replay !== undefined) {
+      relevantWriteReplays.set(event.ticketId, [...event.replay]);
+    } else if (event.ops !== undefined) {
+      relevantWriteReplays.set(event.ticketId, [{
+        type: "ops", ops: [...event.ops],
+      }]);
     }
     return {
-      state: { ...state, relevantWrites, relevantWriteOps }, effects: [],
+      state: { ...state, relevantWrites, relevantWriteReplays }, effects: [],
     };
+  }
+  if (event.type === "write-replay") {
+    if (!state.relevantWrites.has(event.ticketId)) {
+      return { state, effects: [] };
+    }
+    const relevantWriteReplays = new Map(state.relevantWriteReplays);
+    relevantWriteReplays.set(event.ticketId, [...event.replay]);
+    return { state: { ...state, relevantWriteReplays }, effects: [] };
   }
   if (event.type === "authoritative" || event.type === "authoritative-repair") {
     if (event.token.requestId !== state.latestRequestId) {
       return { state, effects: [] };
     }
     if (event.type === "authoritative-repair") {
+      if (state.revision !== event.token.revisionAtDispatch) {
+        return { state, effects: [] };
+      }
       let rebased = event.blocks;
       for (const ticketId of state.relevantWrites) {
-        const ops = state.relevantWriteOps.get(ticketId);
-        if (ops && ops.length > 0) {
-          rebased = applyOps(rebased, [...ops], state.title);
+        const replay = state.relevantWriteReplays.get(ticketId);
+        if (replay && replay.length > 0) {
+          rebased = replayActions(rebased, replay, state.title);
         }
       }
       return { state: adopt(state, rebased), effects: [] };
@@ -206,9 +253,9 @@ export function transitionOutline(
   }
   const relevantWrites = new Set(state.relevantWrites);
   relevantWrites.delete(event.ticketId);
-  const relevantWriteOps = new Map(state.relevantWriteOps);
-  relevantWriteOps.delete(event.ticketId);
-  const settled = { ...state, relevantWrites, relevantWriteOps };
+  const relevantWriteReplays = new Map(state.relevantWriteReplays);
+  relevantWriteReplays.delete(event.ticketId);
+  const settled = { ...state, relevantWrites, relevantWriteReplays };
   if (relevantWrites.size > 0) return { state: settled, effects: [] };
   return {
     state: { ...settled, deferredAuthoritative: null },

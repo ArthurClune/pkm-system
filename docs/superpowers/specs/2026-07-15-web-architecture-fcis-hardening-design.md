@@ -139,10 +139,11 @@ queue. `applySnapshot` already reapplies non-poisoned pending batches and skips
 poisoned ones, so the rejected optimistic effect disappears without losing
 unrelated work. Only after replica repair completes does the provider bump the
 resync generation and resume later delivery. If repair fails, the error remains
-visible with retry and dismiss/details controls; retry repeats the guarded
-snapshot. A successful repair may delete the rejected pending row after the UI
-has captured its details. Later snapshots and feeds cannot reapply it because it
-is either still marked poisoned or absent.
+visible with retry and details controls; retry repeats the guarded snapshot.
+After a successful rebase, the provider retains the event details for the UI and
+deletes the rejected pending row. Dismiss clears only the retained UI details.
+Later snapshots and feeds cannot reapply the rejected operation because the row
+is absent.
 
 Connectivity and delivery health remain separate. A live WebSocket may coexist
 with a poison or retryable delivery error, and the UI reports both accurately.

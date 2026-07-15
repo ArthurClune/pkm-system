@@ -9,7 +9,7 @@ tags:
     - architecture
     - fcis
 created_at: 2026-07-15T14:22:26Z
-updated_at: 2026-07-15T14:47:02Z
+updated_at: 2026-07-15T14:51:56Z
 ---
 
 ## Goal
@@ -49,3 +49,8 @@ Address the correctness, complexity, design, maintainability, and FCIS findings 
 - Consolidated design: `docs/superpowers/specs/2026-07-15-web-architecture-fcis-hardening-design.md`.
 - Scope decision: complete all ten child beans; none deferred.
 - Delivery: isolated epic branch with one fresh implementer and independent reviewer per child.
+
+## Implementation Plan
+
+- Plan: `docs/superpowers/plans/2026-07-15-web-architecture-fcis-hardening.md`.
+- Sequence: lifecycle contracts → atomic recovery → poison repair → title ownership → outline reconciliation → async UI → pure state extraction → grammar scanner → FCIS enforcement → lint/budgets → final audit.

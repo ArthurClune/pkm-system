@@ -62,10 +62,11 @@ interface TreeProps {
   selection?: BlockSelection | null;
   handlers: OutlineHandlers;
   readOnly: boolean;
+  fallback?: boolean;
 }
 
 export function EditableBlockTree({ blocks, focus, selection = null, handlers,
-                                    readOnly }: TreeProps) {
+                                    readOnly, fallback = false }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
   // Bullet context menu (pkm-y6af); one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{
@@ -75,7 +76,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     viewMode: EffectiveBlockView;
     trigger: HTMLElement;
   } | null>(null);
-  const selected = selection
+  const selected = !fallback && selection
     ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
   const closeMenu = () => {
     menu?.trigger.focus();
@@ -89,7 +90,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   }, [selection]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!selection) return;
+    if (fallback || !selection) return;
     if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault();
       handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
@@ -112,12 +113,13 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
       {blocks.map((b, index) => (
         <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
                        handlers={handlers} readOnly={readOnly}
+                       fallback={fallback}
                        viewMode="document" number={index + 1}
                        openMenuUid={menu?.uid ?? null}
                        onOpenMenu={(uid, x, y, viewMode, trigger) =>
                          setMenu({ uid, x, y, viewMode, trigger })} />
       ))}
-      {menu && (
+      {!fallback && menu && (
         <BlockMenu x={menu.x} y={menu.y} onClose={closeMenu}
           items={blockMenuItems(
             menu.uid,
@@ -169,18 +171,18 @@ function blockMenuItems(
   ];
 }
 
-function EditableBlock({ node, focus, selected, handlers, readOnly,
+function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                          viewMode, number, openMenuUid, onOpenMenu }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
-  handlers: OutlineHandlers; readOnly: boolean;
+  handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
   viewMode: EffectiveBlockView;
   number: number;
   openMenuUid: string | null;
   onOpenMenu: (uid: string, x: number, y: number,
                viewMode: EffectiveBlockView, trigger: HTMLElement) => void;
 }) {
-  const focused = focus?.uid === node.uid;
+  const focused = !fallback && focus?.uid === node.uid;
   const isSelected = selected.has(node.uid);
   const hasChildren = node.children.length > 0;
   const Tag: "h1" | "h2" | "h3" | "div" =
@@ -197,15 +199,16 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
         <button
           className={"chevron" + (node.collapsed ? " closed" : "") + (hasChildren ? "" : " hidden")}
           onClick={() => handlers.onToggleCollapsed(node.uid, !node.collapsed)}
-          disabled={readOnly || !hasChildren}
+          disabled={fallback || readOnly || !hasChildren}
           aria-label="toggle children"
         >
           ▸
         </button>
         <span className={"bullet" + (viewMode === "numbered" ? " numbered" : "")
               + (hasChildren && node.collapsed ? " closed" : "")}
-              draggable={!readOnly}
+              draggable={!fallback && !readOnly}
               onDragStart={(e) => {
+                if (fallback) return;
                 e.dataTransfer.setData("text/plain", node.uid);
                 e.dataTransfer.effectAllowed = "move";
                 handlers.onDragStartBlock(node.uid);
@@ -213,16 +216,20 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
               // Click or right-click opens the block menu (pkm-y6af); plain
               // click included because iPad Safari doesn't fire contextmenu
               // from touch. Drag suppresses click, so DnD is unaffected.
-              onClick={(e) => onOpenMenu(
-                node.uid, e.clientX, e.clientY, childrenView, e.currentTarget,
-              )}
+              onClick={(e) => {
+                if (!fallback) onOpenMenu(
+                  node.uid, e.clientX, e.clientY, childrenView, e.currentTarget,
+                );
+              }}
               onContextMenu={(e) => {
+                if (fallback) return;
                 e.preventDefault();
                 onOpenMenu(
                   node.uid, e.clientX, e.clientY, childrenView, e.currentTarget,
                 );
               }}
               onKeyDown={(e) => {
+                if (fallback) return;
                 const opens = e.key === "Enter" || e.key === " "
                   || e.key === "ContextMenu" || (e.shiftKey && e.key === "F10");
                 if (!opens) return;
@@ -232,11 +239,11 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
                   node.uid, rect.left, rect.bottom, childrenView, e.currentTarget,
                 );
               }}
-              role="button"
-              tabIndex={0}
-              aria-label="Open block menu"
-              aria-haspopup="menu"
-              aria-expanded={openMenuUid === node.uid}>
+              role={fallback ? undefined : "button"}
+              tabIndex={fallback ? undefined : 0}
+              aria-label={fallback ? undefined : "Open block menu"}
+              aria-haspopup={fallback ? undefined : "menu"}
+              aria-expanded={fallback ? undefined : openMenuUid === node.uid}>
           {viewMode === "numbered" ? `${number}.` : ""}
         </span>
         {focused ? (
@@ -244,9 +251,12 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
                       readOnly={readOnly} />
         ) : (
           <Tag className={"block-text" + (quoted !== null ? " quote-block" : "")}
-               onClick={() => handlers.onFocusBlock(node.uid, node.text.length)}>
+               onClick={() => {
+                 if (!fallback) handlers.onFocusBlock(node.uid, node.text.length);
+               }}>
             <BlockEditContext.Provider
-                value={readOnly ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
+                value={readOnly || fallback
+                  ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
               <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
             </BlockEditContext.Provider>
           </Tag>
@@ -257,6 +267,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
           {node.children.map((c, index) => (
             <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}
                            handlers={handlers} readOnly={readOnly}
+                           fallback={fallback}
                            viewMode={childrenView} number={index + 1}
                            openMenuUid={openMenuUid}
                            onOpenMenu={onOpenMenu} />

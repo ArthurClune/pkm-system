@@ -2,7 +2,8 @@
 // Owns one page's editable outline: block state, focus, the text-op
 // debounce, and the wiring between pure edit commands, the op queue, and
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
+         useState } from "react";
 import { apiFetch } from "../api/client";
 import type { PagePayload, BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
@@ -20,11 +21,15 @@ import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
 import { extendSelection, type BlockSelection } from "./blockSelection";
+import { acquireOutlineSession,
+         type OutlineSessionHandle } from "./outlineSessions";
 
 const TEXT_DEBOUNCE_MS = 500;
 
 export interface Outline {
   blocks: BlockNode[];
+  session: OutlineSessionHandle | null;
+  ownsEditor: boolean;
   focus: FocusTarget | null;
   selection: BlockSelection | null;
   readOnly: boolean;
@@ -34,35 +39,76 @@ export interface Outline {
   appendBlock(text: string): void;
 }
 
-export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
+export function useOutline(
+  pageTitle: string,
+  initial: BlockNode[],
+  editorOwner?: symbol,
+): Outline {
   const sync = useSync();
   const [blocks, setBlocks] = useState(initial);
+  const [session, setSession] = useState<OutlineSessionHandle | null>(null);
+  const [ownsEditor, setOwnsEditor] = useState(false);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
   // A live multi-block selection (Shift+Arrow), mutually exclusive with an
   // editing focus: starting one blurs the textarea, focusing a block clears it.
   const [selection, setSelection] = useState<BlockSelection | null>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+  const sessionRef = useRef<OutlineSessionHandle | null>(null);
+  const bootstrapRef = useRef(initial);
+  bootstrapRef.current = initial;
   const pendingRef = useRef<{ uid: string; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localWritesRef = useRef(0);
+
+  useLayoutEffect(() => {
+    const handle = acquireOutlineSession(pageTitle, bootstrapRef.current);
+    sessionRef.current = handle;
+    const adoptShared = () => {
+      const shared = handle.getSnapshot().blocks;
+      blocksRef.current = shared;
+      setBlocks(shared);
+    };
+    const unsubscribe = handle.subscribe(adoptShared);
+    const lease = editorOwner ? handle.claimEditor(editorOwner) : null;
+    const updateLease = () => setOwnsEditor(lease?.granted ?? false);
+    const unsubscribeLease = lease?.subscribe(updateLease);
+    adoptShared();
+    setSession(handle);
+    updateLease();
+    return () => {
+      unsubscribeLease?.();
+      lease?.release();
+      unsubscribe();
+      if (sessionRef.current === handle) sessionRef.current = null;
+      handle.release();
+    };
+  }, [pageTitle, editorOwner]);
+
+  const publishBlocks = useCallback((next: BlockNode[]) => {
+    blocksRef.current = next;
+    setBlocks(next);
+    sessionRef.current?.applyOptimistic(next);
+  }, []);
 
   // A new `initial` identity is authoritative state (refetch / navigation),
   // except while a local optimistic write is still settling. Startup/reconnect
   // refetches can return the pre-edit page after Enter has already inserted a
   // local block; adopting that stale payload would remove the new block and
   // leave focus pointing at a uid no longer in the tree.
+  const receivedInitialRef = useRef(initial);
   useEffect(() => {
+    if (receivedInitialRef.current === initial) return;
+    receivedInitialRef.current = initial;
     if (localWritesRef.current > 0 || sync.pending > 0) return;
-    setBlocks(initial);
-    blocksRef.current = initial;
+    publishBlocks(initial);
     pendingRef.current = null;
     // This effect intentionally reacts only to a new authoritative payload.
     // If a stale payload arrives while the durable queue still has pending
     // ops, do not adopt it later just because `pending` drops to zero; wait
     // for the next refetch payload instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial]);
+  }, [initial, publishBlocks]);
 
   const takePendingTextOps = useCallback((): BlockOp[] => {
     if (timerRef.current) {
@@ -92,15 +138,14 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     const ops = [...textOps, ...result.ops];
     if (ops.length === 0) return;
     const next = result.ops.length > 0 ? result.blocks : base;
-    blocksRef.current = next;
-    setBlocks(next);
+    publishBlocks(next);
     localWritesRef.current += 1;
     const write = sync.enqueue(ops, ["page", pageTitle]);
     void write.settled.finally(() => {
       localWritesRef.current = Math.max(0, localWritesRef.current - 1);
     });
     if (result.focus) setFocus(result.focus);
-  }, [takePendingTextOps, pageTitle, sync]);
+  }, [takePendingTextOps, pageTitle, sync, publishBlocks]);
 
   const flushNow = useCallback(() => {
     run((b) => ({ blocks: b, ops: [], focus: null }));
@@ -128,12 +173,11 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     void sync.settled()
       .then(() => apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`))
       .then((p) => {
-        blocksRef.current = p.blocks;
-        setBlocks(p.blocks);
+        publishBlocks(p.blocks);
         setFocus((f) => (f && findNode(p.blocks, f.uid) ? f : null));
       })
       .catch(() => undefined); // next resync will repair
-  }, [sync, pageTitle]);
+  }, [sync, pageTitle, publishBlocks]);
 
   // Remote batches: the same applyOps as local edits. Text updates always
   // land on the block tree, even for the focused block — focus does not imply
@@ -145,14 +189,13 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       op.op === "move" && op.page_title != null &&
       op.page_title === pageTitle &&
       !findNode(blocksRef.current, op.uid));
-    blocksRef.current = applyOps(blocksRef.current, batch.ops, pageTitle);
-    setBlocks(blocksRef.current);
+    publishBlocks(applyOps(blocksRef.current, batch.ops, pageTitle));
     if (needsRefetch) {
       // we are the target of a cross-page move: the op carries no block
       // content, so adopt the authoritative tree.
       refetch();
     }
-  }), [sync, pageTitle, refetch]);
+  }), [sync, pageTitle, refetch, publishBlocks]);
 
   const handlers = useMemo<OutlineHandlers>(() => ({
     onFocusBlock: (uid, cursor) => {
@@ -252,17 +295,15 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       flushNow();
       const { tree, node } = removeSubtree(blocksRef.current, uid);
       if (!node) return null;
-      blocksRef.current = tree;
-      setBlocks(tree);
+      publishBlocks(tree);
       setFocus((f) => (f && findNode(tree, f.uid) ? f : null));
       return node;
     },
     insertSubtreeLocal: (node, target) => {
-      blocksRef.current = insertSubtree(
-        blocksRef.current, node, target.parent_uid, target.order_idx);
-      setBlocks(blocksRef.current);
+      publishBlocks(insertSubtree(
+        blocksRef.current, node, target.parent_uid, target.order_idx));
     },
-  }), [run, flushNow, pageTitle]);
+  }), [run, flushNow, pageTitle, publishBlocks]);
 
   const createFirstBlock = useCallback(() => {
     run((b) => {
@@ -289,6 +330,8 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
 
   return {
     blocks,
+    session,
+    ownsEditor,
     focus,
     selection,
     // offline editing (pkm-y8p0): the replica persists + renders edits

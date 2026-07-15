@@ -16,11 +16,15 @@ export interface OutlineDndApi {
   insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
 }
 
+export type DndRegistration =
+  | { accepted: true; unregister(): void }
+  | { accepted: false; reason: "duplicate-title" };
+
 export interface Dnd {
   drag: DragSource | null;
   startDrag(d: DragSource): void;
   endDrag(): void;
-  registerOutline(pageTitle: string, api: OutlineDndApi): () => void;
+  registerOutline(pageTitle: string, api: OutlineDndApi): DndRegistration;
   drop(drag: DragSource, target: DropTarget): void;
 }
 
@@ -28,7 +32,7 @@ export const DndContext = createContext<Dnd>({
   drag: null,
   startDrag: () => undefined,
   endDrag: () => undefined,
-  registerOutline: () => () => undefined,
+  registerOutline: () => ({ accepted: true, unregister: () => undefined }),
   drop: () => undefined,
 });
 
@@ -39,22 +43,35 @@ export function useDnd(): Dnd {
 export function DndProvider({ children }: { children: ReactNode }) {
   const sync = useSync();
   const [drag, setDrag] = useState<DragSource | null>(null);
-  const outlinesRef = useRef(new Map<string, OutlineDndApi>());
+  const outlinesRef = useRef(new Map<
+    string,
+    { token: symbol; api: OutlineDndApi }
+  >());
 
   const api = useMemo<Dnd>(() => ({
     drag,
     startDrag: (d) => setDrag(d),
     endDrag: () => setDrag(null),
     registerOutline: (title, outlineApi) => {
-      outlinesRef.current.set(title, outlineApi);
-      return () => {
-        if (outlinesRef.current.get(title) === outlineApi) {
-          outlinesRef.current.delete(title);
-        }
+      if (outlinesRef.current.has(title)) {
+        return { accepted: false, reason: "duplicate-title" };
+      }
+      const token = Symbol(title);
+      outlinesRef.current.set(title, { token, api: outlineApi });
+      let registered = true;
+      return {
+        accepted: true,
+        unregister: () => {
+          if (!registered) return;
+          registered = false;
+          if (outlinesRef.current.get(title)?.token === token) {
+            outlinesRef.current.delete(title);
+          }
+        },
       };
     },
     drop: (d, target) => {
-      const src = outlinesRef.current.get(d.pageTitle);
+      const src = outlinesRef.current.get(d.pageTitle)?.api;
       if (target.page_title === d.pageTitle) {
         if (src) {
           src.moveTo(d.uid, target);
@@ -65,7 +82,7 @@ export function DndProvider({ children }: { children: ReactNode }) {
         }
       } else {
         const node = src?.removeSubtreeLocal(d.uid) ?? null;
-        const dst = outlinesRef.current.get(target.page_title);
+        const dst = outlinesRef.current.get(target.page_title)?.api;
         if (dst && node) dst.insertSubtreeLocal(node, target);
         const ops: BlockOp[] = [{ op: "move", uid: d.uid,
           parent_uid: target.parent_uid, order_idx: target.order_idx,

@@ -81,10 +81,42 @@ it("cross-page drop with unregistered target only removes from the source", () =
 it("unregister stops delivery", () => {
   const { sync, dnd } = setup();
   const api = fakeOutline();
-  const off = dnd().registerOutline("P", api);
-  off();
+  const registration = dnd().registerOutline("P", api);
+  expect(registration.accepted).toBe(true);
+  if (registration.accepted) registration.unregister();
   dnd().drop({ uid: "u1", pageTitle: "P" },
              { parent_uid: null, order_idx: 0, page_title: "P" });
   expect(api.moveTo).not.toHaveBeenCalled();
   expect(sync.sent.length).toBe(1); // fell back to direct enqueue
 });
+
+it.each(["first", "duplicate"] as const)(
+  "rejects a duplicate title and cleanup of the %s registration is token-safe",
+  (released) => {
+    const { sync, dnd } = setup();
+    const first = fakeOutline();
+    const duplicate = fakeOutline();
+    const firstRegistration = dnd().registerOutline("P", first);
+    const duplicateRegistration = dnd().registerOutline("P", duplicate);
+
+    expect(firstRegistration.accepted).toBe(true);
+    expect(duplicateRegistration).toEqual({
+      accepted: false,
+      reason: "duplicate-title",
+    });
+    if (released === "first" && firstRegistration.accepted) {
+      firstRegistration.unregister();
+    }
+
+    dnd().drop({ uid: "u1", pageTitle: "P" },
+      { parent_uid: null, order_idx: 0, page_title: "P" });
+    if (released === "first") {
+      expect(first.moveTo).not.toHaveBeenCalled();
+      expect(sync.sent).toHaveLength(1);
+    } else {
+      expect(first.moveTo).toHaveBeenCalledTimes(1);
+      expect(sync.sent).toEqual([]);
+    }
+    expect(duplicate.moveTo).not.toHaveBeenCalled();
+  },
+);

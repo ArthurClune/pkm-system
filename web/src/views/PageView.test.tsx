@@ -60,6 +60,7 @@ it("scrolls to and flashes the block named in the location hash (pkm-pzdu)", asy
   const row = container.querySelector('[data-uid="uid_t1"]');
   expect(row).not.toBeNull();
   expect(scrollIntoView).toHaveBeenCalled();
+  expect(scrollIntoView.mock.instances[0]).toBe(row);
   expect(row!.classList.contains("flash-target")).toBe(true);
 });
 

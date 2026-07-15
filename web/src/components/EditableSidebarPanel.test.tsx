@@ -6,6 +6,7 @@ import { registerOutline } from "../outline/activeOutlines";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
+import { EditablePage } from "../views/EditablePage";
 
 afterEach(() => vi.useRealTimers());
 
@@ -58,6 +59,44 @@ test("a page already open elsewhere in this tab falls back to read-only", async 
   } finally {
     release();
   }
+});
+
+test("main-first same-title mounts keep one editor and one live fallback", async () => {
+  const blocks = [block("uid_s1", "a paper block", { order_idx: 0 })];
+  stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={makeSync()}>
+        <EditablePage title="Paper" initial={blocks} />
+        <EditableSidebarPanel title="Paper" />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+
+  await vi.waitFor(() => {
+    expect(screen.getAllByText("a paper block")).toHaveLength(2);
+  });
+  expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(1);
+});
+
+test("sidebar-first same-title mounts preserve its editor when main joins", async () => {
+  const blocks = [block("uid_s1", "a paper block", { order_idx: 0 })];
+  stubFetch([["/api/page/Paper", pagePayload("Paper", blocks)]]);
+  const sync = makeSync();
+  const view = (showMain: boolean) => (
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={sync}>
+        <EditableSidebarPanel title="Paper" />
+        {showMain && <EditablePage title="Paper" initial={blocks} />}
+      </SyncContext.Provider>
+    </MemoryRouter>
+  );
+  const { rerender } = render(view(false));
+  await screen.findByText("a paper block");
+
+  rerender(view(true));
+
+  expect(screen.getAllByText("a paper block")).toHaveLength(2);
+  expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(1);
 });
 
 test("shows the fetch error", async () => {

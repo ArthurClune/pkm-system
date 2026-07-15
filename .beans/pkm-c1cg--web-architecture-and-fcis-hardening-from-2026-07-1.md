@@ -9,7 +9,7 @@ tags:
     - architecture
     - fcis
 created_at: 2026-07-15T14:22:26Z
-updated_at: 2026-07-15T18:09:15Z
+updated_at: 2026-07-15T18:40:46Z
 ---
 
 ## Goal
@@ -36,7 +36,7 @@ Address the correctness, complexity, design, maintainability, and FCIS findings 
 - [x] 1. pkm-qvqz — Make replica recovery atomic with concurrent enqueues
 - [x] 2. pkm-huv4 — Reconcile optimistic state after server-rejected batches
 - [ ] 3. pkm-z77x — Prevent outline refetches from overwriting or discarding newer state
-- [ ] 4. pkm-viah — Eliminate simultaneous same-title editor divergence
+- [x] 4. pkm-viah — Eliminate simultaneous same-title editor divergence
 - [ ] 5. pkm-wudz — Extract pure editor and sync state machines from large shells
 - [ ] 6. pkm-1jw6 — Correct and enforce TypeScript FCIS boundaries
 - [ ] 7. pkm-stn6 — Standardize async UI request and mutation lifecycles

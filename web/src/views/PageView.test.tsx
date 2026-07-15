@@ -22,8 +22,12 @@ function renderAt(path: string) {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
 }
 
 it("fetches and renders a page, resolving block refs from the payload", async () => {
@@ -50,9 +54,12 @@ it("keeps literal slashes in namespace titles", async () => {
 });
 
 it("shows an error state on 404", async () => {
-  stubFetch([]);
+  const fetchMock = stubFetch([]);
   renderAt("/page/Nope");
   expect(await screen.findByText(/could not load/i)).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  await Promise.resolve();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
 it("releases a failed parent read when the page unmounts", async () => {
@@ -83,7 +90,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
     </SyncContext.Provider>,
   );
   let expiredPublished = false;
-  let newerPublished = false;
+  let newerCopies = 0;
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {
@@ -102,7 +109,7 @@ it("an expired same-title parent response cannot publish an empty child", async 
       await Promise.resolve();
       await Promise.resolve();
     });
-    newerPublished = screen.queryByText("newer response") !== null;
+    newerCopies = screen.queryAllByText("newer response").length;
   } finally {
     older.resolve(jsonResponse(pagePayload("Paper", [])));
     newer.resolve(jsonResponse(pagePayload("Paper", [])));
@@ -110,7 +117,184 @@ it("an expired same-title parent response cannot publish an empty child", async 
   }
 
   expect(expiredPublished).toBe(false);
-  expect(newerPublished).toBe(true);
+  expect(newerCopies).toBe(2);
+  expect(isOutlineSessionActive("Paper")).toBe(false);
+});
+
+it("a losing failed parent renders the accepted same-title winner without error", async () => {
+  const older = deferred<Response>();
+  const newer = deferred<Response>();
+  const fetchMock = vi.fn(() =>
+    fetchMock.mock.calls.length === 1 ? older.promise : newer.promise);
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        <EditableSidebarPanel title="Paper" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  let copies = 0;
+  let metadataCopies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      older.reject(new Error("expired transport failed"));
+      await older.promise.catch(() => undefined);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      newer.resolve(jsonResponse(pagePayload("Paper", [
+        block("winner", "accepted winner"),
+        block("winner-ref", "((winner_ref))"),
+      ], {
+        block_ref_texts: {
+          winner_ref: { text: "shared payload metadata", page_title: "Source" },
+        },
+      })));
+      await newer.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copies = screen.queryAllByText("accepted winner").length;
+    metadataCopies = screen.queryAllByText("shared payload metadata").length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload("Paper", [])));
+    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    view.unmount();
+  }
+
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(copies).toBe(2);
+  expect(metadataCopies).toBe(2);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive("Paper")).toBe(false);
+});
+
+it("a failed newer parent elects one fresh controller for both panes", async () => {
+  const older = deferred<Response>();
+  const newer = deferred<Response>();
+  const recovery = deferred<Response>();
+  const fetchMock = vi.fn(() => {
+    const call = fetchMock.mock.calls.length;
+    if (call === 1) return older.promise;
+    if (call === 2) return newer.promise;
+    return recovery.promise;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        <EditableSidebarPanel title="Paper" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  let copies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      await older.promise;
+      await Promise.resolve();
+    });
+    await act(async () => {
+      newer.reject(new Error("newer controller failed"));
+      await newer.promise.catch(() => undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await act(async () => {
+      recovery.resolve(jsonResponse(pagePayload("Paper", [
+        block("recovered", "recovered once"),
+      ])));
+      await recovery.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copies = screen.queryAllByText("recovered once").length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload("Paper", [])));
+    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    recovery.resolve(jsonResponse(pagePayload("Paper", [])));
+    view.unmount();
+  }
+
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(copies).toBe(2);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive("Paper")).toBe(false);
+});
+
+it("unmounting the newer parent elects one surviving controller", async () => {
+  const older = deferred<Response>();
+  const abandoned = deferred<Response>();
+  const recovery = deferred<Response>();
+  const fetchMock = vi.fn(() => {
+    const call = fetchMock.mock.calls.length;
+    if (call === 1) return older.promise;
+    if (call === 2) return abandoned.promise;
+    return recovery.promise;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const sync = makeSync();
+  const tree = (showSidebar: boolean) => (
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        {showSidebar && <EditableSidebarPanel title="Paper" />}
+      </MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const view = render(tree(true));
+  let copies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    view.rerender(tree(false));
+    await act(async () => {
+      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      await older.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await act(async () => {
+      recovery.resolve(jsonResponse(pagePayload("Paper", [
+        block("survivor", "surviving controller"),
+      ])));
+      await recovery.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copies = screen.queryAllByText("surviving controller").length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload("Paper", [])));
+    abandoned.resolve(jsonResponse(pagePayload("Paper", [])));
+    recovery.resolve(jsonResponse(pagePayload("Paper", [])));
+    view.unmount();
+  }
+
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(copies).toBe(1);
+  expect(errors).toBe(0);
   expect(isOutlineSessionActive("Paper")).toBe(false);
 });
 

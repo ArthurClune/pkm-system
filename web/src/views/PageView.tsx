@@ -36,21 +36,37 @@ export function PageView() {
     const read = { handle, token };
     readRef.current = read;
     setError(null);
+    const awaitAcceptedParent = () => {
+      void handle.waitForParentAuthoritative(token)
+        .then((winner) => {
+          if (seq !== seqRef.current) return;
+          setError(null);
+          setPayload({ ...winner, blocks: handle.getSnapshot().blocks });
+        })
+        .catch((winnerError: unknown) => {
+          if (seq === seqRef.current) setError(String(winnerError));
+        });
+    };
     apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
       .then((p) => {
         if (seq !== seqRef.current) {
           handle.cancelAuthoritativeRead(token);
           return;
         }
-        const accepted = handle.receiveAuthoritative(token, p.blocks);
+        const accepted = handle.receiveParentAuthoritative(token, p);
         if (readRef.current === read) readRef.current = null;
-        if (!accepted) return;
+        if (!accepted) {
+          if (source === "parent") awaitAcceptedParent();
+          return;
+        }
         setPayload({ ...p, blocks: handle.getSnapshot().blocks });
       })
       .catch((e: unknown) => {
-        handle.cancelAuthoritativeRead(token);
+        handle.failAuthoritativeRead(token, e);
         if (readRef.current === read) readRef.current = null;
-        if (seq === seqRef.current) setError(String(e));
+        if (seq !== seqRef.current) return;
+        if (source === "parent") awaitAcceptedParent();
+        else setError(String(e));
       });
   }, [title]);
 
@@ -64,9 +80,13 @@ export function PageView() {
       );
       return page.blocks;
     });
+    const removeParentController = handle.setParentReadController(
+      () => load("parent", handle),
+    );
     load("parent", handle);
     return () => {
       seqRef.current += 1;
+      removeParentController();
       const read = readRef.current;
       if (read?.handle === handle) {
         handle.cancelAuthoritativeRead(read.token);

@@ -9,7 +9,10 @@ import { apiFetch } from "../api/client";
 import type { PagePayload } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
 import { encodeTitle } from "../paths";
-import { acquireOutlineSession } from "../outline/outlineSessions";
+import {
+  acquireOutlineSession,
+  type ReadToken,
+} from "../outline/outlineSessions";
 import { EditablePage } from "../views/EditablePage";
 
 export function EditableSidebarPanel({ title }: { title: string }) {
@@ -18,30 +21,67 @@ export function EditableSidebarPanel({ title }: { title: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    let generation = 0;
     const session = acquireOutlineSession(title, null);
+    let current: { token: ReadToken; generation: number } | null = null;
     const removeLoader = session.setAuthoritativeLoader(async () => {
       const page = await apiFetch<PagePayload>(
         `/api/page/${encodeTitle(title)}`,
       );
       return page.blocks;
     });
-    const token = session.beginAuthoritativeRead("parent");
-    apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
-      .then((p) => {
-        if (cancelled) {
-          session.cancelAuthoritativeRead(token);
-          return;
-        }
-        if (!session.receiveAuthoritative(token, p.blocks)) return;
-        setPayload({ ...p, blocks: session.getSnapshot().blocks });
-      })
-      .catch((e: unknown) => {
-        session.cancelAuthoritativeRead(token);
-        if (!cancelled) setError(String(e));
-      });
+
+    const awaitAcceptedParent = (token: ReadToken, readGeneration: number) => {
+      void session.waitForParentAuthoritative(token)
+        .then((winner) => {
+          if (cancelled || readGeneration !== generation) return;
+          setError(null);
+          setPayload({ ...winner, blocks: session.getSnapshot().blocks });
+        })
+        .catch((winnerError: unknown) => {
+          if (!cancelled && readGeneration === generation) {
+            setError(String(winnerError));
+          }
+        });
+    };
+
+    const start = () => {
+      if (cancelled) return;
+      const readGeneration = ++generation;
+      if (current) session.cancelAuthoritativeRead(current.token);
+      const token = session.beginAuthoritativeRead("parent");
+      current = { token, generation: readGeneration };
+      setError(null);
+      apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
+        .then((p) => {
+          if (cancelled || readGeneration !== generation) {
+            session.cancelAuthoritativeRead(token);
+            return;
+          }
+          const accepted = session.receiveParentAuthoritative(token, p);
+          if (current?.token === token) current = null;
+          if (!accepted) {
+            awaitAcceptedParent(token, readGeneration);
+            return;
+          }
+          setPayload({ ...p, blocks: session.getSnapshot().blocks });
+        })
+        .catch((e: unknown) => {
+          session.failAuthoritativeRead(token, e);
+          if (current?.token === token) current = null;
+          if (!cancelled && readGeneration === generation) {
+            awaitAcceptedParent(token, readGeneration);
+          }
+        });
+    };
+
+    const removeParentController = session.setParentReadController(start);
+    start();
     return () => {
       cancelled = true;
-      session.cancelAuthoritativeRead(token);
+      generation += 1;
+      removeParentController();
+      if (current) session.cancelAuthoritativeRead(current.token);
       removeLoader();
       session.release();
     };

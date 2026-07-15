@@ -125,7 +125,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
     </SyncContext.Provider>,
   );
   let expiredPublished = false;
-  let newerPublished = false;
+  let newerCopies = 0;
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await act(async () => {
@@ -146,7 +146,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
       await Promise.resolve();
       await Promise.resolve();
     });
-    newerPublished = screen.queryAllByText("newer main response").length > 0;
+    newerCopies = screen.queryAllByText("newer main response").length;
   } finally {
     older.resolve(jsonResponse(pagePayload("Paper", [])));
     newer.resolve(jsonResponse(pagePayload("Paper", [])));
@@ -154,7 +154,7 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
   }
 
   expect(expiredPublished).toBe(false);
-  expect(newerPublished).toBe(true);
+  expect(newerCopies).toBe(2);
   expect(isOutlineSessionActive("Paper")).toBe(false);
 });
 

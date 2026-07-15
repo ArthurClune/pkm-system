@@ -651,3 +651,82 @@ arrived.
 - Repair epochs, captured Journal reservations, relevant ticket replay, DnD
   metadata, queue liveness, same-title editor leases/shared publication, and
   Task 4 view-local state continue through their prior paths.
+
+## Eighth independent-review fix wave
+
+Review of `04feef1` found that an expired same-title parent remained in its
+loading state even after the newer parent succeeded, and no parent was elected
+when the newest request failed or its pane unmounted.
+
+### Root cause
+
+- Manual receipt correctly rejected an expired token, but only the current
+  parent received the winning response. The loser had neither mounted a shared
+  outline subscriber nor retained a readiness path for the full `PagePayload`,
+  so returning early left it loading forever.
+- Parent fetch ownership lived entirely inside each component. Expiring a
+  token removed the older reservation, but failure or unmount of the newest
+  owner could leave no active request and no deterministic controller to start
+  one.
+- Sharing blocks alone was insufficient: PageView and Sidebar also require the
+  winning page metadata, backlinks, and block-reference text map.
+
+### RED evidence
+
+- The six-case focused command failed all 6 selected tests before production
+  changes. Both inverted-success cases rendered the winner in only one of two
+  panes; the losing-failure case also rendered only one copy; winner failure
+  and winner unmount stopped at two fetches instead of electing a third; and a
+  terminal 404 made one request instead of the bounded two-attempt contract.
+- The inverted PageView and Sidebar assertions were strengthened from winner
+  presence to exactly two rendered copies. New regressions keep both panes
+  mounted, cover losing transport failure, cover newer failure and unmount,
+  assert zero stale errors, and prove the shared winner includes
+  `block_ref_texts`, not only blocks.
+
+### Production design
+
+- Each title session now retains the latest accepted full parent payload and
+  lets expired parents await only a strictly newer accepted request. Successful
+  receipt normalizes that payload to the shared outline snapshot, then resolves
+  every eligible parent waiter with the same metadata and block tree.
+- Parent shells register synchronous controller callbacks with the session.
+  When the current manual read fails or is cancelled, a microtask elects the
+  newest surviving controller after manual, automatic, and repair ownership is
+  idle. Component cleanup unregisters its controller before cancellation, so
+  unmount cannot re-elect the departing pane.
+- An election is capped at one fresh controller attempt. A second failure
+  rejects the waiters with the real transport error, preventing a fetch storm;
+  a later external parent/resync generation or an accepted payload resets that
+  cap. Ordinary deferred resyncs retain their prior block-only repair path and
+  do not spuriously request a replacement full payload.
+- Waiters and controller registrations are handle-owned and removed on
+  release. Manual reservations, stale-token rejection, repair epochs, and the
+  existing authoritative block loader remain separate contracts.
+
+### GREEN verification
+
+- Focused parent readiness/election matrix: 2 files / 6 selected tests passed.
+- Full parent integration matrix: 2 files / 20 tests passed.
+- DnD/outline/session/provider command: 4 files / 77 tests passed.
+- Controller queue/replica gate: 4 files / 74 tests passed.
+- Exact controller Task 5 UI gate: 7 files / 87 tests passed.
+- Controller outline gate: 4 files / 52 tests passed.
+- `pnpm typecheck`: passed.
+- Canonical `pnpm verify`: passed: 72 files / 811 unit tests; 97.70%
+  statements and lines, 91.24% branches, and 95.83% functions; production/PWA
+  build with 78 precache entries / 5139.52 KiB; Playwright 6/6.
+
+### Self-review
+
+- Request-id ordering prevents an already accepted older payload from
+  satisfying a failed newer parent. The elected request must itself win before
+  either pane renders it.
+- Election happens only with waiting parent shells and no active session read,
+  is microtask-coalesced, and has a one-recovery cap. Success clears prior
+  failure state; terminal failure surfaces once without recursive retries.
+- Losing success, losing failure, winner failure, winner unmount, and terminal
+  failure all release their reservations exactly once. Session collection,
+  shared editor leases, deferred local-write reconciliation, DnD replay,
+  Journal capture, repair epochs, and queue/replica invariants retain their
+  existing focused coverage.

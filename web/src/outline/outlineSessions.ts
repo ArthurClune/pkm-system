@@ -2,7 +2,7 @@
 // Per-title external store for flushed trees, authoritative read causality,
 // scoped delivery tickets, and the single editable view lease. Registry
 // acquisition happens from effects, never render.
-import type { BlockNode } from "../api/payloads";
+import type { BlockNode, PagePayload } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { WriteTicket } from "../sync/opQueue";
 import type { WsBatch } from "../sync/socket";
@@ -40,7 +40,11 @@ export interface OutlineSessionHandle {
   claimEditor(owner: symbol): EditorLease;
   beginAuthoritativeRead(source: AuthoritativeReadSource): ReadToken;
   receiveAuthoritative(token: ReadToken, blocks: BlockNode[]): boolean;
-  cancelAuthoritativeRead(token: ReadToken): void;
+  receiveParentAuthoritative(token: ReadToken, payload: PagePayload): boolean;
+  failAuthoritativeRead(token: ReadToken, error: unknown): boolean;
+  cancelAuthoritativeRead(token: ReadToken): boolean;
+  waitForParentAuthoritative(token: ReadToken): Promise<PagePayload>;
+  setParentReadController(start: () => void): () => void;
   setAuthoritativeLoader(load: () => Promise<BlockNode[]>): () => void;
   applyLocal(ticket: WriteTicket, ops: readonly BlockOp[]): void;
   applyOptimistic(blocks: BlockNode[]): void;
@@ -80,6 +84,18 @@ interface Session {
   loaders: Map<symbol, () => Promise<BlockNode[]>>;
   trackedWrites: Set<string>;
   manualReads: Set<number>;
+  parentPayload: { requestId: number; payload: PagePayload } | null;
+  parentWaiters: Set<{
+    owner: symbol;
+    afterRequestId: number;
+    resolve: (payload: PagePayload) => void;
+    reject: (error: unknown) => void;
+  }>;
+  parentControllers: Map<symbol, () => void>;
+  parentElectionScheduled: boolean;
+  parentElectionStarting: boolean;
+  parentRecoveryAttempted: boolean;
+  parentFailure: unknown;
 }
 
 const sessions = new Map<string, Session>();
@@ -183,8 +199,86 @@ function finishManualRead(
       : false;
   } finally {
     session.reservations -= 1;
+    scheduleParentElection(session);
     maybeDeleteSession(session);
   }
+}
+
+function publishParentPayload(
+  session: Session,
+  token: ReadToken,
+  payload: PagePayload,
+): void {
+  const accepted = {
+    requestId: token.requestId,
+    payload: { ...payload, blocks: session.snapshot.blocks },
+  };
+  session.parentPayload = accepted;
+  session.parentFailure = null;
+  session.parentRecoveryAttempted = false;
+  for (const waiter of [...session.parentWaiters]) {
+    if (waiter.afterRequestId >= accepted.requestId) continue;
+    session.parentWaiters.delete(waiter);
+    waiter.resolve(accepted.payload);
+  }
+}
+
+function rejectParentWaiters(session: Session, error: unknown): void {
+  for (const waiter of session.parentWaiters) waiter.reject(error);
+  session.parentWaiters.clear();
+}
+
+function scheduleParentElection(session: Session): void {
+  if (session.parentElectionScheduled) return;
+  session.parentElectionScheduled = true;
+  void Promise.resolve().then(() => {
+    session.parentElectionScheduled = false;
+    if (session.parentWaiters.size === 0 || session.manualReads.size > 0 ||
+        session.authoritativeRead !== null || activeRepairEpoch !== null) return;
+    const controller = [...session.parentControllers.values()].at(-1);
+    if (!controller || session.parentRecoveryAttempted) {
+      rejectParentWaiters(
+        session,
+        session.parentFailure ?? new Error(
+          `No parent read controller for active outline ${session.title}`,
+        ),
+      );
+      return;
+    }
+    session.parentRecoveryAttempted = true;
+    session.parentElectionStarting = true;
+    try {
+      controller();
+    } catch (error) {
+      session.parentFailure = error;
+      rejectParentWaiters(session, error);
+    } finally {
+      session.parentElectionStarting = false;
+    }
+    if (session.manualReads.size === 0 && session.parentWaiters.size > 0) {
+      rejectParentWaiters(
+        session,
+        session.parentFailure ?? new Error(
+          `Parent read controller did not start for ${session.title}`,
+        ),
+      );
+    }
+  });
+}
+
+function abandonManualRead(
+  session: Session,
+  token: ReadToken,
+  error: unknown,
+): boolean {
+  const current = session.manualReads.has(token.requestId) &&
+    token.requestId === session.state.latestRequestId;
+  finishManualRead(session, token);
+  if (current) {
+    session.parentFailure = error;
+    scheduleParentElection(session);
+  }
+  return current;
 }
 
 function requestAuthoritative(
@@ -206,6 +300,7 @@ function requestAuthoritative(
           session.authoritativeAgain = false;
           void requestAuthoritative(session).catch(() => undefined);
         }
+        scheduleParentElection(session);
         maybeDeleteSession(session);
       }
     });
@@ -387,6 +482,13 @@ export function acquireOutlineSession(
       loaders: new Map(),
       trackedWrites: new Set(),
       manualReads: new Set(),
+      parentPayload: null,
+      parentWaiters: new Set(),
+      parentControllers: new Map(),
+      parentElectionScheduled: false,
+      parentElectionStarting: false,
+      parentRecoveryAttempted: false,
+      parentFailure: null,
     };
     sessions.set(title, session);
   } else if (!session.bootstrapped && bootstrap !== null &&
@@ -411,6 +513,8 @@ export function acquireOutlineSession(
   const subscriptions = new Set<() => void>();
   const leases = new Set<LeaseRecord>();
   const loaders = new Set<symbol>();
+  const parentControllers = new Set<symbol>();
+  const handleId = Symbol(`outline-handle:${title}`);
 
   const handle: OutlineSessionHandle = {
     getSnapshot: () => session.snapshot,
@@ -462,6 +566,10 @@ export function acquireOutlineSession(
       };
     },
     beginAuthoritativeRead: () => {
+      if (!session.parentElectionStarting) {
+        session.parentRecoveryAttempted = false;
+        session.parentFailure = null;
+      }
       const token = startAuthoritativeRead(session);
       session.manualReads.add(token.requestId);
       session.reservations += 1;
@@ -469,7 +577,51 @@ export function acquireOutlineSession(
     },
     receiveAuthoritative: (token, blocks) =>
       finishManualRead(session, token, blocks),
-    cancelAuthoritativeRead: (token) => finishManualRead(session, token),
+    receiveParentAuthoritative: (token, payload) => {
+      const accepted = finishManualRead(session, token, payload.blocks);
+      if (accepted) publishParentPayload(session, token, payload);
+      return accepted;
+    },
+    failAuthoritativeRead: (token, error) =>
+      abandonManualRead(session, token, error),
+    cancelAuthoritativeRead: (token) => abandonManualRead(
+      session,
+      token,
+      new Error(`Parent read cancelled for ${session.title}`),
+    ),
+    waitForParentAuthoritative: (token) => {
+      const accepted = session.parentPayload;
+      if (accepted && accepted.requestId > token.requestId) {
+        return Promise.resolve(accepted.payload);
+      }
+      if (released) {
+        return Promise.reject(new Error(`Outline handle released for ${title}`));
+      }
+      const promise = new Promise<PagePayload>((resolve, reject) => {
+        session.parentWaiters.add({
+          owner: handleId,
+          afterRequestId: token.requestId,
+          resolve,
+          reject,
+        });
+      });
+      scheduleParentElection(session);
+      return promise;
+    },
+    setParentReadController: (start) => {
+      if (released) return () => undefined;
+      const token = Symbol(`parent-controller:${title}`);
+      session.parentControllers.set(token, start);
+      parentControllers.add(token);
+      let active = true;
+      return () => {
+        if (!active) return;
+        active = false;
+        session.parentControllers.delete(token);
+        parentControllers.delete(token);
+        scheduleParentElection(session);
+      };
+    },
     setAuthoritativeLoader: (load) => {
       if (released) return () => undefined;
       const token = Symbol(`authoritative:${title}`);
@@ -519,7 +671,15 @@ export function acquireOutlineSession(
       leases.clear();
       for (const token of loaders) session.loaders.delete(token);
       loaders.clear();
+      for (const token of parentControllers) {
+        session.parentControllers.delete(token);
+      }
+      parentControllers.clear();
+      for (const waiter of [...session.parentWaiters]) {
+        if (waiter.owner === handleId) session.parentWaiters.delete(waiter);
+      }
       session.handles -= 1;
+      scheduleParentElection(session);
       maybeDeleteSession(session);
     },
   };
@@ -639,7 +799,10 @@ export function repairActiveOutlineSessions(
   activeRepairEpoch = epoch;
   epoch.completion = runRepairEpoch(epoch).finally(() => {
     if (activeRepairEpoch === epoch) activeRepairEpoch = null;
-    for (const session of sessions.values()) maybeDeleteSession(session);
+    for (const session of sessions.values()) {
+      scheduleParentElection(session);
+      maybeDeleteSession(session);
+    }
   });
   return epoch.completion;
 }

@@ -39,7 +39,7 @@ export interface OutlineSessionHandle {
   subscribe(listener: () => void): () => void;
   claimEditor(owner: symbol): EditorLease;
   beginAuthoritativeRead(source: AuthoritativeReadSource): ReadToken;
-  receiveAuthoritative(token: ReadToken, blocks: BlockNode[]): void;
+  receiveAuthoritative(token: ReadToken, blocks: BlockNode[]): boolean;
   cancelAuthoritativeRead(token: ReadToken): void;
   setAuthoritativeLoader(load: () => Promise<BlockNode[]>): () => void;
   applyLocal(ticket: WriteTicket, ops: readonly BlockOp[]): void;
@@ -147,12 +147,14 @@ function receiveAuthoritative(
   session: Session,
   token: ReadToken,
   blocks: BlockNode[],
-): void {
+): boolean {
+  if (token.requestId !== session.state.latestRequestId) return false;
   session.bootstrapped = true;
   const result = transitionOutline(session.state, {
     type: "authoritative", token, blocks,
   });
   applyTransition(session, result);
+  return true;
 }
 
 function receiveAuthoritativeRepair(
@@ -173,10 +175,12 @@ function finishManualRead(
   session: Session,
   token: ReadToken,
   blocks?: BlockNode[],
-): void {
-  if (!session.manualReads.delete(token.requestId)) return;
+): boolean {
+  if (!session.manualReads.delete(token.requestId)) return false;
   try {
-    if (blocks !== undefined) receiveAuthoritative(session, token, blocks);
+    return blocks !== undefined
+      ? receiveAuthoritative(session, token, blocks)
+      : false;
   } finally {
     session.reservations -= 1;
     maybeDeleteSession(session);
@@ -194,7 +198,7 @@ function requestAuthoritative(
   const token = startAuthoritativeRead(session);
   let request!: Promise<void>;
   request = loader()
-    .then((blocks) => receiveAuthoritative(session, token, blocks))
+    .then((blocks) => { receiveAuthoritative(session, token, blocks); })
     .finally(() => {
       if (session.authoritativeRead === request) {
         session.authoritativeRead = null;
@@ -346,6 +350,17 @@ function releaseLease(session: Session, lease: LeaseRecord): void {
   if (index >= 0) session.waiters.splice(index, 1);
 }
 
+function canBootstrapExistingSession(session: Session): boolean {
+  return session.state.revision === 0 &&
+    session.state.relevantWrites.size === 0 &&
+    session.state.deferredAuthoritative === null &&
+    session.manualReads.size === 0 &&
+    session.reservations === 0 &&
+    session.trackedWrites.size === 0 &&
+    session.authoritativeRead === null &&
+    !session.authoritativeAgain;
+}
+
 /** Acquire a title session from an effect. The first real bootstrap wins;
  * later mounts observe that established tree instead of replacing it. `null`
  * reserves editor ownership without supplying a page snapshot. */
@@ -374,9 +389,13 @@ export function acquireOutlineSession(
       manualReads: new Set(),
     };
     sessions.set(title, session);
-  } else if (!session.bootstrapped && bootstrap !== null) {
-    session.state = createOutlineState(title, bootstrap);
-    session.snapshot = { blocks: bootstrap, revision: 0 };
+  } else if (!session.bootstrapped && bootstrap !== null &&
+             canBootstrapExistingSession(session)) {
+    session.state = { ...session.state, blocks: bootstrap };
+    session.snapshot = {
+      blocks: session.state.blocks,
+      revision: session.state.revision,
+    };
     session.bootstrapped = true;
   }
   session.handles += 1;
@@ -448,9 +467,8 @@ export function acquireOutlineSession(
       session.reservations += 1;
       return token;
     },
-    receiveAuthoritative: (token, blocks) => {
-      finishManualRead(session, token, blocks);
-    },
+    receiveAuthoritative: (token, blocks) =>
+      finishManualRead(session, token, blocks),
     cancelAuthoritativeRead: (token) => finishManualRead(session, token),
     setAuthoritativeLoader: (load) => {
       if (released) return () => undefined;

@@ -256,6 +256,88 @@ it("a newer manual read expires an older handle reservation", () => {
   fresh.release();
 });
 
+it("an expired unbootstrapped parent cannot reset the newer manual read", () => {
+  const title = "Overlapping empty parents";
+  const older = acquireOutlineSession(title, null);
+  const newer = acquireOutlineSession(title, null);
+  const olderToken = older.beginAuthoritativeRead("parent");
+  const newerToken = newer.beginAuthoritativeRead("parent");
+
+  const olderAccepted = older.receiveAuthoritative(
+    olderToken, [block("old", "expired")],
+  );
+  const child = acquireOutlineSession(title, []);
+  const newerAccepted = newer.receiveAuthoritative(
+    newerToken, [block("new", "newer response")],
+  );
+  const observed = {
+    olderAccepted,
+    newerAccepted,
+    blocks: child.getSnapshot().blocks.map((node) => node.text),
+  };
+
+  child.release();
+  newer.release();
+  older.release();
+
+  expect(observed).toEqual({
+    olderAccepted: false,
+    newerAccepted: true,
+    blocks: ["newer response"],
+  });
+  expect(isOutlineSessionActive(title)).toBe(false);
+});
+
+it("an existing-session bootstrap cannot overwrite an unresolved local write", async () => {
+  const title = "Unbootstrapped relevant write";
+  const delivered = deferred<DeliveryOutcome>();
+  const session = acquireOutlineSession(title, null);
+  session.applyLocal({
+    id: "unresolved-create", scope: ["page", title],
+    settled: Promise.resolve({ status: "persisted", pending: 1 }),
+    delivered: delivered.promise,
+  }, [{
+    op: "create", uid: "local", page_title: title,
+    parent_uid: null, order_idx: 0, text: "local write",
+  }]);
+
+  const child = acquireOutlineSession(title, [block("stale", "stale bootstrap")]);
+  const observed = child.getSnapshot().blocks.map((node) => node.text);
+
+  delivered.resolve({ status: "delivered" });
+  await delivered.promise;
+  await Promise.resolve();
+  child.release();
+  session.release();
+
+  expect(observed).toEqual(["local write"]);
+  expect(isOutlineSessionActive(title)).toBe(false);
+});
+
+it("a genuine later bootstrap preserves monotonic manual request ids", () => {
+  const title = "Bootstrap request identity";
+  const first = acquireOutlineSession(title, null);
+  const cancelled = first.beginAuthoritativeRead("parent");
+  first.cancelAuthoritativeRead(cancelled);
+  const bootstrapped = acquireOutlineSession(
+    title, [block("server", "genuine bootstrap")],
+  );
+  const next = bootstrapped.beginAuthoritativeRead("parent");
+  const observed = {
+    text: bootstrapped.getSnapshot().blocks[0]?.text,
+    cancelledRequestId: cancelled.requestId,
+    nextRequestId: next.requestId,
+  };
+
+  bootstrapped.cancelAuthoritativeRead(next);
+  bootstrapped.release();
+  first.release();
+
+  expect(observed.text).toBe("genuine bootstrap");
+  expect(observed.nextRequestId).toBeGreaterThan(observed.cancelledRequestId);
+  expect(isOutlineSessionActive(title)).toBe(false);
+});
+
 it("an automatic read expires an older manual reservation", async () => {
   const session = acquireOutlineSession(
     "Automatic supersession", [block("u1", "old")],

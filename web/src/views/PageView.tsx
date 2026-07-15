@@ -42,8 +42,9 @@ export function PageView() {
           handle.cancelAuthoritativeRead(token);
           return;
         }
-        handle.receiveAuthoritative(token, p.blocks);
+        const accepted = handle.receiveAuthoritative(token, p.blocks);
         if (readRef.current === read) readRef.current = null;
+        if (!accepted) return;
         setPayload({ ...p, blocks: handle.getSnapshot().blocks });
       })
       .catch((e: unknown) => {

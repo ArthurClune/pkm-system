@@ -9,7 +9,7 @@ tags:
     - outline
     - concurrency
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T21:49:26Z
+updated_at: 2026-07-15T22:09:47Z
 parent: pkm-c1cg
 ---
 
@@ -32,4 +32,4 @@ Introduce per-outline versioning/reconciliation and retain deferred authoritativ
 
 ## Summary of Changes
 
-Added a pure per-outline causality core with revision-checked reads, deferred payloads, title-scoped write relevance, and in-flight lifecycle retention. Every page-scoped ticket is retained at the Sync enqueue boundary, while cross-page DnD attaches the target subtree/location metadata that its wire move cannot reconstruct whenever the source node exists, independent of target mount state; immediate target insertion still requires a mounted destination. A Shell-owned repair epoch invalidates older controllers, dynamically enrolls every live session, requires an unchanged dispatch revision, adopts fresh server state, and replays only still-unresolved title-specific ticket actions in order before synchronously releasing legacy delivery. Legacy queue drain ownership retains an otherwise-eligible missed kick across asynchronous empty-repair resume, while offline, recovery, disposal, 5xx backoff, single-owner pumping, and replica behavior remain guarded. Released newcomers collect normally; live missing loaders and failed reads expose Retry without reapplying rejected or spanning operations. Journal reservations, durable settlement, source-absent DnD behavior, replica FIFO/poison recovery, Task 4 editor/view-local state, and terminal delivery remain intact. Canonical pnpm verify passes (72 files / 803 unit tests and 6/6 Playwright tests).
+Added a pure per-outline causality core with revision-checked reads, deferred payloads, title-scoped write relevance, and in-flight lifecycle retention. Manual-token receipt now reports whether the parent still owns the current request, so overlapping same-title PageView and sidebar shells never publish an expired empty child. Existing-session bootstrap requires idle causal state and replaces blocks in place, preserving monotonic request ids, reservations, relevant writes, and deferred state. Every page-scoped ticket is retained at the Sync enqueue boundary, while cross-page DnD attaches target subtree/location metadata whenever the source node exists, independent of target mount state. A Shell-owned repair epoch dynamically enrolls every live session, requires an unchanged dispatch revision, adopts fresh server state, replays unresolved title-specific ticket actions in order, and synchronously releases legacy delivery. Legacy queue missed-kick handoff, offline and 5xx guards, Journal reservations, durable settlement, source-absent DnD behavior, replica FIFO/poison recovery, same-title editor sharing, Task 4 view-local state, and terminal delivery remain intact. Canonical pnpm verify passes (72 files / 808 unit tests and 6/6 Playwright tests).

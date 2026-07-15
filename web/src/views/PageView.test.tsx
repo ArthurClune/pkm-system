@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { isOutlineSessionActive } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
+import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { PageView } from "./PageView";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -17,6 +18,12 @@ function renderAt(path: string) {
       </Routes>
     </MemoryRouter>,
   );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 it("fetches and renders a page, resolving block refs from the payload", async () => {
@@ -56,6 +63,55 @@ it("releases a failed parent read when the page unmounts", async () => {
   view.unmount();
 
   expect(isOutlineSessionActive("Failed read")).toBe(false);
+});
+
+it("an expired same-title parent response cannot publish an empty child", async () => {
+  const older = deferred<Response>();
+  const newer = deferred<Response>();
+  const fetchMock = vi.fn(() =>
+    fetchMock.mock.calls.length === 1 ? older.promise : newer.promise);
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        <EditableSidebarPanel title="Paper" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  let expiredPublished = false;
+  let newerPublished = false;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      await older.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expiredPublished = screen.queryByRole("heading", { name: "Paper" }) !== null;
+
+    await act(async () => {
+      newer.resolve(jsonResponse(pagePayload("Paper", [
+        block("new", "newer response"),
+      ])));
+      await newer.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    newerPublished = screen.queryByText("newer response") !== null;
+  } finally {
+    older.resolve(jsonResponse(pagePayload("Paper", [])));
+    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    view.unmount();
+  }
+
+  expect(expiredPublished).toBe(false);
+  expect(newerPublished).toBe(true);
+  expect(isOutlineSessionActive("Paper")).toBe(false);
 });
 
 it("scrolls to and flashes the block named in the location hash (pkm-pzdu)", async () => {

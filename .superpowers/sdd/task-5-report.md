@@ -578,3 +578,76 @@ whether the target outline happened to be mounted at drop time.
 - The source-absent guard proves that `node === null` triggers neither local
   insertion nor replay attachment. Repair epoch membership, loader failures,
   revision barriers, and synchronous queue release retain their prior paths.
+
+## Seventh independent-review fix wave
+
+Review of `9eb96cc` found that overlapping token-aware parents could still
+publish an expired response and reset the shared core before the newer response
+arrived.
+
+### Root cause
+
+- Two unbootstrapped same-title parents can start manual reads `r1` and `r2`;
+  `r2` correctly expires `r1`. Manual receipt returned `void`, however, so the
+  older PageView or sidebar could not observe rejection and unconditionally
+  rendered an empty `EditablePage` child.
+- That child acquired the existing unbootstrapped session with `[]`.
+  `acquireOutlineSession()` recreated the entire `OutlineState`, resetting
+  request ids, revisions, relevant writes, and deferred causality. The live
+  `r2` token then no longer matched and its newer response was discarded.
+- The same recreate branch could overwrite an unresolved local write and reuse
+  a cancelled manual request id even outside the parent-shell race.
+
+### RED evidence
+
+- `pnpm vitest run src/outline/outlineSessions.test.ts
+  src/views/PageView.test.tsx -t "expired unbootstrapped parent|existing-session
+  bootstrap|genuine later bootstrap|expired same-title parent"` failed all 4
+  selected tests. The shared result stayed empty, the local write became the
+  stale bootstrap, request id 1 was reused, and PageView published the expired
+  empty child.
+- With Sidebar's old unconditional publication restored,
+  `pnpm vitest run src/components/EditableSidebarPanel.test.tsx -t "expired
+  sidebar parent"` failed because the expired response rendered the empty
+  `Click to start writing` child before the newer PageView response won.
+
+### Production design
+
+- Manual-token `receiveAuthoritative()` now returns whether that reservation
+  was still owned and its request id was still current. Reservation release is
+  still exact-once in `finally`; cancelled, expired, or stale tokens return
+  false without marking the session bootstrapped.
+- PageView and EditableSidebarPanel publish response metadata and mount their
+  child only when receipt returns true. A valid response that is deferred by a
+  local revision remains accepted and publishes the current shared snapshot.
+- Existing-session bootstrap is allowed only when revision, relevant/deferred
+  writes, manual/captured reservations, automatic-read ownership, and queued
+  authoritative intent are all idle. It replaces only `blocks` in the existing
+  state, preserving monotonic request ids and all core identity.
+
+### GREEN verification
+
+- Focused seventh-wave matrix: 3 files / 5 selected tests passed.
+- DnD/outline/session/provider matrix: 4 files / 83 tests passed.
+- Controller queue/replica gate: 4 files / 74 tests passed.
+- Exact controller Task 5 UI gate: 7 files / 84 tests passed.
+- Controller outline gate: 4 files / 52 tests passed.
+- `pnpm typecheck`: passed. Its first run caught an internal
+  `Promise<boolean>` inference; automatic single-flight reads now explicitly
+  discard the receipt result and retain their `Promise<void>` contract.
+- Canonical `pnpm verify`: passed: 72 files / 808 unit tests; 97.88%
+  statements and lines, 91.57% branches, and 95.75% functions; production/PWA
+  build with 78 precache entries / 5136.57 KiB; Playwright 6/6.
+
+### Self-review
+
+- Bootstrap safety is independent of `handles`. A zero-handle session retained
+  by a reservation, automatic request, or relevant ticket cannot reset; once
+  truly idle it is normally collected, while a still-live idle unbootstrapped
+  session can accept genuine initial data without reusing request ids.
+- Expiring an older manual read still removes its reservation immediately.
+  Late receive/cancel calls are false/idempotent no-ops, and the newer token
+  releases the remaining reservation exactly once.
+- Repair epochs, captured Journal reservations, relevant ticket replay, DnD
+  metadata, queue liveness, same-title editor leases/shared publication, and
+  Task 4 view-local state continue through their prior paths.

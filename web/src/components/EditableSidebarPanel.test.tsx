@@ -1,15 +1,22 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import { registerOutline } from "../outline/activeOutlines";
 import { isOutlineSessionActive } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, pagePayload, stubFetch } from "../test-helpers";
+import { block, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
+import { PageView } from "../views/PageView";
 
 afterEach(() => vi.useRealTimers());
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 function mount(sync = makeSync(), title = "Paper",
                blocks = [block("uid_s1", "a paper block", { order_idx: 0 })]) {
@@ -98,6 +105,57 @@ test("sidebar-first same-title mounts preserve its editor when main joins", asyn
 
   expect(screen.getAllByText("a paper block")).toHaveLength(2);
   expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(1);
+});
+
+test("an expired sidebar parent cannot publish an empty same-title child", async () => {
+  const older = deferred<Response>();
+  const newer = deferred<Response>();
+  const fetchMock = vi.fn(() =>
+    fetchMock.mock.calls.length === 1 ? older.promise : newer.promise);
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Paper"]}>
+        <EditableSidebarPanel title="Paper" />
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  let expiredPublished = false;
+  let newerPublished = false;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      await older.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expiredPublished = screen.queryByRole("button", {
+      name: "Click to start writing…",
+    }) !== null;
+
+    await act(async () => {
+      newer.resolve(jsonResponse(pagePayload("Paper", [
+        block("new", "newer main response"),
+      ])));
+      await newer.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    newerPublished = screen.queryAllByText("newer main response").length > 0;
+  } finally {
+    older.resolve(jsonResponse(pagePayload("Paper", [])));
+    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    view.unmount();
+  }
+
+  expect(expiredPublished).toBe(false);
+  expect(newerPublished).toBe(true);
+  expect(isOutlineSessionActive("Paper")).toBe(false);
 });
 
 test("shows the fetch error", async () => {

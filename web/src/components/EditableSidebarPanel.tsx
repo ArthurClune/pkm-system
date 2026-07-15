@@ -32,7 +32,7 @@ export function EditableSidebarPanel({ title }: { title: string }) {
           session.cancelAuthoritativeRead(token);
           return;
         }
-        session.receiveAuthoritative(token, p.blocks);
+        if (!session.receiveAuthoritative(token, p.blocks)) return;
         setPayload({ ...p, blocks: session.getSnapshot().blocks });
       })
       .catch((e: unknown) => {

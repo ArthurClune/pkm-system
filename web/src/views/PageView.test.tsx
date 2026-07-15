@@ -486,6 +486,101 @@ it("an automatic read superseding elected recovery permits one replacement paren
   expect(isOutlineSessionActive("Paper")).toBe(false);
 });
 
+it("a hung automatic read cannot strand eager full-parent readiness", async () => {
+  const title = "Hung Automatic Paper";
+  const older = deferred<Response>();
+  const current = deferred<Response>();
+  const recovery = deferred<Response>();
+  const automatic = deferred<ReturnType<typeof block>[]>();
+  let parentCalls = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    if (String(input) !== "/api/page/Hung%20Automatic%20Paper") {
+      return Promise.reject(new Error(`unexpected fetch ${String(input)}`));
+    }
+    parentCalls += 1;
+    if (parentCalls === 1) return older.promise;
+    if (parentCalls === 2) return current.promise;
+    if (parentCalls === 3) return recovery.promise;
+    return Promise.reject(new Error("unexpected parent fetch storm"));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Hung%20Automatic%20Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        <EditableSidebarPanel title={title} />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  const automaticHandle = acquireOutlineSession(title, null);
+  let copies = 0;
+  let metadataCopies = 0;
+  let staleCopies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(parentCalls).toBe(2));
+    const automaticRead = automaticHandle.requestAuthoritative(
+      () => automatic.promise,
+    );
+    await vi.waitFor(() => expect(parentCalls).toBe(3));
+
+    await act(async () => {
+      recovery.resolve(jsonResponse(pagePayload(title, [
+        block("recovery", "hung-automatic recovery"),
+        block("recovery-ref", "((automatic_ref))"),
+      ], {
+        block_ref_texts: {
+          automatic_ref: {
+            text: "hung-automatic metadata",
+            page_title: "Source",
+          },
+        },
+      })));
+      await recovery.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      automatic.resolve([block("stale-automatic", "late automatic blocks")]);
+      await automaticRead;
+      older.resolve(jsonResponse(pagePayload(title, [
+        block("late-older", "late automatic older parent"),
+      ])));
+      current.resolve(jsonResponse(pagePayload(title, [
+        block("late-current", "late automatic current parent"),
+      ])));
+      await older.promise;
+      await current.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copies = screen.queryAllByText("hung-automatic recovery").length;
+    metadataCopies = screen.queryAllByText("hung-automatic metadata").length;
+    staleCopies = screen.queryAllByText(
+      /late automatic blocks|late automatic older|late automatic current/,
+    ).length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload(title, [])));
+    current.resolve(jsonResponse(pagePayload(title, [])));
+    recovery.resolve(jsonResponse(pagePayload(title, [])));
+    automatic.resolve([]);
+    automaticHandle.release();
+    view.unmount();
+  }
+
+  expect(parentCalls).toBe(3);
+  expect(copies).toBe(2);
+  expect(metadataCopies).toBe(2);
+  expect(staleCopies).toBe(0);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive(title)).toBe(false);
+});
+
 it("a repair superseding elected recovery permits one post-repair parent", async () => {
   const older = deferred<Response>();
   const newer = deferred<Response>();
@@ -903,6 +998,118 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
   expect(metadataCopies).toBe(2);
   expect(staleCopies).toBe(0);
   expect(errors).toBe(0);
+  expect(isOutlineSessionActive(title)).toBe(false);
+});
+
+it("unmounting Journal releases a hung capture before parent recovery", async () => {
+  const title = "Unmount Capture Paper";
+  const lateTitle = "Late Journal Inactive";
+  const older = deferred<Response>();
+  const current = deferred<Response>();
+  const recovery = deferred<Response>();
+  const journal = deferred<Response>();
+  let parentCalls = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    if (url.startsWith("/api/journal?")) return journal.promise;
+    if (url !== "/api/page/Unmount%20Capture%20Paper") {
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    }
+    parentCalls += 1;
+    if (parentCalls === 1) return older.promise;
+    if (parentCalls === 2) return current.promise;
+    if (parentCalls === 3) return recovery.promise;
+    return Promise.reject(new Error("unexpected parent fetch storm"));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("IntersectionObserver", NoopIntersectionObserver);
+  const sync = makeSync();
+  const tree = (showJournal: boolean) => (
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Unmount%20Capture%20Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        <EditableSidebarPanel title={title} />
+        {showJournal && <Journal />}
+      </MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const view = render(tree(false));
+  let copies = 0;
+  let metadataCopies = 0;
+  let staleCopies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(parentCalls).toBe(2));
+    view.rerender(tree(true));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/journal?days=5", undefined,
+    ));
+
+    view.rerender(tree(false));
+    await act(async () => {
+      current.reject(new Error("current parent failed after Journal unmount"));
+      await current.promise.catch(() => undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(parentCalls).toBe(3));
+
+    await act(async () => {
+      recovery.resolve(jsonResponse(pagePayload(title, [
+        block("recovery", "post-unmount recovery"),
+        block("recovery-ref", "((unmount_ref))"),
+      ], {
+        block_ref_texts: {
+          unmount_ref: {
+            text: "post-unmount metadata",
+            page_title: "Source",
+          },
+        },
+      })));
+      await recovery.promise;
+      journal.resolve(jsonResponse({
+        days: [{
+          date: "2026-07-09",
+          title: lateTitle,
+          exists: true,
+          blocks: [block("late-journal", "late unmounted journal")],
+        }],
+        block_ref_texts: {},
+      }));
+      await journal.promise;
+      older.resolve(jsonResponse(pagePayload(title, [
+        block("late-older", "late unmount older"),
+      ])));
+      await older.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copies = screen.queryAllByText("post-unmount recovery").length;
+    metadataCopies = screen.queryAllByText("post-unmount metadata").length;
+    staleCopies = screen.queryAllByText(
+      /late unmounted journal|late unmount older/,
+    ).length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload(title, [])));
+    current.resolve(jsonResponse(pagePayload(title, [])));
+    recovery.resolve(jsonResponse(pagePayload(title, [])));
+    journal.resolve(jsonResponse({ days: [], block_ref_texts: {} }));
+    view.unmount();
+  }
+
+  expect(parentCalls).toBe(3);
+  expect(copies).toBe(2);
+  expect(metadataCopies).toBe(2);
+  expect(staleCopies).toBe(0);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive(lateTitle)).toBe(false);
   expect(isOutlineSessionActive(title)).toBe(false);
 });
 

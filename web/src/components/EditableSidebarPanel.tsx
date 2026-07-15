@@ -17,8 +17,14 @@ import {
 import { EditablePage } from "../views/EditablePage";
 
 export function EditableSidebarPanel({ title }: { title: string }) {
-  const [payload, setPayload] = useState<PagePayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [payloadState, setPayloadState] = useState<{
+    title: string;
+    payload: PagePayload;
+  } | null>(null);
+  const [errorState, setErrorState] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,18 +52,21 @@ export function EditableSidebarPanel({ title }: { title: string }) {
       const token = session.beginAuthoritativeRead("parent");
       const readiness = session.registerParentReadiness(token);
       current = { token, generation: readGeneration, readiness };
-      setError(null);
+      setErrorState(null);
       void readiness.promise
         .then((winner) => {
           if (cancelled || readGeneration !== generation) return;
           if (current?.token === token) current = null;
-          setError(null);
-          setPayload({ ...winner, blocks: session.getSnapshot().blocks });
+          setErrorState(null);
+          setPayloadState({
+            title,
+            payload: { ...winner, blocks: session.getSnapshot().blocks },
+          });
         })
         .catch((winnerError: unknown) => {
           if (!cancelled && readGeneration === generation) {
             if (current?.token === token) current = null;
-            setError(String(winnerError));
+            setErrorState({ title, message: String(winnerError) });
           }
         });
       apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
@@ -88,6 +97,8 @@ export function EditableSidebarPanel({ title }: { title: string }) {
     };
   }, [title]);
 
+  const payload = payloadState?.title === title ? payloadState.payload : null;
+  const error = errorState?.title === title ? errorState.message : null;
   if (error) return <p className="error">{error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;
   return (

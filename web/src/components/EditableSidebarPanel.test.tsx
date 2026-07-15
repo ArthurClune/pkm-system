@@ -3,7 +3,10 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import { registerOutline } from "../outline/activeOutlines";
-import { isOutlineSessionActive } from "../outline/outlineSessions";
+import {
+  isOutlineEditorActive,
+  isOutlineSessionActive,
+} from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
@@ -33,6 +36,55 @@ function mount(sync = makeSync(), title = "Paper",
 test("fetches its page and renders it as an editable outline", async () => {
   mount();
   expect(await screen.findByText("a paper block")).toBeInTheDocument();
+});
+
+test("a title change cannot mount the previous payload under the new title", async () => {
+  const next = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/page/Alpha") {
+      return Promise.resolve(jsonResponse(pagePayload("Alpha", [
+        block("alpha", "alpha tree"),
+      ])));
+    }
+    if (url === "/api/page/Beta") return next.promise;
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const sync = makeSync();
+  const tree = (title: string) => (
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={sync}>
+        <EditableSidebarPanel title={title} />
+      </SyncContext.Provider>
+    </MemoryRouter>
+  );
+  const view = render(tree("Alpha"));
+  expect(await screen.findByText("alpha tree")).toBeInTheDocument();
+  expect(isOutlineEditorActive("Alpha")).toBe(true);
+
+  view.rerender(tree("Beta"));
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/page/Beta", undefined,
+  ));
+  expect(screen.queryByText("alpha tree")).not.toBeInTheDocument();
+  expect(screen.getByText("Loading…")).toBeInTheDocument();
+  expect(isOutlineEditorActive("Beta")).toBe(false);
+  expect(isOutlineSessionActive("Alpha")).toBe(false);
+
+  await act(async () => {
+    next.resolve(jsonResponse(pagePayload("Beta", [
+      block("beta", "beta tree"),
+    ])));
+    await next.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(screen.getByText("beta tree")).toBeInTheDocument();
+  expect(isOutlineEditorActive("Beta")).toBe(true);
+
+  view.unmount();
+  expect(isOutlineSessionActive("Beta")).toBe(false);
 });
 
 test("editing a block in the panel sends the op after the debounce", async () => {

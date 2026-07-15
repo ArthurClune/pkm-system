@@ -9,6 +9,7 @@ import { acquireOutlineSession,
          captureActiveOutlineReads,
          isOutlineSessionActive,
          type AuthoritativeReadSource,
+         type CapturedOutlineRead,
          type OutlineSessionHandle } from "../outline/outlineSessions";
 import { encodeTitle, pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
@@ -28,6 +29,10 @@ export function Journal() {
   const emptyStreakRef = useRef(0);
   const loadingRef = useRef(false);
   const genRef = useRef(0);
+  const mountedRef = useRef(false);
+  const activeReadsRef = useRef(
+    new Set<Map<string, CapturedOutlineRead>>(),
+  );
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const sessionsRef = useRef(new Map<string, OutlineSessionHandle>());
   const sessionLoaderCleanupRef = useRef(new Map<string, () => void>());
@@ -48,14 +53,26 @@ export function Journal() {
     return session;
   }, []);
 
+  const releaseReads = useCallback((
+    reads: Map<string, CapturedOutlineRead>,
+  ) => {
+    if (!activeReadsRef.current.delete(reads)) return;
+    for (const read of reads.values()) read.release();
+  }, []);
+
+  const releaseAllReads = useCallback(() => {
+    for (const reads of [...activeReadsRef.current]) releaseReads(reads);
+  }, [releaseReads]);
+
   const loadMore = useCallback(async (
     source: AuthoritativeReadSource = "parent",
   ) => {
-    if (loadingRef.current) return;
+    if (!mountedRef.current || loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     const gen = genRef.current;
     const reads = captureActiveOutlineReads(source);
+    activeReadsRef.current.add(reads);
     try {
       const current = daysRef.current;
       const oldest = current[current.length - 1]?.date;
@@ -63,7 +80,7 @@ export function Journal() {
       // date returns the day before it first (days come back newest-first).
       const qs = oldest ? `?days=${BATCH}&before=${oldest}` : `?days=${BATCH}`;
       const p = await apiFetch<JournalPayload>(`/api/journal${qs}`);
-      if (gen !== genRef.current) return; // reset() superseded this load: discard
+      if (!mountedRef.current || gen !== genRef.current) return;
       const received = p.days.map((day) => {
         const activeAtResponse = isOutlineSessionActive(day.title);
         const session = sessionFor(day.title);
@@ -91,27 +108,34 @@ export function Journal() {
         p.days.some((d) => d.exists) ? 0 : emptyStreakRef.current + 1;
       if (emptyStreakRef.current >= MAX_EMPTY_BATCHES) setAutoLoad(false);
     } catch (e: unknown) {
-      if (gen !== genRef.current) return; // reset() superseded this load: discard
+      if (!mountedRef.current || gen !== genRef.current) return;
       setError(String(e));
       setAutoLoad(false);
     } finally {
-      for (const read of reads.values()) read.release();
+      releaseReads(reads);
       // A superseded load must not release the lock: it now belongs to the
       // reset()-triggered reload that took over this generation.
-      if (gen === genRef.current) {
+      if (mountedRef.current && gen === genRef.current) {
         loadingRef.current = false;
         setLoading(false);
       }
     }
-  }, [sessionFor]);
+  }, [releaseReads, sessionFor]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      genRef.current += 1;
+      loadingRef.current = false;
+      releaseAllReads();
+      for (const cleanup of sessionLoaderCleanupRef.current.values()) cleanup();
+      sessionLoaderCleanupRef.current.clear();
+      for (const session of sessionsRef.current.values()) session.release();
+      sessionsRef.current.clear();
+    };
+  }, [releaseAllReads]);
   useEffect(() => { void loadMore(); }, [loadMore]);
-  useEffect(() => () => {
-    for (const cleanup of sessionLoaderCleanupRef.current.values()) cleanup();
-    sessionLoaderCleanupRef.current.clear();
-    for (const session of sessionsRef.current.values()) session.release();
-    sessionsRef.current.clear();
-  }, []);
   useEffect(() => { document.title = "Daily Notes — pkm"; }, []);
 
   // Fire-and-forget: prune empty daily pages from the past week (pkm-c3kz).
@@ -129,6 +153,7 @@ export function Journal() {
     // Invalidate any in-flight loadMore so its stale response can't clobber
     // the authoritative refetch, and release its lock so we can start now.
     genRef.current += 1;
+    releaseAllReads();
     loadingRef.current = false;
     daysRef.current = [];
     setDays([]);
@@ -136,7 +161,7 @@ export function Journal() {
     emptyStreakRef.current = 0;
     setAutoLoad(true);
     void loadMore("resync");
-  }, [loadMore]);
+  }, [loadMore, releaseAllReads]);
   useResync(reset);
 
   useEffect(() => {

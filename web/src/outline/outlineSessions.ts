@@ -253,7 +253,7 @@ function scheduleParentElection(session: Session): void {
     if (session.parentWaiters.size === 0 ||
         session.activatedCaptures.has(session.state.latestRequestId) ||
         session.manualReads.size > 0 ||
-        session.authoritativeRead !== null || activeRepairEpoch !== null) return;
+        activeRepairEpoch !== null) return;
     const controller = [...session.parentControllers.values()].at(-1);
     if (!controller || session.parentRecoveryAttempted) {
       rejectParentWaiters(
@@ -333,6 +333,7 @@ function requestAuthoritative(
       }
     });
   session.authoritativeRead = request;
+  scheduleParentElection(session);
   return request;
 }
 

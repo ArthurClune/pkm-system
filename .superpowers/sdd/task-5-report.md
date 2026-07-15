@@ -979,3 +979,98 @@ current parent failed.
 - Manual parents, automatic reads, repair epochs, readiness cleanup, the
   one-recovery cap, full-payload metadata sharing, DnD replay, queue/replica
   recovery, and session deletion retain their focused and canonical gates.
+
+## Twelfth independent-review fix wave
+
+Review of `fba1880` found three remaining shell-lifecycle gaps: Journal owned
+captured reservations only on the stack of an unresolved request, ordinary
+automatic reads remained an indefinite barrier to eager full-parent readiness,
+and EditableSidebarPanel could render a prior title's payload during a prop
+transition.
+
+### Root cause
+
+- Journal released a capture map only in the request's `finally`. Unmount did
+  not invalidate its generation or retain a reference that cleanup could
+  release. A hung transport therefore pinned captured sessions; a late response
+  still passed the generation check and could call `sessionFor()` after all
+  mounted session handles and loaders had already been cleaned up.
+- An ordinary `requestAuthoritative()` advanced request identity and expired
+  older manual parents, but the parent scheduler both lacked a wake at that
+  transition and rejected election while `authoritativeRead` was non-null. A
+  block-only transport that never settled could strand eager full-payload
+  waiters even though a later parent request would safely supersede it.
+- EditableSidebarPanel stored unkeyed payload and error state. On a title prop
+  change, render reused the old payload before the new passive fetch settled;
+  the nested EditablePage layout effect could consequently acquire the new
+  title's editor with the old title's blocks.
+
+### RED evidence
+
+- Journal unmount coverage failed twice with retained sessions: releasing the
+  last external handle while the Journal fetch was hung left the captured
+  session active, and resolving a response after unmount created a previously
+  inactive title session. The overlapping PageView/Sidebar integration reached
+  its one parent recovery but then also found the late inactive-title leak.
+- `pnpm vitest run src/views/PageView.test.tsx -t "hung automatic read cannot
+  strand"` stopped at 2 parent fetches instead of electing the required third
+  while the automatic transport remained unresolved.
+- `pnpm vitest run src/components/EditableSidebarPanel.test.tsx -t "title
+  change cannot mount"` still found `alpha tree` after the held Beta request
+  had started, proving the stale child survived the title transition.
+
+### Production design
+
+- Journal now retains every in-flight capture map in a component-owned ref set.
+  Normal settlement, reset, and unmount share one idempotent release function;
+  reset/unmount increment generation before releasing, and unmount also marks
+  the component inactive before session/loader cleanup.
+- Every Journal response and failure checks both mounted state and generation
+  immediately after the transport settles, before `sessionFor()`, captured
+  receipt, automatic fallback, or React state writes. Late `finally` calls are
+  harmless because their capture group was already removed and released.
+- Ordinary automatic transport remains single-flight, but it is no longer a
+  full-parent election barrier. Starting that ownership schedules election;
+  the elected parent advances request identity and late automatic blocks are
+  rejected by the existing newest-request rule. Manual parents, activated
+  captures, and the global repair epoch remain stronger barriers, and the
+  one-recovery cap still bounds controller attempts.
+- Sidebar payload and error state carry the title that produced them. A title
+  mismatch renders loading synchronously, so no EditablePage or editor lease is
+  created until the new title's full payload wins; same-title shared readiness
+  and metadata behavior are unchanged.
+
+### GREEN verification
+
+- Focused Journal unmount/capture coverage: 3 selected tests passed.
+- Focused automatic/repair/capture supersession coverage: 5 selected tests
+  passed with `pnpm typecheck` in the same command.
+- Focused sidebar title-transition coverage: 1 selected test passed.
+- Full parent/Journal/sidebar matrix: 3 files / 40 tests passed.
+- DnD/session/provider matrix: 4 files / 77 tests passed.
+- Epoch/replay matrix: 5 files / 93 tests passed.
+- Queue/replica matrix: 15 files / 192 tests passed.
+- Exact Task 5 UI gate: 7 files / 99 tests passed.
+- Outline gate: 4 files / 54 tests passed.
+- Canonical `pnpm verify`: passed: 72 files / 823 unit tests; 97.71%
+  statements and lines, 91.40% branches, and 95.52% functions; production/PWA
+  build with 78 precache entries / 5140.92 KiB; Playwright 6/6.
+
+### Self-review
+
+- Capture groups are released exactly once even when reset or unmount races
+  transport `finally`. Aggregate reservation deletion and bootstrap guards are
+  unchanged, while the post-await mounted/generation gate prevents all
+  post-cleanup session acquisition and state publication.
+- Ordinary automatic promises still coalesce duplicate requests and retain
+  their lifecycle pin until settlement; they only cease blocking a strictly
+  newer full parent. Active repair epochs still wait for existing automatic
+  work and suppress parent election, preserving repair's stronger cohort
+  barrier.
+- The hung-automatic regression resolves the block-only transport after the
+  full parent, asserts its blocks never render, and requires the exact parent
+  count to remain 3. Existing automatic/repair supersession and terminal-cap
+  tests continue to reject stale transports without retry storms.
+- Title-keyed render state also suppresses stale errors across title changes.
+  Cleanup still releases the old controller, readiness demand, loader, editor,
+  and session before the new full payload mounts an EditablePage.

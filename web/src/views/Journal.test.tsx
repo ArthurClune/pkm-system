@@ -3,7 +3,10 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { JournalDay } from "../api/payloads";
-import { acquireOutlineSession } from "../outline/outlineSessions";
+import {
+  acquireOutlineSession,
+  isOutlineSessionActive,
+} from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, stubFetch } from "../test-helpers";
 import { Journal } from "./Journal";
@@ -248,6 +251,68 @@ it("does not adopt an old journal payload into a session created mid-flight", as
   await vi.waitFor(() => expect(screen.getByText("fresh page")).toBeInTheDocument());
   view.unmount();
   active.release();
+});
+
+it("does not create a session from a response received after unmount", async () => {
+  const title = "Late Journal Leak";
+  const journal = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    if (url.startsWith("/api/journal?")) return journal.promise;
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+  );
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5", undefined,
+  ));
+
+  view.unmount();
+  await act(async () => {
+    journal.resolve(jsonResponse({
+      days: [day("2026-07-09", title, [block("late", "late journal")])],
+      block_ref_texts: {},
+    }));
+    await journal.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(isOutlineSessionActive(title)).toBe(false);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("releases captured session reservations when unmounted in flight", async () => {
+  const title = "Journal Unmount Reservation";
+  const journal = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    if (url.startsWith("/api/journal?")) return journal.promise;
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const active = acquireOutlineSession(title, [block("active", "active")]);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+  );
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5", undefined,
+  ));
+
+  view.unmount();
+  active.release();
+
+  expect(isOutlineSessionActive(title)).toBe(false);
+  journal.resolve(jsonResponse({ days: [], block_ref_texts: {} }));
+  await journal.promise;
 });
 
 it("stops auto-loading after 3 consecutive empty batches", async () => {

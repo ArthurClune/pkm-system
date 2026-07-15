@@ -67,6 +67,31 @@ test("applyChanges round-trips through the port", async () => {
   expect(gone).toEqual({ status: "needs-bootstrap" });
 });
 
+test("a feed fetched before an acknowledged batch deletion cannot overwrite it", async () => {
+  const { replica, current } = await setup();
+  await replica.init();
+  await replica.applySnapshot(SNAP);
+  await replica.enqueue([
+    { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
+  ]);
+
+  // The request was dispatched while this optimistic batch still existed.
+  const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
+  const batch = (await replica.nextBatch())!;
+  await replica.deleteBatch(batch.id); // its POST was acknowledged meanwhile
+
+  const result = await replica.applyChanges({
+    reset: false, generation: "gen-1", next_since: 6, latest_seq: 6,
+    pages: [],
+    blocks: [{ ...SNAP.blocks[0], text: "hello" }],
+    sidebar: [], tombstones: [],
+  }, pendingAtDispatch);
+
+  expect(result).toEqual({ status: "pending-changed" });
+  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+    .toEqual([{ text: "acknowledged local text" }]);
+});
+
 test("a schema-version mismatch is reported with the pending queue intact", async () => {
   const { replica } = await setup((t) => {
     // simulate a database written by an older client: full schema but a

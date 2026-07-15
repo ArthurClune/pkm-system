@@ -32,7 +32,8 @@ export type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 export interface Replica {
   init(): Promise<ReplicaInit>;
   applySnapshot(snap: Snapshot): Promise<void>;
-  applyChanges(feed: Changes): Promise<ApplyResult>;
+  applyChanges(feed: Changes,
+               expectedPendingIds?: readonly number[]): Promise<ApplyResult>;
   /** su05: persist + optimistically apply; returns pending count. */
   enqueue(ops: BlockOp[]): Promise<{ pending: number }>;
   nextBatch(): Promise<PendingBatch | null>;
@@ -55,7 +56,9 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
   return {
     init: () => rpc.call("init"),
     applySnapshot: (snap) => rpc.call("applySnapshot", snap, { timeoutMs: 120_000 }),
-    applyChanges: (feed) => rpc.call("applyChanges", feed),
+    applyChanges: (feed, expectedPendingIds = []) => rpc.call("applyChanges", {
+      feed, expectedPendingIds,
+    }),
     enqueue: (ops) => rpc.call("enqueue", ops),
     nextBatch: () => rpc.call("nextBatch"),
     pendingBatches: () => rpc.call("pendingBatches"),

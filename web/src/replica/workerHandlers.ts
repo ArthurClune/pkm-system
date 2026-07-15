@@ -89,7 +89,17 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       return null;
     },
     async applyChanges(payload) {
-      return applyChanges(await db(), payload as Changes, nowMs());
+      const d = await db();
+      const { feed, expectedPendingIds } = payload as {
+        feed: Changes;
+        expectedPendingIds: number[];
+      };
+      const currentPendingIds = allBatches(d).map((batch) => batch.id);
+      if (currentPendingIds.length !== expectedPendingIds.length
+          || currentPendingIds.some((id, index) => id !== expectedPendingIds[index])) {
+        return { status: "pending-changed" };
+      }
+      return applyChanges(d, feed, nowMs());
     },
     async pendingBatches() {
       return readPendingBatches(await db());

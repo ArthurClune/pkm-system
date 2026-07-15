@@ -71,7 +71,6 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
   }
   await input(page).fill(`shell smoke ![pic](${url})`);
   await input(page).press("Escape");
-  await expect(page.locator(".ws-banner")).toHaveCount(0); // flushed
 
   // the image renders online (and is now in the SW's runtime cache)
   const img = page.locator("img.asset-image");

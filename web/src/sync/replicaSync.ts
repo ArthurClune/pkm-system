@@ -83,9 +83,12 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       again = false;
       let done = false;
       while (!done) {
+        const expectedPendingIds = (await replica.pendingBatches())
+          .map((batch) => batch.id);
         const feed = (await fetchJson(
           `/api/sync/changes?since=${cursor}`)) as Changes;
-        const res = await replica.applyChanges(feed);
+        const res = await replica.applyChanges(feed, expectedPendingIds);
+        if (res.status === "pending-changed") continue;
         if (res.status === "needs-bootstrap") {
           await rebootstrap(); // cursor now at the snapshot's seq
           done = feed.latest_seq <= cursor;

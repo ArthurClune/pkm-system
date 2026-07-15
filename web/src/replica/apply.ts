@@ -20,7 +20,8 @@ export type SyncPage = components["schemas"]["SyncPage"];
 
 export type ApplyResult =
   | { status: "applied"; cursor: number }
-  | { status: "needs-bootstrap" };
+  | { status: "needs-bootstrap" }
+  | { status: "pending-changed" };
 
 const upsertPage = (db: ReplicaDb, p: SyncPage): void => {
   reconcilePage(db, p); // offline-created page? remap its rows first

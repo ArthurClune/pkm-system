@@ -9,7 +9,7 @@ tags:
     - sync
     - lifecycle
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T15:35:52Z
+updated_at: 2026-07-15T16:04:34Z
 parent: pkm-c1cg
 ---
 
@@ -64,3 +64,9 @@ Add explicit replica disposal and failure propagation, and distinguish settled p
   terminate ownership, StrictMode replay, offline persistence, typed drain
   blocking, the complete 250 ms/1 second/5 second retry schedule and resets,
   transient 503 retry continuation, retry cancellation, and zero durable pending.
+
+- Changes-feed application now carries the pending batch IDs observed at
+  request dispatch into the worker. If enqueue/ack deletion changed that
+  durable set before application, the stale response is discarded without
+  mutating rows or cursor and refetched from the same cursor, preventing an
+  acknowledged optimistic edit from disappearing during offline reload.

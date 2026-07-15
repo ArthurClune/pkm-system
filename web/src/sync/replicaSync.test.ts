@@ -69,6 +69,32 @@ test("start on a warm replica skips the snapshot and catches up the feed", async
   expect(fetchJson).not.toHaveBeenCalledWith("/api/sync/snapshot");
 });
 
+test("a feed invalidated by pending-batch changes is refetched from the same cursor", async () => {
+  const applyChanges = vi.fn()
+    .mockResolvedValueOnce({ status: "pending-changed" })
+    .mockResolvedValueOnce({ status: "applied", cursor: 6 });
+  const pendingBatches = vi.fn()
+    .mockResolvedValueOnce([{
+      id: 1, batch_id: "batch-1", ops: [], poisoned: false,
+    }])
+    .mockResolvedValueOnce([]);
+  const replica = fakeReplica({ applyChanges, pendingBatches });
+  const stale = feed({ next_since: 6, latest_seq: 6 });
+  const fetchJson = vi.fn(async (_path: string) => stale);
+  const { onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+
+  expect(fetchJson).toHaveBeenCalledTimes(2);
+  expect(fetchJson.mock.calls.map(([path]) => path))
+    .toEqual(["/api/sync/changes?since=5", "/api/sync/changes?since=5"]);
+  expect(applyChanges.mock.calls).toEqual([
+    [stale, [1]],
+    [stale, []],
+  ]);
+});
+
 test("no-replica init reports mode and never fetches", async () => {
   const replica = fakeReplica({}, { ok: false });
   const fetchJson = vi.fn();

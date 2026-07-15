@@ -25,6 +25,55 @@ export interface WriteTicket {
 
 export interface PoisonEvent extends PoisonedBatch {}
 
+export interface PoisonMarkFailure {
+  event: PoisonEvent;
+  error: unknown;
+}
+
+const POISON_MARK_INTENTS_KEY = "pkm.poison-mark-intents.v1";
+
+const validPoisonEvent = (value: unknown): value is PoisonEvent => {
+  if (typeof value !== "object" || value === null) return false;
+  const event = value as Partial<PoisonEvent>;
+  return Number.isInteger(event.rowId) && typeof event.batchId === "string" &&
+    Array.isArray(event.ops) && typeof event.status === "number" &&
+    typeof event.message === "string";
+};
+
+const readPoisonMarkIntents = (): PoisonEvent[] => {
+  try {
+    const raw = globalThis.localStorage?.getItem(POISON_MARK_INTENTS_KEY);
+    if (raw === null || raw === undefined) return [];
+    const parsed = JSON.parse(raw) as { version?: unknown; intents?: unknown };
+    if (parsed.version !== 1 || !Array.isArray(parsed.intents)) return [];
+    const unique = new Map<string, PoisonEvent>();
+    for (const value of parsed.intents) {
+      if (!validPoisonEvent(value)) continue;
+      unique.set(`${value.rowId}\u0000${value.batchId}`, value);
+    }
+    return [...unique.values()].sort((a, b) =>
+      a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
+  } catch {
+    // localStorage can be unavailable or contain data from a damaged write.
+    return [];
+  }
+};
+
+const writePoisonMarkIntents = (intents: readonly PoisonEvent[]): void => {
+  try {
+    if (intents.length === 0) {
+      globalThis.localStorage?.removeItem(POISON_MARK_INTENTS_KEY);
+    } else {
+      globalThis.localStorage?.setItem(POISON_MARK_INTENTS_KEY, JSON.stringify({
+        version: 1, intents,
+      }));
+    }
+  } catch {
+    // The in-memory barrier still protects this page. A stale durable intent
+    // is safe: startup retries marking idempotently before delivery.
+  }
+};
+
 export type DrainOutcome =
   | { status: "drained" }
   | { status: "blocked"; reason: "offline" | "retryable" |
@@ -42,8 +91,13 @@ export interface OpQueue {
   /** Internal recovery ownership signal. Unlike onPoison, this fires before
    * the durable poison mark so a recovery lease cannot flush a stale row. */
   onPoisonPending(fn: () => void): () => void;
+  onPoisonMarkFailed(fn: (failure: PoisonMarkFailure) => void): () => void;
   onPoison(fn: (event: PoisonEvent) => void): () => void;
   onQuota(fn: (e: unknown) => void): () => void;
+  /** Retained mark intents, including reload fallback metadata. */
+  poisonMarkIntents(): readonly PoisonEvent[];
+  /** Retry only durable poison marking. Never performs an ops POST. */
+  retryPoisonMarks(): Promise<readonly PoisonEvent[]>;
 }
 
 type Listener<T> = (value: T) => void;
@@ -86,7 +140,8 @@ function createReplicaQueue(replica: Replica,
                             onDesync: (error: unknown) => void,
                             onDrain: (outcome: DrainOutcome) => void): OpQueue {
   let online = true;
-  let recovering = false;
+  let poisonMarkIntents = readPoisonMarkIntents();
+  let recovering = poisonMarkIntents.length > 0;
   let disposed = false;
   let pendingCount = 0;
   let persistChain = Promise.resolve();
@@ -96,6 +151,7 @@ function createReplicaQueue(replica: Replica,
   let retryIndex = 0;
   const pending = listeners<number>();
   const poisonPending = listeners<void>();
+  const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
   const quota = listeners<unknown>();
 
@@ -149,6 +205,46 @@ function createReplicaQueue(replica: Replica,
     return { status: "blocked", reason: "retryable", pending: count, error };
   };
 
+  const rememberPoisonMark = (event: PoisonEvent): void => {
+    const key = `${event.rowId}\u0000${event.batchId}`;
+    const retained = new Map(poisonMarkIntents.map((intent) =>
+      [`${intent.rowId}\u0000${intent.batchId}`, intent]));
+    retained.set(key, event);
+    poisonMarkIntents = [...retained.values()].sort((a, b) =>
+      a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
+    writePoisonMarkIntents(poisonMarkIntents);
+  };
+
+  const markRetainedPoison = async (): Promise<readonly PoisonEvent[]> => {
+    if (disposed) throw new Error("op queue disposed");
+    const intents = [...poisonMarkIntents];
+    if (intents.length === 0) return [];
+    recovering = true;
+    cancelRetry(false);
+    let result: { pending: number } | null = null;
+    for (const event of intents) {
+      try {
+        result = await replica.markPoisoned(event.rowId, JSON.stringify({
+          status: event.status, message: event.message,
+        }));
+      } catch (error: unknown) {
+        poisonMarkFailed.emit({ event, error });
+        throw error;
+      }
+    }
+    if (result !== null) {
+      pendingCount = result.pending;
+      pending.emit(pendingCount);
+    }
+    // The database is now the durable source of truth. Removing fallback
+    // metadata before publication is crash-safe: startup discovers the
+    // poisoned database rows. If removal fails, marking is idempotent.
+    writePoisonMarkIntents([]);
+    poisonMarkIntents = [];
+    intents.forEach((event) => poison.emit(event));
+    return intents;
+  };
+
   const runDrain = async (): Promise<DrainOutcome> => {
     await settleAll();
     if (disposed) return blocked("disposed");
@@ -186,22 +282,12 @@ function createReplicaQueue(replica: Replica,
           recovering = true;
           cancelRetry(false);
           poisonPending.emit(undefined);
-          let result;
+          rememberPoisonMark(event);
           try {
-            result = await replica.markPoisoned(batch.id, JSON.stringify({
-              status: event.status, message: event.message,
-            }));
+            await markRetainedPoison();
           } catch (rpcError: unknown) {
-            // The server has already rejected this batch, so never release
-            // the barrier or schedule another POST merely because the local
-            // durable mark failed. Surface the replica fault for resync/UI.
-            try { onDesync(rpcError); } catch { /* listener isolation */ }
             return failed(rpcError);
           }
-          pendingCount = result.pending;
-          pending.emit(pendingCount);
-          // Public details remain ordered after the durable poison mark.
-          poison.emit(event);
           return blocked("recovering");
         }
         return failed(error);
@@ -309,8 +395,11 @@ function createReplicaQueue(replica: Replica,
     },
     onPending: pending.add,
     onPoisonPending: poisonPending.add,
+    onPoisonMarkFailed: poisonMarkFailed.add,
     onPoison: poison.add,
     onQuota: quota.add,
+    poisonMarkIntents: () => [...poisonMarkIntents],
+    retryPoisonMarks: markRetainedPoison,
   };
 }
 
@@ -445,8 +534,11 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
     },
     onPending: () => () => undefined,
     onPoisonPending: () => () => undefined,
+    onPoisonMarkFailed: () => () => undefined,
     onPoison: () => () => undefined,
     onQuota: () => () => undefined,
+    poisonMarkIntents: () => [],
+    retryPoisonMarks: async () => [],
   };
 }
 

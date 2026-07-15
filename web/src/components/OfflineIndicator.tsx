@@ -18,9 +18,17 @@ export function OfflineIndicator() {
   }, [status, pending]);
 
   const deliveryProblem = problem === undefined ? null : (
-    <div className="ws-banner" role={problem.repair === "failed" ? "alert" : "status"}>
+    <div className="ws-banner" role={
+      problem.repair === "failed" || problem.repair === "mark-failed"
+        ? "alert" : "status"
+    }>
       {problem.repair === "running" ? (
         <>Server rejected a change (HTTP {problem.event.status}). Repairing local state…</>
+      ) : problem.repair === "mark-failed" ? (
+        <>Server rejected a change (HTTP {problem.event.status}): {problem.event.message}.{" "}
+          Saving rejected-change recovery failed: {problem.error}
+          <button type="button" onClick={() => { void retryProblem(); }}>Retry</button>
+        </>
       ) : problem.repair === "failed" ? (
         <>Server rejected a change (HTTP {problem.event.status}): {problem.event.message}.{" "}
           Local repair failed: {problem.error}

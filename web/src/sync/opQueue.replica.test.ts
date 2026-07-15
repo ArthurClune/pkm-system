@@ -1,6 +1,6 @@
 // The replica-backed pump: durable batches with batch_id, poison handling,
 // quota degradation. The in-memory legacy path is covered in opQueue.test.ts.
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { PendingBatch, Replica } from "../replica/client";
 import { ReplicaError } from "../replica/rpc";
@@ -8,6 +8,8 @@ import { jsonResponse } from "../test-helpers";
 import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 
 const op = (uid: string): BlockOp => ({ op: "delete", uid });
+
+beforeEach(() => { localStorage.clear(); });
 
 /** In-memory replica queue mirroring queue.ts semantics. */
 function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch[] } {
@@ -360,7 +362,9 @@ async () => {
   const q = createOpQueue(replica, desync);
   const pending = vi.fn();
   const published = vi.fn();
+  const markFailed = vi.fn();
   q.onPoisonPending(pending);
+  q.onPoisonMarkFailed(markFailed);
   q.onPoison(published);
 
   const write = q.enqueue([op("u1")]);
@@ -376,8 +380,185 @@ async () => {
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(pending).toHaveBeenCalledTimes(1);
   expect(published).not.toHaveBeenCalled();
-  expect(desync).toHaveBeenCalledWith(error);
+  expect(markFailed).toHaveBeenCalledWith({
+    event: expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+    error,
+  });
+  expect(desync).not.toHaveBeenCalled();
   q.dispose();
+});
+
+test("mark failure Retry durably marks without re-POSTing then publishes poison",
+async () => {
+  const { bodies } = fetchSeq([() => jsonResponse({}, 400)]);
+  const error = new Error("poison RPC failed");
+  let markAttempts = 0;
+  const replica = memReplica({
+    markPoisoned: async (id) => {
+      markAttempts += 1;
+      if (markAttempts === 1) throw error;
+      replica.rows.find((row) => row.id === id)!.poisoned = true;
+      return { pending: replica.rows.filter((row) => !row.poisoned).length };
+    },
+  });
+  const q = createOpQueue(replica, () => undefined);
+  const markFailures: unknown[] = [];
+  const poisons: PoisonEvent[] = [];
+  const recovery = q as unknown as {
+    onPoisonMarkFailed?: (fn: (failure: unknown) => void) => () => void;
+    retryPoisonMarks?: () => Promise<readonly PoisonEvent[]>;
+  };
+  recovery.onPoisonMarkFailed?.((failure) => markFailures.push(failure));
+  q.onPoison((event) => poisons.push(event));
+
+  q.enqueue([op("bad")]);
+  q.enqueue([op("good")]);
+  await q.settled();
+  await q.drain();
+
+  expect(recovery.onPoisonMarkFailed).toBeTypeOf("function");
+  expect(recovery.retryPoisonMarks).toBeTypeOf("function");
+  expect(markFailures).toEqual([{
+    event: expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+    error,
+  }]);
+  expect(poisons).toEqual([]);
+  expect(markAttempts).toBe(1);
+  expect(bodies).toHaveLength(1);
+
+  await recovery.retryPoisonMarks?.();
+
+  expect(markAttempts).toBe(2);
+  expect(poisons).toEqual([
+    expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+  ]);
+  expect(bodies).toHaveLength(1); // Retry only marks; it never calls /api/ops
+  expect(replica.rows).toEqual([
+    expect.objectContaining({ id: 1, poisoned: true }),
+    expect.objectContaining({ id: 2, poisoned: false }),
+  ]);
+});
+
+test("a reload restores mark intent and blocks delivery until marking succeeds",
+async () => {
+  const { bodies } = fetchSeq([() => jsonResponse({}, 400)]);
+  let markAttempts = 0;
+  const replica = memReplica({
+    markPoisoned: async (id) => {
+      markAttempts += 1;
+      if (markAttempts === 1) throw new Error("worker disappeared");
+      replica.rows.find((row) => row.id === id)!.poisoned = true;
+      return { pending: replica.rows.filter((row) => !row.poisoned).length };
+    },
+  });
+  const firstPage = createOpQueue(replica, () => undefined);
+  firstPage.enqueue([op("bad")]);
+  firstPage.enqueue([op("good")]);
+  await firstPage.settled();
+  await firstPage.drain();
+  firstPage.dispose();
+
+  const reloaded = createOpQueue(replica, () => undefined);
+  const poisons: PoisonEvent[] = [];
+  reloaded.onPoison((event) => poisons.push(event));
+  const recovery = reloaded as unknown as {
+    poisonMarkIntents?: () => readonly PoisonEvent[];
+    retryPoisonMarks?: () => Promise<readonly PoisonEvent[]>;
+  };
+
+  await expect(reloaded.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering", pending: 2,
+  });
+  expect(bodies).toHaveLength(1); // reload did not resend rejected or later work
+  expect(markAttempts).toBe(1);
+  expect(recovery.poisonMarkIntents?.()).toEqual([
+    expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+  ]);
+
+  await recovery.retryPoisonMarks?.();
+
+  expect(markAttempts).toBe(2);
+  expect(bodies).toHaveLength(1);
+  expect(poisons).toEqual([
+    expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+  ]);
+});
+
+test("retained mark intents are deduplicated and retried oldest-first", async () => {
+  const first: PoisonEvent = {
+    rowId: 1, batchId: "batch-1", ops: [op("first")], status: 400,
+    message: "first rejected",
+  };
+  const second: PoisonEvent = {
+    rowId: 2, batchId: "batch-2", ops: [op("second")], status: 422,
+    message: "second rejected",
+  };
+  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+    version: 1, intents: [second, first, second],
+  }));
+  const replica = memReplica();
+  replica.rows.push(
+    { id: 1, batch_id: "batch-1", ops: [op("first")], poisoned: false },
+    { id: 2, batch_id: "batch-2", ops: [op("second")], poisoned: false },
+  );
+  const marked: number[] = [];
+  replica.markPoisoned = async (id) => {
+    marked.push(id);
+    replica.rows.find((row) => row.id === id)!.poisoned = true;
+    return { pending: replica.rows.filter((row) => !row.poisoned).length };
+  };
+  const q = createOpQueue(replica, () => undefined);
+  const published: PoisonEvent[] = [];
+  q.onPoison((event) => published.push(event));
+  const recovery = q as unknown as {
+    poisonMarkIntents(): readonly PoisonEvent[];
+    retryPoisonMarks(): Promise<readonly PoisonEvent[]>;
+  };
+
+  expect(recovery.poisonMarkIntents()).toEqual([first, second]);
+  await recovery.retryPoisonMarks();
+
+  expect(marked).toEqual([1, 2]);
+  expect(published).toEqual([first, second]);
+  expect(localStorage.getItem("pkm.poison-mark-intents.v1")).toBeNull();
+});
+
+test("a stale post-mark intent is retried idempotently without delivery", async () => {
+  const event: PoisonEvent = {
+    rowId: 1, batchId: "batch-1", ops: [op("bad")], status: 400,
+    message: "request failed: 400 /api/ops",
+  };
+  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+    version: 1, intents: [event],
+  }));
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  replica.rows.push({
+    id: 1, batch_id: "batch-1", ops: [op("bad")], poisoned: true,
+  });
+  const mark = vi.fn(async () => ({ pending: 0 }));
+  replica.markPoisoned = mark;
+  const q = createOpQueue(replica, () => undefined);
+  const recovery = q as unknown as {
+    retryPoisonMarks(): Promise<readonly PoisonEvent[]>;
+  };
+
+  await expect(q.drain()).resolves.toMatchObject({ reason: "recovering" });
+  await recovery.retryPoisonMarks();
+
+  expect(mark).toHaveBeenCalledWith(1, expect.any(String));
+  expect(bodies).toEqual([]);
+});
+
+test("corrupt retained mark metadata is ignored safely", async () => {
+  localStorage.setItem("pkm.poison-mark-intents.v1", "{not-json");
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  q.enqueue([op("good")]);
+  await q.settled();
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect(bodies).toHaveLength(1);
 });
 
 test("an automatic drain RPC failure is observed without an unhandled rejection", async () => {

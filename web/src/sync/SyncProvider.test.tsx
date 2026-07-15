@@ -5,7 +5,7 @@ import type { BlockOp } from "../api/ops";
 import { FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
-import { clientId } from "./opQueue";
+import { clientId, createOpQueue } from "./opQueue";
 import { SyncProvider, useSync, type Sync } from "./SyncProvider";
 
 function Probe({ onBatch }: { onBatch: (b: WsBatch) => void }) {
@@ -15,6 +15,7 @@ function Probe({ onBatch }: { onBatch: (b: WsBatch) => void }) {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   stubFetch([["/api/ops", { ok: true }]]);
 });
 
@@ -352,6 +353,98 @@ test("startup repairs durable poison before posting a later batch", async () => 
   await act(async () => { releaseSnapshot(); await snapshotGate; });
   await vi.waitFor(() => { expect(posts).toEqual(["later-good"]); });
   expect(rows).toEqual([]);
+});
+
+test("reload retries only the durable mark and surfaces failure before startup",
+async () => {
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+      posts.push(batchId);
+      return batchId === "bad-batch"
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+
+  const replica = fakeReplicaForProvider();
+  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                     poisoned: boolean }> = [];
+  let nextId = 1;
+  let markAttempts = 0;
+  let poisonDiscoveryCalls = 0;
+  let initCalls = 0;
+  replica.enqueue = async (ops) => {
+    const id = nextId++;
+    rows.push({ id, batch_id: id === 1 ? "bad-batch" : "later-good",
+                ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+  replica.pendingBatches = async () => [...rows];
+  replica.markPoisoned = async (id) => {
+    markAttempts += 1;
+    if (markAttempts <= 2) throw new Error(`mark unavailable ${markAttempts}`);
+    rows.find((row) => row.id === id)!.poisoned = true;
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.poisonedBatches = async () => {
+    poisonDiscoveryCalls += 1;
+    return rows.filter((row) => row.poisoned).map((row) => ({
+      rowId: row.id, batchId: row.batch_id, ops: row.ops,
+      status: 400, message: "request failed: 400 /api/ops",
+    }));
+  };
+  replica.init = async () => {
+    initCalls += 1;
+    return { ok: true, empty: false, cursor: 5, schemaMismatch: false,
+             pendingBatches: [...rows] };
+  };
+  replica.prepareRecovery = async () => ({ token: "reload-poison", batches: [...rows] });
+  replica.commitRecovery = async () => undefined;
+  replica.deleteBatch = async (id) => {
+    rows.splice(rows.findIndex((row) => row.id === id), 1);
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+
+  const firstPage = createOpQueue(replica, () => undefined);
+  firstPage.enqueue([{ op: "delete", uid: "bad" }]);
+  firstPage.enqueue([{ op: "delete", uid: "good" }]);
+  await firstPage.settled();
+  await firstPage.drain();
+  firstPage.dispose();
+  expect(posts).toEqual(["bad-batch"]);
+  expect(markAttempts).toBe(1);
+
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  await vi.waitFor(() => { expect(sync.problem?.repair).toBe("mark-failed"); });
+
+  expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "mark-failed",
+    event: { batchId: "bad-batch" }, error: "mark unavailable 2",
+  });
+  expect(posts).toEqual(["bad-batch"]); // reload never redelivered either row
+  expect(markAttempts).toBe(2); // startup performed mark-only retry
+  expect(poisonDiscoveryCalls).toBe(0);
+  expect(initCalls).toBe(0);
+
+  await act(async () => { await sync.retryProblem(); });
+  await vi.waitFor(() => { expect(sync.problem?.repair).toBe("repaired"); });
+
+  expect(markAttempts).toBe(3);
+  expect(posts.filter((batchId) => batchId === "bad-batch")).toHaveLength(1);
+  expect(poisonDiscoveryCalls).toBe(1);
+  expect(initCalls).toBe(1);
 });
 
 test("failed poison repair stays visible and Retry succeeds without reapplying it", async () => {

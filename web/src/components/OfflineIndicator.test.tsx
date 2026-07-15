@@ -116,6 +116,21 @@ it("failed repair offers Retry but cannot be dismissed", () => {
   expect(dismissProblem).not.toHaveBeenCalled();
 });
 
+it("failed durable poison marking is visible and offers Retry", () => {
+  const retryProblem = vi.fn(async () => undefined);
+  renderWith({
+    problem: {
+      ...rejected, repair: "mark-failed", error: "local worker unavailable",
+    } as unknown as Sync["problem"],
+    retryProblem,
+  });
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Saving rejected-change recovery failed: local worker unavailable");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(retryProblem).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+});
+
 it("repaired rejection keeps details until Dismiss", () => {
   const retryProblem = vi.fn(async () => undefined);
   const dismissProblem = vi.fn();

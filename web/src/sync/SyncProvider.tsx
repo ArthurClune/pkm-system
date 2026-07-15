@@ -20,7 +20,8 @@ export type SyncStatus = "connecting" | "connected" | "reconnecting";
 
 export type SyncProblem =
   | { kind: "rejected-batch"; event: PoisonEvent;
-      repair: "running" | "failed" | "repaired"; error?: string };
+      repair: "mark-failed" | "running" | "failed" | "repaired";
+      error?: string };
 
 export interface Sync {
   status: SyncStatus;
@@ -117,6 +118,7 @@ export function SyncProvider({ children, replica }: {
   const repairRunRef = useRef<Promise<void> | null>(null);
   const repairTargetsRef = useRef<readonly PoisonEvent[]>([]);
   const repairSucceededRef = useRef(false);
+  const startupDiscoveringPoisonRef = useRef(true);
   const problemRef = useRef<SyncProblem>();
   problemRef.current = problem;
 
@@ -142,6 +144,16 @@ export function SyncProvider({ children, replica }: {
       queue.onQuota(() => {
         if (mountedRef.current) setQuotaExhausted(true);
       }),
+      queue.onPoisonMarkFailed(({ event, error }) => {
+        repairTargetsRef.current = [event];
+        repairSucceededRef.current = false;
+        if (mountedRef.current) {
+          setProblem({
+            kind: "rejected-batch", event, repair: "mark-failed",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }),
     ];
     // a durable queue may be non-empty from a previous session
     void replicaRef.current?.pendingCount()
@@ -166,10 +178,22 @@ export function SyncProvider({ children, replica }: {
     async () => undefined);
   repairEventsRef.current = (events) => {
     if (events.length === 0) return Promise.resolve();
-    if (repairRunRef.current) return repairRunRef.current;
-    repairTargetsRef.current = [...events];
+    const mergeTargets = (current: readonly PoisonEvent[]) => {
+      const merged = new Map(current.map((event) =>
+        [`${event.rowId}\u0000${event.batchId}`, event]));
+      events.forEach((event) => {
+        merged.set(`${event.rowId}\u0000${event.batchId}`, event);
+      });
+      return [...merged.values()].sort((a, b) =>
+        a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
+    };
+    if (repairRunRef.current) {
+      repairTargetsRef.current = mergeTargets(repairTargetsRef.current);
+      return repairRunRef.current;
+    }
+    repairTargetsRef.current = mergeTargets([]);
     repairSucceededRef.current = false;
-    const event = events[0];
+    const event = repairTargetsRef.current[0];
     if (mountedRef.current) {
       setProblem({ kind: "rejected-batch", event, repair: "running" });
     }
@@ -177,7 +201,7 @@ export function SyncProvider({ children, replica }: {
       try {
         await replicaSync!.rebaseAuthoritative("poison");
         let remaining = 0;
-        for (const poisonEvent of events) {
+        for (const poisonEvent of repairTargetsRef.current) {
           const result = await replicaRef.current!.deleteBatch(poisonEvent.rowId);
           remaining = result.pending;
         }
@@ -215,8 +239,18 @@ export function SyncProvider({ children, replica }: {
     queue.setOnline(false);
     queue.pause("recovery");
     startupRunRef.current = (async () => {
+      try {
+        // Reload fallback intents are marked before any database discovery,
+        // initialization, or delivery. This path never calls /api/ops.
+        await queue.retryPoisonMarks();
+      } catch {
+        // The typed failure listener owns the visible Retry state; retain the
+        // startup gate and recovery barrier until marking succeeds.
+        return;
+      }
       let poisoned: PoisonEvent[] = [];
       try { poisoned = await r.poisonedBatches(); } catch { /* init owns degradation */ }
+      startupDiscoveringPoisonRef.current = false;
       if (poisoned.length > 0) {
         await repairEventsRef.current(poisoned);
         if (!repairSucceededRef.current) return;
@@ -231,6 +265,10 @@ export function SyncProvider({ children, replica }: {
   }, [queue, replicaSync]);
 
   useEffect(() => queue.onPoison((event) => {
+    // Startup mark-only retries are followed by one authoritative database
+    // discovery so multiple retained intents and pre-existing poison rows
+    // enter the same repair. Current-session poison starts repair directly.
+    if (startupDiscoveringPoisonRef.current) return;
     void repairEventsRef.current([event]);
   }), [queue]);
 
@@ -398,6 +436,24 @@ export function SyncProvider({ children, replica }: {
     readOnlyReason,
     problem,
     retryProblem: () => {
+      if (problemRef.current?.repair === "mark-failed") {
+        const retryBlockedStartup = startupDiscoveringPoisonRef.current;
+        return (async () => {
+          try {
+            await queue.retryPoisonMarks();
+          } catch {
+            return;
+          }
+          if (retryBlockedStartup) {
+            const poisoned = await replicaRef.current!.poisonedBatches();
+            startupDiscoveringPoisonRef.current = false;
+            await repairEventsRef.current(poisoned);
+          } else {
+            await (repairRunRef.current ?? Promise.resolve());
+          }
+          if (repairSucceededRef.current) await replicaSync?.start();
+        })();
+      }
       if (problemRef.current?.repair !== "failed") return Promise.resolve();
       return repairEventsRef.current(repairTargetsRef.current).then(async () => {
         if (repairSucceededRef.current) await replicaSync?.start();

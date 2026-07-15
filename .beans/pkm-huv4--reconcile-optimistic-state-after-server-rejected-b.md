@@ -9,7 +9,7 @@ tags:
     - sync
     - data-integrity
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T17:37:39Z
+updated_at: 2026-07-15T17:54:21Z
 parent: pkm-c1cg
 ---
 
@@ -41,3 +41,7 @@ Added shared poison recovery ownership before waiting on an in-flight feed. A co
 ## Second Review Race Fix
 
 Established synchronous poison-pending ownership before the durable mark, preempted and aborted stale normal recovery leases before every flush POST, suppressed their normal failure/resume path, and retained the barrier when marking fails. Public poison details still follow durable marking; no-poison Task 2 recovery is unchanged. Fresh verification passed: focused 64/64, exact Step 5 79/79, Task 2 compatibility 87/87, typecheck, canonical 69 files / 716 unit tests, build, and Playwright 6/6.
+
+## Third Review Mark-Failure Fix
+
+Added versioned durable fallback intents, typed visible mark-failure state, mark-only Retry, and startup gating before poison discovery/init/drain. Retained intents are exception-safe, corruption-tolerant, deduplicated, deterministic, and cleanup is crash-safe after idempotent database marking. Fresh verification passed: focused 81/81, exact Step 5 86/86, Task 2 compatibility 93/93, typecheck, canonical 69 files / 723 unit tests, build, and Playwright 6/6.

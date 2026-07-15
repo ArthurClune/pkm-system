@@ -267,3 +267,54 @@ Fresh second-review verification:
 - Canonical `cd web && pnpm verify`: passed; 69 unit files / 716 tests,
   production/PWA build with 78 entries / 5118.26 KiB, and Playwright 6/6.
 - `git diff --check`: passed before report/bean finalization and rerun below.
+
+## Third independent review fix: durable mark-failure recovery
+
+The third review found that retaining the in-memory barrier on a
+`markPoisoned` RPC failure was safe only until reload. The existing desync bump
+did not expose a Retry control, and the rejected database row still appeared
+non-poisoned to a new queue, so the next page could POST it again.
+
+### Deterministic RED
+
+The queue RED command produced 2 intended failures and 20 passes. It proved
+that there was no typed mark-failure/mark-only Retry surface and that a
+recreated queue re-POSTed the rejected row, changing the expected blocked
+pending count from two to one. The provider/indicator RED command produced 2
+intended failures and 34 passes: startup exposed no `mark-failed` problem, and
+the indicator misclassified that state as repaired with Dismiss rather than an
+alert with Retry.
+
+### Fallback and cleanup design
+
+The queue now writes the complete typed rejected event to a versioned
+`localStorage` intent list before attempting the worker mark. Parsing and
+storage access are exception-safe; malformed payloads and invalid entries are
+ignored. Retained intents are deduplicated and processed deterministically by
+row id and batch id. A recreated queue loads them synchronously and begins
+behind the recovery barrier.
+
+Retry processes only `replica.markPoisoned` calls and never `/api/ops`. All
+retained marks must succeed before fallback cleanup and publication, so
+multiple intents cannot start a partial repair. The ordering is fallback
+intent -> database marks -> fallback removal -> existing public poison events
+-> authoritative snapshot -> database-row deletion -> resync/ownership release
+-> queue resume. A crash after database marking but before fallback removal is
+safe: startup repeats the idempotent mark without delivery. Current-session and
+startup failures emit a typed mark-failure signal that the provider presents
+as an explicit alert with Retry.
+
+Startup remains paused and does not call poison discovery, replica start, or
+drain until mark-only retry succeeds. It then discovers all durable poisoned
+rows in one pass and runs the existing authoritative repair. Failed snapshot
+repair/Retry semantics and normal Task 1/Task 2 behavior are unchanged.
+
+Fresh third-review verification:
+
+- Focused queue/coordinator/provider/indicator: 4 files / 81 tests passed.
+- Exact Task 3 Step 5: 5 files / 86 tests passed.
+- Exact Task 2 compatibility: 6 files / 93 tests passed.
+- `cd web && pnpm typecheck`: passed.
+- Canonical `cd web && pnpm verify`: passed; 69 unit files / 723 tests,
+  production/PWA build with 78 entries / 5120.76 KiB, and Playwright 6/6.
+- `git diff --check`: passed and rerun after tracking updates.

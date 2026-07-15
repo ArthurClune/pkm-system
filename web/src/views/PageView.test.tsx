@@ -2,7 +2,11 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
-import { isOutlineSessionActive } from "../outline/outlineSessions";
+import {
+  acquireOutlineSession,
+  isOutlineSessionActive,
+  repairActiveOutlineSessions,
+} from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
@@ -295,6 +299,265 @@ it("unmounting the newer parent elects one surviving controller", async () => {
   expect(fetchMock).toHaveBeenCalledTimes(3);
   expect(copies).toBe(1);
   expect(errors).toBe(0);
+  expect(isOutlineSessionActive("Paper")).toBe(false);
+});
+
+it("an automatic read superseding elected recovery permits one replacement parent", async () => {
+  const older = deferred<Response>();
+  const newer = deferred<Response>();
+  const elected = deferred<Response>();
+  const replacement = deferred<Response>();
+  const automatic = deferred<ReturnType<typeof block>[]>();
+  const fetchMock = vi.fn(() => {
+    const call = fetchMock.mock.calls.length;
+    if (call === 1) return older.promise;
+    if (call === 2) return newer.promise;
+    if (call === 3) return elected.promise;
+    if (call === 4) return replacement.promise;
+    return Promise.reject(new Error("unexpected parent fetch storm"));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        <EditableSidebarPanel title="Paper" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  const automaticHandle = acquireOutlineSession("Paper", null);
+  let copies = 0;
+  let metadataCopies = 0;
+  let staleCopies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      await older.promise;
+      newer.reject(new Error("newest initial parent failed"));
+      await newer.promise.catch(() => undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    const automaticRead = automaticHandle.requestAuthoritative(
+      () => automatic.promise,
+    );
+    await act(async () => {
+      automatic.resolve([block("automatic", "block-only automatic")]);
+      await automaticRead;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+
+    await act(async () => {
+      replacement.resolve(jsonResponse(pagePayload("Paper", [
+        block("replacement", "post-automatic winner"),
+        block("replacement-ref", "((replacement_ref))"),
+      ], {
+        block_ref_texts: {
+          replacement_ref: {
+            text: "post-automatic metadata",
+            page_title: "Source",
+          },
+        },
+      })));
+      await replacement.promise;
+      elected.resolve(jsonResponse(pagePayload("Paper", [
+        block("stale-elected", "stale elected response"),
+      ])));
+      await elected.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copies = screen.queryAllByText("post-automatic winner").length;
+    metadataCopies = screen.queryAllByText("post-automatic metadata").length;
+    staleCopies = screen.queryAllByText("stale elected response").length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload("Paper", [])));
+    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    elected.resolve(jsonResponse(pagePayload("Paper", [])));
+    replacement.resolve(jsonResponse(pagePayload("Paper", [])));
+    automatic.resolve([]);
+    automaticHandle.release();
+    view.unmount();
+  }
+
+  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(copies).toBe(2);
+  expect(metadataCopies).toBe(2);
+  expect(staleCopies).toBe(0);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive("Paper")).toBe(false);
+});
+
+it("a repair superseding elected recovery permits one post-repair parent", async () => {
+  const older = deferred<Response>();
+  const newer = deferred<Response>();
+  const elected = deferred<Response>();
+  const repair = deferred<Response>();
+  const replacement = deferred<Response>();
+  const fetchMock = vi.fn(() => {
+    const call = fetchMock.mock.calls.length;
+    if (call === 1) return older.promise;
+    if (call === 2) return newer.promise;
+    if (call === 3) return elected.promise;
+    if (call === 4) return repair.promise;
+    if (call === 5) return replacement.promise;
+    return Promise.reject(new Error("unexpected parent fetch storm"));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <SyncContext.Provider value={makeSync()}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        <EditableSidebarPanel title="Paper" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  let copies = 0;
+  let metadataCopies = 0;
+  let staleCopies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      await older.promise;
+      newer.reject(new Error("newest initial parent failed"));
+      await newer.promise.catch(() => undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    const repairing = repairActiveOutlineSessions();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await act(async () => {
+      repair.resolve(jsonResponse(pagePayload("Paper", [
+        block("repair", "block-only repair"),
+      ])));
+      await repairing;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+
+    await act(async () => {
+      replacement.resolve(jsonResponse(pagePayload("Paper", [
+        block("replacement", "post-repair winner"),
+        block("replacement-ref", "((repair_ref))"),
+      ], {
+        block_ref_texts: {
+          repair_ref: {
+            text: "post-repair metadata",
+            page_title: "Source",
+          },
+        },
+      })));
+      await replacement.promise;
+      elected.resolve(jsonResponse(pagePayload("Paper", [
+        block("stale-elected", "stale elected response"),
+      ])));
+      await elected.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copies = screen.queryAllByText("post-repair winner").length;
+    metadataCopies = screen.queryAllByText("post-repair metadata").length;
+    staleCopies = screen.queryAllByText("stale elected response").length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload("Paper", [])));
+    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    elected.resolve(jsonResponse(pagePayload("Paper", [])));
+    repair.resolve(jsonResponse(pagePayload("Paper", [])));
+    replacement.resolve(jsonResponse(pagePayload("Paper", [])));
+    view.unmount();
+  }
+
+  expect(fetchMock).toHaveBeenCalledTimes(5);
+  expect(copies).toBe(2);
+  expect(metadataCopies).toBe(2);
+  expect(staleCopies).toBe(0);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive("Paper")).toBe(false);
+});
+
+it("canceling elected recovery does not start a second recovery", async () => {
+  const older = deferred<Response>();
+  const newer = deferred<Response>();
+  const elected = deferred<Response>();
+  const fetchMock = vi.fn(() => {
+    const call = fetchMock.mock.calls.length;
+    if (call === 1) return older.promise;
+    if (call === 2) return newer.promise;
+    if (call === 3) return elected.promise;
+    return Promise.reject(new Error("unexpected second recovery"));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const sync = makeSync();
+  const tree = (showSidebar: boolean) => (
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        {showSidebar && <EditableSidebarPanel title="Paper" />}
+      </MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const view = render(tree(true));
+  let cancellationErrors = 0;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      older.resolve(jsonResponse(pagePayload("Paper", [])));
+      await older.promise;
+      newer.reject(new Error("newest initial parent failed"));
+      await newer.promise.catch(() => undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    view.rerender(tree(false));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    cancellationErrors = screen.queryAllByText(
+      /Parent read cancelled for Paper/,
+    ).length;
+
+    await act(async () => {
+      elected.resolve(jsonResponse(pagePayload("Paper", [
+        block("stale-elected", "stale elected response"),
+      ])));
+      await elected.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  } finally {
+    older.resolve(jsonResponse(pagePayload("Paper", [])));
+    newer.resolve(jsonResponse(pagePayload("Paper", [])));
+    elected.resolve(jsonResponse(pagePayload("Paper", [])));
+    view.unmount();
+  }
+
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(cancellationErrors).toBe(1);
   expect(isOutlineSessionActive("Paper")).toBe(false);
 });
 

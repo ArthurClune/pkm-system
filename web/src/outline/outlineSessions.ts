@@ -95,6 +95,7 @@ interface Session {
   parentElectionScheduled: boolean;
   parentElectionStarting: boolean;
   parentRecoveryAttempted: boolean;
+  parentRecoveryRequestId: number | null;
   parentFailure: unknown;
 }
 
@@ -143,6 +144,13 @@ function applyTransition(
 }
 
 function expireManualReadsBefore(session: Session, requestId: number): void {
+  // A spent parent recovery becomes reusable only when another authoritative
+  // controller takes ownership from that still-live elected request.
+  if (session.parentRecoveryRequestId !== null &&
+      session.parentRecoveryRequestId < requestId) {
+    session.parentRecoveryRequestId = null;
+    session.parentRecoveryAttempted = false;
+  }
   let expired = 0;
   for (const id of session.manualReads) {
     if (id >= requestId) continue;
@@ -216,6 +224,7 @@ function publishParentPayload(
   session.parentPayload = accepted;
   session.parentFailure = null;
   session.parentRecoveryAttempted = false;
+  session.parentRecoveryRequestId = null;
   for (const waiter of [...session.parentWaiters]) {
     if (waiter.afterRequestId >= accepted.requestId) continue;
     session.parentWaiters.delete(waiter);
@@ -247,8 +256,14 @@ function scheduleParentElection(session: Session): void {
     }
     session.parentRecoveryAttempted = true;
     session.parentElectionStarting = true;
+    const previousRequestId = session.state.latestRequestId;
     try {
       controller();
+      const electedRequestId = session.state.latestRequestId;
+      if (electedRequestId > previousRequestId &&
+          session.manualReads.has(electedRequestId)) {
+        session.parentRecoveryRequestId = electedRequestId;
+      }
     } catch (error) {
       session.parentFailure = error;
       rejectParentWaiters(session, error);
@@ -273,7 +288,10 @@ function abandonManualRead(
 ): boolean {
   const current = session.manualReads.has(token.requestId) &&
     token.requestId === session.state.latestRequestId;
+  const electedRecovery = current &&
+    session.parentRecoveryRequestId === token.requestId;
   finishManualRead(session, token);
+  if (electedRecovery) session.parentRecoveryRequestId = null;
   if (current) {
     session.parentFailure = error;
     scheduleParentElection(session);
@@ -488,6 +506,7 @@ export function acquireOutlineSession(
       parentElectionScheduled: false,
       parentElectionStarting: false,
       parentRecoveryAttempted: false,
+      parentRecoveryRequestId: null,
       parentFailure: null,
     };
     sessions.set(title, session);
@@ -568,6 +587,7 @@ export function acquireOutlineSession(
     beginAuthoritativeRead: () => {
       if (!session.parentElectionStarting) {
         session.parentRecoveryAttempted = false;
+        session.parentRecoveryRequestId = null;
         session.parentFailure = null;
       }
       const token = startAuthoritativeRead(session);

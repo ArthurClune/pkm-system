@@ -730,3 +730,82 @@ when the newest request failed or its pane unmounted.
   shared editor leases, deferred local-write reconciliation, DnD replay,
   Journal capture, repair epochs, and queue/replica invariants retain their
   existing focused coverage.
+
+## Ninth independent-review fix wave
+
+Review of `a7ca2a5` found that the one-attempt parent recovery cap did not
+distinguish a terminal elected attempt from one superseded by a block-only
+automatic read or repair epoch.
+
+### Root cause
+
+- Election spent `parentRecoveryAttempted` before starting the elected manual
+  parent request, but retained no identity for that request.
+- Automatic reads and repair epochs correctly started newer request ids and
+  expired the elected manual reservation. Once their block-only work completed,
+  the full-payload waiters were still present, but the spent boolean made the
+  scheduler reject them instead of electing a replacement parent.
+- The expired elected transport could only return stale later. Neither its
+  response nor the successful block-only controller could supply the page
+  metadata, backlinks, and block-reference map required by the waiting shells.
+
+### RED evidence
+
+- `pnpm vitest run src/views/PageView.test.tsx -t "automatic read superseding
+  elected recovery|repair superseding elected recovery"` failed both selected
+  tests before the production change. The automatic case stopped at 3 parent
+  fetches instead of the required replacement fourth; the repair case stopped
+  at 4 instead of the post-repair fifth.
+- Both regressions keep PageView and Sidebar mounted, fail the newest initial
+  parent, hold elected R3, supersede it with a real session automatic read or
+  `repairActiveOutlineSessions()`, and require exactly one newer full-payload
+  controller. They assert two copies of the winning tree and reference
+  metadata, zero errors, and no resurrection from R3's late response.
+
+### Production design
+
+- The session now records the request id started by its elected parent
+  controller. The recovery attempt remains spent while that request owns
+  causality.
+- Starting a strictly newer authoritative request clears the elected identity
+  and restores recovery eligibility. This is centralized where newer requests
+  expire manual reservations, so automatic reads, both repair-epoch phases,
+  and captured authoritative activation share the same ownership rule.
+- Successful full-payload publication clears both the identity and cap.
+  Genuine failure or cancellation of the elected request clears only its
+  identity and leaves the cap spent, preserving bounded terminal behavior.
+- Repair waiters remain pending while `activeRepairEpoch` is non-null. The
+  existing epoch completion finalizer schedules election only after the cohort
+  is fully stable and the epoch releases ownership; its block-only result is
+  never substituted for a full `PagePayload`.
+
+### GREEN verification
+
+- Focused supersession RED/GREEN pair: 1 file / 2 selected tests passed.
+- Focused supersession plus terminal-cancel guard: 1 file / 3 selected tests
+  passed. Cancelling elected recovery produced one error and no second retry.
+- Full parent integration matrix: 2 files / 23 tests passed.
+- DnD/outline/session/provider matrix: 4 files / 77 tests passed.
+- Epoch/replay integration matrix: 5 files / 93 tests passed.
+- Controller queue/replica gate: 4 files / 74 tests passed.
+- Exact controller Task 5 UI gate: 7 files / 90 tests passed.
+- Controller outline gate: 4 files / 52 tests passed.
+- `pnpm typecheck`: passed.
+- Canonical `pnpm verify`: passed: 72 files / 814 unit tests; 97.79%
+  statements and lines, 91.34% branches, and 95.83% functions; production/PWA
+  build with 78 precache entries / 5139.93 KiB; Playwright 6/6.
+
+### Self-review
+
+- Eligibility is restored by request-id supersession, not by elapsed time,
+  block-only success, or a late stale response. Microtask coalescing and the
+  active manual/automatic/repair guards still prevent duplicate elections.
+- The late elected response is rejected by the existing newest-request check
+  after both automatic and repair supersession; tests resolve it after the
+  replacement winner and assert it never renders.
+- The terminal-cancel characterization proves the ownership field does not
+  broaden the retry cap. The existing terminal-failure/404 test continues to
+  require exactly two total attempts.
+- Reservation release, full-payload readiness, repair stabilization, session
+  collection, DnD replay, queue handoff, replica recovery, and prior Task 5
+  causality paths retain their focused matrices.

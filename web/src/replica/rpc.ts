@@ -1,7 +1,7 @@
-// pattern: Functional Core
-// Minimal request/response RPC over a MessagePort-like. The worker serves,
-// the main thread calls; errors cross the boundary as {message, quota} so
-// the storage-quota signal (spec section 6) survives serialization.
+// pattern: Imperative Shell
+// MessagePort RPC transport and lifecycle shell: installs port handlers, owns
+// mutable request/timer state, posts messages, and disposes terminal resources.
+// Errors cross as {message, quota} so the storage-quota signal survives.
 
 export interface PortLike {
   postMessage(msg: unknown): void;

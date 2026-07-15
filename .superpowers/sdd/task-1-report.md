@@ -410,3 +410,20 @@ command passed 5 files / 79 tests, and `pnpm typecheck` passed. All temporary
 - Verified the guard compares ordered durable IDs inside the worker immediately
   before synchronous feed application, avoiding a main-thread TOCTOU gap.
 - Verified no diagnostics, arbitrary delays, or response waits remain.
+
+## FCIS classification review fix
+
+Task re-review identified that `web/src/replica/rpc.ts` declared itself a
+Functional Core despite assigning MessagePort/Worker event handlers, owning the
+mutable pending-call map and timers, posting messages, and disposing terminal
+lifecycle resources. The header now classifies the runtime module as an
+Imperative Shell and describes those responsibilities. No runtime behavior was
+changed. The review's separate test-output-noise observation was Minor and was
+intentionally left outside this focused fix.
+
+Fresh verification:
+
+- `cd web && pnpm vitest run src/replica/rpc.test.ts src/replica/client.test.ts`:
+  2 files / 19 tests passed, exit 0.
+- `cd web && pnpm typecheck`: passed, exit 0.
+- `git diff --check`: passed, exit 0 before and after the tracker/report update.

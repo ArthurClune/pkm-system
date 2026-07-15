@@ -9,7 +9,7 @@ tags:
     - sync
     - lifecycle
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T16:04:34Z
+updated_at: 2026-07-15T16:12:26Z
 parent: pkm-c1cg
 ---
 
@@ -70,3 +70,7 @@ Add explicit replica disposal and failure propagation, and distinguish settled p
   durable set before application, the stale response is discarded without
   mutating rows or cursor and refetched from the same cursor, preventing an
   acknowledged optimistic edit from disappearing during offline reload.
+
+- Corrected the RPC runtime module's FCIS declaration to Imperative Shell,
+  reflecting its MessagePort event registration, mutable pending/timer
+  lifecycle, message I/O, and disposal responsibilities.

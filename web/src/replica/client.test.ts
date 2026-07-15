@@ -241,7 +241,7 @@ test("a prepare delayed past its client timeout cannot later orphan the worker l
     await workerPrepareFinished.promise;
     expect(workerPrepareOutcome).toBe("rejected");
     await expect(replica.enqueue([{ op: "delete", uid: "uid_after" }]))
-      .resolves.toEqual({ pending: 1 });
+      .resolves.toMatchObject({ pending: 1, batchId: expect.any(String) });
     await earlier;
   } finally {
     vi.useRealTimers();

@@ -57,7 +57,7 @@ export interface Replica {
   applyChanges(feed: Changes,
                expectedPendingIds?: readonly number[]): Promise<ApplyResult>;
   /** su05: persist + optimistically apply; returns pending count. */
-  enqueue(ops: BlockOp[]): Promise<{ pending: number }>;
+  enqueue(ops: BlockOp[]): Promise<{ pending: number; batchId?: string }>;
   nextBatch(): Promise<PendingBatch | null>;
   /** All queued batches, oldest first (recovery flush reads). */
   pendingBatches(): Promise<PendingBatch[]>;

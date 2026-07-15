@@ -1,9 +1,24 @@
 // pattern: Imperative Shell
-// Per-title external store for flushed outline trees and the single editable
-// view lease. Registry acquisition happens from layout effects, never render.
+// Per-title external store for flushed trees, authoritative read causality,
+// scoped delivery tickets, and the single editable view lease. Registry
+// acquisition happens from effects, never render.
 import type { BlockNode } from "../api/payloads";
+import type { BlockOp } from "../api/ops";
+import type { WriteTicket } from "../sync/opQueue";
 import type { WsBatch } from "../sync/socket";
-import { applyOps, findNode } from "./tree";
+import {
+  beginAuthoritativeRead as beginRead,
+  createOutlineState,
+  transitionOutline,
+  type OutlineEffect,
+  type OutlineState,
+  type ReadToken,
+} from "./outlineState";
+import { findNode } from "./tree";
+
+export type { ReadToken } from "./outlineState";
+export type AuthoritativeReadSource =
+  "parent" | "resync" | "cross-page-move" | "write-settled";
 
 export interface SharedOutlineSnapshot {
   blocks: BlockNode[];
@@ -20,6 +35,10 @@ export interface OutlineSessionHandle {
   getSnapshot(): SharedOutlineSnapshot;
   subscribe(listener: () => void): () => void;
   claimEditor(owner: symbol): EditorLease;
+  beginAuthoritativeRead(source: AuthoritativeReadSource): ReadToken;
+  receiveAuthoritative(token: ReadToken, blocks: BlockNode[]): void;
+  setAuthoritativeLoader(load: () => Promise<BlockNode[]>): () => void;
+  applyLocal(ticket: WriteTicket, ops: readonly BlockOp[]): void;
   applyOptimistic(blocks: BlockNode[]): void;
   applyRemote(batch: WsBatch): {
     applied: boolean;
@@ -38,6 +57,7 @@ interface LeaseRecord {
 
 interface Session {
   title: string;
+  state: OutlineState;
   snapshot: SharedOutlineSnapshot;
   bootstrapped: boolean;
   handles: number;
@@ -46,16 +66,98 @@ interface Session {
   waiters: LeaseRecord[];
   seenRemote: WeakSet<WsBatch>;
   authoritativeRead: Promise<void> | null;
+  authoritativeAgain: boolean;
+  loaders: Map<symbol, () => Promise<BlockNode[]>>;
+  trackedWrites: Set<string>;
 }
 
 const sessions = new Map<string, Session>();
 
-function publish(session: Session, blocks: BlockNode[]): void {
+function publish(session: Session): void {
   session.snapshot = {
-    blocks,
-    revision: session.snapshot.revision + 1,
+    blocks: session.state.blocks,
+    revision: session.state.revision,
   };
   for (const listener of session.listeners) listener();
+}
+
+function applyTransition(
+  session: Session,
+  result: ReturnType<typeof transitionOutline>,
+): void {
+  const prior = session.state;
+  session.state = result.state;
+  if (prior.blocks !== result.state.blocks ||
+      prior.revision !== result.state.revision) publish(session);
+  runEffects(session, result.effects);
+}
+
+function startAuthoritativeRead(session: Session): ReadToken {
+  const started = beginRead(session.state);
+  session.state = started.state;
+  return started.token;
+}
+
+function receiveAuthoritative(
+  session: Session,
+  token: ReadToken,
+  blocks: BlockNode[],
+): void {
+  session.bootstrapped = true;
+  const result = transitionOutline(session.state, {
+    type: "authoritative", token, blocks,
+  });
+  applyTransition(session, result);
+}
+
+function requestAuthoritative(
+  session: Session,
+  load?: () => Promise<BlockNode[]>,
+): Promise<void> {
+  if (session.authoritativeRead) return session.authoritativeRead;
+  const loader = load ?? [...session.loaders.values()].at(-1);
+  if (!loader) return Promise.resolve();
+  const token = startAuthoritativeRead(session);
+  let request!: Promise<void>;
+  request = loader()
+    .then((blocks) => receiveAuthoritative(session, token, blocks))
+    .finally(() => {
+      if (session.authoritativeRead === request) {
+        session.authoritativeRead = null;
+        if (session.authoritativeAgain) {
+          session.authoritativeAgain = false;
+          void requestAuthoritative(session).catch(() => undefined);
+        }
+      }
+    });
+  session.authoritativeRead = request;
+  return request;
+}
+
+function runEffects(session: Session, effects: readonly OutlineEffect[]): void {
+  if (effects.some((effect) => effect.type === "request-authoritative")) {
+    if (session.authoritativeRead) session.authoritativeAgain = true;
+    else void requestAuthoritative(session).catch(() => undefined);
+  }
+}
+
+function scopeContainsTitle(scope: readonly string[], title: string): boolean {
+  return scope[0] === "page" && scope.slice(1).includes(title);
+}
+
+function trackWrite(session: Session, ticket: WriteTicket): void {
+  if (!scopeContainsTitle(ticket.scope, session.title) ||
+      session.trackedWrites.has(ticket.id)) return;
+  session.trackedWrites.add(ticket.id);
+  applyTransition(session, transitionOutline(session.state, {
+    type: "write-started", ticketId: ticket.id, scope: ticket.scope,
+  }));
+  void ticket.delivered.finally(() => {
+    session.trackedWrites.delete(ticket.id);
+    applyTransition(session, transitionOutline(session.state, {
+      type: "write-settled", ticketId: ticket.id,
+    }));
+  });
 }
 
 function notifyLease(lease: LeaseRecord): void {
@@ -94,9 +196,11 @@ export function acquireOutlineSession(
 ): OutlineSessionHandle {
   let session = sessions.get(title);
   if (!session) {
+    const state = createOutlineState(title, bootstrap ?? []);
     session = {
       title,
-      snapshot: { blocks: bootstrap ?? [], revision: 0 },
+      state,
+      snapshot: { blocks: state.blocks, revision: state.revision },
       bootstrapped: bootstrap !== null,
       handles: 0,
       listeners: new Set(),
@@ -104,9 +208,13 @@ export function acquireOutlineSession(
       waiters: [],
       seenRemote: new WeakSet(),
       authoritativeRead: null,
+      authoritativeAgain: false,
+      loaders: new Map(),
+      trackedWrites: new Set(),
     };
     sessions.set(title, session);
   } else if (!session.bootstrapped && bootstrap !== null) {
+    session.state = createOutlineState(title, bootstrap);
     session.snapshot = { blocks: bootstrap, revision: 0 };
     session.bootstrapped = true;
   }
@@ -115,6 +223,7 @@ export function acquireOutlineSession(
   let released = false;
   const subscriptions = new Set<() => void>();
   const leases = new Set<LeaseRecord>();
+  const loaders = new Set<symbol>();
 
   const handle: OutlineSessionHandle = {
     getSnapshot: () => session.snapshot,
@@ -165,9 +274,36 @@ export function acquireOutlineSession(
         },
       };
     },
+    beginAuthoritativeRead: () => startAuthoritativeRead(session),
+    receiveAuthoritative: (token, blocks) => {
+      if (released) return;
+      receiveAuthoritative(session, token, blocks);
+    },
+    setAuthoritativeLoader: (load) => {
+      if (released) return () => undefined;
+      const token = Symbol(`authoritative:${title}`);
+      session.loaders.set(token, load);
+      loaders.add(token);
+      let active = true;
+      return () => {
+        if (!active) return;
+        active = false;
+        session.loaders.delete(token);
+        loaders.delete(token);
+      };
+    },
+    applyLocal: (ticket, ops) => {
+      if (released) return;
+      applyTransition(session, transitionOutline(session.state, {
+        type: "local-ops", ticketId: ticket.id, ops,
+      }));
+      trackWrite(session, ticket);
+    },
     applyOptimistic: (blocks) => {
       if (released) return;
-      publish(session, blocks);
+      applyTransition(session, transitionOutline(session.state, {
+        type: "local-tree", blocks,
+      }));
     },
     applyRemote: (batch) => {
       if (released || session.seenRemote.has(batch)) {
@@ -178,29 +314,20 @@ export function acquireOutlineSession(
         op.op === "move" && op.page_title != null &&
         op.page_title === session.title &&
         !findNode(session.snapshot.blocks, op.uid));
-      publish(session,
-        applyOps(session.snapshot.blocks, batch.ops, session.title));
+      applyTransition(session, transitionOutline(session.state, {
+        type: "remote-ops", ops: batch.ops,
+      }));
       return { applied: true, needsAuthoritative };
     },
-    requestAuthoritative: (load) => {
-      if (session.authoritativeRead) return session.authoritativeRead;
-      let request!: Promise<void>;
-      request = load()
-        .then((blocks) => publish(session, blocks))
-        .finally(() => {
-          if (session.authoritativeRead === request) {
-            session.authoritativeRead = null;
-          }
-        });
-      session.authoritativeRead = request;
-      return request;
-    },
+    requestAuthoritative: (load) => requestAuthoritative(session, load),
     release: () => {
       if (released) return;
       released = true;
       for (const unsubscribe of [...subscriptions]) unsubscribe();
       for (const lease of [...leases]) releaseLease(session, lease);
       leases.clear();
+      for (const token of loaders) session.loaders.delete(token);
+      loaders.clear();
       session.handles -= 1;
       if (session.handles === 0 && sessions.get(title) === session) {
         sessions.delete(title);
@@ -212,4 +339,15 @@ export function acquireOutlineSession(
 
 export function isOutlineEditorActive(title: string): boolean {
   return sessions.get(title)?.editor?.granted ?? false;
+}
+
+/** Route a scoped ticket to every currently mounted title session. This is
+ * used by cross-page commands whose target may be a read-only fallback and
+ * therefore have no registered DnD editor API. */
+export function trackActiveOutlineWrite(ticket: WriteTicket): void {
+  if (ticket.scope[0] !== "page") return;
+  for (const title of new Set(ticket.scope.slice(1))) {
+    const session = sessions.get(title);
+    if (session) trackWrite(session, ticket);
+  }
 }

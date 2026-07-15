@@ -15,6 +15,7 @@ function syncWith(overrides: Partial<Sync>): Sync {
     enqueue: () => ({
       id: "test-write", scope: [],
       settled: Promise.resolve({ status: "persisted", pending: 0 }),
+      delivered: Promise.resolve({ status: "delivered" }),
     }),
     subscribe: () => () => undefined,
     settled: () => Promise.resolve(),

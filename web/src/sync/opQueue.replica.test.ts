@@ -23,9 +23,10 @@ function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch
     applySnapshot: async () => undefined,
     applyChanges: async () => ({ status: "applied", cursor: 0 }),
     enqueue: async (ops) => {
-      rows.push({ id: nextId, batch_id: `batch-${nextId}`, ops, poisoned: false });
+      const batchId = `batch-${nextId}`;
+      rows.push({ id: nextId, batch_id: batchId, ops, poisoned: false });
       nextId += 1;
-      return { pending: pending() };
+      return { pending: pending(), batchId };
     },
     nextBatch: async () => rows.find((r) => !r.poisoned) ?? null,
     pendingBatches: async () => [...rows],
@@ -278,6 +279,26 @@ test("offline enqueue settles as persisted while drain reports blocked", async (
     status: "blocked", reason: "offline", pending: 1,
   });
   expect(mock).not.toHaveBeenCalled();
+});
+
+test("a write ticket reports delivery only after its durable batch is acknowledged", async () => {
+  let release!: () => void;
+  const posted = new Promise<void>((done) => { release = done; });
+  fetchSeq([async () => {
+    await posted;
+    return jsonResponse({ ok: true });
+  }]);
+  const q = createOpQueue(memReplica(), () => undefined);
+
+  const ticket = q.enqueue([op("u1")], ["page", "Page"]);
+  await ticket.settled;
+  let delivered = false;
+  void ticket.delivered.then(() => { delivered = true; });
+  await Promise.resolve();
+  expect(delivered).toBe(false);
+
+  release();
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
 });
 
 test("a transient 503 returns retryable then the 250ms retry drains", async () => {

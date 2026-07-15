@@ -20,7 +20,10 @@ const currentText = (db: ReplicaDb, uid: string): string | null => {
 };
 
 export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
-                             batchId: string): { pending: number } {
+                             batchId: string): {
+  pending: number;
+  batchId?: string;
+} {
   if (ops.length > 0) {
     db.transaction(() => {
       const augmented: BlockOp[] = [];
@@ -53,7 +56,10 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
               [batchId, JSON.stringify(augmented)]);
     });
   }
-  return { pending: pendingCount(db) };
+  return {
+    pending: pendingCount(db),
+    ...(ops.length > 0 ? { batchId } : {}),
+  };
 }
 
 const toBatch = (r: { id: number; batch_id: string; ops_json: string;

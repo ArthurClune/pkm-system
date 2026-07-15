@@ -92,14 +92,26 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
   expect(document.querySelectorAll(".block-row")).toHaveLength(3);
 });
 
-test("stale initial rerender while the sync queue still has pending ops keeps optimistic heading", async () => {
+test("stale initial rerender while its scoped write is unsettled keeps optimistic heading", async () => {
   stubFetch([["/api/titles", { titles: [] }]]);
   const initial = [block("u1", "first", { order_idx: 0 })];
-  const sync = makeSync("reconnecting", {
+  const base = makeSync("reconnecting", {
     canEdit: true,
-    pending: 1,
-    settled: () => Promise.resolve(),
+    pending: 0,
   });
+  const sync = {
+    ...base,
+    enqueue: (ops: Parameters<typeof base.enqueue>[0],
+              scope?: readonly string[]) => {
+      base.sent.push(ops);
+      return {
+        id: "write-page",
+        scope: scope ?? [],
+        settled: new Promise<never>(() => undefined),
+        delivered: new Promise<never>(() => undefined),
+      };
+    },
+  };
   const view = (blocks: typeof initial) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
@@ -115,9 +127,8 @@ test("stale initial rerender while the sync queue still has pending ops keeps op
   fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
   expect(screen.getByText("first").closest("h1")).not.toBeNull();
 
-  // Offline/replica idle means "persisted locally", not "server has accepted
-  // it". While Sync.pending is non-zero, a same-page refetch may still be
-  // server-stale and must not revert the optimistic heading.
+  // Only this title's ticket blocks adoption; the global pending count is not
+  // consulted by outline causality.
   rerender(view([block("u1", "first", { order_idx: 0, heading: null })]));
 
   expect(screen.getByText("first").closest("h1")).not.toBeNull();

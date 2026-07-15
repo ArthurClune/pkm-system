@@ -17,10 +17,17 @@ export type WriteOutcome =
   | { status: "persisted"; pending: number }
   | { status: "failed"; error: unknown };
 
+export type DeliveryOutcome =
+  | { status: "delivered" }
+  | { status: "failed"; error: unknown };
+
 export interface WriteTicket {
   id: string;
   scope: readonly string[];
   settled: Promise<WriteOutcome>;
+  /** Resolves only when this ticket's server POST is acknowledged or reaches
+   * a terminal failure. Persistence settlement alone is not server causality. */
+  delivered: Promise<DeliveryOutcome>;
 }
 
 export interface PoisonEvent extends PoisonedBatch {}
@@ -120,8 +127,9 @@ function listeners<T>() {
 let nextTicket = 1;
 
 function ticket(scope: readonly string[] | undefined,
-                settled: Promise<WriteOutcome>): WriteTicket {
-  return { id: `write-${nextTicket++}`, scope: scope ?? [], settled };
+                settled: Promise<WriteOutcome>,
+                delivered: Promise<DeliveryOutcome>): WriteTicket {
+  return { id: `write-${nextTicket++}`, scope: scope ?? [], settled, delivered };
 }
 
 function postOps(ops: BlockOp[], batchId?: string): Promise<unknown> {
@@ -154,6 +162,24 @@ function createReplicaQueue(replica: Replica,
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
   const quota = listeners<unknown>();
+  const deliveries = new Map<string, (outcome: DeliveryOutcome) => void>();
+  const unidentifiedDeliveries = new Set<
+    (outcome: DeliveryOutcome) => void
+  >();
+
+  const finishDelivery = (batchId: string, outcome: DeliveryOutcome): void => {
+    const resolve = deliveries.get(batchId);
+    if (!resolve) return;
+    deliveries.delete(batchId);
+    resolve(outcome);
+  };
+
+  const finishAllDeliveries = (outcome: DeliveryOutcome): void => {
+    for (const resolve of deliveries.values()) resolve(outcome);
+    deliveries.clear();
+    for (const resolve of unidentifiedDeliveries) resolve(outcome);
+    unidentifiedDeliveries.clear();
+  };
 
   const cancelRetry = (reset: boolean): void => {
     if (retryTimer !== null) clearTimeout(retryTimer);
@@ -263,6 +289,7 @@ function createReplicaQueue(replica: Replica,
       }
       if (batch === null) {
         pendingCount = 0;
+        finishAllDeliveries({ status: "delivered" });
         if (drainAgain) continue;
         return { status: "drained" };
       }
@@ -285,6 +312,7 @@ function createReplicaQueue(replica: Replica,
           cancelRetry(false);
           poisonPending.emit(undefined);
           rememberPoisonMark(event);
+          finishDelivery(batch.batch_id, { status: "failed", error });
           try {
             await markRetainedPoison();
           } catch (rpcError: unknown) {
@@ -301,6 +329,12 @@ function createReplicaQueue(replica: Replica,
         return failed(error);
       }
       pendingCount = result.pending;
+      finishDelivery(batch.batch_id, { status: "delivered" });
+      if (pendingCount === 0) {
+        // Test replicas and older workers may not return enqueue batch ids;
+        // an empty durable queue proves those in-memory tickets delivered.
+        finishAllDeliveries({ status: "delivered" });
+      }
       pending.emit(pendingCount);
       cancelRetry(true);
       if (disposed) return blocked("disposed");
@@ -345,18 +379,29 @@ function createReplicaQueue(replica: Replica,
       if (ops.length === 0) {
         return ticket(scope, Promise.resolve({
           status: "persisted", pending: pendingCount,
-        }));
+        }), Promise.resolve({ status: "delivered" }));
       }
       let resolve!: (outcome: WriteOutcome) => void;
       const outcome = new Promise<WriteOutcome>((done) => { resolve = done; });
+      let resolveDelivery!: (outcome: DeliveryOutcome) => void;
+      const delivered = new Promise<DeliveryOutcome>((done) => {
+        resolveDelivery = done;
+      });
       const persist = async (): Promise<void> => {
         if (disposed) {
-          resolve({ status: "failed", error: new Error("op queue disposed") });
+          const error = new Error("op queue disposed");
+          resolve({ status: "failed", error });
+          resolveDelivery({ status: "failed", error });
           return;
         }
         try {
           const result = await replica.enqueue(ops);
           pendingCount = result.pending;
+          if (result.batchId === undefined) {
+            unidentifiedDeliveries.add(resolveDelivery);
+          } else {
+            deliveries.set(result.batchId, resolveDelivery);
+          }
           pending.emit(pendingCount);
           resolve({ status: "persisted", pending: pendingCount });
           kick();
@@ -364,14 +409,20 @@ function createReplicaQueue(replica: Replica,
           resolve({ status: "failed", error });
           if (error instanceof ReplicaError && error.quota) {
             quota.emit(error);
-            try { await postOps(ops); } catch { /* best effort */ }
+            try {
+              await postOps(ops);
+              resolveDelivery({ status: "delivered" });
+            } catch (deliveryError: unknown) {
+              resolveDelivery({ status: "failed", error: deliveryError });
+            }
           } else {
+            resolveDelivery({ status: "failed", error });
             try { onDesync(error); } catch { /* listener isolation */ }
           }
         }
       };
       persistChain = persistChain.then(persist, persist);
-      return ticket(scope, outcome);
+      return ticket(scope, outcome, delivered);
     },
     settled: settleAll,
     drain,
@@ -394,6 +445,9 @@ function createReplicaQueue(replica: Replica,
       disposed = true;
       online = false;
       cancelRetry(false);
+      finishAllDeliveries({
+        status: "failed", error: new Error("op queue disposed"),
+      });
     },
     onPending: pending.add,
     onPoisonPending: poisonPending.add,
@@ -415,6 +469,30 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
   let kickScheduled = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryIndex = 0;
+  const deliveries: Array<{
+    remaining: number;
+    resolve(outcome: DeliveryOutcome): void;
+  }> = [];
+
+  const deliverOps = (count: number): void => {
+    let remaining = count;
+    while (remaining > 0 && deliveries.length > 0) {
+      const delivery = deliveries[0];
+      const consumed = Math.min(remaining, delivery.remaining);
+      delivery.remaining -= consumed;
+      remaining -= consumed;
+      if (delivery.remaining === 0) {
+        deliveries.shift();
+        delivery.resolve({ status: "delivered" });
+      }
+    }
+  };
+
+  const failDeliveries = (error: unknown): void => {
+    while (deliveries.length > 0) {
+      deliveries.shift()!.resolve({ status: "failed", error });
+    }
+  };
 
   const cancelRetry = (reset: boolean): void => {
     if (retryTimer !== null) clearTimeout(retryTimer);
@@ -461,10 +539,12 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
           return failed(error);
         }
         pending = [];
+        failDeliveries(error);
         try { onDesync(error); } catch { /* listener isolation */ }
         continue;
       }
       pending.splice(0, batch.length);
+      deliverOps(batch.length);
       cancelRetry(true);
       if (disposed) return terminal("disposed");
       if (recovering) return terminal("recovering");
@@ -498,19 +578,25 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
     enqueue(ops, scope) {
       if (ops.length > 0 && !disposed) {
         pending.push(...ops);
+        let resolveDelivery!: (outcome: DeliveryOutcome) => void;
+        const delivered = new Promise<DeliveryOutcome>((done) => {
+          resolveDelivery = done;
+        });
+        deliveries.push({ remaining: ops.length, resolve: resolveDelivery });
         kick();
         return ticket(scope, Promise.resolve({
           status: "persisted", pending: pending.length,
-        }));
+        }), delivered);
       }
       if (disposed && ops.length > 0) {
+        const error = new Error("op queue disposed");
         return ticket(scope, Promise.resolve({
-          status: "failed", error: new Error("op queue disposed"),
-        }));
+          status: "failed", error,
+        }), Promise.resolve({ status: "failed", error }));
       }
       return ticket(scope, Promise.resolve({
         status: "persisted", pending: pending.length,
-      }));
+      }), Promise.resolve({ status: "delivered" }));
     },
     settled: async () => undefined,
     drain,
@@ -533,6 +619,7 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
       disposed = true;
       online = false;
       cancelRetry(false);
+      failDeliveries(new Error("op queue disposed"));
     },
     onPending: () => () => undefined,
     onPoisonPending: () => () => undefined,

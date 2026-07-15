@@ -8,6 +8,9 @@ import { BlockRefProvider } from "../components/BlockRefProvider";
 import { UnlinkedSection } from "../components/UnlinkedSection";
 import { encodeTitle, titleFromPathname } from "../paths";
 import { useResync } from "../sync/SyncProvider";
+import { acquireOutlineSession,
+         type AuthoritativeReadSource,
+         type OutlineSessionHandle } from "../outline/outlineSessions";
 import { EditablePage } from "./EditablePage";
 
 export function PageView() {
@@ -16,19 +19,44 @@ export function PageView() {
   const [payload, setPayload] = useState<PagePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const seqRef = useRef(0);
+  const sessionRef = useRef<OutlineSessionHandle | null>(null);
 
-  const load = useCallback(() => {
-    const token = ++seqRef.current;
+  const load = useCallback((source: AuthoritativeReadSource,
+                            handle = sessionRef.current) => {
+    if (!handle) return;
+    const seq = ++seqRef.current;
+    const token = handle.beginAuthoritativeRead(source);
     setError(null);
     apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
-      .then((p) => { if (token === seqRef.current) setPayload(p); })
+      .then((p) => {
+        if (seq !== seqRef.current) return;
+        handle.receiveAuthoritative(token, p.blocks);
+        setPayload({ ...p, blocks: handle.getSnapshot().blocks });
+      })
       .catch((e: unknown) => {
-        if (token === seqRef.current) setError(String(e));
+        if (seq === seqRef.current) setError(String(e));
       });
   }, [title]);
 
-  useEffect(() => { setPayload(null); load(); }, [load]);
-  useResync(load); // rejected batch or reconnect: refetch authoritative state
+  useEffect(() => {
+    setPayload(null);
+    const handle = acquireOutlineSession(title, null);
+    sessionRef.current = handle;
+    const removeLoader = handle.setAuthoritativeLoader(async () => {
+      const page = await apiFetch<PagePayload>(
+        `/api/page/${encodeTitle(title)}`,
+      );
+      return page.blocks;
+    });
+    load("parent", handle);
+    return () => {
+      removeLoader();
+      if (sessionRef.current === handle) sessionRef.current = null;
+      handle.release();
+    };
+  }, [load, title]);
+  const resync = useCallback(() => load("resync"), [load]);
+  useResync(resync); // rejected batch or reconnect: guarded authoritative read
   useEffect(() => { document.title = `${title} — pkm`; }, [title]);
 
   // A block ref navigated here with the target uid as the hash (pkm-pzdu):

@@ -28,12 +28,6 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
   return () => outline;
 }
 
-function deferred<T>() {
-  let resolve!: (v: T) => void;
-  const promise = new Promise<T>((r) => { resolve = r; });
-  return { promise, resolve };
-}
-
 it("dnd.moveTo enqueues one move op with no page_title and reorders optimistically", () => {
   const sync = makeSync();
   const initial = [
@@ -224,10 +218,10 @@ it("a remote parent-based cross-page move (server-resolved page_title) removes f
   expect(dst.blocks.map((b) => b.uid)).toEqual(["tp", "moved"]);
 });
 
-it("target-side refetch waits for sync.settled() before fetching, then adopts and re-validates focus", async () => {
-  const base = makeSync();
-  const idleGate = deferred<void>();
-  const sync: SyncFake = { ...base, settled: () => idleGate.promise };
+it("target-side refetch ignores global settlement and adopts a safe response", async () => {
+  const sync = makeSync("connected", {
+    settled: () => new Promise(() => undefined),
+  });
   const serverBlocks = [block("srv", "from server", { order_idx: 0 })];
   const fetchMock = stubFetch([
     ["/api/page/Page", pagePayload("Page", serverBlocks)],
@@ -244,12 +238,7 @@ it("target-side refetch waits for sync.settled() before fetching, then adopts an
     });
   });
 
-  // the fetch must not fire while our own queue is still draining
-  expect(fetchMock).not.toHaveBeenCalled();
-
-  idleGate.resolve();
   await act(async () => {
-    await idleGate.promise;
     await Promise.resolve();
     await Promise.resolve();
   });

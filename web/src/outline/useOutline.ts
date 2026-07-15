@@ -23,6 +23,7 @@ import { applyOps, findNode, insertSubtree, removeSubtree,
 import { extendSelection, type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
+import { validateOutlineFocus } from "./outlineState";
 
 const TEXT_DEBOUNCE_MS = 500;
 
@@ -59,7 +60,6 @@ export function useOutline(
   bootstrapRef.current = initial;
   const pendingRef = useRef<{ uid: string; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const localWritesRef = useRef(0);
 
   useLayoutEffect(() => {
     const handle = acquireOutlineSession(pageTitle, bootstrapRef.current);
@@ -68,10 +68,15 @@ export function useOutline(
       const shared = handle.getSnapshot().blocks;
       blocksRef.current = shared;
       setBlocks(shared);
-      setFocus((current) =>
-        current && findNode(shared, current.uid) ? current : null);
+      setFocus((current) => validateOutlineFocus(current, shared));
     };
     const unsubscribe = handle.subscribe(adoptShared);
+    const removeLoader = handle.setAuthoritativeLoader(async () => {
+      const page = await apiFetch<PagePayload>(
+        `/api/page/${encodeTitle(pageTitle)}`,
+      );
+      return page.blocks;
+    });
     const lease = editorOwner ? handle.claimEditor(editorOwner) : null;
     const updateLease = () => setOwnsEditor(lease?.granted ?? false);
     const unsubscribeLease = lease?.subscribe(updateLease);
@@ -81,6 +86,7 @@ export function useOutline(
     return () => {
       unsubscribeLease?.();
       lease?.release();
+      removeLoader();
       unsubscribe();
       if (sessionRef.current === handle) sessionRef.current = null;
       handle.release();
@@ -93,24 +99,23 @@ export function useOutline(
     sessionRef.current?.applyOptimistic(next);
   }, []);
 
-  // A new `initial` identity is authoritative state (refetch / navigation),
-  // except while a local optimistic write is still settling. Startup/reconnect
-  // refetches can return the pre-edit page after Enter has already inserted a
-  // local block; adopting that stale payload would remove the new block and
-  // leave focus pointing at a uid no longer in the tree.
+  // Parent fetches normally pair their payload with a read token before this
+  // prop changes. Direct consumers/tests still enter through the same session
+  // transition instead of bypassing causality with a naked setState.
   const receivedInitialRef = useRef(initial);
   useEffect(() => {
     if (receivedInitialRef.current === initial) return;
     receivedInitialRef.current = initial;
-    if (localWritesRef.current > 0 || sync.pending > 0) return;
-    publishBlocks(initial);
+    const handle = sessionRef.current;
+    if (!handle) return;
+    // Token-aware parents publish into the session before passing the exact
+    // accepted shared array down. Do not turn that already-reconciled payload
+    // into a newer, synthetic read that could hide the original causality.
+    if (handle.getSnapshot().blocks === initial) return;
+    const token = handle.beginAuthoritativeRead("parent");
+    handle.receiveAuthoritative(token, initial);
     pendingRef.current = null;
-    // This effect intentionally reacts only to a new authoritative payload.
-    // If a stale payload arrives while the durable queue still has pending
-    // ops, do not adopt it later just because `pending` drops to zero; wait
-    // for the next refetch payload instead.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial, publishBlocks]);
+  }, [initial]);
 
   const takePendingTextOps = useCallback((): BlockOp[] => {
     if (timerRef.current) {
@@ -140,12 +145,13 @@ export function useOutline(
     const ops = [...textOps, ...result.ops];
     if (ops.length === 0) return;
     const next = result.ops.length > 0 ? result.blocks : base;
-    publishBlocks(next);
-    localWritesRef.current += 1;
     const write = sync.enqueue(ops, ["page", pageTitle]);
-    void write.settled.finally(() => {
-      localWritesRef.current = Math.max(0, localWritesRef.current - 1);
-    });
+    const handle = sessionRef.current;
+    if (handle) handle.applyLocal(write, ops);
+    else {
+      blocksRef.current = next;
+      setBlocks(next);
+    }
     if (result.focus) setFocus(result.focus);
   }, [takePendingTextOps, pageTitle, sync, publishBlocks]);
 
@@ -164,25 +170,19 @@ export function useOutline(
       document.removeEventListener("visibilitychange", onVisibility);
   }, [flushNow]);
 
-  // Authoritative refetch: adopt the server's tree once our own writes have
-  // settled into the active queue storage. Used when a remote batch targets us
-  // with content we don't have (below): the op carries no block content, so we
-  // pull the server's tree
-  // instead. Waiting for persistence first prevents a local optimistic edit
-  // from still being in the enqueue handoff when the refetch starts; delivery
-  // completion remains provider-internal.
+  // Unknown target content needs an authoritative tree. The session allocates
+  // the read token before the loader dispatches and coalesces same-title reads.
   const refetch = useCallback(() => {
     const handle = sessionRef.current;
     if (!handle) return;
     void handle.requestAuthoritative(async () => {
-      await sync.settled();
       const page = await apiFetch<PagePayload>(
         `/api/page/${encodeTitle(pageTitle)}`,
       );
       return page.blocks;
     })
       .catch(() => undefined); // next resync will repair
-  }, [sync, pageTitle]);
+  }, [pageTitle]);
 
   // Remote batches: the same applyOps as local edits. Text updates always
   // land on the block tree, even for the focused block — focus does not imply

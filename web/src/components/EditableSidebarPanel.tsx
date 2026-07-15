@@ -9,6 +9,7 @@ import { apiFetch } from "../api/client";
 import type { PagePayload } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
 import { encodeTitle } from "../paths";
+import { acquireOutlineSession } from "../outline/outlineSessions";
 import { EditablePage } from "../views/EditablePage";
 
 export function EditableSidebarPanel({ title }: { title: string }) {
@@ -17,10 +18,26 @@ export function EditableSidebarPanel({ title }: { title: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    const session = acquireOutlineSession(title, null);
+    const removeLoader = session.setAuthoritativeLoader(async () => {
+      const page = await apiFetch<PagePayload>(
+        `/api/page/${encodeTitle(title)}`,
+      );
+      return page.blocks;
+    });
+    const token = session.beginAuthoritativeRead("parent");
     apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
-      .then((p) => { if (!cancelled) setPayload(p); })
+      .then((p) => {
+        if (cancelled) return;
+        session.receiveAuthoritative(token, p.blocks);
+        setPayload({ ...p, blocks: session.getSnapshot().blocks });
+      })
       .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      removeLoader();
+      session.release();
+    };
   }, [title]);
 
   if (error) return <p className="error">{error}</p>;

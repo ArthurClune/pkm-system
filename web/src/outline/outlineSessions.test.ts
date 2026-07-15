@@ -1,6 +1,13 @@
 import { expect, it, vi } from "vitest";
+import type { DeliveryOutcome, WriteOutcome } from "../sync/opQueue";
 import { block } from "../test-helpers";
-import { acquireOutlineSession } from "./outlineSessions";
+import { acquireOutlineSession, trackActiveOutlineWrite } from "./outlineSessions";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 it("shares each flushed tree with every handle of a title", () => {
   const first = acquireOutlineSession("Shared", [block("u1", "initial")]);
@@ -91,4 +98,38 @@ it("coalesces overlapping authoritative reads and publishes their tree once", as
   expect(onChange).toHaveBeenCalledTimes(1);
   first.release();
   second.release();
+});
+
+it("routes a cross-page ticket to source and fallback target but not another title", async () => {
+  const source = acquireOutlineSession("Source", [block("s", "old source")]);
+  const target = acquireOutlineSession("Target", [block("t", "old target")]);
+  const other = acquireOutlineSession("Other", [block("o", "old other")]);
+  const settled = deferred<WriteOutcome>();
+  const delivered = deferred<DeliveryOutcome>();
+  trackActiveOutlineWrite({
+    id: "cross-page", scope: ["page", "Source", "Target"],
+    settled: settled.promise, delivered: delivered.promise,
+  });
+  const sourceToken = source.beginAuthoritativeRead("parent");
+  const targetToken = target.beginAuthoritativeRead("parent");
+  const otherToken = other.beginAuthoritativeRead("parent");
+
+  source.receiveAuthoritative(sourceToken, [block("s", "new source")]);
+  target.receiveAuthoritative(targetToken, [block("t", "new target")]);
+  other.receiveAuthoritative(otherToken, [block("o", "new other")]);
+
+  expect(source.getSnapshot().blocks[0].text).toBe("old source");
+  expect(target.getSnapshot().blocks[0].text).toBe("old target");
+  expect(other.getSnapshot().blocks[0].text).toBe("new other");
+
+  settled.resolve({ status: "persisted", pending: 0 });
+  delivered.resolve({ status: "delivered" });
+  await settled.promise;
+  await Promise.resolve();
+
+  expect(source.getSnapshot().blocks[0].text).toBe("new source");
+  expect(target.getSnapshot().blocks[0].text).toBe("new target");
+  source.release();
+  target.release();
+  other.release();
 });

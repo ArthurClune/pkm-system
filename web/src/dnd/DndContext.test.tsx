@@ -61,6 +61,7 @@ it("cross-page drop does two-outline surgery and one op with page_title", () => 
   expect(sync.sent).toEqual([[
     { op: "move", uid: "u1", parent_uid: null, order_idx: 1,
       page_title: "B" }]]);
+  expect(sync.tickets[0].scope).toEqual(["page", "A", "B"]);
 });
 
 it("cross-page drop with unregistered target only removes from the source", () => {

@@ -175,6 +175,26 @@ test("legacy offline enqueue settles in memory while drain reports blocked", asy
   expect(mock).not.toHaveBeenCalled();
 });
 
+test("legacy write ticket reports delivery only after its ops POST succeeds", async () => {
+  let release!: () => void;
+  const posted = new Promise<void>((done) => { release = done; });
+  vi.stubGlobal("fetch", vi.fn(async () => {
+    await posted;
+    return jsonResponse({ ok: true });
+  }));
+  const q = createOpQueue(null, () => undefined);
+
+  const ticket = q.enqueue([op("u1")], ["page", "Page"]);
+  await ticket.settled;
+  let delivered = false;
+  void ticket.delivered.then(() => { delivered = true; });
+  await Promise.resolve();
+  expect(delivered).toBe(false);
+
+  release();
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+});
+
 test("legacy 503 retains work and retries after 250ms", async () => {
   vi.useFakeTimers();
   try {

@@ -43,7 +43,7 @@ test("commit refuses changed durable rows and releases the recovery lease", asyn
 
   // A failed commit released exactly once, so later mutations are not wedged.
   await expect(handlers.enqueue([{ op: "delete", uid: "uid_x2" }]))
-    .resolves.toEqual({ pending: 3 });
+    .resolves.toEqual({ pending: 3, batchId: "batch-new" });
 });
 
 test("abort rejects invalid and double-used recovery tokens", async () => {
@@ -224,7 +224,9 @@ test("an acquired recovery lease expires if its client forgets the token", async
     clock = 100;
     await vi.advanceTimersByTimeAsync(100);
 
-    await expect(later).resolves.toEqual({ pending: 1 });
+    await expect(later).resolves.toEqual({
+      pending: 1, batchId: "batch-after-expiry",
+    });
     await expect(handlers.abortRecovery(lease.token))
       .rejects.toThrow("invalid or inactive recovery token");
   } finally {

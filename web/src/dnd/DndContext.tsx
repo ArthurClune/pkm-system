@@ -8,6 +8,7 @@ import { createContext, useContext, useMemo, useRef, useState,
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { DragSource, DropTarget } from "../outline/dnd";
+import { trackActiveOutlineWrite } from "../outline/outlineSessions";
 import { useSync } from "../sync/SyncProvider";
 
 export interface OutlineDndApi {
@@ -78,7 +79,7 @@ export function DndProvider({ children }: { children: ReactNode }) {
         } else {
           const ops: BlockOp[] = [{ op: "move", uid: d.uid,
             parent_uid: target.parent_uid, order_idx: target.order_idx }];
-          sync.enqueue(ops);
+          sync.enqueue(ops, ["page", d.pageTitle]);
         }
       } else {
         const node = src?.removeSubtreeLocal(d.uid) ?? null;
@@ -87,7 +88,10 @@ export function DndProvider({ children }: { children: ReactNode }) {
         const ops: BlockOp[] = [{ op: "move", uid: d.uid,
           parent_uid: target.parent_uid, order_idx: target.order_idx,
           page_title: target.page_title }];
-        sync.enqueue(ops);
+        const ticket = sync.enqueue(
+          ops, ["page", d.pageTitle, target.page_title],
+        );
+        trackActiveOutlineWrite(ticket);
       }
       setDrag(null);
     },

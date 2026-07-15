@@ -114,6 +114,7 @@ export class FakeLocalStorage {
 
 export interface SyncFake extends Sync {
   sent: BlockOp[][];
+  tickets: WriteTicket[];
   emit(batch: WsBatch): void;
 }
 
@@ -121,6 +122,7 @@ export function makeSync(status: SyncStatus = "connected",
                          over: Partial<Sync> = {}): SyncFake {
   const subs = new Set<(b: WsBatch) => void>();
   const sent: BlockOp[][] = [];
+  const tickets: WriteTicket[] = [];
   let nextTicket = 1;
   return {
     status,
@@ -132,15 +134,19 @@ export function makeSync(status: SyncStatus = "connected",
     dismissProblem: () => undefined,
     enqueue: (ops, scope): WriteTicket => {
       sent.push(ops);
-      return {
+      const write = {
         id: `fake-write-${nextTicket++}`,
         scope: scope ?? [],
         settled: Promise.resolve({ status: "persisted", pending: 0 }),
-      };
+        delivered: Promise.resolve({ status: "delivered" }),
+      } satisfies WriteTicket;
+      tickets.push(write);
+      return write;
     },
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
     settled: () => Promise.resolve(),
     sent,
+    tickets,
     emit: (batch) => subs.forEach((fn) => fn(batch)),
     ...over,
   };

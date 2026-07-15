@@ -9,7 +9,7 @@ tags:
     - architecture
     - fcis
 created_at: 2026-07-15T14:22:26Z
-updated_at: 2026-07-15T14:51:56Z
+updated_at: 2026-07-15T16:15:28Z
 ---
 
 ## Goal
@@ -40,7 +40,7 @@ Address the correctness, complexity, design, maintainability, and FCIS findings 
 - [ ] 5. pkm-wudz — Extract pure editor and sync state machines from large shells
 - [ ] 6. pkm-1jw6 — Correct and enforce TypeScript FCIS boundaries
 - [ ] 7. pkm-stn6 — Standardize async UI request and mutation lifecycles
-- [ ] 8. pkm-dcmm — Own replica worker lifecycle and clarify queue idle semantics
+- [x] 8. pkm-dcmm — Own replica worker lifecycle and clarify queue idle semantics
 - [ ] 9. pkm-1cq3 — Consolidate reference and TODO grammar scanning
 - [ ] 10. pkm-f1rn — Add web lint, FCIS checks, and bundle/precache budgets
 

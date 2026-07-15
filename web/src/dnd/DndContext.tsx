@@ -90,7 +90,7 @@ export function DndProvider({ children }: { children: ReactNode }) {
         const ticket = sync.enqueue(
           ops, ["page", d.pageTitle, target.page_title],
         );
-        if (dst && node) {
+        if (node) {
           sync.attachOutlineReplay(ticket, target.page_title, [{
             type: "insert-subtree", node,
             parentUid: target.parent_uid, orderIdx: target.order_idx,

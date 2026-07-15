@@ -73,19 +73,47 @@ it("cross-page drop does two-outline surgery and one op with page_title", () => 
   );
 });
 
-it("cross-page drop with unregistered target only removes from the source", () => {
-  const { sync, dnd } = setup();
-  const moved: BlockNode = block("u1", "hi");
+it("unmounted cross-page target skips insertion but retains subtree replay", () => {
+  const attachOutlineReplay = vi.fn();
+  const { sync, dnd } = setup({ attachOutlineReplay });
+  const moved: BlockNode = block("u1", "hi", {
+    children: [block("child", "child")],
+  });
   const src = fakeOutline({ removeSubtreeLocal: vi.fn(() => moved) });
+  const unmountedDst = fakeOutline();
   dnd().registerOutline("A", src);
+  const targetRegistration = dnd().registerOutline("B", unmountedDst);
+  if (targetRegistration.accepted) targetRegistration.unregister();
   // target page "B" has no registered outline: nothing to insert into.
   dnd().drop({ uid: "u1", pageTitle: "A" },
              { parent_uid: null, order_idx: 1, page_title: "B" });
   expect(src.removeSubtreeLocal).toHaveBeenCalledWith("u1");
-  expect(src.insertSubtreeLocal).not.toHaveBeenCalled();
+  expect(unmountedDst.insertSubtreeLocal).not.toHaveBeenCalled();
   expect(sync.sent).toEqual([[
     { op: "move", uid: "u1", parent_uid: null, order_idx: 1,
       page_title: "B" }]]);
+  expect(attachOutlineReplay).toHaveBeenCalledWith(
+    sync.tickets[0], "B", [{
+      type: "insert-subtree", node: moved, parentUid: null, orderIdx: 1,
+    }],
+  );
+});
+
+it("cross-page drop without a source node fabricates no target replay", () => {
+  const attachOutlineReplay = vi.fn();
+  const { sync, dnd } = setup({ attachOutlineReplay });
+  const dst = fakeOutline();
+  dnd().registerOutline("B", dst);
+
+  dnd().drop({ uid: "missing", pageTitle: "A" },
+             { parent_uid: null, order_idx: 0, page_title: "B" });
+
+  expect(dst.insertSubtreeLocal).not.toHaveBeenCalled();
+  expect(attachOutlineReplay).not.toHaveBeenCalled();
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "missing", parent_uid: null, order_idx: 0,
+      page_title: "B" },
+  ]]);
 });
 
 it("unregister stops delivery", () => {

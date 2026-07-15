@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { StrictMode, useEffect } from "react";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
+import { DndProvider, useDnd } from "../dnd/DndContext";
 import { acquireOutlineSession } from "../outline/outlineSessions";
 import { block, FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
 import { apiFetch } from "../api/client";
@@ -222,6 +223,102 @@ test("empty legacy repair resumes a wholly later ticket after drain handoff", as
     await expect(later.delivered).resolves.toEqual({ status: "delivered" });
   } finally {
     view.unmount();
+  }
+});
+
+test("legacy repair rebases an unmounted cross-page target before resuming its move", async () => {
+  const sourceTitle = "Unmounted replay source";
+  const targetTitle = "Unmounted replay target";
+  const moved = block("moved", "moved", {
+    children: [block("child", "child")],
+  });
+  const sourceTree = [block("source-root", "source", {
+    children: [moved],
+  })];
+  const targetTree = [block("target-root", "target", {
+    children: [block("existing", "existing")],
+  })];
+  let releaseSourceRepair!: () => void;
+  const sourceRepairGate = new Promise<void>((done) => {
+    releaseSourceRepair = done;
+  });
+  const source = acquireOutlineSession(sourceTitle, sourceTree);
+  const sourceLoad = vi.fn(async () => {
+    await sourceRepairGate;
+    return sourceTree;
+  });
+  const removeSourceLoader = source.setAuthoritativeLoader(sourceLoad);
+  let target: ReturnType<typeof acquireOutlineSession> | undefined;
+  let removeTargetLoader: (() => void) | undefined;
+  let targetAtResume: ReturnType<
+    ReturnType<typeof acquireOutlineSession>["getSnapshot"]
+  > | undefined;
+  let postCount = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+    postCount += 1;
+    if (postCount === 1) return jsonResponse({ detail: "bad op" }, 400);
+    targetAtResume = target?.getSnapshot();
+    return jsonResponse({ ok: true });
+  }));
+
+  let sync!: Sync;
+  let dnd!: ReturnType<typeof useDnd>;
+  function Grab() {
+    sync = useSync();
+    dnd = useDnd();
+    return null;
+  }
+  const view = render(
+    <SyncProvider replica={null}>
+      <DndProvider><Grab /></DndProvider>
+    </SyncProvider>,
+  );
+  const sourceDnd = {
+    moveTo: vi.fn(),
+    removeSubtreeLocal: vi.fn(() => moved),
+    insertSubtreeLocal: vi.fn(),
+  };
+  const sourceRegistration = dnd.registerOutline(sourceTitle, sourceDnd);
+  try {
+    const rejected = sync.enqueue(Array.from(
+      { length: 500 }, (_, i) => ({ op: "delete" as const, uid: `bad-${i}` }),
+    ), ["page", sourceTitle]);
+    dnd.drop(
+      { uid: "moved", pageTitle: sourceTitle },
+      { parent_uid: "target-root", order_idx: 1, page_title: targetTitle },
+    );
+
+    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+    await vi.waitFor(() => expect(sourceLoad).toHaveBeenCalledTimes(1));
+    target = acquireOutlineSession(targetTitle, targetTree);
+    const targetLoad = vi.fn(async () => targetTree);
+    removeTargetLoader = target.setAuthoritativeLoader(targetLoad);
+    expect(postCount).toBe(1);
+
+    releaseSourceRepair();
+    await vi.waitFor(() => expect(targetLoad).toHaveBeenCalled());
+    await vi.waitFor(() => expect(postCount).toBe(2));
+    expect(targetAtResume?.blocks[0]).toMatchObject({
+      uid: "target-root",
+      children: [
+        expect.objectContaining({ uid: "existing", order_idx: 0 }),
+        expect.objectContaining({
+          uid: "moved",
+          order_idx: 1,
+          children: [expect.objectContaining({ uid: "child" })],
+        }),
+      ],
+    });
+    await vi.waitFor(() => expect(sync.pending).toBe(0));
+  } finally {
+    releaseSourceRepair();
+    if (sourceRegistration.accepted) sourceRegistration.unregister();
+    view.unmount();
+    removeTargetLoader?.();
+    target?.release();
+    removeSourceLoader();
+    source.release();
   }
 });
 

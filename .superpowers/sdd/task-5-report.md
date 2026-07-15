@@ -516,3 +516,65 @@ repair could resume delivery while the rejected drain still owned the pump.
 - The pending-length check avoids scheduling an empty successor. Existing
   FIFO, batching, terminal delivery, and replica contracts retain their prior
   implementations.
+
+## Sixth independent-review fix wave
+
+Review of `b0f05c3` found that cross-page replay metadata was still coupled to
+whether the target outline happened to be mounted at drop time.
+
+### Root cause
+
+- DnD detaches the complete source node before looking up the destination
+  registration, so the subtree, parent, and order metadata are available even
+  when the target is unmounted.
+- The move ticket is centrally registered for both page titles at enqueue, but
+  `attachOutlineReplay()` ran only under `dst && node`. A target acquired during
+  legacy repair therefore inherited only the generic wire move, which cannot
+  insert a UID absent from its pre-move server snapshot.
+
+### RED evidence
+
+- `pnpm vitest run src/dnd/DndContext.test.tsx src/sync/SyncProvider.test.tsx
+  -t "unregistered target only removes|unmounted cross-page target"` failed
+  both selected tests. DnD made zero replay-attachment calls for the unmounted
+  target, and the provider regression initially observed only the target
+  server child at the second POST boundary.
+- After allowing the repair epoch its valid stabilizing reread, the provider
+  RED failed specifically because the moved subtree and nested child were
+  absent before delivery resumed.
+
+### Production design
+
+- Immediate optimistic insertion remains guarded by `dst && node`.
+- Target replay attachment is now guarded by `node` alone. The detached source
+  subtree is attached to the already centrally registered ticket regardless of
+  target mount state.
+- No metadata is fabricated when the source is absent or cannot detach the
+  node; the generic multi-title move remains unchanged.
+
+### GREEN verification
+
+- Focused RED/GREEN pair: 2 files / 2 selected tests passed.
+- Cross-page focused matrix, including the source-absent guard: 2 files / 4
+  selected tests passed.
+- Full DnD/outline/session/provider matrix: 4 files / 80 tests passed.
+- Controller queue/replica gate: 4 files / 74 tests passed.
+- Controller Task 5 UI gate: 7 files / 82 tests passed.
+- Controller outline gate: 4 files / 49 tests passed.
+- Controller epoch/replay integration gate: 5 files / 93 tests passed.
+- `pnpm typecheck`: passed.
+- Canonical `pnpm verify`: passed: 72 files / 803 unit tests; 97.87%
+  statements and lines, 91.57% branches, and 95.74% functions; production/PWA
+  build with 78 precache entries / 5136.20 KiB; Playwright 6/6.
+
+### Self-review
+
+- Replay metadata still replaces only the target title's generic action on the
+  same unresolved ticket. Central registration, ticket order, terminal cleanup,
+  and source wire-move semantics are unchanged.
+- Mounted targets retain their immediate local insertion path; unmounted
+  targets defer the same deterministic subtree/location action until a session
+  joins and repair adopts its authoritative snapshot.
+- The source-absent guard proves that `node === null` triggers neither local
+  insertion nor replay attachment. Repair epoch membership, loader failures,
+  revision barriers, and synchronous queue release retain their prior paths.

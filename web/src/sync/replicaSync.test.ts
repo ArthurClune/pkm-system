@@ -35,6 +35,7 @@ function fakeReplica(over: Partial<Replica> = {},
     pendingBatches: () => rec<PendingBatch[]>("pendingBatches", []),
     localApi: () => rec("localApi", { handled: false as const }),
     reset: () => rec("reset", undefined),
+    dispose: () => rec("dispose", undefined),
     ...over,
   };
 }

@@ -6,6 +6,8 @@
 export interface PortLike {
   postMessage(msg: unknown): void;
   onmessage: ((ev: { data: unknown }) => void) | null;
+  onerror?: ((ev: { error?: unknown; message?: string }) => void) | null;
+  onmessageerror?: ((ev: { data?: unknown }) => void) | null;
 }
 
 /** MessagePort/Worker are PortLike in behaviour, but their `onmessage`
@@ -34,6 +36,24 @@ export class ReplicaError extends Error {
   }
 }
 
+export type RpcLifecycleKind =
+  | "worker-error"
+  | "message-error"
+  | "timeout"
+  | "disposed";
+
+export class RpcLifecycleError extends Error {
+  readonly kind: RpcLifecycleKind;
+  override readonly cause: unknown;
+
+  constructor(kind: RpcLifecycleKind, message: string, cause?: unknown) {
+    super(message);
+    this.name = "RpcLifecycleError";
+    this.kind = kind;
+    this.cause = cause;
+  }
+}
+
 export type RpcHandlers = Record<string, (payload: unknown) => Promise<unknown>>;
 
 export function serveRpc(port: PortLike, handlers: RpcHandlers): void {
@@ -57,30 +77,73 @@ export function serveRpc(port: PortLike, handlers: RpcHandlers): void {
 }
 
 export interface RpcClient {
-  call<T>(method: string, payload?: unknown): Promise<T>;
+  call<T>(method: string, payload?: unknown,
+          options?: { timeoutMs?: number }): Promise<T>;
+  dispose(reason?: Error): void;
 }
 
 export function createRpcClient(port: PortLike): RpcClient {
   let nextId = 1;
+  let terminal: RpcLifecycleError | null = null;
   const pending = new Map<number, {
     resolve: (v: unknown) => void;
     reject: (e: unknown) => void;
+    timer: ReturnType<typeof setTimeout>;
   }>();
+  const failTerminal = (error: RpcLifecycleError): void => {
+    if (terminal) return;
+    terminal = error;
+    for (const p of pending.values()) {
+      clearTimeout(p.timer);
+      p.reject(error);
+    }
+    pending.clear();
+  };
   port.onmessage = (ev) => {
     const res = ev.data as RpcResponse;
     const p = pending.get(res.id);
     if (!p) return;
     pending.delete(res.id);
+    clearTimeout(p.timer);
     if (res.error) p.reject(new ReplicaError(res.error.message, res.error.quota));
     else p.resolve(res.result);
   };
+  port.onerror = (ev) => failTerminal(new RpcLifecycleError(
+    "worker-error",
+    ev.message ?? (ev.error instanceof Error ? ev.error.message : "replica worker failed"),
+    ev.error,
+  ));
+  port.onmessageerror = (ev) => failTerminal(new RpcLifecycleError(
+    "message-error", "replica worker message could not be decoded", ev.data));
   return {
-    call<T>(method: string, payload?: unknown): Promise<T> {
+    call<T>(method: string, payload?: unknown,
+            options?: { timeoutMs?: number }): Promise<T> {
+      if (terminal) return Promise.reject(terminal);
       const id = nextId++;
       return new Promise<T>((resolve, reject) => {
-        pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-        port.postMessage({ id, method, payload } as RpcRequest);
+        const timeoutMs = options?.timeoutMs ?? 30_000;
+        const timer = setTimeout(() => {
+          if (!pending.delete(id)) return;
+          reject(new RpcLifecycleError(
+            "timeout", `replica RPC ${method} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        pending.set(id, {
+          resolve: resolve as (v: unknown) => void,
+          reject,
+          timer,
+        });
+        try {
+          port.postMessage({ id, method, payload } as RpcRequest);
+        } catch (error: unknown) {
+          clearTimeout(timer);
+          pending.delete(id);
+          reject(error);
+        }
       });
+    },
+    dispose(reason?: Error): void {
+      failTerminal(new RpcLifecycleError(
+        "disposed", reason?.message ?? "replica RPC client disposed", reason));
     },
   };
 }

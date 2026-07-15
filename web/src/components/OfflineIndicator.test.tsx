@@ -10,9 +10,12 @@ function syncWith(overrides: Partial<Sync>): Sync {
     replicaMode: "ready",
     canEdit: true,
     pending: 0,
-    enqueue: () => undefined,
+    enqueue: () => ({
+      id: "test-write", scope: [],
+      settled: Promise.resolve({ status: "persisted", pending: 0 }),
+    }),
     subscribe: () => () => undefined,
-    idle: () => Promise.resolve(),
+    settled: () => Promise.resolve(),
     ...overrides,
   };
 }

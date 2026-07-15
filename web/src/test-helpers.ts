@@ -3,6 +3,7 @@ import type { BlockOp } from "./api/ops";
 import type { BlockNode, PagePayload } from "./api/payloads";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
+import type { WriteTicket } from "./sync/opQueue";
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -120,15 +121,23 @@ export function makeSync(status: SyncStatus = "connected",
                          over: Partial<Sync> = {}): SyncFake {
   const subs = new Set<(b: WsBatch) => void>();
   const sent: BlockOp[][] = [];
+  let nextTicket = 1;
   return {
     status,
     resyncSeq: 0,
     replicaMode: "ready",
     canEdit: status === "connected",
     pending: 0,
-    enqueue: (ops) => { sent.push(ops); },
+    enqueue: (ops, scope): WriteTicket => {
+      sent.push(ops);
+      return {
+        id: `fake-write-${nextTicket++}`,
+        scope: scope ?? [],
+        settled: Promise.resolve({ status: "persisted", pending: 0 }),
+      };
+    },
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
-    idle: () => Promise.resolve(),
+    settled: () => Promise.resolve(),
     sent,
     emit: (batch) => subs.forEach((fn) => fn(batch)),
     ...over,

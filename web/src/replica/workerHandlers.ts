@@ -18,6 +18,8 @@ export interface WorkerDeps {
   openDb(): Promise<ReplicaDb>;
   /** Destroy the persistent database and return a fresh, empty one. */
   resetDb(): Promise<ReplicaDb>;
+  /** Close the active database resource before the worker is terminated. */
+  closeDb?(): Promise<void> | void;
   /** Injectable for tests; the worker uses Date.now/crypto.randomUUID. */
   nowMs?: () => number;
   newBatchId?: () => string;
@@ -103,6 +105,11 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       const d = await deps.resetDb();
       dbPromise = Promise.resolve(d);
       installSchema(d);
+      return null;
+    },
+    async close() {
+      await deps.closeDb?.();
+      dbPromise = null;
       return null;
     },
   };

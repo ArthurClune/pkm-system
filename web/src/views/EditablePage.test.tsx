@@ -62,7 +62,7 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
     block("u1", "first", { order_idx: 0 }),
     block("u2", "second", { order_idx: 1 }),
   ];
-  const sync = makeSync("connected", { idle: () => new Promise(() => undefined) });
+  const sync = makeSync("connected", { settled: () => new Promise(() => undefined) });
   const view = (
     blocks: typeof initial,
   ) => (
@@ -97,7 +97,7 @@ test("stale initial rerender while the sync queue still has pending ops keeps op
   const sync = makeSync("reconnecting", {
     canEdit: true,
     pending: 1,
-    idle: () => Promise.resolve(),
+    settled: () => Promise.resolve(),
   });
   const view = (blocks: typeof initial) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>

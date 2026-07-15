@@ -27,7 +27,7 @@ test("ops enqueued in the same tick coalesce into one batch", async () => {
   const q = createOpQueue(null, () => undefined);
   q.enqueue([op("u1")]);
   q.enqueue([op("u2"), op("u3")]);
-  await q.idle();
+  await q.drain();
   expect(mock).toHaveBeenCalledTimes(1);
   expect(bodies[0]).toEqual({
     client_id: clientId,
@@ -50,7 +50,7 @@ test("ops enqueued while a batch is in flight go in the next batch", async () =>
   await Promise.resolve(); // let the first batch dispatch
   q.enqueue([op("u2")]);
   release();
-  await q.idle();
+  await q.drain();
   expect(mock).toHaveBeenCalledTimes(2);
   expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u2")]);
 });
@@ -63,11 +63,11 @@ test("a failed batch clears the queue and reports desync; queue keeps working", 
   const onDesync = vi.fn();
   const q = createOpQueue(null, onDesync);
   q.enqueue([op("u1"), op("u2")]);
-  await q.idle();
+  await q.drain();
   expect(onDesync).toHaveBeenCalledTimes(1);
   // queue survives: a later enqueue sends normally
   q.enqueue([op("u3")]);
-  await q.idle();
+  await q.drain();
   expect(mock).toHaveBeenCalledTimes(2);
 });
 
@@ -80,12 +80,12 @@ test("ops re-enqueued synchronously from onDesync are not stranded", async () =>
     q.enqueue([op("u9")]);
   });
   q.enqueue([op("u1")]);
-  await q.idle();
+  await q.drain();
   expect(mock).toHaveBeenCalledTimes(2);
   expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u9")]);
 });
 
-test("a throwing onDesync does not poison the queue or idle()", async () => {
+test("a throwing onDesync does not poison the queue or drain()", async () => {
   const { mock } = capturingFetch([
     () => jsonResponse({ detail: { index: 0, reason: "boom" } }, 400),
     () => jsonResponse({ ok: true }),
@@ -94,10 +94,10 @@ test("a throwing onDesync does not poison the queue or idle()", async () => {
     throw new Error("desync handler exploded");
   });
   q.enqueue([op("u1")]);
-  await q.idle(); // must resolve, not reject
+  await q.drain(); // must resolve, not reject
   // queue survives: a later enqueue sends normally
   q.enqueue([op("u2")]);
-  await q.idle();
+  await q.drain();
   expect(mock).toHaveBeenCalledTimes(2);
 });
 
@@ -107,7 +107,7 @@ test("while offline, enqueue is preserved but pumps no HTTP", async () => {
   q.setOnline(false);
   q.enqueue([op("u1")]);
   q.enqueue([op("u2")]);
-  await q.idle();
+  await q.drain();
   await Promise.resolve(); // give any stray microtask a chance to POST
   expect(mock).not.toHaveBeenCalled();
 });
@@ -119,7 +119,7 @@ test("reconnect flushes the ops preserved while offline, in order", async () => 
   q.enqueue([op("u1")]);
   q.enqueue([op("u2")]);
   q.setOnline(true);
-  await q.idle();
+  await q.drain();
   expect(mock).toHaveBeenCalledTimes(1);
   expect((bodies[0] as { ops: unknown[] }).ops).toEqual([op("u1"), op("u2")]);
 });
@@ -140,10 +140,10 @@ test("an in-flight POST completes after going offline without starting a new pum
   q.setOnline(false);      // socket drops while the POST is outstanding
   q.enqueue([op("u2")]);   // enqueued while offline -> must stay pending
   release();               // the in-flight POST's response arrives
-  await q.idle();
+  await q.drain();
   expect(mock).toHaveBeenCalledTimes(1); // u2 did NOT start a new pump
   q.setOnline(true);       // reconnect flushes the preserved op
-  await q.idle();
+  await q.drain();
   expect(mock).toHaveBeenCalledTimes(2);
   expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u2")]);
 });
@@ -153,8 +153,67 @@ test("batches larger than 500 ops split into sequential POSTs", async () => {
   const q = createOpQueue(null, () => undefined);
   const ops = Array.from({ length: 501 }, (_, i) => op(`u${i}`));
   q.enqueue(ops);
-  await q.idle();
+  await q.drain();
   expect(mock).toHaveBeenCalledTimes(2);
   expect((bodies[0] as { ops: unknown[] }).ops).toHaveLength(500);
   expect((bodies[1] as { ops: unknown[] }).ops).toHaveLength(1);
+});
+
+test("legacy offline enqueue settles in memory while drain reports blocked", async () => {
+  const { mock } = capturingFetch([() => jsonResponse({ ok: true })]);
+  const q = createOpQueue(null, () => undefined);
+  q.setOnline(false);
+
+  const ticket = q.enqueue([op("u1")], ["page", "Page"]);
+
+  await expect(ticket.settled).resolves.toEqual({ status: "persisted", pending: 1 });
+  expect(ticket.scope).toEqual(["page", "Page"]);
+  await q.settled();
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "offline", pending: 1,
+  });
+  expect(mock).not.toHaveBeenCalled();
+});
+
+test("legacy 503 retains work and retries after 250ms", async () => {
+  vi.useFakeTimers();
+  try {
+    const { mock } = capturingFetch([
+      () => jsonResponse({ detail: "busy" }, 503),
+      () => jsonResponse({ ok: true }),
+    ]);
+    const q = createOpQueue(null, () => undefined);
+    await q.enqueue([op("u1")]).settled;
+
+    await expect(q.drain()).resolves.toMatchObject({
+      status: "blocked", reason: "retryable", pending: 1,
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(q.drain()).resolves.toEqual({ status: "drained" });
+    expect(mock).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("legacy dispose cancels retry and keeps drain terminal", async () => {
+  vi.useFakeTimers();
+  try {
+    const { mock } = capturingFetch([
+      () => jsonResponse({ detail: "busy" }, 503),
+    ]);
+    const q = createOpQueue(null, () => undefined);
+    await q.enqueue([op("u1")]).settled;
+    await q.drain();
+
+    q.dispose();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(mock).toHaveBeenCalledTimes(1);
+    await expect(q.drain()).resolves.toEqual({
+      status: "blocked", reason: "disposed", pending: 1,
+    });
+  } finally {
+    vi.useRealTimers();
+  }
 });

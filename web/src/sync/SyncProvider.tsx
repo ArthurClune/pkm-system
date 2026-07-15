@@ -11,7 +11,7 @@ import type { BlockOp } from "../api/ops";
 import { apiFetch, setOfflineGateway } from "../api/client";
 import { createReplica, type Replica } from "../replica/client";
 import { toPortLike } from "../replica/rpc";
-import { clientId, createOpQueue } from "./opQueue";
+import { clientId, createOpQueue, type WriteTicket } from "./opQueue";
 import { createReplicaSync, type ReplicaState } from "./replicaSync";
 import { connectSocket, type WsBatch } from "./socket";
 
@@ -30,11 +30,11 @@ export interface Sync {
   pending: number;
   /** Why editing is blocked, when it is. */
   readOnlyReason?: string;
-  enqueue(ops: BlockOp[]): void;
+  enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
   /** Remote batches only — own echoes are filtered out here. */
   subscribe(fn: (batch: WsBatch) => void): () => void;
-  /** Resolves once nothing is pending or in flight in the op queue. */
-  idle(): Promise<void>;
+  /** Resolves when all accepted writes have finished persistence. */
+  settled(): Promise<void>;
 }
 
 export const SyncContext = createContext<Sync>({
@@ -48,7 +48,7 @@ export const SyncContext = createContext<Sync>({
     throw new Error("enqueue called outside <SyncProvider>");
   },
   subscribe: () => () => undefined,
-  idle: () => Promise.resolve(),
+  settled: () => Promise.resolve(),
 });
 
 export function useSync(): Sync {
@@ -68,11 +68,19 @@ export function useResync(fn: () => void): void {
 }
 
 /** The real worker-backed replica; null where Workers don't exist (jsdom). */
-function defaultReplica(): Replica | null {
+interface OwnedReplica {
+  replica: Replica;
+  worker: Worker;
+}
+
+function defaultReplica(): OwnedReplica | null {
   if (typeof Worker === "undefined") return null;
   const worker = new Worker(new URL("../replica/worker.ts", import.meta.url),
                             { type: "module" });
-  return createReplica(toPortLike(worker));
+  return {
+    worker,
+    replica: createReplica(toPortLike(worker), () => worker.terminate()),
+  };
 }
 
 export function SyncProvider({ children, replica }: {
@@ -88,24 +96,35 @@ export function SyncProvider({ children, replica }: {
   const [quotaExhausted, setQuotaExhausted] = useState(false);
   const subsRef = useRef(new Set<(b: WsBatch) => void>());
   const everConnectedRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const replicaRef = useRef<Replica | null | undefined>(undefined);
+  const ownedReplicaRef = useRef<OwnedReplica | null>(null);
   if (replicaRef.current === undefined) {
-    replicaRef.current = replica === undefined ? defaultReplica() : replica;
+    if (replica === undefined) {
+      ownedReplicaRef.current = defaultReplica();
+      replicaRef.current = ownedReplicaRef.current?.replica ?? null;
+    } else {
+      replicaRef.current = replica;
+    }
   }
 
   const queue = useMemo(
-    () => createOpQueue(replicaRef.current ?? null,
-                        () => setResyncSeq((n) => n + 1)), []);
+    () => createOpQueue(replicaRef.current ?? null, () => {
+      if (mountedRef.current) setResyncSeq((n) => n + 1);
+    }), []);
 
   useEffect(() => {
     const offs = [
-      queue.onPending(setPending),
-      queue.onQuota(() => setQuotaExhausted(true)),
+      queue.onPending((n) => { if (mountedRef.current) setPending(n); }),
+      queue.onQuota(() => {
+        if (mountedRef.current) setQuotaExhausted(true);
+      }),
     ];
     // a durable queue may be non-empty from a previous session
     void replicaRef.current?.pendingCount()
-      .then(setPending).catch(() => undefined);
+      .then((n) => { if (mountedRef.current) setPending(n); })
+      .catch(() => undefined);
     return () => { offs.forEach((off) => off()); };
   }, [queue]);
   const replicaSync = useMemo(() => {
@@ -114,7 +133,9 @@ export function SyncProvider({ children, replica }: {
       replica: r,
       fetchJson: apiFetch,
       clientId,
-      onState: setReplicaState,
+      onState: (next) => {
+        if (mountedRef.current) setReplicaState(next);
+      },
     }) : null;
   }, []);
 
@@ -176,7 +197,9 @@ export function SyncProvider({ children, replica }: {
         });
         if (result.handled && method !== "GET") {
           // a shim write (page create) enqueued a batch inside the worker
-          void r.pendingCount().then(setPending).catch(() => undefined);
+          void r.pendingCount()
+            .then((n) => { if (mountedRef.current) setPending(n); })
+            .catch(() => undefined);
         }
         return result;
       },
@@ -186,6 +209,7 @@ export function SyncProvider({ children, replica }: {
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     // Leftovers from a previous page load (a reload can kill an in-flight
     // POST): read before the first connect can start draining them.
     const initialPending: Promise<number> =
@@ -193,10 +217,13 @@ export function SyncProvider({ children, replica }: {
     // Reconnect after a gap: flush the preserved ops first, then pull the
     // changes feed, then bump resyncSeq so views refetch state that already
     // reflects both (flush -> pull -> resync).
-    const reconnectFlow = () => queue.idle()
-      .then(() => replicaSync?.start())
-      .then(() => replicaSync?.idle())
-      .then(() => setResyncSeq((n) => n + 1));
+    const reconnectFlow = async (): Promise<void> => {
+      const outcome = await queue.drain();
+      if (outcome.status !== "drained" || !mountedRef.current) return;
+      await replicaSync?.start();
+      await replicaSync?.idle();
+      if (mountedRef.current) setResyncSeq((n) => n + 1);
+    };
     const handle = connectSocket({
       onBatch: (batch) => {
         if (batch.client_id === clientId) return; // our own echo
@@ -222,13 +249,27 @@ export function SyncProvider({ children, replica }: {
               n > 0 ? reconnectFlow() : replicaSync?.start());
           }
           everConnectedRef.current = true;
-          setStatus("connected");
+          if (mountedRef.current) setStatus("connected");
         } else {
-          setStatus("reconnecting");
+          if (mountedRef.current) setStatus("reconnecting");
         }
       },
     });
-    return () => handle.close();
+    return () => {
+      mountedRef.current = false;
+      handle.close();
+      // React StrictMode immediately replays effects in development while
+      // preserving memoized resources. Defer terminal ownership cleanup one
+      // microtask so the replayed setup can keep them alive; a real unmount
+      // leaves mountedRef false and performs cleanup exactly once.
+      queueMicrotask(() => {
+        if (mountedRef.current) return;
+        queue.dispose();
+        const owned = ownedReplicaRef.current;
+        ownedReplicaRef.current = null;
+        if (owned) void owned.replica.dispose();
+      });
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -251,12 +292,12 @@ export function SyncProvider({ children, replica }: {
     canEdit,
     pending,
     readOnlyReason,
-    enqueue: (ops) => queue.enqueue(ops),
+    enqueue: (ops, scope) => queue.enqueue(ops, scope),
     subscribe: (fn) => {
       subsRef.current.add(fn);
       return () => { subsRef.current.delete(fn); };
     },
-    idle: () => queue.idle(),
+    settled: () => queue.settled(),
   }), [status, resyncSeq, replicaState, canEdit, pending, readOnlyReason,
        queue]);
 

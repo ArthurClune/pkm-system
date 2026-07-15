@@ -1,45 +1,47 @@
 // pattern: Imperative Shell
-// The write pump. With a replica (pkm-y8p0): every batch is persisted in
-// the replica's pending_ops table (durable across restarts), applied
-// optimistically there, then drained to POST /api/ops with its batch_id —
-// a retry after a lost acknowledgement dedups server-side instead of
-// double-applying. A poisoned batch (server 4xx) is set aside and
-// surfaced, never retried forever (spec section 6); network errors stop
-// the pump until the next kick/reconnect, queue intact.
-//
-// Without a replica (no-replica mode: wasm/OPFS unavailable), the
-// pre-offline in-memory behaviour is preserved verbatim: same-tick ops
-// coalesce into one batch, a failed batch clears the queue and reports
-// desync, and while the socket is down ops are preserved in memory and
-// flushed on reconnect as the newest last-write-wins writers.
+// Persistence completion and HTTP delivery are deliberately separate: a
+// WriteTicket settles when the active storage accepts a write, while drain()
+// reports whether every retained write reached the server.
 import { ApiError, apiFetch } from "../api/client";
 import type { BlockOp } from "../api/ops";
 import type { Replica } from "../replica/client";
 import { ReplicaError } from "../replica/rpc";
 import { newUid } from "../uid";
 
-/** Stable per-tab id: the server echoes it on the websocket so this tab can
- * skip its own (already optimistically applied) batches. */
 export const clientId = newUid();
 
-const MAX_BATCH = 500; // OpBatch.ops max_length on the server
+const MAX_BATCH = 500;
+const RETRY_DELAYS = [250, 1_000, 5_000] as const;
+
+export type WriteOutcome =
+  | { status: "persisted"; pending: number }
+  | { status: "failed"; error: unknown };
+
+export interface WriteTicket {
+  id: string;
+  scope: readonly string[];
+  settled: Promise<WriteOutcome>;
+}
+
+export type DrainOutcome =
+  | { status: "drained" }
+  | { status: "blocked"; reason: "offline" | "retryable" |
+      "recovering" | "disposed"; pending: number; error?: unknown };
 
 export interface OpQueue {
-  enqueue(ops: BlockOp[]): void;
-  /** Pause (false) or resume (true) HTTP pumping. Enqueue keeps preserving
-   * ops either way; resuming flushes whatever accumulated while offline. */
+  enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
+  settled(): Promise<void>;
+  drain(): Promise<DrainOutcome>;
   setOnline(online: boolean): void;
-  /** Resolves once nothing is pending or in flight (tests, smoke). */
-  idle(): Promise<void>;
-  /** Pending (non-poisoned) batch count changes; replica-backed only. */
+  pause(reason: "recovery"): void;
+  resume(reason: "recovery"): void;
+  dispose(): void;
   onPending(fn: (n: number) => void): () => void;
-  /** A batch the server rejected (4xx) was set aside. */
   onPoison(fn: (e: unknown) => void): () => void;
-  /** The replica could not persist an edit (storage quota exhausted). */
   onQuota(fn: (e: unknown) => void): () => void;
 }
 
-type Listener<T> = (v: T) => void;
+type Listener<T> = (value: T) => void;
 
 function listeners<T>() {
   const set = new Set<Listener<T>>();
@@ -48,120 +50,201 @@ function listeners<T>() {
       set.add(fn);
       return () => { set.delete(fn); };
     },
-    emit(v: T) { set.forEach((fn) => fn(v)); },
+    emit(value: T): void { set.forEach((fn) => fn(value)); },
   };
 }
 
+let nextTicket = 1;
+
+function ticket(scope: readonly string[] | undefined,
+                settled: Promise<WriteOutcome>): WriteTicket {
+  return { id: `write-${nextTicket++}`, scope: scope ?? [], settled };
+}
+
+function postOps(ops: BlockOp[], batchId?: string): Promise<unknown> {
+  return apiFetch("/api/ops", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: clientId,
+      ...(batchId === undefined ? {} : { batch_id: batchId }),
+      ops,
+    }),
+  });
+}
+
 function createReplicaQueue(replica: Replica,
-                            onDesync: (e: unknown) => void): OpQueue {
+                            onDesync: (error: unknown) => void): OpQueue {
   let online = true;
-  // Persistence and pumping are decoupled on purpose: replica.enqueue
-  // (durability) must never wait on a drain's network round-trip, or a
-  // reload during one slow POST would lose every edit queued behind it.
+  let recovering = false;
+  let disposed = false;
+  let pendingCount = 0;
   let persistChain = Promise.resolve();
-  let drainRun: Promise<void> | null = null;
+  let drainRun: Promise<DrainOutcome> | null = null;
   let drainAgain = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryIndex = 0;
   const pending = listeners<number>();
   const poison = listeners<unknown>();
   const quota = listeners<unknown>();
 
-  const drainLoop = async (): Promise<void> => {
-    while (online) {
-      const batch = await replica.nextBatch();
-      if (batch === null) return;
+  const cancelRetry = (reset: boolean): void => {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+    if (reset) retryIndex = 0;
+  };
+
+  const countPending = async (): Promise<number> => {
+    try {
+      pendingCount = await replica.pendingCount();
+    } catch {
+      // The last observed count is still the best terminal diagnostic.
+    }
+    return pendingCount;
+  };
+
+  const blocked = async (
+    reason: "offline" | "retryable" | "recovering" | "disposed",
+    error?: unknown,
+  ): Promise<DrainOutcome> => ({
+    status: "blocked",
+    reason,
+    pending: await countPending(),
+    ...(error === undefined ? {} : { error }),
+  });
+
+  const scheduleRetry = (): void => {
+    if (!online || recovering || disposed || retryTimer !== null) return;
+    const delay = RETRY_DELAYS[Math.min(retryIndex, RETRY_DELAYS.length - 1)];
+    retryIndex = Math.min(retryIndex + 1, RETRY_DELAYS.length - 1);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      void drain();
+    }, delay);
+  };
+
+  const runDrain = async (): Promise<DrainOutcome> => {
+    await settleAll();
+    if (disposed) return blocked("disposed");
+    if (recovering) return blocked("recovering");
+    if (!online) return blocked("offline");
+
+    for (;;) {
+      drainAgain = false;
+      let batch;
       try {
-        await apiFetch("/api/ops", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ client_id: clientId,
-                                 batch_id: batch.batch_id, ops: batch.ops }),
-        });
-      } catch (e: unknown) {
-        if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
-          // the server rejected this exact payload: retrying is futile.
-          // Set it aside so the rest of the queue can flow.
-          const res = await replica.markPoisoned(batch.id, String(e));
-          pending.emit(res.pending);
-          poison.emit(e);
+        batch = await replica.nextBatch();
+      } catch (error: unknown) {
+        scheduleRetry();
+        return blocked("retryable", error);
+      }
+      if (batch === null) {
+        pendingCount = 0;
+        if (drainAgain) continue;
+        return { status: "drained" };
+      }
+      try {
+        await postOps(batch.ops, batch.batch_id);
+      } catch (error: unknown) {
+        if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+          const result = await replica.markPoisoned(batch.id, String(error));
+          pendingCount = result.pending;
+          pending.emit(pendingCount);
+          poison.emit(error);
           continue;
         }
-        return; // network/5xx: keep the batch, retry on next kick
+        scheduleRetry();
+        return blocked("retryable", error);
       }
-      const res = await replica.deleteBatch(batch.id);
-      pending.emit(res.pending);
+      const result = await replica.deleteBatch(batch.id);
+      pendingCount = result.pending;
+      pending.emit(pendingCount);
+      cancelRetry(true);
+      if (disposed) return blocked("disposed");
+      if (recovering) return blocked("recovering");
+      if (!online) return blocked("offline");
     }
   };
 
-  /** Single-flight pump: at most one drain loop runs; a kick during a
-   * run schedules exactly one follow-up pass. */
+  const drain = (): Promise<DrainOutcome> => {
+    if (drainRun) {
+      drainAgain = true;
+      return drainRun;
+    }
+    drainRun = runDrain().finally(() => { drainRun = null; });
+    return drainRun;
+  };
+
   const kick = (): void => {
     if (drainRun) {
       drainAgain = true;
       return;
     }
-    drainRun = (async () => {
-      do {
-        drainAgain = false;
-        await drainLoop();
-      } while (drainAgain);
-    })()
-      // a worker RPC failure must not wedge idle(); the batch is durable
-      // and the next kick (edit or reconnect) retries it
-      .catch(() => undefined)
-      .finally(() => { drainRun = null; });
+    void drain();
+  };
+
+  const settleAll = async (): Promise<void> => {
+    for (;;) {
+      const tail = persistChain;
+      await tail;
+      if (tail === persistChain) return;
+    }
   };
 
   return {
-    enqueue(ops) {
-      if (ops.length === 0) return;
-      const work = async () => {
-        try {
-          const res = await replica.enqueue(ops);
-          pending.emit(res.pending);
-        } catch (e: unknown) {
-          if (e instanceof ReplicaError && e.quota) {
-            // an unpersisted edit must not look accepted (spec section 6):
-            // offline this freezes the editor (canEdit drops); online we
-            // degrade to a direct legacy post so the edit still lands
-            quota.emit(e);
-            try {
-              await apiFetch("/api/ops", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ client_id: clientId, ops }),
-              });
-            } catch {
-              // offline with a full disk: the quota state has already
-              // frozen the editor; nothing else can hold this edit
-            }
-            return;
-          }
-          onDesync(e);
+    enqueue(ops, scope) {
+      if (ops.length === 0) {
+        return ticket(scope, Promise.resolve({
+          status: "persisted", pending: pendingCount,
+        }));
+      }
+      let resolve!: (outcome: WriteOutcome) => void;
+      const outcome = new Promise<WriteOutcome>((done) => { resolve = done; });
+      const persist = async (): Promise<void> => {
+        if (disposed) {
+          resolve({ status: "failed", error: new Error("op queue disposed") });
           return;
         }
-        kick();
+        try {
+          const result = await replica.enqueue(ops);
+          pendingCount = result.pending;
+          pending.emit(pendingCount);
+          resolve({ status: "persisted", pending: pendingCount });
+          kick();
+        } catch (error: unknown) {
+          resolve({ status: "failed", error });
+          if (error instanceof ReplicaError && error.quota) {
+            quota.emit(error);
+            try { await postOps(ops); } catch { /* best effort */ }
+          } else {
+            try { onDesync(error); } catch { /* listener isolation */ }
+          }
+        }
       };
-      persistChain = persistChain.then(work, work);
+      persistChain = persistChain.then(persist, persist);
+      return ticket(scope, outcome);
     },
+    settled: settleAll,
+    drain,
     setOnline(next) {
       online = next;
-      // kick even when we already thought we were online: a fresh queue
-      // starts online, but the durable pending_ops table can hold batches
-      // from a previous page load (a reload kills in-flight POSTs), and
-      // the first socket connect is the only guaranteed drain moment
+      cancelRetry(true);
       if (online) kick();
     },
-    async idle() {
-      // quiescent = the persist chain we awaited is still the tail AND no
-      // drain is running (enqueue's work kicks the pump synchronously
-      // before resolving, so a fresh drainRun is visible here)
-      for (;;) {
-        const tail = persistChain;
-        await tail;
-        const run = drainRun;
-        if (run) await run;
-        if (tail === persistChain && drainRun === null) return;
-      }
+    pause() {
+      recovering = true;
+      cancelRetry(false);
+    },
+    resume() {
+      if (!recovering) return;
+      recovering = false;
+      kick();
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      online = false;
+      cancelRetry(false);
     },
     onPending: pending.add,
     onPoison: poison.add,
@@ -169,65 +252,120 @@ function createReplicaQueue(replica: Replica,
   };
 }
 
-function createLegacyQueue(onDesync: (e: unknown) => void): OpQueue {
+function createLegacyQueue(onDesync: (error: unknown) => void): OpQueue {
   let pending: BlockOp[] = [];
-  let inflight: Promise<void> | null = null;
-  // A freshly created queue is online; the shell pauses it on disconnect.
   let online = true;
+  let recovering = false;
+  let disposed = false;
+  let drainRun: Promise<DrainOutcome> | null = null;
+  let kickScheduled = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryIndex = 0;
 
-  const pump = async (): Promise<void> => {
-    // Re-check online each iteration: if the socket dropped mid-pump, the
-    // batch already in flight finishes but no further batch is sent.
-    while (online && pending.length > 0) {
-      const batch = pending.slice(0, MAX_BATCH);
-      pending = pending.slice(batch.length);
-      try {
-        await apiFetch("/api/ops", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ client_id: clientId, ops: batch }),
-        });
-      } catch (e: unknown) {
-        pending = [];
-        try {
-          onDesync(e);
-        } catch {
-          // a throwing desync callback must not poison the queue
-        }
-        return;
-      }
-    }
+  const cancelRetry = (reset: boolean): void => {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+    if (reset) retryIndex = 0;
   };
 
-  const kick = () => {
-    if (!online) return; // offline: preserve pending, pump nothing
-    if (inflight) return; // the running pump loop will pick pending up
-    // microtask delay so every op from one keystroke joins one batch
-    inflight = Promise.resolve().then(async () => {
+  const terminal = (
+    reason: "offline" | "retryable" | "recovering" | "disposed",
+    error?: unknown,
+  ): DrainOutcome => ({
+    status: "blocked", reason, pending: pending.length,
+    ...(error === undefined ? {} : { error }),
+  });
+
+  const scheduleRetry = (): void => {
+    if (!online || recovering || disposed || retryTimer !== null) return;
+    const delay = RETRY_DELAYS[Math.min(retryIndex, RETRY_DELAYS.length - 1)];
+    retryIndex = Math.min(retryIndex + 1, RETRY_DELAYS.length - 1);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      void drain();
+    }, delay);
+  };
+
+  const runDrain = async (): Promise<DrainOutcome> => {
+    if (disposed) return terminal("disposed");
+    if (recovering) return terminal("recovering");
+    if (!online) return terminal("offline");
+    while (pending.length > 0) {
+      const batch = pending.slice(0, MAX_BATCH);
       try {
-        await pump();
-      } finally {
-        inflight = null;
-        // ops enqueued while the pump was tearing down (e.g. from a
-        // re-entrant onDesync) must start a fresh pump, not strand
-        if (pending.length > 0) kick();
+        await postOps(batch);
+      } catch (error: unknown) {
+        if (!(error instanceof ApiError) || error.status >= 500) {
+          scheduleRetry();
+          return terminal("retryable", error);
+        }
+        pending = [];
+        try { onDesync(error); } catch { /* listener isolation */ }
+        continue;
       }
+      pending.splice(0, batch.length);
+      cancelRetry(true);
+      if (disposed) return terminal("disposed");
+      if (recovering) return terminal("recovering");
+      if (!online) return terminal("offline");
+    }
+    return { status: "drained" };
+  };
+
+  const drain = (): Promise<DrainOutcome> => {
+    if (drainRun) return drainRun;
+    drainRun = runDrain().finally(() => { drainRun = null; });
+    return drainRun;
+  };
+
+  const kick = (): void => {
+    if (kickScheduled || drainRun || !online || recovering || disposed) return;
+    kickScheduled = true;
+    void Promise.resolve().then(() => {
+      kickScheduled = false;
+      return drain();
     });
   };
 
   return {
-    enqueue(ops: BlockOp[]) {
-      if (ops.length === 0) return;
-      pending.push(...ops);
+    enqueue(ops, scope) {
+      if (ops.length > 0 && !disposed) {
+        pending.push(...ops);
+        kick();
+        return ticket(scope, Promise.resolve({
+          status: "persisted", pending: pending.length,
+        }));
+      }
+      if (disposed && ops.length > 0) {
+        return ticket(scope, Promise.resolve({
+          status: "failed", error: new Error("op queue disposed"),
+        }));
+      }
+      return ticket(scope, Promise.resolve({
+        status: "persisted", pending: pending.length,
+      }));
+    },
+    settled: async () => undefined,
+    drain,
+    setOnline(next) {
+      online = next;
+      cancelRetry(true);
+      if (online) kick();
+    },
+    pause() {
+      recovering = true;
+      cancelRetry(false);
+    },
+    resume() {
+      if (!recovering) return;
+      recovering = false;
       kick();
     },
-    setOnline(next: boolean) {
-      if (next === online) return;
-      online = next;
-      if (online) kick(); // flush whatever was preserved while offline
-    },
-    async idle() {
-      while (inflight) await inflight;
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      online = false;
+      cancelRetry(false);
     },
     onPending: () => () => undefined,
     onPoison: () => () => undefined,
@@ -236,7 +374,7 @@ function createLegacyQueue(onDesync: (e: unknown) => void): OpQueue {
 }
 
 export function createOpQueue(replica: Replica | null,
-                              onDesync: (e: unknown) => void): OpQueue {
+                              onDesync: (error: unknown) => void): OpQueue {
   return replica ? createReplicaQueue(replica, onDesync)
                  : createLegacyQueue(onDesync);
 }

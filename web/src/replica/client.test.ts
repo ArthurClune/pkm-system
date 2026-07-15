@@ -1,7 +1,7 @@
 // @vitest-environment node
 // End-to-end over a MessageChannel: the typed Replica facade on one side,
 // buildHandlers over a real in-memory sqlite-wasm database on the other.
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { Snapshot } from "./apply";
 import { createReplica, type Replica } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
@@ -124,6 +124,48 @@ test("an edit arriving before init persists (schema installs on demand)", async 
   expect(init.empty).toBe(true); // still needs the snapshot bootstrap
   expect(init.schemaMismatch).toBe(false);
   expect(init.pendingBatches).toHaveLength(1);
+});
+
+test("dispose closes the worker database before disposing the RPC facade", async () => {
+  const events: string[] = [];
+  const ch = new MessageChannel();
+  serveRpc(toPortLike(ch.port2), buildHandlers({
+    openDb: async () => (await openRawTestDb()).db,
+    resetDb: async () => (await openRawTestDb()).db,
+    closeDb: async () => { events.push("close-db"); },
+  }));
+  const replica = createReplica(toPortLike(ch.port1), () => {
+    events.push("terminate-worker");
+  });
+
+  await replica.dispose();
+  await replica.dispose();
+
+  expect(events).toEqual(["close-db", "terminate-worker"]);
+  await expect(replica.pendingCount()).rejects.toMatchObject({ kind: "disposed" });
+});
+
+test("snapshot and reset RPCs use the long timeout; ordinary calls use the default", async () => {
+  vi.useFakeTimers();
+  try {
+    const ch = new MessageChannel();
+    const replica = createReplica(toPortLike(ch.port1));
+    let snapshotSettled = false;
+    const ordinary = replica.pendingCount().catch((error: unknown) => error);
+    const snapshot = replica.applySnapshot(SNAP)
+      .then(() => undefined, (error: unknown) => error)
+      .finally(() => { snapshotSettled = true; });
+    const reset = replica.reset().catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(ordinary).resolves.toMatchObject({ kind: "timeout" });
+    expect(snapshotSettled).toBe(false);
+    await vi.advanceTimersByTimeAsync(90_000);
+    await expect(snapshot).resolves.toMatchObject({ kind: "timeout" });
+    await expect(reset).resolves.toMatchObject({ kind: "timeout" });
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("enqueue round-trips: persisted, optimistic, drainable", async () => {

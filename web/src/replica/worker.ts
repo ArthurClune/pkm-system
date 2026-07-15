@@ -42,5 +42,10 @@ async function resetDb(): Promise<ReplicaDb> {
   return openDb();
 }
 
+function closeDb(): void {
+  rawDb?.close();
+  rawDb = null;
+}
+
 serveRpc(toPortLike(self as unknown as { postMessage(msg: unknown): void; onmessage: unknown }),
-         buildHandlers({ openDb, resetDb }));
+         buildHandlers({ openDb, resetDb, closeDb }));

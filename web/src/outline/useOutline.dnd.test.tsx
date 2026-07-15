@@ -162,10 +162,10 @@ it("a remote parent-based cross-page move (server-resolved page_title) removes f
   expect(dst.blocks.map((b) => b.uid)).toEqual(["tp", "moved"]);
 });
 
-it("target-side refetch waits for sync.idle() to resolve before fetching, then adopts and re-validates focus", async () => {
+it("target-side refetch waits for sync.settled() before fetching, then adopts and re-validates focus", async () => {
   const base = makeSync();
   const idleGate = deferred<void>();
-  const sync: SyncFake = { ...base, idle: () => idleGate.promise };
+  const sync: SyncFake = { ...base, settled: () => idleGate.promise };
   const serverBlocks = [block("srv", "from server", { order_idx: 0 })];
   const fetchMock = stubFetch([
     ["/api/page/Page", pagePayload("Page", serverBlocks)],

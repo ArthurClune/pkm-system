@@ -46,13 +46,15 @@ export interface Replica {
   /** Drop and reinstall the schema. Caller enforces the non-empty-queue
    * guard (spec section 6): never call with unsynced pending ops. */
   reset(): Promise<void>;
+  dispose(): Promise<void>;
 }
 
-export function createReplica(port: PortLike): Replica {
+export function createReplica(port: PortLike, terminate?: () => void): Replica {
   const rpc = createRpcClient(port);
+  let disposing: Promise<void> | null = null;
   return {
     init: () => rpc.call("init"),
-    applySnapshot: (snap) => rpc.call("applySnapshot", snap),
+    applySnapshot: (snap) => rpc.call("applySnapshot", snap, { timeoutMs: 120_000 }),
     applyChanges: (feed) => rpc.call("applyChanges", feed),
     enqueue: (ops) => rpc.call("enqueue", ops),
     nextBatch: () => rpc.call("nextBatch"),
@@ -61,6 +63,16 @@ export function createReplica(port: PortLike): Replica {
     markPoisoned: (id, error) => rpc.call("markPoisoned", { id, error }),
     pendingCount: () => rpc.call("pendingCount"),
     localApi: (req) => rpc.call("localApi", req),
-    reset: () => rpc.call("reset"),
+    reset: () => rpc.call("reset", undefined, { timeoutMs: 120_000 }),
+    dispose: () => (disposing ??= (async () => {
+      try {
+        await rpc.call("close");
+      } catch {
+        // Worker failure/timeout still requires local teardown.
+      } finally {
+        rpc.dispose();
+        terminate?.();
+      }
+    })()),
   };
 }

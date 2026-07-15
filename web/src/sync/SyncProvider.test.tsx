@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { useEffect } from "react";
+import { StrictMode, useEffect } from "react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { FakeWebSocket, stubFetch } from "../test-helpers";
 import { apiFetch } from "../api/client";
@@ -31,7 +31,7 @@ test("status: connecting -> connected -> reconnecting -> connected, resync bump 
   act(() => lastWs().drop());
   expect(screen.getByTestId("status").textContent).toBe("reconnecting:0");
   act(() => { vi.advanceTimersByTime(2000); }); // reconnect timer -> new socket
-  // the resync bump is deferred until the preserved queue has flushed (idle)
+  // the resync bump is deferred until the preserved queue has drained
   await act(async () => { lastWs().open(); });
   // re-established after a gap: views must refetch (resyncSeq bumped)
   expect(screen.getByTestId("status").textContent).toBe("connected:1");
@@ -133,6 +133,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     pendingCount: async () => 0,
     localApi: async () => ({ handled: false as const }),
     reset: async () => undefined,
+    dispose: async () => { log.push("dispose"); },
   };
 }
 
@@ -254,7 +255,10 @@ test("offline with a ready replica keeps editing enabled and counts pending", as
   expect(sync.status).toBe("reconnecting");
   expect(sync.canEdit).toBe(true); // replica ready: editing continues
   expect(sync.pending).toBe(2);    // durable queue from a previous session
-  await act(async () => { sync.enqueue([{ op: "delete", uid: "u1" }]); await sync.idle(); });
+  await act(async () => {
+    const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
+    await write.settled;
+  });
   expect(sync.pending).toBe(3);
   expect(sync.readOnlyReason).toBeUndefined();
 });
@@ -287,4 +291,119 @@ test("offline without a replica stays read-only with a reason", async () => {
   await act(async () => { lastWs().drop(); });
   expect(sync.canEdit).toBe(false);
   expect(sync.readOnlyReason).toMatch(/offline/);
+});
+
+test("an injected replica remains caller-owned on provider unmount", async () => {
+  const replica = fakeReplicaForProvider();
+  const dispose = vi.spyOn(replica, "dispose");
+  const { unmount } = render(
+    <SyncProvider replica={replica}><div /></SyncProvider>);
+
+  unmount();
+  await Promise.resolve();
+
+  expect(dispose).not.toHaveBeenCalled();
+});
+
+test("the internally created worker closes its database before one termination", async () => {
+  const events: string[] = [];
+  class FakeWorker {
+    onmessage: ((ev: { data: unknown }) => void) | null = null;
+    onerror: ((ev: { error?: unknown; message?: string }) => void) | null = null;
+    onmessageerror: ((ev: { data?: unknown }) => void) | null = null;
+
+    postMessage(message: unknown): void {
+      const req = message as { id: number; method: string };
+      if (req.method === "close") events.push("close-db");
+      const result = req.method === "init"
+        ? { ok: false, empty: true, cursor: 0, schemaMismatch: false,
+            pendingBatches: [] }
+        : req.method === "pendingCount" ? 0 : null;
+      queueMicrotask(() => this.onmessage?.({ data: { id: req.id, result } }));
+    }
+
+    terminate(): void { events.push("terminate-worker"); }
+  }
+  vi.stubGlobal("Worker", FakeWorker);
+  const { unmount } = render(
+    <StrictMode><SyncProvider><div /></SyncProvider></StrictMode>);
+  await act(async () => { await Promise.resolve(); });
+  expect(events).toEqual([]);
+
+  unmount();
+  await act(async () => { await Promise.resolve(); });
+
+  expect(events).toEqual(["close-db", "terminate-worker"]);
+});
+
+test("StrictMode effect replay keeps the queue live", async () => {
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+    status: 200, headers: { "Content-Type": "application/json" },
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(
+    <StrictMode>
+      <SyncProvider replica={null}><Grab /></SyncProvider>
+    </StrictMode>);
+  act(() => lastWs().open());
+
+  const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
+  await expect(write.settled).resolves.toMatchObject({ status: "persisted" });
+  await act(async () => { await Promise.resolve(); });
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("a blocked reconnect drain does not pull the feed or bump resync", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/ops") {
+        return new Response(JSON.stringify({ detail: "busy" }), { status: 503 });
+      }
+      return new Response(JSON.stringify({}), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    }));
+    let sync!: Sync;
+    function Grab() {
+      sync = useSync();
+      return <div data-testid="blocked-status">{sync.resyncSeq}</div>;
+    }
+    render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+    act(() => lastWs().open());
+    act(() => lastWs().drop());
+    act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+    act(() => { vi.advanceTimersByTime(2_000); });
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+    expect(screen.getByTestId("blocked-status").textContent).toBe("0");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("provider cleanup disposes the queue and cancels its retry timer", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ detail: "busy" }), { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+    let sync!: Sync;
+    function Grab() { sync = useSync(); return null; }
+    const { unmount } = render(
+      <SyncProvider replica={null}><Grab /></SyncProvider>);
+    act(() => lastWs().open());
+    act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+    await act(async () => { await Promise.resolve(); });
+    unmount();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
 });

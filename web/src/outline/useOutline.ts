@@ -48,7 +48,7 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   const localWritesRef = useRef(0);
 
   // A new `initial` identity is authoritative state (refetch / navigation),
-  // except while a local optimistic write is still draining. Startup/reconnect
+  // except while a local optimistic write is still settling. Startup/reconnect
   // refetches can return the pre-edit page after Enter has already inserted a
   // local block; adopting that stale payload would remove the new block and
   // leave focus pointing at a uid no longer in the tree.
@@ -95,8 +95,8 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     blocksRef.current = next;
     setBlocks(next);
     localWritesRef.current += 1;
-    sync.enqueue(ops);
-    void sync.idle().finally(() => {
+    const write = sync.enqueue(ops, ["page", pageTitle]);
+    void write.settled.finally(() => {
       localWritesRef.current = Math.max(0, localWritesRef.current - 1);
     });
     if (result.focus) setFocus(result.focus);
@@ -117,13 +117,15 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       document.removeEventListener("visibilitychange", onVisibility);
   }, [flushNow]);
 
-  // Authoritative refetch: adopt the server's tree once our own queue has
-  // drained. Used when a remote batch targets us with content we don't have
-  // (below): the op carries no block content, so we pull the server's tree
-  // instead. Waiting for idle first matters: fetching immediately can race a
-  // local optimistic edit enqueued in this window and silently overwrite it.
+  // Authoritative refetch: adopt the server's tree once our own writes have
+  // settled into the active queue storage. Used when a remote batch targets us
+  // with content we don't have (below): the op carries no block content, so we
+  // pull the server's tree
+  // instead. Waiting for persistence first prevents a local optimistic edit
+  // from still being in the enqueue handoff when the refetch starts; delivery
+  // completion remains provider-internal.
   const refetch = useCallback(() => {
-    void sync.idle()
+    void sync.settled()
       .then(() => apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`))
       .then((p) => {
         blocksRef.current = p.blocks;

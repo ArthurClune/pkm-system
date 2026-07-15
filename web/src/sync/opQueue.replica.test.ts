@@ -38,6 +38,7 @@ function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch
     pendingCount: async () => pending(),
     localApi: async () => ({ handled: false as const }),
     reset: async () => undefined,
+    dispose: async () => undefined,
     ...over,
   };
 }
@@ -63,7 +64,8 @@ test("drains each persisted batch as one POST carrying its batch_id", async () =
   q.onPending((n) => counts.push(n));
   q.enqueue([op("u1")]);
   q.enqueue([op("u2")]);
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(bodies.map((b) => b.body)).toEqual([
     { client_id: clientId, batch_id: "batch-1", ops: [op("u1")] },
     { client_id: clientId, batch_id: "batch-2", ops: [op("u2")] },
@@ -79,11 +81,13 @@ test("offline: batches persist without posting; reconnect drains in order", asyn
   q.setOnline(false);
   q.enqueue([op("u1")]);
   q.enqueue([op("u2")]);
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(bodies).toEqual([]);
   expect(replica.rows.length).toBe(2); // durable, not dropped
   q.setOnline(true);
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(bodies.map((b) => (b.body as { batch_id: string }).batch_id))
     .toEqual(["batch-1", "batch-2"]);
 });
@@ -99,7 +103,8 @@ test("a 4xx response poisons the batch and the queue keeps flowing", async () =>
   q.onPoison((e) => poisons.push(e));
   q.enqueue([op("bad")]);
   q.enqueue([op("good")]);
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(poisons.length).toBe(1);
   expect(replica.rows).toEqual([
     expect.objectContaining({ batch_id: "batch-1", poisoned: true }),
@@ -117,7 +122,8 @@ test("a durable batch from a previous page load drains on the first connect", as
                       poisoned: false });
   const q = createOpQueue(replica, () => undefined);
   q.setOnline(true); // the socket's first connect after the reload
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(bodies.map((b) => (b.body as { batch_id: string }).batch_id))
     .toEqual(["leftover"]);
   expect(replica.rows).toEqual([]);
@@ -133,11 +139,13 @@ test("a network error keeps the batch; the next online kick retries it", async (
   const replica = memReplica();
   const q = createOpQueue(replica, () => undefined);
   q.enqueue([op("u1")]);
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(replica.rows.length).toBe(1); // retained
   q.setOnline(false);
   q.setOnline(true); // reconnect kick
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(replica.rows).toEqual([]);
 });
 
@@ -157,7 +165,8 @@ test("a slow drain POST does not delay persisting later edits", async () => {
   q.enqueue([op("u2")]); // first POST still in flight
   await vi.waitFor(() => { expect(replica.rows.length).toBe(2); });
   release();
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(replica.rows).toEqual([]); // both drained once the network freed up
 });
 
@@ -170,7 +179,8 @@ test("quota-failed enqueue surfaces and degrades to a direct post", async () => 
   const quotas: unknown[] = [];
   q.onQuota((e) => quotas.push(e));
   q.enqueue([op("u1")]);
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(quotas.length).toBe(1);
   // best-effort legacy post so the edit still lands while online
   expect(bodies[0].body).toEqual({ client_id: clientId, ops: [op("u1")] });
@@ -184,6 +194,73 @@ test("other replica enqueue failures report desync", async () => {
   const desyncs: unknown[] = [];
   const q = createOpQueue(replica, (e) => desyncs.push(e));
   q.enqueue([op("u1")]);
-  await q.idle();
+  await q.settled();
+  await q.drain();
   expect(desyncs.length).toBe(1);
+});
+
+test("offline enqueue settles as persisted while drain reports blocked", async () => {
+  const { mock } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(false);
+
+  const ticket = q.enqueue([op("u1")], ["page", "Page"]);
+
+  await expect(ticket.settled).resolves.toEqual({ status: "persisted", pending: 1 });
+  expect(ticket.scope).toEqual(["page", "Page"]);
+  await q.settled();
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "offline", pending: 1,
+  });
+  expect(mock).not.toHaveBeenCalled();
+});
+
+test("a transient 503 returns retryable then the 250ms retry drains", async () => {
+  vi.useFakeTimers();
+  try {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? jsonResponse({ detail: "busy" }, 503)
+        : jsonResponse({ ok: true });
+    }));
+    const replica = memReplica();
+    const q = createOpQueue(replica, () => undefined);
+    await q.enqueue([op("u1")]).settled;
+
+    await expect(q.drain()).resolves.toMatchObject({
+      status: "blocked", reason: "retryable", pending: 1,
+    });
+    await vi.advanceTimersByTimeAsync(249);
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(q.drain()).resolves.toEqual({ status: "drained" });
+    await expect(replica.pendingCount()).resolves.toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("dispose cancels retry and reports the retained durable batch", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetchMock = vi.fn(async () => jsonResponse({ detail: "busy" }, 503));
+    vi.stubGlobal("fetch", fetchMock);
+    const replica = memReplica();
+    const q = createOpQueue(replica, () => undefined);
+    await q.enqueue([op("u1")]).settled;
+    await expect(q.drain()).resolves.toMatchObject({ reason: "retryable" });
+
+    q.dispose();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(q.drain()).resolves.toEqual({
+      status: "blocked", reason: "disposed", pending: 1,
+    });
+  } finally {
+    vi.useRealTimers();
+  }
 });

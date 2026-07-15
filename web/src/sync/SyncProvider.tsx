@@ -9,7 +9,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState,
          type ReactNode } from "react";
 import type { BlockOp } from "../api/ops";
 import { apiFetch, setOfflineGateway } from "../api/client";
-import { repairActiveOutlineSessions } from "../outline/outlineSessions";
+import { repairActiveOutlineSessions,
+         trackActiveOutlineWrite } from "../outline/outlineSessions";
 import { createReplica, type Replica } from "../replica/client";
 import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue, type DrainOutcome,
@@ -544,7 +545,11 @@ export function SyncProvider({ children, replica }: {
       repairTargetsRef.current = [];
       setProblem(undefined);
     },
-    enqueue: (ops, scope) => queue.enqueue(ops, scope),
+    enqueue: (ops, scope) => {
+      const ticket = queue.enqueue(ops, scope);
+      trackActiveOutlineWrite(ticket, ops);
+      return ticket;
+    },
     subscribe: (fn) => {
       subsRef.current.add(fn);
       return () => { subsRef.current.delete(fn); };

@@ -3,7 +3,7 @@ import { StrictMode, useEffect } from "react";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { acquireOutlineSession } from "../outline/outlineSessions";
-import { FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
+import { block, FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
@@ -242,6 +242,127 @@ test("legacy rejection resumes later delivery only after active outline repair",
   view.unmount();
   removeLoader();
   session.release();
+});
+
+test("legacy repair waits for a forced read after an existing stale automatic read", async () => {
+  let postCount = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+    postCount += 1;
+    return postCount === 1
+      ? jsonResponse({ detail: "bad op" }, 400)
+      : jsonResponse({ ok: true });
+  }));
+  const stale = (() => {
+    let resolve!: (blocks: ReturnType<typeof block>[]) => void;
+    const promise = new Promise<ReturnType<typeof block>[]>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  })();
+  const forced = (() => {
+    let resolve!: (blocks: ReturnType<typeof block>[]) => void;
+    const promise = new Promise<ReturnType<typeof block>[]>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  })();
+  const session = acquireOutlineSession(
+    "Legacy forced target", [block("u1", "optimistic")],
+  );
+  const loadForced = vi.fn(() => forced.promise);
+  const removeLoader = session.setAuthoritativeLoader(loadForced);
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return <div data-testid="forced-repair">{
+      sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
+    }</div>;
+  }
+  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+  let later: ReturnType<Sync["enqueue"]> | undefined;
+  try {
+    await act(async () => { lastWs().open(); });
+    const rejected = sync.enqueue(
+      [{ op: "delete", uid: "bad" }], ["page", "Legacy forced target"],
+    );
+    session.applyLocal(rejected, []);
+    const existing = session.requestAuthoritative(() => stale.promise);
+    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+    later = sync.enqueue(
+      [{ op: "delete", uid: "later" }], ["page", "Legacy forced target"],
+    );
+    session.applyLocal(later, []);
+
+    stale.resolve([block("u1", "stale pre-rejection")]);
+    await existing;
+    await vi.waitFor(() => expect(loadForced).toHaveBeenCalledTimes(1));
+    expect(postCount).toBe(1);
+    expect(screen.getByTestId("forced-repair")).toHaveTextContent("running");
+
+    forced.resolve([block("u1", "post-rejection authoritative")]);
+    await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+    expect(postCount).toBe(2);
+  } finally {
+    stale.resolve([block("u1", "cleanup stale")]);
+    forced.resolve([block("u1", "cleanup forced")]);
+    view.unmount();
+    removeLoader();
+    session.release();
+  }
+});
+
+test("the Sync enqueue boundary registers a page ticket before its session opens", async () => {
+  let releasePost!: () => void;
+  const postGate = new Promise<void>((done) => { releasePost = done; });
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) === "/api/ops") await postGate;
+    return jsonResponse({ ok: true });
+  }));
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return null;
+  }
+  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+  const targetTitle = "Same-page fallback target";
+  const otherTitle = "Unrelated fallback title";
+  let target: ReturnType<typeof acquireOutlineSession> | undefined;
+  let other: ReturnType<typeof acquireOutlineSession> | undefined;
+  let removeLoader: (() => void) | undefined;
+  try {
+    await act(async () => { lastWs().open(); });
+    const ticket = sync.enqueue(
+      [{ op: "move", uid: "u1", parent_uid: null, order_idx: 0 }],
+      ["page", targetTitle],
+    );
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      "/api/ops", expect.anything(),
+    ));
+    target = acquireOutlineSession(targetTitle, [block("u1", "opened")]);
+    const load = vi.fn(async () => [block("u1", "post-delivery")]);
+    removeLoader = target.setAuthoritativeLoader(load);
+    other = acquireOutlineSession(otherTitle, [block("u2", "other old")]);
+    const targetToken = target.beginAuthoritativeRead("parent");
+    const otherToken = other.beginAuthoritativeRead("parent");
+    target.receiveAuthoritative(targetToken, [block("u1", "pre-POST")]);
+    other.receiveAuthoritative(otherToken, [block("u2", "other fresh")]);
+
+    expect(target.getSnapshot().blocks[0].text).toBe("opened");
+    expect(other.getSnapshot().blocks[0].text).toBe("other fresh");
+
+    releasePost();
+    await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+    await vi.waitFor(() => {
+      expect(target!.getSnapshot().blocks[0].text).toBe("post-delivery");
+    });
+  } finally {
+    releasePost();
+    removeLoader?.();
+    target?.release();
+    other?.release();
+    view.unmount();
+  }
 });
 
 test("failed legacy outline repair stays visible and Retry releases delivery", async () => {

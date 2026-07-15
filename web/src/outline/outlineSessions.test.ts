@@ -1,7 +1,8 @@
 import { expect, it, vi } from "vitest";
 import type { DeliveryOutcome, WriteOutcome } from "../sync/opQueue";
 import { block } from "../test-helpers";
-import { acquireOutlineSession, repairActiveOutlineSessions,
+import { acquireOutlineSession, isOutlineSessionActive,
+         repairActiveOutlineSessions,
          trackActiveOutlineWrite } from "./outlineSessions";
 
 const update = (text: string) => ({
@@ -191,6 +192,86 @@ it("coalesces overlapping authoritative reads and publishes their tree once", as
   second.release();
 });
 
+it("invalidates an automatic read at final delivery settlement before replacing it once", async () => {
+  const delivered = deferred<DeliveryOutcome>();
+  const stale = deferred<ReturnType<typeof block>[]>();
+  const fresh = deferred<ReturnType<typeof block>[]>();
+  const responses = [stale.promise, fresh.promise];
+  const load = vi.fn(() => responses.shift()!);
+  const session = acquireOutlineSession(
+    "Settlement supersedes", [block("u1", "old")],
+  );
+  const removeLoader = session.setAuthoritativeLoader(load);
+  const published: string[] = [];
+  session.subscribe(() => {
+    published.push(session.getSnapshot().blocks[0]?.text ?? "empty");
+  });
+  session.applyLocal({
+    id: "settling", scope: ["page", "Settlement supersedes"],
+    settled: Promise.resolve({ status: "persisted", pending: 1 }),
+    delivered: delivered.promise,
+  }, [update("local")]);
+  const firstRead = session.requestAuthoritative(load);
+  expect(load).toHaveBeenCalledTimes(1);
+
+  delivered.resolve({ status: "delivered" });
+  await delivered.promise;
+  await Promise.resolve();
+  stale.resolve([block("u1", "stale pre-POST")]);
+  await firstRead;
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+
+  expect(session.getSnapshot().blocks[0].text).toBe("local");
+  expect(published).not.toContain("stale pre-POST");
+  fresh.resolve([block("u1", "fresh post-POST")]);
+  await vi.waitFor(() => {
+    expect(session.getSnapshot().blocks[0].text).toBe("fresh post-POST");
+  });
+  expect(load).toHaveBeenCalledTimes(2);
+
+  removeLoader();
+  session.release();
+});
+
+it("a newer manual read expires an older handle reservation", () => {
+  const first = acquireOutlineSession(
+    "Manual supersession", [block("u1", "old")],
+  );
+  const second = acquireOutlineSession("Manual supersession", null);
+  const oldToken = first.beginAuthoritativeRead("parent");
+  const newToken = second.beginAuthoritativeRead("resync");
+  second.receiveAuthoritative(newToken, [block("u1", "new")]);
+  first.release();
+  second.release();
+
+  expect(isOutlineSessionActive("Manual supersession")).toBe(false);
+  const fresh = acquireOutlineSession(
+    "Manual supersession", [block("u1", "fresh bootstrap")],
+  );
+  first.receiveAuthoritative(oldToken, [block("u1", "late old")]);
+  first.cancelAuthoritativeRead(oldToken);
+  expect(fresh.getSnapshot().blocks[0].text).toBe("fresh bootstrap");
+  fresh.release();
+});
+
+it("an automatic read expires an older manual reservation", async () => {
+  const session = acquireOutlineSession(
+    "Automatic supersession", [block("u1", "old")],
+  );
+  const oldToken = session.beginAuthoritativeRead("parent");
+  await session.requestAuthoritative(async () => [block("u1", "automatic")]);
+  session.release();
+
+  expect(isOutlineSessionActive("Automatic supersession")).toBe(false);
+  const fresh = acquireOutlineSession(
+    "Automatic supersession", [block("u1", "fresh bootstrap")],
+  );
+  session.receiveAuthoritative(oldToken, [block("u1", "late old")]);
+  session.cancelAuthoritativeRead(oldToken);
+  expect(fresh.getSnapshot().blocks[0].text).toBe("fresh bootstrap");
+  fresh.release();
+});
+
 it("routes a cross-page ticket to source and fallback target but not another title", async () => {
   const source = acquireOutlineSession("Source", [block("s", "old source")]);
   const target = acquireOutlineSession("Target", [block("t", "old target")]);
@@ -284,4 +365,86 @@ it("waits for active session loaders at the legacy repair boundary", async () =>
 
   removeLoader();
   session.release();
+});
+
+it("legacy repair supersedes and awaits an existing automatic read", async () => {
+  const stale = deferred<ReturnType<typeof block>[]>();
+  const forced = deferred<ReturnType<typeof block>[]>();
+  const session = acquireOutlineSession(
+    "Forced after existing", [block("u1", "optimistic")],
+  );
+  const loadForced = vi.fn(() => forced.promise);
+  const removeLoader = session.setAuthoritativeLoader(loadForced);
+  const existing = session.requestAuthoritative(() => stale.promise);
+
+  const repairing = repairActiveOutlineSessions();
+  let repaired = false;
+  void repairing.then(() => { repaired = true; });
+  stale.resolve([block("u1", "stale existing")]);
+  await existing;
+  await Promise.resolve();
+
+  expect(repaired).toBe(false);
+  expect(session.getSnapshot().blocks[0].text).toBe("optimistic");
+  await vi.waitFor(() => expect(loadForced).toHaveBeenCalledTimes(1));
+
+  forced.resolve([block("u1", "forced authoritative")]);
+  await repairing;
+  expect(session.getSnapshot().blocks[0].text).toBe("forced authoritative");
+  removeLoader();
+  session.release();
+});
+
+it("legacy repair adopts server state and reapplies a wholly later ticket", async () => {
+  const rejected = deferred<DeliveryOutcome>();
+  const later = deferred<DeliveryOutcome>();
+  const session = acquireOutlineSession("Repair rebase", [
+    block("u1", "old"), block("u2", "old other", { order_idx: 1 }),
+  ]);
+  session.applyLocal({
+    id: "rejected", scope: ["page", "Repair rebase"],
+    settled: Promise.resolve({ status: "persisted", pending: 2 }),
+    delivered: rejected.promise,
+  }, [{ op: "update_text", uid: "u2", text: "rejected local" }]);
+  session.applyLocal({
+    id: "later", scope: ["page", "Repair rebase"],
+    settled: Promise.resolve({ status: "persisted", pending: 2 }),
+    delivered: later.promise,
+  }, [{ op: "update_text", uid: "u1", text: "later local" }]);
+  const load = vi.fn(async () => load.mock.calls.length === 1 ? [
+    block("u1", "server before later"),
+    block("u2", "server repaired", { order_idx: 1 }),
+  ] : [
+    block("u1", "later local"),
+    block("u2", "server repaired", { order_idx: 1 }),
+  ]);
+  const removeLoader = session.setAuthoritativeLoader(load);
+
+  rejected.resolve({ status: "failed", error: new Error("rejected") });
+  await rejected.promise;
+  await Promise.resolve();
+  await repairActiveOutlineSessions();
+
+  expect(session.getSnapshot().blocks.map((node) => node.text)).toEqual([
+    "later local", "server repaired",
+  ]);
+  expect(load).toHaveBeenCalledTimes(1);
+
+  later.resolve({ status: "delivered" });
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+  removeLoader();
+  session.release();
+});
+
+it("legacy repair rejects when an active session has no loader", async () => {
+  const session = acquireOutlineSession(
+    "Missing repair loader", [block("u1", "optimistic")],
+  );
+  try {
+    await expect(repairActiveOutlineSessions()).rejects.toThrow(
+      /authoritative loader.*Missing repair loader/i,
+    );
+  } finally {
+    session.release();
+  }
 });

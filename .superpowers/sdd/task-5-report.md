@@ -301,3 +301,70 @@ boundary necessarily belongs to the provider and its visible retry UI.
 - Legacy repair remains an Imperative Shell path. It reuses per-title loader
   single flight, exposes failure rather than silently stranding later writes,
   and never retries the rejected operation.
+
+## Third independent-review fix wave
+
+Review of `16036e7` exposed four remaining causality gaps at settlement and
+registration boundaries.
+
+### Root causes
+
+- Final ticket settlement queued a replacement read but left an already
+  in-flight automatic token valid long enough to publish a pre-POST response.
+- Legacy repair reused any existing read promise and treated transport
+  completion as repair completion; it neither forced post-rejection adoption
+  nor rejected visibly when an active session had no loader.
+- Only the cross-page DnD branch registered unresolved scoped tickets, so
+  same-page and other page-scoped enqueue paths could bypass session tracking.
+- Newer automatic and manual controllers advanced request causality without
+  expiring older manual reservations, which could pin sessions and leave stale
+  manual receive paths live.
+
+### RED evidence
+
+- Targeted outline-session runs failed the three automatic/manual invalidation
+  regressions, the existing-read legacy repair regression, the post-rejection
+  adoption/rebase regression, and the missing-loader rejection regression.
+- The pure-state repair test retained rejected local state instead of adopting
+  the server snapshot and replaying only the unresolved later ticket.
+- The two targeted SyncProvider tests failed because legacy repair completed
+  without a forced adopted read and because the enqueue boundary did not
+  register the page ticket before a session opened.
+
+### Production fixes
+
+- Final settlement immediately supersedes the live automatic token and still
+  launches exactly one queued replacement after its transport completes.
+- Legacy repair now owns an explicit forced-read barrier: it invalidates older
+  controllers, waits out existing transport, requires an active loader, adopts
+  a fresh server snapshot, and reapplies only still-unresolved ticket ops.
+- SyncProvider registers every page-scoped enqueue in the unresolved outline
+  registry with its ops; DnD no longer carries a branch-specific registration.
+- Starting or activating a newer controller expires older manual read ids and
+  releases their reservations; late receive/cancel calls are idempotent no-ops.
+
+### GREEN verification
+
+- Focused review matrix: 4 files / 68 tests passed.
+- Controller outline gate: 4 files / 41 tests passed.
+- Controller queue/replica gate: 4 files / 70 tests passed.
+- Controller Task 5 UI gate: 7 files / 78 tests passed.
+- Controller integration gate: 5 files / 100 tests passed.
+- `pnpm typecheck`: passed.
+- Canonical `pnpm verify`: passed: 72 files / 787 unit tests; 97.97%
+  statements and lines, 91.52% branches, and 95.89% functions; production/PWA
+  build with 78 precache entries / 5134.53 KiB; Playwright 6/6.
+- `git diff --check 16036e7`: passed before documentation updates and is rerun
+  at the final commit boundary.
+
+### Self-review
+
+- Repair is distinct from ordinary single-flight refresh: its promise resolves
+  only after a forced response is actually integrated, and loader absence is a
+  retry-visible failure rather than silent success.
+- Rebase data is keyed by ticket and deleted at settlement, so the rejected
+  ticket is not retried while wholly later unresolved operations remain visible.
+- Central registration remains title-scoped and idempotent. Unrelated titles do
+  not block adoption, and the registry entry disappears at terminal delivery.
+- Token expiry is monotonic by request id and adjusts the shared reservation
+  count exactly once, preserving session lifetime without accepting stale calls.

@@ -216,4 +216,35 @@ describe("outline causality", () => {
     }]);
     expect(twice.effects).toEqual([]);
   });
+
+  it("authoritative repair adopts server state and reapplies only unresolved ops", () => {
+    const initial = createOutlineState("Page", [
+      block("u1", "old"), block("u2", "old other", { order_idx: 1 }),
+    ]);
+    const rejected = transitionOutline(initial, {
+      type: "local-ops", ticketId: "rejected",
+      ops: [{ op: "update_text", uid: "u2", text: "rejected local" }],
+    }).state;
+    const later = transitionOutline(rejected, {
+      type: "local-ops", ticketId: "later",
+      ops: [{ op: "update_text", uid: "u1", text: "later local" }],
+    }).state;
+    const rejectedSettled = transitionOutline(later, {
+      type: "write-settled", ticketId: "rejected",
+    }).state;
+    const started = beginAuthoritativeRead(rejectedSettled);
+
+    const repaired = transitionOutline(started.state, {
+      type: "authoritative-repair", token: started.token,
+      blocks: [
+        block("u1", "server before later"),
+        block("u2", "server repaired", { order_idx: 1 }),
+      ],
+    } as Parameters<typeof transitionOutline>[1]);
+
+    expect(repaired.state.blocks.map((node) => node.text)).toEqual([
+      "later local", "server repaired",
+    ]);
+    expect(repaired.state.relevantWrites).toEqual(new Set(["later"]));
+  });
 });

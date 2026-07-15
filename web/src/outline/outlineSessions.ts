@@ -74,6 +74,7 @@ interface Session {
   waiters: LeaseRecord[];
   seenRemote: WeakSet<WsBatch>;
   authoritativeRead: Promise<void> | null;
+  authoritativeRepair: Promise<void> | null;
   authoritativeAgain: boolean;
   reservations: number;
   loaders: Map<symbol, () => Promise<BlockNode[]>>;
@@ -82,11 +83,15 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>();
-const unresolvedWrites = new Map<string, WriteTicket>();
+const unresolvedWrites = new Map<string, {
+  ticket: WriteTicket;
+  ops: readonly BlockOp[];
+}>();
 
 function maybeDeleteSession(session: Session): void {
   if (session.handles === 0 && session.reservations === 0 &&
       session.trackedWrites.size === 0 && session.authoritativeRead === null &&
+      session.authoritativeRepair === null &&
       sessions.get(session.title) === session) {
     sessions.delete(session.title);
   }
@@ -111,9 +116,20 @@ function applyTransition(
   runEffects(session, result.effects);
 }
 
+function expireManualReadsBefore(session: Session, requestId: number): void {
+  let expired = 0;
+  for (const id of session.manualReads) {
+    if (id >= requestId) continue;
+    session.manualReads.delete(id);
+    expired += 1;
+  }
+  session.reservations -= expired;
+}
+
 function startAuthoritativeRead(session: Session): ReadToken {
   const started = beginRead(session.state);
   session.state = started.state;
+  expireManualReadsBefore(session, started.token.requestId);
   return started.token;
 }
 
@@ -127,6 +143,19 @@ function receiveAuthoritative(
     type: "authoritative", token, blocks,
   });
   applyTransition(session, result);
+}
+
+function receiveAuthoritativeRepair(
+  session: Session,
+  token: ReadToken,
+  blocks: BlockNode[],
+): boolean {
+  if (token.requestId !== session.state.latestRequestId) return false;
+  session.bootstrapped = true;
+  applyTransition(session, transitionOutline(session.state, {
+    type: "authoritative-repair", token, blocks,
+  }));
+  return true;
 }
 
 function finishManualRead(
@@ -147,6 +176,7 @@ function requestAuthoritative(
   session: Session,
   load?: () => Promise<BlockNode[]>,
 ): Promise<void> {
+  if (session.authoritativeRepair) return session.authoritativeRepair;
   if (session.authoritativeRead) return session.authoritativeRead;
   const loader = load ?? [...session.loaders.values()].at(-1);
   if (!loader) return Promise.resolve();
@@ -157,7 +187,7 @@ function requestAuthoritative(
     .finally(() => {
       if (session.authoritativeRead === request) {
         session.authoritativeRead = null;
-        if (session.authoritativeAgain) {
+        if (session.authoritativeAgain && !session.authoritativeRepair) {
           session.authoritativeAgain = false;
           void requestAuthoritative(session).catch(() => undefined);
         }
@@ -168,9 +198,72 @@ function requestAuthoritative(
   return request;
 }
 
+function forceAuthoritativeRepair(session: Session): Promise<void> {
+  if (session.authoritativeRepair) return session.authoritativeRepair;
+  const previous = session.authoritativeRead;
+  session.authoritativeAgain = false;
+  // Invalidate any current automatic/manual controller before waiting for its
+  // transport. The forced loader below receives a still newer real token.
+  startAuthoritativeRead(session);
+
+  let start!: () => void;
+  const repair = new Promise<void>((resolve, reject) => {
+    start = () => {
+      void (async () => {
+        if (previous) await previous.catch(() => undefined);
+        for (;;) {
+          const loader = [...session.loaders.values()].at(-1);
+          if (!loader) {
+            throw new Error(
+              `No authoritative loader for active outline ${session.title}`,
+            );
+          }
+          const token = startAuthoritativeRead(session);
+          let adopted = false;
+          const request = loader().then((blocks) => {
+            adopted = receiveAuthoritativeRepair(session, token, blocks);
+          });
+          session.authoritativeRead = request;
+          try {
+            await request;
+          } finally {
+            if (session.authoritativeRead === request) {
+              session.authoritativeRead = null;
+            }
+          }
+          if (adopted) return;
+          // A newer controller superseded this repair while its transport was
+          // in flight. Run one more forced read and await actual integration.
+        }
+      })().then(resolve, reject);
+    };
+  });
+  session.authoritativeRepair = repair;
+  repair.then(() => {
+    if (session.authoritativeRepair === repair) {
+      session.authoritativeRepair = null;
+      maybeDeleteSession(session);
+    }
+  }, () => {
+    if (session.authoritativeRepair === repair) {
+      session.authoritativeRepair = null;
+      maybeDeleteSession(session);
+    }
+  });
+  start();
+  return repair;
+}
+
 function runEffects(session: Session, effects: readonly OutlineEffect[]): void {
   if (effects.some((effect) => effect.type === "request-authoritative")) {
-    if (session.authoritativeRead) session.authoritativeAgain = true;
+    if (session.authoritativeRepair) return;
+    if (session.authoritativeRead) {
+      // Settlement requires a post-delivery read. Supersede the current token
+      // immediately so its pre-delivery response can never publish while the
+      // single-flight transport winds down.
+      startAuthoritativeRead(session);
+      session.authoritativeAgain = true;
+    }
     else void requestAuthoritative(session).catch(() => undefined);
   }
 }
@@ -179,12 +272,16 @@ function scopeContainsTitle(scope: readonly string[], title: string): boolean {
   return scope[0] === "page" && scope.slice(1).includes(title);
 }
 
-function trackWrite(session: Session, ticket: WriteTicket): void {
+function trackWrite(
+  session: Session,
+  ticket: WriteTicket,
+  ops: readonly BlockOp[] = [],
+): void {
   if (!scopeContainsTitle(ticket.scope, session.title) ||
       session.trackedWrites.has(ticket.id)) return;
   session.trackedWrites.add(ticket.id);
   applyTransition(session, transitionOutline(session.state, {
-    type: "write-started", ticketId: ticket.id, scope: ticket.scope,
+    type: "write-started", ticketId: ticket.id, scope: ticket.scope, ops,
   }));
   void ticket.delivered.finally(() => {
     session.trackedWrites.delete(ticket.id);
@@ -243,6 +340,7 @@ export function acquireOutlineSession(
       waiters: [],
       seenRemote: new WeakSet(),
       authoritativeRead: null,
+      authoritativeRepair: null,
       authoritativeAgain: false,
       reservations: 0,
       loaders: new Map(),
@@ -256,7 +354,9 @@ export function acquireOutlineSession(
     session.bootstrapped = true;
   }
   session.handles += 1;
-  for (const ticket of unresolvedWrites.values()) trackWrite(session, ticket);
+  for (const unresolved of unresolvedWrites.values()) {
+    trackWrite(session, unresolved.ticket, unresolved.ops);
+  }
 
   let released = false;
   const subscriptions = new Set<() => void>();
@@ -382,22 +482,25 @@ export function isOutlineEditorActive(title: string): boolean {
   return sessions.get(title)?.editor?.granted ?? false;
 }
 
-/** Route a scoped ticket to every currently mounted title session. This is
- * used by cross-page commands whose target may be a read-only fallback and
- * therefore have no registered DnD editor API. */
-export function trackActiveOutlineWrite(ticket: WriteTicket): void {
+/** Retain a page-scoped ticket centrally until delivery and route it to every
+ * matching session. A matching session opened later attaches the same ticket
+ * from the unresolved registry, including read-only cross-page targets. */
+export function trackActiveOutlineWrite(
+  ticket: WriteTicket,
+  ops: readonly BlockOp[] = [],
+): void {
   if (ticket.scope[0] !== "page") return;
   if (!unresolvedWrites.has(ticket.id)) {
-    unresolvedWrites.set(ticket.id, ticket);
+    unresolvedWrites.set(ticket.id, { ticket, ops: [...ops] });
     void ticket.delivered.finally(() => {
-      if (unresolvedWrites.get(ticket.id) === ticket) {
+      if (unresolvedWrites.get(ticket.id)?.ticket === ticket) {
         unresolvedWrites.delete(ticket.id);
       }
     });
   }
   for (const title of new Set(ticket.scope.slice(1))) {
     const session = sessions.get(title);
-    if (session) trackWrite(session, ticket);
+    if (session) trackWrite(session, ticket, ops);
   }
 }
 
@@ -423,6 +526,7 @@ export function captureActiveOutlineReads(
         );
         if (activated === null) return;
         session.state = activated;
+        expireManualReadsBefore(session, reserved.token.requestId);
         receiveAuthoritative(session, reserved.token, blocks);
       },
       release: () => {
@@ -440,10 +544,12 @@ export function isOutlineSessionActive(title: string): boolean {
   return sessions.has(title);
 }
 
-/** Repair every currently active optimistic outline before a legacy queue
- * releases later delivery. A rejected ticket's own settlement read coalesces
- * with this boundary through requestAuthoritative's per-title single flight. */
+/** Force every active outline through a post-settlement authoritative read,
+ * rebase wholly later unresolved writes, and only then release legacy delivery. */
 export async function repairActiveOutlineSessions(): Promise<void> {
-  await Promise.all([...sessions.values()].map((session) =>
-    requestAuthoritative(session)));
+  // Delivery promises resolve before their settlement callbacks run. Let the
+  // rejected ticket leave every session before selecting the pending ops that
+  // must be rebased over the authoritative snapshot.
+  await Promise.resolve();
+  await Promise.all([...sessions.values()].map(forceAuthoritativeRepair));
 }

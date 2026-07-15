@@ -24,6 +24,7 @@ export interface OutlineState {
   nextRequestId: number;
   latestRequestId: number;
   relevantWrites: ReadonlySet<string>;
+  relevantWriteOps: ReadonlyMap<string, readonly BlockOp[]>;
   deferredAuthoritative: DeferredAuthoritative | null;
 }
 
@@ -31,8 +32,10 @@ export type OutlineEvent =
   | { type: "local-ops"; ticketId: string; ops: readonly BlockOp[] }
   | { type: "local-tree"; blocks: BlockNode[] }
   | { type: "remote-ops"; ops: readonly BlockOp[] }
-  | { type: "write-started"; ticketId: string; scope: readonly string[] }
+  | { type: "write-started"; ticketId: string; scope: readonly string[];
+      ops?: readonly BlockOp[] }
   | { type: "authoritative"; token: ReadToken; blocks: BlockNode[] }
+  | { type: "authoritative-repair"; token: ReadToken; blocks: BlockNode[] }
   | { type: "write-settled"; ticketId: string };
 
 export type OutlineEffect = {
@@ -56,6 +59,7 @@ export function createOutlineState(
     nextRequestId: 1,
     latestRequestId: 0,
     relevantWrites: new Set(),
+    relevantWriteOps: new Map(),
     deferredAuthoritative: null,
   };
 }
@@ -126,11 +130,14 @@ export function transitionOutline(
   if (event.type === "local-ops") {
     const relevantWrites = new Set(state.relevantWrites);
     relevantWrites.add(event.ticketId);
+    const relevantWriteOps = new Map(state.relevantWriteOps);
+    relevantWriteOps.set(event.ticketId, [...event.ops]);
     return {
       state: {
         ...withBlocks(state,
           applyOps(state.blocks, [...event.ops], state.title)),
         relevantWrites,
+        relevantWriteOps,
       },
       effects: [],
     };
@@ -152,11 +159,27 @@ export function transitionOutline(
     }
     const relevantWrites = new Set(state.relevantWrites);
     relevantWrites.add(event.ticketId);
-    return { state: { ...state, relevantWrites }, effects: [] };
+    const relevantWriteOps = new Map(state.relevantWriteOps);
+    if (event.ops !== undefined) {
+      relevantWriteOps.set(event.ticketId, [...event.ops]);
+    }
+    return {
+      state: { ...state, relevantWrites, relevantWriteOps }, effects: [],
+    };
   }
-  if (event.type === "authoritative") {
+  if (event.type === "authoritative" || event.type === "authoritative-repair") {
     if (event.token.requestId !== state.latestRequestId) {
       return { state, effects: [] };
+    }
+    if (event.type === "authoritative-repair") {
+      let rebased = event.blocks;
+      for (const ticketId of state.relevantWrites) {
+        const ops = state.relevantWriteOps.get(ticketId);
+        if (ops && ops.length > 0) {
+          rebased = applyOps(rebased, [...ops], state.title);
+        }
+      }
+      return { state: adopt(state, rebased), effects: [] };
     }
     if (state.revision === event.token.revisionAtDispatch &&
         state.relevantWrites.size === 0) {
@@ -183,7 +206,9 @@ export function transitionOutline(
   }
   const relevantWrites = new Set(state.relevantWrites);
   relevantWrites.delete(event.ticketId);
-  const settled = { ...state, relevantWrites };
+  const relevantWriteOps = new Map(state.relevantWriteOps);
+  relevantWriteOps.delete(event.ticketId);
+  const settled = { ...state, relevantWrites, relevantWriteOps };
   if (relevantWrites.size > 0) return { state: settled, effects: [] };
   return {
     state: { ...settled, deferredAuthoritative: null },

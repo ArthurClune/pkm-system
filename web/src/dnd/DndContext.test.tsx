@@ -44,6 +44,7 @@ it("same-page drop with no registered outline enqueues the op directly", () => {
              { parent_uid: "x", order_idx: 0, page_title: "P" });
   expect(sync.sent).toEqual([[
     { op: "move", uid: "u1", parent_uid: "x", order_idx: 0 }]]);
+  expect(sync.tickets[0].scope).toEqual(["page", "P"]);
 });
 
 it("cross-page drop does two-outline surgery and one op with page_title", () => {

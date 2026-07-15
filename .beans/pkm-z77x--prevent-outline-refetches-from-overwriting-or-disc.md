@@ -9,7 +9,7 @@ tags:
     - outline
     - concurrency
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T19:19:57Z
+updated_at: 2026-07-15T19:42:58Z
 parent: pkm-c1cg
 ---
 
@@ -32,4 +32,4 @@ Introduce per-outline versioning/reconciliation and retain deferred authoritativ
 
 ## Summary of Changes
 
-Added a pure per-outline causality core and session-owned read tokens, revisions, deferred payloads, and title-scoped write relevance. Parent fetches and fallback target reads now enter the same versioned session, so older responses cannot erase newer local or remote state and unrelated pages do not block adoption. Added per-ticket delivered completion while preserving settled as durable persistence, ensuring own-echo repair reads wait for server acknowledgement. Added focused causality, hook, parent, queue, session, and DnD regressions; canonical pnpm verify passes (72 files / 760 unit tests and 6/6 Playwright tests).
+Added a pure per-outline causality core and session-owned dispatch-time read tokens, revisions, deferred payloads, title-scoped write relevance, and in-flight lifecycle retention. Responses captured before delivery now trigger a guarded fresh read, while Journal pagination protects sessions created or changed during flight. Added per-ticket delivered completion while preserving settled as durable persistence, including exact FIFO legacy-ticket outcomes and dispose-during-enqueue failure. Added focused causality, hook, parent, queue, session, and DnD regressions; canonical pnpm verify passes (72 files / 768 unit tests and 6/6 Playwright tests).

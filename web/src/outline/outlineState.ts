@@ -64,6 +64,19 @@ export function beginAuthoritativeRead(state: OutlineState): {
   state: OutlineState;
   token: ReadToken;
 } {
+  const reserved = reserveAuthoritativeRead(state);
+  return {
+    token: reserved.token,
+    state: activateAuthoritativeRead(reserved.state, reserved.token)!,
+  };
+}
+
+/** Reserve dispatch-time causality without superseding a request until the
+ * caller learns that its multi-title response actually contains this title. */
+export function reserveAuthoritativeRead(state: OutlineState): {
+  state: OutlineState;
+  token: ReadToken;
+} {
   const token = {
     requestId: state.nextRequestId,
     revisionAtDispatch: state.revision,
@@ -73,9 +86,17 @@ export function beginAuthoritativeRead(state: OutlineState): {
     state: {
       ...state,
       nextRequestId: state.nextRequestId + 1,
-      latestRequestId: token.requestId,
     },
   };
+}
+
+/** Promote a reserved read only if no later request has already won. */
+export function activateAuthoritativeRead(
+  state: OutlineState,
+  token: ReadToken,
+): OutlineState | null {
+  if (token.requestId <= state.latestRequestId) return null;
+  return { ...state, latestRequestId: token.requestId };
 }
 
 function scopeContainsTitle(scope: readonly string[], title: string): boolean {
@@ -164,11 +185,6 @@ export function transitionOutline(
   relevantWrites.delete(event.ticketId);
   const settled = { ...state, relevantWrites };
   if (relevantWrites.size > 0) return { state: settled, effects: [] };
-  const candidate = settled.deferredAuthoritative;
-  if (candidate && candidate.token.requestId === settled.latestRequestId &&
-      candidate.token.revisionAtDispatch === settled.revision) {
-    return { state: adopt(settled, candidate.blocks), effects: [] };
-  }
   return {
     state: { ...settled, deferredAuthoritative: null },
     effects: [{ type: "request-authoritative", reason: "write-settled" }],

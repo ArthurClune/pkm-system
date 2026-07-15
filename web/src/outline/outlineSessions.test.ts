@@ -3,6 +3,10 @@ import type { DeliveryOutcome, WriteOutcome } from "../sync/opQueue";
 import { block } from "../test-helpers";
 import { acquireOutlineSession, trackActiveOutlineWrite } from "./outlineSessions";
 
+const update = (text: string) => ({
+  op: "update_text" as const, uid: "u1", text,
+});
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => { resolve = done; });
@@ -75,6 +79,58 @@ it("deletes a released session so a later mount gets a fresh bootstrap", () => {
   fresh.release();
 });
 
+it("retains delivery causality across release and reacquire", async () => {
+  const delivered = deferred<DeliveryOutcome>();
+  const first = acquireOutlineSession("Pinned write", [block("u1", "old")]);
+  first.applyLocal({
+    id: "slow-write", scope: ["page", "Pinned write"],
+    settled: Promise.resolve({ status: "persisted", pending: 1 }),
+    delivered: delivered.promise,
+  }, [update("local")]);
+  first.release();
+
+  const reopened = acquireOutlineSession(
+    "Pinned write", [block("u1", "stale bootstrap")],
+  );
+  expect(reopened.getSnapshot().blocks[0].text).toBe("local");
+
+  delivered.resolve({ status: "delivered" });
+  await delivered.promise;
+  await Promise.resolve();
+  reopened.release();
+
+  const fresh = acquireOutlineSession(
+    "Pinned write", [block("u1", "fresh bootstrap")],
+  );
+  expect(fresh.getSnapshot().blocks[0].text).toBe("fresh bootstrap");
+  fresh.release();
+});
+
+it("retains an authoritative read across release and reacquire", async () => {
+  const response = deferred<ReturnType<typeof block>[]>();
+  const first = acquireOutlineSession(
+    "Pinned read", [block("u1", "before read")],
+  );
+  const reading = first.requestAuthoritative(() => response.promise);
+  first.release();
+
+  const reopened = acquireOutlineSession(
+    "Pinned read", [block("u1", "stale bootstrap")],
+  );
+  expect(reopened.getSnapshot().blocks[0].text).toBe("before read");
+
+  response.resolve([block("u1", "read result")]);
+  await reading;
+  expect(reopened.getSnapshot().blocks[0].text).toBe("read result");
+  reopened.release();
+
+  const fresh = acquireOutlineSession(
+    "Pinned read", [block("u1", "fresh bootstrap")],
+  );
+  expect(fresh.getSnapshot().blocks[0].text).toBe("fresh bootstrap");
+  fresh.release();
+});
+
 it("coalesces overlapping authoritative reads and publishes their tree once", async () => {
   const first = acquireOutlineSession("Authoritative", [block("old", "old")]);
   const second = acquireOutlineSession("Authoritative", [block("old", "old")]);
@@ -104,6 +160,10 @@ it("routes a cross-page ticket to source and fallback target but not another tit
   const source = acquireOutlineSession("Source", [block("s", "old source")]);
   const target = acquireOutlineSession("Target", [block("t", "old target")]);
   const other = acquireOutlineSession("Other", [block("o", "old other")]);
+  const loadSource = vi.fn(async () => [block("s", "new source")]);
+  const loadTarget = vi.fn(async () => [block("t", "new target")]);
+  const removeSourceLoader = source.setAuthoritativeLoader(loadSource);
+  const removeTargetLoader = target.setAuthoritativeLoader(loadTarget);
   const settled = deferred<WriteOutcome>();
   const delivered = deferred<DeliveryOutcome>();
   trackActiveOutlineWrite({
@@ -125,10 +185,15 @@ it("routes a cross-page ticket to source and fallback target but not another tit
   settled.resolve({ status: "persisted", pending: 0 });
   delivered.resolve({ status: "delivered" });
   await settled.promise;
-  await Promise.resolve();
+  await vi.waitFor(() => {
+    expect(loadSource).toHaveBeenCalledTimes(1);
+    expect(loadTarget).toHaveBeenCalledTimes(1);
+  });
 
   expect(source.getSnapshot().blocks[0].text).toBe("new source");
   expect(target.getSnapshot().blocks[0].text).toBe("new target");
+  removeSourceLoader();
+  removeTargetLoader();
   source.release();
   target.release();
   other.release();

@@ -104,7 +104,7 @@ describe("outline causality", () => {
     expect(afterSecond.deferredAuthoritative?.blocks[0].text).toBe("second");
   });
 
-  it("reconsiders the deferred candidate when the last relevant ticket settles", () => {
+  it("replaces a candidate that arrived while a relevant ticket was blocked", () => {
     const started = beginAuthoritativeRead(
       createOutlineState("Page", [block("u1", "old")]),
     );
@@ -120,8 +120,33 @@ describe("outline causality", () => {
       type: "write-settled", ticketId: "write-1",
     });
 
-    expect(result.state.blocks[0].text).toBe("server");
+    expect(result.state.blocks[0].text).toBe("old");
     expect(result.state.deferredAuthoritative).toBeNull();
+    expect(result.effects).toEqual([{
+      type: "request-authoritative", reason: "write-settled",
+    }]);
+  });
+
+  it("never adopts a pre-delivery response dispatched after the local edit", () => {
+    const edited = transitionOutline(
+      createOutlineState("Page", [block("u1", "old")]),
+      { type: "local-ops", ticketId: "write-1", ops: [update("local")] },
+    ).state;
+    const started = beginAuthoritativeRead(edited);
+    const deferred = transitionOutline(started.state, {
+      type: "authoritative", token: started.token,
+      blocks: [block("u1", "pre-delivery")],
+    }).state;
+
+    const result = transitionOutline(deferred, {
+      type: "write-settled", ticketId: "write-1",
+    });
+
+    expect(result.state.blocks[0].text).toBe("local");
+    expect(result.state.deferredAuthoritative).toBeNull();
+    expect(result.effects).toEqual([{
+      type: "request-authoritative", reason: "write-settled",
+    }]);
   });
 
   it("does not let an unrelated-title ticket block safe adoption", () => {

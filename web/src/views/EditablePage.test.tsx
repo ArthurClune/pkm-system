@@ -95,6 +95,10 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
 test("stale initial rerender while its scoped write is unsettled keeps optimistic heading", async () => {
   stubFetch([["/api/titles", { titles: [] }]]);
   const initial = [block("u1", "first", { order_idx: 0 })];
+  let deliver!: () => void;
+  const delivered = new Promise<{ status: "delivered" }>((resolve) => {
+    deliver = () => resolve({ status: "delivered" });
+  });
   const base = makeSync("reconnecting", {
     canEdit: true,
     pending: 0,
@@ -108,7 +112,7 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
         id: "write-page",
         scope: scope ?? [],
         settled: new Promise<never>(() => undefined),
-        delivered: new Promise<never>(() => undefined),
+        delivered,
       };
     },
   };
@@ -132,6 +136,7 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
   rerender(view([block("u1", "first", { order_idx: 0, heading: null })]));
 
   expect(screen.getByText("first").closest("h1")).not.toBeNull();
+  await act(async () => deliver());
 });
 
 test("Tab indents the second block under the first", () => {

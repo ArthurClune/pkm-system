@@ -144,3 +144,67 @@ Tracking/report:
   resync unmount windows. Same-title leases, once-only remote reduction,
   view-local drafts/focus/selection, hash DOM stability, and DnD token cleanup
   remain owned by Task 4 boundaries.
+
+## Independent-review reconciliation
+
+Review of `ca13148` found five remaining races. The follow-up fixes make these
+contracts explicit:
+
+- A response captured before a relevant ticket's delivery is never adopted
+  after that delivery, even when its request happened to dispatch after the
+  local edit. Settlement clears the candidate and requests one guarded fresh
+  read.
+- Journal requests reserve dispatch-time causality for every active outline.
+  A title whose session appears during the request, or whose later read wins,
+  keeps its session tree and receives a dedicated fresh page read.
+- A session remains registered while it owns handles, captured reservations,
+  tracked delivery tickets, or an authoritative read. Release/reacquire no
+  longer loses local state or read causality.
+- Replica workers that omit batch ids now associate tickets with their FIFO
+  durable position. Each success or terminal 4xx settles the matching ticket
+  without waiting for the entire queue to empty; later retryable work remains
+  pending.
+- Disposal while `replica.enqueue` is awaited resolves that ticket's delivery
+  exactly once as terminal failure and does not restart draining.
+
+### Follow-up RED
+
+`pnpm vitest run src/outline/outlineState.test.ts
+src/outline/useOutline.reconciliation.test.tsx
+src/outline/outlineSessions.test.ts src/views/Journal.test.tsx` failed with
+7 expected regressions and 23 passes: two pre-delivery candidates were adopted,
+two released sessions lost their pinned state, two Journal responses overwrote
+mid-flight session changes, and the hook launched no guarded fresh read.
+
+`pnpm vitest run src/sync/opQueue.replica.test.ts` failed with 3 expected
+regressions and 27 passes: the earlier unkeyed success and matching unkeyed 4xx
+ticket remained unresolved, and dispose-during-enqueue left delivery pending.
+
+### Follow-up GREEN and final verification
+
+- Outline review suite: 4 files / 30 tests passed.
+- Queue/replica review suite: 4 files / 69 tests passed.
+- Exact Task 5 Step 5 command: 7 files / 75 tests passed.
+- `src/views/EditablePage.test.tsx`: 30/30 passed after its deliberately
+  unsettled ticket was made controllable and completed during teardown.
+- `pnpm typecheck`: passed.
+- `pnpm verify`: passed: 72 files / 768 unit tests; 98.08% statements and
+  lines, 91.78% branches, 95.64% functions; production/PWA build with 78
+  precache entries / 5130.32 KiB; Playwright 6/6.
+- `git diff --check`: passed before report/bean update and is rerun immediately
+  before commit.
+
+Follow-up files changed relative to `ca13148`:
+
+- `.beans/pkm-z77x--prevent-outline-refetches-from-overwriting-or-disc.md`
+- `.superpowers/sdd/task-5-report.md`
+- `web/src/outline/outlineState.ts`
+- `web/src/outline/outlineState.test.ts`
+- `web/src/outline/outlineSessions.ts`
+- `web/src/outline/outlineSessions.test.ts`
+- `web/src/outline/useOutline.reconciliation.test.tsx`
+- `web/src/views/Journal.tsx`
+- `web/src/views/Journal.test.tsx`
+- `web/src/views/EditablePage.test.tsx`
+- `web/src/sync/opQueue.ts`
+- `web/src/sync/opQueue.replica.test.ts`

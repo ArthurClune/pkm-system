@@ -96,7 +96,7 @@ it("adopts Page A while only Page B has an unsettled write", () => {
   expect(pageA.blocks[0].text).toBe("server A");
 });
 
-it("settlement after a filtered own echo requests one fresh authoritative read", async () => {
+it("delivery replaces a blocked pre-delivery response with exactly one fresh read", async () => {
   const settled = deferred<WriteOutcome>();
   const delivered = deferred<DeliveryOutcome>();
   const sent: WriteTicket[] = [];
@@ -110,7 +110,7 @@ it("settlement after a filtered own echo requests one fresh authoritative read",
     },
   });
   const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(
-    pagePayload("Page", [block("u1", "authoritative")]),
+    pagePayload("Page", [block("u1", "authoritative", { heading: 1 })]),
   )));
   vi.stubGlobal("fetch", fetchMock);
   let outline!: Outline;
@@ -123,6 +123,12 @@ it("settlement after a filtered own echo requests one fresh authoritative read",
 
   act(() => outline.handlers.onSetHeading("u1", 1));
   expect(sent[0].scope).toEqual(["page", "Page"]);
+  const token = outline.session!.beginAuthoritativeRead("parent");
+  act(() => outline.session!.receiveAuthoritative(
+    token, [block("u1", "pre-delivery")],
+  ));
+  expect(outline.blocks[0]).toMatchObject({ text: "old", heading: 1 });
+
   await act(async () => {
     settled.resolve({ status: "persisted", pending: 0 });
     await settled.promise;
@@ -133,6 +139,7 @@ it("settlement after a filtered own echo requests one fresh authoritative read",
 
   delivered.resolve({ status: "delivered" });
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", undefined);
-  expect(outline.blocks[0].text).toBe("authoritative");
+  expect(outline.blocks[0]).toMatchObject({ text: "authoritative", heading: 1 });
 });

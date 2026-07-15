@@ -6,8 +6,10 @@ import type { BlockRefText, JournalDay, JournalPayload,
                   PagePayload } from "../api/payloads";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { acquireOutlineSession,
-         type OutlineSessionHandle,
-         type ReadToken } from "../outline/outlineSessions";
+         captureActiveOutlineReads,
+         isOutlineSessionActive,
+         type AuthoritativeReadSource,
+         type OutlineSessionHandle } from "../outline/outlineSessions";
 import { encodeTitle, pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
@@ -47,12 +49,13 @@ export function Journal() {
   }, []);
 
   const loadMore = useCallback(async (
-    reads: ReadonlyMap<string, ReadToken> = new Map(),
+    source: AuthoritativeReadSource = "parent",
   ) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     const gen = genRef.current;
+    const reads = captureActiveOutlineReads(source);
     try {
       const current = daysRef.current;
       const oldest = current[current.length - 1]?.date;
@@ -62,10 +65,22 @@ export function Journal() {
       const p = await apiFetch<JournalPayload>(`/api/journal${qs}`);
       if (gen !== genRef.current) return; // reset() superseded this load: discard
       const received = p.days.map((day) => {
+        const activeAtResponse = isOutlineSessionActive(day.title);
         const session = sessionFor(day.title);
-        const token = reads.get(day.title) ??
-          session.beginAuthoritativeRead("parent");
-        session.receiveAuthoritative(token, day.blocks);
+        const captured = reads.get(day.title);
+        if (captured) {
+          captured.receive(day.blocks);
+        } else if (activeAtResponse) {
+          void session.requestAuthoritative(async () => {
+            const page = await apiFetch<PagePayload>(
+              `/api/page/${encodeTitle(day.title)}`,
+            );
+            return page.blocks;
+          }).catch(() => undefined);
+        } else {
+          const token = session.beginAuthoritativeRead(source);
+          session.receiveAuthoritative(token, day.blocks);
+        }
         return { ...day, blocks: session.getSnapshot().blocks };
       });
       const next = [...current, ...received];
@@ -80,6 +95,7 @@ export function Journal() {
       setError(String(e));
       setAutoLoad(false);
     } finally {
+      for (const read of reads.values()) read.release();
       // A superseded load must not release the lock: it now belongs to the
       // reset()-triggered reload that took over this generation.
       if (gen === genRef.current) {
@@ -110,11 +126,6 @@ export function Journal() {
   }, []);
 
   const reset = useCallback(() => {
-    const reads = new Map<string, ReadToken>();
-    for (const day of daysRef.current) {
-      reads.set(day.title,
-        sessionFor(day.title).beginAuthoritativeRead("resync"));
-    }
     // Invalidate any in-flight loadMore so its stale response can't clobber
     // the authoritative refetch, and release its lock so we can start now.
     genRef.current += 1;
@@ -124,8 +135,8 @@ export function Journal() {
     setRefTexts({});
     emptyStreakRef.current = 0;
     setAutoLoad(true);
-    void loadMore(reads);
-  }, [loadMore, sessionFor]);
+    void loadMore("resync");
+  }, [loadMore]);
   useResync(reset);
 
   useEffect(() => {

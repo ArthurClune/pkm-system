@@ -163,9 +163,10 @@ function createReplicaQueue(replica: Replica,
   const poison = listeners<PoisonEvent>();
   const quota = listeners<unknown>();
   const deliveries = new Map<string, (outcome: DeliveryOutcome) => void>();
-  const unidentifiedDeliveries = new Set<
-    (outcome: DeliveryOutcome) => void
-  >();
+  const unidentifiedDeliveries: Array<{
+    position: number;
+    resolve(outcome: DeliveryOutcome): void;
+  }> = [];
 
   const finishDelivery = (batchId: string, outcome: DeliveryOutcome): void => {
     const resolve = deliveries.get(batchId);
@@ -177,8 +178,20 @@ function createReplicaQueue(replica: Replica,
   const finishAllDeliveries = (outcome: DeliveryOutcome): void => {
     for (const resolve of deliveries.values()) resolve(outcome);
     deliveries.clear();
-    for (const resolve of unidentifiedDeliveries) resolve(outcome);
-    unidentifiedDeliveries.clear();
+    while (unidentifiedDeliveries.length > 0) {
+      unidentifiedDeliveries.shift()!.resolve(outcome);
+    }
+  };
+
+  /** Older workers omitted enqueue batch ids. Their returned pending count is
+   * the ticket's FIFO position among deliverable durable rows. */
+  const finishObservedUnidentified = (outcome: DeliveryOutcome): void => {
+    const retained: typeof unidentifiedDeliveries = [];
+    for (const delivery of unidentifiedDeliveries) {
+      if (delivery.position === 1) delivery.resolve(outcome);
+      else retained.push({ ...delivery, position: delivery.position - 1 });
+    }
+    unidentifiedDeliveries.splice(0, unidentifiedDeliveries.length, ...retained);
   };
 
   const cancelRetry = (reset: boolean): void => {
@@ -313,6 +326,7 @@ function createReplicaQueue(replica: Replica,
           poisonPending.emit(undefined);
           rememberPoisonMark(event);
           finishDelivery(batch.batch_id, { status: "failed", error });
+          finishObservedUnidentified({ status: "failed", error });
           try {
             await markRetainedPoison();
           } catch (rpcError: unknown) {
@@ -330,6 +344,7 @@ function createReplicaQueue(replica: Replica,
       }
       pendingCount = result.pending;
       finishDelivery(batch.batch_id, { status: "delivered" });
+      finishObservedUnidentified({ status: "delivered" });
       if (pendingCount === 0) {
         // Test replicas and older workers may not return enqueue batch ids;
         // an empty durable queue proves those in-memory tickets delivered.
@@ -397,14 +412,21 @@ function createReplicaQueue(replica: Replica,
         try {
           const result = await replica.enqueue(ops);
           pendingCount = result.pending;
-          if (result.batchId === undefined) {
-            unidentifiedDeliveries.add(resolveDelivery);
+          if (disposed) {
+            resolveDelivery({
+              status: "failed", error: new Error("op queue disposed"),
+            });
+          } else if (result.batchId === undefined) {
+            unidentifiedDeliveries.push({
+              position: result.pending,
+              resolve: resolveDelivery,
+            });
           } else {
             deliveries.set(result.batchId, resolveDelivery);
           }
           pending.emit(pendingCount);
           resolve({ status: "persisted", pending: pendingCount });
-          kick();
+          if (!disposed) kick();
         } catch (error: unknown) {
           resolve({ status: "failed", error });
           if (error instanceof ReplicaError && error.quota) {

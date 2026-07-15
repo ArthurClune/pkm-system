@@ -8,7 +8,9 @@ import type { WriteTicket } from "../sync/opQueue";
 import type { WsBatch } from "../sync/socket";
 import {
   beginAuthoritativeRead as beginRead,
+  activateAuthoritativeRead,
   createOutlineState,
+  reserveAuthoritativeRead,
   transitionOutline,
   type OutlineEffect,
   type OutlineState,
@@ -48,6 +50,11 @@ export interface OutlineSessionHandle {
   release(): void;
 }
 
+export interface CapturedOutlineRead {
+  receive(blocks: BlockNode[]): void;
+  release(): void;
+}
+
 interface LeaseRecord {
   owner: symbol;
   granted: boolean;
@@ -67,11 +74,20 @@ interface Session {
   seenRemote: WeakSet<WsBatch>;
   authoritativeRead: Promise<void> | null;
   authoritativeAgain: boolean;
+  reservations: number;
   loaders: Map<symbol, () => Promise<BlockNode[]>>;
   trackedWrites: Set<string>;
 }
 
 const sessions = new Map<string, Session>();
+
+function maybeDeleteSession(session: Session): void {
+  if (session.handles === 0 && session.reservations === 0 &&
+      session.trackedWrites.size === 0 && session.authoritativeRead === null &&
+      sessions.get(session.title) === session) {
+    sessions.delete(session.title);
+  }
+}
 
 function publish(session: Session): void {
   session.snapshot = {
@@ -128,6 +144,7 @@ function requestAuthoritative(
           session.authoritativeAgain = false;
           void requestAuthoritative(session).catch(() => undefined);
         }
+        maybeDeleteSession(session);
       }
     });
   session.authoritativeRead = request;
@@ -157,6 +174,7 @@ function trackWrite(session: Session, ticket: WriteTicket): void {
     applyTransition(session, transitionOutline(session.state, {
       type: "write-settled", ticketId: ticket.id,
     }));
+    maybeDeleteSession(session);
   });
 }
 
@@ -209,6 +227,7 @@ export function acquireOutlineSession(
       seenRemote: new WeakSet(),
       authoritativeRead: null,
       authoritativeAgain: false,
+      reservations: 0,
       loaders: new Map(),
       trackedWrites: new Set(),
     };
@@ -329,9 +348,7 @@ export function acquireOutlineSession(
       for (const token of loaders) session.loaders.delete(token);
       loaders.clear();
       session.handles -= 1;
-      if (session.handles === 0 && sessions.get(title) === session) {
-        sessions.delete(title);
-      }
+      maybeDeleteSession(session);
     },
   };
   return handle;
@@ -350,4 +367,43 @@ export function trackActiveOutlineWrite(ticket: WriteTicket): void {
     const session = sessions.get(title);
     if (session) trackWrite(session, ticket);
   }
+}
+
+/** Capture causality for every currently active title before a multi-title
+ * request dispatches. Reservations pin their session but do not supersede an
+ * unrelated read unless the response actually contains that title. */
+export function captureActiveOutlineReads(
+  _source: AuthoritativeReadSource,
+): Map<string, CapturedOutlineRead> {
+  const captures = new Map<string, CapturedOutlineRead>();
+  for (const [title, session] of sessions) {
+    const reserved = reserveAuthoritativeRead(session.state);
+    session.state = reserved.state;
+    session.reservations += 1;
+    let released = false;
+    let received = false;
+    captures.set(title, {
+      receive: (blocks) => {
+        if (released || received) return;
+        received = true;
+        const activated = activateAuthoritativeRead(
+          session.state, reserved.token,
+        );
+        if (activated === null) return;
+        session.state = activated;
+        receiveAuthoritative(session, reserved.token, blocks);
+      },
+      release: () => {
+        if (released) return;
+        released = true;
+        session.reservations -= 1;
+        maybeDeleteSession(session);
+      },
+    });
+  }
+  return captures;
+}
+
+export function isOutlineSessionActive(title: string): boolean {
+  return sessions.has(title);
 }

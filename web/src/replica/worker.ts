@@ -15,7 +15,6 @@ const DB_FILE = "/pkm-replica.sqlite3";
 
 interface PoolUtil {
   OpfsSAHPoolDb: new (filename: string) => Oo1DbLike & { close(): void };
-  wipeFiles(): Promise<void> | void;
 }
 
 let sqlite3: { installOpfsSAHPoolVfs(opts: { name: string }): Promise<PoolUtil> } | null = null;
@@ -35,17 +34,10 @@ async function openDb(): Promise<ReplicaDb> {
   return pragmas(wrapSqlite(rawDb));
 }
 
-async function resetDb(): Promise<ReplicaDb> {
-  rawDb?.close();
-  rawDb = null;
-  await pool?.wipeFiles();
-  return openDb();
-}
-
 function closeDb(): void {
   rawDb?.close();
   rawDb = null;
 }
 
 serveRpc(toPortLike(self as unknown as { postMessage(msg: unknown): void; onmessage: unknown }),
-         buildHandlers({ openDb, resetDb, closeDb }));
+         buildHandlers({ openDb, closeDb }));

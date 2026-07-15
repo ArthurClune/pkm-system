@@ -10,6 +10,12 @@ import { serveRpc, toPortLike } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 const SNAP: Snapshot = {
   generation: "gen-1", seq: 5,
   pages: [{ id: 1, title: "AI", created_at: 1, updated_at: 1 }],
@@ -20,16 +26,11 @@ const SNAP: Snapshot = {
 };
 
 async function setup(prep?: (t: TestDb) => void): Promise<{ replica: Replica; current: () => TestDb }> {
-  let t = await openRawTestDb();
+  const t = await openRawTestDb();
   prep?.(t);
   const ch = new MessageChannel();
   serveRpc(toPortLike(ch.port2), buildHandlers({
     openDb: async () => t.db,
-    resetDb: async () => {
-      t.close();
-      t = await openRawTestDb();
-      return t.db;
-    },
   }));
   return { replica: createReplica(toPortLike(ch.port1)), current: () => t };
 }
@@ -127,7 +128,6 @@ test("openDb failure degrades to no-replica mode instead of rejecting", async ()
   const ch = new MessageChannel();
   serveRpc(toPortLike(ch.port2), buildHandlers({
     openDb: async () => { throw new Error("OPFS unavailable"); },
-    resetDb: async () => { throw new Error("unreachable"); },
   }));
   const replica = createReplica(toPortLike(ch.port1));
   await expect(replica.init()).resolves.toEqual({
@@ -156,7 +156,6 @@ test("dispose closes the worker database before disposing the RPC facade", async
   const ch = new MessageChannel();
   serveRpc(toPortLike(ch.port2), buildHandlers({
     openDb: async () => (await openRawTestDb()).db,
-    resetDb: async () => (await openRawTestDb()).db,
     closeDb: async () => { events.push("close-db"); },
   }));
   const replica = createReplica(toPortLike(ch.port1), () => {
@@ -170,7 +169,7 @@ test("dispose closes the worker database before disposing the RPC facade", async
   await expect(replica.pendingCount()).rejects.toMatchObject({ kind: "disposed" });
 });
 
-test("snapshot and reset RPCs use the long timeout; ordinary calls use the default", async () => {
+test("snapshot and recovery RPCs use the long timeout; ordinary calls use the default", async () => {
   vi.useFakeTimers();
   try {
     const ch = new MessageChannel();
@@ -181,13 +180,19 @@ test("snapshot and reset RPCs use the long timeout; ordinary calls use the defau
       .then(() => undefined, (error: unknown) => error)
       .finally(() => { snapshotSettled = true; });
     const reset = replica.reset().catch((error: unknown) => error);
+    let prepareSettled = false;
+    const prepare = replica.prepareRecovery()
+      .then(() => undefined, (error: unknown) => error)
+      .finally(() => { prepareSettled = true; });
 
     await vi.advanceTimersByTimeAsync(30_000);
     await expect(ordinary).resolves.toMatchObject({ kind: "timeout" });
     expect(snapshotSettled).toBe(false);
+    expect(prepareSettled).toBe(false);
     await vi.advanceTimersByTimeAsync(90_000);
     await expect(snapshot).resolves.toMatchObject({ kind: "timeout" });
     await expect(reset).resolves.toMatchObject({ kind: "timeout" });
+    await expect(prepare).resolves.toMatchObject({ kind: "timeout" });
   } finally {
     vi.useRealTimers();
   }
@@ -210,4 +215,58 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   await replica.deleteBatch(batch.id);
   expect(await replica.pendingCount()).toBe(0);
   await expect(replica.markPoisoned(99, "gone")).resolves.toEqual({ pending: 0 });
+});
+
+test("a recovery lease gates enqueue and offline POST until the fresh database is ready", async () => {
+  const t = await openRawTestDb();
+  const enqueueDispatched = deferred();
+  const localPostDispatched = deferred();
+  const ch = new MessageChannel();
+  const base = buildHandlers({
+    openDb: async () => t.db,
+    nowMs: () => 10,
+    newBatchId: (() => {
+      let id = 0;
+      return () => `batch-${++id}`;
+    })(),
+  });
+  serveRpc(toPortLike(ch.port2), {
+    ...base,
+    enqueue: async (payload) => {
+      enqueueDispatched.resolve();
+      return base.enqueue(payload);
+    },
+    localApi: async (payload) => {
+      localPostDispatched.resolve();
+      return base.localApi(payload);
+    },
+  });
+  const replica = createReplica(toPortLike(ch.port1));
+  await replica.init();
+  await replica.applySnapshot(SNAP);
+
+  const lease = await replica.prepareRecovery();
+  let enqueueSettled = false;
+  let localPostSettled = false;
+  const enqueue = replica.enqueue([
+    { op: "update_text", uid: "uid_b1", text: "after recovery" },
+  ]).finally(() => { enqueueSettled = true; });
+  const localPost = replica.localApi({
+    method: "POST", path: "/api/pages", body: { title: "Offline Page" }, nowMs: 10,
+  }).finally(() => { localPostSettled = true; });
+
+  await Promise.all([enqueueDispatched.promise, localPostDispatched.promise]);
+  expect(enqueueSettled).toBe(false);
+  expect(localPostSettled).toBe(false);
+  expect(t.db.select("SELECT COUNT(*) AS n FROM pending_ops")).toEqual([{ n: 0 }]);
+  expect(t.db.select("SELECT id FROM pages WHERE title='Offline Page'")).toEqual([]);
+
+  await replica.commitRecovery(lease.token, { kind: "reset", snapshot: SNAP });
+  await Promise.all([enqueue, localPost]);
+
+  expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+    .toEqual([{ text: "after recovery" }]);
+  expect(t.db.select("SELECT title FROM pages WHERE title='Offline Page'"))
+    .toEqual([{ title: "Offline Page" }]);
+  expect(await replica.pendingCount()).toBe(2);
 });

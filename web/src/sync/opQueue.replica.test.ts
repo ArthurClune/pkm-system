@@ -14,7 +14,7 @@ function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch
   const rows: PendingBatch[] = [];
   let nextId = 1;
   const pending = () => rows.filter((r) => !r.poisoned).length;
-  return {
+  const replica: Replica & { rows: PendingBatch[] } = {
     rows,
     init: async () => ({ ok: true, empty: false, cursor: 0,
                          schemaMismatch: false, pendingBatches: [] }),
@@ -37,10 +37,13 @@ function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch
     },
     pendingCount: async () => pending(),
     localApi: async () => ({ handled: false as const }),
+    prepareRecovery: async () => ({ token: "lease-1", batches: [...rows] }),
+    commitRecovery: async () => undefined,
+    abortRecovery: async () => undefined,
     reset: async () => undefined,
     dispose: async () => undefined,
-    ...over,
   };
+  return Object.assign(replica, over);
 }
 
 function fetchSeq(responses: Array<() => Response | Promise<Response>>) {

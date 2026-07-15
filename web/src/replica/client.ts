@@ -27,6 +27,15 @@ export interface ReplicaInit {
   pendingBatches: PendingBatch[];
 }
 
+export interface RecoveryLease {
+  token: string;
+  batches: readonly PendingBatch[];
+}
+
+export type RecoveryCommit =
+  | { kind: "reset"; snapshot: Snapshot }
+  | { kind: "rebase"; snapshot: Snapshot };
+
 export type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 
 export interface Replica {
@@ -44,6 +53,12 @@ export interface Replica {
   pendingCount(): Promise<number>;
   /** Offline API shim: handled:false = route not shimmed (online-only). */
   localApi(req: LocalApiRequest): Promise<LocalApiResult>;
+  /** FIFO barrier: earlier database work finishes and later work waits. */
+  prepareRecovery(): Promise<RecoveryLease>;
+  /** Final durable-row comparison and authoritative rebuild/rebase. */
+  commitRecovery(token: string, input: RecoveryCommit): Promise<void>;
+  /** Release a prepared lease without destructive work. */
+  abortRecovery(token: string): Promise<void>;
   /** Drop and reinstall the schema. Caller enforces the non-empty-queue
    * guard (spec section 6): never call with unsynced pending ops. */
   reset(): Promise<void>;
@@ -66,6 +81,11 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
     markPoisoned: (id, error) => rpc.call("markPoisoned", { id, error }),
     pendingCount: () => rpc.call("pendingCount"),
     localApi: (req) => rpc.call("localApi", req),
+    prepareRecovery: () => rpc.call(
+      "prepareRecovery", undefined, { timeoutMs: 120_000 }),
+    commitRecovery: (token, input) => rpc.call(
+      "commitRecovery", { token, input }, { timeoutMs: 120_000 }),
+    abortRecovery: (token) => rpc.call("abortRecovery", token),
     reset: () => rpc.call("reset", undefined, { timeoutMs: 120_000 }),
     dispose: () => (disposing ??= (async () => {
       try {

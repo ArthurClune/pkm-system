@@ -133,6 +133,9 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     markPoisoned: async () => ({ pending: 0 }),
     pendingCount: async () => 0,
     localApi: async () => ({ handled: false as const }),
+    prepareRecovery: async () => ({ token: "lease-1", batches: [] }),
+    commitRecovery: async () => undefined,
+    abortRecovery: async () => undefined,
     reset: async () => undefined,
     dispose: async () => { log.push("dispose"); },
   };

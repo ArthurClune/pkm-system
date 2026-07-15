@@ -8,7 +8,8 @@
 // database: degraded beats data loss.
 
 import type { Changes, Snapshot } from "../replica/apply";
-import type { PendingBatch, Replica } from "../replica/client";
+import type { PendingBatch, RecoveryCommit, Replica } from "../replica/client";
+import type { OpQueue } from "./opQueue";
 
 export type ReplicaState =
   | { mode: "starting" }
@@ -32,6 +33,8 @@ export interface ReplicaSyncDeps {
   fetchJson: (path: string, init?: RequestInit) => Promise<unknown>;
   clientId: string;
   onState: (s: ReplicaState) => void;
+  /** Delivery is paused while the worker recovery lease owns the database. */
+  queue?: Pick<OpQueue, "pause" | "resume">;
 }
 
 const errText = (e: unknown): string =>
@@ -39,6 +42,10 @@ const errText = (e: unknown): string =>
 
 export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const { replica, fetchJson, clientId, onState } = deps;
+  const queue = deps.queue ?? {
+    pause: () => undefined,
+    resume: () => undefined,
+  };
   let cursor = 0;
   let started = false;
   let disabled = false; // no-replica: permanent for this session
@@ -65,17 +72,30 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
   };
 
-  const rebootstrap = async (): Promise<void> => {
-    if ((await replica.pendingCount()) > 0) {
-      try {
-        await flushBatches(await replica.pendingBatches());
-      } catch (e) {
-        onState({ mode: "recovery-failed", error: errText(e) });
-        throw e;
+  const recover = async (kind: RecoveryCommit["kind"]): Promise<boolean> => {
+    queue.pause("recovery");
+    let token: string | null = null;
+    try {
+      const lease = await replica.prepareRecovery();
+      token = lease.token;
+      await flushBatches([...lease.batches]);
+      const snapshot = (await fetchJson("/api/sync/snapshot")) as Snapshot;
+      await replica.commitRecovery(token, { kind, snapshot });
+      token = null; // commit released the worker gate
+      cursor = snapshot.seq;
+      return true;
+    } catch (error: unknown) {
+      onState({ mode: "recovery-failed", error: errText(error) });
+      if (token !== null) {
+        // Commit failures release in the worker; abort is still attempted so
+        // transport failures cannot leave a known lease held. Double-token
+        // rejection is deliberately ignored in favor of the original error.
+        try { await replica.abortRecovery(token); } catch { /* already released */ }
       }
+      return false;
+    } finally {
+      queue.resume("recovery");
     }
-    await replica.reset();
-    await bootstrap();
   };
 
   const pullLoop = async (): Promise<void> => {
@@ -90,7 +110,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         const res = await replica.applyChanges(feed, expectedPendingIds);
         if (res.status === "pending-changed") continue;
         if (res.status === "needs-bootstrap") {
-          await rebootstrap(); // cursor now at the snapshot's seq
+          if (!(await recover("rebase"))) return;
           done = feed.latest_seq <= cursor;
         } else {
           cursor = res.cursor;
@@ -121,15 +141,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
     cursor = init.cursor;
     if (init.schemaMismatch) {
-      // deploy changed the DDL: flush queued work, then rebuild
-      try {
-        await flushBatches(init.pendingBatches);
-      } catch (e) {
-        onState({ mode: "recovery-failed", error: errText(e) });
-        return; // keep the old database; retry on next reconnect
-      }
-      await replica.reset();
-      await bootstrap();
+      // deploy changed the DDL: one coordinator flushes and rebuilds under
+      // the same worker lease used for feed generation/reset recovery.
+      if (!(await recover("reset"))) return;
     } else if (init.empty) {
       await bootstrap();
     }

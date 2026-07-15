@@ -136,6 +136,7 @@ export function SyncProvider({ children, replica }: {
       replica: r,
       fetchJson: apiFetch,
       clientId,
+      queue,
       onState: (next) => {
         if (mountedRef.current) setReplicaState(next);
       },

@@ -34,6 +34,11 @@ export interface EditorLease {
   release(): void;
 }
 
+export interface ParentReadiness {
+  promise: Promise<PagePayload>;
+  release(): void;
+}
+
 export interface OutlineSessionHandle {
   getSnapshot(): SharedOutlineSnapshot;
   subscribe(listener: () => void): () => void;
@@ -43,7 +48,7 @@ export interface OutlineSessionHandle {
   receiveParentAuthoritative(token: ReadToken, payload: PagePayload): boolean;
   failAuthoritativeRead(token: ReadToken, error: unknown): boolean;
   cancelAuthoritativeRead(token: ReadToken): boolean;
-  waitForParentAuthoritative(token: ReadToken): Promise<PagePayload>;
+  registerParentReadiness(token: ReadToken): ParentReadiness;
   setParentReadController(start: () => void): () => void;
   setAuthoritativeLoader(load: () => Promise<BlockNode[]>): () => void;
   applyLocal(ticket: WriteTicket, ops: readonly BlockOp[]): void;
@@ -68,6 +73,13 @@ interface LeaseRecord {
   listeners: Set<() => void>;
 }
 
+interface ParentWaiter {
+  owner: symbol;
+  afterRequestId: number;
+  resolve: (payload: PagePayload) => void;
+  reject: (error: unknown) => void;
+}
+
 interface Session {
   title: string;
   state: OutlineState;
@@ -85,12 +97,7 @@ interface Session {
   trackedWrites: Set<string>;
   manualReads: Set<number>;
   parentPayload: { requestId: number; payload: PagePayload } | null;
-  parentWaiters: Set<{
-    owner: symbol;
-    afterRequestId: number;
-    resolve: (payload: PagePayload) => void;
-    reject: (error: unknown) => void;
-  }>;
+  parentWaiters: Set<ParentWaiter>;
   parentControllers: Map<symbol, () => void>;
   parentElectionScheduled: boolean;
   parentElectionStarting: boolean;
@@ -226,7 +233,7 @@ function publishParentPayload(
   session.parentRecoveryAttempted = false;
   session.parentRecoveryRequestId = null;
   for (const waiter of [...session.parentWaiters]) {
-    if (waiter.afterRequestId >= accepted.requestId) continue;
+    if (waiter.afterRequestId > accepted.requestId) continue;
     session.parentWaiters.delete(waiter);
     waiter.resolve(accepted.payload);
   }
@@ -242,7 +249,8 @@ function scheduleParentElection(session: Session): void {
   session.parentElectionScheduled = true;
   void Promise.resolve().then(() => {
     session.parentElectionScheduled = false;
-    if (session.parentWaiters.size === 0 || session.manualReads.size > 0 ||
+    if (session.parentWaiters.size === 0 || session.reservations > 0 ||
+        session.manualReads.size > 0 ||
         session.authoritativeRead !== null || activeRepairEpoch !== null) return;
     const controller = [...session.parentControllers.values()].at(-1);
     if (!controller || session.parentRecoveryAttempted) {
@@ -609,24 +617,50 @@ export function acquireOutlineSession(
       token,
       new Error(`Parent read cancelled for ${session.title}`),
     ),
-    waitForParentAuthoritative: (token) => {
+    registerParentReadiness: (token) => {
       const accepted = session.parentPayload;
-      if (accepted && accepted.requestId > token.requestId) {
-        return Promise.resolve(accepted.payload);
+      if (accepted && accepted.requestId >= token.requestId) {
+        return {
+          promise: Promise.resolve(accepted.payload),
+          release: () => undefined,
+        };
       }
       if (released) {
-        return Promise.reject(new Error(`Outline handle released for ${title}`));
+        return {
+          promise: Promise.reject(
+            new Error(`Outline handle released for ${title}`),
+          ),
+          release: () => undefined,
+        };
       }
+      let active = true;
+      let waiter!: ParentWaiter;
       const promise = new Promise<PagePayload>((resolve, reject) => {
-        session.parentWaiters.add({
+        waiter = {
           owner: handleId,
           afterRequestId: token.requestId,
-          resolve,
-          reject,
-        });
+          resolve: (payload) => {
+            if (!active) return;
+            active = false;
+            resolve(payload);
+          },
+          reject: (error) => {
+            if (!active) return;
+            active = false;
+            reject(error);
+          },
+        };
+        session.parentWaiters.add(waiter);
       });
       scheduleParentElection(session);
-      return promise;
+      return {
+        promise,
+        release: () => {
+          if (!active) return;
+          active = false;
+          session.parentWaiters.delete(waiter);
+        },
+      };
     },
     setParentReadController: (start) => {
       if (released) return () => undefined;
@@ -789,6 +823,7 @@ export function captureActiveOutlineReads(
         if (released) return;
         released = true;
         session.reservations -= 1;
+        scheduleParentElection(session);
         maybeDeleteSession(session);
       },
     });

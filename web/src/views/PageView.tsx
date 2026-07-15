@@ -11,6 +11,7 @@ import { useResync } from "../sync/SyncProvider";
 import { acquireOutlineSession,
          type AuthoritativeReadSource,
          type OutlineSessionHandle,
+         type ParentReadiness,
          type ReadToken } from "../outline/outlineSessions";
 import { EditablePage } from "./EditablePage";
 
@@ -24,6 +25,7 @@ export function PageView() {
   const readRef = useRef<{
     handle: OutlineSessionHandle;
     token: ReadToken;
+    readiness: ParentReadiness | null;
   } | null>(null);
 
   const load = useCallback((source: AuthoritativeReadSource,
@@ -31,42 +33,54 @@ export function PageView() {
     if (!handle) return;
     const seq = ++seqRef.current;
     const previous = readRef.current;
-    if (previous) previous.handle.cancelAuthoritativeRead(previous.token);
+    if (previous) {
+      previous.readiness?.release();
+      previous.handle.cancelAuthoritativeRead(previous.token);
+    }
     const token = handle.beginAuthoritativeRead(source);
-    const read = { handle, token };
+    const readiness = source === "parent"
+      ? handle.registerParentReadiness(token)
+      : null;
+    const read = { handle, token, readiness };
     readRef.current = read;
     setError(null);
-    const awaitAcceptedParent = () => {
-      void handle.waitForParentAuthoritative(token)
+    if (readiness) {
+      void readiness.promise
         .then((winner) => {
           if (seq !== seqRef.current) return;
+          if (readRef.current === read) readRef.current = null;
           setError(null);
           setPayload({ ...winner, blocks: handle.getSnapshot().blocks });
         })
         .catch((winnerError: unknown) => {
-          if (seq === seqRef.current) setError(String(winnerError));
+          if (seq === seqRef.current) {
+            if (readRef.current === read) readRef.current = null;
+            setError(String(winnerError));
+          }
         });
-    };
+    }
     apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
       .then((p) => {
         if (seq !== seqRef.current) {
+          readiness?.release();
           handle.cancelAuthoritativeRead(token);
           return;
         }
         const accepted = handle.receiveParentAuthoritative(token, p);
-        if (readRef.current === read) readRef.current = null;
-        if (!accepted) {
-          if (source === "parent") awaitAcceptedParent();
-          return;
+        if (readRef.current === read && (accepted || source !== "parent")) {
+          readRef.current = null;
         }
-        setPayload({ ...p, blocks: handle.getSnapshot().blocks });
+        if (accepted && source !== "parent") {
+          setPayload({ ...p, blocks: handle.getSnapshot().blocks });
+        }
       })
       .catch((e: unknown) => {
-        handle.failAuthoritativeRead(token, e);
-        if (readRef.current === read) readRef.current = null;
+        const owned = handle.failAuthoritativeRead(token, e);
+        if (readRef.current === read && source !== "parent") {
+          readRef.current = null;
+        }
         if (seq !== seqRef.current) return;
-        if (source === "parent") awaitAcceptedParent();
-        else setError(String(e));
+        if (source !== "parent" && owned) setError(String(e));
       });
   }, [title]);
 
@@ -86,12 +100,13 @@ export function PageView() {
     load("parent", handle);
     return () => {
       seqRef.current += 1;
-      removeParentController();
       const read = readRef.current;
       if (read?.handle === handle) {
+        read.readiness?.release();
+        removeParentController();
         handle.cancelAuthoritativeRead(read.token);
         readRef.current = null;
-      }
+      } else removeParentController();
       removeLoader();
       if (sessionRef.current === handle) sessionRef.current = null;
       handle.release();

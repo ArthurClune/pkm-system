@@ -10,6 +10,7 @@ import {
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
+import { Journal } from "./Journal";
 import { PageView } from "./PageView";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -32,6 +33,17 @@ function deferred<T>() {
     reject = fail;
   });
   return { promise, resolve, reject };
+}
+
+class NoopIntersectionObserver {
+  root = null;
+  rootMargin = "";
+  thresholds: number[] = [];
+  constructor(_callback: IntersectionObserverCallback) {}
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] { return []; }
 }
 
 it("fetches and renders a page, resolving block refs from the payload", async () => {
@@ -302,6 +314,76 @@ it("unmounting the newer parent elects one surviving controller", async () => {
   expect(isOutlineSessionActive("Paper")).toBe(false);
 });
 
+it("unmounting the newer parent recovers while the older transport still hangs", async () => {
+  const older = deferred<Response>();
+  const abandoned = deferred<Response>();
+  const recovery = deferred<Response>();
+  const fetchMock = vi.fn(() => {
+    const call = fetchMock.mock.calls.length;
+    if (call === 1) return older.promise;
+    if (call === 2) return abandoned.promise;
+    if (call === 3) return recovery.promise;
+    return Promise.reject(new Error("unexpected parent fetch storm"));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const sync = makeSync();
+  const tree = (showSidebar: boolean) => (
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        {showSidebar && <EditableSidebarPanel title="Paper" />}
+      </MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const view = render(tree(true));
+  let copies = 0;
+  let metadataCopies = 0;
+  let staleCopies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    view.rerender(tree(false));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    await act(async () => {
+      recovery.resolve(jsonResponse(pagePayload("Paper", [
+        block("survivor", "hung-parent recovery"),
+        block("survivor-ref", "((hung_ref))"),
+      ], {
+        block_ref_texts: {
+          hung_ref: { text: "hung-parent metadata", page_title: "Source" },
+        },
+      })));
+      await recovery.promise;
+      older.resolve(jsonResponse(pagePayload("Paper", [
+        block("stale-older", "late hung response"),
+      ])));
+      await older.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copies = screen.queryAllByText("hung-parent recovery").length;
+    metadataCopies = screen.queryAllByText("hung-parent metadata").length;
+    staleCopies = screen.queryAllByText("late hung response").length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload("Paper", [])));
+    abandoned.resolve(jsonResponse(pagePayload("Paper", [])));
+    recovery.resolve(jsonResponse(pagePayload("Paper", [])));
+    view.unmount();
+  }
+
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(copies).toBe(1);
+  expect(metadataCopies).toBe(1);
+  expect(staleCopies).toBe(0);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive("Paper")).toBe(false);
+});
+
 it("an automatic read superseding elected recovery permits one replacement parent", async () => {
   const older = deferred<Response>();
   const newer = deferred<Response>();
@@ -369,6 +451,12 @@ it("an automatic read superseding elected recovery permits one replacement paren
         },
       })));
       await replacement.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await act(async () => {
       elected.resolve(jsonResponse(pagePayload("Paper", [
         block("stale-elected", "stale elected response"),
       ])));
@@ -466,6 +554,12 @@ it("a repair superseding elected recovery permits one post-repair parent", async
         },
       })));
       await replacement.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => {
       elected.resolve(jsonResponse(pagePayload("Paper", [
         block("stale-elected", "stale elected response"),
       ])));
@@ -559,6 +653,204 @@ it("canceling elected recovery does not start a second recovery", async () => {
   expect(fetchMock).toHaveBeenCalledTimes(3);
   expect(cancellationErrors).toBe(1);
   expect(isOutlineSessionActive("Paper")).toBe(false);
+});
+
+it("a captured Journal response superseding recovery elects one full parent", async () => {
+  const title = "Captured Paper";
+  const older = deferred<Response>();
+  const newer = deferred<Response>();
+  const elected = deferred<Response>();
+  const journal = deferred<Response>();
+  const replacement = deferred<Response>();
+  let parentCalls = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    if (url.startsWith("/api/journal?")) return journal.promise;
+    if (url !== "/api/page/Captured%20Paper") {
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    }
+    parentCalls += 1;
+    if (parentCalls === 1) return older.promise;
+    if (parentCalls === 2) return newer.promise;
+    if (parentCalls === 3) return elected.promise;
+    if (parentCalls === 4) return replacement.promise;
+    return Promise.reject(new Error("unexpected parent fetch storm"));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("IntersectionObserver", NoopIntersectionObserver);
+  const sync = makeSync();
+  const tree = (showJournal: boolean) => (
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Captured%20Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        <EditableSidebarPanel title={title} />
+        {showJournal && <Journal />}
+      </MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const view = render(tree(false));
+  let copies = 0;
+  let metadataCopies = 0;
+  let staleCopies = 0;
+  let errors = 0;
+  try {
+    await vi.waitFor(() => expect(parentCalls).toBe(2));
+    await act(async () => {
+      older.resolve(jsonResponse(pagePayload(title, [])));
+      await older.promise;
+      newer.reject(new Error("newest initial parent failed"));
+      await newer.promise.catch(() => undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(parentCalls).toBe(3));
+
+    view.rerender(tree(true));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/journal?days=5", undefined,
+    ));
+    await act(async () => {
+      journal.resolve(jsonResponse({
+        days: [{
+          date: "2026-07-08",
+          title,
+          exists: true,
+          blocks: [block("journal", "captured block-only response")],
+        }],
+        block_ref_texts: {},
+      }));
+      await journal.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(parentCalls).toBe(4));
+
+    await act(async () => {
+      replacement.resolve(jsonResponse(pagePayload(title, [
+        block("replacement", "post-capture winner"),
+        block("replacement-ref", "((capture_ref))"),
+      ], {
+        block_ref_texts: {
+          capture_ref: {
+            text: "post-capture metadata",
+            page_title: "Source",
+          },
+        },
+      })));
+      await replacement.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(parentCalls).toBe(4);
+
+    await act(async () => {
+      elected.resolve(jsonResponse(pagePayload(title, [
+        block("stale-elected", "stale elected response"),
+      ])));
+      await elected.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(parentCalls).toBe(4);
+    view.rerender(tree(false));
+    expect(parentCalls).toBe(4);
+    copies = screen.queryAllByText("post-capture winner").length;
+    metadataCopies = screen.queryAllByText("post-capture metadata").length;
+    staleCopies = screen.queryAllByText("stale elected response").length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    older.resolve(jsonResponse(pagePayload(title, [])));
+    newer.resolve(jsonResponse(pagePayload(title, [])));
+    elected.resolve(jsonResponse(pagePayload(title, [])));
+    journal.resolve(jsonResponse({ days: [], block_ref_texts: {} }));
+    replacement.resolve(jsonResponse(pagePayload(title, [])));
+    view.unmount();
+  }
+
+  expect(parentCalls).toBe(4);
+  expect(copies).toBe(2);
+  expect(metadataCopies).toBe(2);
+  expect(staleCopies).toBe(0);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive(title)).toBe(false);
+});
+
+it("a superseded resync failure cannot replace a newer parent winner with error", async () => {
+  const title = "Resync Paper";
+  const resync = deferred<Response>();
+  const winner = deferred<Response>();
+  const initial = pagePayload(title, [block("initial", "initial page")]);
+  let pageCalls = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    if (String(input) !== "/api/page/Resync%20Paper") {
+      return Promise.reject(new Error(`unexpected fetch ${String(input)}`));
+    }
+    pageCalls += 1;
+    const call = pageCalls;
+    if (call === 1) return Promise.resolve(jsonResponse(initial));
+    if (call === 2) return resync.promise;
+    if (call === 3) return winner.promise;
+    return Promise.reject(new Error("unexpected parent fetch storm"));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const sync = makeSync();
+  const tree = (resyncSeq: number, showSidebar: boolean) => (
+    <SyncContext.Provider value={{ ...sync, resyncSeq }}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                    initialEntries={["/page/Resync%20Paper"]}>
+        <Routes>
+          <Route path="/page/*" element={<PageView />} />
+        </Routes>
+        {showSidebar && <EditableSidebarPanel title={title} />}
+      </MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const view = render(tree(0, false));
+  let copies = 0;
+  let errors = 0;
+  try {
+    expect(await screen.findByText("initial page")).toBeInTheDocument();
+    view.rerender(tree(1, false));
+    await vi.waitFor(() => expect(pageCalls).toBe(2));
+    view.rerender(tree(1, true));
+    await vi.waitFor(() => expect(pageCalls).toBe(3));
+
+    await act(async () => {
+      winner.resolve(jsonResponse(pagePayload(title, [
+        block("winner", "newer parent winner"),
+      ])));
+      await winner.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(
+      screen.queryAllByText("newer parent winner"),
+    ).toHaveLength(2));
+
+    await act(async () => {
+      resync.reject(new Error("late stale resync failed"));
+      await resync.promise.catch(() => undefined);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    copies = screen.queryAllByText("newer parent winner").length;
+    errors = document.querySelectorAll(".error").length;
+  } finally {
+    resync.resolve(jsonResponse(initial));
+    winner.resolve(jsonResponse(pagePayload(title, [])));
+    view.unmount();
+  }
+
+  expect(pageCalls).toBe(3);
+  expect(copies).toBe(2);
+  expect(errors).toBe(0);
+  expect(isOutlineSessionActive(title)).toBe(false);
 });
 
 it("scrolls to and flashes the block named in the location hash (pkm-pzdu)", async () => {

@@ -809,3 +809,89 @@ automatic read or repair epoch.
 - Reservation release, full-payload readiness, repair stabilization, session
   collection, DnD replay, queue handoff, replica recovery, and prior Task 5
   causality paths retain their focused matrices.
+
+## Tenth independent-review fix wave
+
+Review of `56481fe` found three remaining lifecycle gaps: parent readiness
+demand was registered only after a transport settled, a captured Journal read
+could supersede an elected parent without waking a replacement election, and
+an expired PageView resync failure could still replace a newer winner with a
+stale error.
+
+### Root cause
+
+- PageView and EditableSidebarPanel did not create their full-payload waiter
+  until their own parent fetch lost or failed. If an older transport hung and
+  the newer pane unmounted, no waiter existed at the moment cancellation made
+  the session electable, so the surviving pane remained loading indefinitely.
+- Captured reads correctly activated a newer request id and expired the elected
+  parent, restoring recovery eligibility. Their reservation release, however,
+  did not schedule the parent-election state machine, leaving full-payload
+  demand asleep after the block-only Journal response completed.
+- PageView called `failAuthoritativeRead` for a resync failure but ignored its
+  ownership result. A late expired resync therefore set component error state
+  even after a newer parent request had published the winning payload.
+
+### RED evidence
+
+- `pnpm vitest run src/views/PageView.test.tsx -t "older transport still
+  hangs|captured Journal response superseding recovery|superseded resync
+  failure"` failed all three selected tests before production changes.
+- The hung-parent case stopped at two fetches instead of electing a third after
+  the newer pane unmounted. The real Journal capture stopped at three parent
+  fetches instead of starting one post-capture full-payload replacement. The
+  late resync rejection replaced one of two rendered winners with an error.
+- The regressions hold and resolve stale transports explicitly, assert exact
+  fetch counts, require the shared winner's block tree and reference metadata,
+  reject stale elected content and errors, and verify session collection.
+
+### Production design
+
+- A parent generation now registers a releasable readiness demand immediately
+  after obtaining its request token and attaches its promise handler before the
+  network transport can settle. Publication from that request or any newer
+  request satisfies the demand with the accepted full `PagePayload`.
+- Supersession and unmount release the generation's readiness demand before
+  cancelling its read. Release is idempotent and removes only that handle's
+  waiter, preventing abandoned demand, duplicate waiters, and departing panes
+  from participating in election.
+- Parent election remains microtask-coalesced and now waits for every session
+  reservation, including captured reads. Captured release schedules election
+  after its exact-once decrement, so a Journal response cannot elect while it
+  owns causality but reliably wakes one full parent after its block-only work
+  finishes.
+- PageView renders a non-parent failure only when `failAuthoritativeRead`
+  confirms that token still owned the authoritative generation. Parent errors
+  continue through the readiness contract, while expired resync failures are
+  silent stale completions.
+
+### GREEN verification
+
+- Focused three-regression matrix: 1 file / 3 selected tests passed.
+- Full parent and Journal integration matrix: 3 files / 34 tests passed, with
+  `pnpm typecheck` passing in the same command.
+- DnD/session/provider coverage passed: DndContext 8, useOutline DnD 10,
+  outline sessions 25, and SyncProvider 34 tests.
+- State/editor/provider/session coverage: 4 files / 105 tests passed.
+- Reconciliation/DnD coverage: 3 files / 21 tests passed.
+- Queue/replica coverage: 15 files / 192 tests passed.
+- Exact Task 5 UI gate: 7 files / 93 tests passed.
+- Canonical `pnpm verify`: passed: 72 files / 817 unit tests; 97.70%
+  statements and lines, 91.27% branches, and 95.52% functions; production/PWA
+  build with 78 precache entries / 5140.36 KiB; Playwright 6/6.
+
+### Self-review
+
+- Early demand is generation-scoped rather than transport-scoped: success,
+  supersession, unmount, handle release, and terminal rejection each remove it
+  once. The scheduler's existing coalescing, active-read guards, and one-attempt
+  cap still bound recovery and prevent fetch storms.
+- Captured receipt remains block-only and never resolves full-payload waiters.
+  Its reservation suppresses premature election; only release wakes the
+  scheduler, after the capture has either received or been abandoned.
+- Same-request parent publication may satisfy its already-registered demand;
+  older cached payloads cannot satisfy a newer token. Late expired transports
+  remain rejected by request-id ownership and cannot reset the recovery cap.
+- Full metadata sharing, repair epochs, deferred writes, DnD replay, shared
+  editor leases, queue/replica recovery, Journal cleanup, and session deletion
+  retain their targeted and canonical coverage.

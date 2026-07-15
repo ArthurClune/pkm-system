@@ -11,6 +11,7 @@ import { BlockRefContext } from "../contexts";
 import { encodeTitle } from "../paths";
 import {
   acquireOutlineSession,
+  type ParentReadiness,
   type ReadToken,
 } from "../outline/outlineSessions";
 import { EditablePage } from "../views/EditablePage";
@@ -23,7 +24,11 @@ export function EditableSidebarPanel({ title }: { title: string }) {
     let cancelled = false;
     let generation = 0;
     const session = acquireOutlineSession(title, null);
-    let current: { token: ReadToken; generation: number } | null = null;
+    let current: {
+      token: ReadToken;
+      generation: number;
+      readiness: ParentReadiness;
+    } | null = null;
     const removeLoader = session.setAuthoritativeLoader(async () => {
       const page = await apiFetch<PagePayload>(
         `/api/page/${encodeTitle(title)}`,
@@ -31,47 +36,42 @@ export function EditableSidebarPanel({ title }: { title: string }) {
       return page.blocks;
     });
 
-    const awaitAcceptedParent = (token: ReadToken, readGeneration: number) => {
-      void session.waitForParentAuthoritative(token)
+    const start = () => {
+      if (cancelled) return;
+      const readGeneration = ++generation;
+      if (current) {
+        current.readiness.release();
+        session.cancelAuthoritativeRead(current.token);
+      }
+      const token = session.beginAuthoritativeRead("parent");
+      const readiness = session.registerParentReadiness(token);
+      current = { token, generation: readGeneration, readiness };
+      setError(null);
+      void readiness.promise
         .then((winner) => {
           if (cancelled || readGeneration !== generation) return;
+          if (current?.token === token) current = null;
           setError(null);
           setPayload({ ...winner, blocks: session.getSnapshot().blocks });
         })
         .catch((winnerError: unknown) => {
           if (!cancelled && readGeneration === generation) {
+            if (current?.token === token) current = null;
             setError(String(winnerError));
           }
         });
-    };
-
-    const start = () => {
-      if (cancelled) return;
-      const readGeneration = ++generation;
-      if (current) session.cancelAuthoritativeRead(current.token);
-      const token = session.beginAuthoritativeRead("parent");
-      current = { token, generation: readGeneration };
-      setError(null);
       apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
         .then((p) => {
           if (cancelled || readGeneration !== generation) {
+            readiness.release();
             session.cancelAuthoritativeRead(token);
             return;
           }
           const accepted = session.receiveParentAuthoritative(token, p);
-          if (current?.token === token) current = null;
-          if (!accepted) {
-            awaitAcceptedParent(token, readGeneration);
-            return;
-          }
-          setPayload({ ...p, blocks: session.getSnapshot().blocks });
+          if (accepted && current?.token === token) current = null;
         })
         .catch((e: unknown) => {
           session.failAuthoritativeRead(token, e);
-          if (current?.token === token) current = null;
-          if (!cancelled && readGeneration === generation) {
-            awaitAcceptedParent(token, readGeneration);
-          }
         });
     };
 
@@ -80,6 +80,7 @@ export function EditableSidebarPanel({ title }: { title: string }) {
     return () => {
       cancelled = true;
       generation += 1;
+      current?.readiness.release();
       removeParentController();
       if (current) session.cancelAuthoritativeRead(current.token);
       removeLoader();

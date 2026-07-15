@@ -9,7 +9,7 @@ tags:
     - architecture
     - fcis
 created_at: 2026-07-15T14:22:26Z
-updated_at: 2026-07-15T14:23:27Z
+updated_at: 2026-07-15T14:47:02Z
 ---
 
 ## Goal
@@ -43,3 +43,9 @@ Address the correctness, complexity, design, maintainability, and FCIS findings 
 - [ ] 8. pkm-dcmm — Own replica worker lifecycle and clarify queue idle semantics
 - [ ] 9. pkm-1cq3 — Consolidate reference and TODO grammar scanning
 - [ ] 10. pkm-f1rn — Add web lint, FCIS checks, and bundle/precache budgets
+
+## Execution
+
+- Consolidated design: `docs/superpowers/specs/2026-07-15-web-architecture-fcis-hardening-design.md`.
+- Scope decision: complete all ten child beans; none deferred.
+- Delivery: isolated epic branch with one fresh implementer and independent reviewer per child.

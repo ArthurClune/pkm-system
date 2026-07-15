@@ -50,7 +50,11 @@ function listeners<T>() {
       set.add(fn);
       return () => { set.delete(fn); };
     },
-    emit(value: T): void { set.forEach((fn) => fn(value)); },
+    emit(value: T): void {
+      set.forEach((fn) => {
+        try { fn(value); } catch { /* listener isolation */ }
+      });
+    },
   };
 }
 
@@ -74,7 +78,8 @@ function postOps(ops: BlockOp[], batchId?: string): Promise<unknown> {
 }
 
 function createReplicaQueue(replica: Replica,
-                            onDesync: (error: unknown) => void): OpQueue {
+                            onDesync: (error: unknown) => void,
+                            onDrain: (outcome: DrainOutcome) => void): OpQueue {
   let online = true;
   let recovering = false;
   let disposed = false;
@@ -113,6 +118,11 @@ function createReplicaQueue(replica: Replica,
     ...(error === undefined ? {} : { error }),
   });
 
+  const terminalReason = (): "offline" | "recovering" | "disposed" | null =>
+    disposed ? "disposed"
+      : recovering ? "recovering"
+        : !online ? "offline" : null;
+
   const scheduleRetry = (): void => {
     if (!online || recovering || disposed || retryTimer !== null) return;
     const delay = RETRY_DELAYS[Math.min(retryIndex, RETRY_DELAYS.length - 1)];
@@ -121,6 +131,16 @@ function createReplicaQueue(replica: Replica,
       retryTimer = null;
       void drain();
     }, delay);
+  };
+
+  const failed = async (error: unknown): Promise<DrainOutcome> => {
+    const count = await countPending();
+    const reason = terminalReason();
+    if (reason !== null) {
+      return { status: "blocked", reason, pending: count, error };
+    }
+    scheduleRetry();
+    return { status: "blocked", reason: "retryable", pending: count, error };
   };
 
   const runDrain = async (): Promise<DrainOutcome> => {
@@ -135,8 +155,7 @@ function createReplicaQueue(replica: Replica,
       try {
         batch = await replica.nextBatch();
       } catch (error: unknown) {
-        scheduleRetry();
-        return blocked("retryable", error);
+        return failed(error);
       }
       if (batch === null) {
         pendingCount = 0;
@@ -147,16 +166,27 @@ function createReplicaQueue(replica: Replica,
         await postOps(batch.ops, batch.batch_id);
       } catch (error: unknown) {
         if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
-          const result = await replica.markPoisoned(batch.id, String(error));
+          let result;
+          try {
+            result = await replica.markPoisoned(batch.id, String(error));
+          } catch (rpcError: unknown) {
+            return failed(rpcError);
+          }
           pendingCount = result.pending;
           pending.emit(pendingCount);
           poison.emit(error);
+          const reason = terminalReason();
+          if (reason !== null) return blocked(reason);
           continue;
         }
-        scheduleRetry();
-        return blocked("retryable", error);
+        return failed(error);
       }
-      const result = await replica.deleteBatch(batch.id);
+      let result;
+      try {
+        result = await replica.deleteBatch(batch.id);
+      } catch (error: unknown) {
+        return failed(error);
+      }
       pendingCount = result.pending;
       pending.emit(pendingCount);
       cancelRetry(true);
@@ -171,7 +201,13 @@ function createReplicaQueue(replica: Replica,
       drainAgain = true;
       return drainRun;
     }
-    drainRun = runDrain().finally(() => { drainRun = null; });
+    drainRun = runDrain()
+      .catch(failed)
+      .then((outcome) => {
+        try { onDrain(outcome); } catch { /* observer isolation */ }
+        return outcome;
+      })
+      .finally(() => { drainRun = null; });
     return drainRun;
   };
 
@@ -252,7 +288,8 @@ function createReplicaQueue(replica: Replica,
   };
 }
 
-function createLegacyQueue(onDesync: (error: unknown) => void): OpQueue {
+function createLegacyQueue(onDesync: (error: unknown) => void,
+                           onDrain: (outcome: DrainOutcome) => void): OpQueue {
   let pending: BlockOp[] = [];
   let online = true;
   let recovering = false;
@@ -286,6 +323,14 @@ function createLegacyQueue(onDesync: (error: unknown) => void): OpQueue {
     }, delay);
   };
 
+  const failed = (error: unknown): DrainOutcome => {
+    if (disposed) return terminal("disposed", error);
+    if (recovering) return terminal("recovering", error);
+    if (!online) return terminal("offline", error);
+    scheduleRetry();
+    return terminal("retryable", error);
+  };
+
   const runDrain = async (): Promise<DrainOutcome> => {
     if (disposed) return terminal("disposed");
     if (recovering) return terminal("recovering");
@@ -296,8 +341,7 @@ function createLegacyQueue(onDesync: (error: unknown) => void): OpQueue {
         await postOps(batch);
       } catch (error: unknown) {
         if (!(error instanceof ApiError) || error.status >= 500) {
-          scheduleRetry();
-          return terminal("retryable", error);
+          return failed(error);
         }
         pending = [];
         try { onDesync(error); } catch { /* listener isolation */ }
@@ -314,7 +358,13 @@ function createLegacyQueue(onDesync: (error: unknown) => void): OpQueue {
 
   const drain = (): Promise<DrainOutcome> => {
     if (drainRun) return drainRun;
-    drainRun = runDrain().finally(() => { drainRun = null; });
+    drainRun = runDrain()
+      .catch(failed)
+      .then((outcome) => {
+        try { onDrain(outcome); } catch { /* observer isolation */ }
+        return outcome;
+      })
+      .finally(() => { drainRun = null; });
     return drainRun;
   };
 
@@ -374,7 +424,9 @@ function createLegacyQueue(onDesync: (error: unknown) => void): OpQueue {
 }
 
 export function createOpQueue(replica: Replica | null,
-                              onDesync: (error: unknown) => void): OpQueue {
-  return replica ? createReplicaQueue(replica, onDesync)
-                 : createLegacyQueue(onDesync);
+                              onDesync: (error: unknown) => void,
+                              onDrain: (outcome: DrainOutcome) => void =
+                                () => undefined): OpQueue {
+  return replica ? createReplicaQueue(replica, onDesync, onDrain)
+                 : createLegacyQueue(onDesync, onDrain);
 }

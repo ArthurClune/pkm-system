@@ -1,7 +1,8 @@
 import { act, render, screen } from "@testing-library/react";
 import { StrictMode, useEffect } from "react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { FakeWebSocket, stubFetch } from "../test-helpers";
+import type { BlockOp } from "../api/ops";
+import { FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId } from "./opQueue";
@@ -380,6 +381,72 @@ test("a blocked reconnect drain does not pull the feed or bump resync", async ()
     await act(async () => { lastWs().open(); await Promise.resolve(); });
 
     expect(screen.getByTestId("blocked-status").textContent).toBe("0");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("automatic retry completes reconnect feed pull and resync exactly once", async () => {
+  vi.useFakeTimers();
+  try {
+    let opsCalls = 0;
+    let changeCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/ops") {
+        opsCalls += 1;
+        return opsCalls === 1
+          ? jsonResponse({ detail: "busy" }, 503)
+          : jsonResponse({ ok: true });
+      }
+      if (url.startsWith("/api/sync/changes")) {
+        changeCalls += 1;
+        return jsonResponse(EMPTY_FEED);
+      }
+      return jsonResponse({ ok: true });
+    }));
+    const replica = fakeReplicaForProvider();
+    const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                       poisoned: boolean }> = [];
+    replica.init = async () => ({
+      ok: true, empty: false, cursor: 5, schemaMismatch: false,
+      pendingBatches: [],
+    });
+    replica.enqueue = async (ops) => {
+      rows.push({ id: 1, batch_id: "retry-me", ops, poisoned: false });
+      return { pending: rows.length };
+    };
+    replica.nextBatch = async () => rows[0] ?? null;
+    replica.deleteBatch = async () => {
+      rows.pop();
+      return { pending: rows.length };
+    };
+    replica.pendingCount = async () => rows.length;
+    let sync!: Sync;
+    function Grab() {
+      sync = useSync();
+      return <div data-testid="retry-status">{sync.resyncSeq}</div>;
+    }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    const baselineResync = sync.resyncSeq;
+    const baselineChanges = changeCalls;
+    act(() => lastWs().drop());
+    await act(async () => {
+      await sync.enqueue([{ op: "delete", uid: "u1" }]).settled;
+    });
+    act(() => { vi.advanceTimersByTime(2_000); });
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    expect(sync.resyncSeq).toBe(baselineResync);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+    expect(rows).toEqual([]);
+    expect(changeCalls).toBe(baselineChanges + 1);
+    expect(sync.resyncSeq).toBe(baselineResync + 1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(changeCalls).toBe(baselineChanges + 1);
+    expect(sync.resyncSeq).toBe(baselineResync + 1);
   } finally {
     vi.useRealTimers();
   }

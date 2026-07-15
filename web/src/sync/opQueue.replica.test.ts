@@ -264,3 +264,117 @@ test("dispose cancels retry and reports the retained durable batch", async () =>
     vi.useRealTimers();
   }
 });
+
+test.each([
+  ["nextBatch", 200,
+    { nextBatch: async () => { throw new Error("next RPC failed"); } }],
+  ["deleteBatch", 200,
+    { deleteBatch: async () => { throw new Error("delete RPC failed"); } }],
+  ["markPoisoned", 400,
+    { markPoisoned: async () => { throw new Error("poison RPC failed"); } }],
+] as const)("%s RPC failure fulfills drain with a retryable outcome",
+async (_method, status, over) => {
+  vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({}, status)));
+  const replica = memReplica(over);
+  const q = createOpQueue(replica, () => undefined);
+
+  const write = q.enqueue([op("u1")]);
+  const outcome = q.drain();
+  await write.settled;
+
+  await expect(outcome).resolves.toMatchObject({
+    status: "blocked", reason: "retryable", pending: 1,
+  });
+  q.dispose();
+});
+
+test("an automatic drain RPC failure is observed without an unhandled rejection", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true })));
+  const error = new Error("delete RPC failed");
+  const observed = vi.fn();
+  const replica = memReplica({
+    deleteBatch: async () => { throw error; },
+  });
+  const q = createOpQueue(replica, () => undefined, observed);
+
+  await q.enqueue([op("u1")]).settled;
+
+  await vi.waitFor(() => {
+    expect(observed).toHaveBeenCalledWith(expect.objectContaining({
+      status: "blocked", reason: "retryable", error,
+    }));
+  }, { timeout: 100 });
+  q.dispose();
+});
+
+test("replica retry delays are 250ms, 1s, then 5s capped and success resets", async () => {
+  vi.useFakeTimers();
+  try {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls += 1;
+      return calls <= 4 || calls === 6
+        ? jsonResponse({ detail: "busy" }, 503)
+        : jsonResponse({ ok: true });
+    }));
+    const replica = memReplica();
+    const q = createOpQueue(replica, () => undefined);
+    await q.enqueue([op("u1")]).settled;
+    await q.drain();
+
+    await vi.advanceTimersByTimeAsync(249);
+    expect(calls).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toBe(2);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(calls).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toBe(3);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(calls).toBe(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toBe(4);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(calls).toBe(4);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toBe(5);
+    await expect(q.drain()).resolves.toEqual({ status: "drained" });
+
+    await q.enqueue([op("u2")]).settled;
+    await q.drain();
+    expect(calls).toBe(6);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(calls).toBe(6);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toBe(7);
+    await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test.each([
+  ["offline", (q: ReturnType<typeof createOpQueue>) => q.setOnline(false)],
+  ["recovering", (q: ReturnType<typeof createOpQueue>) => q.pause("recovery")],
+  ["disposed", (q: ReturnType<typeof createOpQueue>) => q.dispose()],
+] as const)("replica failure returns the current %s terminal state",
+async (reason, transition) => {
+  let rejectPost!: (error: unknown) => void;
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((_resolve, reject) => {
+    rejectPost = reject;
+  })));
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  const write = q.enqueue([op("u1")]);
+  await write.settled;
+  await vi.waitFor(() => { expect(fetch).toHaveBeenCalledTimes(1); });
+  const outcome = q.drain();
+
+  transition(q);
+  rejectPost(new TypeError("network failed"));
+
+  await expect(outcome).resolves.toMatchObject({
+    status: "blocked", reason, pending: 1,
+  });
+  q.dispose();
+});

@@ -217,3 +217,56 @@ test("legacy dispose cancels retry and keeps drain terminal", async () => {
     vi.useRealTimers();
   }
 });
+
+test("legacy reconnect resets retry delay to 250ms", async () => {
+  vi.useFakeTimers();
+  try {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls += 1;
+      return jsonResponse({ detail: "busy" }, 503);
+    }));
+    const q = createOpQueue(null, () => undefined);
+    await q.enqueue([op("u1")]).settled;
+    await q.drain();
+    await vi.advanceTimersByTimeAsync(250); // second failure schedules 1s
+    expect(calls).toBe(2);
+
+    q.setOnline(false);
+    q.setOnline(true); // immediate failure; reconnect resets backoff
+    await q.drain();
+    expect(calls).toBe(3);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(calls).toBe(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toBe(4);
+    q.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test.each([
+  ["offline", (q: ReturnType<typeof createOpQueue>) => q.setOnline(false)],
+  ["recovering", (q: ReturnType<typeof createOpQueue>) => q.pause("recovery")],
+  ["disposed", (q: ReturnType<typeof createOpQueue>) => q.dispose()],
+] as const)("legacy failure returns the current %s terminal state",
+async (reason, transition) => {
+  let rejectPost!: (error: unknown) => void;
+  vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((_resolve, reject) => {
+    rejectPost = reject;
+  })));
+  const q = createOpQueue(null, () => undefined);
+  const write = q.enqueue([op("u1")]);
+  await write.settled;
+  await vi.waitFor(() => { expect(fetch).toHaveBeenCalledTimes(1); });
+  const outcome = q.drain();
+
+  transition(q);
+  rejectPost(new TypeError("network failed"));
+
+  await expect(outcome).resolves.toMatchObject({
+    status: "blocked", reason, pending: 1,
+  });
+  q.dispose();
+});

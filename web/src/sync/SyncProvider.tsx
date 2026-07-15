@@ -11,7 +11,8 @@ import type { BlockOp } from "../api/ops";
 import { apiFetch, setOfflineGateway } from "../api/client";
 import { createReplica, type Replica } from "../replica/client";
 import { toPortLike } from "../replica/rpc";
-import { clientId, createOpQueue, type WriteTicket } from "./opQueue";
+import { clientId, createOpQueue, type DrainOutcome,
+         type WriteTicket } from "./opQueue";
 import { createReplicaSync, type ReplicaState } from "./replicaSync";
 import { connectSocket, type WsBatch } from "./socket";
 
@@ -97,6 +98,8 @@ export function SyncProvider({ children, replica }: {
   const subsRef = useRef(new Set<(b: WsBatch) => void>());
   const everConnectedRef = useRef(false);
   const mountedRef = useRef(true);
+  const drainObserverRef = useRef<(outcome: DrainOutcome) => void>(
+    () => undefined);
 
   const replicaRef = useRef<Replica | null | undefined>(undefined);
   const ownedReplicaRef = useRef<OwnedReplica | null>(null);
@@ -112,7 +115,7 @@ export function SyncProvider({ children, replica }: {
   const queue = useMemo(
     () => createOpQueue(replicaRef.current ?? null, () => {
       if (mountedRef.current) setResyncSeq((n) => n + 1);
-    }), []);
+    }, (outcome) => drainObserverRef.current(outcome)), []);
 
   useEffect(() => {
     const offs = [
@@ -217,12 +220,29 @@ export function SyncProvider({ children, replica }: {
     // Reconnect after a gap: flush the preserved ops first, then pull the
     // changes feed, then bump resyncSeq so views refetch state that already
     // reflects both (flush -> pull -> resync).
+    let reconnectPending = false;
+    let finishRun: Promise<void> | null = null;
+    const finishReconnect = (): Promise<void> => {
+      if (finishRun) return finishRun;
+      if (!reconnectPending || !mountedRef.current) return Promise.resolve();
+      reconnectPending = false;
+      finishRun = (async () => {
+        await replicaSync?.start();
+        await replicaSync?.idle();
+        if (mountedRef.current) setResyncSeq((n) => n + 1);
+      })().finally(() => { finishRun = null; });
+      return finishRun;
+    };
+    drainObserverRef.current = (outcome) => {
+      if (outcome.status === "drained") {
+        void finishReconnect().catch(() => undefined);
+      }
+    };
     const reconnectFlow = async (): Promise<void> => {
+      reconnectPending = true;
       const outcome = await queue.drain();
       if (outcome.status !== "drained" || !mountedRef.current) return;
-      await replicaSync?.start();
-      await replicaSync?.idle();
-      if (mountedRef.current) setResyncSeq((n) => n + 1);
+      await finishReconnect();
     };
     const handle = connectSocket({
       onBatch: (batch) => {
@@ -257,6 +277,7 @@ export function SyncProvider({ children, replica }: {
     });
     return () => {
       mountedRef.current = false;
+      drainObserverRef.current = () => undefined;
       handle.close();
       // React StrictMode immediately replays effects in development while
       // preserving memoized resources. Defer terminal ownership cleanup one

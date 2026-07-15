@@ -9,7 +9,7 @@ tags:
     - sync
     - lifecycle
 created_at: 2026-07-15T14:23:26Z
-updated_at: 2026-07-15T15:08:25Z
+updated_at: 2026-07-15T15:28:10Z
 parent: pkm-c1cg
 ---
 
@@ -50,8 +50,15 @@ Add explicit replica disposal and failure propagation, and distinguish settled p
   250 ms, 1 second, then capped 5 second retries; reconnect and success reset
   the schedule, while offline/dispose cancels it.
 - Reconnect now advances to replica feed pull and view resync only after a
-  drained outcome. Outline-facing code waits for ticket/persistence settlement,
-  not the provider-internal global delivery drain.
+  drained outcome, including when an automatic retry later reaches drained; the
+  continuation is single-flight so feed pull and resync happen exactly once.
+  Outline-facing code waits for ticket/persistence settlement, not the provider-
+  internal global delivery drain.
+- Replica `nextBatch`, `deleteBatch`, and `markPoisoned` failures fulfill drain
+  with typed blocked outcomes. Automatic drain outcomes are observed without
+  unhandled rejections, and terminal lifecycle state is classified when the
+  failure returns.
 - Added focused coverage for terminal RPC events, timeout/disposal, close-before-
   terminate ownership, StrictMode replay, offline persistence, typed drain
-  blocking, transient 503 retry, retry cancellation, and zero durable pending.
+  blocking, the complete 250 ms/1 second/5 second retry schedule and resets,
+  transient 503 retry continuation, retry cancellation, and zero durable pending.

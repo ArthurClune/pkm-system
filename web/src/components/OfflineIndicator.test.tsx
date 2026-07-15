@@ -146,6 +146,21 @@ it("failed startup poison discovery is visible and offers Retry", () => {
   expect(retryProblem).toHaveBeenCalledTimes(1);
 });
 
+it("failed legacy authoritative repair is visible and offers Retry", () => {
+  const retryProblem = vi.fn(async () => undefined);
+  renderWith({
+    problem: {
+      kind: "legacy-rejected", repair: "failed",
+      error: "request failed: 400 /api/ops", repairError: "page read failed",
+    } as unknown as Sync["problem"],
+    retryProblem,
+  });
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Authoritative repair failed: page read failed");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(retryProblem).toHaveBeenCalledTimes(1);
+});
+
 it("repaired rejection keeps details until Dismiss", () => {
   const retryProblem = vi.fn(async () => undefined);
   const dismissProblem = vi.fn();

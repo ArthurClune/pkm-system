@@ -9,6 +9,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState,
          type ReactNode } from "react";
 import type { BlockOp } from "../api/ops";
 import { apiFetch, setOfflineGateway } from "../api/client";
+import { repairActiveOutlineSessions } from "../outline/outlineSessions";
 import { createReplica, type Replica } from "../replica/client";
 import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue, type DrainOutcome,
@@ -22,7 +23,9 @@ export type SyncProblem =
   | { kind: "rejected-batch"; event: PoisonEvent;
       repair: "mark-failed" | "running" | "failed" | "repaired";
       error?: string }
-  | { kind: "poison-discovery"; error: string };
+  | { kind: "poison-discovery"; error: string }
+  | { kind: "legacy-rejected"; repair: "running" | "failed" | "repaired";
+      error: string; repairError?: string };
 
 const mergePoisonEvents = (
   ...groups: ReadonlyArray<readonly PoisonEvent[]>
@@ -131,6 +134,11 @@ export function SyncProvider({ children, replica }: {
   const repairTargetsRef = useRef<readonly PoisonEvent[]>([]);
   const repairSucceededRef = useRef(false);
   const startupDiscoveringPoisonRef = useRef(true);
+  const legacyRepairRunRef = useRef<Promise<void> | null>(null);
+  const legacyRejectedRef = useRef<unknown>();
+  const repairLegacyRef = useRef<(error: unknown) => Promise<void>>(
+    async () => undefined,
+  );
   const continueStartupRef = useRef<(
     marked: readonly PoisonEvent[],
   ) => Promise<void>>(async () => undefined);
@@ -149,9 +157,38 @@ export function SyncProvider({ children, replica }: {
   }
 
   const queue = useMemo(
-    () => createOpQueue(replicaRef.current ?? null, () => {
-      if (mountedRef.current) setResyncSeq((n) => n + 1);
+    () => createOpQueue(replicaRef.current ?? null, (error) => {
+      void repairLegacyRef.current(error);
     }, (outcome) => drainObserverRef.current(outcome)), []);
+
+  repairLegacyRef.current = (error) => {
+    legacyRejectedRef.current = error;
+    if (legacyRepairRunRef.current) return legacyRepairRunRef.current;
+    const message = error instanceof Error ? error.message : String(error);
+    if (mountedRef.current) {
+      setProblem({ kind: "legacy-rejected", repair: "running", error: message });
+    }
+    const run = repairActiveOutlineSessions()
+      .then(() => {
+        if (!mountedRef.current) return;
+        setProblem({ kind: "legacy-rejected", repair: "repaired", error: message });
+        setResyncSeq((n) => n + 1);
+        queue.resume("recovery");
+      })
+      .catch((repairError: unknown) => {
+        if (mountedRef.current) {
+          setProblem({
+            kind: "legacy-rejected", repair: "failed", error: message,
+            repairError: repairError instanceof Error
+              ? repairError.message : String(repairError),
+          });
+        }
+      });
+    legacyRepairRunRef.current = run.finally(() => {
+      legacyRepairRunRef.current = null;
+    });
+    return legacyRepairRunRef.current;
+  };
 
   useEffect(() => {
     const offs = [
@@ -464,6 +501,10 @@ export function SyncProvider({ children, replica }: {
     problem,
     retryProblem: () => {
       const currentProblem = problemRef.current;
+      if (currentProblem?.kind === "legacy-rejected" &&
+          currentProblem.repair === "failed") {
+        return repairLegacyRef.current(legacyRejectedRef.current);
+      }
       if (currentProblem?.kind === "rejected-batch" &&
           currentProblem.repair === "mark-failed") {
         const retryBlockedStartup = startupDiscoveringPoisonRef.current;
@@ -492,6 +533,12 @@ export function SyncProvider({ children, replica }: {
     },
     dismissProblem: () => {
       const currentProblem = problemRef.current;
+      if (currentProblem?.kind === "legacy-rejected" &&
+          currentProblem.repair === "repaired") {
+        legacyRejectedRef.current = undefined;
+        setProblem(undefined);
+        return;
+      }
       if (currentProblem?.kind !== "rejected-batch" ||
           currentProblem.repair !== "repaired") return;
       repairTargetsRef.current = [];

@@ -208,3 +208,96 @@ Follow-up files changed relative to `ca13148`:
 - `web/src/views/EditablePage.test.tsx`
 - `web/src/sync/opQueue.ts`
 - `web/src/sync/opQueue.replica.test.ts`
+
+## Second independent-review fix wave
+
+Review of `4948566` exposed three remaining lifetime boundaries. The fixes
+retain the Task 1-5 contracts while making ownership explicit at each boundary.
+
+### Root causes
+
+- The legacy queue flattened every enqueue into one op array, but kept ticket
+  completion separately. A 4xx cleared the entire op array and failed every
+  delivery, so tickets wholly behind the rejected 500-op transport batch were
+  lost. It also had no repair barrier: the drain loop immediately continued.
+- Cross-page ticket routing enumerated only sessions that existed at dispatch.
+  No central unresolved-ticket registry existed, so a target opened before its
+  move POST could accept a pre-POST payload and never participate in delivery
+  settlement or the guarded own-echo refresh.
+- `beginAuthoritativeRead()` advanced causality but owned no reservation.
+  Releasing the final handle deleted the session, and failure, supersession,
+  and unmount had no explicit token cancellation path.
+
+### RED evidence
+
+`pnpm vitest run src/sync/opQueue.test.ts
+src/outline/outlineSessions.test.ts` failed with 4 expected regressions and 26
+passes: the legacy rejection drained instead of returning a recovery barrier;
+the late target adopted `pre-POST target`; release/reacquire returned `stale
+bootstrap`; and `cancelAuthoritativeRead` did not exist.
+
+`pnpm vitest run src/views/PageView.test.tsx
+src/components/EditableSidebarPanel.test.tsx` failed with 2 expected
+regressions and 13 passes: both failed fetches left their title session active
+after unmount.
+
+`pnpm vitest run src/outline/outlineSessions.test.ts
+src/sync/SyncProvider.test.tsx src/components/OfflineIndicator.test.tsx` failed
+with 3 expected regressions and 50 passes: the active-session repair helper did
+not exist, later legacy delivery timed out behind an unreleased barrier, and
+the new visible legacy repair state was not renderable.
+
+### Production fixes
+
+- A legacy 4xx now fails exactly the tickets touched by the rejected transport
+  batch, discards the complete remaining portion of any ticket spanning the
+  500-op boundary, retains wholly later tickets and ops, and returns
+  `blocked/recovering`. Later POSTs require an explicit recovery release.
+- The no-replica SyncProvider integration now repairs all active outline
+  sessions through their single-flight authoritative loaders before bumping
+  resync and releasing legacy delivery. A failed read leaves delivery paused,
+  exposes a connected Retry state, and Retry reruns the guarded repair without
+  retrying the rejected operations.
+- Scoped cross-page tickets are retained centrally until their `delivered`
+  terminal outcome. Session acquisition attaches every matching unresolved
+  ticket, preserving title scoping and `trackWrite` idempotence for targets
+  opened after dispatch, including Journal-created sessions.
+- Manual token reads now reserve the session until receive or explicit cancel.
+  Successful receive, failed fetch, supersession, and unmount release exactly
+  once. PageView and EditableSidebarPanel cancel their outstanding tokens on
+  all non-success paths; requestAuthoritative single flight and Journal
+  captures keep their existing ownership models.
+
+The expected test list was expanded with `SyncProvider.test.tsx` and
+`OfflineIndicator.test.tsx` because the requested legacy `onDesync` release
+boundary necessarily belongs to the provider and its visible retry UI.
+
+### GREEN verification
+
+- Focused review matrix: 8 files / 99 tests passed.
+- Required outline/UI command: 7 files / 79 tests passed.
+- Required queue/replica command: 4 files / 70 tests passed.
+- `pnpm typecheck`: passed.
+- Canonical `pnpm verify`: passed: 72 files / 778 unit tests; 97.93%
+  statements and lines, 91.51% branches, and 95.86% functions; production/PWA
+  build with 78 precache entries / 5132.76 KiB; Playwright 6/6.
+- `git diff --check`: passed before report/bean update and is rerun after the
+  final commit.
+
+### Self-review
+
+- The queue rejection calculation uses outstanding ticket lengths, so a
+  partially acknowledged ticket and a ticket crossing `MAX_BATCH` both reach
+  one terminal outcome without allowing their remainder to reapply. Offline,
+  5xx retry, dispose, replica poison repair, and durable settlement paths are
+  unchanged.
+- The unresolved registry holds tickets, not sessions. Zero-handle target
+  titles are created only by real consumers, and registry entries disappear on
+  either delivered success or terminal failure.
+- Manual read reservations share the existing session reservation count but
+  use request ids for idempotent receive/cancel. A released handle may complete
+  the read it started into a synchronously reacquired session; a cancelled or
+  late duplicate response is ignored and cannot leak the session.
+- Legacy repair remains an Imperative Shell path. It reuses per-title loader
+  single flight, exposes failure rather than silently stranding later writes,
+  and never retries the rejected operation.

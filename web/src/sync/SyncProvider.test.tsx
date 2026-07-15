@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { StrictMode, useEffect } from "react";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
+import { acquireOutlineSession } from "../outline/outlineSessions";
 import { FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
@@ -192,6 +193,99 @@ test("without a replica the provider reports no-replica mode", async () => {
   render(<SyncProvider replica={null}><Mode /></SyncProvider>);
   await act(async () => { lastWs().open(); });
   expect(screen.getByTestId("mode").textContent).toBe("no-replica");
+});
+
+test("legacy rejection resumes later delivery only after active outline repair", async () => {
+  let postCount = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+    postCount += 1;
+    return postCount === 1
+      ? jsonResponse({ detail: "bad op" }, 400)
+      : jsonResponse({ ok: true });
+  }));
+  let releaseRepair!: () => void;
+  const repairGate = new Promise<void>((done) => { releaseRepair = done; });
+  const session = acquireOutlineSession("Legacy repair target", []);
+  const load = vi.fn(async () => {
+    await repairGate;
+    return [];
+  });
+  const removeLoader = session.setAuthoritativeLoader(load);
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return <div data-testid="legacy-resync">{sync.resyncSeq}</div>;
+  }
+
+  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  const rejected = sync.enqueue(
+    [{ op: "delete", uid: "bad" }], ["page", "Legacy repair target"],
+  );
+  session.applyLocal(rejected, [{ op: "delete", uid: "bad" }]);
+  await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+
+  const later = sync.enqueue([{ op: "delete", uid: "later" }]);
+  await Promise.resolve();
+  expect(postCount).toBe(1);
+  expect(screen.getByTestId("legacy-resync")).toHaveTextContent("0");
+
+  releaseRepair();
+  await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+  expect(postCount).toBe(2);
+  await vi.waitFor(() => {
+    expect(screen.getByTestId("legacy-resync")).toHaveTextContent("1");
+  });
+
+  view.unmount();
+  removeLoader();
+  session.release();
+});
+
+test("failed legacy outline repair stays visible and Retry releases delivery", async () => {
+  let postCount = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input) !== "/api/ops") return jsonResponse({ ok: true });
+    postCount += 1;
+    return postCount === 1
+      ? jsonResponse({ detail: "bad op" }, 400)
+      : jsonResponse({ ok: true });
+  }));
+  const session = acquireOutlineSession("Retry legacy repair", []);
+  let loadCount = 0;
+  const removeLoader = session.setAuthoritativeLoader(async () => {
+    loadCount += 1;
+    if (loadCount === 1) throw new Error("page read failed");
+    return [];
+  });
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return <div data-testid="legacy-problem">{
+      sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
+    }</div>;
+  }
+
+  const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  const rejected = sync.enqueue([{ op: "delete", uid: "bad" }]);
+  await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+  await vi.waitFor(() => {
+    expect(screen.getByTestId("legacy-problem")).toHaveTextContent("failed");
+  });
+
+  const later = sync.enqueue([{ op: "delete", uid: "later" }]);
+  expect(postCount).toBe(1);
+  await act(async () => { await sync.retryProblem(); });
+  await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+  expect(loadCount).toBe(2);
+  expect(postCount).toBe(2);
+
+  view.unmount();
+  removeLoader();
+  session.release();
 });
 
 test("leftover durable batches flush on first connect, then views resync", async () => {

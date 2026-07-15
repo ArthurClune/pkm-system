@@ -28,13 +28,20 @@ export function EditableSidebarPanel({ title }: { title: string }) {
     const token = session.beginAuthoritativeRead("parent");
     apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
       .then((p) => {
-        if (cancelled) return;
+        if (cancelled) {
+          session.cancelAuthoritativeRead(token);
+          return;
+        }
         session.receiveAuthoritative(token, p.blocks);
         setPayload({ ...p, blocks: session.getSnapshot().blocks });
       })
-      .catch((e: unknown) => { if (!cancelled) setError(String(e)); });
+      .catch((e: unknown) => {
+        session.cancelAuthoritativeRead(token);
+        if (!cancelled) setError(String(e));
+      });
     return () => {
       cancelled = true;
+      session.cancelAuthoritativeRead(token);
       removeLoader();
       session.release();
     };

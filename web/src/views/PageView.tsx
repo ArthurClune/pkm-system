@@ -10,7 +10,8 @@ import { encodeTitle, titleFromPathname } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { acquireOutlineSession,
          type AuthoritativeReadSource,
-         type OutlineSessionHandle } from "../outline/outlineSessions";
+         type OutlineSessionHandle,
+         type ReadToken } from "../outline/outlineSessions";
 import { EditablePage } from "./EditablePage";
 
 export function PageView() {
@@ -20,20 +21,34 @@ export function PageView() {
   const [error, setError] = useState<string | null>(null);
   const seqRef = useRef(0);
   const sessionRef = useRef<OutlineSessionHandle | null>(null);
+  const readRef = useRef<{
+    handle: OutlineSessionHandle;
+    token: ReadToken;
+  } | null>(null);
 
   const load = useCallback((source: AuthoritativeReadSource,
                             handle = sessionRef.current) => {
     if (!handle) return;
     const seq = ++seqRef.current;
+    const previous = readRef.current;
+    if (previous) previous.handle.cancelAuthoritativeRead(previous.token);
     const token = handle.beginAuthoritativeRead(source);
+    const read = { handle, token };
+    readRef.current = read;
     setError(null);
     apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
       .then((p) => {
-        if (seq !== seqRef.current) return;
+        if (seq !== seqRef.current) {
+          handle.cancelAuthoritativeRead(token);
+          return;
+        }
         handle.receiveAuthoritative(token, p.blocks);
+        if (readRef.current === read) readRef.current = null;
         setPayload({ ...p, blocks: handle.getSnapshot().blocks });
       })
       .catch((e: unknown) => {
+        handle.cancelAuthoritativeRead(token);
+        if (readRef.current === read) readRef.current = null;
         if (seq === seqRef.current) setError(String(e));
       });
   }, [title]);
@@ -50,6 +65,12 @@ export function PageView() {
     });
     load("parent", handle);
     return () => {
+      seqRef.current += 1;
+      const read = readRef.current;
+      if (read?.handle === handle) {
+        handle.cancelAuthoritativeRead(read.token);
+        readRef.current = null;
+      }
       removeLoader();
       if (sessionRef.current === handle) sessionRef.current = null;
       handle.release();

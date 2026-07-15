@@ -55,7 +55,7 @@ test("ops enqueued while a batch is in flight go in the next batch", async () =>
   expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u2")]);
 });
 
-test("a failed batch clears the queue and reports desync; queue keeps working", async () => {
+test("a failed batch reports desync; queue works after repair releases it", async () => {
   const { mock } = capturingFetch([
     () => jsonResponse({ detail: { index: 0, reason: "boom" } }, 400),
     () => jsonResponse({ ok: true }),
@@ -65,7 +65,8 @@ test("a failed batch clears the queue and reports desync; queue keeps working", 
   q.enqueue([op("u1"), op("u2")]);
   await q.drain();
   expect(onDesync).toHaveBeenCalledTimes(1);
-  // queue survives: a later enqueue sends normally
+  // The repair owner explicitly releases later delivery.
+  q.resume("recovery");
   q.enqueue([op("u3")]);
   await q.drain();
   expect(mock).toHaveBeenCalledTimes(2);
@@ -78,6 +79,7 @@ test("ops re-enqueued synchronously from onDesync are not stranded", async () =>
   ]);
   const q = createOpQueue(null, () => {
     q.enqueue([op("u9")]);
+    q.resume("recovery");
   });
   q.enqueue([op("u1")]);
   await q.drain();
@@ -95,7 +97,8 @@ test("a throwing onDesync does not poison the queue or drain()", async () => {
   });
   q.enqueue([op("u1")]);
   await q.drain(); // must resolve, not reject
-  // queue survives: a later enqueue sends normally
+  q.resume("recovery");
+  // queue survives after the repair owner releases the barrier
   q.enqueue([op("u2")]);
   await q.drain();
   expect(mock).toHaveBeenCalledTimes(2);
@@ -193,6 +196,48 @@ test("legacy write ticket reports delivery only after its ops POST succeeds", as
 
   release();
   await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("legacy 4xx fails only tickets touched by the rejected batch and barriers later work", async () => {
+  const { bodies, mock } = capturingFetch([
+    () => jsonResponse({ detail: { index: 0, reason: "boom" } }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  const onDesync = vi.fn();
+  const q = createOpQueue(null, onDesync);
+  q.setOnline(false);
+  const first = q.enqueue(
+    Array.from({ length: 300 }, (_, i) => op(`first-${i}`)),
+  );
+  const spanning = q.enqueue(
+    Array.from({ length: 250 }, (_, i) => op(`spanning-${i}`)),
+  );
+  const later = q.enqueue([op("later-1"), op("later-2")]);
+  let laterDelivery: unknown;
+  void later.delivered.then((outcome) => { laterDelivery = outcome; });
+
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering", pending: 2,
+  });
+
+  expect(mock).toHaveBeenCalledTimes(1);
+  expect((bodies[0] as { ops: unknown[] }).ops).toHaveLength(500);
+  await expect(first.delivered).resolves.toMatchObject({ status: "failed" });
+  await expect(spanning.delivered).resolves.toMatchObject({ status: "failed" });
+  expect(laterDelivery).toBeUndefined();
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering", pending: 2,
+  });
+  expect(mock).toHaveBeenCalledTimes(1);
+
+  q.resume("recovery");
+  await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+  expect(mock).toHaveBeenCalledTimes(2);
+  expect((bodies[1] as { ops: unknown[] }).ops).toEqual([
+    op("later-1"), op("later-2"),
+  ]);
+  expect(onDesync).toHaveBeenCalledTimes(1);
 });
 
 test("legacy 503 retains work and retries after 250ms", async () => {

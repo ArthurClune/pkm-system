@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import { registerOutline } from "../outline/activeOutlines";
+import { isOutlineSessionActive } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
@@ -108,4 +109,19 @@ test("shows the fetch error", async () => {
       </SyncContext.Provider>
     </MemoryRouter>);
   expect(await screen.findByText(/request failed: 404/i)).toBeInTheDocument();
+});
+
+test("releases a failed parent read when the panel unmounts", async () => {
+  stubFetch([]);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={makeSync()}>
+        <EditableSidebarPanel title="Failed sidebar read" />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  expect(await screen.findByText(/request failed: 404/i)).toBeInTheDocument();
+
+  view.unmount();
+
+  expect(isOutlineSessionActive("Failed sidebar read")).toBe(false);
 });

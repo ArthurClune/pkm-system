@@ -516,6 +516,21 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
     }
   };
 
+  /** Reject every ticket touched by the failed HTTP batch, including any
+   * remainder of a ticket that crossed MAX_BATCH. Return the number of
+   * pending ops owned by those terminal tickets so later tickets stay queued. */
+  const rejectBatchDeliveries = (count: number, error: unknown): number => {
+    let remaining = count;
+    let discarded = 0;
+    while (remaining > 0 && deliveries.length > 0) {
+      const delivery = deliveries.shift()!;
+      remaining -= Math.min(remaining, delivery.remaining);
+      discarded += delivery.remaining;
+      delivery.resolve({ status: "failed", error });
+    }
+    return discarded;
+  };
+
   const cancelRetry = (reset: boolean): void => {
     if (retryTimer !== null) clearTimeout(retryTimer);
     retryTimer = null;
@@ -560,9 +575,15 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
         if (!(error instanceof ApiError) || error.status >= 500) {
           return failed(error);
         }
-        pending = [];
-        failDeliveries(error);
+        // A rejected ticket is terminal, including a ticket whose remaining
+        // ops cross this transport batch. Later tickets stay pending behind a
+        // repair barrier and cannot POST until its owner explicitly resumes.
+        recovering = true;
+        cancelRetry(false);
+        const discarded = rejectBatchDeliveries(batch.length, error);
+        pending.splice(0, discarded);
         try { onDesync(error); } catch { /* listener isolation */ }
+        if (recovering) return terminal("recovering", error);
         continue;
       }
       pending.splice(0, batch.length);

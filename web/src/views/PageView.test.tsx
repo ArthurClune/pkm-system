@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
+import { isOutlineSessionActive } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { PageView } from "./PageView";
@@ -45,6 +46,16 @@ it("shows an error state on 404", async () => {
   stubFetch([]);
   renderAt("/page/Nope");
   expect(await screen.findByText(/could not load/i)).toBeInTheDocument();
+});
+
+it("releases a failed parent read when the page unmounts", async () => {
+  stubFetch([]);
+  const view = renderAt("/page/Failed%20read");
+  expect(await screen.findByText(/could not load/i)).toBeInTheDocument();
+
+  view.unmount();
+
+  expect(isOutlineSessionActive("Failed read")).toBe(false);
 });
 
 it("scrolls to and flashes the block named in the location hash (pkm-pzdu)", async () => {

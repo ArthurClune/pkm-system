@@ -23,6 +23,25 @@ export function OfflineIndicator() {
         Checking rejected changes failed: {problem.error}
         <button type="button" onClick={() => { void retryProblem(); }}>Retry</button>
       </div>
+    ) : problem.kind === "legacy-rejected" ? (
+      <div className="ws-banner" role={
+        problem.repair === "failed" ? "alert" : "status"
+      }>
+        {problem.repair === "running" ? (
+          <>Server rejected a change. Repairing active outlines…</>
+        ) : problem.repair === "failed" ? (
+          <>Server rejected a change: {problem.error}.{" "}
+            Authoritative repair failed: {problem.repairError}
+            <button type="button" onClick={() => { void retryProblem(); }}>
+              Retry
+            </button>
+          </>
+        ) : (
+          <>Server rejected a change. Active outlines repaired.
+            <button type="button" onClick={dismissProblem}>Dismiss</button>
+          </>
+        )}
+      </div>
     ) : (
     <div className="ws-banner" role={
       problem.repair === "failed" || problem.repair === "mark-failed"

@@ -39,6 +39,7 @@ export interface OutlineSessionHandle {
   claimEditor(owner: symbol): EditorLease;
   beginAuthoritativeRead(source: AuthoritativeReadSource): ReadToken;
   receiveAuthoritative(token: ReadToken, blocks: BlockNode[]): void;
+  cancelAuthoritativeRead(token: ReadToken): void;
   setAuthoritativeLoader(load: () => Promise<BlockNode[]>): () => void;
   applyLocal(ticket: WriteTicket, ops: readonly BlockOp[]): void;
   applyOptimistic(blocks: BlockNode[]): void;
@@ -77,9 +78,11 @@ interface Session {
   reservations: number;
   loaders: Map<symbol, () => Promise<BlockNode[]>>;
   trackedWrites: Set<string>;
+  manualReads: Set<number>;
 }
 
 const sessions = new Map<string, Session>();
+const unresolvedWrites = new Map<string, WriteTicket>();
 
 function maybeDeleteSession(session: Session): void {
   if (session.handles === 0 && session.reservations === 0 &&
@@ -124,6 +127,20 @@ function receiveAuthoritative(
     type: "authoritative", token, blocks,
   });
   applyTransition(session, result);
+}
+
+function finishManualRead(
+  session: Session,
+  token: ReadToken,
+  blocks?: BlockNode[],
+): void {
+  if (!session.manualReads.delete(token.requestId)) return;
+  try {
+    if (blocks !== undefined) receiveAuthoritative(session, token, blocks);
+  } finally {
+    session.reservations -= 1;
+    maybeDeleteSession(session);
+  }
 }
 
 function requestAuthoritative(
@@ -230,6 +247,7 @@ export function acquireOutlineSession(
       reservations: 0,
       loaders: new Map(),
       trackedWrites: new Set(),
+      manualReads: new Set(),
     };
     sessions.set(title, session);
   } else if (!session.bootstrapped && bootstrap !== null) {
@@ -238,6 +256,7 @@ export function acquireOutlineSession(
     session.bootstrapped = true;
   }
   session.handles += 1;
+  for (const ticket of unresolvedWrites.values()) trackWrite(session, ticket);
 
   let released = false;
   const subscriptions = new Set<() => void>();
@@ -293,11 +312,16 @@ export function acquireOutlineSession(
         },
       };
     },
-    beginAuthoritativeRead: () => startAuthoritativeRead(session),
-    receiveAuthoritative: (token, blocks) => {
-      if (released) return;
-      receiveAuthoritative(session, token, blocks);
+    beginAuthoritativeRead: () => {
+      const token = startAuthoritativeRead(session);
+      session.manualReads.add(token.requestId);
+      session.reservations += 1;
+      return token;
     },
+    receiveAuthoritative: (token, blocks) => {
+      finishManualRead(session, token, blocks);
+    },
+    cancelAuthoritativeRead: (token) => finishManualRead(session, token),
     setAuthoritativeLoader: (load) => {
       if (released) return () => undefined;
       const token = Symbol(`authoritative:${title}`);
@@ -363,6 +387,14 @@ export function isOutlineEditorActive(title: string): boolean {
  * therefore have no registered DnD editor API. */
 export function trackActiveOutlineWrite(ticket: WriteTicket): void {
   if (ticket.scope[0] !== "page") return;
+  if (!unresolvedWrites.has(ticket.id)) {
+    unresolvedWrites.set(ticket.id, ticket);
+    void ticket.delivered.finally(() => {
+      if (unresolvedWrites.get(ticket.id) === ticket) {
+        unresolvedWrites.delete(ticket.id);
+      }
+    });
+  }
   for (const title of new Set(ticket.scope.slice(1))) {
     const session = sessions.get(title);
     if (session) trackWrite(session, ticket);
@@ -406,4 +438,12 @@ export function captureActiveOutlineReads(
 
 export function isOutlineSessionActive(title: string): boolean {
   return sessions.has(title);
+}
+
+/** Repair every currently active optimistic outline before a legacy queue
+ * releases later delivery. A rejected ticket's own settlement read coalesces
+ * with this boundary through requestAuthoritative's per-title single flight. */
+export async function repairActiveOutlineSessions(): Promise<void> {
+  await Promise.all([...sessions.values()].map((session) =>
+    requestAuthoritative(session)));
 }

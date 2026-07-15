@@ -1,7 +1,8 @@
 import { expect, it, vi } from "vitest";
 import type { DeliveryOutcome, WriteOutcome } from "../sync/opQueue";
 import { block } from "../test-helpers";
-import { acquireOutlineSession, trackActiveOutlineWrite } from "./outlineSessions";
+import { acquireOutlineSession, repairActiveOutlineSessions,
+         trackActiveOutlineWrite } from "./outlineSessions";
 
 const update = (text: string) => ({
   op: "update_text" as const, uid: "u1", text,
@@ -131,6 +132,40 @@ it("retains an authoritative read across release and reacquire", async () => {
   fresh.release();
 });
 
+it("pins a token-based authoritative read across release and reacquire", () => {
+  const first = acquireOutlineSession(
+    "Pinned manual read", [block("u1", "before read")],
+  );
+  const token = first.beginAuthoritativeRead("parent");
+  first.release();
+
+  const reopened = acquireOutlineSession(
+    "Pinned manual read", [block("u1", "stale bootstrap")],
+  );
+  expect(reopened.getSnapshot().blocks[0].text).toBe("before read");
+
+  first.receiveAuthoritative(token, [block("u1", "read result")]);
+  expect(reopened.getSnapshot().blocks[0].text).toBe("read result");
+  reopened.release();
+});
+
+it("cancels a failed token-based read so the session can be collected", () => {
+  const first = acquireOutlineSession(
+    "Cancelled manual read", [block("u1", "before read")],
+  );
+  const token = first.beginAuthoritativeRead("parent");
+  first.cancelAuthoritativeRead(token);
+  first.release();
+
+  const fresh = acquireOutlineSession(
+    "Cancelled manual read", [block("u1", "fresh bootstrap")],
+  );
+  expect(fresh.getSnapshot().blocks[0].text).toBe("fresh bootstrap");
+  first.receiveAuthoritative(token, [block("u1", "late result")]);
+  expect(fresh.getSnapshot().blocks[0].text).toBe("fresh bootstrap");
+  fresh.release();
+});
+
 it("coalesces overlapping authoritative reads and publishes their tree once", async () => {
   const first = acquireOutlineSession("Authoritative", [block("old", "old")]);
   const second = acquireOutlineSession("Authoritative", [block("old", "old")]);
@@ -197,4 +232,56 @@ it("routes a cross-page ticket to source and fallback target but not another tit
   source.release();
   target.release();
   other.release();
+});
+
+it("attaches an unresolved scoped ticket when its target session opens later", async () => {
+  const delivered = deferred<DeliveryOutcome>();
+  trackActiveOutlineWrite({
+    id: "move-to-closed-target", scope: ["page", "Source", "Late target"],
+    settled: Promise.resolve({ status: "persisted", pending: 1 }),
+    delivered: delivered.promise,
+  });
+
+  const target = acquireOutlineSession(
+    "Late target", [block("u1", "opened optimistic target")],
+  );
+  const loadTarget = vi.fn(async () => [block("u1", "post-delivery target")]);
+  const removeLoader = target.setAuthoritativeLoader(loadTarget);
+  const staleToken = target.beginAuthoritativeRead("cross-page-move");
+  target.receiveAuthoritative(staleToken, [block("u1", "pre-POST target")]);
+
+  expect(target.getSnapshot().blocks[0].text).toBe("opened optimistic target");
+  expect(loadTarget).not.toHaveBeenCalled();
+
+  delivered.resolve({ status: "delivered" });
+  await vi.waitFor(() => expect(loadTarget).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => {
+    expect(target.getSnapshot().blocks[0].text).toBe("post-delivery target");
+  });
+
+  removeLoader();
+  target.release();
+});
+
+it("waits for active session loaders at the legacy repair boundary", async () => {
+  const response = deferred<ReturnType<typeof block>[]>();
+  const session = acquireOutlineSession(
+    "Legacy repair", [block("u1", "optimistic")],
+  );
+  const load = vi.fn(() => response.promise);
+  const removeLoader = session.setAuthoritativeLoader(load);
+
+  const repairing = repairActiveOutlineSessions();
+  let repaired = false;
+  void repairing.then(() => { repaired = true; });
+  await Promise.resolve();
+  expect(load).toHaveBeenCalledTimes(1);
+  expect(repaired).toBe(false);
+
+  response.resolve([block("u1", "authoritative")]);
+  await repairing;
+  expect(session.getSnapshot().blocks[0].text).toBe("authoritative");
+
+  removeLoader();
+  session.release();
 });

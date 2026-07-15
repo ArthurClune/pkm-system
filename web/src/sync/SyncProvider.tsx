@@ -185,6 +185,9 @@ export function SyncProvider({ children, replica }: {
           setPending(remaining);
           setProblem({ kind: "rejected-batch", event, repair: "repaired" });
           setResyncSeq((n) => n + 1);
+        }
+        replicaSync!.completeAuthoritativeRepair("poison");
+        if (mountedRef.current) {
           queue.resume("recovery");
         }
         repairSucceededRef.current = true;

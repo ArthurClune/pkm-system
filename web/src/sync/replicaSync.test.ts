@@ -205,6 +205,95 @@ test("poison rebase waits for an in-flight guarded feed before its snapshot", as
   expect(queue.resume).not.toHaveBeenCalled();
 });
 
+test("poison owns recovery when a held feed needs bootstrap through failure and retry", async () => {
+  const poisoned: PendingBatch = {
+    id: 1, batch_id: "poisoned", ops: [{ op: "delete", uid: "uid_bad" }],
+    poisoned: true,
+  };
+  const later: PendingBatch = {
+    id: 2, batch_id: "later-valid", ops: [{ op: "delete", uid: "uid_good" }],
+    poisoned: false,
+  };
+  let applyCall = 0;
+  const replica = fakeReplica({
+    applyChanges: vi.fn(async (window: Changes) => {
+      applyCall += 1;
+      return applyCall === 1
+        ? { status: "applied" as const, cursor: window.next_since }
+        : { status: "needs-bootstrap" as const };
+    }),
+    prepareRecovery: vi.fn(async () => ({
+      token: `lease-${applyCall}`, batches: [poisoned, later],
+    })),
+  });
+  let releaseHeldFeed!: () => void;
+  const heldFeed = new Promise<void>((resolve) => { releaseHeldFeed = resolve; });
+  let releaseRetrySnapshot!: () => void;
+  const retrySnapshot = new Promise<void>((resolve) => {
+    releaseRetrySnapshot = resolve;
+  });
+  let changesCall = 0;
+  let snapshotPhase: "first" | "between" | "retry" = "first";
+  let retrySnapshotStarted = false;
+  let snapshotCalls = 0;
+  const posted: string[] = [];
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      posted.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") {
+      snapshotCalls += 1;
+      if (snapshotPhase === "first") throw new Error("poison snapshot offline");
+      if (snapshotPhase === "retry") {
+        retrySnapshotStarted = true;
+        await retrySnapshot;
+      }
+      return { ...SNAP, seq: 10 };
+    }
+    changesCall += 1;
+    if (changesCall === 2) await heldFeed;
+    return feed({ next_since: 6, latest_seq: 6 });
+  });
+  const queue = { pause: vi.fn(), resume: vi.fn() };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+
+  sync.onSeq(9);
+  await vi.waitFor(() => { expect(changesCall).toBe(2); });
+  const firstRepair = sync.rebaseAuthoritative("poison")
+    .then(() => null, (error: unknown) => error);
+  releaseHeldFeed();
+  const firstError = await firstRepair;
+
+  // A failed poison snapshot retains recovery ownership. Another feed that
+  // needs bootstrap must not enter normal Task 2 flush/resume while Retry is
+  // still pending.
+  snapshotPhase = "between";
+  sync.onSeq(9);
+  await sync.idle();
+
+  snapshotPhase = "retry";
+  const retry = sync.rebaseAuthoritative("poison");
+  await vi.waitFor(() => { expect(retrySnapshotStarted).toBe(true); });
+  const postedBeforeRetryCommit = [...posted];
+  const resumesBeforeRetryCommit = queue.resume.mock.calls.length;
+  releaseRetrySnapshot();
+  await retry;
+
+  expect(firstError).toMatchObject({ message: "poison snapshot offline" });
+  expect(postedBeforeRetryCommit).toEqual([]);
+  expect(posted).toEqual([]);
+  expect(resumesBeforeRetryCommit).toBe(0);
+  expect(queue.resume).not.toHaveBeenCalled();
+  expect(snapshotCalls).toBe(2); // failed poison snapshot + successful Retry
+  expect(sync.completeAuthoritativeRepair).toBeTypeOf("function");
+  sync.completeAuthoritativeRepair("poison");
+});
+
 test("a needs-bootstrap feed answer re-bootstraps when the queue is empty", async () => {
   const replica = fakeReplica({
     applyChanges: vi.fn()

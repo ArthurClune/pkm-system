@@ -29,6 +29,9 @@ export interface ReplicaSync {
    * remains paused on return so the provider can delete the poison row, bump
    * view resync, and only then resume the queue. */
   rebaseAuthoritative(reason: "poison"): Promise<void>;
+  /** Release poison recovery ownership after row deletion/resync scheduling.
+   * This does not resume delivery; the provider owns that final ordering. */
+  completeAuthoritativeRepair(reason: "poison"): void;
 }
 
 export interface ReplicaSyncDeps {
@@ -55,6 +58,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let disabled = false; // no-replica: permanent for this session
   let pulling: Promise<void> | null = null;
   let again = false;
+  let authoritativeRepair: "poison" | null = null;
 
   const bootstrap = async (): Promise<void> => {
     const snap = (await fetchJson("/api/sync/snapshot")) as Snapshot;
@@ -130,6 +134,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         const res = await replica.applyChanges(feed, expectedPendingIds);
         if (res.status === "pending-changed") continue;
         if (res.status === "needs-bootstrap") {
+          // A rejected batch owns recovery until the provider has deleted its
+          // durable row and scheduled resync. Normal Task 2 recovery would
+          // flush later valid rows and resume a boolean-paused queue, breaking
+          // poison's stronger ordering and failed-Retry barrier.
+          if (authoritativeRepair === "poison") return;
           if (!(await recover("rebase"))) return;
           done = feed.latest_seq <= cursor;
         } else {
@@ -204,11 +213,15 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // pull that already passed Task 1's pending-id guard must finish first;
       // otherwise its stale window could apply after the full snapshot and
       // move the cursor/state backwards.
+      authoritativeRepair = "poison";
       queue.pause("recovery");
       await (pulling ?? Promise.resolve());
       await runRecovery("rebase", {
         flush: false, resume: false, reportReplicaFailure: false,
       });
+    },
+    completeAuthoritativeRepair(reason) {
+      if (authoritativeRepair === reason) authoritativeRepair = null;
     },
   };
 }

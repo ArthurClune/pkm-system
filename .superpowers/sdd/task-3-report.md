@@ -171,3 +171,48 @@ Tracking/report:
   to print their pre-existing, expected savepoint foreign-key diagnostic, and
   the production build continues to print its existing large-chunk warning;
   both canonical gates pass.
+
+## Independent review fix: nested recovery ownership
+
+The independent Task 3 review identified an Important race in the initial
+in-flight-feed guard. Poison repair paused the queue and waited for the active
+pull, but a held feed could return `needs-bootstrap` during that wait. Its
+normal Task 2 recovery then owned no poison context: it flushed later
+non-poisoned batches and called `resume("recovery")` against the queue's boolean
+pause before poison's authoritative snapshot had run. A failed poison snapshot
+left the same path open before Retry.
+
+### Review RED
+
+Command:
+
+```text
+cd web && pnpm vitest run src/sync/replicaSync.test.ts
+```
+
+Result: exit 1; 1 intended failure, 18 passes. The deterministic test held an
+in-flight changes request, started poison repair, returned `needs-bootstrap`,
+failed the first poison snapshot, triggered another bootstrap-needing feed, and
+held Retry's snapshot. The current coordinator POSTed `later-valid` twice and
+resumed normal recovery before Retry, rather than keeping both counts at zero.
+
+### Ownership design and GREEN
+
+`replicaSync` now records authoritative poison ownership before awaiting any
+in-flight pull. While that owner exists, a feed `needs-bootstrap` result exits
+the pull instead of entering normal Task 2 recovery, so it cannot flush later
+rows or balance the queue's boolean pause prematurely. Ownership deliberately
+survives snapshot failure and Retry. The provider releases it explicitly only
+after the full snapshot commits, every repaired poison row is deleted, and the
+resync state update is scheduled; provider queue resume remains the final
+action. Existing schema/generation recovery is unchanged when no poison owner
+exists.
+
+Fresh review-fix verification:
+
+- Focused queue/provider/coordinator: 3 files / 62 tests passed.
+- Exact Task 3 Step 5: 5 files / 78 tests passed.
+- Exact Task 2 compatibility: 6 files / 85 tests passed.
+- `cd web && pnpm typecheck`: passed.
+- Canonical `cd web && pnpm verify`: passed; 69 unit files / 714 tests,
+  production/PWA build with 78 entries / 5117.94 KiB, and Playwright 6/6.

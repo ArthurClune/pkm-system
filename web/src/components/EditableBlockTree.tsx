@@ -536,6 +536,14 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
         e.preventDefault();
         handlers.onArrow(node.uid, decision.dir);
         return;
+      case "undo":
+        e.preventDefault();
+        // TODO (Task 6): add handler for undo
+        return;
+      case "redo":
+        e.preventDefault();
+        // TODO (Task 6): add handler for redo
+        return;
       default: {
         const exhaustive: never = decision;
         return exhaustive;

@@ -47,6 +47,8 @@ export type KeyDecision =
   | { type: "move-subtree-down" }
   | { type: "backspace-at-start" }
   | { type: "arrow"; dir: "up" | "down" | "left" | "right" }
+  | { type: "undo" }
+  | { type: "redo" }
   | { type: "none" };
 
 const NONE: KeyDecision = { type: "none" };
@@ -91,6 +93,12 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
     if (atEdge) return { type: "start-block-selection", dir: up ? "up" : "down" };
   }
   if (i.readOnly) return NONE;
+  // Cmd-Z / Shift-Cmd-Z (Ctrl variants for non-Mac): app-level undo/redo
+  // (pkm-7q14). preventDefault in the shell kills the textarea's native
+  // undo, which would otherwise fight the op-based history.
+  if ((i.metaKey || i.ctrlKey) && !i.altKey && i.key.toLowerCase() === "z") {
+    return i.shiftKey ? { type: "redo" } : { type: "undo" };
+  }
   const headingDigit = /^Digit([0-3])$/.exec(i.code)?.[1]
     ?? (/^[0-3]$/.test(i.key) ? i.key : null);
   if (i.ctrlKey && i.altKey && !i.metaKey && !i.shiftKey && headingDigit !== null) {

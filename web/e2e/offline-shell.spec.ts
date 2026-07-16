@@ -4,6 +4,7 @@
 // placeholder.
 import { type Page, type WebSocketRoute } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
 
@@ -61,6 +62,7 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
 
   const today = page.locator(".journal-day").first();
   await expect(today).toBeVisible();
+  const pageTitle = await today.locator("h1.page-title").innerText();
   const startWriting = today.getByText("Click to start writing…");
   if (await startWriting.count() > 0) {
     await startWriting.click();
@@ -79,6 +81,12 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
     const el = document.querySelector<HTMLImageElement>("img.asset-image");
     return el !== null && el.naturalWidth > 0;
   });
+
+  // the offline reload below reads from the replica, so the flushed edit
+  // must be durably enqueued first. Server delivery implies exactly that —
+  // drain() only POSTs rows it reads back out of the replica — and unlike
+  // the render assertions above it actually waits for the flush (pkm-57n9).
+  await waitForServerText(page, pageTitle, `shell smoke ![pic](${url})`);
 
   // -- cold start with no network -------------------------------------------
   offline = true;
@@ -138,6 +146,7 @@ test("mermaid renders offline from the precached chunk", async ({ page, context 
 
   const today = page.locator(".journal-day").first();
   await expect(today).toBeVisible();
+  const pageTitle = await today.locator("h1.page-title").innerText();
   const startWriting = today.getByText("Click to start writing…");
   if (await startWriting.count() > 0) {
     await startWriting.click();
@@ -154,6 +163,11 @@ test("mermaid renders offline from the precached chunk", async ({ page, context 
   // renders online: this loads and (via the precache glob) caches the mermaid
   // chunk family in the service worker.
   await expect(page.locator(".mermaid-diagram svg")).toBeVisible({ timeout: 30_000 });
+
+  // the offline reload must find the diagram block in the replica: wait for
+  // the flush to become durable (server delivery implies the local enqueue
+  // landed — see the first test) before cutting the network (pkm-57n9)
+  await waitForServerText(page, pageTitle, "```mermaid\ngraph TD\nA-->B\n```");
 
   // -- cold start with no network -------------------------------------------
   offline = true;

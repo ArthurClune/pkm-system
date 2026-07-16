@@ -151,7 +151,14 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
   }
 
   return (
-    <span className="pdf-embed">
+    // The whole viewer is an interactive island: it renders inside
+    // EditableBlockTree's `.block-text`, whose unconditional onClick
+    // re-enters block-edit mode and unmounts this component. Every click
+    // anywhere in here (frame, footer, Expand, Download) must be stopped
+    // here, once, rather than patched per-element -- otherwise a native
+    // <embed> would have swallowed the click, but this viewer's DOM
+    // doesn't.
+    <span className="pdf-embed" onClick={(e) => e.stopPropagation()}>
       <Document
         file={href}
         onLoadSuccess={onLoadSuccess}
@@ -169,33 +176,30 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
             <a href={href} download className="pdf-download">
               {label || "Download PDF"}
             </a>
-            <button type="button" className="btn-secondary" onClick={(e) => {
-              // Stop the click from bubbling to the enclosing block's
-              // click-to-edit handler (EditableBlockTree) -- otherwise the
-              // block re-enters edit mode and unmounts this viewer (and the
-              // expanded state we're about to set) before the overlay renders.
-              e.stopPropagation();
-              setExpanded(true);
-            }}>
+            <button type="button" className="btn-secondary" onClick={() => setExpanded(true)}>
               Expand
             </button>
           </span>
         )}
         {doc !== null && expanded && createPortal(
-          <div className="pdf-overlay" role="dialog" aria-label={label || "PDF"}>
+          // Portalled to document.body, but React portals propagate
+          // synthetic events through the REACT tree, not the DOM tree -- so
+          // this is still a descendant of `.block-text` for bubbling
+          // purposes and needs its own containment (see the .pdf-embed
+          // handler above for the full hazard).
+          <div
+            className="pdf-overlay"
+            role="dialog"
+            aria-label={label || "PDF"}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="pdf-overlay-bar">
               <span className="pdf-overlay-title">{label || "PDF"}</span>
               <span className="pdf-page-indicator">
                 Page {currentPage} of {doc.numPages}
               </span>
               <a href={href} download className="pdf-download">Download</a>
-              <button type="button" className="btn-secondary" onClick={(e) => {
-                // Same bubbling hazard as the Expand button above -- the
-                // overlay is portalled to document.body, but this button is
-                // still a descendant of the block in the React tree.
-                e.stopPropagation();
-                setExpanded(false);
-              }}>
+              <button type="button" className="btn-secondary" onClick={() => setExpanded(false)}>
                 Close
               </button>
             </div>

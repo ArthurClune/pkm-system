@@ -118,12 +118,14 @@ it("the Close button also collapses the overlay", async () => {
   expect(document.querySelector(".pdf-overlay")).toBeNull();
 });
 
-it("Expand/Close clicks do not bubble to an enclosing block's click-to-edit handler", async () => {
+it("no click anywhere in the viewer bubbles to an enclosing block's click-to-edit handler", async () => {
   // Regression test for pkm-srek: a real block renders this viewer inside
   // EditableBlockTree's `.block-text`, which has its own onClick that
-  // re-enters edit mode (and would unmount this viewer, and the `expanded`
-  // state we're about to set, before the overlay ever renders) unless these
-  // buttons stop propagation.
+  // re-enters edit mode (and would unmount this viewer, along with any
+  // `expanded` state, before the overlay ever renders) unless every click
+  // target inside the viewer -- including the portalled overlay, since React
+  // portals propagate synthetic events through the REACT tree, not the DOM
+  // tree -- stops propagation. The whole viewer is an interactive island.
   const onParentClick = vi.fn();
   render(
     <div onClick={onParentClick}>
@@ -132,7 +134,25 @@ it("Expand/Close clicks do not bubble to an enclosing block's click-to-edit hand
   );
   await act(async () => {});
 
+  // inline footer: Download anchor click must not enter edit mode
+  fireEvent.click(screen.getByRole("link", { name: "Notes" }));
+  expect(onParentClick).not.toHaveBeenCalled();
+
   fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+  expect(document.querySelector(".pdf-overlay")).not.toBeNull();
+  expect(onParentClick).not.toHaveBeenCalled();
+
+  // overlay content other than Close: bar background, title, page
+  // indicator, Download -- none of these may close the overlay or bubble.
+  fireEvent.click(document.querySelector(".pdf-overlay-bar")!);
+  expect(document.querySelector(".pdf-overlay")).not.toBeNull();
+  expect(onParentClick).not.toHaveBeenCalled();
+
+  fireEvent.click(document.querySelector(".pdf-overlay-title")!);
+  expect(document.querySelector(".pdf-overlay")).not.toBeNull();
+  expect(onParentClick).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("link", { name: "Download" }));
   expect(document.querySelector(".pdf-overlay")).not.toBeNull();
   expect(onParentClick).not.toHaveBeenCalled();
 

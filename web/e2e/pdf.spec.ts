@@ -60,6 +60,18 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   const overlay = page.locator(".pdf-overlay");
   await expect(overlay).toBeVisible();
   await expect(overlay.locator("canvas").first()).toBeVisible();
+
+  // clicking overlay content (not Close) must not collapse the overlay or
+  // re-enter block-edit mode -- the whole viewer, including the portalled
+  // overlay, is an interactive island (pkm-srek final review).
+  await overlay.locator(".pdf-overlay-bar").click();
+  await expect(overlay).toBeVisible();
+  // the overlay mounts a fresh PdfPages with its own scroll position, so it
+  // starts back at page 1 regardless of where the inline frame was scrolled;
+  // scope to the overlay's own indicator since the inline footer's indicator
+  // is still present (and unaffected) while the overlay is open.
+  await expect(overlay.locator(".pdf-page-indicator")).toHaveText("Page 1 of 3");
+
   await page.keyboard.press("Escape");
   await expect(overlay).toHaveCount(0);
 });

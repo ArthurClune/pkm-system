@@ -60,7 +60,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let pulling: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
-  const poisonPreempted = Symbol("poison-preempted-normal-recovery");
+  // A per-instance sentinel thrown to abort a normal-recovery flush that a
+  // poison repair has preempted. It is caught by identity (=== below), never
+  // by message; it is an Error (not a Symbol) only so it is a throwable the
+  // lint's only-throw-error rule accepts -- the identity check is what matters.
+  const poisonPreempted = new Error("poison preempted normal recovery");
 
   // The queue fires this synchronously on the 4xx path, before the durable
   // poison mark and its public event. A normal recovery lease acquired just

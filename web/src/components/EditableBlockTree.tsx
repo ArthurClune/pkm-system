@@ -286,6 +286,11 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  // The caret offset to place on mount, captured once: this component is
+  // remounted each time focus moves to a new block, so the mount-time
+  // `cursor` is the intended initial caret and later prop changes (which
+  // don't happen for the focused block) must not re-run the focus effect.
+  const initialCursorRef = useRef(cursor);
   // The /upload file picker, and the caret offset the trigger was stripped at
   // (where the asset markdown should be spliced once files are chosen).
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -319,9 +324,8 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     const el = ref.current;
     if (!el) return;
     el.focus();
-    const at = Math.min(cursor, el.value.length);
+    const at = Math.min(initialCursorRef.current, el.value.length);
     el.setSelectionRange(at, at);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-grow to fit content.

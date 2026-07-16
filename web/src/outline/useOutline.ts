@@ -149,7 +149,7 @@ export function useOutline(
       setBlocks(next);
     }
     if (result.focus) setFocus(result.focus);
-  }, [takePendingTextOps, pageTitle, sync, publishBlocks]);
+  }, [takePendingTextOps, pageTitle, sync]);
 
   const flushNow = useCallback(() => {
     run((b) => ({ blocks: b, ops: [], focus: null }));

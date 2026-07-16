@@ -230,7 +230,9 @@ export function SyncProvider({ children, replica }: {
         if (mountedRef.current) setReplicaState(next);
       },
     }) : null;
-  }, []);
+    // queue is a mount-stable useMemo value; listing it keeps this memo
+    // honest without changing that replicaSync is created exactly once.
+  }, [queue]);
 
   const repairEventsRef = useRef<(events: readonly PoisonEvent[]) => Promise<void>>(
     async () => undefined);
@@ -345,7 +347,6 @@ export function SyncProvider({ children, replica }: {
       type: "mode-ready-check", prevMode: was, mode: replicaState.mode,
       status: statusRef.current,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replicaState.mode]);
 
   // Offline routing (spec section 4): while the socket is down, apiFetch
@@ -387,7 +388,6 @@ export function SyncProvider({ children, replica }: {
       },
     });
     return () => setOfflineGateway(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -473,8 +473,10 @@ export function SyncProvider({ children, replica }: {
         if (owned) void owned.replica.dispose();
       });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // queue and replicaSync are both mount-stable useMemo values; listing
+    // them satisfies the dependency check without letting this connect/
+    // reconnect effect re-run (they never change identity for this mount).
+  }, [queue, replicaSync]);
 
   // Connected: editing always allowed (server-authoritative, as before).
   // Offline: allowed only with a ready replica that can still persist —
@@ -551,7 +553,7 @@ export function SyncProvider({ children, replica }: {
     },
     settled: () => queue.settled(),
   }), [status, resyncSeq, replicaState, canEdit, pending, readOnlyReason,
-       problem, queue]);
+       problem, queue, replicaSync]);
 
   return <SyncContext.Provider value={api}>{children}</SyncContext.Provider>;
 }

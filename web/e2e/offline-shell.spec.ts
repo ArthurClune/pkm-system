@@ -107,3 +107,63 @@ test("cold start offline: SW shell + replica content + asset cache", async ({ pa
   await input(page).press("Escape");
   await expect(page.getByText(/image unavailable offline/)).toBeVisible();
 });
+
+// Mermaid stays a never-online capability under the explicit raw-byte budget
+// (budgets.json mermaidOwnedBytes): its whole lazy chunk family is precached
+// by the service worker, so a diagram renders with no network at all. This
+// guards the budget task's promise that the Mermaid exception buys genuine
+// offline rendering, not just a smaller eager bundle.
+test("mermaid renders offline from the precached chunk", async ({ page, context }) => {
+  test.setTimeout(60_000);
+
+  let offline = false;
+  const live: WebSocketRoute[] = [];
+  await page.routeWebSocket(/\/api\/ws$/, (ws) => {
+    if (offline) {
+      void ws.close();
+      return;
+    }
+    ws.connectToServer();
+    live.push(ws);
+  });
+
+  const snapshot = page.waitForResponse("**/api/sync/snapshot");
+  await login(page);
+  await snapshot;
+
+  await page.waitForFunction(async () => {
+    await navigator.serviceWorker.ready;
+    return navigator.serviceWorker.controller !== null;
+  });
+
+  const today = page.locator(".journal-day").first();
+  await expect(today).toBeVisible();
+  const startWriting = today.getByText("Click to start writing…");
+  if (await startWriting.count() > 0) {
+    await startWriting.click();
+  } else {
+    await today.locator(".block-text").first().click();
+    await caretToEnd(page);
+    await input(page).press("Enter");
+  }
+  // A fenced mermaid block lives in a single block's multi-line text; the
+  // renderer tokenizes it into a code-block(lang="mermaid") -> MermaidDiagram.
+  await input(page).fill("```mermaid\ngraph TD\nA-->B\n```");
+  await input(page).press("Escape");
+
+  // renders online: this loads and (via the precache glob) caches the mermaid
+  // chunk family in the service worker.
+  await expect(page.locator(".mermaid-diagram svg")).toBeVisible({ timeout: 30_000 });
+
+  // -- cold start with no network -------------------------------------------
+  offline = true;
+  await context.setOffline(true);
+  for (const ws of live.splice(0)) await ws.close();
+  await page.reload();
+
+  await expect(page.locator(".journal-day").first()).toBeVisible();
+  await expect(page.locator(".ws-banner")).toContainText("Offline");
+  // the diagram re-renders with zero network: proof the mermaid chunk came
+  // from the SW precache, not a live fetch.
+  await expect(page.locator(".mermaid-diagram svg")).toBeVisible({ timeout: 30_000 });
+});

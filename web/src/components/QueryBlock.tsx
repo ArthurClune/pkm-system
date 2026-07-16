@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { OfflineError, apiFetch } from "../api/client";
 import type { BlockGroup, GroupsPayload } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
@@ -38,7 +38,11 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
   const requestIdRef = useRef(0);
   const pageRequestRef = useRef<number | null>(null);
 
-  const load = async (from: number, requestId: number) => {
+  // useCallback keyed on `expr` (its only reactive input): its identity is
+  // stable across renders that don't change the query, so the effect below
+  // re-runs exactly when the expression changes -- the same firing the old
+  // hook-deps suppression documented, now proven by the checker.
+  const load = useCallback(async (from: number, requestId: number) => {
     setLoading(true);
     try {
       const p = await apiFetch<GroupsPayload>(
@@ -57,7 +61,7 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
       if (requestId === requestIdRef.current) setLoading(false);
       if (pageRequestRef.current === requestId) pageRequestRef.current = null;
     }
-  };
+  }, [expr]);
 
   useEffect(() => {
     if (capped) return;
@@ -68,9 +72,7 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
     setOffset(0);
     setError(null);
     void load(0, requestId);
-    // load(0) reads only `expr`/`capped` from scope; re-run on those alone.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expr, capped]);
+  }, [capped, load]);
 
   const loadMore = () => {
     if (pageRequestRef.current !== null) return;

@@ -124,15 +124,20 @@ export function Journal() {
 
   useEffect(() => {
     mountedRef.current = true;
+    // Capture the mount-stable Map instances (useRef(new Map()), never
+    // reassigned) so the cleanup operates on the same maps the effect saw,
+    // as the lint's ref-in-cleanup guard requires.
+    const loaderCleanups = sessionLoaderCleanupRef.current;
+    const sessions = sessionsRef.current;
     return () => {
       mountedRef.current = false;
       genRef.current += 1;
       loadingRef.current = false;
       releaseAllReads();
-      for (const cleanup of sessionLoaderCleanupRef.current.values()) cleanup();
-      sessionLoaderCleanupRef.current.clear();
-      for (const session of sessionsRef.current.values()) session.release();
-      sessionsRef.current.clear();
+      for (const cleanup of loaderCleanups.values()) cleanup();
+      loaderCleanups.clear();
+      for (const session of sessions.values()) session.release();
+      sessions.clear();
     };
   }, [releaseAllReads]);
   useEffect(() => { void loadMore(); }, [loadMore]);

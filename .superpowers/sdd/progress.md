@@ -62,3 +62,10 @@ offline-shell cold-start flake in a full-suite run (element-not-stable churn
 signature, matches pre-existing resyncSeq remount issue; 4/4 isolated and
 subsequent full verify clean; reviewer ruled out the suppression conversions
 as the cause).
+Task 11: complete (docs 16b4368; audit zero blocking evidence gaps)
+Final whole-branch review (bc88a9f..fccd51b): READY TO MERGE, zero
+Critical/Important. Deferred-Minor triage: items 1-8 and 10 ACCEPT (with
+sync-shell Minors 1-3 folded into follow-up bean pkm-wggr), item 9 split —
+three practical fixes to follow-up bean pkm-23dd, SQLite FK diagnostic and
+Node localStorage warning accepted as intrinsic. Epic bean pkm-c1cg marked
+completed with full Summary of Changes.

@@ -59,6 +59,24 @@ test("the focused block is a textarea with the raw markdown", () => {
   expect(ta.selectionStart).toBe(5);
 });
 
+test.each([
+  [1, "heading-1"],
+  [2, "heading-2"],
+  [3, "heading-3"],
+] as const)("a focused heading %i retains the %s typography class",
+            (heading, className) => {
+  const h = handlers();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree
+        blocks={[block("heading", "Heading", { heading })]}
+        focus={{ uid: "heading", cursor: 0 }} handlers={h} readOnly={false} />
+    </MemoryRouter>,
+  );
+
+  expect(focusedTextarea()).toHaveClass("block-input", className);
+});
+
 test("quoted display hides the prefix while editing exposes the raw source", () => {
   const quoted = [block("q1", "> **hello** [[World]]")];
   const h = handlers();

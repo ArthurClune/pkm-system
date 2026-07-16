@@ -302,6 +302,10 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   node: BlockNode; cursor: number;
   handlers: OutlineHandlers; readOnly: boolean;
 }) {
+  const headingClass =
+    node.heading === 1 ? " heading-1" :
+    node.heading === 2 ? " heading-2" :
+    node.heading === 3 ? " heading-3" : "";
   const [draft, setDraft] = useState(node.text);
   const [ac, setAc] = useState<AcContext | null>(null);
   const [acSelected, setAcSelected] = useState(0);
@@ -586,8 +590,8 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
 
   return (
     <div className="block-input-wrap">
-      <textarea ref={ref} className="block-input" rows={1} value={draft}
-                readOnly={readOnly}
+      <textarea ref={ref} className={`block-input${headingClass}`} rows={1}
+                value={draft} readOnly={readOnly}
                 onChange={onChange} onKeyDown={onKeyDown}
                 onBlur={() => handlers.onBlurBlock(node.uid)}
                 onPaste={onPaste} onDrop={onDrop}

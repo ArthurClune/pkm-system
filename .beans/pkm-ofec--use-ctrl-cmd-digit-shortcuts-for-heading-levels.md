@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-07-16T21:05:39Z
-updated_at: 2026-07-16T21:19:57Z
+updated_at: 2026-07-16T21:24:45Z
 ---
 
 The existing Ctrl-Alt-0/1/2/3 shortcuts dispatch heading changes, but a focused block always renders as an unformatted textarea, making the shortcuts appear broken. Preserve exact heading size and weight while focused; Ctrl-Alt-0 restores plain-text typography.
@@ -18,8 +18,13 @@ The existing Ctrl-Alt-0/1/2/3 shortcuts dispatch heading changes, but a focused 
 - [x] Write and commit design spec
 - [x] Review and approve written spec
 - [x] Write implementation plan
-- [ ] Add failing tests first
-- [ ] Implement shortcut behavior
-- [ ] Run required verification
-- [ ] Update bean summary and complete
+- [x] Add failing tests first
+- [x] Implement shortcut behavior
+- [x] Run required verification
+- [x] Update bean summary and complete
 - [ ] Commit and push changes
+
+
+## Summary of Changes
+
+Focused heading textareas now receive heading-1/2/3 classes while focused, and the CSS shares the exact heading size/weight rules with the rendered headings. Ctrl-Alt-0 clears the class and restores plain typography; the shortcut pipeline itself was already working.

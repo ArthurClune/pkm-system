@@ -319,9 +319,9 @@ button { font: inherit; }
 .block-text.quote-block { border-left: 3px solid var(--color-border-strong);
   color: var(--color-text-muted); padding-left: 12px; }
 /* all clearly below the 28px page title so the page keeps one visual root */
-h1.block-text { font-size: 1.4rem; font-weight: 600; }
-h2.block-text { font-size: 1.25rem; font-weight: 600; }
-h3.block-text { font-size: 1.1rem; font-weight: 600; }
+h1.block-text, .block-input.heading-1 { font-size: 1.4rem; font-weight: 600; }
+h2.block-text, .block-input.heading-2 { font-size: 1.25rem; font-weight: 600; }
+h3.block-text, .block-input.heading-3 { font-size: 1.1rem; font-weight: 600; }
 
 /* inline */
 a.tag:hover { color: var(--color-link); text-decoration: none;

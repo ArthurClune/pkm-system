@@ -28,10 +28,15 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
   // what actually drops stale results: the offline gateway (pkm-y8p0) can
   // still complete a request whose abort it never honored, so the id check
   // stays the single source of truth regardless of how a response arrives.
-  // pageInFlight additionally blocks a second page request from firing at
-  // all while one is outstanding (e.g. a double-clicked "Show more").
+  // pageRequest additionally blocks a second page request from firing at
+  // all while one is outstanding (e.g. a double-clicked "Show more"). It
+  // holds the owning request's id, not a boolean, so only the request that
+  // set it may clear it on settle — a stale generation's page request
+  // settling late can't reopen the guard while the current generation's
+  // page request is still in flight, and a page request issued from
+  // offset 0 (empty first page with a nonzero total) still releases it.
   const requestIdRef = useRef(0);
-  const pageInFlightRef = useRef(false);
+  const pageRequestRef = useRef<number | null>(null);
 
   const load = async (from: number, requestId: number) => {
     setLoading(true);
@@ -50,14 +55,14 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
                                          : String(e));
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
-      if (from !== 0) pageInFlightRef.current = false;
+      if (pageRequestRef.current === requestId) pageRequestRef.current = null;
     }
   };
 
   useEffect(() => {
     if (capped) return;
     const requestId = ++requestIdRef.current;
-    pageInFlightRef.current = false;
+    pageRequestRef.current = null;
     setGroups([]);
     setTotal(null);
     setOffset(0);
@@ -68,9 +73,10 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
   }, [expr, capped]);
 
   const loadMore = () => {
-    if (pageInFlightRef.current) return;
-    pageInFlightRef.current = true;
-    void load(offset, ++requestIdRef.current);
+    if (pageRequestRef.current !== null) return;
+    const requestId = ++requestIdRef.current;
+    pageRequestRef.current = requestId;
+    void load(offset, requestId);
   };
 
   if (capped) {

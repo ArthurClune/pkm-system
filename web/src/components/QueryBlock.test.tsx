@@ -193,6 +193,33 @@ it("ignores a stale generation's rejection while the current generation is still
   expect(screen.queryByText(/stale network failure/)).toBeNull();
 });
 
+it("recovers the page guard after a show-more that paginates from offset 0", async () => {
+  // Degenerate backend state: an empty first page but a nonzero total keeps
+  // offset at 0, so "Show more" issues a page request with from === 0. Once
+  // it settles, the guard must reopen — pagination must not lock up forever.
+  let calls = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === `/api/query?expr=${ENC_A}&limit=20&offset=0`) {
+      calls += 1;
+      return Promise.resolve(jsonResponse({ groups: [], total: 1 }));
+    }
+    throw new Error(`unexpected url ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderExpr(EXPR_A);
+  const button = await screen.findByRole("button", { name: /show more/i });
+  expect(calls).toBe(1);
+
+  fireEvent.click(button); // page request with from === 0
+  await screen.findByRole("button", { name: /show more/i });
+  expect(calls).toBe(2);
+
+  fireEvent.click(button); // guard must have reopened after the previous one settled
+  await vi.waitFor(() => expect(calls).toBe(3));
+});
+
 it("ignores a second show-more click while a page request is already in flight", async () => {
   const page = defer<Response>();
   let pageCalls = 0;

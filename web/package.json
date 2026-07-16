@@ -12,8 +12,8 @@
     "typecheck": "tsc",
     "lint": "eslint src tooling",
     "check:fcis": "node tooling/fcis.mjs",
-    "e2e": "pnpm build && playwright test",
-    "verify": "pnpm typecheck && pnpm lint && pnpm check:fcis && pnpm test:coverage && vite build && playwright test",
+    "e2e": "pnpm build && node tooling/runPlaywright.mjs",
+    "verify": "pnpm typecheck && pnpm lint && pnpm check:fcis && pnpm test:coverage && vite build && node tooling/runPlaywright.mjs",
     "gen-types": "openapi-typescript src/api/openapi.json -o src/api/types.d.ts"
   },
   "dependencies": {

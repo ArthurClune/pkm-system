@@ -23,6 +23,10 @@ function renderTopBar(
       <Routes>
         <Route path="/" element={<p>home</p>} />
         <Route path="/page/*" element={<p>page view here</p>} />
+        {/* catch-all: other paths (e.g. /current-work) are rendered by
+            TopBar's own route-labelling logic, not by this test's router;
+            without this, react-router logs an unmatched-location warning. */}
+        <Route path="*" element={<p>other route</p>} />
       </Routes>
     </MemoryRouter>,
   );

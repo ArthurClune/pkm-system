@@ -153,7 +153,14 @@ export function SyncProvider({ children, replica }: {
     const prev = problemRef.current;
     const transition = transitionSync({ problem: prev }, event);
     if (!mountedRef.current) return;
-    if (transition.state.problem !== prev) setProblem(transition.state.problem);
+    if (transition.state.problem !== prev) {
+      // Update the ref immediately (not just on next render): a second
+      // applySync dispatched in the same tick (e.g. from a listener firing
+      // synchronously off this one) must see this problem, not the one
+      // still pending in React's batched state update.
+      problemRef.current = transition.state.problem;
+      setProblem(transition.state.problem);
+    }
     for (const effect of transition.effects) {
       if (effect.type === "bump-resync") setResyncSeq((n) => n + 1);
     }

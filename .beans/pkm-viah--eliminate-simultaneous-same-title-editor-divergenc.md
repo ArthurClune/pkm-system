@@ -30,7 +30,7 @@ Provide shared per-title outline state or atomic subscription-backed editor owne
 - [x] Sequential sidebar/main-pane behavior remains covered.
 - [x] pnpm verify passes.
 
-## Completion summary
+## Summary of Changes
 
 Same-title views now acquire one ref-counted session after commit, share every flushed tree, and contend for a single idempotent editor lease. Pending and fallback views remain inert while preserving stable block DOM; owner cleanup promotes the next live claimant. DnD registrations reject duplicates and use token-checked cleanup. Simultaneous, StrictMode, shared-flush, handoff, main/sidebar ordering, hash-scroll, canonical unit/build, and Playwright coverage pass.
 

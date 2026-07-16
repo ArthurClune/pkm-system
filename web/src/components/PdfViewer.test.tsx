@@ -118,6 +118,29 @@ it("the Close button also collapses the overlay", async () => {
   expect(document.querySelector(".pdf-overlay")).toBeNull();
 });
 
+it("Expand/Close clicks do not bubble to an enclosing block's click-to-edit handler", async () => {
+  // Regression test for pkm-srek: a real block renders this viewer inside
+  // EditableBlockTree's `.block-text`, which has its own onClick that
+  // re-enters edit mode (and would unmount this viewer, and the `expanded`
+  // state we're about to set, before the overlay ever renders) unless these
+  // buttons stop propagation.
+  const onParentClick = vi.fn();
+  render(
+    <div onClick={onParentClick}>
+      <PdfViewer href={href} label="Notes" />
+    </div>,
+  );
+  await act(async () => {});
+
+  fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+  expect(document.querySelector(".pdf-overlay")).not.toBeNull();
+  expect(onParentClick).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(document.querySelector(".pdf-overlay")).toBeNull();
+  expect(onParentClick).not.toHaveBeenCalled();
+});
+
 it("falls back to the download link when the document fails to load", async () => {
   failLoad = true;
   render(<PdfViewer href={href} label="Notes" />);

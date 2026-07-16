@@ -169,7 +169,14 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
             <a href={href} download className="pdf-download">
               {label || "Download PDF"}
             </a>
-            <button type="button" className="btn-secondary" onClick={() => setExpanded(true)}>
+            <button type="button" className="btn-secondary" onClick={(e) => {
+              // Stop the click from bubbling to the enclosing block's
+              // click-to-edit handler (EditableBlockTree) -- otherwise the
+              // block re-enters edit mode and unmounts this viewer (and the
+              // expanded state we're about to set) before the overlay renders.
+              e.stopPropagation();
+              setExpanded(true);
+            }}>
               Expand
             </button>
           </span>
@@ -182,7 +189,13 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
                 Page {currentPage} of {doc.numPages}
               </span>
               <a href={href} download className="pdf-download">Download</a>
-              <button type="button" className="btn-secondary" onClick={() => setExpanded(false)}>
+              <button type="button" className="btn-secondary" onClick={(e) => {
+                // Same bubbling hazard as the Expand button above -- the
+                // overlay is portalled to document.body, but this button is
+                // still a descendant of the block in the React tree.
+                e.stopPropagation();
+                setExpanded(false);
+              }}>
                 Close
               </button>
             </div>

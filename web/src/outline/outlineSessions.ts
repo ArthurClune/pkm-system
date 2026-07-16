@@ -744,6 +744,15 @@ export function acquireOutlineSession(
   return handle;
 }
 
+/** A refcounted handle to an EXISTING session, or null. Unlike acquire this
+ * never creates one — the undo manager uses it to apply history batches
+ * instantly to mounted outlines without leaving behind an un-bootstrapped
+ * session for pages that aren't rendered. Callers must release(). */
+export function peekOutlineSession(title: string): OutlineSessionHandle | null {
+  if (!sessions.has(title)) return null;
+  return acquireOutlineSession(title, null);
+}
+
 export function isOutlineEditorActive(title: string): boolean {
   return sessions.get(title)?.editor?.granted ?? false;
 }

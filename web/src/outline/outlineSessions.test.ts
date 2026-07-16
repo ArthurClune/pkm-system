@@ -3,6 +3,7 @@ import type { DeliveryOutcome, WriteOutcome, WriteTicket } from "../sync/opQueue
 import { block } from "../test-helpers";
 import { acquireOutlineSession, attachActiveOutlineWriteReplay,
          isOutlineSessionActive,
+         peekOutlineSession,
          repairActiveOutlineSessions,
          trackActiveOutlineWrite } from "./outlineSessions";
 import { findNode, insertSubtree, removeSubtree } from "./tree";
@@ -722,4 +723,15 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     source.release();
     target.release();
   }
+});
+
+it("peekOutlineSession returns a handle only for live sessions", () => {
+  expect(peekOutlineSession("Peek Test")).toBeNull();
+  const handle = acquireOutlineSession("Peek Test", []);
+  const peeked = peekOutlineSession("Peek Test");
+  expect(peeked).not.toBeNull();
+  expect(peeked!.getSnapshot()).toEqual(handle.getSnapshot());
+  peeked!.release();
+  handle.release();
+  expect(peekOutlineSession("Peek Test")).toBeNull(); // released -> evicted
 });

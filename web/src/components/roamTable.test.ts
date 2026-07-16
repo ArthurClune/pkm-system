@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { block } from "../test-helpers";
-import { roamTableRows } from "./roamTable";
+import { roamTableRows } from "./roamTableRows";
 
 const texts = (rows: ReturnType<typeof roamTableRows>) =>
   rows?.map((row) => row.map((cell) => cell?.text ?? null));

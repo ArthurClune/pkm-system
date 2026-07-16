@@ -6,8 +6,10 @@ import { useState } from "react";
 import type { BlockNode } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
+import { RoamTable } from "./RoamTable";
 import { quoteContent } from "./blockPresentation";
 import { effectiveChildView, type EffectiveBlockView } from "./blockView";
+import { roamTableRows } from "./roamTableRows";
 
 export function Block({ node, viewMode = "document", number = 1 }: {
   node: BlockNode;
@@ -37,11 +39,13 @@ export function Block({ node, viewMode = "document", number = 1 }: {
     node.heading === 3 ? "h3" : "div";
   const quoted = quoteContent(node.text);
   const childrenView = effectiveChildView(node.view_type);
+  const tableRows = roamTableRows(node);
   return (
     <div className="block">
       <div className="block-row" data-uid={node.uid}>
         <button
-          className={"chevron" + (collapsed ? " closed" : "") + (hasChildren ? "" : " hidden")}
+          className={"chevron" + (collapsed ? " closed" : "")
+            + (hasChildren && tableRows === null ? "" : " hidden")}
           onClick={() => setCollapsed(!collapsed)}
           aria-label="toggle children"
         >
@@ -55,10 +59,12 @@ export function Block({ node, viewMode = "document", number = 1 }: {
           {viewMode === "numbered" ? `${number}.` : ""}
         </span>
         <Tag className={"block-text" + (quoted !== null ? " quote-block" : "")}>
-          <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
+          {tableRows
+            ? <RoamTable rows={tableRows} />
+            : <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />}
         </Tag>
       </div>
-      {hasChildren && !collapsed && (
+      {hasChildren && !collapsed && !tableRows && (
         <div className={`block-children ${childrenView}-view`}>
           {node.children.map((c, index) => (
             <Block key={c.uid} node={c} viewMode={childrenView} number={index + 1} />

@@ -1,5 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
-import type { BlockOp } from "../api/ops";
+import { afterEach, expect, it } from "vitest";
 import { block, makeSync } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { performRedo, performUndo, recordHistory, registerOutlineHistory,

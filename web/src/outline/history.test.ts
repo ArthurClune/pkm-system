@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { block } from "../test-helpers";
 import { applyOps } from "./tree";

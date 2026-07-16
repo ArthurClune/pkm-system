@@ -62,6 +62,9 @@ export interface OutlineHandlers {
    * selected block as a set (pkm-q89w). */
   onDeleteBlockSelection(): void;
   onDragStartBlock(uid: string): void;
+  /** App-level undo/redo (pkm-7q14): global history, not per-outline. */
+  onUndo(): void;
+  onRedo(): void;
 }
 
 interface TreeProps {
@@ -537,12 +540,12 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
         handlers.onArrow(node.uid, decision.dir);
         return;
       case "undo":
-        e.preventDefault();
-        // TODO (Task 6): add handler for undo
+        e.preventDefault(); // kill native textarea undo
+        handlers.onUndo();
         return;
       case "redo":
         e.preventDefault();
-        // TODO (Task 6): add handler for redo
+        handlers.onRedo();
         return;
       default: {
         const exhaustive: never = decision;

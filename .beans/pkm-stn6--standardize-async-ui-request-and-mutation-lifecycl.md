@@ -29,8 +29,9 @@ Introduce consistent request sequencing or cancellation, prop-state reconciliati
 - [x] SidebarNav serializes conflicting mutations, disables unsafe controls, and reports failures.
 - [x] Rerender and out-of-order-response tests cover each case.
 - [x] Reusable async helpers are introduced only where they reduce duplication.
-- [ ] pnpm verify passes. (unit tests + coverage + typecheck run clean; full e2e/Playwright pass not
-      re-run in this session — left for the epic controller per handoff instructions)
+- [x] pnpm verify passes. (controller ran canonical `cd web && pnpm verify` at implementation head
+      b5c6351 and again at review-fix head 7a2c1ff: typecheck, enforced unit coverage, and
+      Playwright 6/6 all green)
 
 ## Summary of Changes
 

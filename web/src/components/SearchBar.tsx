@@ -1,8 +1,9 @@
 // pattern: Imperative Shell
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import type { SearchPayload } from "../api/payloads";
+import { SidebarContext } from "../contexts";
 import { parseSnippet } from "../grammar/snippet";
 import { pagePath } from "../paths";
 import { SearchIcon } from "./icons";
@@ -59,6 +60,7 @@ export function SearchBar() {
   // so a slow response for an old query can't clobber newer results.
   const seqRef = useRef(0);
   const navigate = useNavigate();
+  const { openInSidebar } = useContext(SidebarContext);
 
   const cancel = () => {
     seqRef.current++; // drop any in-flight response after cancel
@@ -140,7 +142,11 @@ export function SearchBar() {
                   label: `Create page "${trimmedQuery}"`, snippet: null }]
     : rows;
 
-  const go = async (row: ResultRow) => {
+  // `sidebar`: open the row's page in the sidebar instead of navigating the
+  // main view -- same semantics as shift-clicking a wiki link (PageLink.tsx).
+  // A not-yet-existing page isn't "a chosen result", so the create row always
+  // takes its normal create+navigate path regardless of the shift flag.
+  const go = async (row: ResultRow, sidebar: boolean) => {
     if (row.key === CREATE_ROW_KEY) {
       try {
         await apiFetch("/api/pages", {
@@ -151,9 +157,13 @@ export function SearchBar() {
       } catch {
         return; // creation failed: keep the search open, don't navigate
       }
+      cancel();
+      navigate(pagePath(row.title));
+      return;
     }
     cancel();
-    navigate(pagePath(row.title));
+    if (sidebar) openInSidebar(row.title);
+    else navigate(pagePath(row.title));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -166,7 +176,7 @@ export function SearchBar() {
       e.preventDefault();
       setSelected((s) => Math.max(s - 1, 0));
     } else if (e.key === "Enter" && displayRows[selected]) {
-      void go(displayRows[selected]);
+      void go(displayRows[selected], e.shiftKey);
     }
   };
 
@@ -189,7 +199,7 @@ export function SearchBar() {
             <li key={row.key}
                 className={"search-result" + (i === selected ? " selected" : "")}
                 onMouseEnter={() => setSelected(i)}
-                onClick={() => void go(row)}>
+                onClick={(e) => void go(row, e.shiftKey)}>
               <span className="result-page">{row.label}</span>
               {row.snippet !== null && (
                 <span className="result-snippet">

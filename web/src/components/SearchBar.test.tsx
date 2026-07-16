@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { jsonResponse, stubFetch } from "../test-helpers";
+import { SidebarContext } from "../contexts";
 import { SearchBar } from "./SearchBar";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -13,14 +14,16 @@ const results = {
              snippet: "a <mark>paper</mark> about attention" }],
 };
 
-function renderBar() {
+function renderBar(openInSidebar: (title: string) => void = () => undefined) {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
-      <SearchBar />
-      <Routes>
-        <Route path="/" element={<p>home</p>} />
-        <Route path="/page/*" element={<p>page view here</p>} />
-      </Routes>
+      <SidebarContext.Provider value={{ openInSidebar }}>
+        <SearchBar />
+        <Routes>
+          <Route path="/" element={<p>home</p>} />
+          <Route path="/page/*" element={<p>page view here</p>} />
+        </Routes>
+      </SidebarContext.Provider>
     </MemoryRouter>,
   );
   return screen.getByPlaceholderText("Search…");
@@ -51,6 +54,66 @@ it("Enter navigates to the selected hit and cancels the search", async () => {
   expect(screen.getByText("page view here")).toBeInTheDocument();
   expect(input).toHaveValue("");                    // query cleared…
   expect(screen.queryByRole("listitem")).toBeNull(); // …dropdown closed
+});
+
+it("Shift+Enter on the selected page hit opens it in the sidebar, does not navigate", async () => {
+  stubFetch([["/api/search?q=paper", results]]);
+  const openInSidebar = vi.fn();
+  const input = renderBar(openInSidebar);
+  fireEvent.change(input, { target: { value: "paper" } });
+  await screen.findAllByRole("listitem");
+  fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+  expect(openInSidebar).toHaveBeenCalledWith("Paper");
+  expect(screen.getByText("home")).toBeInTheDocument(); // no navigation
+  expect(input).toHaveValue("");                    // query cleared…
+  expect(screen.queryByRole("listitem")).toBeNull(); // …dropdown closed
+});
+
+it("Shift+click on a result row opens it in the sidebar, does not navigate", async () => {
+  stubFetch([["/api/search?q=paper", results]]);
+  const openInSidebar = vi.fn();
+  const input = renderBar(openInSidebar);
+  fireEvent.change(input, { target: { value: "paper" } });
+  const items = await screen.findAllByRole("listitem");
+  fireEvent.click(items[0], { shiftKey: true });
+  expect(openInSidebar).toHaveBeenCalledWith("Paper");
+  expect(screen.getByText("home")).toBeInTheDocument(); // no navigation
+  expect(input).toHaveValue("");
+  expect(screen.queryByRole("listitem")).toBeNull();
+});
+
+it("Shift+Enter on a block-snippet row opens the containing page in the sidebar", async () => {
+  stubFetch([["/api/search?q=paper", results]]);
+  const openInSidebar = vi.fn();
+  const input = renderBar(openInSidebar);
+  fireEvent.change(input, { target: { value: "paper" } });
+  await screen.findAllByRole("listitem");
+  fireEvent.keyDown(input, { key: "ArrowDown" }); // move to the block hit
+  fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+  expect(openInSidebar).toHaveBeenCalledWith("Machine Learning");
+  expect(screen.getByText("home")).toBeInTheDocument();
+});
+
+it("Shift+Enter on the create-page row still creates and navigates", async () => {
+  const fetchMock = stubFetch([
+    ["/api/search?q=papers", results],
+    ["/api/pages", { id: 42, title: "papers", created_at: 1, updated_at: 1 }],
+  ]);
+  const openInSidebar = vi.fn();
+  const input = renderBar(openInSidebar);
+  fireEvent.change(input, { target: { value: "papers" } });
+  await screen.findByText('Create page "papers"');
+  fireEvent.keyDown(input, { key: "ArrowDown" }); // page row, then create row
+  fireEvent.keyDown(input, { key: "ArrowDown" });
+  await act(async () => {
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+  });
+  expect(fetchMock).toHaveBeenCalledWith("/api/pages", expect.objectContaining({
+    method: "POST",
+    body: JSON.stringify({ title: "papers" }),
+  }));
+  expect(screen.getByText("page view here")).toBeInTheDocument();
+  expect(openInSidebar).not.toHaveBeenCalled();
 });
 
 it("drops a stale response that resolves after a newer query's", async () => {

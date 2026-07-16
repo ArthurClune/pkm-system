@@ -222,8 +222,11 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
   const tableRows = roamTableRows(node);
   const editingTableSubtree = !fallback && focusInSubtree(node, focus?.uid ?? null);
   const showTable = !editingTableSubtree && tableRows !== null;
+  const WrapperTag: "h1" | "h2" | "h3" | "div" = showTable ? "div" : Tag;
+  const hidesChildren = hasChildren && node.collapsed && tableRows === null;
   const chevronHasChildren = showTable ? false : hasChildren;
-  const chevronClosed = node.collapsed && !(editingTableSubtree && tableRows !== null);
+  const chevronClosed = hidesChildren;
+  const bulletClosed = hidesChildren;
   return (
     <div className="block">
       <div className={"block-row" + (focused ? " focused" : "")
@@ -238,7 +241,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
           ▸
         </button>
         <span className={"bullet" + (viewMode === "numbered" ? " numbered" : "")
-              + (hasChildren && node.collapsed ? " closed" : "")}
+              + (bulletClosed ? " closed" : "")}
               draggable={!fallback && !readOnly}
               onDragStart={(e) => {
                 if (fallback) return;
@@ -283,10 +286,10 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
           <BlockInput node={node} cursor={focus.cursor} handlers={handlers}
                       readOnly={readOnly} />
         ) : (
-          <Tag className={"block-text" + (quoted !== null ? " quote-block" : "")}
-               onClick={() => {
-                 if (!fallback) handlers.onFocusBlock(node.uid, node.text.length);
-               }}>
+          <WrapperTag className={"block-text" + (quoted !== null ? " quote-block" : "")}
+                      onClick={() => {
+                        if (!fallback) handlers.onFocusBlock(node.uid, node.text.length);
+                      }}>
             {showTable
               ? <RoamTable rows={tableRows!} />
               : <BlockEditContext.Provider
@@ -294,7 +297,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                     ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
                   <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
                 </BlockEditContext.Provider>}
-          </Tag>
+          </WrapperTag>
         )}
       </div>
       {hasChildren && !showTable && (tableRows !== null || !node.collapsed) && (

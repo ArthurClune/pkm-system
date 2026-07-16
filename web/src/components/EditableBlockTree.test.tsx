@@ -912,6 +912,7 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
   expect(focusedTextarea()).toHaveValue("{{[[table]]}}");
   expect(screen.getByText("Model")).toBeInTheDocument();
   expect(screen.getByText("Claude")).toBeInTheDocument();
+  expect(view.container.querySelector('[data-uid="table"] .bullet.closed')).toBeNull();
 });
 
 test("a rendered Roam table stays in raw mode when focus moves to a revealed descendant", () => {
@@ -948,6 +949,29 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
   expect(focusedTextarea()).toHaveValue("$5");
   expect(view.container.querySelector('[data-uid="table"] .chevron'))
     .not.toHaveClass("closed");
+  expect(view.container.querySelector('[data-uid="table"] .bullet.closed')).toBeNull();
   expect(document.activeElement).toBe(focusedTextarea());
   expect(focusedTextarea().selectionStart).toBe(1);
+});
+
+test("an unfocused valid Roam table with a heading renders inside div.block-text, not a heading tag", () => {
+  const h = handlers();
+  const macro = block("table", "{{[[table]]}}", {
+    heading: 2,
+    children: [
+      block("header", "Model", { children: [block("header-2", "Price")] }),
+      block("row", "Claude", { children: [block("row-2", "$5")] }),
+    ],
+  });
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[macro]} focus={null} handlers={h} readOnly={false} />
+    </MemoryRouter>,
+  );
+
+  const rendered = screen.getByRole("table");
+  const blockText = container.querySelector('[data-uid="table"] .block-text');
+  expect(blockText?.tagName).toBe("DIV");
+  expect(rendered.closest(".block-text")).toBe(blockText);
+  expect(rendered.closest("h1, h2, h3")).toBeNull();
 });

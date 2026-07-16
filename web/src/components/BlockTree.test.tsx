@@ -136,3 +136,20 @@ it("renders a collapsed Roam table as header/body rows instead of an outline", (
   expect(screen.queryByText("{{[[table]]}}")).toBeNull();
   expect(container.querySelector(".block-children")).toBeNull();
 });
+
+it("renders a valid Roam table with a heading inside div.block-text, not a heading tag", () => {
+  const table = block("table", "{{[[table]]}}", {
+    heading: 3,
+    children: [
+      block("header-model", "**Model**", { children: [block("header-price", "Price")] }),
+      block("claude", "[[Claude]]", { children: [block("claude-price", "$5")] }),
+    ],
+  });
+  const { container } = renderTree([table]);
+  const rendered = screen.getByRole("table");
+  const blockText = container.querySelector('[data-uid="table"] .block-text');
+
+  expect(blockText?.tagName).toBe("DIV");
+  expect(rendered.closest(".block-text")).toBe(blockText);
+  expect(rendered.closest("h1, h2, h3")).toBeNull();
+});

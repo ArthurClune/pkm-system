@@ -41,3 +41,13 @@ export function selectionText(blocks: BlockNode[], sel: BlockSelection): string 
     .map((uid) => findNode(blocks, uid)?.text ?? "")
     .join("\n");
 }
+
+/** Deleting more than this many blocks in one go needs an explicit
+ * confirmation — easy to select a large run by accident with Shift+Arrow. */
+export const LARGE_DELETE_THRESHOLD = 5;
+
+/** Whether deleting `count` selected blocks should prompt for confirmation
+ * before proceeding. */
+export function needsDeleteConfirmation(count: number): boolean {
+  return count > LARGE_DELETE_THRESHOLD;
+}

@@ -50,6 +50,13 @@ export interface OutlineHandlers {
   onStartBlockSelection(uid: string, dir: "up" | "down"): void;
   onExtendBlockSelection(dir: "up" | "down"): void;
   onClearBlockSelection(): void;
+  /** Alt+Arrow while a block selection is active: move every selected block
+   * as a group, preserving their relative order (pkm-q89w). */
+  onMoveSelectionUp(): void;
+  onMoveSelectionDown(): void;
+  /** Backspace/Delete while a block selection is active: delete every
+   * selected block as a set (pkm-q89w). */
+  onDeleteBlockSelection(): void;
   onDragStartBlock(uid: string): void;
 }
 
@@ -99,6 +106,13 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     } else if (e.key === "Escape") {
       e.preventDefault();
       handlers.onClearBlockSelection();
+    } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      if (e.key === "ArrowUp") handlers.onMoveSelectionUp();
+      else handlers.onMoveSelectionDown();
+    } else if (e.key === "Backspace" || e.key === "Delete") {
+      e.preventDefault();
+      handlers.onDeleteBlockSelection();
     } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       // a plain arrow collapses the selection back to editing the head block
       e.preventDefault();

@@ -16,6 +16,8 @@ function handlers(): OutlineHandlers {
     onToggleTodo: vi.fn(), onFiles: vi.fn(),
     onStartBlockSelection: vi.fn(), onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
+    onMoveSelectionUp: vi.fn(), onMoveSelectionDown: vi.fn(),
+    onDeleteBlockSelection: vi.fn(),
   };
 }
 
@@ -660,6 +662,26 @@ test("Cmd-C copies the selected blocks' text in document order (pkm-9b8n)", () =
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "c", metaKey: true });
   expect(writeText).toHaveBeenCalledWith("hello [[World]]\n{{[[TODO]]}} task");
+});
+
+test("Alt+ArrowUp/Down on a selection moves the whole group, not just one block (pkm-q89w)", () => {
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+  fireEvent.keyDown(tree, { key: "ArrowUp", altKey: true });
+  expect(h.onMoveSelectionUp).toHaveBeenCalled();
+  fireEvent.keyDown(tree, { key: "ArrowDown", altKey: true });
+  expect(h.onMoveSelectionDown).toHaveBeenCalled();
+});
+
+test("Backspace/Delete on a selection deletes the whole group (pkm-q89w)", () => {
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+  fireEvent.keyDown(tree, { key: "Backspace" });
+  expect(h.onDeleteBlockSelection).toHaveBeenCalledTimes(1);
+  fireEvent.keyDown(tree, { key: "Delete" });
+  expect(h.onDeleteBlockSelection).toHaveBeenCalledTimes(2);
 });
 
 // --- bullet context menu: Copy block reference (pkm-y6af) ---

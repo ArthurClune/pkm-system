@@ -14,13 +14,15 @@ import { encodeTitle } from "../paths";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
-import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
+import { backspaceAtStart, deleteSelection, indentBlock, moveBlockDown,
+         moveBlockUp, moveSelectionDown, moveSelectionUp,
          outdentBlock, setCollapsed, setHeading, splitBlock,
          setViewType,
          type EditResult, type FocusTarget } from "./edits";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
-import { extendSelection, type BlockSelection } from "./blockSelection";
+import { extendSelection, needsDeleteConfirmation, selectedUids,
+         type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
 import { pendingTextOps, spliceUploadedMarkdown,
@@ -276,10 +278,36 @@ export function useOutline(
     onExtendBlockSelection: (dir) =>
       setSelection((s) => (s ? extendSelection(blocksRef.current, s, dir) : s)),
     onClearBlockSelection: () => setSelection(null),
+    // Alt+Arrow while a block selection is active (pkm-q89w): move every
+    // selected block as a group. Recomputed against the tree `run` actually
+    // operates on (post text-flush), not the possibly-stale blocksRef, though
+    // a selection has no pending draft to flush.
+    onMoveSelectionUp: () => {
+      if (!selection) return;
+      run((b) => moveSelectionUp(b, pageTitle, selectedUids(b, selection)));
+    },
+    onMoveSelectionDown: () => {
+      if (!selection) return;
+      run((b) => moveSelectionDown(b, pageTitle, selectedUids(b, selection)));
+    },
+    // Backspace/Delete while a block selection is active (pkm-q89w): delete
+    // every selected block as a set, confirming first for a large selection.
+    onDeleteBlockSelection: () => {
+      if (!selection) return;
+      const uids = selectedUids(blocksRef.current, selection);
+      if (uids.length === 0) return;
+      if (needsDeleteConfirmation(uids.length)
+          && !window.confirm(
+            `Delete ${uids.length} blocks? This cannot be undone.`)) {
+        return;
+      }
+      setSelection(null);
+      run((b) => deleteSelection(b, pageTitle, selectedUids(b, selection)));
+    },
     // overridden by EditablePage (which knows the drag-source page title);
     // kept here only so this object satisfies OutlineHandlers on its own.
     onDragStartBlock: () => undefined,
-  }), [run, flushNow, pageTitle]);
+  }), [run, flushNow, pageTitle, selection]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
     moveTo: (uid, target) => run((b) => {

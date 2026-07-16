@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { block } from "../test-helpers";
-import { extendSelection, selectedUids, selectionText } from "./blockSelection";
+import { extendSelection, needsDeleteConfirmation, selectedUids,
+         selectionText } from "./blockSelection";
 
 // a: "one", b: "two", c(collapsed): "three" with hidden child c1, d: "four"
 const BLOCKS = [
@@ -59,6 +60,19 @@ describe("extendSelection", () => {
   it("clamps at the top edge", () => {
     expect(extendSelection(BLOCKS, { anchor: "d", head: "a" }, "up"))
       .toEqual({ anchor: "d", head: "a" });
+  });
+});
+
+describe("needsDeleteConfirmation (pkm-q89w)", () => {
+  it("does not require confirmation for 5 or fewer blocks", () => {
+    expect(needsDeleteConfirmation(0)).toBe(false);
+    expect(needsDeleteConfirmation(1)).toBe(false);
+    expect(needsDeleteConfirmation(5)).toBe(false);
+  });
+
+  it("requires confirmation for more than 5 blocks", () => {
+    expect(needsDeleteConfirmation(6)).toBe(true);
+    expect(needsDeleteConfirmation(20)).toBe(true);
   });
 });
 

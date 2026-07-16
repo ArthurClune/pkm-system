@@ -355,8 +355,23 @@ mark.highlight { background: var(--color-highlight-bg); }
   color: var(--color-text-muted); font-size: 13px; font-style: italic;
 }
 .pdf-embed { display: block; margin: 4px 0; }
-.pdf-viewer { width: 100%; height: 480px; border: 1px solid var(--color-border); border-radius: var(--radius-card); }
-.pdf-download { display: inline-block; margin-top: 4px; font-size: 13px; }
+.pdf-frame { width: 100%; height: 480px; overflow-y: auto;
+  border: 1px solid var(--color-border); border-radius: var(--radius-card);
+  background: var(--color-bg-subtle); }
+.pdf-page-slot { margin: 0 auto; }
+.pdf-page-slot canvas { display: block; max-width: 100%; height: auto !important; }
+.pdf-footer { display: flex; align-items: center; gap: 12px; margin-top: 4px;
+  font-size: 13px; }
+.pdf-page-indicator { color: var(--color-text-muted); }
+.pdf-download { display: inline-block; font-size: 13px; }
+.pdf-loading-note, .pdf-error-note { display: block;
+  color: var(--color-text-muted); font-size: 13px; font-style: italic; }
+.pdf-overlay { position: fixed; inset: 0; z-index: 1000;
+  background: var(--color-bg); display: flex; flex-direction: column; }
+.pdf-overlay-bar { display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px; border-bottom: 1px solid var(--color-border); }
+.pdf-overlay-title { font-weight: 600; margin-right: auto; }
+.pdf-overlay .pdf-frame { flex: 1; height: auto; border: none; border-radius: 0; }
 .mermaid-diagram { display: block; margin: 4px 0; overflow-x: auto; }
 .mermaid-diagram svg { max-width: 100%; }
 .mermaid-diagram-error-note { color: var(--color-text-muted); font-size: 13px; margin: 0 0 4px; }

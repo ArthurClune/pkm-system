@@ -14,6 +14,10 @@ vi.mock("mermaid", () => ({
   default: { initialize: vi.fn(), render: mockMermaidRender },
 }));
 
+vi.mock("./PdfViewer", () => ({
+  PdfViewer: ({ href }: { href: string }) => <div data-testid="pdf-viewer" data-href={href} />,
+}));
+
 function renderText(text: string, refTexts: Record<string, BlockRefText> = {}) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
@@ -79,14 +83,18 @@ it("renders read-only TODO/DONE checkboxes", () => {
   expect(screen.getByText("buy milk")).toBeInTheDocument();
 });
 
-it("renders images, pdf embeds for /assets/*.pdf links, and external links", () => {
+it("renders images, pdf embeds for /assets/*.pdf links, and external links", async () => {
   const sha = "ab".repeat(32);
   const { container } = renderText(
     `![shot](/assets/${sha}/pic.png) [Notes](/assets/${sha}/doc.pdf) [ext](https://x.org)`);
   expect(container.querySelector(`img[src="/assets/${sha}/pic.png"]`)).not.toBeNull();
-  expect(container.querySelector(`embed[src="/assets/${sha}/doc.pdf"]`)).not.toBeNull();
+  // the PDF link becomes the lazy viewer wrapper: link fallback first…
   expect(screen.getByRole("link", { name: "Notes" }))
     .toHaveAttribute("href", `/assets/${sha}/doc.pdf`);
+  // …then the (mocked) viewer once the chunk resolves
+  await waitFor(() =>
+    expect(screen.getByTestId("pdf-viewer"))
+      .toHaveAttribute("data-href", `/assets/${sha}/doc.pdf`));
   expect(screen.getByRole("link", { name: "ext" }))
     .toHaveAttribute("target", "_blank");
 });

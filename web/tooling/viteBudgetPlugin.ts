@@ -10,8 +10,9 @@
 // Two independent guards, matching the two size surfaces the plan cares about:
 //   * generateBundle (Rollup): the app's own emitted chunks/assets -- eager
 //     entry weight, single largest file, total output, and the bytes of
-//     chunks WHOLLY owned by the Mermaid module graph (module-graph
-//     reachability, never output-file-name substrings).
+//     chunks WHOLLY owned by each specially-capped module graph (Mermaid,
+//     the lazy PDF viewer) via module-graph reachability, never
+//     output-file-name substrings.
 //   * manifestTransforms (Workbox): the exact final precache URL set -- the
 //     cold-install offline-shell weight and entry count.
 import type { Plugin } from "vite";
@@ -66,19 +67,14 @@ function outputBytes(o: Emitted): number {
 }
 
 /**
- * Module ids OWNED by the Mermaid graph: everything reachable from a Mermaid
- * package seed module (following both static and dynamic imports), MINUS
- * anything the eager app entry can reach through static imports. Subtracting
- * the eager-static set is what stops a module shared with the app from being
- * attributed to Mermaid, so the Mermaid raw-byte cap can never launder
- * unrelated application code. Seeds are Mermaid *package* modules under
- * node_modules; the ownership decision is graph reachability, not a match on
- * output chunk file names.
+ * Module ids OWNED by a dependency graph: everything reachable from a seed
+ * module (following both static and dynamic imports), MINUS anything the
+ * eager app entry can reach through static imports. Subtracting the
+ * eager-static set stops a module shared with the app from being attributed
+ * to the capped graph, so an owned-bytes cap can never launder unrelated
+ * application code.
  */
-function collectMermaidOwned(graph: ModuleGraph): Set<string> {
-  const isSeed = (id: string): boolean =>
-    id.includes("node_modules") && /[\\/]mermaid[\\/]/.test(id);
-
+function collectOwned(graph: ModuleGraph, isSeed: (id: string) => boolean): Set<string> {
   const reach = (starts: string[], includeDynamic: boolean): Set<string> => {
     const seen = new Set<string>();
     const stack = [...starts];
@@ -95,16 +91,30 @@ function collectMermaidOwned(graph: ModuleGraph): Set<string> {
     }
     return seen;
   };
-
   const allIds = [...graph.getModuleIds()];
   const entryIds = allIds.filter((id) => graph.getModuleInfo(id)?.isEntry);
   const seedIds = allIds.filter(isSeed);
   const appStatic = reach(entryIds, false);
-  const mermaidGraph = reach(seedIds, true);
+  const ownedGraph = reach(seedIds, true);
   const owned = new Set<string>();
-  for (const id of mermaidGraph) if (!appStatic.has(id)) owned.add(id);
+  for (const id of ownedGraph) if (!appStatic.has(id)) owned.add(id);
   return owned;
 }
+
+/** Mermaid graph seeds: mermaid package modules under node_modules. */
+const isMermaidSeed = (id: string): boolean =>
+  id.includes("node_modules") && /[\\/]mermaid[\\/]/.test(id);
+
+/** PDF viewer graph seeds: the lazily-imported viewer module itself plus the
+ * react-pdf/pdfjs-dist packages. Seeding PdfViewer.tsx is what lets the
+ * emitted chunk (which contains that app module alongside the libraries)
+ * count as wholly owned; its transitive-only helpers (pdfViewerCore) join
+ * via reachability. Note the pdf.js WORKER is an emitted asset, not a chunk,
+ * so it is guarded by largestAssetBytes/totalOutputBytes/precacheBytes, not
+ * by this cap. */
+const isPdfjsSeed = (id: string): boolean =>
+  (id.includes("node_modules") && /[\\/](react-pdf|pdfjs-dist)[\\/]/.test(id)) ||
+  /[\\/]src[\\/]components[\\/]PdfViewer\.tsx$/.test(id);
 
 /**
  * Vite/Rollup plugin: enforce the production bundle budgets in generateBundle,
@@ -130,7 +140,11 @@ export function budgetPlugin(): Plugin {
           });
         }
       }
-      const owned = collectMermaidOwned(this as unknown as ModuleGraph);
+      const graph = this as unknown as ModuleGraph;
+      const owned = {
+        mermaid: collectOwned(graph, isMermaidSeed),
+        pdfjs: collectOwned(graph, isPdfjsSeed),
+      };
       const report = evaluateBundleBudgets(files, chunks, owned);
       const text = formatReport("bundle", report);
       console.log(text);

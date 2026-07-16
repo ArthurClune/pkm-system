@@ -20,6 +20,9 @@ export interface BuildBudgets {
   precacheEntries: number;
   /** Raw bytes of chunks wholly owned by the Mermaid module graph. */
   mermaidOwnedBytes: number;
+  /** Raw bytes of chunks wholly owned by the lazy PDF viewer module graph
+   * (PdfViewer.tsx + react-pdf + pdfjs-dist). */
+  pdfjsOwnedBytes: number;
 }
 
 /** One emitted output file: a chunk or an asset. */
@@ -71,34 +74,40 @@ function topContributors(
 }
 
 /**
- * A chunk counts toward the Mermaid budget only when EVERY module it rendered
- * is owned by the Mermaid graph. This is deliberate: a chunk that mixes one
- * Mermaid module with unrelated application code is not "Mermaid", so the raw
- * Mermaid cap can never be used to smuggle arbitrary bytes past the other
- * budgets. Ownership is decided from Rollup module ids, never output file
- * names (which a broad substring could over-match).
+ * A chunk counts toward an owned budget only when EVERY module it rendered
+ * is owned by that graph. This is deliberate: a chunk that mixes one owned
+ * module with unrelated application code is not "owned", so a raw owned-bytes
+ * cap can never be used to smuggle arbitrary bytes past the other budgets.
+ * Ownership is decided from Rollup module ids, never output file names
+ * (which a broad substring could over-match).
  */
-export function chunkIsMermaidOwned(
+export function chunkIsWhollyOwned(
   moduleIds: readonly string[],
   ownedModuleIds: ReadonlySet<string>,
 ): boolean {
   return moduleIds.length > 0 && moduleIds.every((id) => ownedModuleIds.has(id));
 }
 
-export function mermaidOwnedBytes(
+export function ownedChunkBytes(
   chunks: readonly OutputChunkInfo[],
   ownedModuleIds: ReadonlySet<string>,
 ): number {
   return chunks.reduce(
-    (sum, c) => (chunkIsMermaidOwned(c.moduleIds, ownedModuleIds) ? sum + c.bytes : sum),
+    (sum, c) => (chunkIsWhollyOwned(c.moduleIds, ownedModuleIds) ? sum + c.bytes : sum),
     0,
   );
+}
+
+/** Module-id sets for each specially-capped dependency graph. */
+export interface OwnedModuleSets {
+  mermaid: ReadonlySet<string>;
+  pdfjs: ReadonlySet<string>;
 }
 
 export function evaluateBundleBudgets(
   files: readonly OutputFile[],
   chunks: readonly OutputChunkInfo[],
-  ownedModuleIds: ReadonlySet<string>,
+  owned: OwnedModuleSets,
   budgets: BuildBudgets = BUDGETS,
 ): BudgetReport {
   const entryBytes = chunks
@@ -106,12 +115,14 @@ export function evaluateBundleBudgets(
     .reduce((sum, c) => sum + c.bytes, 0);
   const largest = files.reduce((max, f) => (f.bytes > max ? f.bytes : max), 0);
   const total = files.reduce((sum, f) => sum + f.bytes, 0);
-  const mermaid = mermaidOwnedBytes(chunks, ownedModuleIds);
   const checks = [
     check("initialEntryBytes", budgets.initialEntryBytes, entryBytes),
     check("largestAssetBytes", budgets.largestAssetBytes, largest),
     check("totalOutputBytes", budgets.totalOutputBytes, total),
-    check("mermaidOwnedBytes", budgets.mermaidOwnedBytes, mermaid),
+    check("mermaidOwnedBytes", budgets.mermaidOwnedBytes,
+      ownedChunkBytes(chunks, owned.mermaid)),
+    check("pdfjsOwnedBytes", budgets.pdfjsOwnedBytes,
+      ownedChunkBytes(chunks, owned.pdfjs)),
   ];
   return {
     ok: checks.every((c) => c.ok),

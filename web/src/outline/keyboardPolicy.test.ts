@@ -238,6 +238,44 @@ describe("decideEditorKey structural keys", () => {
       .toEqual({ type: "none" });
   });
 
+  it("cycles the TODO marker on Cmd-Enter or Ctrl-Enter, as a key-edit on the live draft", () => {
+    // "buy milk" -> "{{TODO}} buy milk": the 9-char prefix shifts the caret
+    // by the same amount, so it stays next to the same character (after "buy").
+    expect(decideEditorKey(input({
+      key: "Enter", metaKey: true, draft: "buy milk", selStart: 3, selEnd: 3,
+    }))).toEqual({
+      type: "key-edit",
+      edit: { text: "{{TODO}} buy milk", selStart: 12, selEnd: 12 },
+    });
+    // TODO -> DONE keeps the same length, so the caret does not move.
+    expect(decideEditorKey(input({
+      key: "Enter", ctrlKey: true, draft: "{{TODO}} buy milk", selStart: 12, selEnd: 12,
+    }))).toEqual({
+      type: "key-edit",
+      edit: { text: "{{DONE}} buy milk", selStart: 12, selEnd: 12 },
+    });
+    // DONE -> plain: the caret shifts back by the same 9-char delta and is
+    // clamped to the (shorter) new text.
+    expect(decideEditorKey(input({
+      key: "Enter", metaKey: true, draft: "{{DONE}} buy milk", selStart: 12, selEnd: 12,
+    }))).toEqual({
+      type: "key-edit",
+      edit: { text: "buy milk", selStart: 3, selEnd: 3 },
+    });
+  });
+
+  it("does not cycle the TODO marker on plain Enter or Shift-Enter", () => {
+    expect(decideEditorKey(input({ key: "Enter" })))
+      .toEqual({ type: "split", cursor: 0 });
+    expect(decideEditorKey(input({ key: "Enter", metaKey: true, shiftKey: true })))
+      .toEqual({ type: "none" });
+  });
+
+  it("suppresses the TODO cycle when read-only", () => {
+    expect(decideEditorKey(input({ key: "Enter", metaKey: true, readOnly: true })))
+      .toEqual({ type: "none" });
+  });
+
   it("indents / outdents on Tab", () => {
     expect(decideEditorKey(input({ key: "Tab" }))).toEqual({ type: "indent" });
     expect(decideEditorKey(input({ key: "Tab", shiftKey: true })))

@@ -5,6 +5,7 @@
 // DOM effects (preventDefault, blur, navigation, setState) stay in the shell;
 // this module only decides. Ordering mirrors the former inline onKeyDown chain
 // exactly, so behaviour is unchanged.
+import { cycleTodo } from "../grammar/todo";
 import { autoPairBracket, BRACKET_CHARS, wrapLink,
          type TextSelection } from "./keyEdits";
 import { refTitleAtCaret } from "./refAtCaret";
@@ -104,6 +105,19 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   if (!i.metaKey && !i.ctrlKey && !i.altKey && BRACKET_CHARS.has(i.key)) {
     const edit = autoPairBracket(i.draft, pos, i.selEnd, i.key);
     if (edit) return { type: "key-edit", edit };
+  }
+  // Cmd-Enter (Ctrl-Enter on non-Mac) cycles plain -> TODO -> DONE -> plain.
+  // Treated as a key-edit on the live draft (not the block-tree text) so the
+  // textarea updates synchronously and the change rides the normal draft
+  // pipeline — a debounced flush that lands after this can only see the
+  // cycled text, never revert it. Checked before plain Enter so the modifier
+  // wins over a split. The caret shifts by the same delta as the text length
+  // change, clamped to the new text, to stay near where the user was.
+  if ((i.metaKey || i.ctrlKey) && !i.altKey && !i.shiftKey && i.key === "Enter") {
+    const cycled = cycleTodo(i.draft);
+    const caret = Math.max(0, Math.min(cycled.length,
+      pos + (cycled.length - i.draft.length)));
+    return { type: "key-edit", edit: { text: cycled, selStart: caret, selEnd: caret } };
   }
   if (i.key === "Enter" && !i.shiftKey) return { type: "split", cursor: pos };
   if (i.key === "Tab") return i.shiftKey ? { type: "outdent" } : { type: "indent" };

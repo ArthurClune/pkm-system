@@ -549,6 +549,35 @@ test("Ctrl-K is left alone (mac kill-line, not link) (pkm-jbjk)", () => {
   expect(h.onDraftChange).not.toHaveBeenCalled();
 });
 
+test("Cmd-Enter cycles the block's TODO state, updating the textarea immediately (pkm-wquz)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.keyDown(ta, { key: "Enter", metaKey: true });
+  expect(ta).toHaveValue("{{TODO}} hello [[World]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} hello [[World]]");
+  expect(h.onSplit).not.toHaveBeenCalled();
+});
+
+test("Ctrl-Enter also cycles the block's TODO state (pkm-wquz)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  expect(ta).toHaveValue("{{TODO}} hello [[World]]");
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} hello [[World]]");
+});
+
+test("Cmd-Shift-Enter does not cycle the TODO state (pkm-wquz)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.keyDown(ta, { key: "Enter", metaKey: true, shiftKey: true });
+  expect(ta).toHaveValue("hello [[World]]");
+  expect(h.onDraftChange).not.toHaveBeenCalled();
+  expect(h.onSplit).not.toHaveBeenCalled();
+});
+
 test("typing [ auto-closes the bracket (pkm-3sxw)", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });

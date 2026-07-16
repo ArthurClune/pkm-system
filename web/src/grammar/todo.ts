@@ -5,7 +5,9 @@
 // bracket variant the text used: the scanner accepts each bracket side
 // independently (documented leniency; Roam only emits {{[[TODO]]}} /
 // {{TODO}}) and toggling must never corrupt text. hasTodoMarker lets
-// slashCommands avoid double-prefixing an already-TODO block.
+// slashCommands avoid double-prefixing an already-TODO block. cycleTodo
+// extends toggleTodo with the third state, plain text (no marker at all),
+// cycling plain -> TODO -> DONE -> plain for the Cmd/Ctrl-Enter shortcut.
 
 import { scanGrammar, type GrammarToken } from "./scan";
 
@@ -31,4 +33,19 @@ export function toggleTodo(text: string): string | null {
   return quotePrefix
     + `{{${marker.openBrackets ? "[[" : ""}${flipped}${marker.closeBrackets ? "]]" : ""}}}`
     + content.slice(marker.end);
+}
+
+/** Cycles a block's task state: plain -> TODO -> DONE -> plain. TODO->DONE
+ * reuses toggleTodo (bracket variant + quote prefix preserved as usual);
+ * DONE->plain strips the marker and one following space; plain->TODO
+ * prepends `{{TODO}} ` after the quote prefix, mirroring toggleTodo's
+ * prefix handling. */
+export function cycleTodo(text: string): string {
+  const quotePrefix = text.startsWith("> ") ? "> " : "";
+  const content = quotePrefix ? text.slice(quotePrefix.length) : text;
+  const marker = todoMarker(content);
+  if (!marker) return `${quotePrefix}{{TODO}} ${content}`;
+  if (marker.state === "TODO") return toggleTodo(text)!;
+  const rest = content.slice(marker.end);
+  return quotePrefix + (rest.startsWith(" ") ? rest.slice(1) : rest);
 }

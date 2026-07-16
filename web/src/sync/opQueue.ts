@@ -362,9 +362,26 @@ function createReplicaQueue(replica: Replica,
       .catch(failed)
       .then((outcome) => {
         try { onDrain(outcome); } catch { /* observer isolation */ }
+        // A kick() landing after runDrain's own final drainAgain check
+        // (which loops once more only while the queue still looks empty)
+        // but before drainRun is cleared below would otherwise be dropped
+        // silently: kick() only records it by setting drainAgain when
+        // drainRun is still set, and nothing else re-checks that flag once
+        // runDrain has returned. Re-check it here, mirroring the legacy
+        // queue's missedKick handling -- but only for a "drained" outcome.
+        // A blocked outcome's reason (offline/recovering/disposed/
+        // retryable) still holds regardless of any kick that arrived during
+        // cleanup, so redraining immediately would just repeat the same
+        // block; worse, since drain() lets late callers share this very
+        // promise, an unawaited background redrain kicked off here would
+        // race those callers, who would observe the stale blocked result
+        // instead of the redrain's outcome.
+        const missedKick = outcome.status === "drained" && drainAgain;
+        drainAgain = false;
+        drainRun = null;
+        if (missedKick) kick();
         return outcome;
-      })
-      .finally(() => { drainRun = null; });
+      });
     return drainRun;
   };
 
@@ -572,8 +589,10 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
         const discarded = rejectBatchDeliveries(batch.length, error);
         pending.splice(0, discarded);
         try { onDesync(error); } catch { /* listener isolation */ }
-        if (qstate.recovering) return terminal("recovering", error);
-        continue;
+        // dispatch({ type: "pause" }) above unconditionally sets recovering
+        // true (see queueState.ts), so this is never false: the loop always
+        // returns here and never falls through to another iteration.
+        return terminal("recovering", error);
       }
       pending.splice(0, batch.length);
       deliverOps(batch.length);

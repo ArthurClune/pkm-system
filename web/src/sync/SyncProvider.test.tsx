@@ -1052,6 +1052,105 @@ test("failed poison repair stays visible and Retry succeeds without reapplying i
   expect(posts).toEqual(["bad-batch", "good-batch"]);
 });
 
+test("applySync reads the freshest problem for same-tick dispatches: a dismiss " +
+"racing a new repair-started must not erase it", async () => {
+  let snapshotCalls = 0;
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      const batchId = (JSON.parse(String(init?.body)) as { batch_id: string }).batch_id;
+      posts.push(batchId);
+      return batchId === "bad-batch" || batchId === "bad-batch-2"
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") {
+      snapshotCalls += 1;
+      return snapshotCalls === 1
+        ? jsonResponse({ detail: "snapshot unavailable" }, 503)
+        : jsonResponse(SNAPSHOT);
+    }
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+
+  const replica = fakeReplicaForProvider();
+  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                     poisoned: boolean }> = [];
+  let nextId = 1;
+  replica.init = async () => ({
+    ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    pendingBatches: [],
+  });
+  replica.enqueue = async (ops) => {
+    const id = nextId++;
+    const batchId = id === 1 ? "bad-batch" : id === 2 ? "good-batch" : "bad-batch-2";
+    rows.push({ id, batch_id: batchId, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+  replica.markPoisoned = async (id) => {
+    rows.find((row) => row.id === id)!.poisoned = true;
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+  replica.pendingBatches = async () => [...rows];
+  let prepareCalls = 0;
+  let reachedThirdRebase!: () => void;
+  const thirdRebase = new Promise<void>((resolve) => { reachedThirdRebase = resolve; });
+  replica.prepareRecovery = async () => {
+    prepareCalls += 1;
+    if (prepareCalls < 3) return { token: `lease-${prepareCalls}`, batches: [...rows] };
+    // The third repair (bad-batch-2's) is left permanently mid-flight so its
+    // "running" problem state cannot itself progress to repaired/failed
+    // before the same-tick dismiss below is dispatched.
+    reachedThirdRebase();
+    return new Promise<never>(() => undefined);
+  };
+  replica.commitRecovery = async () => undefined;
+  replica.abortRecovery = async () => undefined;
+  replica.deleteBatch = async (id) => {
+    rows.splice(rows.findIndex((row) => row.id === id), 1);
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+    await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+  });
+  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "failed",
+  }); });
+
+  const controls = sync as unknown as { retryProblem(): Promise<void> };
+  await act(async () => { await controls.retryProblem(); });
+  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "repaired",
+  }); });
+  expect(posts).toEqual(["bad-batch", "good-batch"]);
+
+  // Same-tick race: a new batch is rejected (repair-started fires, replacing
+  // the still-visible "repaired" problem) and, before React can re-render,
+  // dismissProblem() is invoked. dismissProblem must judge the freshest
+  // problem (now "running"), not the stale "repaired" snapshot from before
+  // this tick -- otherwise it wrongly dismisses the live repair.
+  await act(async () => {
+    sync.enqueue([{ op: "delete", uid: "bad2" }]);
+    await thirdRebase;
+    sync.dismissProblem();
+  });
+
+  expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "running", event: { batchId: "bad-batch-2" },
+  });
+});
+
 test("gateway: requests reach the network until the socket has actually dropped", async () => {
   stubFetch([
     ["/api/sync/snapshot", SNAPSHOT],

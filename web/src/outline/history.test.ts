@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { block } from "../test-helpers";
 import { applyOps } from "./tree";
-import { invertOps } from "./history";
+import { invertOps, emptyHistory, HISTORY_CAP, recordEntry, takeRedo, takeUndo,
+         type HistoryEntry } from "./history";
 
 const PAGE = "Test Page";
 
@@ -130,4 +131,41 @@ it("returns null for a move that leaves this page", () => {
 it("returns [] for create_page (additive, nothing to undo)", () => {
   expect(invertOps(tree(), PAGE, [{ op: "create_page", page_title: "New" }]))
     .toEqual([]);
+});
+
+const entry = (n: number): HistoryEntry => ({
+  pageTitle: PAGE,
+  ops: [{ op: "update_text", uid: "a", text: `v${n}` }],
+  inverse: [{ op: "update_text", uid: "a", text: `v${n - 1}` }],
+  focusBefore: null,
+  focusAfter: null,
+});
+
+it("undo pops LIFO and moves the entry to the redo stack", () => {
+  let s = recordEntry(recordEntry(emptyHistory(), entry(1)), entry(2));
+  const u1 = takeUndo(s);
+  expect(u1.entry).toEqual(entry(2));
+  const r = takeRedo(u1.state);
+  expect(r.entry).toEqual(entry(2));
+  expect(takeUndo(r.state).entry).toEqual(entry(2)); // redone entry is undoable again
+});
+
+it("returns null entry on empty stacks", () => {
+  expect(takeUndo(emptyHistory()).entry).toBeNull();
+  expect(takeRedo(emptyHistory()).entry).toBeNull();
+});
+
+it("recording clears the redo stack (AC: new op invalidates redo)", () => {
+  let s = recordEntry(emptyHistory(), entry(1));
+  s = takeUndo(s).state;
+  expect(s.redo).toHaveLength(1);
+  s = recordEntry(s, entry(2));
+  expect(s.redo).toHaveLength(0);
+});
+
+it("caps the undo stack, evicting the oldest", () => {
+  let s = emptyHistory();
+  for (let i = 0; i < HISTORY_CAP + 5; i++) s = recordEntry(s, entry(i));
+  expect(s.undo).toHaveLength(HISTORY_CAP);
+  expect(s.undo[0]).toEqual(entry(5)); // oldest five evicted
 });

@@ -89,3 +89,39 @@ function invertOne(tree: BlockNode[], pageTitle: string,
     }
   }
 }
+
+export interface HistoryState {
+  undo: HistoryEntry[];
+  redo: HistoryEntry[];
+}
+
+export const HISTORY_CAP = 100;
+
+export function emptyHistory(): HistoryState {
+  return { undo: [], redo: [] };
+}
+
+export function recordEntry(state: HistoryState,
+                            entry: HistoryEntry): HistoryState {
+  return { undo: [...state.undo, entry].slice(-HISTORY_CAP), redo: [] };
+}
+
+export function takeUndo(state: HistoryState):
+    { state: HistoryState; entry: HistoryEntry | null } {
+  const entry = state.undo[state.undo.length - 1] ?? null;
+  if (!entry) return { state, entry: null };
+  return {
+    state: { undo: state.undo.slice(0, -1), redo: [...state.redo, entry] },
+    entry,
+  };
+}
+
+export function takeRedo(state: HistoryState):
+    { state: HistoryState; entry: HistoryEntry | null } {
+  const entry = state.redo[state.redo.length - 1] ?? null;
+  if (!entry) return { state, entry: null };
+  return {
+    state: { undo: [...state.undo, entry], redo: state.redo.slice(0, -1) },
+    entry,
+  };
+}

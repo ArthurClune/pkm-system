@@ -126,6 +126,7 @@ it("renders a collapsed Roam table as header/body rows instead of an outline", (
   const { container } = renderTree([table]);
   const rendered = screen.getByRole("table");
 
+  expect(container.querySelector('[data-uid="table"] .chevron.hidden')).not.toBeNull();
   expect(within(rendered).getAllByRole("columnheader").map((x) => x.textContent))
     .toEqual(["Model", "Price"]);
   expect(within(rendered).getAllByRole("cell").map((x) => x.textContent))

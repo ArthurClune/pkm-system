@@ -16,10 +16,18 @@ Roam imports on [[AI Pricing]] contain {{table}} blocks that should render as Ma
 - [x] Add a focused regression test and confirm it fails
 - [x] Implement the minimal frontend table renderer
 - [x] Add the `/table` creation command
-- [ ] Run focused and full verification
+- [x] Run focused and full verification
 - [ ] Commit, push, merge with --no-ff, and push main
 - [ ] Document the result and complete the bean
 
 ## Root Cause
 
 The importer correctly preserves Roam table trees. The frontend only recognizes query and PDF macros, so `{{[[table]]}}` renders as literal text and its descendants remain outline blocks. AI Pricing has five such macros; globally the imported graph has 31. A Roam table is represented as direct-child rows whose first-child chain contains the row cells.
+
+## Summary of Changes
+
+- Added a pure Roam table-tree converter with malformed-tree fallback and ragged-row padding.
+- Rendered valid imported table macros as semantic, horizontally scrollable tables in read-only and editable outlines.
+- Preserved raw source editing by revealing the macro subtree while its macro block is focused.
+- Added `/table` to create an exact `{{table}}` macro.
+- Verified server tests/typecheck/lint and the complete web verification suite.

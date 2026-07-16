@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { MenuIcon } from "./components/icons";
 import { OfflineIndicator } from "./components/OfflineIndicator";
+import { UndoRedoKeys } from "./components/UndoRedoKeys";
 import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -74,6 +75,7 @@ export function App() {
         <SidebarContext.Provider value={sidebarApi}>
           <div className="app">
             <OfflineIndicator />
+            <UndoRedoKeys />
             <button className="hamburger" aria-label="menu"
                     onClick={() => setNavOpen((o) => !o)}>
               <MenuIcon />

@@ -10,7 +10,9 @@ function handlers(): OutlineHandlers {
   return {
     onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftChange: vi.fn(),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
-    onMoveUp: vi.fn(), onMoveDown: vi.fn(), onBackspaceAtStart: vi.fn(),
+    onMoveUp: vi.fn(), onMoveDown: vi.fn(),
+    onMoveSubtreeUp: vi.fn(), onMoveSubtreeDown: vi.fn(),
+    onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
     onToggleTodo: vi.fn(), onFiles: vi.fn(),
@@ -141,6 +143,10 @@ test("keyboard map dispatches to the right handlers", () => {
   expect(h.onMoveUp).toHaveBeenCalledWith("u1");
   fireEvent.keyDown(ta, { key: "ArrowDown", altKey: true });
   expect(h.onMoveDown).toHaveBeenCalledWith("u1");
+  fireEvent.keyDown(ta, { key: "ArrowUp", shiftKey: true, metaKey: true });
+  expect(h.onMoveSubtreeUp).toHaveBeenCalledWith("u1");
+  fireEvent.keyDown(ta, { key: "ArrowDown", shiftKey: true, metaKey: true });
+  expect(h.onMoveSubtreeDown).toHaveBeenCalledWith("u1");
   fireEvent.keyDown(ta, { key: "ArrowUp" }); // single-line: crosses up
   expect(h.onArrow).toHaveBeenCalledWith("u1", "up");
   ta.setSelectionRange(0, 0);

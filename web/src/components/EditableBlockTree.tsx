@@ -38,6 +38,10 @@ export interface OutlineHandlers {
   onOutdent(uid: string): void;
   onMoveUp(uid: string): void;
   onMoveDown(uid: string): void;
+  /** Shift+Cmd+Arrow: move the block's whole subtree, preserving depth,
+   * possibly crossing a parent boundary (pkm-hx2w). */
+  onMoveSubtreeUp(uid: string): void;
+  onMoveSubtreeDown(uid: string): void;
   onBackspaceAtStart(uid: string): void;
   onArrow(uid: string, dir: "up" | "down" | "left" | "right"): void;
   onToggleCollapsed(uid: string, collapsed: boolean): void;
@@ -512,6 +516,17 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
       case "move-down":
         e.preventDefault();
         handlers.onMoveDown(node.uid);
+        return;
+      case "move-subtree-up":
+        // preventDefault matters here more than for move-up: Shift-Cmd-Arrow
+        // is a macOS text-selection key and must not extend the textarea's
+        // native selection.
+        e.preventDefault();
+        handlers.onMoveSubtreeUp(node.uid);
+        return;
+      case "move-subtree-down":
+        e.preventDefault();
+        handlers.onMoveSubtreeDown(node.uid);
         return;
       case "backspace-at-start":
         e.preventDefault();

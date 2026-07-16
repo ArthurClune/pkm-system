@@ -3,8 +3,8 @@ import { block } from "../test-helpers";
 import { findNode } from "./tree";
 import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
          moveBlockDown, moveBlocksTo, moveBlockUp, moveSelectionDown,
-         moveSelectionUp, outdentBlock, setCollapsed, setHeading,
-         setViewType, splitBlock } from "./edits";
+         moveSelectionUp, moveSubtreeDown, moveSubtreeUp, outdentBlock,
+         setCollapsed, setHeading, setViewType, splitBlock } from "./edits";
 
 describe("clampCaret", () => {
   test("keeps the offset when it fits the new length", () => {
@@ -147,6 +147,149 @@ describe("moveBlockUp / moveBlockDown", () => {
   test("edges are no-ops", () => {
     expect(moveBlockUp(tree(), P, "a").ops).toEqual([]);
     expect(moveBlockDown(tree(), P, "c").ops).toEqual([]);
+  });
+});
+
+// Three levels deep so cross-parent moves and the "would become shallower"
+// no-op can both be exercised: a / b(b1(b1x) b2) / c.
+const deepTree = () => [
+  block("a", "alpha", { order_idx: 0 }),
+  block("b", "beta", {
+    order_idx: 5,
+    children: [
+      block("b1", "b-one", {
+        order_idx: 0,
+        children: [block("b1x", "b-one-ex", { order_idx: 0 })],
+      }),
+      block("b2", "b-two", { order_idx: 3 }),
+    ],
+  }),
+  block("c", "gamma", { order_idx: 7 }),
+];
+
+describe("moveSubtreeUp / moveSubtreeDown (pkm-hx2w)", () => {
+  test("up: a previous sibling means a plain sibling swap", () => {
+    const r = moveSubtreeUp(deepTree(), P, "b2");
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b2", parent_uid: "b", order_idx: 0 },
+    ]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b2", "b1"]);
+  });
+
+  test("up: no previous sibling, parent has one — becomes its last child", () => {
+    const r = moveSubtreeUp(deepTree(), P, "b1");
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b1", parent_uid: "a", order_idx: 0 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["a", "b", "c"]);
+    expect(findNode(r.blocks, "a")!.children.map((n) => n.uid)).toEqual(["b1"]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid)).toEqual(["b2"]);
+    // subtree carried intact: b1's own child comes along
+    expect(findNode(r.blocks, "b1")!.children.map((n) => n.uid)).toEqual(["b1x"]);
+  });
+
+  test("up: top-level block with no previous sibling is a no-op", () => {
+    const r = moveSubtreeUp(deepTree(), P, "a");
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toEqual(deepTree());
+  });
+
+  test("up: level-3 block whose parent has no previous sibling is a no-op " +
+       "(escaping further would make it level 1)", () => {
+    const r = moveSubtreeUp(deepTree(), P, "b1x");
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toEqual(deepTree());
+  });
+
+  test("down: a next sibling means a plain sibling swap", () => {
+    const r = moveSubtreeDown(deepTree(), P, "b1");
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b1", parent_uid: "b", order_idx: 4 },
+    ]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b2", "b1"]);
+    expect(findNode(r.blocks, "b1")!.children.map((n) => n.uid)).toEqual(["b1x"]);
+  });
+
+  test("down: no next sibling, parent has one — becomes its first child", () => {
+    const r = moveSubtreeDown(deepTree(), P, "b2");
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b2", parent_uid: "c", order_idx: 0 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["a", "b", "c"]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid)).toEqual(["b1"]);
+    expect(findNode(r.blocks, "c")!.children.map((n) => n.uid)).toEqual(["b2"]);
+  });
+
+  test("down: top-level block with no next sibling is a no-op", () => {
+    const r = moveSubtreeDown(deepTree(), P, "c");
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toEqual(deepTree());
+  });
+
+  test("down: level-3 block whose parent has no next sibling escape is not " +
+       "a no-op here — the parent DOES have one, so it becomes b2's first " +
+       "child, still depth-preserving", () => {
+    const r = moveSubtreeDown(deepTree(), P, "b1x");
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b1x", parent_uid: "b2", order_idx: 0 },
+    ]);
+    expect(findNode(r.blocks, "b1")!.children).toEqual([]);
+    expect(findNode(r.blocks, "b2")!.children.map((n) => n.uid)).toEqual(["b1x"]);
+  });
+
+  test("up: a collapsed destination P is expanded — otherwise the moved " +
+       "block would be hidden and lose focus", () => {
+    const t = deepTree();
+    findNode(t, "a")!.collapsed = true;
+    const r = moveSubtreeUp(t, P, "b1");
+    expect(r.ops).toEqual([
+      { op: "set_collapsed", uid: "a", collapsed: false },
+      { op: "move", uid: "b1", parent_uid: "a", order_idx: 0 },
+    ]);
+    expect(findNode(r.blocks, "a")!.collapsed).toBe(false);
+    expect(findNode(r.blocks, "a")!.children.map((n) => n.uid)).toEqual(["b1"]);
+  });
+
+  test("down: a collapsed destination N is expanded — otherwise the moved " +
+       "block would be hidden and lose focus", () => {
+    const t = deepTree();
+    findNode(t, "c")!.collapsed = true;
+    const r = moveSubtreeDown(t, P, "b2");
+    expect(r.ops).toEqual([
+      { op: "set_collapsed", uid: "c", collapsed: false },
+      { op: "move", uid: "b2", parent_uid: "c", order_idx: 0 },
+    ]);
+    expect(findNode(r.blocks, "c")!.collapsed).toBe(false);
+    expect(findNode(r.blocks, "c")!.children.map((n) => n.uid)).toEqual(["b2"]);
+  });
+
+  test("up: destination P already has children — the block simply joins as " +
+       "the new last", () => {
+    const t = deepTree();
+    findNode(t, "a")!.children.push(block("ax", "a-ex", { order_idx: 0 }));
+    const r = moveSubtreeUp(t, P, "b1");
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b1", parent_uid: "a", order_idx: 1 },
+    ]);
+    expect(findNode(r.blocks, "a")!.children.map((n) => n.uid)).toEqual(["ax", "b1"]);
+  });
+
+  test("down: destination N already has children — the block lands FIRST, " +
+       "existing children shift (shiftFrom path)", () => {
+    const t = deepTree();
+    findNode(t, "c")!.children.push(block("cx", "c-ex", { order_idx: 0 }));
+    const r = moveSubtreeDown(t, P, "b2");
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b2", parent_uid: "c", order_idx: 0 },
+    ]);
+    expect(findNode(r.blocks, "c")!.children.map((n) => n.uid)).toEqual(["b2", "cx"]);
+  });
+
+  test("unknown uid is a no-op", () => {
+    expect(moveSubtreeUp(deepTree(), P, "zz").ops).toEqual([]);
+    expect(moveSubtreeDown(deepTree(), P, "zz").ops).toEqual([]);
   });
 });
 

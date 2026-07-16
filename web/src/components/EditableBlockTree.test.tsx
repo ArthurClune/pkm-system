@@ -875,3 +875,30 @@ test("editable rendering numbers direct children only", () => {
   expect([marker("root"), marker("a"), marker("b"), marker("a1"), marker("b1")])
     .toEqual(["", "1.", "2.", "", "1."]);
 });
+
+test("a rendered Roam table focuses its macro and reveals raw editable blocks", () => {
+  const h = handlers();
+  const macro = block("table", "{{[[table]]}}", { collapsed: true, children: [
+    block("header", "Model", { children: [block("header-2", "Price")] }),
+    block("row", "Claude", { children: [block("row-2", "$5")] }),
+  ] });
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[macro]} focus={null} handlers={h} readOnly={false} />
+    </MemoryRouter>,
+  );
+
+  fireEvent.click(screen.getByRole("table"));
+  expect(h.onFocusBlock).toHaveBeenCalledWith("table", "{{[[table]]}}".length);
+
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[macro]} focus={{ uid: "table", cursor: 0 }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole("table")).toBeNull();
+  expect(focusedTextarea()).toHaveValue("{{[[table]]}}");
+  expect(screen.getByText("Model")).toBeInTheDocument();
+  expect(screen.getByText("Claude")).toBeInTheDocument();
+});

@@ -23,8 +23,10 @@ import { AutocompletePopup, buildRows, useTitleOptions,
          type AcRow } from "./AutocompletePopup";
 import { BlockMenu } from "./BlockMenu";
 import { InlineSegments } from "./InlineSegments";
+import { RoamTable } from "./roamTable";
 import { quoteContent } from "./blockPresentation";
 import { effectiveChildView, type EffectiveBlockView } from "./blockView";
+import { roamTableRows } from "./roamTableRows";
 
 export interface OutlineHandlers {
   onFocusBlock(uid: string, cursor: number): void;
@@ -211,15 +213,18 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
     node.heading === 3 ? "h3" : "div";
   const quoted = quoteContent(node.text);
   const childrenView = effectiveChildView(node.view_type);
+  const tableRows = roamTableRows(node);
+  const showTable = !focused && tableRows !== null;
+  const chevronHasChildren = showTable ? false : hasChildren;
   return (
     <div className="block">
       <div className={"block-row" + (focused ? " focused" : "")
              + (isSelected ? " selected" : "")}
            data-uid={node.uid}>
         <button
-          className={"chevron" + (node.collapsed ? " closed" : "") + (hasChildren ? "" : " hidden")}
+          className={"chevron" + (node.collapsed ? " closed" : "") + (chevronHasChildren ? "" : " hidden")}
           onClick={() => handlers.onToggleCollapsed(node.uid, !node.collapsed)}
-          disabled={fallback || readOnly || !hasChildren}
+          disabled={fallback || readOnly || !chevronHasChildren}
           aria-label="toggle children"
         >
           ▸
@@ -274,15 +279,17 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                onClick={() => {
                  if (!fallback) handlers.onFocusBlock(node.uid, node.text.length);
                }}>
-            <BlockEditContext.Provider
-                value={readOnly || fallback
-                  ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
-              <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
-            </BlockEditContext.Provider>
+            {showTable
+              ? <RoamTable rows={tableRows!} />
+              : <BlockEditContext.Provider
+                  value={readOnly || fallback
+                    ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
+                  <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
+                </BlockEditContext.Provider>}
           </Tag>
         )}
       </div>
-      {hasChildren && !node.collapsed && (
+      {hasChildren && !showTable && (tableRows !== null || !node.collapsed) && (
         <div className={`block-children ${childrenView}-view`}>
           {node.children.map((c, index) => (
             <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}

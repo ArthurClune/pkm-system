@@ -193,6 +193,12 @@ function blockMenuItems(
   ];
 }
 
+function focusInSubtree(node: BlockNode, focusUid: string | null): boolean {
+  if (focusUid === null) return false;
+  if (node.uid === focusUid) return true;
+  return node.children.some((child) => focusInSubtree(child, focusUid));
+}
+
 function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                          viewMode, number, openMenuUid, onOpenMenu }: {
   node: BlockNode; focus: FocusTarget | null;
@@ -214,7 +220,8 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
   const quoted = quoteContent(node.text);
   const childrenView = effectiveChildView(node.view_type);
   const tableRows = roamTableRows(node);
-  const showTable = !focused && tableRows !== null;
+  const editingTableSubtree = !fallback && focusInSubtree(node, focus?.uid ?? null);
+  const showTable = !editingTableSubtree && tableRows !== null;
   const chevronHasChildren = showTable ? false : hasChildren;
   return (
     <div className="block">

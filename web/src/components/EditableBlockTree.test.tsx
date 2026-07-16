@@ -902,3 +902,39 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
   expect(screen.getByText("Model")).toBeInTheDocument();
   expect(screen.getByText("Claude")).toBeInTheDocument();
 });
+
+test("a rendered Roam table stays in raw mode when focus moves to a revealed descendant", () => {
+  const h = handlers();
+  const macro = block("table", "{{[[table]]}}", { collapsed: true, children: [
+    block("header", "Model", { children: [block("header-2", "Price")] }),
+    block("row", "Claude", { children: [block("row-2", "$5")] }),
+  ] });
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[macro]} focus={null} handlers={h} readOnly={false} />
+    </MemoryRouter>,
+  );
+
+  fireEvent.click(screen.getByRole("table"));
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[macro]} focus={{ uid: "table", cursor: 0 }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>,
+  );
+  expect(focusedTextarea()).toHaveValue("{{[[table]]}}");
+
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[macro]} focus={{ uid: "row-2", cursor: 1 }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>,
+  );
+
+  expect(screen.queryByRole("table")).toBeNull();
+  expect(screen.getByText("Model")).toBeInTheDocument();
+  expect(screen.getByText("Claude")).toBeInTheDocument();
+  expect(focusedTextarea()).toHaveValue("$5");
+  expect(document.activeElement).toBe(focusedTextarea());
+  expect(focusedTextarea().selectionStart).toBe(1);
+});

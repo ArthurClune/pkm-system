@@ -39,10 +39,16 @@ interface DocState {
   aspect: number | null;
 }
 
-function PdfPages({ numPages, aspect, onCurrentPage }: {
+function PdfPages({ numPages, aspect, onCurrentPage, scrollRegionLabel }: {
   numPages: number;
   aspect: number | null;
   onCurrentPage: (page: number) => void;
+  /** When set, the frame becomes an explicit, labelled tab stop. The
+   * overlay needs this: its focus trap only cycles through explicit
+   * tabindexes, so without one a keyboard user could never reach the frame
+   * to scroll the document. The inline frame relies on the browsers'
+   * native scrollable-container tab stop instead. */
+  scrollRegionLabel?: string;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -100,7 +106,13 @@ function PdfPages({ numPages, aspect, onCurrentPage }: {
   }, [numPages, onCurrentPage]);
 
   return (
-    <div className="pdf-frame" ref={frameRef}>
+    <div
+      className="pdf-frame"
+      ref={frameRef}
+      tabIndex={scrollRegionLabel === undefined ? undefined : 0}
+      role={scrollRegionLabel === undefined ? undefined : "region"}
+      aria-label={scrollRegionLabel}
+    >
       {Array.from({ length: numPages }, (_, i) => i + 1).map((n) => (
         <div
           key={n}
@@ -125,7 +137,10 @@ function PdfPages({ numPages, aspect, onCurrentPage }: {
   );
 }
 
-/** Everything the overlay's focus trap can land on. */
+/** Everything the overlay's focus trap can land on. Scoped to what this
+ * overlay actually contains (links, buttons, the tabindexed scroll frame) --
+ * extend it before adding other control types (inputs, contenteditable) to
+ * the overlay chrome. */
 const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function PdfViewer({ href, label }: { href: string; label: string }) {
@@ -255,7 +270,12 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
                 Close
               </button>
             </div>
-            <PdfPages numPages={doc.numPages} aspect={doc.aspect} onCurrentPage={setCurrentPage} />
+            <PdfPages
+              numPages={doc.numPages}
+              aspect={doc.aspect}
+              onCurrentPage={setCurrentPage}
+              scrollRegionLabel={label || "PDF"}
+            />
           </div>,
           document.body,
         )}

@@ -62,11 +62,14 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   await expect(overlay.locator("canvas").first()).toBeVisible();
 
   // modal a11y (pkm-bqrk): the dialog is aria-modal, focus moves to Close,
-  // the page behind can't scroll, and Tab is trapped inside the overlay
-  // (Close is the last focusable, so Tab wraps to the Download link).
+  // the page behind can't scroll, and Tab is trapped inside the overlay --
+  // Close to the scroll frame (an explicit tab stop, so keyboard users can
+  // scroll the PDF), then wrapping from the frame back to the Download link.
   await expect(overlay).toHaveAttribute("aria-modal", "true");
   await expect(overlay.getByRole("button", { name: "Close" })).toBeFocused();
   await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+  await page.keyboard.press("Tab");
+  await expect(overlay.locator(".pdf-frame")).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(overlay.getByRole("link", { name: "Download" })).toBeFocused();
 
@@ -83,9 +86,10 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
 
   await page.keyboard.press("Escape");
   await expect(overlay).toHaveCount(0);
-  // closing hands focus back to Expand and unlocks body scrolling
+  // closing hands focus back to Expand and unlocks body scrolling (the
+  // inline overflow style is removed, not just overridden)
   await expect(page.getByRole("button", { name: "Expand" })).toBeFocused();
-  await expect(page.locator("body")).toHaveCSS("overflow", "visible");
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
 });
 
 test("Roam-style {{[[pdf]]: …}} macro renders the viewer (pkm-ph1m)", async ({ page }) => {

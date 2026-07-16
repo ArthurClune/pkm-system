@@ -81,7 +81,11 @@ beforeEach(() => {
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  // the scroll-lock test seeds a body overflow; don't leak it on failure
+  document.body.style.overflow = "";
+});
 
 async function renderLoaded() {
   render(<PdfViewer href={href} label="Notes" />);
@@ -155,17 +159,33 @@ it("focus moves into the dialog on open and returns to Expand on close", async (
   expect(expand).toHaveFocus();
 });
 
-it("Tab wraps focus from the last overlay control to the first, and Shift+Tab back", async () => {
+it("the overlay's scroll frame is a labelled tab stop inside the trap", async () => {
+  // Browsers make scrollable containers implicit tab stops, but the trap
+  // only sees explicit matches -- without a real tabindex a keyboard user
+  // could never reach the frame to scroll the PDF (pkm-bqrk review).
+  await renderLoaded();
+  // the inline frame keeps its native (implicit) behaviour; it unmounts
+  // while expanded, so check it before opening the overlay
+  expect(document.querySelector(".pdf-embed .pdf-frame")).not.toHaveAttribute("tabindex");
+  fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+  const frame = document.querySelector(".pdf-overlay .pdf-frame")!;
+  expect(frame).toHaveAttribute("tabindex", "0");
+  expect(frame).toHaveAttribute("role", "region");
+  expect(frame).toHaveAttribute("aria-label", "Notes");
+});
+
+it("Tab wraps focus from the last overlay tab stop to the first, and Shift+Tab back", async () => {
   await renderLoaded();
   fireEvent.click(screen.getByRole("button", { name: "Expand" }));
   const download = screen.getByRole("link", { name: "Download" });
-  const close = screen.getByRole("button", { name: "Close" });
-  // Close (focused on open) is the last focusable; Tab wraps to Download
+  const frame = document.querySelector(".pdf-overlay .pdf-frame") as HTMLElement;
+  // the frame is the last tab stop; Tab wraps to Download
+  frame.focus();
   fireEvent.keyDown(window, { key: "Tab" });
   expect(download).toHaveFocus();
-  // Download is the first focusable; Shift+Tab wraps back to Close
+  // Download is the first tab stop; Shift+Tab wraps back to the frame
   fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
-  expect(close).toHaveFocus();
+  expect(frame).toHaveFocus();
 });
 
 it("pulls focus back into the dialog when Tab arrives from outside it", async () => {
@@ -183,7 +203,6 @@ it("locks body scrolling while the overlay is open and restores the prior value"
   expect(document.body.style.overflow).toBe("hidden");
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   expect(document.body.style.overflow).toBe("auto");
-  document.body.style.overflow = "";
 });
 
 it("no click anywhere in the viewer bubbles to an enclosing block's click-to-edit handler", async () => {

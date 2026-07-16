@@ -9,7 +9,7 @@ import type { PagePayload, BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { OutlineHandlers } from "../components/EditableBlockTree";
 import type { OutlineDndApi } from "../dnd/DndContext";
-import { cycleTodo, toggleTodo } from "../grammar/todo";
+import { toggleTodo } from "../grammar/todo";
 import { encodeTitle } from "../paths";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
@@ -241,13 +241,6 @@ export function useOutline(
       const flipped = node ? toggleTodo(node.text) : null;
       if (flipped === null) return { blocks: b, ops: [], focus: null };
       const ops: BlockOp[] = [{ op: "update_text", uid, text: flipped }];
-      return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
-    }),
-    onCycleTodo: (uid) => run((b) => {
-      const node = findNode(b, uid);
-      if (!node) return { blocks: b, ops: [], focus: null };
-      const cycled = cycleTodo(node.text);
-      const ops: BlockOp[] = [{ op: "update_text", uid, text: cycled }];
       return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
     }),
     onFiles: (uid, cursor, files) => {

@@ -239,6 +239,31 @@ test("clicking a TODO checkbox queues the toggled text op", () => {
   ]]);
 });
 
+test("Cmd-Enter shows the cycled TODO marker immediately and survives the next flush (pkm-wquz)", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount(makeSync(), [block("u1", "first", { order_idx: 0 })]);
+  const ta = focusBlock("first");
+
+  // A keystroke queues a debounced draft edit that has NOT flushed yet.
+  fireEvent.change(ta, { target: { value: "first edited" } });
+  expect(sync.sent).toEqual([]);
+
+  // Cmd-Enter fires before the debounce timer does.
+  fireEvent.keyDown(ta, { key: "Enter", metaKey: true });
+  expect(screen.getByRole("textbox")).toHaveValue("{{TODO}} first edited");
+
+  // Keep typing on top of the (now-marked) draft, then let the debounce
+  // flush: the marker must still be there, not silently reverted.
+  fireEvent.change(screen.getByRole("textbox"),
+                    { target: { value: "{{TODO}} first edited more" } });
+  act(() => { vi.advanceTimersByTime(500); });
+
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "{{TODO}} first edited more" }],
+  ]);
+});
+
 test("Shift+Arrow starts and extends a block selection; Escape clears it", () => {
   mount(makeSync(), [
     block("u1", "first", { order_idx: 0 }),

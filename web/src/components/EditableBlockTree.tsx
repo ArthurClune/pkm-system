@@ -44,7 +44,6 @@ export interface OutlineHandlers {
   onSetHeading(uid: string, heading: number | null): void;
   onSetViewType(uid: string, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: string): void;
-  onCycleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
   /** Begin a multi-block selection from `uid` towards `dir` (Shift+Arrow at a
    * block edge); the current block is included. */
@@ -493,10 +492,6 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
       case "key-edit":
         e.preventDefault();
         applyKeyEdit(decision.edit);
-        return;
-      case "cycle-todo":
-        e.preventDefault();
-        handlers.onCycleTodo(node.uid);
         return;
       case "split":
         e.preventDefault();

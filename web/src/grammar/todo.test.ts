@@ -75,3 +75,7 @@ test("cycleTodo strips a bracket-variant DONE marker back to plain", () => {
 test("cycleTodo on an empty string produces a bare TODO marker", () => {
   expect(cycleTodo("")).toBe("{{TODO}} ");
 });
+
+test("cycleTodo strips a DONE marker with no trailing space", () => {
+  expect(cycleTodo("{{DONE}}buy milk")).toBe("buy milk");
+});

@@ -5,7 +5,9 @@
 // bracket variant the text used: the scanner accepts each bracket side
 // independently (documented leniency; Roam only emits {{[[TODO]]}} /
 // {{TODO}}) and toggling must never corrupt text. hasTodoMarker lets
-// slashCommands avoid double-prefixing an already-TODO block.
+// slashCommands avoid double-prefixing an already-TODO block. cycleTodo
+// extends toggleTodo with the third state, plain text (no marker at all),
+// cycling plain -> TODO -> DONE -> plain for the Cmd/Ctrl-Enter shortcut.
 
 import { scanGrammar, type GrammarToken } from "./scan";
 

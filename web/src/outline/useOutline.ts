@@ -19,6 +19,7 @@ import { backspaceAtStart, deleteSelection, indentBlock, moveBlockDown,
          moveSubtreeDown, moveSubtreeUp, outdentBlock, setCollapsed,
          setHeading, splitBlock, setViewType,
          type EditResult, type FocusTarget } from "./edits";
+import { invertOps } from "./history";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
 import { extendSelection, needsDeleteConfirmation, selectedUids,
@@ -27,6 +28,8 @@ import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
 import { pendingTextOps, spliceUploadedMarkdown,
          validateOutlineFocus } from "./outlineState";
+import { performRedo, performUndo, recordHistory,
+         registerOutlineHistory } from "./undoManager";
 
 const TEXT_DEBOUNCE_MS = 500;
 
@@ -58,6 +61,9 @@ export function useOutline(
   const [selection, setSelection] = useState<BlockSelection | null>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+  // run() needs the focus at record time (undo history's focusBefore).
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
   const sessionRef = useRef<OutlineSessionHandle | null>(null);
   const bootstrapRef = useRef(initial);
   bootstrapRef.current = initial;
@@ -136,9 +142,10 @@ export function useOutline(
    * apply + enqueue everything in order, then move focus. */
   const run = useCallback((fn: (b: BlockNode[]) => EditResult) => {
     const textOps = takePendingTextOps();
+    const pre = blocksRef.current; // history inverts the FULL batch from here
     const base = textOps.length > 0
-      ? applyOps(blocksRef.current, textOps, pageTitle)
-      : blocksRef.current;
+      ? applyOps(pre, textOps, pageTitle)
+      : pre;
     const result = fn(base);
     const ops = [...textOps, ...result.ops];
     if (ops.length === 0) return;
@@ -150,12 +157,35 @@ export function useOutline(
       blocksRef.current = next;
       setBlocks(next);
     }
+    // Undo history (pkm-7q14): record the batch with its inverse, computed
+    // against the pre-flush tree the full batch (textOps + result.ops) grew
+    // from. Empty inverse = nothing undoable (collapse-only / create_page);
+    // null = not invertible from this tree (cross-page move) — skip, history
+    // stays best-effort.
+    const inverse = invertOps(pre, pageTitle, ops);
+    if (inverse !== null && inverse.length > 0) {
+      recordHistory({
+        pageTitle, ops: [...ops], inverse,
+        focusBefore: focusRef.current,
+        focusAfter: result.focus ?? focusRef.current,
+      });
+    }
     if (result.focus) setFocus(result.focus);
   }, [takePendingTextOps, pageTitle, sync]);
 
   const flushNow = useCallback(() => {
     run((b) => ({ blocks: b, ops: [], focus: null }));
   }, [run]);
+
+  // The global undo manager needs to flush this outline's draft before
+  // undoing, and to place focus after a history batch applies here.
+  useEffect(() => registerOutlineHistory(pageTitle, {
+    flushPending: flushNow,
+    applyFocus: (f) => {
+      setSelection(null);
+      setFocus(f ? validateOutlineFocus(f, blocksRef.current) : null);
+    },
+  }), [pageTitle, flushNow]);
 
   // A hidden tab can be killed without blur ever firing (the one real
   // data-loss window): flush the draft as soon as the tab hides.
@@ -309,7 +339,12 @@ export function useOutline(
     // overridden by EditablePage (which knows the drag-source page title);
     // kept here only so this object satisfies OutlineHandlers on its own.
     onDragStartBlock: () => undefined,
-  }), [run, flushNow, pageTitle, selection]);
+    // App-level undo/redo (pkm-7q14): global history, not per-outline. No
+    // explicit flush here — performUndo/performRedo call every registered
+    // flushPending, including this outline's.
+    onUndo: () => { performUndo(sync); },
+    onRedo: () => { performRedo(sync); },
+  }), [run, flushNow, pageTitle, selection, sync]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
     moveTo: (uids, target) => run((b) =>

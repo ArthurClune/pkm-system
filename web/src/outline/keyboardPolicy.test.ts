@@ -338,3 +338,21 @@ describe("decideEditorKey browser default", () => {
       .toEqual({ type: "none" });
   });
 });
+
+describe("decideEditorKey undo/redo (pkm-7q14)", () => {
+  it("Cmd-Z is undo, Shift-Cmd-Z is redo (Ctrl variants for non-Mac)", () => {
+    expect(decideEditorKey(input({ key: "z", metaKey: true }))).toEqual({ type: "undo" });
+    expect(decideEditorKey(input({ key: "z", ctrlKey: true }))).toEqual({ type: "undo" });
+    expect(decideEditorKey(input({ key: "Z", metaKey: true, shiftKey: true }))).toEqual({ type: "redo" });
+    expect(decideEditorKey(input({ key: "Z", ctrlKey: true, shiftKey: true }))).toEqual({ type: "redo" });
+  });
+
+  it("Alt-Z and plain z are not undo", () => {
+    expect(decideEditorKey(input({ key: "z", metaKey: true, altKey: true }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({ key: "z" }))).toEqual({ type: "none" });
+  });
+
+  it("undo/redo are read-only-gated", () => {
+    expect(decideEditorKey(input({ key: "z", metaKey: true, readOnly: true }))).toEqual({ type: "none" });
+  });
+});

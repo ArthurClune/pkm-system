@@ -113,6 +113,51 @@ describe("decideEditorKey block selection", () => {
   });
 });
 
+describe("decideEditorKey subtree move (pkm-hx2w)", () => {
+  it("moves the subtree on Shift+Cmd+ArrowUp/Down", () => {
+    expect(decideEditorKey(input({ key: "ArrowUp", shiftKey: true, metaKey: true })))
+      .toEqual({ type: "move-subtree-up" });
+    expect(decideEditorKey(input({ key: "ArrowDown", shiftKey: true, metaKey: true })))
+      .toEqual({ type: "move-subtree-down" });
+  });
+
+  it("takes precedence over plain Shift+Arrow block-selection start", () => {
+    // Same edge-of-block draft/caret that would otherwise start a selection.
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, metaKey: true, draft: "one\ntwo",
+      selStart: 2, selEnd: 2,
+    }))).toEqual({ type: "move-subtree-up" });
+  });
+
+  it("leaves plain Shift+Arrow (no Meta) starting a selection, unaffected", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, draft: "one\ntwo", selStart: 2, selEnd: 2,
+    }))).toEqual({ type: "start-block-selection", dir: "up" });
+  });
+
+  it("leaves Alt+Arrow (no Shift) as the single-block move, unaffected", () => {
+    expect(decideEditorKey(input({ key: "ArrowUp", altKey: true })))
+      .toEqual({ type: "move-up" });
+    expect(decideEditorKey(input({ key: "ArrowDown", altKey: true })))
+      .toEqual({ type: "move-down" });
+  });
+
+  it("is suppressed while read-only", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, metaKey: true, readOnly: true,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("ignores the chord when Ctrl or Alt is also held", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, metaKey: true, ctrlKey: true,
+    }))).not.toEqual({ type: "move-subtree-up" });
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, metaKey: true, altKey: true,
+    }))).not.toEqual({ type: "move-subtree-up" });
+  });
+});
+
 describe("decideEditorKey read-only cutoff", () => {
   it("suppresses editing chords when read-only", () => {
     for (const over of [

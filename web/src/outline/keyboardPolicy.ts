@@ -42,6 +42,8 @@ export type KeyDecision =
   | { type: "outdent" }
   | { type: "move-up" }
   | { type: "move-down" }
+  | { type: "move-subtree-up" }
+  | { type: "move-subtree-down" }
   | { type: "backspace-at-start" }
   | { type: "arrow"; dir: "up" | "down" | "left" | "right" }
   | { type: "none" };
@@ -68,6 +70,16 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   if (i.ctrlKey && !i.metaKey && !i.altKey && i.key.toLowerCase() === "o") {
     const title = refTitleAtCaret(i.draft, pos);
     if (title) return { type: "navigate-ref", title };
+  }
+  // Shift+Cmd+Arrow moves the block's whole subtree (pkm-hx2w) — a macOS
+  // text-selection chord repurposed here, so it must be caught before the
+  // plain-Shift block-selection-start check below (same shiftKey+Arrow
+  // shape) even though it's a mutation and so is read-only-gated like
+  // Alt-Arrow's single-block move, not read-only-safe like that check.
+  if (i.shiftKey && i.metaKey && !i.ctrlKey && !i.altKey
+      && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
+    if (i.readOnly) return NONE;
+    return i.key === "ArrowUp" ? { type: "move-subtree-up" } : { type: "move-subtree-down" };
   }
   // Shift+Arrow at the block's vertical edge (collapsed caret) starts a
   // multi-block selection; copying is read-only-safe so this precedes the cut.

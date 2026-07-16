@@ -121,6 +121,44 @@ export function moveBlockDown(blocks: BlockNode[], pageTitle: string,
   return done(blocks, pageTitle, ops, null);
 }
 
+/** Depth-preserving move that can cross a parent boundary (pkm-hx2w): a
+ * previous sibling is a plain swap (delegates to moveBlockUp); otherwise, if
+ * the parent has a previous sibling P, the block becomes P's LAST child —
+ * same absolute depth, now inside the preceding subtree. No further escape:
+ * if P doesn't exist (top-level, or parent is itself a first child), it's a
+ * no-op rather than letting the block become shallower. */
+export function moveSubtreeUp(blocks: BlockNode[], pageTitle: string,
+                              uid: string): EditResult {
+  const found = locate(blocks, uid);
+  if (!found) return noop(blocks);
+  if (found.index > 0) return moveBlockUp(blocks, pageTitle, uid);
+  if (!found.parent) return noop(blocks);
+  const parentLoc = locate(blocks, found.parent.uid);
+  if (!parentLoc || parentLoc.index === 0) return noop(blocks);
+  const p = parentLoc.siblings[parentLoc.index - 1];
+  const last = p.children[p.children.length - 1];
+  const ops: BlockOp[] = [{ op: "move", uid, parent_uid: p.uid,
+                            order_idx: last ? last.order_idx + 1 : 0 }];
+  return done(blocks, pageTitle, ops, null);
+}
+
+/** Mirror of moveSubtreeUp: a next sibling is a plain swap (delegates to
+ * moveBlockDown); otherwise the block becomes the FIRST child of the
+ * parent's next sibling N, same depth. No-op when N doesn't exist. */
+export function moveSubtreeDown(blocks: BlockNode[], pageTitle: string,
+                                uid: string): EditResult {
+  const found = locate(blocks, uid);
+  if (!found) return noop(blocks);
+  if (found.index < found.siblings.length - 1) return moveBlockDown(blocks, pageTitle, uid);
+  if (!found.parent) return noop(blocks);
+  const parentLoc = locate(blocks, found.parent.uid);
+  if (!parentLoc || parentLoc.index === parentLoc.siblings.length - 1) return noop(blocks);
+  const n = parentLoc.siblings[parentLoc.index + 1];
+  const ops: BlockOp[] = [{ op: "move", uid, parent_uid: n.uid,
+                            order_idx: n.children[0]?.order_idx ?? 0 }];
+  return done(blocks, pageTitle, ops, null);
+}
+
 /** Locate uids as a single contiguous run of siblings — same parent,
  * consecutive positions, in the given order. Null when they aren't (a
  * multi-block selection can span parent/child levels; only a plain sibling

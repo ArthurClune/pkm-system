@@ -16,8 +16,8 @@ import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { backspaceAtStart, deleteSelection, indentBlock, moveBlockDown,
          moveBlocksTo, moveBlockUp, moveSelectionDown, moveSelectionUp,
-         outdentBlock, setCollapsed, setHeading, splitBlock,
-         setViewType,
+         moveSubtreeDown, moveSubtreeUp, outdentBlock, setCollapsed,
+         setHeading, splitBlock, setViewType,
          type EditResult, type FocusTarget } from "./edits";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
@@ -218,6 +218,8 @@ export function useOutline(
     onOutdent: (uid) => run((b) => outdentBlock(b, pageTitle, uid)),
     onMoveUp: (uid) => run((b) => moveBlockUp(b, pageTitle, uid)),
     onMoveDown: (uid) => run((b) => moveBlockDown(b, pageTitle, uid)),
+    onMoveSubtreeUp: (uid) => run((b) => moveSubtreeUp(b, pageTitle, uid)),
+    onMoveSubtreeDown: (uid) => run((b) => moveSubtreeDown(b, pageTitle, uid)),
     onBackspaceAtStart: (uid) => run((b) => backspaceAtStart(b, pageTitle, uid)),
     onArrow: (uid, dir) => {
       const to = visibleNeighbor(blocksRef.current, uid,

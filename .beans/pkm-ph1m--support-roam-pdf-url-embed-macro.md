@@ -1,11 +1,11 @@
 ---
 # pkm-ph1m
 title: 'Support Roam {{[[pdf]]: url}} embed macro'
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-16T19:47:43Z
-updated_at: 2026-07-16T20:05:01Z
+updated_at: 2026-07-16T20:06:06Z
 ---
 
 382 blocks use {{[[pdf]]: /assets/...}} and 132 use {{pdf: /assets/...}} (Roam import). The grammar only special-cases {{query}}, so these render as literal text + [[pdf]] page link instead of the PDF viewer (reported: [[July 7th, 2026]] SITS Readiness Assessment).

@@ -1,5 +1,6 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
 
@@ -17,28 +18,6 @@ const input = (page: Page) => page.locator("textarea.block-input");
 const caretToEnd = (page: Page) =>
   input(page).evaluate((el: HTMLTextAreaElement) =>
     el.setSelectionRange(el.value.length, el.value.length));
-
-type BlockNode = { text: string; children: BlockNode[] };
-
-function flattenText(blocks: BlockNode[]): string[] {
-  return blocks.flatMap((b) => [b.text, ...flattenText(b.children)]);
-}
-
-// Polls the server's own copy of today's page until it contains `text`
-// verbatim. Used instead of a client-side "no banner" check before a reload:
-// the offline banner only renders once syncingAfterReconnect is set (i.e.
-// after an actual disconnect) — see OfflineIndicator.tsx. In a normally
-// connected session pending>0 shows no banner at all, so waiting on the
-// banner is vacuous and a reload can race the last queued mutation's HTTP
-// delivery. Polling the server directly is deterministic.
-async function waitForServerText(page: Page, pageTitle: string, text: string) {
-  await expect.poll(async () => {
-    const res = await page.request.get(`/api/page/${encodeURIComponent(pageTitle)}`);
-    if (!res.ok()) return [];
-    const body = await res.json() as { blocks: BlockNode[] };
-    return flattenText(body.blocks);
-  }, { timeout: 20_000 }).toContain(text);
-}
 
 // Markers unique to this spec: other e2e specs share the same server/DB
 // (single worker, serial run) and already leave content on today's page
@@ -102,7 +81,7 @@ test("undo and redo across text and structure", async ({ page }) => {
   // survives the server round-trip: wait for the server's own copy of the
   // page to contain the redone text before reloading. A ".ws-banner" check
   // here would be vacuous — while connected, pending>0 renders no banner at
-  // all (see waitForServerText above), so it never actually waits for the
+  // all (see server-state.ts), so it never actually waits for the
   // final redo batch to reach the server, and reload() can race it.
   await waitForServerText(page, pageTitle, SECOND);
   await page.reload();

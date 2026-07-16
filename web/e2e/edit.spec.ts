@@ -1,5 +1,6 @@
 import { type Page } from "@playwright/test";
 import { expect, test, trackResponses } from "./fixtures";
+import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
 
@@ -27,6 +28,7 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
   await login(page);
   const today = page.locator(".journal-day").first();
   await expect(today).toBeVisible();
+  const pageTitle = await today.locator("h1.page-title").innerText();
 
   // fresh DB: today is empty -> the start-writing affordance
   await today.getByText("Click to start writing…").click();
@@ -51,9 +53,10 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
   await expect(input(page)).toHaveValue("second block [[E2E Target]]");
   await input(page).press("Escape"); // blur: flushes the draft op
 
-  // the sync indicator clears once every queued edit is on the server;
-  // reloading before that races the local persist of the last edit
-  await expect(page.locator(".ws-banner")).toHaveCount(0);
+  // wait for the server's own copy of the page to contain the final edit
+  // before reloading — a ".ws-banner" check here is vacuous while connected
+  // (see server-state.ts) and reload() can race the last batch's delivery
+  await waitForServerText(page, pageTitle, "second block [[E2E Target]]");
 
   // persisted across a full reload, structure intact
   await page.reload();

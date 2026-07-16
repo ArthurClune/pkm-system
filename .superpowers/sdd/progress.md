@@ -24,3 +24,10 @@ show the generic failure banner and the specific 409 addError simultaneously;
 SidebarNav reorder test name over-claims index-staleness coverage; QueryBlock
 pagination-recovery test's between-click findByRole is a soft sync point
 (robustness rests on the vi.waitFor).
+Task 7: complete (pkm-wudz; commits f22ab39..261f1fc, review clean)
+Scope note: plan listed web/src/sync/replicaSync.ts as Modify, but it was left
+a shell; implementer flagged it and the reviewer independently adjudicated the
+deviation as justified — the Step 2 sync-transition behaviors are covered by
+syncState/queueState and dispatched from SyncProvider, and the residual
+replicaSync logic is I/O control flow whose extraction would require the
+speculative union the plan forbids. Revisit only if the final audit disagrees.

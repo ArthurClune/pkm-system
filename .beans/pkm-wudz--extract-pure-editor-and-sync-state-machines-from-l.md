@@ -29,7 +29,8 @@ Extract pure reducers/decision functions for editor events, outline reconciliati
 - [x] EditableBlockTree keyboard policy is separated from DOM execution where practical.
 - [x] Runtime files have accurate FCIS classifications.
 - [x] Existing behavior and coverage thresholds are preserved.
-- [ ] pnpm verify passes.
+- [x] pnpm verify passes. (controller ran canonical `cd web && pnpm verify` at head 261f1fc:
+      typecheck, enforced unit coverage, and Playwright 6/6 all green)
 
 ## Summary of Changes
 

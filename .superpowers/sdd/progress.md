@@ -48,3 +48,17 @@ edge-extraction/type-only helpers (lines ~55-115) lack direct unit tests
 (exercised only via the live check:fcis run); fcis-core.mjs header detection
 is a whole-file scan so a stray "// pattern:" comment elsewhere in a file
 would register as a duplicate-header diagnostic.
+Task 10: complete (pkm-f1rn; commit 3b9ff69, review clean after human ratification)
+Plan-mandated deviation RATIFIED BY USER 2026-07-16: initialEntryBytes budget
+is 462016 (actual eager entry 440910 + ~4.8% headroom), not the plan's
+unattainable 423707; no follow-up shrink work owed. Minor review findings
+deferred to final whole-branch triage: precacheEntries guard undercounts
+(manifestTransforms sees ~74 vs Workbox-final 78, blind spot ~= remaining
+headroom under the 82 cap; byte guard exact); task-10-report lists wrong deps
+for useOutline run (cosmetic); useOutline run re-creates on sync identity
+change (benign, arguably a latent-bug fix); collectMermaidOwned graph
+traversal lives in the plugin shell. Verification note: one non-reproducible
+offline-shell cold-start flake in a full-suite run (element-not-stable churn
+signature, matches pre-existing resyncSeq remount issue; 4/4 isolated and
+subsequent full verify clean; reviewer ruled out the suppression conversions
+as the cause).

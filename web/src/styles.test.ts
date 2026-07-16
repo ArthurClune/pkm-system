@@ -146,15 +146,21 @@ describe("visual consistency (pkm-9kye)", () => {
   });
 });
 
-describe("typography hierarchy (pkm-b68q)", () => {
-  test("heading blocks scale clearly below the page title", () => {
-    expect(ruleFor("h1.block-text")).toContain("font-size: 1.4rem;");
-    expect(ruleFor("h2.block-text")).toContain("font-size: 1.25rem;");
-    expect(ruleFor("h3.block-text")).toContain("font-size: 1.1rem;");
+describe("typography hierarchy (pkm-b68q, pkm-ofec)", () => {
+  test("displayed and focused headings share the same scale and weight", () => {
+    for (const [selector, size] of [
+      ["h1.block-text, .block-input.heading-1", "1.4rem"],
+      ["h2.block-text, .block-input.heading-2", "1.25rem"],
+      ["h3.block-text, .block-input.heading-3", "1.1rem"],
+    ] as const) {
+      const rule = ruleFor(selector);
+      expect(rule).toContain(`font-size: ${size};`);
+      expect(rule).toContain("font-weight: 600;");
+    }
   });
 
   test("h3 heading blocks are not de-emphasised below body text", () => {
-    const h3 = ruleFor("h3.block-text");
+    const h3 = ruleFor("h3.block-text, .block-input.heading-3");
     expect(h3).not.toContain("font-weight: 400;");
     expect(h3).not.toContain("color: var(--color-text-secondary);");
   });

@@ -139,6 +139,34 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
   await act(async () => deliver());
 });
 
+test("Ctrl-Alt heading shortcuts update focused typography immediately", () => {
+  const sync = mount();
+  let ta = focusBlock("first");
+
+  for (const level of [1, 2, 3] as const) {
+    fireEvent.keyDown(ta, {
+      key: String(level), code: `Digit${level}`,
+      ctrlKey: true, altKey: true,
+    });
+    ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(ta).toHaveClass(`heading-${level}`);
+    expect(ta).toHaveValue("first");
+  }
+
+  fireEvent.keyDown(ta, {
+    key: "0", code: "Digit0", ctrlKey: true, altKey: true,
+  });
+  ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  expect(ta).not.toHaveClass("heading-1", "heading-2", "heading-3");
+  expect(ta).toHaveValue("first");
+  expect(sync.sent).toEqual([
+    [{ op: "set_heading", uid: "u1", heading: 1 }],
+    [{ op: "set_heading", uid: "u1", heading: 2 }],
+    [{ op: "set_heading", uid: "u1", heading: 3 }],
+    [{ op: "set_heading", uid: "u1", heading: null }],
+  ]);
+});
+
 test("Tab indents the second block under the first", () => {
   stubFetch([]);
   const sync = mount();

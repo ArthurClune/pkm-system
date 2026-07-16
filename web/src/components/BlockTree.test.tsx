@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, it } from "vitest";
@@ -116,4 +116,40 @@ it("numbers direct children only; unset descendants fall back to bullets", () =>
   expect(marker("a1")).toBe("");
   expect(marker("a2")).toBe("");
   expect(marker("b1")).toBe("1.");
+});
+
+it("renders a collapsed Roam table as header/body rows instead of an outline", () => {
+  const table = block("table", "{{[[table]]}}", { collapsed: true, children: [
+    block("header-model", "**Model**", { children: [block("header-price", "Price")] }),
+    block("claude", "[[Claude]]", { children: [block("claude-price", "$5")] }),
+  ] });
+  const { container } = renderTree([table]);
+  const rendered = screen.getByRole("table");
+
+  expect(container.querySelector('[data-uid="table"] .chevron.hidden')).not.toBeNull();
+  expect(within(rendered).getAllByRole("columnheader").map((x) => x.textContent))
+    .toEqual(["Model", "Price"]);
+  expect(within(rendered).getAllByRole("cell").map((x) => x.textContent))
+    .toEqual(["Claude", "$5"]);
+  expect(within(rendered).getByRole("link", { name: "Claude" })).toBeInTheDocument();
+  expect(within(rendered).getByText("Model").closest("strong")).not.toBeNull();
+  expect(screen.queryByText("{{[[table]]}}")).toBeNull();
+  expect(container.querySelector(".block-children")).toBeNull();
+});
+
+it("renders a valid Roam table with a heading inside div.block-text, not a heading tag", () => {
+  const table = block("table", "{{[[table]]}}", {
+    heading: 3,
+    children: [
+      block("header-model", "**Model**", { children: [block("header-price", "Price")] }),
+      block("claude", "[[Claude]]", { children: [block("claude-price", "$5")] }),
+    ],
+  });
+  const { container } = renderTree([table]);
+  const rendered = screen.getByRole("table");
+  const blockText = container.querySelector('[data-uid="table"] .block-text');
+
+  expect(blockText?.tagName).toBe("DIV");
+  expect(rendered.closest(".block-text")).toBe(blockText);
+  expect(rendered.closest("h1, h2, h3")).toBeNull();
 });

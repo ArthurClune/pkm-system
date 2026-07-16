@@ -6,8 +6,10 @@ import { useState } from "react";
 import type { BlockNode } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
+import { RoamTable } from "./roamTable";
 import { quoteContent } from "./blockPresentation";
 import { effectiveChildView, type EffectiveBlockView } from "./blockView";
+import { roamTableRows } from "./roamTableRows";
 
 export function Block({ node, viewMode = "document", number = 1 }: {
   node: BlockNode;
@@ -37,11 +39,15 @@ export function Block({ node, viewMode = "document", number = 1 }: {
     node.heading === 3 ? "h3" : "div";
   const quoted = quoteContent(node.text);
   const childrenView = effectiveChildView(node.view_type);
+  const tableRows = roamTableRows(node);
+  const WrapperTag: "h1" | "h2" | "h3" | "div" = tableRows ? "div" : Tag;
+  const hidesChildren = hasChildren && collapsed && tableRows === null;
   return (
     <div className="block">
       <div className="block-row" data-uid={node.uid}>
         <button
-          className={"chevron" + (collapsed ? " closed" : "") + (hasChildren ? "" : " hidden")}
+          className={"chevron" + (hidesChildren ? " closed" : "")
+            + (hasChildren && tableRows === null ? "" : " hidden")}
           onClick={() => setCollapsed(!collapsed)}
           aria-label="toggle children"
         >
@@ -49,16 +55,18 @@ export function Block({ node, viewMode = "document", number = 1 }: {
         </button>
         <span
           className={"bullet" + (viewMode === "numbered" ? " numbered" : "")
-            + (hasChildren && collapsed ? " closed" : "")}
+            + (hidesChildren ? " closed" : "")}
           aria-hidden="true"
         >
           {viewMode === "numbered" ? `${number}.` : ""}
         </span>
-        <Tag className={"block-text" + (quoted !== null ? " quote-block" : "")}>
-          <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
-        </Tag>
+        <WrapperTag className={"block-text" + (quoted !== null ? " quote-block" : "")}>
+          {tableRows
+            ? <RoamTable rows={tableRows} />
+            : <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />}
+        </WrapperTag>
       </div>
-      {hasChildren && !collapsed && (
+      {hasChildren && !collapsed && !tableRows && (
         <div className={`block-children ${childrenView}-view`}>
           {node.children.map((c, index) => (
             <Block key={c.uid} node={c} viewMode={childrenView} number={index + 1} />

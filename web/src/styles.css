@@ -336,6 +336,11 @@ a.tag:hover { color: var(--color-link); text-decoration: none;
 .code-block { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-card);
   padding: 10px 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-block code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.roam-table-scroll { display: block; width: 100%; overflow-x: auto; margin: 4px 0; }
+.roam-table { width: 100%; min-width: max-content; border-collapse: collapse; }
+.roam-table th, .roam-table td { border: 1px solid var(--color-border);
+  padding: 6px 8px; vertical-align: top; }
+.roam-table th { background: var(--color-bg-subtle); text-align: left; font-weight: 600; }
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
   border-radius: 2px; background: var(--color-link); margin-right: 6px; vertical-align: middle; }
 .block-ref.unresolved { color: var(--color-text-muted); }

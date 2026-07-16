@@ -65,6 +65,21 @@ describe("applySlashCommand: /text", () => {
   });
 });
 
+describe("table", () => {
+  test("table is offered and creates an exact renderable macro", () => {
+    expect(matchSlashCommands("tab")).toEqual([{ name: "table", label: "Table" }]);
+    expect(applySlashCommand("/table", 6,
+      { kind: "command", start: 1, query: "table" }, "table"))
+      .toEqual({ text: "{{table}}", cursor: 9 });
+  });
+
+  test("does not discard existing content when /table is picked mid-block", () => {
+    expect(applySlashCommand("notes /table", 12,
+      { kind: "command", start: 7, query: "table" }, "table"))
+      .toEqual({ text: "notes ", cursor: 6 });
+  });
+});
+
 describe("applySlashCommand: /todo", () => {
   test("prefixes the block with the TODO marker", () => {
     expect(applySlashCommand("/todo", 5, { kind: "command", start: 1, query: "todo" }, "todo"))

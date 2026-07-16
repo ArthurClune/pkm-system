@@ -165,3 +165,12 @@ describe("typography hierarchy (pkm-b68q, pkm-ofec)", () => {
     expect(h3).not.toContain("color: var(--color-text-secondary);");
   });
 });
+
+describe("Roam tables (pkm-kbv5)", () => {
+  test("wide tables scroll and cells use themed borders", () => {
+    expect(ruleFor(".roam-table-scroll")).toContain("overflow-x: auto;");
+    expect(ruleFor(".roam-table th, .roam-table td"))
+      .toContain("border: 1px solid var(--color-border);");
+    expect(ruleFor(".roam-table th")).toContain("text-align: left;");
+  });
+});

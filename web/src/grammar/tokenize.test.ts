@@ -218,6 +218,16 @@ describe("tokenizeBlock", () => {
     ]);
   });
 
+  it("trims whitespace around the macro href and keeps an empty body inert", () => {
+    expect(tokenizeBlock("{{[[pdf]]:   /assets/x/a.pdf  }}")).toEqual([
+      { kind: "pdf-embed", href: "/assets/x/a.pdf" },
+    ]);
+    // empty body still tokenizes; the renderer's href guards make it inert
+    expect(tokenizeBlock("{{[[pdf]]: }}")).toEqual([
+      { kind: "pdf-embed", href: "" },
+    ]);
+  });
+
   it("does not treat unterminated or colon-less pdf macros as embeds", () => {
     expect(tokenizeBlock("{{[[pdf]]: /assets/x/a.pdf")
       .some((s) => s.kind === "pdf-embed")).toBe(false);

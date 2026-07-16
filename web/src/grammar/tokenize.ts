@@ -3,8 +3,9 @@
 // Reference/TODO/code recognition comes from the shared grammar scanner
 // (scan.ts, which follows server/src/pkm/refs.py semantics); this file owns
 // only the rendering-side grammar the scanner does not model: markdown
-// links and images, bare-URL autolinking, emphasis, {{query}} blocks and
-// line breaks. Ref *extraction* lives in refs.ts on the same scanner.
+// links and images, bare-URL autolinking, emphasis, {{query}} blocks,
+// {{pdf}} embed macros (Roam's PDF-embed spelling) and line breaks. Ref
+// *extraction* lives in refs.ts on the same scanner.
 
 import { scanGrammar, type GrammarToken } from "./scan";
 

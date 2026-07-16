@@ -24,7 +24,8 @@ Remove duplicated balanced-reference and TODO-marker parsing across tokenizer, r
 - [x] TODO marker parsing is centralized and reused by tokenization, commands, and toggling.
 - [x] Malformed, nested, overflow, and round-trip cases have shared contract tests.
 - [x] Public behavior remains compatible unless an intentional change is documented.
-- [ ] pnpm verify passes.
+- [x] pnpm verify passes. (controller ran canonical `cd web && pnpm verify` at head 9691df0:
+      typecheck, enforced unit coverage, and Playwright 6/6 all green; server suite 395 passed)
 
 ## Summary of Changes
 

@@ -31,3 +31,14 @@ deviation as justified — the Step 2 sync-transition behaviors are covered by
 syncState/queueState and dispatched from SyncProvider, and the residual
 replicaSync logic is I/O control flow whose extraction would require the
 speculative union the plan forbids. Revisit only if the final audit disagrees.
+Task 8: complete (pkm-1cq3; commit 9691df0, review clean)
+Scope notes adjudicated by reviewer: (1) shared/fixtures/refs_parity.json left
+untouched — it is byte-pinned to server refs_parity_dump.py, so new
+Unicode/nested/malformed cases went into ref_grammar.json, replayed by all
+three extractors (server test_refs.py, web grammar/refs.test.ts,
+web replica/refs.test.ts), which meets the cross-extractor-agreement goal.
+(2) Five intentional edge-behavior changes (replica Unicode hashtags,
+code-opaque refAtCaret, backtick-adjacent hashtag, attribute leading
+whitespace, autolink chunk-seam) judged contract-mandated or harmless
+unpinned edges; no previously-pinned assertion changed. Documented in the
+pkm-1cq3 bean for the final audit.

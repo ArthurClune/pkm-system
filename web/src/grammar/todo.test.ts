@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { hasTodoMarker, toggleTodo } from "./todo";
+import { cycleTodo, hasTodoMarker, toggleTodo } from "./todo";
 
 test("flips TODO to DONE and back, preserving the bracket variant", () => {
   expect(toggleTodo("{{[[TODO]]}} buy milk")).toBe("{{[[DONE]]}} buy milk");
@@ -50,4 +50,28 @@ test("hasTodoMarker detects only a block-start marker (no quote prefix)", () => 
 test("code at the start of a block is never a marker", () => {
   expect(toggleTodo("`{{TODO}}` x")).toBeNull();
   expect(hasTodoMarker("`{{TODO}}` x")).toBe(false);
+});
+
+test("cycleTodo cycles plain -> TODO -> DONE -> plain", () => {
+  expect(cycleTodo("buy milk")).toBe("{{TODO}} buy milk");
+  expect(cycleTodo("{{TODO}} buy milk")).toBe("{{DONE}} buy milk");
+  expect(cycleTodo("{{DONE}} buy milk")).toBe("buy milk");
+});
+
+test("cycleTodo preserves an exact quote prefix at every step", () => {
+  expect(cycleTodo("> quoted task")).toBe("> {{TODO}} quoted task");
+  expect(cycleTodo("> {{TODO}} quoted task")).toBe("> {{DONE}} quoted task");
+  expect(cycleTodo("> {{DONE}} quoted task")).toBe("> quoted task");
+});
+
+test("cycleTodo preserves the bracket variant from plain to TODO to DONE", () => {
+  expect(cycleTodo("{{[[TODO]]}} buy milk")).toBe("{{[[DONE]]}} buy milk");
+});
+
+test("cycleTodo strips a bracket-variant DONE marker back to plain", () => {
+  expect(cycleTodo("{{[[DONE]]}} buy milk")).toBe("buy milk");
+});
+
+test("cycleTodo on an empty string produces a bare TODO marker", () => {
+  expect(cycleTodo("")).toBe("{{TODO}} ");
 });

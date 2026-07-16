@@ -193,6 +193,25 @@ describe("decideEditorKey structural keys", () => {
       .toEqual({ type: "none" });
   });
 
+  it("cycles the TODO marker on Cmd-Enter or Ctrl-Enter", () => {
+    expect(decideEditorKey(input({ key: "Enter", metaKey: true })))
+      .toEqual({ type: "cycle-todo" });
+    expect(decideEditorKey(input({ key: "Enter", ctrlKey: true })))
+      .toEqual({ type: "cycle-todo" });
+  });
+
+  it("does not cycle the TODO marker on plain Enter or Shift-Enter", () => {
+    expect(decideEditorKey(input({ key: "Enter" })))
+      .toEqual({ type: "split", cursor: 0 });
+    expect(decideEditorKey(input({ key: "Enter", metaKey: true, shiftKey: true })))
+      .toEqual({ type: "none" });
+  });
+
+  it("suppresses the TODO cycle when read-only", () => {
+    expect(decideEditorKey(input({ key: "Enter", metaKey: true, readOnly: true })))
+      .toEqual({ type: "none" });
+  });
+
   it("indents / outdents on Tab", () => {
     expect(decideEditorKey(input({ key: "Tab" }))).toEqual({ type: "indent" });
     expect(decideEditorKey(input({ key: "Tab", shiftKey: true })))

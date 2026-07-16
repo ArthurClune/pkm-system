@@ -13,7 +13,7 @@ function handlers(): OutlineHandlers {
     onMoveUp: vi.fn(), onMoveDown: vi.fn(), onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
-    onToggleTodo: vi.fn(), onFiles: vi.fn(),
+    onToggleTodo: vi.fn(), onCycleTodo: vi.fn(), onFiles: vi.fn(),
     onStartBlockSelection: vi.fn(), onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
     onMoveSelectionUp: vi.fn(), onMoveSelectionDown: vi.fn(),
@@ -541,6 +541,32 @@ test("Ctrl-K is left alone (mac kill-line, not link) (pkm-jbjk)", () => {
   ta.setSelectionRange(0, 5);
   fireEvent.keyDown(ta, { key: "k", ctrlKey: true });
   expect(h.onDraftChange).not.toHaveBeenCalled();
+});
+
+test("Cmd-Enter cycles the block's TODO state (pkm-wquz)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.keyDown(ta, { key: "Enter", metaKey: true });
+  expect(h.onCycleTodo).toHaveBeenCalledWith("u1");
+  expect(h.onSplit).not.toHaveBeenCalled();
+});
+
+test("Ctrl-Enter also cycles the block's TODO state (pkm-wquz)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  expect(h.onCycleTodo).toHaveBeenCalledWith("u1");
+});
+
+test("Cmd-Shift-Enter does not cycle the TODO state (pkm-wquz)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.keyDown(ta, { key: "Enter", metaKey: true, shiftKey: true });
+  expect(h.onCycleTodo).not.toHaveBeenCalled();
+  expect(h.onSplit).not.toHaveBeenCalled();
 });
 
 test("typing [ auto-closes the bracket (pkm-3sxw)", () => {

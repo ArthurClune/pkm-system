@@ -32,3 +32,18 @@ export function toggleTodo(text: string): string | null {
     + `{{${marker.openBrackets ? "[[" : ""}${flipped}${marker.closeBrackets ? "]]" : ""}}}`
     + content.slice(marker.end);
 }
+
+/** Cycles a block's task state: plain -> TODO -> DONE -> plain. TODO->DONE
+ * reuses toggleTodo (bracket variant + quote prefix preserved as usual);
+ * DONE->plain strips the marker and one following space; plain->TODO
+ * prepends `{{TODO}} ` after the quote prefix, mirroring toggleTodo's
+ * prefix handling. */
+export function cycleTodo(text: string): string {
+  const quotePrefix = text.startsWith("> ") ? "> " : "";
+  const content = quotePrefix ? text.slice(quotePrefix.length) : text;
+  const marker = todoMarker(content);
+  if (!marker) return `${quotePrefix}{{TODO}} ${content}`;
+  if (marker.state === "TODO") return toggleTodo(text)!;
+  const rest = content.slice(marker.end);
+  return quotePrefix + (rest.startsWith(" ") ? rest.slice(1) : rest);
+}

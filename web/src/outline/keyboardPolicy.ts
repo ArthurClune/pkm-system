@@ -37,6 +37,7 @@ export type KeyDecision =
   | { type: "start-block-selection"; dir: "up" | "down" }
   | { type: "set-heading"; heading: number | null }
   | { type: "key-edit"; edit: TextSelection }
+  | { type: "cycle-todo" }
   | { type: "split"; cursor: number }
   | { type: "indent" }
   | { type: "outdent" }
@@ -92,6 +93,11 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   if (!i.metaKey && !i.ctrlKey && !i.altKey && BRACKET_CHARS.has(i.key)) {
     const edit = autoPairBracket(i.draft, pos, i.selEnd, i.key);
     if (edit) return { type: "key-edit", edit };
+  }
+  // Cmd-Enter (Ctrl-Enter on non-Mac) cycles plain -> TODO -> DONE -> plain;
+  // checked before plain Enter so the modifier wins over a split.
+  if ((i.metaKey || i.ctrlKey) && !i.altKey && !i.shiftKey && i.key === "Enter") {
+    return { type: "cycle-todo" };
   }
   if (i.key === "Enter" && !i.shiftKey) return { type: "split", cursor: pos };
   if (i.key === "Tab") return i.shiftKey ? { type: "outdent" } : { type: "indent" };

@@ -282,6 +282,12 @@ byte limits use 5% headroom from the verified baseline and are stored with
 rationale in `web/tooling/budgets.json`:
 
 - initial entry JavaScript: baseline 403,530 bytes, limit 423,707 bytes;
+  **[amended 2026-07-16, `pkm-f1rn`]** rebaselined and user-ratified to a limit
+  of **462,016 bytes**: the eager entry measured 440,910 bytes after tasks 1–9
+  (the pure state cores and consolidated grammar scanner became startup
+  imports), already above 423,707, so 462,016 = actual + ~4.8 % headroom,
+  consistent with the headroom methodology of the other five budgets. No shrink
+  follow-up is owed. Rationale in `web/tooling/budgets.json`;
 - largest emitted asset: baseline 864,752 bytes, limit 907,990 bytes;
 - total emitted production bytes: baseline 5,257,401 bytes, limit 5,520,272
   bytes;

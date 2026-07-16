@@ -85,7 +85,11 @@ the full trade-off discussion.
   ids make client retries idempotent — no vector clocks, no merge machinery.
 - **Functional-core / imperative-shell** throughout: op application, ref
   extraction, query evaluation are pure modules; FastAPI routes, SQLite and
-  the WebSocket hub are thin shells (convention in `CLAUDE.md`).
+  the WebSocket hub are thin shells (convention in `CLAUDE.md`). On the web
+  client the boundary is now machine-checked — a checker rejects any
+  Functional-Core module that imports a Shell — and composition of shells
+  (React contexts, stateful components, `InlineSegments`) counts as Shell, not
+  Core. See [Web client architecture](#web-client-architecture-sync-outline-and-fcis-hardening).
 
 ## How it was built
 
@@ -111,6 +115,118 @@ shared fixture (`shared/fixtures/shim_parity.json`).
 
 Known gaps and deferred work are tracked as carry-forward sections in the
 design spec and as beans in `.beans/`.
+
+## Web client architecture (sync, outline, and FCIS hardening)
+
+The offline replica and outliner grew several concurrency hazards and blurred
+Functional-Core boundaries as features landed. The `pkm-c1cg` hardening epic
+(ten child beans) closed them and added machine-checked guardrails. The
+authoritative details, rejected alternatives, and the error-handling invariants
+live in the
+**[web architecture & FCIS hardening design](superpowers/specs/2026-07-15-web-architecture-fcis-hardening-design.md)**;
+the load-bearing shape:
+
+- **Queue, RPC, and worker lifecycle** (`web/src/sync/opQueue.ts`,
+  `web/src/replica/rpc.ts`, `web/src/replica/client.ts`). `OpQueue.enqueue()`
+  returns a `WriteTicket` whose `settled` promise resolves to a `WriteOutcome`
+  (`persisted` | `failed`) — local durability, deliberately distinct from
+  server delivery. `drain()` returns a typed `DrainOutcome`: `drained` only
+  after a fresh durable pending count proves nothing is deliverable, otherwise
+  `blocked` with a reason (`offline` | `retryable` | `recovering` |
+  `disposed`). Retry uses cancellable 250 ms / 1 s / 5 s-capped backoff
+  (`RETRY_DELAYS`). The RPC client is an owned Imperative Shell: pending calls
+  reject on worker `error`/`messageerror`, timeout (30 s ordinary, 120 s
+  snapshot/reset), or `dispose()`; late replies are ignored. `SyncProvider`
+  disposes only the worker/replica it created — an injected replica stays
+  caller-owned.
+- **Exclusive replica recovery lease** (`web/src/replica/client.ts`,
+  `web/src/replica/workerHandlers.ts`, `web/src/replica/recoveryGate.ts`). A
+  worker-owned FIFO gate covers every database-mutating RPC. `prepareRecovery()`
+  captures and fingerprints the durable pending rows and blocks later writes;
+  `commitRecovery()` re-compares those rows inside the held gate immediately
+  before reset-or-rebase and aborts non-destructively if they differ, so **no
+  acknowledged enqueue can be erased by recovery**. Schema mismatch resets and
+  reapplies the snapshot in one rolled-back-on-failure transaction; a rebuilt
+  database (generation token) rebases without file deletion.
+- **Poison repair for rejected batches** (`web/src/sync/opQueue.ts`,
+  `web/src/sync/SyncProvider.tsx`). A 4xx marks the durable row poisoned,
+  pauses later delivery, and emits a typed `PoisonEvent` (`onPoison`).
+  `SyncProvider` runs an authoritative full-snapshot repair through the same
+  recovery coordinator, which reapplies non-poisoned pending batches and skips
+  the poisoned one, then deletes the rejected row, bumps the resync generation,
+  and resumes. Repair failure stays visible with Retry; retained mark intents
+  plus `retryPoisonMarks()` survive a mark-write failure. Connectivity and
+  delivery health are reported independently.
+- **Per-title outline sessions, editor lease, and versioned reads**
+  (`web/src/outline/outlineSessions.ts`, `web/src/outline/outlineState.ts`,
+  `web/src/dnd/DndContext.tsx`). `acquireOutlineSession(title)` hands every
+  view of a title one ref-counted session that shares the flushed tree and a
+  monotonic revision; exactly one view wins an idempotent editor lease through
+  a subscription-backed store, others render read-only and inert. DnD
+  `registerOutline` returns a `DndRegistration` (`accepted` |
+  `{accepted:false, reason:"duplicate-title"}`) with token-checked cleanup.
+  Authoritative fetches call `beginAuthoritativeRead()` and carry a `ReadToken`
+  (`requestId`, `revisionAtDispatch`); a payload is adopted only if it is the
+  newest request, the revision is unchanged, and no title-relevant write ticket
+  is unsettled — otherwise the newest candidate is retained and reconsidered
+  after settlement, and a Shell-owned repair epoch re-enrolls live sessions.
+- **Standardized async UI lifecycles** (`QueryBlock`, `BlockTree`,
+  `BlueskyEmbed`, `SidebarNav`). Each uses a component-specific mechanism (no
+  shared `useAsync`): request-id staleness + single-flight pagination;
+  authoritative-vs-view-only collapse reconciliation; actor/post-keyed
+  resolution and height reset; and one serialized mutation lane that disables
+  conflicting controls and surfaces failures.
+- **Extracted pure cores and thin shells** (`pkm-wudz`). Deterministic
+  transitions live in Functional Core modules — `outline/keyboardPolicy.ts`
+  (`decideEditorKey`), `outline/outlineState.ts` (`transitionOutline`,
+  `pendingTextOps`, `spliceUploadedMarkdown`), `sync/queueState.ts`
+  (`transitionQueue`, `terminalReason`), `sync/syncState.ts` (`transitionSync`,
+  `computeEditability`) — testable with no React/DOM/fetch/worker/SQLite mocks.
+  The shells (`EditableBlockTree`, `useOutline`, `opQueue`, `SyncProvider`)
+  gather inputs, dispatch, and run the returned effects. `replicaSync.ts`
+  deliberately remains a shell: its recovery ordering is I/O control flow with
+  no deterministic sub-policy separable from the queue/sync cores.
+- **Shared reference/TODO grammar scanner** (`web/src/grammar/scan.ts`).
+  `scanGrammar(text)` is the single Functional Core producing a source-ordered
+  `GrammarToken` stream on UTF-16 half-open spans, matching balanced `[[...]]`
+  iteratively with an explicit stack (10 000-deep nesting without recursion),
+  blanking opaque code first — mirroring `server/src/pkm/refs.py`. `tokenize.ts`,
+  `grammar/refs.ts`, `replica/refs.ts`, `grammar/todo.ts`,
+  `outline/refAtCaret.ts`, and `outline/slashCommands.ts` are thin adapters over
+  it. New behavior is pinned by `shared/fixtures/ref_grammar.json`, replayed by
+  the server parser and both web extractors.
+- **Enforced FCIS boundary** (`web/tooling/fcis.mjs` shell + `fcis-core.mjs`
+  pure core + `fcis-exemptions.json`). `check:fcis` requires a `// pattern: …`
+  header in the first five lines of every runtime module and walks each file's
+  import/export/dynamic-import edges via the TypeScript compiler API; any
+  Functional-Core → Shell/Mixed edge fails unless it is type-only. The current
+  tree classifies 101 modules (39 Core, 62 Shell, 0 Mixed) with zero forbidden
+  edges. Misclassified files were relabelled Shell (`contexts.ts`,
+  `InlineSegments.tsx`, `BlockRef.tsx`, `AssetImage.tsx`, `PageLink.tsx`,
+  `TodoCheckbox.tsx`, `ErrorBoundary.tsx`) and the pure UID byte→alphabet
+  mapping was split into `uidCore.ts` (Core) beneath `uid.ts` (Shell).
+- **Lint and build budgets** (`web/eslint.config.js`, `web/tooling/buildBudgets.ts`
+  + `viteBudgetPlugin.ts` + `budgets.json`). Flat, type-aware ESLint enforces
+  the React Hooks rules plus `no-floating-promises`, `no-misused-promises`,
+  `only-throw-error`, and unknown catch variables, with
+  `reportUnusedDisableDirectives` — and zero `eslint-disable` remain in
+  `web/src`. A pure budget core with a Vite/Rollup + Workbox adapter fails the
+  build on any single byte or entry over the caps: `initialEntryBytes` 462016,
+  `largestAssetBytes` 907990, `totalOutputBytes` 5520272, `precacheBytes`
+  5494604, `precacheEntries` 82, `mermaidOwnedBytes` 3461961. The
+  `initialEntryBytes` cap is the **user-ratified** 462016 (actual eager entry
+  440910 + ~4.8 % headroom), superseding the plan/spec's stale 423707 — the
+  eager entry outgrew that target once the pure cores and the consolidated
+  grammar scanner became startup imports; no shrink follow-up is owed.
+- **Mermaid stays offline-capable.** The entire Mermaid module-graph chunk
+  family remains precached (never-online) under the explicit `mermaidOwnedBytes`
+  cap. Ownership is decided by Rollup module reachability, all-or-nothing per
+  chunk, so the exception cannot silently absorb unrelated output. An offline
+  Playwright E2E proves a diagram renders with no network.
+
+`pnpm verify` runs these gates in cost order: `typecheck → lint → check:fcis →
+test:coverage → one guarded vite build (bundle/precache enforcement) →
+playwright` against that same dist.
 
 ## Out of scope (by design)
 

@@ -77,6 +77,23 @@ test.each([
   expect(focusedTextarea()).toHaveClass("block-input", className);
 });
 
+test("a focused plain-text block keeps block-input and omits heading classes", () => {
+  const h = handlers();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree
+        blocks={[block("plain", "Heading", { heading: null })]}
+        focus={{ uid: "plain", cursor: 0 }} handlers={h} readOnly={false} />
+    </MemoryRouter>,
+  );
+
+  const ta = focusedTextarea();
+  expect(ta).toHaveClass("block-input");
+  expect(ta).not.toHaveClass("heading-1");
+  expect(ta).not.toHaveClass("heading-2");
+  expect(ta).not.toHaveClass("heading-3");
+});
+
 test("quoted display hides the prefix while editing exposes the raw source", () => {
   const quoted = [block("q1", "> **hello** [[World]]")];
   const h = handlers();

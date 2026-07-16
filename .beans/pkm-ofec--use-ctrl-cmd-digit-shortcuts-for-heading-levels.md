@@ -1,7 +1,7 @@
 ---
 # pkm-ofec
 title: Preserve heading typography while focused
-status: completed
+status: in-progress
 type: bug
 priority: normal
 created_at: 2026-07-16T21:05:39Z
@@ -27,4 +27,10 @@ The existing Ctrl-Alt-0/1/2/3 shortcuts dispatch heading changes, but a focused 
 
 ## Summary of Changes
 
-Focused heading textareas now receive heading-1/2/3 classes while focused, and the CSS shares the exact heading size/weight rules with the rendered headings. Ctrl-Alt-0 clears the class and restores plain typography; the shortcut pipeline itself was already working.
+Focused heading textareas now receive heading-1/2/3 classes while focused, and the CSS shares the exact heading size/weight rules with the rendered headings. Ctrl-Alt-0 clears the class and restores plain typography; the shortcut pipeline itself was already working. This follow-up adds explicit component-level plain-text fallback regression coverage for focused `heading: null` blocks.
+
+## Final Review Follow-up
+
+- [x] Add focused plain-text fallback regression test
+- [x] Run required verification
+- [ ] Commit and push follow-up

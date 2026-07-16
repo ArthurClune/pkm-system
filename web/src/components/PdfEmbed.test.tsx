@@ -20,6 +20,15 @@ it("shows the plain link while loading, then swaps in the viewer", async () => {
   expect(screen.getByTestId("pdf-viewer")).toHaveTextContent(`Notes:${href}`);
 });
 
+it("serves a second instance from the cached chunk once the first has loaded", async () => {
+  render(<PdfEmbed href={href} label="First" />);
+  await waitFor(() => expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument());
+  // second mount hits the already-resolved module-level viewerPromise
+  render(<PdfEmbed href={href} label="Second" />);
+  await waitFor(() => expect(screen.getAllByTestId("pdf-viewer")).toHaveLength(2));
+  expect(screen.getAllByTestId("pdf-viewer")[1]).toHaveTextContent(`Second:${href}`);
+});
+
 it("keeps the link fallback with a note when the viewer chunk fails", async () => {
   vi.resetModules();
   vi.doMock("./PdfViewer", () => {

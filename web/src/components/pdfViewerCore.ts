@@ -29,5 +29,6 @@ export function placeholderHeight(
   width: number,
   aspect: number | null,
 ): number {
+  if (!Number.isFinite(width)) return 1;
   return Math.max(1, Math.round(width * (aspect ?? DEFAULT_PAGE_ASPECT)));
 }

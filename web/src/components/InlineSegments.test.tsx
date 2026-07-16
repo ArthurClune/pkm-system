@@ -162,3 +162,28 @@ it("shift-click calls the sidebar callback instead of navigating", () => {
   fireEvent.click(screen.getByRole("link", { name: "Paper" }), { shiftKey: true });
   expect(openInSidebar).toHaveBeenCalledWith("Paper");
 });
+
+it("renders {{[[pdf]]: …}} asset macros as the PDF viewer with a decoded label", async () => {
+  const sha = "ab".repeat(32);
+  renderText(`{{[[pdf]]: /assets/${sha}/JLnhu4GhbD-SITS%20Readiness%20Assessment.pdf}}`);
+  // fallback link first (lazy chunk pending): label is the decoded filename
+  expect(screen.getByRole("link", { name: "JLnhu4GhbD-SITS Readiness Assessment.pdf" }))
+    .toHaveAttribute("href", `/assets/${sha}/JLnhu4GhbD-SITS%20Readiness%20Assessment.pdf`);
+  await waitFor(() =>
+    expect(screen.getByTestId("pdf-viewer"))
+      .toHaveAttribute("data-href", `/assets/${sha}/JLnhu4GhbD-SITS%20Readiness%20Assessment.pdf`));
+});
+
+it("renders non-asset pdf macros as a safe external link, not an embed", () => {
+  renderText("{{pdf: https://example.org/paper.pdf}}");
+  expect(screen.getByRole("link", { name: "https://example.org/paper.pdf" }))
+    .toHaveAttribute("href", "https://example.org/paper.pdf");
+  expect(screen.queryByTestId("pdf-viewer")).toBeNull();
+});
+
+it("renders malformed percent-encoding in a pdf macro label as the raw filename", async () => {
+  const sha = "cd".repeat(32);
+  renderText(`{{pdf: /assets/${sha}/bad%2.pdf}}`);
+  expect(screen.getByRole("link", { name: "bad%2.pdf" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument());
+});

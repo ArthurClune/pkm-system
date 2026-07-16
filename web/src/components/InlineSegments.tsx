@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 // Dispatches each tokenized segment to its renderer. isPdfAssetHref/
-// isSafeHref below are pure, but the module as a whole composes several
+// isSafeHref/pdfLabelFromHref below are pure, but the module as a whole composes several
 // Imperative Shell components (AssetImage, BlockRef, PageLink, TodoCheckbox,
 // BlueskyEmbed, MermaidDiagram, QueryBlock) that read React context, fetch,
 // or navigate, so it's a shell rather than a pure rendering decision.
@@ -18,6 +18,17 @@ import { TodoCheckbox } from "./TodoCheckbox";
 
 function isPdfAssetHref(href: string): boolean {
   return href.startsWith("/assets/") && href.toLowerCase().endsWith(".pdf");
+}
+
+/** Display label for a {{[[pdf]]: …}} macro, which carries no link text:
+ * the decoded filename portion of the href (raw on malformed encoding). */
+function pdfLabelFromHref(href: string): string {
+  const name = href.slice(href.lastIndexOf("/") + 1);
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
 }
 
 /** Plan-4 carry-forward: [x](javascript:…) in block text must not become a
@@ -60,6 +71,12 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       return <BlockRef uid={seg.uid} depth={depth} />;
     case "image":
       return <AssetImage src={seg.src} alt={seg.alt} />;
+    case "pdf-embed":
+      if (isPdfAssetHref(seg.href)) {
+        return <PdfEmbed href={seg.href} label={pdfLabelFromHref(seg.href)} />;
+      }
+      if (!isSafeHref(seg.href)) return <>{seg.href}</>;
+      return <a href={seg.href} target="_blank" rel="noreferrer">{seg.href}</a>;
     case "link":
       if (isPdfAssetHref(seg.href)) return <PdfEmbed href={seg.href} label={seg.text} />;
       if (isBlueskyPostUrl(seg.href)) return <BlueskyEmbed href={seg.href} />;

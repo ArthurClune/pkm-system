@@ -75,3 +75,30 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   await page.keyboard.press("Escape");
   await expect(overlay).toHaveCount(0);
 });
+
+test("Roam-style {{[[pdf]]: …}} macro renders the viewer (pkm-ph1m)", async ({ page }) => {
+  await login(page);
+
+  const res = await page.request.post("/api/assets", {
+    multipart: {
+      file: { name: "macro page.pdf", mimeType: "application/pdf", buffer: makePdf(1) },
+    },
+  });
+  expect(res.ok()).toBe(true);
+  const { url } = await res.json() as { url: string };
+
+  // A dedicated page keeps this test independent of whatever blocks other
+  // specs left on today's journal (whose first block may be a PDF embed --
+  // an interactive island that clicks can't enter edit mode through).
+  await page.getByLabel("Search").fill("PDF Macro");
+  await page.locator(".search-result", { hasText: 'Create page "PDF Macro"' }).click();
+  await expect(page.locator("h1.page-title")).toHaveText("PDF Macro");
+  await page.getByText("Click to start writing…").click();
+  await input(page).fill(`{{[[pdf]]: ${url}}}`);
+  await input(page).press("Escape");
+
+  await expect(page.locator(".pdf-frame")).toBeVisible();
+  await expect(page.locator(".pdf-page-slot canvas")).toBeVisible();
+  // the macro carries no link text: the label is the decoded filename
+  await expect(page.locator(".pdf-download")).toHaveText("macro page.pdf");
+});

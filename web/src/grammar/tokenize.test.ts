@@ -199,4 +199,29 @@ describe("tokenizeBlock", () => {
       { kind: "page-ref", title: "tag", tag: true },
     ]);
   });
+
+  it("grabs {{[[pdf]]: url}} embed macros in both spellings", () => {
+    const href = `/assets/${"ab".repeat(32)}/JLnhu4GhbD-SITS%20Readiness%20Assessment.pdf`;
+    expect(tokenizeBlock(`{{[[pdf]]: ${href}}}`)).toEqual([
+      { kind: "pdf-embed", href },
+    ]);
+    expect(tokenizeBlock(`{{pdf: ${href}}}`)).toEqual([
+      { kind: "pdf-embed", href },
+    ]);
+  });
+
+  it("keeps text around a pdf macro as inline chunks", () => {
+    expect(tokenizeBlock("see {{[[pdf]]: /assets/x/a.pdf}} end")).toEqual([
+      { kind: "text", text: "see " },
+      { kind: "pdf-embed", href: "/assets/x/a.pdf" },
+      { kind: "text", text: " end" },
+    ]);
+  });
+
+  it("does not treat unterminated or colon-less pdf macros as embeds", () => {
+    expect(tokenizeBlock("{{[[pdf]]: /assets/x/a.pdf")
+      .some((s) => s.kind === "pdf-embed")).toBe(false);
+    expect(tokenizeBlock("{{[[pdf]]}}")
+      .some((s) => s.kind === "pdf-embed")).toBe(false);
+  });
 });

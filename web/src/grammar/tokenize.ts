@@ -25,18 +25,23 @@ export type BlockSegment =
   | InlineSegment
   | { kind: "todo"; done: boolean }
   | { kind: "code-block"; lang: string | null; code: string }
-  | { kind: "query"; expr: string };
+  | { kind: "query"; expr: string }
+  | { kind: "pdf-embed"; href: string };
 
 const QUERY_PREFIX = /^\{\{(?:\[\[)?query(?:\]\])?:\s*/;
+const PDF_PREFIX = /^\{\{(?:\[\[)?pdf(?:\]\])?:\s*/;
 
 const EMPHASIS: [string, EmphasisKind][] = [
   ["**", "bold"], ["__", "italic"], ["~~", "strike"], ["^^", "highlight"],
 ];
 
-/** From i pointing at "{{[[query]]:" / "{{query:": [expr, end] via a
- * balanced-brace scan (the expr itself contains braces), or null. */
-function scanQuery(text: string, i: number): [string, number] | null {
-  const m = QUERY_PREFIX.exec(text.slice(i));
+/** From i pointing at a "{{[[name]]:" / "{{name:" macro opener: [body, end]
+ * via a balanced-brace scan (a query's body itself contains braces), or
+ * null. Shared by {{query}} and {{pdf}} (Roam's PDF-embed spelling). */
+function scanMacro(
+  text: string, i: number, prefix: RegExp,
+): [string, number] | null {
+  const m = prefix.exec(text.slice(i));
   if (!m) return null;
   let depth = 2; // the two braces of "{{"
   let j = i + 2;
@@ -213,11 +218,19 @@ export function tokenizeBlock(text: string): BlockSegment[] {
       continue;
     }
     if (text.startsWith("{{", i)) {
-      const q = scanQuery(text, i);
+      const q = scanMacro(text, i, QUERY_PREFIX);
       if (q) {
         flush(i);
         out.push({ kind: "query", expr: q[0] });
         i = q[1];
+        chunkStart = i;
+        continue;
+      }
+      const p = scanMacro(text, i, PDF_PREFIX);
+      if (p) {
+        flush(i);
+        out.push({ kind: "pdf-embed", href: p[0] });
+        i = p[1];
         chunkStart = i;
         continue;
       }

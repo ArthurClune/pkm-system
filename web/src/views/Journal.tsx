@@ -103,7 +103,11 @@ export function Journal() {
       const next = [...current, ...received];
       daysRef.current = next;
       setDays(next);
-      setRefTexts((m) => ({ ...m, ...p.block_ref_texts }));
+      // A head load (no `before` cursor: first mount or resync) replaces the
+      // ref-text map so stale resolutions can't linger; older batches merge.
+      setRefTexts((m) => oldest
+        ? { ...m, ...p.block_ref_texts }
+        : { ...p.block_ref_texts });
       emptyStreakRef.current =
         p.days.some((d) => d.exists) ? 0 : emptyStreakRef.current + 1;
       if (emptyStreakRef.current >= MAX_EMPTY_BATCHES) setAutoLoad(false);
@@ -160,9 +164,13 @@ export function Journal() {
     genRef.current += 1;
     releaseAllReads();
     loadingRef.current = false;
+    // Clear only the cursor (daysRef), not the rendered day list: blanking
+    // setDays here unmounted every .journal-day and remounted it after the
+    // refetch, detaching the DOM mid-interaction (pkm-ss9k remount churn).
+    // Freshness doesn't need the remount — block content flows through the
+    // shared outline sessions, and the head reload below replaces the day
+    // list in place under stable per-date keys when it lands.
     daysRef.current = [];
-    setDays([]);
-    setRefTexts({});
     emptyStreakRef.current = 0;
     setAutoLoad(true);
     void loadMore("resync");

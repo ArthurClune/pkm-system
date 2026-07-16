@@ -98,7 +98,8 @@ export function MermaidDiagram({ code }: { code: string }) {
   return (
     <div
       className="mermaid-diagram"
-      // eslint-disable-next-line react/no-danger -- library-generated SVG, see comment above
+      // library-generated SVG (never raw user/server text) -- see the
+      // trust-boundary note in this file's header comment.
       dangerouslySetInnerHTML={{ __html: state.svg }}
     />
   );

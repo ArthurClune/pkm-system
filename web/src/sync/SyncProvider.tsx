@@ -9,13 +9,30 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState,
          type ReactNode } from "react";
 import type { BlockOp } from "../api/ops";
 import { apiFetch, setOfflineGateway } from "../api/client";
+import { attachActiveOutlineWriteReplay, repairActiveOutlineSessions,
+         trackActiveOutlineWrite } from "../outline/outlineSessions";
+import type { OutlineReplayAction } from "../outline/outlineState";
 import { createReplica, type Replica } from "../replica/client";
 import { toPortLike } from "../replica/rpc";
-import { clientId, createOpQueue } from "./opQueue";
+import { clientId, createOpQueue, type DrainOutcome,
+         type PoisonEvent, type WriteTicket } from "./opQueue";
 import { createReplicaSync, type ReplicaState } from "./replicaSync";
 import { connectSocket, type WsBatch } from "./socket";
+import { computeEditability, transitionSync,
+         type SyncEvent, type SyncStatus, type SyncProblem } from "./syncState";
 
-export type SyncStatus = "connecting" | "connected" | "reconnecting";
+export type { SyncStatus, SyncProblem } from "./syncState";
+
+const mergePoisonEvents = (
+  ...groups: ReadonlyArray<readonly PoisonEvent[]>
+): PoisonEvent[] => {
+  const merged = new Map<string, PoisonEvent>();
+  groups.flat().forEach((event) => {
+    merged.set(`${event.rowId}\u0000${event.batchId}`, event);
+  });
+  return [...merged.values()].sort((a, b) =>
+    a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
+};
 
 export interface Sync {
   status: SyncStatus;
@@ -30,11 +47,19 @@ export interface Sync {
   pending: number;
   /** Why editing is blocked, when it is. */
   readOnlyReason?: string;
-  enqueue(ops: BlockOp[]): void;
+  /** Delivery health is separate from websocket connectivity. */
+  problem?: SyncProblem;
+  /** Retry the retained rejected-batch repair, if it failed. */
+  retryProblem(): Promise<void>;
+  /** Clear repaired details. Failed/running problems cannot be dismissed. */
+  dismissProblem(): void;
+  enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
+  attachOutlineReplay(ticket: WriteTicket, title: string,
+                      replay: readonly OutlineReplayAction[]): void;
   /** Remote batches only — own echoes are filtered out here. */
   subscribe(fn: (batch: WsBatch) => void): () => void;
-  /** Resolves once nothing is pending or in flight in the op queue. */
-  idle(): Promise<void>;
+  /** Resolves when all accepted writes have finished persistence. */
+  settled(): Promise<void>;
 }
 
 export const SyncContext = createContext<Sync>({
@@ -43,12 +68,15 @@ export const SyncContext = createContext<Sync>({
   replicaMode: "starting",
   canEdit: false,
   pending: 0,
+  retryProblem: () => Promise.resolve(),
+  dismissProblem: () => undefined,
   enqueue: () => {
     // a silent default would drop writes without a trace
     throw new Error("enqueue called outside <SyncProvider>");
   },
+  attachOutlineReplay: () => undefined,
   subscribe: () => () => undefined,
-  idle: () => Promise.resolve(),
+  settled: () => Promise.resolve(),
 });
 
 export function useSync(): Sync {
@@ -68,11 +96,19 @@ export function useResync(fn: () => void): void {
 }
 
 /** The real worker-backed replica; null where Workers don't exist (jsdom). */
-function defaultReplica(): Replica | null {
+interface OwnedReplica {
+  replica: Replica;
+  worker: Worker;
+}
+
+function defaultReplica(): OwnedReplica | null {
   if (typeof Worker === "undefined") return null;
   const worker = new Worker(new URL("../replica/worker.ts", import.meta.url),
                             { type: "module" });
-  return createReplica(toPortLike(worker));
+  return {
+    worker,
+    replica: createReplica(toPortLike(worker), () => worker.terminate()),
+  };
 }
 
 export function SyncProvider({ children, replica }: {
@@ -86,26 +122,101 @@ export function SyncProvider({ children, replica }: {
     useState<ReplicaState>({ mode: "starting" });
   const [pending, setPending] = useState(0);
   const [quotaExhausted, setQuotaExhausted] = useState(false);
+  const [problem, setProblem] = useState<SyncProblem>();
   const subsRef = useRef(new Set<(b: WsBatch) => void>());
   const everConnectedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const drainObserverRef = useRef<(outcome: DrainOutcome) => void>(
+    () => undefined);
+  const startupRunRef = useRef<Promise<void>>(Promise.resolve());
+  const repairRunRef = useRef<Promise<void> | null>(null);
+  const repairTargetsRef = useRef<readonly PoisonEvent[]>([]);
+  const repairSucceededRef = useRef(false);
+  const startupDiscoveringPoisonRef = useRef(true);
+  const legacyRepairRunRef = useRef<Promise<void> | null>(null);
+  const legacyRejectedRef = useRef<unknown>();
+  const repairLegacyRef = useRef<(error: unknown) => Promise<void>>(
+    async () => undefined,
+  );
+  const continueStartupRef = useRef<(
+    marked: readonly PoisonEvent[],
+  ) => Promise<void>>(async () => undefined);
+  const problemRef = useRef<SyncProblem>();
+  problemRef.current = problem;
+
+  // Route the deterministic delivery-health policy through the syncState core:
+  // it computes the next problem value and any resync intent; this shell keeps
+  // the mounted guard, the async orchestration, and the queue/replica I/O. The
+  // current problem is read from problemRef (the last rendered value), matching
+  // the former inline setProblem call sites.
+  const applySync = (event: SyncEvent): void => {
+    const prev = problemRef.current;
+    const transition = transitionSync({ problem: prev }, event);
+    if (!mountedRef.current) return;
+    if (transition.state.problem !== prev) setProblem(transition.state.problem);
+    for (const effect of transition.effects) {
+      if (effect.type === "bump-resync") setResyncSeq((n) => n + 1);
+    }
+  };
 
   const replicaRef = useRef<Replica | null | undefined>(undefined);
+  const ownedReplicaRef = useRef<OwnedReplica | null>(null);
   if (replicaRef.current === undefined) {
-    replicaRef.current = replica === undefined ? defaultReplica() : replica;
+    if (replica === undefined) {
+      ownedReplicaRef.current = defaultReplica();
+      replicaRef.current = ownedReplicaRef.current?.replica ?? null;
+    } else {
+      replicaRef.current = replica;
+    }
   }
 
   const queue = useMemo(
-    () => createOpQueue(replicaRef.current ?? null,
-                        () => setResyncSeq((n) => n + 1)), []);
+    () => createOpQueue(replicaRef.current ?? null, (error) => {
+      void repairLegacyRef.current(error);
+    }, (outcome) => drainObserverRef.current(outcome)), []);
+
+  repairLegacyRef.current = (error) => {
+    legacyRejectedRef.current = error;
+    if (legacyRepairRunRef.current) return legacyRepairRunRef.current;
+    const message = error instanceof Error ? error.message : String(error);
+    applySync({ type: "legacy-repair-started", error: message });
+    const run = repairActiveOutlineSessions(() => {
+        if (!mountedRef.current) return;
+        applySync({ type: "legacy-repair-succeeded", error: message });
+        queue.resume("recovery");
+      })
+      .catch((repairError: unknown) => {
+        applySync({
+          type: "legacy-repair-failed", error: message,
+          repairError: repairError instanceof Error
+            ? repairError.message : String(repairError),
+        });
+      });
+    legacyRepairRunRef.current = run.finally(() => {
+      legacyRepairRunRef.current = null;
+    });
+    return legacyRepairRunRef.current;
+  };
 
   useEffect(() => {
     const offs = [
-      queue.onPending(setPending),
-      queue.onQuota(() => setQuotaExhausted(true)),
+      queue.onPending((n) => { if (mountedRef.current) setPending(n); }),
+      queue.onQuota(() => {
+        if (mountedRef.current) setQuotaExhausted(true);
+      }),
+      queue.onPoisonMarkFailed(({ event, error }) => {
+        repairTargetsRef.current = [event];
+        repairSucceededRef.current = false;
+        applySync({
+          type: "poison-mark-failed", event,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }),
     ];
     // a durable queue may be non-empty from a previous session
     void replicaRef.current?.pendingCount()
-      .then(setPending).catch(() => undefined);
+      .then((n) => { if (mountedRef.current) setPending(n); })
+      .catch(() => undefined);
     return () => { offs.forEach((off) => off()); };
   }, [queue]);
   const replicaSync = useMemo(() => {
@@ -114,21 +225,115 @@ export function SyncProvider({ children, replica }: {
       replica: r,
       fetchJson: apiFetch,
       clientId,
-      onState: setReplicaState,
+      queue,
+      onState: (next) => {
+        if (mountedRef.current) setReplicaState(next);
+      },
     }) : null;
-  }, []);
+    // queue is a mount-stable useMemo value; listing it keeps this memo
+    // honest without changing that replicaSync is created exactly once.
+  }, [queue]);
+
+  const repairEventsRef = useRef<(events: readonly PoisonEvent[]) => Promise<void>>(
+    async () => undefined);
+  repairEventsRef.current = (events) => {
+    if (events.length === 0) return Promise.resolve();
+    if (repairRunRef.current) {
+      repairTargetsRef.current = mergePoisonEvents(
+        repairTargetsRef.current, events,
+      );
+      return repairRunRef.current;
+    }
+    repairTargetsRef.current = mergePoisonEvents(events);
+    repairSucceededRef.current = false;
+    const event = repairTargetsRef.current[0];
+    applySync({ type: "repair-started", event });
+    const run = (async () => {
+      try {
+        await replicaSync!.rebaseAuthoritative("poison");
+        let remaining = 0;
+        for (const poisonEvent of repairTargetsRef.current) {
+          const result = await replicaRef.current!.deleteBatch(poisonEvent.rowId);
+          remaining = result.pending;
+        }
+        if (mountedRef.current) {
+          setPending(remaining);
+          applySync({ type: "repair-succeeded", event });
+        }
+        replicaSync!.completeAuthoritativeRepair("poison");
+        if (mountedRef.current) {
+          queue.resume("recovery");
+        }
+        repairSucceededRef.current = true;
+      } catch (error: unknown) {
+        applySync({
+          type: "repair-failed", event,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+    repairRunRef.current = run.finally(() => { repairRunRef.current = null; });
+    return repairRunRef.current;
+  };
+
+  continueStartupRef.current = async (marked) => {
+    let discovered: PoisonEvent[] = [];
+    try {
+      discovered = await replicaRef.current!.poisonedBatches();
+    } catch (error: unknown) {
+      if (marked.length === 0) {
+        applySync({
+          type: "poison-discovery-failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      // Returned mark evidence is sufficient to repair those rows safely;
+      // never discard it merely because the broader discovery read failed.
+    }
+    const repairable = mergePoisonEvents(marked, discovered);
+    startupDiscoveringPoisonRef.current = false;
+    if (repairable.length > 0) {
+      await repairEventsRef.current(repairable);
+      if (!repairSucceededRef.current) return;
+    } else {
+      applySync({ type: "poison-discovery-cleared" });
+      queue.resume("recovery");
+    }
+    await replicaSync!.start();
+  };
 
   useEffect(() => {
     if (replicaSync === null) {
       setReplicaState({ mode: "no-replica" });
       return;
     }
-    // Start the replica at mount, not just on socket connect: a cold start
-    // offline (PWA shell) has no socket, and a hydrated replica reaches
-    // ready without the network. An empty replica's bootstrap needs the
-    // server and fails quietly here — the first connect retries it.
-    void replicaSync.start().catch(() => undefined);
-  }, [replicaSync]);
+    // Close the reload window where later durable work could post before a
+    // previously rejected optimistic batch is repaired.
+    queue.setOnline(false);
+    queue.pause("recovery");
+    startupRunRef.current = (async () => {
+      let marked: readonly PoisonEvent[];
+      try {
+        // Reload fallback intents are marked before any database discovery,
+        // initialization, or delivery. This path never calls /api/ops.
+        marked = await queue.retryPoisonMarks();
+      } catch {
+        // The typed failure listener owns the visible Retry state; retain the
+        // startup gate and recovery barrier until marking succeeds.
+        return;
+      }
+      await continueStartupRef.current(marked);
+    })().catch(() => undefined);
+  }, [queue, replicaSync]);
+
+  useEffect(() => queue.onPoison((event) => {
+    // Startup mark-only retries are followed by one authoritative database
+    // discovery so multiple retained intents and pre-existing poison rows
+    // enter the same repair. Current-session poison starts repair directly.
+    if (startupDiscoveringPoisonRef.current) return;
+    void repairEventsRef.current([event]);
+  }), [queue]);
 
   // Views that fetched while the replica was still starting got online-only
   // errors (or stale server state); once it turns ready with the socket
@@ -137,12 +342,11 @@ export function SyncProvider({ children, replica }: {
   useEffect(() => {
     const was = prevModeRef.current;
     prevModeRef.current = replicaState.mode;
-    if (was !== "ready" && replicaState.mode === "ready"
-        && statusRef.current !== "connected") {
-      setResyncSeq((n) => n + 1);
-    }
     // statusRef is a ref on purpose: this must react to MODE changes only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    applySync({
+      type: "mode-ready-check", prevMode: was, mode: replicaState.mode,
+      status: statusRef.current,
+    });
   }, [replicaState.mode]);
 
   // Offline routing (spec section 4): while the socket is down, apiFetch
@@ -176,16 +380,18 @@ export function SyncProvider({ children, replica }: {
         });
         if (result.handled && method !== "GET") {
           // a shim write (page create) enqueued a batch inside the worker
-          void r.pendingCount().then(setPending).catch(() => undefined);
+          void r.pendingCount()
+            .then((n) => { if (mountedRef.current) setPending(n); })
+            .catch(() => undefined);
         }
         return result;
       },
     });
     return () => setOfflineGateway(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     // Leftovers from a previous page load (a reload can kill an in-flight
     // POST): read before the first connect can start draining them.
     const initialPending: Promise<number> =
@@ -193,10 +399,31 @@ export function SyncProvider({ children, replica }: {
     // Reconnect after a gap: flush the preserved ops first, then pull the
     // changes feed, then bump resyncSeq so views refetch state that already
     // reflects both (flush -> pull -> resync).
-    const reconnectFlow = () => queue.idle()
-      .then(() => replicaSync?.start())
-      .then(() => replicaSync?.idle())
-      .then(() => setResyncSeq((n) => n + 1));
+    let reconnectPending = false;
+    let finishRun: Promise<void> | null = null;
+    const finishReconnect = (): Promise<void> => {
+      if (!mountedRef.current) return Promise.resolve();
+      if (!reconnectPending) return finishRun ?? Promise.resolve();
+      reconnectPending = false;
+      if (finishRun) return finishRun;
+      finishRun = (async () => {
+        await replicaSync?.start();
+        await replicaSync?.idle();
+        if (mountedRef.current) setResyncSeq((n) => n + 1);
+      })().finally(() => { finishRun = null; });
+      return finishRun;
+    };
+    drainObserverRef.current = (outcome) => {
+      if (outcome.status === "drained") {
+        void finishReconnect().catch(() => undefined);
+      }
+    };
+    const reconnectFlow = async (): Promise<void> => {
+      reconnectPending = true;
+      const outcome = await queue.drain();
+      if (outcome.status !== "drained" || !mountedRef.current) return;
+      await finishReconnect();
+    };
     const handle = connectSocket({
       onBatch: (batch) => {
         if (batch.client_id === clientId) return; // our own echo
@@ -218,31 +445,46 @@ export function SyncProvider({ children, replica }: {
             // fetched server state that predates the flush, and the flushed
             // batches echo back under this tab's own clientId (filtered), so
             // only the resync bump can refresh them.
-            void initialPending.then((n) =>
-              n > 0 ? reconnectFlow() : replicaSync?.start());
+            void initialPending.then(async (n) => {
+              await startupRunRef.current;
+              if (n > 0) await reconnectFlow();
+            });
           }
           everConnectedRef.current = true;
-          setStatus("connected");
+          if (mountedRef.current) setStatus("connected");
         } else {
-          setStatus("reconnecting");
+          if (mountedRef.current) setStatus("reconnecting");
         }
       },
     });
-    return () => handle.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => {
+      mountedRef.current = false;
+      drainObserverRef.current = () => undefined;
+      handle.close();
+      // React StrictMode immediately replays effects in development while
+      // preserving memoized resources. Defer terminal ownership cleanup one
+      // microtask so the replayed setup can keep them alive; a real unmount
+      // leaves mountedRef false and performs cleanup exactly once.
+      queueMicrotask(() => {
+        if (mountedRef.current) return;
+        queue.dispose();
+        const owned = ownedReplicaRef.current;
+        ownedReplicaRef.current = null;
+        if (owned) void owned.replica.dispose();
+      });
+    };
+    // queue and replicaSync are both mount-stable useMemo values; listing
+    // them satisfies the dependency check without letting this connect/
+    // reconnect effect re-run (they never change identity for this mount).
+  }, [queue, replicaSync]);
 
   // Connected: editing always allowed (server-authoritative, as before).
   // Offline: allowed only with a ready replica that can still persist —
   // quota exhaustion offline means an edit could be silently lost, so the
-  // editor is frozen with a reason instead (spec section 6).
-  const canEdit = status === "connected"
-    || (replicaState.mode === "ready" && !quotaExhausted);
-  const readOnlyReason = canEdit ? undefined
-    : quotaExhausted ? "local storage is full — reconnect to sync"
-    : replicaState.mode === "recovery-failed"
-      ? "local data recovery failed — reconnect to continue"
-      : "offline — this graph is not yet available locally";
+  // editor is frozen with a reason instead (spec section 6). The rule lives
+  // in the syncState core.
+  const { canEdit, readOnlyReason } =
+    computeEditability(status, replicaState.mode, quotaExhausted);
 
   const api = useMemo<Sync>(() => ({
     status,
@@ -251,14 +493,67 @@ export function SyncProvider({ children, replica }: {
     canEdit,
     pending,
     readOnlyReason,
-    enqueue: (ops) => queue.enqueue(ops),
+    problem,
+    retryProblem: () => {
+      const currentProblem = problemRef.current;
+      if (currentProblem?.kind === "legacy-rejected" &&
+          currentProblem.repair === "failed") {
+        return repairLegacyRef.current(legacyRejectedRef.current);
+      }
+      if (currentProblem?.kind === "rejected-batch" &&
+          currentProblem.repair === "mark-failed") {
+        const retryBlockedStartup = startupDiscoveringPoisonRef.current;
+        return (async () => {
+          try {
+            const marked = await queue.retryPoisonMarks();
+            if (retryBlockedStartup) {
+              await continueStartupRef.current(marked);
+              return;
+            }
+          } catch {
+            return;
+          }
+          await (repairRunRef.current ?? Promise.resolve());
+          if (repairSucceededRef.current) await replicaSync?.start();
+        })();
+      }
+      if (currentProblem?.kind === "poison-discovery") {
+        return continueStartupRef.current([]);
+      }
+      if (currentProblem?.kind !== "rejected-batch" ||
+          currentProblem.repair !== "failed") return Promise.resolve();
+      return repairEventsRef.current(repairTargetsRef.current).then(async () => {
+        if (repairSucceededRef.current) await replicaSync?.start();
+      });
+    },
+    dismissProblem: () => {
+      const currentProblem = problemRef.current;
+      if (currentProblem?.kind === "legacy-rejected" &&
+          currentProblem.repair === "repaired") {
+        legacyRejectedRef.current = undefined;
+      } else if (currentProblem?.kind === "rejected-batch" &&
+          currentProblem.repair === "repaired") {
+        repairTargetsRef.current = [];
+      } else {
+        return;
+      }
+      applySync({ type: "dismiss" });
+    },
+    enqueue: (ops, scope) => {
+      const ticket = queue.enqueue(ops, scope);
+      trackActiveOutlineWrite(ticket, ops);
+      return ticket;
+    },
+    attachOutlineReplay: (ticket, title, replay) => {
+      attachActiveOutlineWriteReplay(ticket, title, replay);
+    },
     subscribe: (fn) => {
       subsRef.current.add(fn);
       return () => { subsRef.current.delete(fn); };
     },
-    idle: () => queue.idle(),
+    settled: () => queue.settled(),
   }), [status, resyncSeq, replicaState, canEdit, pending, readOnlyReason,
-       queue]);
+       problem, queue, replicaSync]);
 
   return <SyncContext.Provider value={api}>{children}</SyncContext.Provider>;
 }

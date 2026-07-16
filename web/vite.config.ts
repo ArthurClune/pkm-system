@@ -1,6 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vitest/config";
+import { budgetPlugin, precacheBudgetTransform } from "./tooling/viteBudgetPlugin";
 
 // PKM_API_PORT lets dev/verification runs proxy to a scratch server without
 // touching 8974, which the production launchd service owns on this machine.
@@ -34,6 +35,9 @@ export default defineConfig({
         // start offline
         globPatterns: ["**/*.{js,css,html,ico,png,svg,wasm}"],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        // Hard raw-byte/entry ceiling on the offline-shell precache: fails the
+        // build if the final Workbox manifest exceeds budgets.json.
+        manifestTransforms: [precacheBudgetTransform],
         clientsClaim: true,
         skipWaiting: true,
         navigateFallback: "/index.html",
@@ -53,6 +57,10 @@ export default defineConfig({
         ],
       },
     }),
+    // Runs last so its generateBundle sees the final emitted app output; a
+    // material bundle regression (eager entry / largest asset / total /
+    // Mermaid-owned bytes) fails the build.
+    budgetPlugin(),
   ],
   base: "/",
   build: { assetsDir: "app-assets" },

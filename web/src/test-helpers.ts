@@ -3,12 +3,27 @@ import type { BlockOp } from "./api/ops";
 import type { BlockNode, PagePayload } from "./api/payloads";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
+import type { WriteTicket } from "./sync/opQueue";
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+/** A promise plus its settlers, for tests that need to control exactly when
+ * an in-flight request resolves relative to other events (rerenders, other
+ * requests) — used to reproduce out-of-order async resolution. */
+export function defer<T = void>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
 }
 
 /** Stub global fetch; handlers are [urlPrefix, body] pairs, FIRST match
@@ -113,6 +128,7 @@ export class FakeLocalStorage {
 
 export interface SyncFake extends Sync {
   sent: BlockOp[][];
+  tickets: WriteTicket[];
   emit(batch: WsBatch): void;
 }
 
@@ -120,16 +136,32 @@ export function makeSync(status: SyncStatus = "connected",
                          over: Partial<Sync> = {}): SyncFake {
   const subs = new Set<(b: WsBatch) => void>();
   const sent: BlockOp[][] = [];
+  const tickets: WriteTicket[] = [];
+  let nextTicket = 1;
   return {
     status,
     resyncSeq: 0,
     replicaMode: "ready",
     canEdit: status === "connected",
     pending: 0,
-    enqueue: (ops) => { sent.push(ops); },
+    retryProblem: () => Promise.resolve(),
+    dismissProblem: () => undefined,
+    enqueue: (ops, scope): WriteTicket => {
+      sent.push(ops);
+      const write = {
+        id: `fake-write-${nextTicket++}`,
+        scope: scope ?? [],
+        settled: Promise.resolve({ status: "persisted", pending: 0 }),
+        delivered: Promise.resolve({ status: "delivered" }),
+      } satisfies WriteTicket;
+      tickets.push(write);
+      return write;
+    },
+    attachOutlineReplay: () => undefined,
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
-    idle: () => Promise.resolve(),
+    settled: () => Promise.resolve(),
     sent,
+    tickets,
     emit: (batch) => subs.forEach((fn) => fn(batch)),
     ...over,
   };

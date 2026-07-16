@@ -64,6 +64,38 @@ it("renders exact-prefix quote content with inline segments but hides the prefix
   expect(container.querySelector('[data-uid="uid_q2"] .quote-block')).toBeNull();
 });
 
+// --- authoritative collapse reconciliation (pkm-stn6) ---
+
+it("preserves a local collapse toggle across a rerender when the authoritative value is unchanged", () => {
+  const makeBlocks = () => [
+    block("uid_a1", "parent", { collapsed: false, children: [block("uid_a2", "child")] }),
+  ];
+  const { rerender } = renderTree(makeBlocks());
+  expect(screen.getByText("child")).toBeInTheDocument();
+
+  fireEvent.click(screen.getAllByRole("button", { name: "toggle children" })[0]);
+  expect(screen.queryByText("child")).toBeNull();
+
+  // A new blocks array/object (e.g. from an unrelated sibling edit) with the
+  // *same* authoritative collapsed value must not clobber the local toggle.
+  rerender(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockTree blocks={makeBlocks()} /></MemoryRouter>);
+  expect(screen.queryByText("child")).toBeNull();
+});
+
+it("adopts a real authoritative collapse transition even without a local toggle", () => {
+  const { rerender } = renderTree([
+    block("uid_a1", "parent", { collapsed: false, children: [block("uid_a2", "child")] }),
+  ]);
+  expect(screen.getByText("child")).toBeInTheDocument();
+
+  // Another editor collapsed this block server-side; the new prop value
+  // actually changed, so it must win over the untouched local view state.
+  rerender(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockTree blocks={[
+    block("uid_a1", "parent", { collapsed: true, children: [block("uid_a2", "child")] }),
+  ]} /></MemoryRouter>);
+  expect(screen.queryByText("child")).toBeNull();
+});
+
 it("numbers direct children only; unset descendants fall back to bullets", () => {
   const { container } = renderTree([
     block("root", "root", { view_type: "numbered", children: [

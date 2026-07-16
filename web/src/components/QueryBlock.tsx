@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { OfflineError, apiFetch } from "../api/client";
 import type { BlockGroup, GroupsPayload } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
@@ -22,34 +22,64 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const load = async (from: number) => {
+  // Every fetch (the expr's own load and each page request) is stamped with
+  // a monotonically increasing request id; a response is applied only if
+  // it's still current when it resolves. This — not an AbortController — is
+  // what actually drops stale results: the offline gateway (pkm-y8p0) can
+  // still complete a request whose abort it never honored, so the id check
+  // stays the single source of truth regardless of how a response arrives.
+  // pageRequest additionally blocks a second page request from firing at
+  // all while one is outstanding (e.g. a double-clicked "Show more"). It
+  // holds the owning request's id, not a boolean, so only the request that
+  // set it may clear it on settle — a stale generation's page request
+  // settling late can't reopen the guard while the current generation's
+  // page request is still in flight, and a page request issued from
+  // offset 0 (empty first page with a nonzero total) still releases it.
+  const requestIdRef = useRef(0);
+  const pageRequestRef = useRef<number | null>(null);
+
+  // useCallback keyed on `expr` (its only reactive input): its identity is
+  // stable across renders that don't change the query, so the effect below
+  // re-runs exactly when the expression changes -- the same firing the old
+  // hook-deps suppression documented, now proven by the checker.
+  const load = useCallback(async (from: number, requestId: number) => {
     setLoading(true);
     try {
       const p = await apiFetch<GroupsPayload>(
         `/api/query?expr=${encodeURIComponent(expr)}&limit=${PAGE_SIZE}&offset=${from}`);
+      if (requestId !== requestIdRef.current) return; // superseded: drop silently
       setGroups((g) => (from === 0 ? p.groups : mergeGroups(g, p.groups)));
       setTotal(p.total);
       setOffset(from + p.groups.reduce((n, gr) => n + gr.items.length, 0));
       setError(null);
     } catch (e: unknown) {
+      if (requestId !== requestIdRef.current) return;
       // query blocks are online-only in v1 (spec section 4)
       setError(e instanceof OfflineError ? "query unavailable offline"
                                          : String(e));
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
+      if (pageRequestRef.current === requestId) pageRequestRef.current = null;
     }
-  };
+  }, [expr]);
 
   useEffect(() => {
     if (capped) return;
+    const requestId = ++requestIdRef.current;
+    pageRequestRef.current = null;
     setGroups([]);
     setTotal(null);
     setOffset(0);
     setError(null);
-    void load(0);
-    // load(0) reads only `expr`/`capped` from scope; re-run on those alone.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expr, capped]);
+    void load(0, requestId);
+  }, [capped, load]);
+
+  const loadMore = () => {
+    if (pageRequestRef.current !== null) return;
+    const requestId = ++requestIdRef.current;
+    pageRequestRef.current = requestId;
+    void load(offset, requestId);
+  };
 
   if (capped) {
     // Inert placeholder matching the pre-live fallback: no fetch, no results.
@@ -78,7 +108,7 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
         </div>
       ))}
       {total !== null && offset < total && (
-        <button className="show-more btn-secondary" onClick={() => void load(offset)} disabled={loading}>
+        <button className="show-more btn-secondary" onClick={loadMore} disabled={loading}>
           {loading ? "Loading…" : "Show more"}
         </button>
       )}

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
@@ -62,7 +63,7 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
     block("u1", "first", { order_idx: 0 }),
     block("u2", "second", { order_idx: 1 }),
   ];
-  const sync = makeSync("connected", { idle: () => new Promise(() => undefined) });
+  const sync = makeSync("connected", { settled: () => new Promise(() => undefined) });
   const view = (
     blocks: typeof initial,
   ) => (
@@ -91,14 +92,30 @@ test("stale initial rerender during a pending split keeps the optimistic new blo
   expect(document.querySelectorAll(".block-row")).toHaveLength(3);
 });
 
-test("stale initial rerender while the sync queue still has pending ops keeps optimistic heading", async () => {
+test("stale initial rerender while its scoped write is unsettled keeps optimistic heading", async () => {
   stubFetch([["/api/titles", { titles: [] }]]);
   const initial = [block("u1", "first", { order_idx: 0 })];
-  const sync = makeSync("reconnecting", {
-    canEdit: true,
-    pending: 1,
-    idle: () => Promise.resolve(),
+  let deliver!: () => void;
+  const delivered = new Promise<{ status: "delivered" }>((resolve) => {
+    deliver = () => resolve({ status: "delivered" });
   });
+  const base = makeSync("reconnecting", {
+    canEdit: true,
+    pending: 0,
+  });
+  const sync = {
+    ...base,
+    enqueue: (ops: Parameters<typeof base.enqueue>[0],
+              scope?: readonly string[]) => {
+      base.sent.push(ops);
+      return {
+        id: "write-page",
+        scope: scope ?? [],
+        settled: new Promise<never>(() => undefined),
+        delivered,
+      };
+    },
+  };
   const view = (blocks: typeof initial) => (
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
@@ -114,12 +131,12 @@ test("stale initial rerender while the sync queue still has pending ops keeps op
   fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
   expect(screen.getByText("first").closest("h1")).not.toBeNull();
 
-  // Offline/replica idle means "persisted locally", not "server has accepted
-  // it". While Sync.pending is non-zero, a same-page refetch may still be
-  // server-stale and must not revert the optimistic heading.
+  // Only this title's ticket blocks adoption; the global pending count is not
+  // consulted by outline causality.
   rerender(view([block("u1", "first", { order_idx: 0, heading: null })]));
 
   expect(screen.getByText("first").closest("h1")).not.toBeNull();
+  await act(async () => deliver());
 });
 
 test("Tab indents the second block under the first", () => {
@@ -373,24 +390,84 @@ test("a page already active elsewhere in this tab renders read-only", () => {
   }
 });
 
-test("two same-title instances mounted in one commit both claim editing (documents the sequential-mount assumption)", () => {
-  // isOutlineActive is read during render but registration happens in an
-  // effect, so two instances mounted in a SINGLE commit both see the title as
-  // inactive and both render editable. Production never does this (panels
-  // mount after an async fetch, so mounts are sequential and the second sees
-  // the first's registration) — this locks the current behavior for the edge
-  // case documented in EditablePage. See outline/activeOutlines.ts.
+test("two same-title instances mounted in one commit expose exactly one editor", () => {
   const sync = makeSync();
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <SyncContext.Provider value={sync}>
         <EditablePage title="Page" initial={[block("u1", "first")]} />
-        <EditablePage title="Page" initial={[block("u2", "second")]} />
+        <EditablePage title="Page" initial={[block("u1", "first")]} />
       </SyncContext.Provider>
     </MemoryRouter>);
-  // Both are editable: each renders its own drop zone (the read-only fallback
-  // renders a bare block tree with no .outline-drop-zone).
-  expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(2);
+
+  expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(1);
+  const fallback = [...document.querySelectorAll(".block-tree")]
+    .find((tree) => tree.closest(".outline-drop-zone") === null)!;
+  expect(fallback.querySelector(".bullet")).not.toHaveAttribute("draggable", "true");
+  fireEvent.click(fallback.querySelector(".block-text")!);
+  expect(screen.queryByRole("textbox")).toBeNull();
+});
+
+test("StrictMode same-title mount cleanup never exposes duplicate editors", () => {
+  render(
+    <StrictMode>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <SyncContext.Provider value={makeSync()}>
+          <EditablePage title="Strict Page" initial={[block("u1", "first")]} />
+          <EditablePage title="Strict Page" initial={[block("u1", "first")]} />
+        </SyncContext.Provider>
+      </MemoryRouter>
+    </StrictMode>);
+
+  expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(1);
+});
+
+test("same-title fallback observes the owner's flushed optimistic tree", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={sync}>
+        <EditablePage title="Page" initial={[block("u1", "first")]} />
+        <EditablePage title="Page" initial={[block("u1", "first")]} />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+
+  const ownerText = document.querySelector(".outline-drop-zone .block-text")!;
+  fireEvent.click(ownerText);
+  fireEvent.change(screen.getByRole("textbox"), {
+    target: { value: "shared optimistic text" },
+  });
+  act(() => { vi.advanceTimersByTime(500); });
+
+  expect(sync.sent).toEqual([[
+    { op: "update_text", uid: "u1", text: "shared optimistic text" },
+  ]]);
+  const fallback = [...document.querySelectorAll(".block-tree")]
+    .find((tree) => tree.closest(".outline-drop-zone") === null)!;
+  expect(fallback).toHaveTextContent("shared optimistic text");
+});
+
+test("a remaining same-title fallback atomically takes over after owner unmount", () => {
+  const sync = makeSync();
+  const view = (includeFirst: boolean) => (
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={sync}>
+        {includeFirst && (
+          <EditablePage key="first" title="Page" initial={[block("u1", "first")]} />
+        )}
+        <EditablePage key="second" title="Page" initial={[block("u1", "first")]} />
+      </SyncContext.Provider>
+    </MemoryRouter>
+  );
+  const { rerender } = render(view(true));
+  expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(1);
+
+  rerender(view(false));
+
+  expect(document.querySelectorAll(".outline-drop-zone")).toHaveLength(1);
+  fireEvent.click(screen.getByText("first"));
+  expect(screen.getByRole("textbox")).toBeInTheDocument();
 });
 
 test("the read-only fallback still reflects genuinely remote batches", () => {

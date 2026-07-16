@@ -82,8 +82,8 @@ export function SearchBar() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-    // cancel only touches refs and state setters, all stable
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `cancel` only touches refs and stable state setters, so binding the
+    // mount-time closure once is correct; no reactive deps.
   }, []);
 
   // While engaged: an outside click cancels, and Escape cancels at the
@@ -103,7 +103,6 @@ export function SearchBar() {
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {

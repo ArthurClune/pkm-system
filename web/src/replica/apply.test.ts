@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { getMeta } from "./meta";
-import { enqueueBatch } from "./queue";
+import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 
 const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
@@ -114,6 +114,57 @@ describe("applySnapshot", () => {
     // snapshot content is intact despite the failed batch
     expect(count("SELECT COUNT(*) AS n FROM blocks WHERE uid = 'uid_b1'"))
       .toBe(1);
+  });
+
+  test("repair removes rejected text and structure without losing valid work", () => {
+    enqueueBatch(t.db, [
+      { op: "update_text", uid: "uid_b1", text: "rejected text" },
+      { op: "move", uid: "uid_b2", page_title: "Machine Learning",
+        parent_uid: "uid_b1", order_idx: 0 },
+    ], 5, "batch-rejected");
+    const rejected = nextBatch(t.db)!;
+    markPoisoned(t.db, rejected.id, JSON.stringify({
+      status: 400, message: "request failed: 400 /api/ops",
+    }));
+    enqueueBatch(t.db, [
+      { op: "set_heading", uid: "uid_b3", heading: 2 },
+    ], 5, "batch-valid");
+
+    applySnapshot(t.db, SNAP, 6);
+    expect(t.db.select(
+      "SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ text: "links [[AI]]" }]);
+    expect(t.db.select(
+      "SELECT parent_uid, order_idx FROM blocks WHERE uid = 'uid_b2'"))
+      .toEqual([{ parent_uid: null, order_idx: 1 }]);
+    expect(t.db.select(
+      "SELECT heading FROM blocks WHERE uid = 'uid_b3'"))
+      .toEqual([{ heading: 2 }]);
+
+    // Successful repair deletes the poison audit row. A later valid edit of
+    // the same block remains optimistic across both feeds and snapshots.
+    deleteBatch(t.db, rejected.id);
+    enqueueBatch(t.db, [
+      { op: "update_text", uid: "uid_b1", text: "later valid text" },
+    ], 7, "batch-later-valid");
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      blocks: [block("uid_b1", 1, { text: "authoritative feed text" })],
+    }), 8);
+    expect(t.db.select(
+      "SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ text: "later valid text" }]);
+    expect(t.db.select(
+      "SELECT parent_uid, order_idx FROM blocks WHERE uid = 'uid_b2'"))
+      .toEqual([{ parent_uid: null, order_idx: 1 }]);
+
+    applySnapshot(t.db, SNAP, 9);
+    expect(t.db.select(
+      "SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ text: "later valid text" }]);
+    expect(t.db.select(
+      "SELECT parent_uid, order_idx FROM blocks WHERE uid = 'uid_b2'"))
+      .toEqual([{ parent_uid: null, order_idx: 1 }]);
   });
 
   test("re-bootstrap wipes stale rows first", () => {

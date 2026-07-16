@@ -2,7 +2,8 @@
 // Owns one page's editable outline: block state, focus, the text-op
 // debounce, and the wiring between pure edit commands, the op queue, and
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
+         useState } from "react";
 import { apiFetch } from "../api/client";
 import type { PagePayload, BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
@@ -20,11 +21,17 @@ import { backspaceAtStart, indentBlock, moveBlockDown, moveBlockUp,
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
 import { extendSelection, type BlockSelection } from "./blockSelection";
+import { acquireOutlineSession,
+         type OutlineSessionHandle } from "./outlineSessions";
+import { pendingTextOps, spliceUploadedMarkdown,
+         validateOutlineFocus } from "./outlineState";
 
 const TEXT_DEBOUNCE_MS = 500;
 
 export interface Outline {
   blocks: BlockNode[];
+  session: OutlineSessionHandle | null;
+  ownsEditor: boolean;
   focus: FocusTarget | null;
   selection: BlockSelection | null;
   readOnly: boolean;
@@ -34,34 +41,81 @@ export interface Outline {
   appendBlock(text: string): void;
 }
 
-export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
+export function useOutline(
+  pageTitle: string,
+  initial: BlockNode[],
+  editorOwner?: symbol,
+): Outline {
   const sync = useSync();
   const [blocks, setBlocks] = useState(initial);
+  const [session, setSession] = useState<OutlineSessionHandle | null>(null);
+  const [ownsEditor, setOwnsEditor] = useState(false);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
   // A live multi-block selection (Shift+Arrow), mutually exclusive with an
   // editing focus: starting one blurs the textarea, focusing a block clears it.
   const [selection, setSelection] = useState<BlockSelection | null>(null);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
+  const sessionRef = useRef<OutlineSessionHandle | null>(null);
+  const bootstrapRef = useRef(initial);
+  bootstrapRef.current = initial;
   const pendingRef = useRef<{ uid: string; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const localWritesRef = useRef(0);
 
-  // A new `initial` identity is authoritative state (refetch / navigation),
-  // except while a local optimistic write is still draining. Startup/reconnect
-  // refetches can return the pre-edit page after Enter has already inserted a
-  // local block; adopting that stale payload would remove the new block and
-  // leave focus pointing at a uid no longer in the tree.
+  useLayoutEffect(() => {
+    const handle = acquireOutlineSession(pageTitle, bootstrapRef.current);
+    sessionRef.current = handle;
+    const adoptShared = () => {
+      const shared = handle.getSnapshot().blocks;
+      blocksRef.current = shared;
+      setBlocks(shared);
+      setFocus((current) => validateOutlineFocus(current, shared));
+    };
+    const unsubscribe = handle.subscribe(adoptShared);
+    const removeLoader = handle.setAuthoritativeLoader(async () => {
+      const page = await apiFetch<PagePayload>(
+        `/api/page/${encodeTitle(pageTitle)}`,
+      );
+      return page.blocks;
+    });
+    const lease = editorOwner ? handle.claimEditor(editorOwner) : null;
+    const updateLease = () => setOwnsEditor(lease?.granted ?? false);
+    const unsubscribeLease = lease?.subscribe(updateLease);
+    adoptShared();
+    setSession(handle);
+    updateLease();
+    return () => {
+      unsubscribeLease?.();
+      lease?.release();
+      removeLoader();
+      unsubscribe();
+      if (sessionRef.current === handle) sessionRef.current = null;
+      handle.release();
+    };
+  }, [pageTitle, editorOwner]);
+
+  const publishBlocks = useCallback((next: BlockNode[]) => {
+    blocksRef.current = next;
+    setBlocks(next);
+    sessionRef.current?.applyOptimistic(next);
+  }, []);
+
+  // Parent fetches normally pair their payload with a read token before this
+  // prop changes. Direct consumers/tests still enter through the same session
+  // transition instead of bypassing causality with a naked setState.
+  const receivedInitialRef = useRef(initial);
   useEffect(() => {
-    if (localWritesRef.current > 0 || sync.pending > 0) return;
-    setBlocks(initial);
-    blocksRef.current = initial;
+    if (receivedInitialRef.current === initial) return;
+    receivedInitialRef.current = initial;
+    const handle = sessionRef.current;
+    if (!handle) return;
+    // Token-aware parents publish into the session before passing the exact
+    // accepted shared array down. Do not turn that already-reconciled payload
+    // into a newer, synthetic read that could hide the original causality.
+    if (handle.getSnapshot().blocks === initial) return;
+    const token = handle.beginAuthoritativeRead("parent");
+    handle.receiveAuthoritative(token, initial);
     pendingRef.current = null;
-    // This effect intentionally reacts only to a new authoritative payload.
-    // If a stale payload arrives while the durable queue still has pending
-    // ops, do not adopt it later just because `pending` drops to zero; wait
-    // for the next refetch payload instead.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial]);
 
   const takePendingTextOps = useCallback((): BlockOp[] => {
@@ -70,15 +124,10 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       timerRef.current = null;
     }
     const pending = pendingRef.current;
-    if (!pending) return [];
     pendingRef.current = null;
-    const node = findNode(blocksRef.current, pending.uid);
-    if (!node || node.text === pending.text) {
-      // no node: a remote batch deleted it — flushing would doom the whole
-      // batch. same text: the draft never actually changed anything.
-      return [];
-    }
-    return [{ op: "update_text", uid: pending.uid, text: pending.text }];
+    // no node: a remote batch deleted it — flushing would doom the whole
+    // batch. same text: the draft never actually changed anything.
+    return pendingTextOps(pending, blocksRef.current);
   }, []);
 
   /** Flush any pending text op, run the command against the flushed tree,
@@ -92,13 +141,13 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
     const ops = [...textOps, ...result.ops];
     if (ops.length === 0) return;
     const next = result.ops.length > 0 ? result.blocks : base;
-    blocksRef.current = next;
-    setBlocks(next);
-    localWritesRef.current += 1;
-    sync.enqueue(ops);
-    void sync.idle().finally(() => {
-      localWritesRef.current = Math.max(0, localWritesRef.current - 1);
-    });
+    const write = sync.enqueue(ops, ["page", pageTitle]);
+    const handle = sessionRef.current;
+    if (handle) handle.applyLocal(write, ops);
+    else {
+      blocksRef.current = next;
+      setBlocks(next);
+    }
     if (result.focus) setFocus(result.focus);
   }, [takePendingTextOps, pageTitle, sync]);
 
@@ -117,21 +166,19 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       document.removeEventListener("visibilitychange", onVisibility);
   }, [flushNow]);
 
-  // Authoritative refetch: adopt the server's tree once our own queue has
-  // drained. Used when a remote batch targets us with content we don't have
-  // (below): the op carries no block content, so we pull the server's tree
-  // instead. Waiting for idle first matters: fetching immediately can race a
-  // local optimistic edit enqueued in this window and silently overwrite it.
+  // Unknown target content needs an authoritative tree. The session allocates
+  // the read token before the loader dispatches and coalesces same-title reads.
   const refetch = useCallback(() => {
-    void sync.idle()
-      .then(() => apiFetch<PagePayload>(`/api/page/${encodeTitle(pageTitle)}`))
-      .then((p) => {
-        blocksRef.current = p.blocks;
-        setBlocks(p.blocks);
-        setFocus((f) => (f && findNode(p.blocks, f.uid) ? f : null));
-      })
+    const handle = sessionRef.current;
+    if (!handle) return;
+    void handle.requestAuthoritative(async () => {
+      const page = await apiFetch<PagePayload>(
+        `/api/page/${encodeTitle(pageTitle)}`,
+      );
+      return page.blocks;
+    })
       .catch(() => undefined); // next resync will repair
-  }, [sync, pageTitle]);
+  }, [pageTitle]);
 
   // Remote batches: the same applyOps as local edits. Text updates always
   // land on the block tree, even for the focused block — focus does not imply
@@ -139,18 +186,13 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
   // keeps showing it (BlockInput owns that decision); its next flush then
   // becomes the legitimate last-writer (per-block last-write-wins).
   useEffect(() => sync.subscribe((batch) => {
-    const needsRefetch = batch.ops.some((op) =>
-      op.op === "move" && op.page_title != null &&
-      op.page_title === pageTitle &&
-      !findNode(blocksRef.current, op.uid));
-    blocksRef.current = applyOps(blocksRef.current, batch.ops, pageTitle);
-    setBlocks(blocksRef.current);
-    if (needsRefetch) {
+    const remote = sessionRef.current?.applyRemote(batch);
+    if (remote?.needsAuthoritative) {
       // we are the target of a cross-page move: the op carries no block
       // content, so adopt the authoritative tree.
       refetch();
     }
-  }), [sync, pageTitle, refetch]);
+  }), [sync, refetch]);
 
   const handlers = useMemo<OutlineHandlers>(() => ({
     onFocusBlock: (uid, cursor) => {
@@ -215,11 +257,10 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
           if (!node) return { blocks: b, ops: [], focus: null };
           // splice at the pre-paste offset, clamped: the user may have kept
           // typing during a slow upload (accepted for v1)
-          const at = Math.min(cursor, node.text.length);
-          const text = node.text.slice(0, at) + inserted + node.text.slice(at);
-          const ops: BlockOp[] = [{ op: "update_text", uid, text }];
+          const spliced = spliceUploadedMarkdown(node.text, cursor, inserted);
+          const ops: BlockOp[] = [{ op: "update_text", uid, text: spliced.text }];
           return { blocks: applyOps(b, ops, pageTitle), ops,
-                   focus: { uid, cursor: at + inserted.length } };
+                   focus: { uid, cursor: spliced.selStart } };
         });
       })();
     },
@@ -250,17 +291,15 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
       flushNow();
       const { tree, node } = removeSubtree(blocksRef.current, uid);
       if (!node) return null;
-      blocksRef.current = tree;
-      setBlocks(tree);
+      publishBlocks(tree);
       setFocus((f) => (f && findNode(tree, f.uid) ? f : null));
       return node;
     },
     insertSubtreeLocal: (node, target) => {
-      blocksRef.current = insertSubtree(
-        blocksRef.current, node, target.parent_uid, target.order_idx);
-      setBlocks(blocksRef.current);
+      publishBlocks(insertSubtree(
+        blocksRef.current, node, target.parent_uid, target.order_idx));
     },
-  }), [run, flushNow, pageTitle]);
+  }), [run, flushNow, pageTitle, publishBlocks]);
 
   const createFirstBlock = useCallback(() => {
     run((b) => {
@@ -287,6 +326,8 @@ export function useOutline(pageTitle: string, initial: BlockNode[]): Outline {
 
   return {
     blocks,
+    session,
+    ownsEditor,
     focus,
     selection,
     // offline editing (pkm-y8p0): the replica persists + renders edits

@@ -162,3 +162,38 @@ it("dragging is disabled when read-only", () => {
     </SyncContext.Provider>);
   expect(document.querySelector(".bullet")).toHaveAttribute("draggable", "false");
 });
+
+it("hands DnD registration to the remaining same-title view", () => {
+  const sync = makeSync();
+  const blocks = [
+    block("u1", "one", { order_idx: 0 }),
+    block("u2", "two", { order_idx: 1 }),
+  ];
+  const view = (includeFirst: boolean) => (
+    <SyncContext.Provider value={sync}>
+      <DndProvider>
+        <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+          {includeFirst && (
+            <EditablePage key="first" title="P" initial={blocks} />
+          )}
+          <EditablePage key="second" title="P" initial={blocks} />
+        </MemoryRouter>
+      </DndProvider>
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(view(true));
+  rerender(view(false));
+
+  const bullets = document.querySelectorAll(".bullet");
+  expect(bullets).toHaveLength(2);
+  expect(bullets[1]).toHaveAttribute("draggable", "true");
+  const transfer = dt();
+  fireEvent.dragStart(bullets[1], { dataTransfer: transfer });
+  const zone = document.querySelector(".block-tree")!;
+  fireEvent.dragOver(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
+  fireEvent.drop(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
+
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "u2", parent_uid: null, order_idx: 0 },
+  ]]);
+});

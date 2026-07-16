@@ -1,7 +1,9 @@
-// pattern: Functional Core
+// pattern: Imperative Shell
 // Uploaded-asset image. Viewed assets are runtime-cached by the service
 // worker (spec section 5); one that was never viewed can't load offline,
 // so a failed load renders a labelled placeholder instead of a broken img.
+// Tracks that failure with useState/useEffect -- runtime React state, not a
+// pure rendering decision.
 import { useEffect, useState } from "react";
 
 export function AssetImage({ src, alt }: { src: string; alt: string }) {

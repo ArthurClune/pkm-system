@@ -2,15 +2,16 @@
 // Static command list + text transforms for the `/` command menu (detection
 // lives in autocomplete.ts's "command" AcContext kind). Each command consumes
 // the "/query" trigger text and rewrites the surrounding block content; the
-// fence format matches tokenize.ts's parseFence (```lang\ncode\n```) and the
-// TODO prefix matches its TODO_PREFIX regex exactly, so round-tripping through
-// the renderer stays consistent.
+// fence format matches tokenize.ts's parseFence (```lang\ncode\n```) and TODO
+// markers are detected via the shared grammar scanner (grammar/todo.ts's
+// hasTodoMarker), so round-tripping through the renderer stays consistent.
 //
 // /text inserts a "text block": a fence with no language tag. parseFence
 // turns a lang-less fence (```\n...\n```) into a code-block with lang null,
 // which CodeBlock renders unhighlighted — that's the plain/verbatim text
 // block. If the content is already a whole fence (any language, e.g. a
 // Python block), /text unwraps it first so the result isn't double-fenced.
+import { hasTodoMarker } from "../grammar/todo";
 import type { AcContext } from "./autocomplete";
 
 export interface SlashCommand {
@@ -57,7 +58,6 @@ export function matchSlashCommands(query: string): SlashCommand[] {
   return SLASH_COMMANDS.filter((c) => c.name.startsWith(q));
 }
 
-const TODO_PREFIX_RE = /^\{\{(?:\[\[)?(TODO|DONE)(?:\]\])?\}\}\s?/;
 const WHOLE_FENCE_RE = /^```(\S*)\n([\s\S]*)\n```$/;
 
 function unwrapFence(content: string): { text: string; cursor: number } {
@@ -72,7 +72,7 @@ function wrapFence(content: string, lang: string): { text: string; cursor: numbe
 }
 
 function applyTodoPrefix(content: string): { text: string; cursor: number } {
-  const text = TODO_PREFIX_RE.test(content) ? content : "{{TODO}} " + content;
+  const text = hasTodoMarker(content) ? content : "{{TODO}} " + content;
   return { text, cursor: text.length };
 }
 

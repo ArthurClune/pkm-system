@@ -1,4 +1,6 @@
-// pattern: Functional Core
+// pattern: Imperative Shell
+// Reads SidebarContext and navigates via react-router's Link/shift-click --
+// runtime React context and navigation, not a pure rendering decision.
 import { useContext } from "react";
 import { Link } from "react-router-dom";
 import { SidebarContext } from "../contexts";

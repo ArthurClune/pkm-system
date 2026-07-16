@@ -44,6 +44,19 @@
      "block_refs": [], "embeds": 0},
     {"name": "url with colons is not an attribute",
      "text": "https://example.com/page has no attribute",
-     "refs": [], "block_refs": [], "embeds": 0}
+     "refs": [], "block_refs": [], "embeds": 0},
+    {"name": "unicode hashtags",
+     "text": "see #héllo and #日本語 now",
+     "refs": [{"title": "héllo", "kind": "tag"},
+              {"title": "日本語", "kind": "tag"}],
+     "block_refs": [], "embeds": 0},
+    {"name": "unclosed outer keeps balanced inner",
+     "text": "[[Outer [[Inner]] dangling",
+     "refs": [{"title": "Inner", "kind": "link"}],
+     "block_refs": [], "embeds": 0},
+    {"name": "todo marker yields a TODO link",
+     "text": "{{[[TODO]]}} buy milk",
+     "refs": [{"title": "TODO", "kind": "link"}],
+     "block_refs": [], "embeds": 0}
   ]
 }

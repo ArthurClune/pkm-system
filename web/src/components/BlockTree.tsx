@@ -15,8 +15,21 @@ export function Block({ node, viewMode = "document", number = 1 }: {
   number?: number;
 }) {
   // node.collapsed seeds the state; toggling is view-only in plan 4
-  // (persisting collapse is a plan-5 set_collapsed op).
+  // (persisting collapse is a plan-5 set_collapsed op). `blocks` can be
+  // replaced with a new array/object for the same uid across renders (e.g.
+  // a sibling edit, or another editor's own toggle arriving over the
+  // socket) without the value actually changing, so a real transition is
+  // detected by comparing values, not identity: prevAuthoritative tracks
+  // the last authoritative value we've adopted, and only a genuine change
+  // from it overrides the local (possibly user-toggled) view state. This is
+  // React's documented "adjusting state during render" pattern, applied
+  // during render so there's no extra commit/flash before it takes effect.
+  const [prevAuthoritative, setPrevAuthoritative] = useState(node.collapsed);
   const [collapsed, setCollapsed] = useState(node.collapsed);
+  if (node.collapsed !== prevAuthoritative) {
+    setPrevAuthoritative(node.collapsed);
+    setCollapsed(node.collapsed);
+  }
   const hasChildren = node.children.length > 0;
   const Tag: "h1" | "h2" | "h3" | "div" =
     node.heading === 1 ? "h1" :

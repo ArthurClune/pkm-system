@@ -1,4 +1,6 @@
-// pattern: Functional Core
+// pattern: Imperative Shell
+// Reads BlockEditContext to decide whether the checkbox is interactive --
+// runtime React context, not a pure rendering decision.
 import { useContext } from "react";
 import { BlockEditContext } from "../contexts";
 

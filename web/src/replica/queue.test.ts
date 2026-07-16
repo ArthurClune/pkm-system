@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
 import type { UpdateTextOp } from "../api/ops";
+import * as queue from "./queue";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
          pendingCount } from "./queue";
 import { sha256Hex } from "./sha256";
@@ -103,5 +104,34 @@ describe("queue reads and lifecycle", () => {
     const b = nextBatch(t.db)!;
     expect(deleteBatch(t.db, b.id)).toBe(0);
     expect(nextBatch(t.db)).toBeNull();
+  });
+
+  test("durable poison details can be discovered after startup", () => {
+    enqueueBatch(t.db, [{ op: "update_text", uid: "uid_q1", text: "bad" }],
+                 99, "batch-rejected");
+    const rejected = nextBatch(t.db)!;
+    markPoisoned(t.db, rejected.id, JSON.stringify({
+      status: 422, message: "request failed: 422 /api/ops",
+    }));
+
+    expect("poisonedBatches" in queue).toBe(true);
+    const poisonedBatches = (queue as unknown as {
+      poisonedBatches(db: typeof t.db): unknown[];
+    }).poisonedBatches;
+    expect(poisonedBatches(t.db)).toEqual([{
+      rowId: rejected.id,
+      batchId: "batch-rejected",
+      ops: rejected.ops,
+      status: 422,
+      message: "request failed: 422 /api/ops",
+    }]);
+
+    // Rows written before typed poison metadata shipped stored Error#toString.
+    t.db.exec("UPDATE pending_ops SET error = ? WHERE id = ?", [
+      "ApiError: request failed: 409 /api/ops", rejected.id,
+    ]);
+    expect(poisonedBatches(t.db)[0]).toMatchObject({
+      status: 409, message: "ApiError: request failed: 409 /api/ops",
+    });
   });
 });

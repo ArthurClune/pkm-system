@@ -3,6 +3,10 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { JournalDay } from "../api/payloads";
+import {
+  acquireOutlineSession,
+  isOutlineSessionActive,
+} from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, stubFetch } from "../test-helpers";
 import { Journal } from "./Journal";
@@ -41,6 +45,12 @@ function intersect() {
       o.callback(entries, o as unknown as IntersectionObserver);
     }
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 it("renders the first batch newest-first and loads older days on intersect", async () => {
@@ -152,6 +162,157 @@ it("discards a stale in-flight load when a resync resets the journal", async () 
   const journalLoads = fetchMock.mock.calls.filter(
     ([url]) => String(url).startsWith("/api/journal?"));
   expect(journalLoads).toHaveLength(2);
+});
+
+it("does not adopt a journal payload over an active session changed in flight", async () => {
+  const title = "July 8th, 2026";
+  const journal = deferred<Response>();
+  const freshPage = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    return url.startsWith("/api/journal?") ? journal.promise : freshPage.promise;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const active = acquireOutlineSession(title, [block("u1", "before")]);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+  );
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5", undefined,
+  ));
+
+  active.applyOptimistic([block("u1", "local during request")]);
+  await act(async () => {
+    journal.resolve(jsonResponse({ days: [day(
+      "2026-07-08", title, [block("u1", "stale journal")],
+    )] }));
+    await journal.promise;
+  });
+
+  expect(screen.getByText("local during request")).toBeInTheDocument();
+  expect(screen.queryByText("stale journal")).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/page/July%208th%2C%202026", undefined,
+  ));
+  freshPage.resolve(jsonResponse({
+    page: { id: 1, title, created_at: 1, updated_at: 1 },
+    blocks: [block("u1", "fresh page")], backlinks: {
+      groups: [], total_pages: 0, offset: 0, limit: 20,
+    }, block_ref_texts: {},
+  }));
+  await vi.waitFor(() => expect(screen.getByText("fresh page")).toBeInTheDocument());
+  view.unmount();
+  active.release();
+});
+
+it("does not adopt an old journal payload into a session created mid-flight", async () => {
+  const title = "July 9th, 2026";
+  const journal = deferred<Response>();
+  const freshPage = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    return url.startsWith("/api/journal?") ? journal.promise : freshPage.promise;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+  );
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5", undefined,
+  ));
+  const active = acquireOutlineSession(
+    title, [block("u1", "opened during request")],
+  );
+
+  await act(async () => {
+    journal.resolve(jsonResponse({ days: [day(
+      "2026-07-09", title, [block("u1", "stale journal")],
+    )] }));
+    await journal.promise;
+  });
+
+  expect(screen.getByText("opened during request")).toBeInTheDocument();
+  expect(screen.queryByText("stale journal")).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/page/July%209th%2C%202026", undefined,
+  ));
+  freshPage.resolve(jsonResponse({
+    page: { id: 1, title, created_at: 1, updated_at: 1 },
+    blocks: [block("u1", "fresh page")], backlinks: {
+      groups: [], total_pages: 0, offset: 0, limit: 20,
+    }, block_ref_texts: {},
+  }));
+  await vi.waitFor(() => expect(screen.getByText("fresh page")).toBeInTheDocument());
+  view.unmount();
+  active.release();
+});
+
+it("does not create a session from a response received after unmount", async () => {
+  const title = "Late Journal Leak";
+  const journal = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    if (url.startsWith("/api/journal?")) return journal.promise;
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+  );
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5", undefined,
+  ));
+
+  view.unmount();
+  await act(async () => {
+    journal.resolve(jsonResponse({
+      days: [day("2026-07-09", title, [block("late", "late journal")])],
+      block_ref_texts: {},
+    }));
+    await journal.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(isOutlineSessionActive(title)).toBe(false);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("releases captured session reservations when unmounted in flight", async () => {
+  const title = "Journal Unmount Reservation";
+  const journal = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    if (url.startsWith("/api/journal?")) return journal.promise;
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const active = acquireOutlineSession(title, [block("active", "active")]);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+  );
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/journal?days=5", undefined,
+  ));
+
+  view.unmount();
+  active.release();
+
+  expect(isOutlineSessionActive(title)).toBe(false);
+  journal.resolve(jsonResponse({ days: [], block_ref_texts: {} }));
+  await journal.promise;
 });
 
 it("stops auto-loading after 3 consecutive empty batches", async () => {

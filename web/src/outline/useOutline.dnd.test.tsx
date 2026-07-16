@@ -28,12 +28,6 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
   return () => outline;
 }
 
-function deferred<T>() {
-  let resolve!: (v: T) => void;
-  const promise = new Promise<T>((r) => { resolve = r; });
-  return { promise, resolve };
-}
-
 it("dnd.moveTo enqueues one move op with no page_title and reorders optimistically", () => {
   const sync = makeSync();
   const initial = [
@@ -70,6 +64,68 @@ it("remote set_view_type batches update the same tree path", () => {
   }));
   expect(findNode(getOutline().blocks, "u1")!.view_type).toBe("numbered");
   expect(sync.sent).toEqual([]);
+});
+
+it("applies one remote move exactly once across two same-title views", () => {
+  const sync = makeSync();
+  const initial = [
+    block("u1", "first", { order_idx: 0 }),
+    block("u2", "second", { order_idx: 1 }),
+    block("u3", "third", { order_idx: 2 }),
+  ];
+  const outlines: Outline[] = [];
+  render(
+    <SyncContext.Provider value={sync}>
+      <Harness pageTitle="Page" initial={initial}
+        onReady={(outline) => { outlines[0] = outline; }} />
+      <Harness pageTitle="Page" initial={initial}
+        onReady={(outline) => { outlines[1] = outline; }} />
+    </SyncContext.Provider>);
+
+  act(() => sync.emit({
+    client_id: "other",
+    ts: 1,
+    ops: [{ op: "move", uid: "u3", parent_uid: null, order_idx: 0 }],
+  }));
+
+  for (const outline of outlines) {
+    expect(outline.blocks.map(({ uid, order_idx }) => [uid, order_idx]))
+      .toEqual([["u3", 0], ["u1", 1], ["u2", 2]]);
+  }
+});
+
+it("starts one target refetch for one remote batch across same-title views", async () => {
+  const sync = makeSync();
+  const fetchMock = stubFetch([
+    ["/api/page/Page", pagePayload("Page", [
+      block("known", "known", { order_idx: 0 }),
+      block("moved", "moved", { order_idx: 1 }),
+    ])],
+  ]);
+  render(
+    <SyncContext.Provider value={sync}>
+      <Harness pageTitle="Page"
+        initial={[block("known", "known", { order_idx: 0 })]}
+        onReady={() => undefined} />
+      <Harness pageTitle="Page"
+        initial={[block("known", "known", { order_idx: 0 })]}
+        onReady={() => undefined} />
+    </SyncContext.Provider>);
+
+  await act(async () => {
+    sync.emit({
+      client_id: "other",
+      ts: 1,
+      ops: [{ op: "move", uid: "moved", parent_uid: null,
+              order_idx: 1, page_title: "Page" }],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", undefined);
 });
 
 it("quoted TODO controls preserve the quote prefix and update optimistically", () => {
@@ -162,10 +218,10 @@ it("a remote parent-based cross-page move (server-resolved page_title) removes f
   expect(dst.blocks.map((b) => b.uid)).toEqual(["tp", "moved"]);
 });
 
-it("target-side refetch waits for sync.idle() to resolve before fetching, then adopts and re-validates focus", async () => {
-  const base = makeSync();
-  const idleGate = deferred<void>();
-  const sync: SyncFake = { ...base, idle: () => idleGate.promise };
+it("target-side refetch ignores global settlement and adopts a safe response", async () => {
+  const sync = makeSync("connected", {
+    settled: () => new Promise(() => undefined),
+  });
   const serverBlocks = [block("srv", "from server", { order_idx: 0 })];
   const fetchMock = stubFetch([
     ["/api/page/Page", pagePayload("Page", serverBlocks)],
@@ -182,12 +238,7 @@ it("target-side refetch waits for sync.idle() to resolve before fetching, then a
     });
   });
 
-  // the fetch must not fire while our own queue is still draining
-  expect(fetchMock).not.toHaveBeenCalled();
-
-  idleGate.resolve();
   await act(async () => {
-    await idleGate.promise;
     await Promise.resolve();
     await Promise.resolve();
   });

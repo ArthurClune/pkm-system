@@ -1,4 +1,8 @@
-// pattern: Functional Core
+// pattern: Imperative Shell
+// React context objects: createContext() is a runtime React call (the
+// context identity itself is instantiated at module load), and every
+// context here exists purely to carry mutable app state/callbacks across
+// the tree -- there's no pure decision to extract.
 import { createContext } from "react";
 import type { BlockRefText } from "./api/payloads";
 

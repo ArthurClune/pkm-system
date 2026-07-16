@@ -11,11 +11,10 @@ import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { applyCompletion, detectAutocomplete,
          type AcContext } from "../outline/autocomplete";
-import { autoPairBracket, wrapLink, BRACKET_CHARS,
-         type TextSelection } from "../outline/keyEdits";
+import { type TextSelection } from "../outline/keyEdits";
+import { decideEditorKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
-import { refTitleAtCaret } from "../outline/refAtCaret";
 import { findNode } from "../outline/tree";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
@@ -62,10 +61,11 @@ interface TreeProps {
   selection?: BlockSelection | null;
   handlers: OutlineHandlers;
   readOnly: boolean;
+  fallback?: boolean;
 }
 
 export function EditableBlockTree({ blocks, focus, selection = null, handlers,
-                                    readOnly }: TreeProps) {
+                                    readOnly, fallback = false }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
   // Bullet context menu (pkm-y6af); one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{
@@ -75,7 +75,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     viewMode: EffectiveBlockView;
     trigger: HTMLElement;
   } | null>(null);
-  const selected = selection
+  const selected = !fallback && selection
     ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
   const closeMenu = () => {
     menu?.trigger.focus();
@@ -89,7 +89,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   }, [selection]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!selection) return;
+    if (fallback || !selection) return;
     if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault();
       handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
@@ -112,12 +112,13 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
       {blocks.map((b, index) => (
         <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
                        handlers={handlers} readOnly={readOnly}
+                       fallback={fallback}
                        viewMode="document" number={index + 1}
                        openMenuUid={menu?.uid ?? null}
                        onOpenMenu={(uid, x, y, viewMode, trigger) =>
                          setMenu({ uid, x, y, viewMode, trigger })} />
       ))}
-      {menu && (
+      {!fallback && menu && (
         <BlockMenu x={menu.x} y={menu.y} onClose={closeMenu}
           items={blockMenuItems(
             menu.uid,
@@ -169,18 +170,18 @@ function blockMenuItems(
   ];
 }
 
-function EditableBlock({ node, focus, selected, handlers, readOnly,
+function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                          viewMode, number, openMenuUid, onOpenMenu }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
-  handlers: OutlineHandlers; readOnly: boolean;
+  handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
   viewMode: EffectiveBlockView;
   number: number;
   openMenuUid: string | null;
   onOpenMenu: (uid: string, x: number, y: number,
                viewMode: EffectiveBlockView, trigger: HTMLElement) => void;
 }) {
-  const focused = focus?.uid === node.uid;
+  const focused = !fallback && focus?.uid === node.uid;
   const isSelected = selected.has(node.uid);
   const hasChildren = node.children.length > 0;
   const Tag: "h1" | "h2" | "h3" | "div" =
@@ -197,15 +198,16 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
         <button
           className={"chevron" + (node.collapsed ? " closed" : "") + (hasChildren ? "" : " hidden")}
           onClick={() => handlers.onToggleCollapsed(node.uid, !node.collapsed)}
-          disabled={readOnly || !hasChildren}
+          disabled={fallback || readOnly || !hasChildren}
           aria-label="toggle children"
         >
           ▸
         </button>
         <span className={"bullet" + (viewMode === "numbered" ? " numbered" : "")
               + (hasChildren && node.collapsed ? " closed" : "")}
-              draggable={!readOnly}
+              draggable={!fallback && !readOnly}
               onDragStart={(e) => {
+                if (fallback) return;
                 e.dataTransfer.setData("text/plain", node.uid);
                 e.dataTransfer.effectAllowed = "move";
                 handlers.onDragStartBlock(node.uid);
@@ -213,16 +215,20 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
               // Click or right-click opens the block menu (pkm-y6af); plain
               // click included because iPad Safari doesn't fire contextmenu
               // from touch. Drag suppresses click, so DnD is unaffected.
-              onClick={(e) => onOpenMenu(
-                node.uid, e.clientX, e.clientY, childrenView, e.currentTarget,
-              )}
+              onClick={(e) => {
+                if (!fallback) onOpenMenu(
+                  node.uid, e.clientX, e.clientY, childrenView, e.currentTarget,
+                );
+              }}
               onContextMenu={(e) => {
+                if (fallback) return;
                 e.preventDefault();
                 onOpenMenu(
                   node.uid, e.clientX, e.clientY, childrenView, e.currentTarget,
                 );
               }}
               onKeyDown={(e) => {
+                if (fallback) return;
                 const opens = e.key === "Enter" || e.key === " "
                   || e.key === "ContextMenu" || (e.shiftKey && e.key === "F10");
                 if (!opens) return;
@@ -232,11 +238,11 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
                   node.uid, rect.left, rect.bottom, childrenView, e.currentTarget,
                 );
               }}
-              role="button"
-              tabIndex={0}
-              aria-label="Open block menu"
-              aria-haspopup="menu"
-              aria-expanded={openMenuUid === node.uid}>
+              role={fallback ? undefined : "button"}
+              tabIndex={fallback ? undefined : 0}
+              aria-label={fallback ? undefined : "Open block menu"}
+              aria-haspopup={fallback ? undefined : "menu"}
+              aria-expanded={fallback ? undefined : openMenuUid === node.uid}>
           {viewMode === "numbered" ? `${number}.` : ""}
         </span>
         {focused ? (
@@ -244,9 +250,12 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
                       readOnly={readOnly} />
         ) : (
           <Tag className={"block-text" + (quoted !== null ? " quote-block" : "")}
-               onClick={() => handlers.onFocusBlock(node.uid, node.text.length)}>
+               onClick={() => {
+                 if (!fallback) handlers.onFocusBlock(node.uid, node.text.length);
+               }}>
             <BlockEditContext.Provider
-                value={readOnly ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
+                value={readOnly || fallback
+                  ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>
               <InlineSegments segments={tokenizeBlock(quoted ?? node.text)} />
             </BlockEditContext.Provider>
           </Tag>
@@ -257,6 +266,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly,
           {node.children.map((c, index) => (
             <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}
                            handlers={handlers} readOnly={readOnly}
+                           fallback={fallback}
                            viewMode={childrenView} number={index + 1}
                            openMenuUid={openMenuUid}
                            onOpenMenu={onOpenMenu} />
@@ -276,6 +286,11 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  // The caret offset to place on mount, captured once: this component is
+  // remounted each time focus moves to a new block, so the mount-time
+  // `cursor` is the intended initial caret and later prop changes (which
+  // don't happen for the focused block) must not re-run the focus effect.
+  const initialCursorRef = useRef(cursor);
   // The /upload file picker, and the caret offset the trigger was stripped at
   // (where the asset markdown should be spliced once files are chosen).
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -309,9 +324,8 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     const el = ref.current;
     if (!el) return;
     el.focus();
-    const at = Math.min(cursor, el.value.length);
+    const at = Math.min(initialCursorRef.current, el.value.length);
     el.setSelectionRange(at, at);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-grow to fit content.
@@ -419,119 +433,84 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     handlers.onDraftChange(node.uid, value);
   };
 
+  // The keydown POLICY lives in the functional core (keyboardPolicy.ts); this
+  // shell only reads the live DOM/autocomplete state, then executes the
+  // returned semantic decision (preventDefault, blur, navigation, edits).
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
-    const pos = el.selectionStart;
-    const caretOnly = el.selectionStart === el.selectionEnd;
-    if (acRows.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setAcSelected((s) => Math.min(s + 1, acRows.length - 1));
+    const decision = decideEditorKey({
+      key: e.key, code: e.code,
+      metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
+      shiftKey: e.shiftKey,
+      selStart: el.selectionStart, selEnd: el.selectionEnd,
+      draft, readOnly, acRowsLength: acRows.length, acSelected,
+    });
+    switch (decision.type) {
+      case "none":
         return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setAcSelected((s) => Math.max(s - 1, 0));
+      case "blur":
+        el.blur();
         return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
+      case "ac-move":
+        e.preventDefault();
+        setAcSelected(decision.selected);
+        return;
+      case "ac-pick":
         e.preventDefault();
         pick(acRows[acSelected]);
         return;
-      }
-      if (e.key === "Escape") {
+      case "ac-close":
         e.preventDefault();
         setAc(null);
         return;
-      }
-    }
-    if (e.key === "Escape") {
-      el.blur();
-      return;
-    }
-    // Roam/Logseq: Ctrl-O with the caret inside a [[page reference]] opens
-    // that page. macOS browsers use Cmd-O for file-open (no clash); on
-    // Windows/Linux Ctrl-O is browser open-file, but we only steal it when
-    // the caret is actually inside a ref, so the key is left alone otherwise.
-    if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "o") {
-      const title = refTitleAtCaret(draft, pos);
-      if (title) {
+      case "navigate-ref":
         e.preventDefault();
-        navigate(pagePath(title));
+        navigate(pagePath(decision.title));
         return;
-      }
-    }
-    // Shift+Arrow at the vertical edge of the block starts a multi-block
-    // selection (to copy several blocks at once). Only from a collapsed caret —
-    // with a text selection Shift+Arrow keeps extending that within the block.
-    // Allowed even when disconnected: copying is read-only-safe.
-    if (e.shiftKey && caretOnly && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      const up = e.key === "ArrowUp";
-      const atEdge = up ? !draft.slice(0, pos).includes("\n")
-                        : !draft.slice(el.selectionEnd).includes("\n");
-      if (atEdge) {
+      case "start-block-selection":
         e.preventDefault();
-        handlers.onStartBlockSelection(node.uid, up ? "up" : "down");
+        handlers.onStartBlockSelection(node.uid, decision.dir);
         return;
-      }
-    }
-    if (readOnly) return;
-    // Roam-compatible direct heading controls. Plain text is 0; 1-3 select
-    // the matching heading level. This is metadata-only and leaves the draft
-    // (including any active selection) untouched.
-    const headingDigit = /^Digit([0-3])$/.exec(e.code)?.[1]
-      ?? (/^[0-3]$/.test(e.key) ? e.key : null);
-    if (e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey
-        && headingDigit !== null) {
-      e.preventDefault();
-      handlers.onSetHeading(
-        node.uid,
-        headingDigit === "0" ? null : Number(headingDigit),
-      );
-      return;
-    }
-    // Cmd-K (mac): wrap the selection as a markdown link, or insert an empty
-    // []() ready for the link text. Ctrl-K is left alone (emacs kill-line).
-    if (e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "k") {
-      e.preventDefault();
-      applyKeyEdit(wrapLink(draft, pos, el.selectionEnd));
-      return;
-    }
-    // Bracket auto-pairing: a bare "[ ( { ` \" '" (or their closers) auto-closes,
-    // wraps the selection, or skips over an existing match. Modified chords and
-    // non-bracket keys fall through untouched.
-    if (!e.metaKey && !e.ctrlKey && !e.altKey && BRACKET_CHARS.has(e.key)) {
-      const edit = autoPairBracket(draft, pos, el.selectionEnd, e.key);
-      if (edit) {
+      case "set-heading":
         e.preventDefault();
-        applyKeyEdit(edit);
+        handlers.onSetHeading(node.uid, decision.heading);
         return;
+      case "key-edit":
+        e.preventDefault();
+        applyKeyEdit(decision.edit);
+        return;
+      case "split":
+        e.preventDefault();
+        handlers.onSplit(node.uid, decision.cursor);
+        return;
+      case "indent":
+        e.preventDefault();
+        handlers.onIndent(node.uid);
+        return;
+      case "outdent":
+        e.preventDefault();
+        handlers.onOutdent(node.uid);
+        return;
+      case "move-up":
+        e.preventDefault();
+        handlers.onMoveUp(node.uid);
+        return;
+      case "move-down":
+        e.preventDefault();
+        handlers.onMoveDown(node.uid);
+        return;
+      case "backspace-at-start":
+        e.preventDefault();
+        handlers.onBackspaceAtStart(node.uid);
+        return;
+      case "arrow":
+        e.preventDefault();
+        handlers.onArrow(node.uid, decision.dir);
+        return;
+      default: {
+        const exhaustive: never = decision;
+        return exhaustive;
       }
-    }
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handlers.onSplit(node.uid, pos);
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-      (e.shiftKey ? handlers.onOutdent : handlers.onIndent)(node.uid);
-    } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      e.preventDefault();
-      (e.key === "ArrowUp" ? handlers.onMoveUp : handlers.onMoveDown)(node.uid);
-    } else if (e.key === "Backspace" && pos === 0 && caretOnly) {
-      e.preventDefault();
-      handlers.onBackspaceAtStart(node.uid);
-    } else if (e.key === "ArrowUp" && !draft.slice(0, pos).includes("\n")) {
-      e.preventDefault();
-      handlers.onArrow(node.uid, "up");
-    } else if (e.key === "ArrowDown" && !draft.slice(el.selectionEnd).includes("\n")) {
-      e.preventDefault();
-      handlers.onArrow(node.uid, "down");
-    } else if (e.key === "ArrowLeft" && pos === 0 && caretOnly) {
-      e.preventDefault();
-      handlers.onArrow(node.uid, "left");
-    } else if (e.key === "ArrowRight" && pos === draft.length && caretOnly) {
-      e.preventDefault();
-      handlers.onArrow(node.uid, "right");
     }
   };
 

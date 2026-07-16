@@ -1,0 +1,10 @@
+{
+  "//": "Type-aware lint project for tooling/ and the eslint fixtures. Only ESLint's projectService consumes this; tsc (typecheck) and check:fcis never read it, so intentional lint-only patterns in eslint-fixtures never fail the build.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}

@@ -1,7 +1,12 @@
 // pattern: Functional Core
 // Tokenizes Roam-flavoured block text into typed segments for rendering.
-// Ref *extraction* lives in refs.ts; both follow server/src/pkm/refs.py
-// semantics (code first, attribute at block start, tag charset, uid shape).
+// Reference/TODO/code recognition comes from the shared grammar scanner
+// (scan.ts, which follows server/src/pkm/refs.py semantics); this file owns
+// only the rendering-side grammar the scanner does not model: markdown
+// links and images, bare-URL autolinking, emphasis, {{query}} blocks and
+// line breaks. Ref *extraction* lives in refs.ts on the same scanner.
+
+import { scanGrammar, type GrammarToken } from "./scan";
 
 export type EmphasisKind = "bold" | "italic" | "strike" | "highlight";
 
@@ -22,28 +27,11 @@ export type BlockSegment =
   | { kind: "code-block"; lang: string | null; code: string }
   | { kind: "query"; expr: string };
 
-const TODO_PREFIX = /^\{\{(?:\[\[)?(TODO|DONE)(?:\]\])?\}\}\s?/;
 const QUERY_PREFIX = /^\{\{(?:\[\[)?query(?:\]\])?:\s*/;
-const ATTRIBUTE = /^\s*([^\[\]{}:\n]+?)::/;
-const BLOCK_REF_AT = /^\(\(([a-zA-Z0-9_-]{6,})\)\)/;
-const TAG_CHARS = /^[\p{L}\p{N}_./\-]+/u;
 
 const EMPHASIS: [string, EmphasisKind][] = [
   ["**", "bold"], ["__", "italic"], ["~~", "strike"], ["^^", "highlight"],
 ];
-
-/** From i pointing at "[[": index just past the closing "]]", or -1. */
-function scanDoubleBrackets(text: string, i: number): number {
-  let depth = 1;
-  let j = i + 2;
-  while (j < text.length - 1 && depth > 0) {
-    const pair = text.slice(j, j + 2);
-    if (pair === "[[") { depth += 1; j += 2; }
-    else if (pair === "]]") { depth -= 1; j += 2; }
-    else { j += 1; }
-  }
-  return depth === 0 ? j : -1;
-}
 
 /** From i pointing at "{{[[query]]:" / "{{query:": [expr, end] via a
  * balanced-brace scan (the expr itself contains braces), or null. */
@@ -90,21 +78,42 @@ function parseFence(body: string): BlockSegment {
   };
 }
 
-function tokenizeInline(text: string, blockStart: boolean): InlineSegment[] {
+/** The InlineSegment for a scanner token, or null for kinds the inline
+ * renderer does not consume (embed prefixes render as plain text; todo and
+ * code-fence tokens are handled at the block level). */
+function inlineSegment(text: string, tok: GrammarToken): InlineSegment | null {
+  switch (tok.kind) {
+    case "inline-code":
+      return { kind: "inline-code", code: text.slice(tok.start + 1, tok.end - 1) };
+    case "page-ref":
+      // raw slice, not tok.title: the rendered title keeps code verbatim
+      return { kind: "page-ref",
+               title: text.slice(tok.content.start, tok.content.end), tag: tok.tag };
+    case "hashtag":
+      return { kind: "page-ref", title: tok.title, tag: true };
+    case "block-ref":
+      return { kind: "block-ref", uid: tok.uid };
+    case "attribute":
+      return { kind: "attribute", name: tok.title };
+    default:
+      return null;
+  }
+}
+
+/** Render [from, to) as inline segments, consuming scanner tokens that lie
+ * fully inside the range. `from` is a chunk boundary for autolinking (the
+ * old per-chunk scan treated chunk starts like whitespace). */
+function tokenizeInline(
+  text: string, byStart: ReadonlyMap<number, GrammarToken>,
+  from: number, to: number,
+): InlineSegment[] {
   const out: InlineSegment[] = [];
   let buf = "";
   const flushText = () => {
     if (buf) { out.push({ kind: "text", text: buf }); buf = ""; }
   };
-  let i = 0;
-  if (blockStart) {
-    const m = ATTRIBUTE.exec(text);
-    if (m) {
-      out.push({ kind: "attribute", name: m[1].trim() });
-      i = m[0].length;
-    }
-  }
-  while (i < text.length) {
+  let i = from;
+  while (i < to) {
     const ch = text[i];
     if (ch === "\n") {
       flushText();
@@ -112,64 +121,36 @@ function tokenizeInline(text: string, blockStart: boolean): InlineSegment[] {
       i += 1;
       continue;
     }
-    if (ch === "`") {
-      const close = text.indexOf("`", i + 1);
-      const nl = text.indexOf("\n", i + 1);
-      if (close !== -1 && (nl === -1 || close < nl)) {
+    const tok = byStart.get(i);
+    if (tok && tok.end <= to) {
+      const seg = inlineSegment(text, tok);
+      if (seg) {
         flushText();
-        out.push({ kind: "inline-code", code: text.slice(i + 1, close) });
-        i = close + 1;
+        out.push(seg);
+        i = tok.end;
         continue;
       }
     }
     if (ch === "!" && text.startsWith("![", i)) {
       const link = scanMarkdownLink(text, i + 1);
-      if (link) {
+      if (link && link.end <= to) {
         flushText();
         out.push({ kind: "image", alt: link.text, src: link.href });
         i = link.end;
         continue;
       }
     }
-    if (ch === "[" && text.startsWith("[[", i)) {
-      const end = scanDoubleBrackets(text, i);
-      if (end !== -1) {
-        flushText();
-        out.push({ kind: "page-ref", title: text.slice(i + 2, end - 2), tag: false });
-        i = end;
-        continue;
-      }
-    }
     if (ch === "[" && !text.startsWith("[[", i)) {
       const link = scanMarkdownLink(text, i);
-      if (link) {
+      if (link && link.end <= to) {
         flushText();
         out.push({ kind: "link", text: link.text, href: link.href });
         i = link.end;
         continue;
       }
     }
-    if (ch === "#") {
-      if (text.startsWith("#[[", i)) {
-        const end = scanDoubleBrackets(text, i + 1);
-        if (end !== -1) {
-          flushText();
-          out.push({ kind: "page-ref", title: text.slice(i + 3, end - 2), tag: true });
-          i = end;
-          continue;
-        }
-      }
-      const prev = i === 0 ? " " : text[i - 1];
-      const m = TAG_CHARS.exec(text.slice(i + 1));
-      if (m && /[\s(]/.test(prev)) {
-        flushText();
-        out.push({ kind: "page-ref", title: m[0], tag: true });
-        i += 1 + m[0].length;
-        continue;
-      }
-    }
-    if (ch === "h" && (i === 0 || /[\s([{]/.test(text[i - 1]))) {
-      const m = /^https?:\/\/\S+/.exec(text.slice(i));
+    if (ch === "h" && (i === from || /[\s([{]/.test(text[i - 1]))) {
+      const m = /^https?:\/\/\S+/.exec(text.slice(i, to));
       if (m) {
         // trailing punctuation is prose, not URL: "see https://x.org/a."
         const url = m[0].replace(/[.,;:!?'")\]}>]+$/, "");
@@ -181,24 +162,15 @@ function tokenizeInline(text: string, blockStart: boolean): InlineSegment[] {
         }
       }
     }
-    if (ch === "(" && text.startsWith("((", i)) {
-      const m = BLOCK_REF_AT.exec(text.slice(i));
-      if (m) {
-        flushText();
-        out.push({ kind: "block-ref", uid: m[1] });
-        i += m[0].length;
-        continue;
-      }
-    }
     let matchedEmphasis = false;
     for (const [marker, kind] of EMPHASIS) {
       if (!text.startsWith(marker, i)) continue;
       const close = text.indexOf(marker, i + 2);
-      if (close === -1 || close === i + 2) continue;
+      if (close === -1 || close === i + 2 || close + 2 > to) continue;
       const inner = text.slice(i + 2, close);
       if (inner.includes("\n")) continue;
       flushText();
-      out.push({ kind, children: tokenizeInline(inner, false) });
+      out.push({ kind, children: tokenizeInline(text, byStart, i + 2, close) });
       i = close + 2;
       matchedEmphasis = true;
       break;
@@ -212,34 +184,36 @@ function tokenizeInline(text: string, blockStart: boolean): InlineSegment[] {
 }
 
 export function tokenizeBlock(text: string): BlockSegment[] {
+  const { tokens } = scanGrammar(text);
+  // Tokens are sorted outer-before-inner, so on a shared start the wider
+  // token wins the map slot (e.g. an attribute over a hashtag in "#x:: y").
+  const byStart = new Map<number, GrammarToken>();
+  for (const t of tokens) if (!byStart.has(t.start)) byStart.set(t.start, t);
+
   const out: BlockSegment[] = [];
-  let rest = text;
-  const todo = TODO_PREFIX.exec(rest);
-  if (todo) {
-    out.push({ kind: "todo", done: todo[1] === "DONE" });
-    rest = rest.slice(todo[0].length);
-  }
-  const first = !todo; // attribute can only start an un-prefixed block
-  let i = 0;
-  let chunkStart = 0;
+  const todo = tokens.find((t) => t.kind === "todo");
+  const start = todo ? todo.suffixEnd : 0;
+  if (todo) out.push({ kind: "todo", done: todo.state === "DONE" });
+
+  // Block-level pass: closed fences and {{query}} blocks split the text into
+  // inline chunks (queries are scanned locally and win over inline code at
+  // the block level, as before).
+  let i = start;
+  let chunkStart = start;
   const flush = (end: number) => {
-    if (end > chunkStart) {
-      out.push(...tokenizeInline(rest.slice(chunkStart, end), first && chunkStart === 0));
-    }
+    if (end > chunkStart) out.push(...tokenizeInline(text, byStart, chunkStart, end));
   };
-  while (i < rest.length) {
-    if (rest.startsWith("```", i)) {
-      const close = rest.indexOf("```", i + 3);
-      if (close !== -1) {
-        flush(i);
-        out.push(parseFence(rest.slice(i + 3, close)));
-        i = close + 3;
-        chunkStart = i;
-        continue;
-      }
+  while (i < text.length) {
+    const tok = byStart.get(i);
+    if (tok?.kind === "code-fence") {
+      flush(i);
+      out.push(parseFence(text.slice(i + 3, tok.end - 3)));
+      i = tok.end;
+      chunkStart = i;
+      continue;
     }
-    if (rest.startsWith("{{", i)) {
-      const q = scanQuery(rest, i);
+    if (text.startsWith("{{", i)) {
+      const q = scanQuery(text, i);
       if (q) {
         flush(i);
         out.push({ kind: "query", expr: q[0] });
@@ -250,6 +224,6 @@ export function tokenizeBlock(text: string): BlockSegment[] {
     }
     i += 1;
   }
-  flush(rest.length);
+  flush(text.length);
   return out;
 }

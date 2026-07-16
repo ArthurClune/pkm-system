@@ -2,9 +2,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api/client";
-import type { BlockRefText, JournalDay, JournalPayload } from "../api/payloads";
+import type { BlockRefText, JournalDay, JournalPayload,
+                  PagePayload } from "../api/payloads";
 import { BlockRefProvider } from "../components/BlockRefProvider";
-import { pagePath } from "../paths";
+import { acquireOutlineSession,
+         captureActiveOutlineReads,
+         isOutlineSessionActive,
+         type AuthoritativeReadSource,
+         type CapturedOutlineRead,
+         type OutlineSessionHandle } from "../outline/outlineSessions";
+import { encodeTitle, pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
 
@@ -22,13 +29,50 @@ export function Journal() {
   const emptyStreakRef = useRef(0);
   const loadingRef = useRef(false);
   const genRef = useRef(0);
+  const mountedRef = useRef(false);
+  const activeReadsRef = useRef(
+    new Set<Map<string, CapturedOutlineRead>>(),
+  );
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const sessionsRef = useRef(new Map<string, OutlineSessionHandle>());
+  const sessionLoaderCleanupRef = useRef(new Map<string, () => void>());
 
-  const loadMore = useCallback(async () => {
-    if (loadingRef.current) return;
+  const sessionFor = useCallback((title: string) => {
+    let session = sessionsRef.current.get(title);
+    if (!session) {
+      session = acquireOutlineSession(title, null);
+      sessionsRef.current.set(title, session);
+      sessionLoaderCleanupRef.current.set(title,
+        session.setAuthoritativeLoader(async () => {
+          const page = await apiFetch<PagePayload>(
+            `/api/page/${encodeTitle(title)}`,
+          );
+          return page.blocks;
+        }));
+    }
+    return session;
+  }, []);
+
+  const releaseReads = useCallback((
+    reads: Map<string, CapturedOutlineRead>,
+  ) => {
+    if (!activeReadsRef.current.delete(reads)) return;
+    for (const read of reads.values()) read.release();
+  }, []);
+
+  const releaseAllReads = useCallback(() => {
+    for (const reads of [...activeReadsRef.current]) releaseReads(reads);
+  }, [releaseReads]);
+
+  const loadMore = useCallback(async (
+    source: AuthoritativeReadSource = "parent",
+  ) => {
+    if (!mountedRef.current || loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     const gen = genRef.current;
+    const reads = captureActiveOutlineReads(source);
+    activeReadsRef.current.add(reads);
     try {
       const current = daysRef.current;
       const oldest = current[current.length - 1]?.date;
@@ -36,8 +80,27 @@ export function Journal() {
       // date returns the day before it first (days come back newest-first).
       const qs = oldest ? `?days=${BATCH}&before=${oldest}` : `?days=${BATCH}`;
       const p = await apiFetch<JournalPayload>(`/api/journal${qs}`);
-      if (gen !== genRef.current) return; // reset() superseded this load: discard
-      const next = [...current, ...p.days];
+      if (!mountedRef.current || gen !== genRef.current) return;
+      const received = p.days.map((day) => {
+        const activeAtResponse = isOutlineSessionActive(day.title);
+        const session = sessionFor(day.title);
+        const captured = reads.get(day.title);
+        if (captured) {
+          captured.receive(day.blocks);
+        } else if (activeAtResponse) {
+          void session.requestAuthoritative(async () => {
+            const page = await apiFetch<PagePayload>(
+              `/api/page/${encodeTitle(day.title)}`,
+            );
+            return page.blocks;
+          }).catch(() => undefined);
+        } else {
+          const token = session.beginAuthoritativeRead(source);
+          session.receiveAuthoritative(token, day.blocks);
+        }
+        return { ...day, blocks: session.getSnapshot().blocks };
+      });
+      const next = [...current, ...received];
       daysRef.current = next;
       setDays(next);
       setRefTexts((m) => ({ ...m, ...p.block_ref_texts }));
@@ -45,19 +108,38 @@ export function Journal() {
         p.days.some((d) => d.exists) ? 0 : emptyStreakRef.current + 1;
       if (emptyStreakRef.current >= MAX_EMPTY_BATCHES) setAutoLoad(false);
     } catch (e: unknown) {
-      if (gen !== genRef.current) return; // reset() superseded this load: discard
+      if (!mountedRef.current || gen !== genRef.current) return;
       setError(String(e));
       setAutoLoad(false);
     } finally {
+      releaseReads(reads);
       // A superseded load must not release the lock: it now belongs to the
       // reset()-triggered reload that took over this generation.
-      if (gen === genRef.current) {
+      if (mountedRef.current && gen === genRef.current) {
         loadingRef.current = false;
         setLoading(false);
       }
     }
-  }, []);
+  }, [releaseReads, sessionFor]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    // Capture the mount-stable Map instances (useRef(new Map()), never
+    // reassigned) so the cleanup operates on the same maps the effect saw,
+    // as the lint's ref-in-cleanup guard requires.
+    const loaderCleanups = sessionLoaderCleanupRef.current;
+    const sessions = sessionsRef.current;
+    return () => {
+      mountedRef.current = false;
+      genRef.current += 1;
+      loadingRef.current = false;
+      releaseAllReads();
+      for (const cleanup of loaderCleanups.values()) cleanup();
+      loaderCleanups.clear();
+      for (const session of sessions.values()) session.release();
+      sessions.clear();
+    };
+  }, [releaseAllReads]);
   useEffect(() => { void loadMore(); }, [loadMore]);
   useEffect(() => { document.title = "Daily Notes — pkm"; }, []);
 
@@ -76,14 +158,15 @@ export function Journal() {
     // Invalidate any in-flight loadMore so its stale response can't clobber
     // the authoritative refetch, and release its lock so we can start now.
     genRef.current += 1;
+    releaseAllReads();
     loadingRef.current = false;
     daysRef.current = [];
     setDays([]);
     setRefTexts({});
     emptyStreakRef.current = 0;
     setAutoLoad(true);
-    void loadMore();
-  }, [loadMore]);
+    void loadMore("resync");
+  }, [loadMore, releaseAllReads]);
   useResync(reset);
 
   useEffect(() => {

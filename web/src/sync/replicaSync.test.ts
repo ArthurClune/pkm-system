@@ -33,8 +33,15 @@ function fakeReplica(over: Partial<Replica> = {},
     markPoisoned: () => rec("markPoisoned", { pending: 0 }),
     pendingCount: () => rec("pendingCount", 0),
     pendingBatches: () => rec<PendingBatch[]>("pendingBatches", []),
+    poisonedBatches: () => rec("poisonedBatches", []),
     localApi: () => rec("localApi", { handled: false as const }),
+    prepareRecovery: () => rec("prepareRecovery", {
+      token: "lease-1", batches: init.pendingBatches ?? [],
+    }),
+    commitRecovery: () => rec("commitRecovery", undefined),
+    abortRecovery: () => rec("abortRecovery", undefined),
     reset: () => rec("reset", undefined),
+    dispose: () => rec("dispose", undefined),
     ...over,
   };
 }
@@ -66,6 +73,32 @@ test("start on a warm replica skips the snapshot and catches up the feed", async
   await sync.start();
   expect(fetchJson).toHaveBeenCalledWith("/api/sync/changes?since=5");
   expect(fetchJson).not.toHaveBeenCalledWith("/api/sync/snapshot");
+});
+
+test("a feed invalidated by pending-batch changes is refetched from the same cursor", async () => {
+  const applyChanges = vi.fn()
+    .mockResolvedValueOnce({ status: "pending-changed" })
+    .mockResolvedValueOnce({ status: "applied", cursor: 6 });
+  const pendingBatches = vi.fn()
+    .mockResolvedValueOnce([{
+      id: 1, batch_id: "batch-1", ops: [], poisoned: false,
+    }])
+    .mockResolvedValueOnce([]);
+  const replica = fakeReplica({ applyChanges, pendingBatches });
+  const stale = feed({ next_since: 6, latest_seq: 6 });
+  const fetchJson = vi.fn(async (_path: string) => stale);
+  const { onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+
+  expect(fetchJson).toHaveBeenCalledTimes(2);
+  expect(fetchJson.mock.calls.map(([path]) => path))
+    .toEqual(["/api/sync/changes?since=5", "/api/sync/changes?since=5"]);
+  expect(applyChanges.mock.calls).toEqual([
+    [stale, [1]],
+    [stale, []],
+  ]);
 });
 
 test("no-replica init reports mode and never fetches", async () => {
@@ -138,6 +171,191 @@ test("onSeq beyond the cursor pulls windows until latest, below it does nothing"
   expect(fetchJson.mock.calls.at(-1)?.[0]).toBe("/api/sync/changes?since=9");
 });
 
+test("poison rebase waits for an in-flight guarded feed before its snapshot", async () => {
+  let releaseFeed!: () => void;
+  const feedGate = new Promise<void>((resolve) => { releaseFeed = resolve; });
+  let changeCalls = 0;
+  let snapshotCalls = 0;
+  const replica = fakeReplica();
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/sync/snapshot") {
+      snapshotCalls += 1;
+      return SNAP;
+    }
+    changeCalls += 1;
+    if (changeCalls === 2) await feedGate;
+    return feed({ next_since: 6, latest_seq: 6 });
+  });
+  const queue = { pause: vi.fn(), resume: vi.fn() };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+
+  sync.onSeq(9);
+  await vi.waitFor(() => { expect(changeCalls).toBe(2); });
+  const repair = sync.rebaseAuthoritative("poison");
+  await Promise.resolve();
+  expect(snapshotCalls).toBe(0);
+
+  releaseFeed();
+  await repair;
+  expect(snapshotCalls).toBe(1);
+  expect(queue.resume).not.toHaveBeenCalled();
+});
+
+test("poison owns recovery when a held feed needs bootstrap through failure and retry", async () => {
+  const poisoned: PendingBatch = {
+    id: 1, batch_id: "poisoned", ops: [{ op: "delete", uid: "uid_bad" }],
+    poisoned: true,
+  };
+  const later: PendingBatch = {
+    id: 2, batch_id: "later-valid", ops: [{ op: "delete", uid: "uid_good" }],
+    poisoned: false,
+  };
+  let applyCall = 0;
+  const replica = fakeReplica({
+    applyChanges: vi.fn(async (window: Changes) => {
+      applyCall += 1;
+      return applyCall === 1
+        ? { status: "applied" as const, cursor: window.next_since }
+        : { status: "needs-bootstrap" as const };
+    }),
+    prepareRecovery: vi.fn(async () => ({
+      token: `lease-${applyCall}`, batches: [poisoned, later],
+    })),
+  });
+  let releaseHeldFeed!: () => void;
+  const heldFeed = new Promise<void>((resolve) => { releaseHeldFeed = resolve; });
+  let releaseRetrySnapshot!: () => void;
+  const retrySnapshot = new Promise<void>((resolve) => {
+    releaseRetrySnapshot = resolve;
+  });
+  let changesCall = 0;
+  let snapshotPhase: "first" | "between" | "retry" = "first";
+  let retrySnapshotStarted = false;
+  let snapshotCalls = 0;
+  const posted: string[] = [];
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      posted.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") {
+      snapshotCalls += 1;
+      if (snapshotPhase === "first") throw new Error("poison snapshot offline");
+      if (snapshotPhase === "retry") {
+        retrySnapshotStarted = true;
+        await retrySnapshot;
+      }
+      return { ...SNAP, seq: 10 };
+    }
+    changesCall += 1;
+    if (changesCall === 2) await heldFeed;
+    return feed({ next_since: 6, latest_seq: 6 });
+  });
+  const queue = { pause: vi.fn(), resume: vi.fn() };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+
+  sync.onSeq(9);
+  await vi.waitFor(() => { expect(changesCall).toBe(2); });
+  const firstRepair = sync.rebaseAuthoritative("poison")
+    .then(() => null, (error: unknown) => error);
+  releaseHeldFeed();
+  const firstError = await firstRepair;
+
+  // A failed poison snapshot retains recovery ownership. Another feed that
+  // needs bootstrap must not enter normal Task 2 flush/resume while Retry is
+  // still pending.
+  snapshotPhase = "between";
+  sync.onSeq(9);
+  await sync.idle();
+
+  snapshotPhase = "retry";
+  const retry = sync.rebaseAuthoritative("poison");
+  await vi.waitFor(() => { expect(retrySnapshotStarted).toBe(true); });
+  const postedBeforeRetryCommit = [...posted];
+  const resumesBeforeRetryCommit = queue.resume.mock.calls.length;
+  releaseRetrySnapshot();
+  await retry;
+
+  expect(firstError).toMatchObject({ message: "poison snapshot offline" });
+  expect(postedBeforeRetryCommit).toEqual([]);
+  expect(posted).toEqual([]);
+  expect(resumesBeforeRetryCommit).toBe(0);
+  expect(queue.resume).not.toHaveBeenCalled();
+  expect(snapshotCalls).toBe(2); // failed poison snapshot + successful Retry
+  expect(sync.completeAuthoritativeRepair).toBeTypeOf("function");
+  sync.completeAuthoritativeRepair("poison");
+});
+
+test("poison preempts a normal recovery lease before its stale flush starts", async () => {
+  const staleLease: PendingBatch[] = [
+    { id: 1, batch_id: "rejected", ops: [{ op: "delete", uid: "uid_bad" }],
+      poisoned: false },
+    { id: 2, batch_id: "later-valid", ops: [{ op: "delete", uid: "uid_good" }],
+      poisoned: false },
+  ];
+  let applyCall = 0;
+  let leaseAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => { leaseAcquired = resolve; });
+  let releaseLease!: () => void;
+  const leaseGate = new Promise<void>((resolve) => { releaseLease = resolve; });
+  const abortRecovery = vi.fn(async () => undefined);
+  const replica = fakeReplica({
+    applyChanges: vi.fn(async (window: Changes) => {
+      applyCall += 1;
+      return applyCall === 1
+        ? { status: "applied" as const, cursor: window.next_since }
+        : { status: "needs-bootstrap" as const };
+    }),
+    prepareRecovery: vi.fn(async () => {
+      leaseAcquired();
+      await leaseGate;
+      return { token: "stale-normal-lease", batches: staleLease };
+    }),
+    abortRecovery,
+  });
+  const posted: string[] = [];
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      posted.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") return { ...SNAP, seq: 10 };
+    return feed({ next_since: 6, latest_seq: 6 });
+  });
+  let signalPoisonPending: () => void = () => undefined;
+  const queue = {
+    pause: vi.fn(),
+    resume: vi.fn(),
+    onPoisonPending: (listener: () => void) => {
+      signalPoisonPending = listener;
+      return () => undefined;
+    },
+  };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+
+  sync.onSeq(9);
+  await acquired; // normal recovery owns a stale pre-mark lease snapshot
+  signalPoisonPending(); // 4xx observed; markPoisoned is blocked by that lease
+  releaseLease();
+  await sync.idle();
+
+  expect(posted).toEqual([]);
+  expect(abortRecovery).toHaveBeenCalledWith("stale-normal-lease");
+  expect(queue.resume).not.toHaveBeenCalled();
+});
+
 test("a needs-bootstrap feed answer re-bootstraps when the queue is empty", async () => {
   const replica = fakeReplica({
     applyChanges: vi.fn()
@@ -149,8 +367,8 @@ test("a needs-bootstrap feed answer re-bootstraps when the queue is empty", asyn
   const { onState } = collector();
   const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
   await sync.start();
-  expect(replica.calls).toContain("pendingCount");
-  expect(replica.calls).toContain("reset");
+  expect(replica.calls).toContain("prepareRecovery");
+  expect(replica.calls).toContain("commitRecovery");
   expect(fetchJson).toHaveBeenCalledWith("/api/sync/snapshot");
 });
 
@@ -174,7 +392,7 @@ test("schema mismatch flushes pending batches before reset, in order", async () 
   await sync.start();
   // poisoned batch b-2 is NOT retried; the others flush oldest-first
   expect(posted.map((b) => (b as { batch_id: string }).batch_id)).toEqual(["b-1", "b-3"]);
-  expect(replica.calls).toContain("reset");
+  expect(replica.calls).toContain("commitRecovery");
   expect(states.at(-1)).toEqual({ mode: "ready" });
 });
 
@@ -193,7 +411,203 @@ test("a failed recovery flush keeps the database and reports the failure", async
   const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
   await sync.start();
   expect(replica.calls).not.toContain("reset");
+  expect(replica.calls).toContain("abortRecovery");
+  expect(replica.calls).not.toContain("commitRecovery");
   expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "network down" });
+});
+
+test("a failed recovery snapshot aborts the lease and retains durable rows", async () => {
+  const replica = fakeReplica({}, {
+    schemaMismatch: true,
+    pendingBatches: [
+      { id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false },
+    ],
+  });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") return { ok: true };
+    if (path === "/api/sync/snapshot") throw new Error("snapshot offline");
+    return feed();
+  });
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+
+  expect(replica.calls).toContain("abortRecovery");
+  expect(replica.calls).not.toContain("commitRecovery");
+  expect(states.at(-1)).toEqual({
+    mode: "recovery-failed", error: "snapshot offline",
+  });
+});
+
+test("a failed feed-rebootstrap flush aborts through the shared coordinator", async () => {
+  const batch: PendingBatch = {
+    id: 8, batch_id: "b-8",
+    ops: [{ op: "delete", uid: "uid_a8" }], poisoned: false,
+  };
+  const replica = fakeReplica({
+    applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
+    prepareRecovery: async () => ({ token: "lease-feed", batches: [batch] }),
+  });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") throw new Error("feed flush offline");
+    return feed();
+  });
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+
+  expect(replica.calls).toContain("abortRecovery");
+  expect(replica.calls).not.toContain("commitRecovery");
+  expect(states.at(-1)).toEqual({
+    mode: "recovery-failed", error: "feed flush offline",
+  });
+});
+
+test("schema recovery follows the queue/lease/flush/snapshot/commit trace", async () => {
+  const trace: string[] = [];
+  const batches: PendingBatch[] = [
+    { id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false },
+    { id: 2, batch_id: "b-2", ops: [{ op: "delete", uid: "uid_a2" }], poisoned: false },
+  ];
+  const replica = fakeReplica({
+    prepareRecovery: async () => {
+      trace.push("prepare lease");
+      return { token: "lease-1", batches };
+    },
+    commitRecovery: async (token, input) => {
+      expect(token).toBe("lease-1");
+      expect(input).toEqual({ kind: "reset", snapshot: SNAP });
+      trace.push("compare final durable rows");
+      trace.push("reset-or-rebase plus snapshot");
+      trace.push("release lease");
+    },
+  }, { schemaMismatch: true, pendingBatches: batches });
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      trace.push(`flush ${JSON.parse(String(init?.body)).batch_id}`);
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") {
+      trace.push("fetch snapshot");
+      return SNAP;
+    }
+    return feed();
+  });
+  const queue = {
+    pause: () => { trace.push("pause queue"); },
+    resume: () => { trace.push("resume queue"); },
+  };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+
+  await sync.start();
+
+  expect(trace).toEqual([
+    "pause queue",
+    "prepare lease",
+    "flush b-1",
+    "flush b-2",
+    "fetch snapshot",
+    "compare final durable rows",
+    "reset-or-rebase plus snapshot",
+    "release lease",
+    "resume queue",
+  ]);
+});
+
+test("feed rebootstrap uses the same recovery coordinator trace", async () => {
+  const trace: string[] = [];
+  const batches: PendingBatch[] = [
+    { id: 4, batch_id: "b-4", ops: [{ op: "delete", uid: "uid_a4" }], poisoned: false },
+  ];
+  const replica = fakeReplica({
+    applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
+    prepareRecovery: async () => {
+      trace.push("prepare lease");
+      return { token: "lease-feed", batches };
+    },
+    commitRecovery: async (_token, input) => {
+      expect(input.kind).toBe("rebase");
+      trace.push("compare final durable rows");
+      trace.push("reset-or-rebase plus snapshot");
+      trace.push("release lease");
+    },
+  });
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      trace.push(`flush ${JSON.parse(String(init?.body)).batch_id}`);
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") {
+      trace.push("fetch snapshot");
+      return SNAP;
+    }
+    return feed();
+  });
+  const queue = {
+    pause: () => { trace.push("pause queue"); },
+    resume: () => { trace.push("resume queue"); },
+  };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+
+  await sync.start();
+
+  expect(trace).toEqual([
+    "pause queue",
+    "prepare lease",
+    "flush b-4",
+    "fetch snapshot",
+    "compare final durable rows",
+    "reset-or-rebase plus snapshot",
+    "release lease",
+    "resume queue",
+  ]);
+});
+
+test("a final durable-row mismatch aborts, retains the database, and reports recovery-failed", async () => {
+  const trace: string[] = [];
+  const batches: PendingBatch[] = [
+    { id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false },
+  ];
+  const replica = fakeReplica({
+    prepareRecovery: async () => {
+      trace.push("prepare");
+      return { token: "lease-1", batches };
+    },
+    commitRecovery: async () => {
+      trace.push("compare");
+      throw new Error("pending rows changed during recovery");
+    },
+    abortRecovery: async () => { trace.push("abort"); },
+  }, { schemaMismatch: true, pendingBatches: batches });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") return { ok: true };
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const queue = {
+    pause: () => { trace.push("pause"); },
+    resume: () => { trace.push("resume"); },
+  };
+  const { states, onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+
+  await sync.start();
+
+  expect(trace).toEqual(["pause", "prepare", "compare", "abort", "resume"]);
+  expect(replica.calls).not.toContain("reset");
+  expect(states.at(-1)).toEqual({
+    mode: "recovery-failed", error: "pending rows changed during recovery",
+  });
 });
 
 test("overlapping nudges coalesce into a trailing pull", async () => {

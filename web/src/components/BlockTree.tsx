@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { BlockNode } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
-import { RoamTable } from "./RoamTable";
+import { RoamTable } from "./roamTable";
 import { quoteContent } from "./blockPresentation";
 import { effectiveChildView, type EffectiveBlockView } from "./blockView";
 import { roamTableRows } from "./roamTableRows";

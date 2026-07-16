@@ -18,3 +18,9 @@ Minor review finding: Task 3 focused SQLite evidence still prints the expected
 foreign-key diagnostic; include it in the final verification-output triage.
 Task 4: complete (pkm-viah; commits fde798b..3b42b2b, review clean)
 Task 5: complete (pkm-z77x; commits 0afc421..405a5e3, review clean)
+Task 6: complete (pkm-stn6; commits b5c6351..7a2c1ff, review clean)
+Minor review findings deferred to final whole-branch triage: SidebarNav can
+show the generic failure banner and the specific 409 addError simultaneously;
+SidebarNav reorder test name over-claims index-staleness coverage; QueryBlock
+pagination-recovery test's between-click findByRole is a soft sync point
+(robustness rests on the vi.waitFor).

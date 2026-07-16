@@ -1,11 +1,11 @@
 ---
 # pkm-kbv5
 title: Render Roam {{table}} imports as Markdown tables
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-07-16T20:47:29Z
-updated_at: 2026-07-16T21:50:45Z
+updated_at: 2026-07-16T22:15:33Z
 ---
 
 Roam imports on [[AI Pricing]] contain {{table}} blocks that should render as Markdown tables, but currently do not. Use the recent PDF import work as the reference pattern.
@@ -17,8 +17,8 @@ Roam imports on [[AI Pricing]] contain {{table}} blocks that should render as Ma
 - [x] Implement the minimal frontend table renderer
 - [x] Add the `/table` creation command
 - [x] Run focused and full verification
-- [ ] Commit, push, merge with --no-ff, and push main
-- [ ] Document the result and complete the bean
+- [x] Commit, push, merge with --no-ff, and push main
+- [x] Document the result and complete the bean
 
 ## Root Cause
 

@@ -7,11 +7,12 @@ import type { BlockOp } from "../api/ops";
 import type { PoisonedBatch, Replica } from "../replica/client";
 import { ReplicaError } from "../replica/rpc";
 import { newUid } from "../uid";
+import { createQueueState, terminalReason, transitionQueue,
+         type QueueEffect, type QueueEvent } from "./queueState";
 
 export const clientId = newUid();
 
 const MAX_BATCH = 500;
-const RETRY_DELAYS = [250, 1_000, 5_000] as const;
 
 export type WriteOutcome =
   | { status: "persisted"; pending: number }
@@ -147,16 +148,15 @@ function postOps(ops: BlockOp[], batchId?: string): Promise<unknown> {
 function createReplicaQueue(replica: Replica,
                             onDesync: (error: unknown) => void,
                             onDrain: (outcome: DrainOutcome) => void): OpQueue {
-  let online = true;
   let poisonMarkIntents = readPoisonMarkIntents();
-  let recovering = poisonMarkIntents.length > 0;
-  let disposed = false;
+  // Connectivity + retry policy lives in the queueState core; this shell owns
+  // the timer handle and dispatches events into it.
+  let qstate = createQueueState(poisonMarkIntents.length > 0);
   let pendingCount = 0;
   let persistChain = Promise.resolve();
   let drainRun: Promise<DrainOutcome> | null = null;
   let drainAgain = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let retryIndex = 0;
   const pending = listeners<number>();
   const poisonPending = listeners<void>();
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
@@ -194,10 +194,28 @@ function createReplicaQueue(replica: Replica,
     unidentifiedDeliveries.splice(0, unidentifiedDeliveries.length, ...retained);
   };
 
-  const cancelRetry = (reset: boolean): void => {
-    if (retryTimer !== null) clearTimeout(retryTimer);
-    retryTimer = null;
-    if (reset) retryIndex = 0;
+  const runEffects = (effects: readonly QueueEffect[]): void => {
+    for (const eff of effects) {
+      if (eff.type === "clear-timer") {
+        if (retryTimer !== null) clearTimeout(retryTimer);
+        retryTimer = null;
+      } else if (eff.type === "start-timer") {
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          dispatch({ type: "retry-fired" });
+          void drain();
+        }, eff.delayMs);
+      } else {
+        kick();
+      }
+    }
+  };
+
+  const dispatch = (event: QueueEvent) => {
+    const transition = transitionQueue(qstate, event);
+    qstate = transition.state;
+    runEffects(transition.effects);
+    return transition;
   };
 
   const countPending = async (): Promise<number> => {
@@ -219,29 +237,10 @@ function createReplicaQueue(replica: Replica,
     ...(error === undefined ? {} : { error }),
   });
 
-  const terminalReason = (): "offline" | "recovering" | "disposed" | null =>
-    disposed ? "disposed"
-      : recovering ? "recovering"
-        : !online ? "offline" : null;
-
-  const scheduleRetry = (): void => {
-    if (!online || recovering || disposed || retryTimer !== null) return;
-    const delay = RETRY_DELAYS[Math.min(retryIndex, RETRY_DELAYS.length - 1)];
-    retryIndex = Math.min(retryIndex + 1, RETRY_DELAYS.length - 1);
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      void drain();
-    }, delay);
-  };
-
   const failed = async (error: unknown): Promise<DrainOutcome> => {
     const count = await countPending();
-    const reason = terminalReason();
-    if (reason !== null) {
-      return { status: "blocked", reason, pending: count, error };
-    }
-    scheduleRetry();
-    return { status: "blocked", reason: "retryable", pending: count, error };
+    const transition = dispatch({ type: "delivery-failed" });
+    return { status: "blocked", reason: transition.blockedReason!, pending: count, error };
   };
 
   const rememberPoisonMark = (event: PoisonEvent): void => {
@@ -255,11 +254,10 @@ function createReplicaQueue(replica: Replica,
   };
 
   const markRetainedPoison = async (): Promise<readonly PoisonEvent[]> => {
-    if (disposed) throw new Error("op queue disposed");
+    if (qstate.disposed) throw new Error("op queue disposed");
     const intents = [...poisonMarkIntents];
     if (intents.length === 0) return [];
-    recovering = true;
-    cancelRetry(false);
+    dispatch({ type: "pause" });
     let result: { pending: number; matched?: boolean } | null = null;
     const matchedIntents: PoisonEvent[] = [];
     for (const event of intents) {
@@ -288,9 +286,8 @@ function createReplicaQueue(replica: Replica,
 
   const runDrain = async (): Promise<DrainOutcome> => {
     await settleAll();
-    if (disposed) return blocked("disposed");
-    if (recovering) return blocked("recovering");
-    if (!online) return blocked("offline");
+    const initialBlock = terminalReason(qstate);
+    if (initialBlock !== null) return blocked(initialBlock);
 
     for (;;) {
       drainAgain = false;
@@ -321,8 +318,7 @@ function createReplicaQueue(replica: Replica,
           // the batch. markPoisoned may wait behind a recovery lease whose
           // snapshot still says this row is valid; that lease must learn it
           // is stale before it begins its next POST.
-          recovering = true;
-          cancelRetry(false);
+          dispatch({ type: "pause" });
           poisonPending.emit(undefined);
           rememberPoisonMark(event);
           finishDelivery(batch.batch_id, { status: "failed", error });
@@ -351,10 +347,9 @@ function createReplicaQueue(replica: Replica,
         finishAllDeliveries({ status: "delivered" });
       }
       pending.emit(pendingCount);
-      cancelRetry(true);
-      if (disposed) return blocked("disposed");
-      if (recovering) return blocked("recovering");
-      if (!online) return blocked("offline");
+      dispatch({ type: "batch-succeeded" });
+      const loopBlock = terminalReason(qstate);
+      if (loopBlock !== null) return blocked(loopBlock);
     }
   };
 
@@ -403,7 +398,7 @@ function createReplicaQueue(replica: Replica,
         resolveDelivery = done;
       });
       const persist = async (): Promise<void> => {
-        if (disposed) {
+        if (qstate.disposed) {
           const error = new Error("op queue disposed");
           resolve({ status: "failed", error });
           resolveDelivery({ status: "failed", error });
@@ -412,7 +407,7 @@ function createReplicaQueue(replica: Replica,
         try {
           const result = await replica.enqueue(ops);
           pendingCount = result.pending;
-          if (disposed) {
+          if (qstate.disposed) {
             resolveDelivery({
               status: "failed", error: new Error("op queue disposed"),
             });
@@ -426,7 +421,7 @@ function createReplicaQueue(replica: Replica,
           }
           pending.emit(pendingCount);
           resolve({ status: "persisted", pending: pendingCount });
-          if (!disposed) kick();
+          if (!qstate.disposed) kick();
         } catch (error: unknown) {
           resolve({ status: "failed", error });
           if (error instanceof ReplicaError && error.quota) {
@@ -449,24 +444,17 @@ function createReplicaQueue(replica: Replica,
     settled: settleAll,
     drain,
     setOnline(next) {
-      online = next;
-      cancelRetry(true);
-      if (online) kick();
+      dispatch({ type: "set-online", online: next });
     },
     pause() {
-      recovering = true;
-      cancelRetry(false);
+      dispatch({ type: "pause" });
     },
     resume() {
-      if (!recovering) return;
-      recovering = false;
-      kick();
+      dispatch({ type: "resume" });
     },
     dispose() {
-      if (disposed) return;
-      disposed = true;
-      online = false;
-      cancelRetry(false);
+      if (qstate.disposed) return;
+      dispatch({ type: "dispose" });
       finishAllDeliveries({
         status: "failed", error: new Error("op queue disposed"),
       });
@@ -484,14 +472,11 @@ function createReplicaQueue(replica: Replica,
 function createLegacyQueue(onDesync: (error: unknown) => void,
                            onDrain: (outcome: DrainOutcome) => void): OpQueue {
   let pending: BlockOp[] = [];
-  let online = true;
-  let recovering = false;
-  let disposed = false;
+  let qstate = createQueueState();
   let drainRun: Promise<DrainOutcome> | null = null;
   let drainAgain = false;
   let kickScheduled = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let retryIndex = 0;
   const deliveries: Array<{
     remaining: number;
     resolve(outcome: DeliveryOutcome): void;
@@ -532,10 +517,28 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
     return discarded;
   };
 
-  const cancelRetry = (reset: boolean): void => {
-    if (retryTimer !== null) clearTimeout(retryTimer);
-    retryTimer = null;
-    if (reset) retryIndex = 0;
+  const runEffects = (effects: readonly QueueEffect[]): void => {
+    for (const eff of effects) {
+      if (eff.type === "clear-timer") {
+        if (retryTimer !== null) clearTimeout(retryTimer);
+        retryTimer = null;
+      } else if (eff.type === "start-timer") {
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          dispatch({ type: "retry-fired" });
+          void drain();
+        }, eff.delayMs);
+      } else {
+        kick();
+      }
+    }
+  };
+
+  const dispatch = (event: QueueEvent) => {
+    const transition = transitionQueue(qstate, event);
+    qstate = transition.state;
+    runEffects(transition.effects);
+    return transition;
   };
 
   const terminal = (
@@ -546,28 +549,14 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
     ...(error === undefined ? {} : { error }),
   });
 
-  const scheduleRetry = (): void => {
-    if (!online || recovering || disposed || retryTimer !== null) return;
-    const delay = RETRY_DELAYS[Math.min(retryIndex, RETRY_DELAYS.length - 1)];
-    retryIndex = Math.min(retryIndex + 1, RETRY_DELAYS.length - 1);
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      void drain();
-    }, delay);
-  };
-
   const failed = (error: unknown): DrainOutcome => {
-    if (disposed) return terminal("disposed", error);
-    if (recovering) return terminal("recovering", error);
-    if (!online) return terminal("offline", error);
-    scheduleRetry();
-    return terminal("retryable", error);
+    const transition = dispatch({ type: "delivery-failed" });
+    return terminal(transition.blockedReason!, error);
   };
 
   const runDrain = async (): Promise<DrainOutcome> => {
-    if (disposed) return terminal("disposed");
-    if (recovering) return terminal("recovering");
-    if (!online) return terminal("offline");
+    const initialBlock = terminalReason(qstate);
+    if (initialBlock !== null) return terminal(initialBlock);
     while (pending.length > 0) {
       const batch = pending.slice(0, MAX_BATCH);
       try {
@@ -579,20 +568,18 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
         // A rejected ticket is terminal, including a ticket whose remaining
         // ops cross this transport batch. Later tickets stay pending behind a
         // repair barrier and cannot POST until its owner explicitly resumes.
-        recovering = true;
-        cancelRetry(false);
+        dispatch({ type: "pause" });
         const discarded = rejectBatchDeliveries(batch.length, error);
         pending.splice(0, discarded);
         try { onDesync(error); } catch { /* listener isolation */ }
-        if (recovering) return terminal("recovering", error);
+        if (qstate.recovering) return terminal("recovering", error);
         continue;
       }
       pending.splice(0, batch.length);
       deliverOps(batch.length);
-      cancelRetry(true);
-      if (disposed) return terminal("disposed");
-      if (recovering) return terminal("recovering");
-      if (!online) return terminal("offline");
+      dispatch({ type: "batch-succeeded" });
+      const loopBlock = terminalReason(qstate);
+      if (loopBlock !== null) return terminal(loopBlock);
     }
     return { status: "drained" };
   };
@@ -615,8 +602,8 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
   };
 
   const kick = (): void => {
-    if (kickScheduled || !online || recovering || disposed ||
-        retryTimer !== null) return;
+    if (kickScheduled || !qstate.online || qstate.recovering ||
+        qstate.disposed || retryTimer !== null) return;
     if (drainRun) {
       drainAgain = true;
       return;
@@ -630,7 +617,7 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
 
   return {
     enqueue(ops, scope) {
-      if (ops.length > 0 && !disposed) {
+      if (ops.length > 0 && !qstate.disposed) {
         pending.push(...ops);
         let resolveDelivery!: (outcome: DeliveryOutcome) => void;
         const delivered = new Promise<DeliveryOutcome>((done) => {
@@ -642,7 +629,7 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
           status: "persisted", pending: pending.length,
         }), delivered);
       }
-      if (disposed && ops.length > 0) {
+      if (qstate.disposed && ops.length > 0) {
         const error = new Error("op queue disposed");
         return ticket(scope, Promise.resolve({
           status: "failed", error,
@@ -655,24 +642,17 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
     settled: async () => undefined,
     drain,
     setOnline(next) {
-      online = next;
-      cancelRetry(true);
-      if (online) kick();
+      dispatch({ type: "set-online", online: next });
     },
     pause() {
-      recovering = true;
-      cancelRetry(false);
+      dispatch({ type: "pause" });
     },
     resume() {
-      if (!recovering) return;
-      recovering = false;
-      kick();
+      dispatch({ type: "resume" });
     },
     dispose() {
-      if (disposed) return;
-      disposed = true;
-      online = false;
-      cancelRetry(false);
+      if (qstate.disposed) return;
+      dispatch({ type: "dispose" });
       failDeliveries(new Error("op queue disposed"));
     },
     onPending: () => () => undefined,

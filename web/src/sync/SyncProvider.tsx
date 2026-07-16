@@ -18,16 +18,10 @@ import { clientId, createOpQueue, type DrainOutcome,
          type PoisonEvent, type WriteTicket } from "./opQueue";
 import { createReplicaSync, type ReplicaState } from "./replicaSync";
 import { connectSocket, type WsBatch } from "./socket";
+import { computeEditability, transitionSync,
+         type SyncEvent, type SyncStatus, type SyncProblem } from "./syncState";
 
-export type SyncStatus = "connecting" | "connected" | "reconnecting";
-
-export type SyncProblem =
-  | { kind: "rejected-batch"; event: PoisonEvent;
-      repair: "mark-failed" | "running" | "failed" | "repaired";
-      error?: string }
-  | { kind: "poison-discovery"; error: string }
-  | { kind: "legacy-rejected"; repair: "running" | "failed" | "repaired";
-      error: string; repairError?: string };
+export type { SyncStatus, SyncProblem } from "./syncState";
 
 const mergePoisonEvents = (
   ...groups: ReadonlyArray<readonly PoisonEvent[]>
@@ -150,6 +144,21 @@ export function SyncProvider({ children, replica }: {
   const problemRef = useRef<SyncProblem>();
   problemRef.current = problem;
 
+  // Route the deterministic delivery-health policy through the syncState core:
+  // it computes the next problem value and any resync intent; this shell keeps
+  // the mounted guard, the async orchestration, and the queue/replica I/O. The
+  // current problem is read from problemRef (the last rendered value), matching
+  // the former inline setProblem call sites.
+  const applySync = (event: SyncEvent): void => {
+    const prev = problemRef.current;
+    const transition = transitionSync({ problem: prev }, event);
+    if (!mountedRef.current) return;
+    if (transition.state.problem !== prev) setProblem(transition.state.problem);
+    for (const effect of transition.effects) {
+      if (effect.type === "bump-resync") setResyncSeq((n) => n + 1);
+    }
+  };
+
   const replicaRef = useRef<Replica | null | undefined>(undefined);
   const ownedReplicaRef = useRef<OwnedReplica | null>(null);
   if (replicaRef.current === undefined) {
@@ -170,23 +179,18 @@ export function SyncProvider({ children, replica }: {
     legacyRejectedRef.current = error;
     if (legacyRepairRunRef.current) return legacyRepairRunRef.current;
     const message = error instanceof Error ? error.message : String(error);
-    if (mountedRef.current) {
-      setProblem({ kind: "legacy-rejected", repair: "running", error: message });
-    }
+    applySync({ type: "legacy-repair-started", error: message });
     const run = repairActiveOutlineSessions(() => {
         if (!mountedRef.current) return;
-        setProblem({ kind: "legacy-rejected", repair: "repaired", error: message });
-        setResyncSeq((n) => n + 1);
+        applySync({ type: "legacy-repair-succeeded", error: message });
         queue.resume("recovery");
       })
       .catch((repairError: unknown) => {
-        if (mountedRef.current) {
-          setProblem({
-            kind: "legacy-rejected", repair: "failed", error: message,
-            repairError: repairError instanceof Error
-              ? repairError.message : String(repairError),
-          });
-        }
+        applySync({
+          type: "legacy-repair-failed", error: message,
+          repairError: repairError instanceof Error
+            ? repairError.message : String(repairError),
+        });
       });
     legacyRepairRunRef.current = run.finally(() => {
       legacyRepairRunRef.current = null;
@@ -203,12 +207,10 @@ export function SyncProvider({ children, replica }: {
       queue.onPoisonMarkFailed(({ event, error }) => {
         repairTargetsRef.current = [event];
         repairSucceededRef.current = false;
-        if (mountedRef.current) {
-          setProblem({
-            kind: "rejected-batch", event, repair: "mark-failed",
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+        applySync({
+          type: "poison-mark-failed", event,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }),
     ];
     // a durable queue may be non-empty from a previous session
@@ -243,9 +245,7 @@ export function SyncProvider({ children, replica }: {
     repairTargetsRef.current = mergePoisonEvents(events);
     repairSucceededRef.current = false;
     const event = repairTargetsRef.current[0];
-    if (mountedRef.current) {
-      setProblem({ kind: "rejected-batch", event, repair: "running" });
-    }
+    applySync({ type: "repair-started", event });
     const run = (async () => {
       try {
         await replicaSync!.rebaseAuthoritative("poison");
@@ -256,8 +256,7 @@ export function SyncProvider({ children, replica }: {
         }
         if (mountedRef.current) {
           setPending(remaining);
-          setProblem({ kind: "rejected-batch", event, repair: "repaired" });
-          setResyncSeq((n) => n + 1);
+          applySync({ type: "repair-succeeded", event });
         }
         replicaSync!.completeAuthoritativeRepair("poison");
         if (mountedRef.current) {
@@ -265,12 +264,10 @@ export function SyncProvider({ children, replica }: {
         }
         repairSucceededRef.current = true;
       } catch (error: unknown) {
-        if (mountedRef.current) {
-          setProblem({
-            kind: "rejected-batch", event, repair: "failed",
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+        applySync({
+          type: "repair-failed", event,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     })();
     repairRunRef.current = run.finally(() => { repairRunRef.current = null; });
@@ -283,12 +280,10 @@ export function SyncProvider({ children, replica }: {
       discovered = await replicaRef.current!.poisonedBatches();
     } catch (error: unknown) {
       if (marked.length === 0) {
-        if (mountedRef.current) {
-          setProblem({
-            kind: "poison-discovery",
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+        applySync({
+          type: "poison-discovery-failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
         return;
       }
       // Returned mark evidence is sufficient to repair those rows safely;
@@ -300,9 +295,7 @@ export function SyncProvider({ children, replica }: {
       await repairEventsRef.current(repairable);
       if (!repairSucceededRef.current) return;
     } else {
-      if (mountedRef.current && problemRef.current?.kind === "poison-discovery") {
-        setProblem(undefined);
-      }
+      applySync({ type: "poison-discovery-cleared" });
       queue.resume("recovery");
     }
     await replicaSync!.start();
@@ -347,11 +340,11 @@ export function SyncProvider({ children, replica }: {
   useEffect(() => {
     const was = prevModeRef.current;
     prevModeRef.current = replicaState.mode;
-    if (was !== "ready" && replicaState.mode === "ready"
-        && statusRef.current !== "connected") {
-      setResyncSeq((n) => n + 1);
-    }
     // statusRef is a ref on purpose: this must react to MODE changes only
+    applySync({
+      type: "mode-ready-check", prevMode: was, mode: replicaState.mode,
+      status: statusRef.current,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replicaState.mode]);
 
@@ -486,14 +479,10 @@ export function SyncProvider({ children, replica }: {
   // Connected: editing always allowed (server-authoritative, as before).
   // Offline: allowed only with a ready replica that can still persist —
   // quota exhaustion offline means an edit could be silently lost, so the
-  // editor is frozen with a reason instead (spec section 6).
-  const canEdit = status === "connected"
-    || (replicaState.mode === "ready" && !quotaExhausted);
-  const readOnlyReason = canEdit ? undefined
-    : quotaExhausted ? "local storage is full — reconnect to sync"
-    : replicaState.mode === "recovery-failed"
-      ? "local data recovery failed — reconnect to continue"
-      : "offline — this graph is not yet available locally";
+  // editor is frozen with a reason instead (spec section 6). The rule lives
+  // in the syncState core.
+  const { canEdit, readOnlyReason } =
+    computeEditability(status, replicaState.mode, quotaExhausted);
 
   const api = useMemo<Sync>(() => ({
     status,
@@ -540,13 +529,13 @@ export function SyncProvider({ children, replica }: {
       if (currentProblem?.kind === "legacy-rejected" &&
           currentProblem.repair === "repaired") {
         legacyRejectedRef.current = undefined;
-        setProblem(undefined);
+      } else if (currentProblem?.kind === "rejected-batch" &&
+          currentProblem.repair === "repaired") {
+        repairTargetsRef.current = [];
+      } else {
         return;
       }
-      if (currentProblem?.kind !== "rejected-batch" ||
-          currentProblem.repair !== "repaired") return;
-      repairTargetsRef.current = [];
-      setProblem(undefined);
+      applySync({ type: "dismiss" });
     },
     enqueue: (ops, scope) => {
       const ticket = queue.enqueue(ops, scope);

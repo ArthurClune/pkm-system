@@ -23,7 +23,8 @@ import { applyOps, findNode, insertSubtree, removeSubtree,
 import { extendSelection, type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
-import { validateOutlineFocus } from "./outlineState";
+import { pendingTextOps, spliceUploadedMarkdown,
+         validateOutlineFocus } from "./outlineState";
 
 const TEXT_DEBOUNCE_MS = 500;
 
@@ -123,15 +124,10 @@ export function useOutline(
       timerRef.current = null;
     }
     const pending = pendingRef.current;
-    if (!pending) return [];
     pendingRef.current = null;
-    const node = findNode(blocksRef.current, pending.uid);
-    if (!node || node.text === pending.text) {
-      // no node: a remote batch deleted it — flushing would doom the whole
-      // batch. same text: the draft never actually changed anything.
-      return [];
-    }
-    return [{ op: "update_text", uid: pending.uid, text: pending.text }];
+    // no node: a remote batch deleted it — flushing would doom the whole
+    // batch. same text: the draft never actually changed anything.
+    return pendingTextOps(pending, blocksRef.current);
   }, []);
 
   /** Flush any pending text op, run the command against the flushed tree,
@@ -261,11 +257,10 @@ export function useOutline(
           if (!node) return { blocks: b, ops: [], focus: null };
           // splice at the pre-paste offset, clamped: the user may have kept
           // typing during a slow upload (accepted for v1)
-          const at = Math.min(cursor, node.text.length);
-          const text = node.text.slice(0, at) + inserted + node.text.slice(at);
-          const ops: BlockOp[] = [{ op: "update_text", uid, text }];
+          const spliced = spliceUploadedMarkdown(node.text, cursor, inserted);
+          const ops: BlockOp[] = [{ op: "update_text", uid, text: spliced.text }];
           return { blocks: applyOps(b, ops, pageTitle), ops,
-                   focus: { uid, cursor: at + inserted.length } };
+                   focus: { uid, cursor: spliced.selStart } };
         });
       })();
     },

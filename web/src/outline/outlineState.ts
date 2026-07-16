@@ -5,6 +5,7 @@
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { FocusTarget } from "./edits";
+import type { TextSelection } from "./keyEdits";
 import { applyOps, findNode, insertSubtree } from "./tree";
 
 export interface ReadToken {
@@ -268,4 +269,32 @@ export function validateOutlineFocus(
   blocks: BlockNode[],
 ): FocusTarget | null {
   return focus && findNode(blocks, focus.uid) ? focus : null;
+}
+
+/** The text op a debounced draft should flush before a structural edit runs.
+ * Empty when nothing is pending, when a remote batch already deleted the block
+ * (flushing would doom the whole batch), or when the draft never changed the
+ * text. */
+export function pendingTextOps(
+  pending: { uid: string; text: string } | null,
+  blocks: BlockNode[],
+): BlockOp[] {
+  if (!pending) return [];
+  const node = findNode(blocks, pending.uid);
+  if (!node || node.text === pending.text) return [];
+  return [{ op: "update_text", uid: pending.uid, text: pending.text }];
+}
+
+/** Splice uploaded asset markdown into a block's text at the pre-upload caret,
+ * clamped to the current length (the user may have kept typing during a slow
+ * upload). Returns the new text plus the caret placed after the insertion. */
+export function spliceUploadedMarkdown(
+  text: string,
+  requestedOffset: number,
+  markdown: string,
+): TextSelection {
+  const at = Math.min(requestedOffset, text.length);
+  const spliced = text.slice(0, at) + markdown + text.slice(at);
+  const caret = at + markdown.length;
+  return { text: spliced, selStart: caret, selEnd: caret };
 }

@@ -4,6 +4,8 @@ import { block } from "../test-helpers";
 import {
   beginAuthoritativeRead,
   createOutlineState,
+  pendingTextOps,
+  spliceUploadedMarkdown,
   transitionOutline,
   validateOutlineFocus,
 } from "./outlineState";
@@ -323,6 +325,41 @@ describe("outline causality", () => {
     expect(repaired.state.blocks.map((node) => node.uid)).toEqual(["target"]);
     expect(repaired.state.blocks[0].children.map((node) => node.uid))
       .toEqual(["moved"]);
+  });
+
+  it("flushes a changed pending draft before a structural op", () => {
+    const ops = pendingTextOps(
+      { uid: "u1", text: "typed" }, [block("u1", "old")],
+    );
+    expect(ops).toEqual([{ op: "update_text", uid: "u1", text: "typed" }]);
+  });
+
+  it("drops a no-op pending draft whose text is unchanged", () => {
+    expect(pendingTextOps({ uid: "u1", text: "same" }, [block("u1", "same")]))
+      .toEqual([]);
+  });
+
+  it("drops a pending draft whose block a remote batch deleted", () => {
+    expect(pendingTextOps({ uid: "gone", text: "typed" }, [block("u1", "old")]))
+      .toEqual([]);
+  });
+
+  it("has nothing to flush without a pending draft", () => {
+    expect(pendingTextOps(null, [block("u1", "old")])).toEqual([]);
+  });
+
+  it("clamps an upload splice offset past intervening typing", () => {
+    // The user kept typing during a slow upload; the pre-paste offset now sits
+    // beyond the (shortened) text and must clamp to its end.
+    expect(spliceUploadedMarkdown("hi", 10, "[img](x)")).toEqual({
+      text: "hi[img](x)", selStart: 10, selEnd: 10,
+    });
+  });
+
+  it("splices uploaded markdown at the requested offset", () => {
+    expect(spliceUploadedMarkdown("ab", 1, "X")).toEqual({
+      text: "aXb", selStart: 2, selEnd: 2,
+    });
   });
 
   it("does not replay explicit subtree metadata after its ticket settles", () => {

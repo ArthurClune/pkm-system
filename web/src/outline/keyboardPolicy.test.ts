@@ -1,0 +1,257 @@
+import { describe, expect, it } from "vitest";
+import { decideEditorKey, type EditorKeyInput } from "./keyboardPolicy";
+
+const input = (over: Partial<EditorKeyInput>): EditorKeyInput => ({
+  key: "",
+  code: "",
+  metaKey: false,
+  ctrlKey: false,
+  altKey: false,
+  shiftKey: false,
+  selStart: 0,
+  selEnd: 0,
+  draft: "",
+  readOnly: false,
+  acRowsLength: 0,
+  acSelected: 0,
+  ...over,
+});
+
+describe("decideEditorKey autocomplete precedence", () => {
+  it("moves the selection down, clamped to the last row", () => {
+    expect(decideEditorKey(input({ key: "ArrowDown", acRowsLength: 3, acSelected: 1 })))
+      .toEqual({ type: "ac-move", selected: 2 });
+    expect(decideEditorKey(input({ key: "ArrowDown", acRowsLength: 3, acSelected: 2 })))
+      .toEqual({ type: "ac-move", selected: 2 });
+  });
+
+  it("moves the selection up, clamped to the first row", () => {
+    expect(decideEditorKey(input({ key: "ArrowUp", acRowsLength: 3, acSelected: 1 })))
+      .toEqual({ type: "ac-move", selected: 0 });
+    expect(decideEditorKey(input({ key: "ArrowUp", acRowsLength: 3, acSelected: 0 })))
+      .toEqual({ type: "ac-move", selected: 0 });
+  });
+
+  it("picks the current row on Enter or Tab", () => {
+    expect(decideEditorKey(input({ key: "Enter", acRowsLength: 2 })))
+      .toEqual({ type: "ac-pick" });
+    expect(decideEditorKey(input({ key: "Tab", acRowsLength: 2 })))
+      .toEqual({ type: "ac-pick" });
+  });
+
+  it("closes the popup on Escape while it is open", () => {
+    expect(decideEditorKey(input({ key: "Escape", acRowsLength: 2 })))
+      .toEqual({ type: "ac-close" });
+  });
+
+  it("falls through to normal handling for keys the popup ignores", () => {
+    // Enter is a split once the popup is closed, not an ac-pick.
+    expect(decideEditorKey(input({ key: "Enter", acRowsLength: 0 })))
+      .toEqual({ type: "split", cursor: 0 });
+  });
+});
+
+describe("decideEditorKey Escape / navigation", () => {
+  it("blurs on Escape with no popup", () => {
+    expect(decideEditorKey(input({ key: "Escape" }))).toEqual({ type: "blur" });
+  });
+
+  it("navigates when Ctrl-O fires inside a page reference", () => {
+    expect(decideEditorKey(input({
+      key: "o", ctrlKey: true, draft: "see [[Target]]", selStart: 8, selEnd: 8,
+    }))).toEqual({ type: "navigate-ref", title: "Target" });
+  });
+
+  it("leaves Ctrl-O alone when the caret is not inside a reference", () => {
+    expect(decideEditorKey(input({
+      key: "o", ctrlKey: true, draft: "plain text", selStart: 2, selEnd: 2,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("ignores Ctrl-O when Meta or Alt is also held", () => {
+    expect(decideEditorKey(input({
+      key: "o", ctrlKey: true, metaKey: true, draft: "[[Target]]", selStart: 3,
+      selEnd: 3,
+    }))).toEqual({ type: "none" });
+  });
+});
+
+describe("decideEditorKey block selection", () => {
+  it("starts an upward selection at the top edge with a collapsed caret", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, draft: "one\ntwo", selStart: 2, selEnd: 2,
+    }))).toEqual({ type: "start-block-selection", dir: "up" });
+  });
+
+  it("starts a downward selection at the bottom edge", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowDown", shiftKey: true, draft: "one\ntwo", selStart: 5,
+      selEnd: 5,
+    }))).toEqual({ type: "start-block-selection", dir: "down" });
+  });
+
+  it("does not start a selection away from the edge", () => {
+    // A newline above the caret means Shift+ArrowUp extends within the block.
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, draft: "one\ntwo", selStart: 5, selEnd: 5,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("does not start a selection with a non-collapsed caret", () => {
+    // A selection means Shift+ArrowUp is not a block-selection start; it falls
+    // through to the ordinary first-line arrow behaviour (as the original did).
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, draft: "one", selStart: 0, selEnd: 2,
+    }))).toEqual({ type: "arrow", dir: "up" });
+  });
+
+  it("still allows block selection while read-only", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, draft: "x", selStart: 0, selEnd: 0,
+      readOnly: true,
+    }))).toEqual({ type: "start-block-selection", dir: "up" });
+  });
+});
+
+describe("decideEditorKey read-only cutoff", () => {
+  it("suppresses editing chords when read-only", () => {
+    for (const over of [
+      { key: "Enter" },
+      { key: "Tab" },
+      { key: "Backspace", selStart: 0, selEnd: 0 },
+      { key: "k", metaKey: true },
+      { key: "[" },
+      { key: "1", code: "Digit1", ctrlKey: true, altKey: true },
+    ] as Partial<EditorKeyInput>[]) {
+      expect(decideEditorKey(input({ ...over, readOnly: true })))
+        .toEqual({ type: "none" });
+    }
+  });
+
+  it("still blurs on Escape while read-only", () => {
+    expect(decideEditorKey(input({ key: "Escape", readOnly: true })))
+      .toEqual({ type: "blur" });
+  });
+});
+
+describe("decideEditorKey heading chord", () => {
+  it("sets a heading level from Ctrl+Alt+Digit", () => {
+    expect(decideEditorKey(input({
+      key: "2", code: "Digit2", ctrlKey: true, altKey: true,
+    }))).toEqual({ type: "set-heading", heading: 2 });
+  });
+
+  it("clears the heading for Ctrl+Alt+0", () => {
+    expect(decideEditorKey(input({
+      key: "0", code: "Digit0", ctrlKey: true, altKey: true,
+    }))).toEqual({ type: "set-heading", heading: null });
+  });
+
+  it("resolves the digit from key when code is unavailable", () => {
+    expect(decideEditorKey(input({
+      key: "3", code: "", ctrlKey: true, altKey: true,
+    }))).toEqual({ type: "set-heading", heading: 3 });
+  });
+});
+
+describe("decideEditorKey text edits", () => {
+  it("wraps a markdown link on Cmd-K", () => {
+    const decision = decideEditorKey(input({
+      key: "k", metaKey: true, draft: "word", selStart: 0, selEnd: 4,
+    }));
+    expect(decision).toEqual({
+      type: "key-edit",
+      edit: { text: "[word]()", selStart: 7, selEnd: 7 },
+    });
+  });
+
+  it("auto-pairs a bracket", () => {
+    const decision = decideEditorKey(input({
+      key: "[", draft: "", selStart: 0, selEnd: 0,
+    }));
+    expect(decision).toEqual({
+      type: "key-edit",
+      edit: { text: "[]", selStart: 1, selEnd: 1 },
+    });
+  });
+
+  it("does not intercept a bracket that has nothing to do", () => {
+    // A lone closer with no match falls through to the browser.
+    expect(decideEditorKey(input({ key: "]", draft: "", selStart: 0, selEnd: 0 })))
+      .toEqual({ type: "none" });
+  });
+});
+
+describe("decideEditorKey structural keys", () => {
+  it("splits at the caret on Enter", () => {
+    expect(decideEditorKey(input({ key: "Enter", selStart: 3, selEnd: 3 })))
+      .toEqual({ type: "split", cursor: 3 });
+  });
+
+  it("does not split on Shift+Enter", () => {
+    expect(decideEditorKey(input({ key: "Enter", shiftKey: true })))
+      .toEqual({ type: "none" });
+  });
+
+  it("indents / outdents on Tab", () => {
+    expect(decideEditorKey(input({ key: "Tab" }))).toEqual({ type: "indent" });
+    expect(decideEditorKey(input({ key: "Tab", shiftKey: true })))
+      .toEqual({ type: "outdent" });
+  });
+
+  it("moves the block on Alt+Arrow", () => {
+    expect(decideEditorKey(input({ key: "ArrowUp", altKey: true })))
+      .toEqual({ type: "move-up" });
+    expect(decideEditorKey(input({ key: "ArrowDown", altKey: true })))
+      .toEqual({ type: "move-down" });
+  });
+
+  it("backspaces into the previous block at the start", () => {
+    expect(decideEditorKey(input({ key: "Backspace", selStart: 0, selEnd: 0 })))
+      .toEqual({ type: "backspace-at-start" });
+    // Not at the start: browser default.
+    expect(decideEditorKey(input({ key: "Backspace", selStart: 1, selEnd: 1 })))
+      .toEqual({ type: "none" });
+  });
+});
+
+describe("decideEditorKey boundary arrows", () => {
+  it("moves focus up when the caret is on the first line", () => {
+    expect(decideEditorKey(input({ key: "ArrowUp", draft: "a\nb", selStart: 1 })))
+      .toEqual({ type: "arrow", dir: "up" });
+  });
+
+  it("does not move up from a lower line", () => {
+    expect(decideEditorKey(input({ key: "ArrowUp", draft: "a\nb", selStart: 3, selEnd: 3 })))
+      .toEqual({ type: "none" });
+  });
+
+  it("moves focus down when the caret is on the last line", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowDown", draft: "a\nb", selStart: 2, selEnd: 2,
+    }))).toEqual({ type: "arrow", dir: "down" });
+  });
+
+  it("moves left only from the very start", () => {
+    expect(decideEditorKey(input({ key: "ArrowLeft", selStart: 0, selEnd: 0 })))
+      .toEqual({ type: "arrow", dir: "left" });
+    expect(decideEditorKey(input({ key: "ArrowLeft", selStart: 1, selEnd: 1 })))
+      .toEqual({ type: "none" });
+  });
+
+  it("moves right only from the very end", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowRight", draft: "abc", selStart: 3, selEnd: 3,
+    }))).toEqual({ type: "arrow", dir: "right" });
+    expect(decideEditorKey(input({
+      key: "ArrowRight", draft: "abc", selStart: 1, selEnd: 1,
+    }))).toEqual({ type: "none" });
+  });
+});
+
+describe("decideEditorKey browser default", () => {
+  it("returns none for an ordinary character", () => {
+    expect(decideEditorKey(input({ key: "a", draft: "a", selStart: 1, selEnd: 1 })))
+      .toEqual({ type: "none" });
+  });
+});

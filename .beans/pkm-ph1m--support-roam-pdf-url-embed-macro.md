@@ -5,7 +5,7 @@ status: in-progress
 type: feature
 priority: normal
 created_at: 2026-07-16T19:47:43Z
-updated_at: 2026-07-16T19:59:43Z
+updated_at: 2026-07-16T20:05:01Z
 ---
 
 382 blocks use {{[[pdf]]: /assets/...}} and 132 use {{pdf: /assets/...}} (Roam import). The grammar only special-cases {{query}}, so these render as literal text + [[pdf]] page link instead of the PDF viewer (reported: [[July 7th, 2026]] SITS Readiness Assessment).
@@ -20,3 +20,12 @@ Design decisions:
 - [x] InlineSegments dispatch + label derivation (TDD)
 - [x] E2E: macro-syntax block renders the viewer
 - [x] Full verify
+
+## Summary of Changes
+
+Tokenizer: generalized the {{query}} macro scanner to scanMacro(prefix) and
+added PDF_PREFIX; both {{[[pdf]]: url}} and {{pdf: url}} now emit a
+pdf-embed segment. InlineSegments dispatches asset hrefs to the lazy PdfEmbed
+viewer with the decoded filename as label (raw on malformed encoding);
+non-asset hrefs use the existing safe-link fallback. E2E covers the macro on
+a dedicated page. Lights up all 514 Roam-imported PDF blocks.

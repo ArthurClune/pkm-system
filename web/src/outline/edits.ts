@@ -126,7 +126,9 @@ export function moveBlockDown(blocks: BlockNode[], pageTitle: string,
  * the parent has a previous sibling P, the block becomes P's LAST child —
  * same absolute depth, now inside the preceding subtree. No further escape:
  * if P doesn't exist (top-level, or parent is itself a first child), it's a
- * no-op rather than letting the block become shallower. */
+ * no-op rather than letting the block become shallower. A collapsed P is
+ * expanded first (mirrors indentBlock) — otherwise the moved block would be
+ * hidden and, since it stays focused, focus would be lost with it. */
 export function moveSubtreeUp(blocks: BlockNode[], pageTitle: string,
                               uid: string): EditResult {
   const found = locate(blocks, uid);
@@ -137,14 +139,19 @@ export function moveSubtreeUp(blocks: BlockNode[], pageTitle: string,
   if (!parentLoc || parentLoc.index === 0) return noop(blocks);
   const p = parentLoc.siblings[parentLoc.index - 1];
   const last = p.children[p.children.length - 1];
-  const ops: BlockOp[] = [{ op: "move", uid, parent_uid: p.uid,
-                            order_idx: last ? last.order_idx + 1 : 0 }];
+  const ops: BlockOp[] = [];
+  if (p.collapsed) {
+    ops.push({ op: "set_collapsed", uid: p.uid, collapsed: false });
+  }
+  ops.push({ op: "move", uid, parent_uid: p.uid,
+             order_idx: last ? last.order_idx + 1 : 0 });
   return done(blocks, pageTitle, ops, null);
 }
 
 /** Mirror of moveSubtreeUp: a next sibling is a plain swap (delegates to
  * moveBlockDown); otherwise the block becomes the FIRST child of the
- * parent's next sibling N, same depth. No-op when N doesn't exist. */
+ * parent's next sibling N, same depth. No-op when N doesn't exist. A
+ * collapsed N is expanded first, for the same reason as moveSubtreeUp's P. */
 export function moveSubtreeDown(blocks: BlockNode[], pageTitle: string,
                                 uid: string): EditResult {
   const found = locate(blocks, uid);
@@ -154,8 +161,12 @@ export function moveSubtreeDown(blocks: BlockNode[], pageTitle: string,
   const parentLoc = locate(blocks, found.parent.uid);
   if (!parentLoc || parentLoc.index === parentLoc.siblings.length - 1) return noop(blocks);
   const n = parentLoc.siblings[parentLoc.index + 1];
-  const ops: BlockOp[] = [{ op: "move", uid, parent_uid: n.uid,
-                            order_idx: n.children[0]?.order_idx ?? 0 }];
+  const ops: BlockOp[] = [];
+  if (n.collapsed) {
+    ops.push({ op: "set_collapsed", uid: n.uid, collapsed: false });
+  }
+  ops.push({ op: "move", uid, parent_uid: n.uid,
+             order_idx: n.children[0]?.order_idx ?? 0 });
   return done(blocks, pageTitle, ops, null);
 }
 

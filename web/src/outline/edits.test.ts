@@ -239,6 +239,54 @@ describe("moveSubtreeUp / moveSubtreeDown (pkm-hx2w)", () => {
     expect(findNode(r.blocks, "b2")!.children.map((n) => n.uid)).toEqual(["b1x"]);
   });
 
+  test("up: a collapsed destination P is expanded — otherwise the moved " +
+       "block would be hidden and lose focus", () => {
+    const t = deepTree();
+    findNode(t, "a")!.collapsed = true;
+    const r = moveSubtreeUp(t, P, "b1");
+    expect(r.ops).toEqual([
+      { op: "set_collapsed", uid: "a", collapsed: false },
+      { op: "move", uid: "b1", parent_uid: "a", order_idx: 0 },
+    ]);
+    expect(findNode(r.blocks, "a")!.collapsed).toBe(false);
+    expect(findNode(r.blocks, "a")!.children.map((n) => n.uid)).toEqual(["b1"]);
+  });
+
+  test("down: a collapsed destination N is expanded — otherwise the moved " +
+       "block would be hidden and lose focus", () => {
+    const t = deepTree();
+    findNode(t, "c")!.collapsed = true;
+    const r = moveSubtreeDown(t, P, "b2");
+    expect(r.ops).toEqual([
+      { op: "set_collapsed", uid: "c", collapsed: false },
+      { op: "move", uid: "b2", parent_uid: "c", order_idx: 0 },
+    ]);
+    expect(findNode(r.blocks, "c")!.collapsed).toBe(false);
+    expect(findNode(r.blocks, "c")!.children.map((n) => n.uid)).toEqual(["b2"]);
+  });
+
+  test("up: destination P already has children — the block simply joins as " +
+       "the new last", () => {
+    const t = deepTree();
+    findNode(t, "a")!.children.push(block("ax", "a-ex", { order_idx: 0 }));
+    const r = moveSubtreeUp(t, P, "b1");
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b1", parent_uid: "a", order_idx: 1 },
+    ]);
+    expect(findNode(r.blocks, "a")!.children.map((n) => n.uid)).toEqual(["ax", "b1"]);
+  });
+
+  test("down: destination N already has children — the block lands FIRST, " +
+       "existing children shift (shiftFrom path)", () => {
+    const t = deepTree();
+    findNode(t, "c")!.children.push(block("cx", "c-ex", { order_idx: 0 }));
+    const r = moveSubtreeDown(t, P, "b2");
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b2", parent_uid: "c", order_idx: 0 },
+    ]);
+    expect(findNode(r.blocks, "c")!.children.map((n) => n.uid)).toEqual(["b2", "cx"]);
+  });
+
   test("unknown uid is a no-op", () => {
     expect(moveSubtreeUp(deepTree(), P, "zz").ops).toEqual([]);
     expect(moveSubtreeDown(deepTree(), P, "zz").ops).toEqual([]);

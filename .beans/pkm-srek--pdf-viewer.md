@@ -5,7 +5,7 @@ status: in-progress
 type: feature
 priority: normal
 created_at: 2026-07-15T19:16:29Z
-updated_at: 2026-07-16T17:47:18Z
+updated_at: 2026-07-16T18:01:58Z
 ---
 
 PDFs are currently only show as a file reference. We need to choose a pdf viewer and embed it so that pdfs show correctly within the page, complete with scroll bars etc
@@ -35,3 +35,12 @@ Two deviations from the plan, both forced by reality:
 - PdfViewer's Expand/Close buttons call stopPropagation(): clicks otherwise
   bubble into the block's click-to-edit handler and unmount the viewer
   (caught by E2E, pinned by a unit regression test).
+
+## Decision: viewer click containment
+
+Clicks anywhere inside the PDF viewer (inline frame, footer, fullscreen
+overlay) deliberately do NOT enter block-edit mode: container-level
+stopPropagation on the .pdf-embed root and the portalled .pdf-overlay root
+(portals propagate through the React tree, so the overlay bubbles into
+.block-text's click-to-edit too). This restores parity with the old native
+<embed>, which swallowed clicks.

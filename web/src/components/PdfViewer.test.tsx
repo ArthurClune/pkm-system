@@ -137,6 +137,55 @@ it("the Close button also collapses the overlay", async () => {
   expect(document.querySelector(".pdf-overlay")).toBeNull();
 });
 
+it("the overlay is an aria-modal dialog", async () => {
+  await renderLoaded();
+  fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+  const overlay = document.querySelector(".pdf-overlay")!;
+  expect(overlay).toHaveAttribute("role", "dialog");
+  expect(overlay).toHaveAttribute("aria-modal", "true");
+});
+
+it("focus moves into the dialog on open and returns to Expand on close", async () => {
+  await renderLoaded();
+  const expand = screen.getByRole("button", { name: "Expand" });
+  expand.focus();
+  fireEvent.click(expand);
+  expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(expand).toHaveFocus();
+});
+
+it("Tab wraps focus from the last overlay control to the first, and Shift+Tab back", async () => {
+  await renderLoaded();
+  fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+  const download = screen.getByRole("link", { name: "Download" });
+  const close = screen.getByRole("button", { name: "Close" });
+  // Close (focused on open) is the last focusable; Tab wraps to Download
+  fireEvent.keyDown(window, { key: "Tab" });
+  expect(download).toHaveFocus();
+  // Download is the first focusable; Shift+Tab wraps back to Close
+  fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+  expect(close).toHaveFocus();
+});
+
+it("pulls focus back into the dialog when Tab arrives from outside it", async () => {
+  await renderLoaded();
+  fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+  (document.activeElement as HTMLElement | null)?.blur();
+  fireEvent.keyDown(window, { key: "Tab" });
+  expect(screen.getByRole("link", { name: "Download" })).toHaveFocus();
+});
+
+it("locks body scrolling while the overlay is open and restores the prior value", async () => {
+  document.body.style.overflow = "auto";
+  await renderLoaded();
+  fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+  expect(document.body.style.overflow).toBe("hidden");
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(document.body.style.overflow).toBe("auto");
+  document.body.style.overflow = "";
+});
+
 it("no click anywhere in the viewer bubbles to an enclosing block's click-to-edit handler", async () => {
   // Regression test for pkm-srek: a real block renders this viewer inside
   // EditableBlockTree's `.block-text`, which has its own onClick that

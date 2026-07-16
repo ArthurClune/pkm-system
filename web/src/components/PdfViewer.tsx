@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
 import { PdfFallbackLink } from "./PdfFallbackLink";
-import { currentPageFromRatios, placeholderHeight } from "./pdfViewerCore";
+import { currentPageFromRatios, focusWrapTarget, placeholderHeight } from "./pdfViewerCore";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -125,19 +125,52 @@ function PdfPages({ numPages, aspect, onCurrentPage }: {
   );
 }
 
+/** Everything the overlay's focus trap can land on. */
+const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function PdfViewer({ href, label }: { href: string; label: string }) {
   const [doc, setDoc] = useState<DocState | null>(null);
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const expandRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
+  // Modal behaviour while expanded: focus moves into the dialog (and back to
+  // Expand on close), Tab is trapped inside it, Escape closes it, and the
+  // page behind can't scroll. The listener lives on window because clicks on
+  // non-focusable overlay content can drop focus to <body>, where a dialog-
+  // scoped handler would miss the next Tab.
   useEffect(() => {
     if (!expanded) return;
+    const expandButton = expandRef.current;
+    closeRef.current?.focus();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setExpanded(false);
+      if (e.key === "Escape") {
+        setExpanded(false);
+        return;
+      }
+      if (e.key !== "Tab" || !overlayRef.current) return;
+      const focusables = Array.from(overlayRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const target = focusWrapTarget(
+        focusables,
+        document.activeElement as HTMLElement | null,
+        e.shiftKey,
+      );
+      if (target) {
+        e.preventDefault();
+        target.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      expandButton?.focus();
+    };
   }, [expanded]);
 
   const onLoadSuccess = (pdf: LoadedPdf) => {
@@ -183,7 +216,12 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
             <a href={href} download className="pdf-download">
               {label || "Download PDF"}
             </a>
-            <button type="button" className="btn-secondary" onClick={() => setExpanded(true)}>
+            <button
+              type="button"
+              className="btn-secondary"
+              ref={expandRef}
+              onClick={() => setExpanded(true)}
+            >
               Expand
             </button>
           </span>
@@ -197,7 +235,9 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
           <div
             className="pdf-overlay"
             role="dialog"
+            aria-modal="true"
             aria-label={label || "PDF"}
+            ref={overlayRef}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="pdf-overlay-bar">
@@ -206,7 +246,12 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
                 Page {currentPage} of {doc.numPages}
               </span>
               <a href={href} download className="pdf-download">Download</a>
-              <button type="button" className="btn-secondary" onClick={() => setExpanded(false)}>
+              <button
+                type="button"
+                className="btn-secondary"
+                ref={closeRef}
+                onClick={() => setExpanded(false)}
+              >
                 Close
               </button>
             </div>

@@ -371,7 +371,8 @@ mark.highlight { background: var(--color-highlight-bg); }
 .pdf-overlay-bar { display: flex; align-items: center; gap: 12px;
   padding: 8px 16px; border-bottom: 1px solid var(--color-border); }
 .pdf-overlay-title { font-weight: 600; margin-right: auto; }
-.pdf-overlay .pdf-frame { flex: 1; height: auto; border: none; border-radius: 0; }
+.pdf-overlay .pdf-frame { flex: 1; height: auto; border: none; border-radius: 0;
+  overscroll-behavior: contain; }
 .mermaid-diagram { display: block; margin: 4px 0; overflow-x: auto; }
 .mermaid-diagram svg { max-width: 100%; }
 .mermaid-diagram-error-note { color: var(--color-text-muted); font-size: 13px; margin: 0 0 4px; }

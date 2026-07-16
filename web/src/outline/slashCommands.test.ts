@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { toggleTodo } from "../grammar/todo";
+import { tokenizeBlock } from "../grammar/tokenize";
 import { applySlashCommand, matchSlashCommands, resolveHeading,
          SLASH_COMMANDS } from "./slashCommands";
 
@@ -77,6 +79,20 @@ describe("applySlashCommand: /todo", () => {
     expect(applySlashCommand(content, content.length,
                              { kind: "command", start: content.length - 4, query: "todo" }, "todo"))
       .toEqual({ text: "{{TODO}} buy milk ", cursor: 18 });
+  });
+
+  test("does not double-prefix the long [[ ]] marker spelling either", () => {
+    const content = "{{[[TODO]]}} buy milk /todo";
+    expect(applySlashCommand(content, content.length,
+                             { kind: "command", start: content.length - 4, query: "todo" }, "todo"))
+      .toEqual({ text: "{{[[TODO]]}} buy milk ", cursor: 22 });
+  });
+
+  test("/todo output is recognized by the tokenizer and the toggler", () => {
+    const { text } = applySlashCommand("buy milk /todo", 14,
+                                       { kind: "command", start: 10, query: "todo" }, "todo");
+    expect(tokenizeBlock(text)[0]).toEqual({ kind: "todo", done: false });
+    expect(toggleTodo(text)).toBe("{{DONE}} buy milk ");
   });
 });
 

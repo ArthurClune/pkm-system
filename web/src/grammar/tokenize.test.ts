@@ -166,4 +166,37 @@ describe("tokenizeBlock", () => {
       { kind: "text", text: "line two" },
     ]);
   });
+
+  it("keeps an unclosed outer [[ as text while the balanced inner ref links", () => {
+    expect(tokenizeBlock("see [[a [[b]] c")).toEqual([
+      { kind: "text", text: "see [[a " },
+      { kind: "page-ref", title: "b", tag: false },
+      { kind: "text", text: " c" },
+    ]);
+  });
+
+  it("parses Unicode hashtags like the server grammar", () => {
+    expect(tokenizeBlock("see #héllo now")).toEqual([
+      { kind: "text", text: "see " },
+      { kind: "page-ref", title: "héllo", tag: true },
+      { kind: "text", text: " now" },
+    ]);
+  });
+
+  it("renders embed prefixes as plain text with a live block ref", () => {
+    expect(tokenizeBlock("{{embed: ((abcdef123))}}")).toEqual([
+      { kind: "text", text: "{{embed: " },
+      { kind: "block-ref", uid: "abcdef123" },
+      { kind: "text", text: "}}" },
+    ]);
+  });
+
+  it("treats blanked code as a tag boundary, matching refs.py", () => {
+    // Canonical scanner rule: code is blanked before hashtag recognition,
+    // so a # immediately after inline code starts a tag.
+    expect(tokenizeBlock("`x`#tag")).toEqual([
+      { kind: "inline-code", code: "x" },
+      { kind: "page-ref", title: "tag", tag: true },
+    ]);
+  });
 });

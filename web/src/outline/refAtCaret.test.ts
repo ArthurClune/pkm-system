@@ -53,4 +53,24 @@ describe("refTitleAtCaret", () => {
     // caret in "outer "/"tail" prose but still within the outer span
     expect(refTitleAtCaret(text, 3)).toBe("outer [[inner]] tail");
   });
+
+  test("caret in an empty nested ref falls back to the outer non-empty ref", () => {
+    // "[[a [[]] b]]": caret inside the empty [[]] — the innermost NON-EMPTY
+    // containing ref wins.
+    expect(refTitleAtCaret("[[a [[]] b]]", 6)).toBe("a [[]] b");
+  });
+
+  test("tag refs: the # itself is outside, the brackets are inside", () => {
+    expect(refTitleAtCaret("#[[World]]", 0)).toBeNull();
+    expect(refTitleAtCaret("#[[World]]", 1)).toBe("World");
+    expect(refTitleAtCaret("#[[World]]", 10)).toBe("World");
+  });
+
+  test("refs inside code are opaque and never match", () => {
+    // Canonical scanner rule: code is recorded before ref recognition, so
+    // Ctrl-O inside `[[x]]` must not navigate.
+    expect(refTitleAtCaret("run `[[x]]` now", 7)).toBeNull();
+    expect(refTitleAtCaret("```\n[[x]]\n``` [[y]]", 6)).toBeNull();
+    expect(refTitleAtCaret("```\n[[x]]\n``` [[y]]", 17)).toBe("y");
+  });
 });

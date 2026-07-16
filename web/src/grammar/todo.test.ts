@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { toggleTodo } from "./todo";
+import { hasTodoMarker, toggleTodo } from "./todo";
 
 test("flips TODO to DONE and back, preserving the bracket variant", () => {
   expect(toggleTodo("{{[[TODO]]}} buy milk")).toBe("{{[[DONE]]}} buy milk");
@@ -24,4 +24,30 @@ test("flips a leading marker inside an exact-prefix quote", () => {
     .toBe("> {{[[DONE]]}} quoted task");
   expect(toggleTodo("> {{DONE}} quoted task"))
     .toBe("> {{TODO}} quoted task");
+});
+
+test("double toggle is byte-identical for every spelling and quote prefix", () => {
+  const spellings = [
+    "{{TODO}} x", "{{DONE}} x",
+    "{{[[TODO]]}} x", "{{[[DONE]]}} x",
+    "{{[[TODO}} x", "{{TODO]]}} x",
+    "{{TODO}}", "{{TODO}}  two spaces",
+  ];
+  for (const text of spellings) {
+    expect(toggleTodo(toggleTodo(text)!)).toBe(text);
+    expect(toggleTodo(toggleTodo("> " + text)!)).toBe("> " + text);
+  }
+});
+
+test("hasTodoMarker detects only a block-start marker (no quote prefix)", () => {
+  expect(hasTodoMarker("{{TODO}} x")).toBe(true);
+  expect(hasTodoMarker("{{[[DONE]]}}")).toBe(true);
+  expect(hasTodoMarker("> {{TODO}} x")).toBe(false);
+  expect(hasTodoMarker(" {{TODO}} x")).toBe(false);
+  expect(hasTodoMarker("plain")).toBe(false);
+});
+
+test("code at the start of a block is never a marker", () => {
+  expect(toggleTodo("`{{TODO}}` x")).toBeNull();
+  expect(hasTodoMarker("`{{TODO}}` x")).toBe(false);
 });

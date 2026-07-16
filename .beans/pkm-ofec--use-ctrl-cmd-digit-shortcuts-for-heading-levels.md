@@ -1,7 +1,7 @@
 ---
 # pkm-ofec
 title: Preserve heading typography while focused
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-07-16T21:05:39Z
@@ -33,4 +33,4 @@ Focused heading textareas now receive heading-1/2/3 classes while focused, and t
 
 - [x] Add focused plain-text fallback regression test
 - [x] Run required verification
-- [ ] Commit and push follow-up
+- [x] Commit and push follow-up

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { block } from "../test-helpers";
 import { findNode } from "./tree";
-import { backspaceAtStart, clampCaret, indentBlock, moveBlockDown,
-         moveBlockUp, outdentBlock, setCollapsed, setHeading,
+import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
+         moveBlockDown, moveBlocksTo, moveBlockUp, moveSelectionDown,
+         moveSelectionUp, outdentBlock, setCollapsed, setHeading,
          setViewType, splitBlock } from "./edits";
 
 describe("clampCaret", () => {
@@ -146,6 +147,124 @@ describe("moveBlockUp / moveBlockDown", () => {
   test("edges are no-ops", () => {
     expect(moveBlockUp(tree(), P, "a").ops).toEqual([]);
     expect(moveBlockDown(tree(), P, "c").ops).toEqual([]);
+  });
+});
+
+describe("moveSelectionUp / moveSelectionDown (pkm-q89w)", () => {
+  test("up: the run [b, c] swaps past the sibling above (a moves after c)", () => {
+    const r = moveSelectionUp(tree(), P, ["b", "c"]);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "a", parent_uid: null, order_idx: 8 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b", "c", "a"]);
+    // the moved run keeps its own relative order and doesn't move itself
+    expect(r.blocks[0].uid).toBe("b");
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1", "b2"]);
+  });
+
+  test("down: the run [a, b] swaps past the sibling below (c moves before a)", () => {
+    const r = moveSelectionDown(tree(), P, ["a", "b"]);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "c", parent_uid: null, order_idx: 0 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["c", "a", "b"]);
+  });
+
+  test("a run already at the top/bottom edge is a no-op", () => {
+    expect(moveSelectionUp(tree(), P, ["a", "b"]).ops).toEqual([]);
+    expect(moveSelectionDown(tree(), P, ["b", "c"]).ops).toEqual([]);
+  });
+
+  test("uids that aren't a contiguous sibling run are a no-op", () => {
+    // "a" is top-level, "b1" is b's child: different parents.
+    expect(moveSelectionUp(tree(), P, ["a", "b1"]).ops).toEqual([]);
+    expect(moveSelectionDown(tree(), P, ["a", "b1"]).ops).toEqual([]);
+  });
+
+  test("empty selection is a no-op", () => {
+    expect(moveSelectionUp(tree(), P, []).ops).toEqual([]);
+    expect(moveSelectionDown(tree(), P, []).ops).toEqual([]);
+  });
+});
+
+describe("moveBlocksTo (pkm-q89w drag)", () => {
+  test("moves every uid to the target as a contiguous run, order preserved", () => {
+    // drop [b, c] at the very top: one move op per block, sequential slots
+    const r = moveBlocksTo(tree(), P, ["b", "c"], null, 0);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b", parent_uid: null, order_idx: 0 },
+      { op: "move", uid: "c", parent_uid: null, order_idx: 1 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b", "c", "a"]);
+    // b keeps its subtree through the move
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1", "b2"]);
+  });
+
+  test("reparents a cross-parent root run, order preserved", () => {
+    // b's children dragged out to the top level
+    const r = moveBlocksTo(tree(), P, ["b1", "b2"], null, 0);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b1", parent_uid: null, order_idx: 0 },
+      { op: "move", uid: "b2", parent_uid: null, order_idx: 1 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b1", "b2", "a", "b", "c"]);
+    expect(findNode(r.blocks, "b")!.children).toEqual([]);
+  });
+
+  test("a selected parent + its child moves only the parent (subtree comes along)", () => {
+    const r = moveBlocksTo(tree(), P, ["b", "b1"], null, 0);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b", parent_uid: null, order_idx: 0 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b", "a", "c"]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1", "b2"]);
+  });
+
+  test("moving into a new parent block", () => {
+    const r = moveBlocksTo(tree(), P, ["a", "c"], "b", 4); // after b2 (idx 3)
+    expect(r.ops).toEqual([
+      { op: "move", uid: "a", parent_uid: "b", order_idx: 4 },
+      { op: "move", uid: "c", parent_uid: "b", order_idx: 5 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b"]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1", "b2", "a", "c"]);
+  });
+
+  test("empty uids is a no-op", () => {
+    expect(moveBlocksTo(tree(), P, [], null, 0).ops).toEqual([]);
+  });
+});
+
+describe("deleteSelection (pkm-q89w)", () => {
+  test("deletes every selected top-level block, focus on the sibling after", () => {
+    const r = deleteSelection(tree(), P, ["a", "b"]);
+    expect(r.ops).toEqual([
+      { op: "delete", uid: "a" },
+      { op: "delete", uid: "b" },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["c"]);
+    expect(r.focus).toEqual({ uid: "c", cursor: 0 });
+  });
+
+  test("a selected parent + its child only emits one delete (child cascades away)", () => {
+    const r = deleteSelection(tree(), P, ["b", "b1"]);
+    expect(r.ops).toEqual([{ op: "delete", uid: "b" }]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["a", "c"]);
+    expect(r.focus).toEqual({ uid: "a", cursor: 5 }); // "alpha".length
+  });
+
+  test("focus falls back to the visible block before the run", () => {
+    const r = deleteSelection(tree(), P, ["c"]);
+    expect(r.ops).toEqual([{ op: "delete", uid: "c" }]);
+    expect(r.focus).toEqual({ uid: "b2", cursor: 5 }); // "b-two".length
+  });
+
+  test("empty selection is a no-op", () => {
+    expect(deleteSelection(tree(), P, []).ops).toEqual([]);
   });
 });
 

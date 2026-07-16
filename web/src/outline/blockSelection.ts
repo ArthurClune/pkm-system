@@ -4,7 +4,7 @@
 // off visibleUids so a collapsed subtree's hidden children are never part of a
 // selection. Used for "select several blocks and copy their text out".
 import type { BlockNode } from "../api/payloads";
-import { findNode, visibleUids } from "./tree";
+import { findNode, selectionRoots, visibleUids } from "./tree";
 
 export interface BlockSelection {
   anchor: string; // block the selection started on
@@ -40,4 +40,25 @@ export function selectionText(blocks: BlockNode[], sel: BlockSelection): string 
   return selectedUids(blocks, sel)
     .map((uid) => findNode(blocks, uid)?.text ?? "")
     .join("\n");
+}
+
+/** The uids a drag should carry when the grab handle is `grabbed` (pkm-q89w):
+ * the selection's root uids in document order when the grabbed block is part
+ * of the selection (a selected descendant travels inside its parent), or null
+ * when it isn't — that drag is a plain single-block drag. */
+export function selectionDragUids(blocks: BlockNode[], sel: BlockSelection,
+                                  grabbed: string): string[] | null {
+  const uids = selectedUids(blocks, sel);
+  if (!uids.includes(grabbed)) return null;
+  return selectionRoots(blocks, uids);
+}
+
+/** Deleting more than this many blocks in one go needs an explicit
+ * confirmation — easy to select a large run by accident with Shift+Arrow. */
+export const LARGE_DELETE_THRESHOLD = 5;
+
+/** Whether deleting `count` selected blocks should prompt for confirmation
+ * before proceeding. */
+export function needsDeleteConfirmation(count: number): boolean {
+  return count > LARGE_DELETE_THRESHOLD;
 }

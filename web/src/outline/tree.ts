@@ -43,6 +43,19 @@ export function visibleUids(blocks: BlockNode[]): string[] {
   return out;
 }
 
+/** Reduce a uid set to its "roots": the uids with no ancestor also in the
+ * set, in the given order. Acting on a root (move, delete) carries its whole
+ * subtree along, so a listed descendant needs no op of its own. */
+export function selectionRoots(blocks: BlockNode[], uids: string[]): string[] {
+  const set = new Set(uids);
+  return uids.filter((uid) => {
+    for (let p = locate(blocks, uid)?.parent; p; p = locate(blocks, p.uid)?.parent) {
+      if (set.has(p.uid)) return false;
+    }
+    return true;
+  });
+}
+
 export function visibleNeighbor(blocks: BlockNode[], uid: string,
                                 dir: "up" | "down"): string | null {
   const order = visibleUids(blocks);

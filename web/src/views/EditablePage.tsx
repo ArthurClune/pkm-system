@@ -5,6 +5,7 @@ import { Composer } from "../components/Composer";
 import { EditableBlockTree } from "../components/EditableBlockTree";
 import { useDnd } from "../dnd/DndContext";
 import { useDropZone } from "../dnd/useDropZone";
+import { selectionDragUids } from "../outline/blockSelection";
 import { useOutline } from "../outline/useOutline";
 
 /** One editable outline (a page body or a journal day).
@@ -45,7 +46,13 @@ export function EditablePage({ title, initial, composer = false }: {
     ...outline.handlers,
     onDragStartBlock: (uid: string) => {
       if (!ownsEditor || outline.readOnly) return;
-      dnd.startDrag({ uid, pageTitle: title });
+      // Grabbing a block inside an active multi-block selection drags the
+      // whole selection (pkm-q89w); grabbing any other block drags just it.
+      const group = outline.selection
+        ? selectionDragUids(blocksRef.current, outline.selection, uid) : null;
+      dnd.startDrag(group && group.length > 1
+        ? { uid, pageTitle: title, uids: group }
+        : { uid, pageTitle: title });
     },
   };
 

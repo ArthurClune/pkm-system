@@ -164,6 +164,42 @@ it("discards a stale in-flight load when a resync resets the journal", async () 
   expect(journalLoads).toHaveLength(2);
 });
 
+it("keeps day sections mounted across a resync (no remount churn)", async () => {
+  // pkm-ss9k: a resync bump must refresh content in place. Blanking the day
+  // list first unmounts every .journal-day and remounts it after the refetch,
+  // which detaches the DOM mid-interaction (Playwright "not stable" flake).
+  let journalCalls = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    if (String(input) === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    journalCalls += 1;
+    return Promise.resolve(jsonResponse({ days: [
+      day("2026-07-08", "July 8th, 2026",
+          [block("u1", journalCalls === 1 ? "before resync" : "after resync")]),
+    ] }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const sync = makeSync();
+  const inSync = (s: typeof sync) => (
+    <SyncContext.Provider value={s}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(inSync(sync));
+  await screen.findByText("before resync");
+  const section = document.querySelector(".journal-day");
+  expect(section).not.toBeNull();
+
+  rerender(inSync({ ...sync, resyncSeq: 1 }));
+  // the authoritative refetch replaces the content...
+  expect(await screen.findByText("after resync")).toBeInTheDocument();
+  expect(screen.queryByText("before resync")).not.toBeInTheDocument();
+  // ...inside the SAME section element: no unmount/remount cycle
+  expect(document.querySelector(".journal-day")).toBe(section);
+});
+
 it("does not adopt a journal payload over an active session changed in flight", async () => {
   const title = "July 8th, 2026";
   const journal = deferred<Response>();

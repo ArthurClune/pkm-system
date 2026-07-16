@@ -3,29 +3,32 @@ import {
   type BuildBudgets,
   type OutputChunkInfo,
   type OutputFile,
-  chunkIsMermaidOwned,
+  chunkIsWhollyOwned,
   evaluateBundleBudgets,
   evaluatePrecacheBudgets,
   formatReport,
-  mermaidOwnedBytes,
+  ownedChunkBytes,
 } from "./buildBudgets";
 
 const budgets: BuildBudgets = {
   initialEntryBytes: 700,
   largestAssetBytes: 800,
-  totalOutputBytes: 2000,
+  totalOutputBytes: 2400,
   precacheBytes: 1500,
   precacheEntries: 3,
   mermaidOwnedBytes: 500,
+  pdfjsOwnedBytes: 400,
 };
 
 // Baseline bundle: entry 700, largest asset 800 (a wasm), one fully
-// mermaid-owned chunk 500. Totals land exactly on every limit.
-const owned = new Set(["m1", "m2"]);
+// mermaid-owned chunk 500, one fully pdfjs-owned chunk 400. Totals land
+// exactly on every limit.
+const owned = { mermaid: new Set(["m1", "m2"]), pdfjs: new Set(["p1", "p2"]) };
 function baselineChunks(): OutputChunkInfo[] {
   return [
     { fileName: "index-abc.js", bytes: 700, isEntry: true, moduleIds: ["app"] },
     { fileName: "mermaid-abc.js", bytes: 500, isEntry: false, moduleIds: ["m1", "m2"] },
+    { fileName: "PdfViewer-abc.js", bytes: 400, isEntry: false, moduleIds: ["p1", "p2"] },
   ];
 }
 function baselineFiles(): OutputFile[] {
@@ -33,6 +36,7 @@ function baselineFiles(): OutputFile[] {
     { fileName: "index-abc.js", bytes: 700 },
     { fileName: "sqlite-abc.wasm", bytes: 800 },
     { fileName: "mermaid-abc.js", bytes: 500 },
+    { fileName: "PdfViewer-abc.js", bytes: 400 },
   ];
 }
 
@@ -75,7 +79,7 @@ describe("evaluateBundleBudgets", () => {
     const total = (r: typeof a) =>
       r.checks.find((c) => c.name === "totalOutputBytes")!.actual;
     expect(total(a)).toBe(total(b));
-    expect(total(a)).toBe(2000);
+    expect(total(a)).toBe(2400);
   });
 
   it("reports largest contributors, biggest first", () => {
@@ -91,9 +95,9 @@ describe("evaluateBundleBudgets", () => {
 
 describe("mermaid ownership", () => {
   it("a chunk is mermaid-owned only when every module is owned", () => {
-    expect(chunkIsMermaidOwned(["m1", "m2"], owned)).toBe(true);
-    expect(chunkIsMermaidOwned(["m1", "app"], owned)).toBe(false);
-    expect(chunkIsMermaidOwned([], owned)).toBe(false);
+    expect(chunkIsWhollyOwned(["m1", "m2"], owned.mermaid)).toBe(true);
+    expect(chunkIsWhollyOwned(["m1", "app"], owned.mermaid)).toBe(false);
+    expect(chunkIsWhollyOwned([], owned.mermaid)).toBe(false);
   });
 
   it("the mermaid exception cannot absorb an unrelated chunk", () => {
@@ -104,7 +108,7 @@ describe("mermaid ownership", () => {
       { fileName: "mermaid-pure.js", bytes: 500, isEntry: false, moduleIds: ["m1", "m2"] },
       { fileName: "smuggled.js", bytes: 99999, isEntry: false, moduleIds: ["m1", "app"] },
     ];
-    expect(mermaidOwnedBytes(chunks, owned)).toBe(500);
+    expect(ownedChunkBytes(chunks, owned.mermaid)).toBe(500);
   });
 
   it("bundle evaluation counts only fully-owned chunks as mermaid", () => {
@@ -117,6 +121,24 @@ describe("mermaid ownership", () => {
     const mermaid = report.checks.find((c) => c.name === "mermaidOwnedBytes")!;
     expect(mermaid.actual).toBe(500);
     expect(mermaid.ok).toBe(true);
+  });
+});
+
+describe("pdfjs ownership", () => {
+  it("bundle evaluation caps pdfjs-owned chunk bytes independently", () => {
+    const report = evaluateBundleBudgets(
+      baselineFiles(), baselineChunks(), owned, budgets);
+    const pdfjs = report.checks.find((c) => c.name === "pdfjsOwnedBytes")!;
+    expect(pdfjs.actual).toBe(400);
+    expect(pdfjs.ok).toBe(true);
+  });
+
+  it("a mixed pdfjs/app chunk does not count toward the pdfjs cap", () => {
+    const chunks = [
+      ...baselineChunks(),
+      { fileName: "mixed.js", bytes: 99999, isEntry: false, moduleIds: ["p1", "app"] },
+    ];
+    expect(ownedChunkBytes(chunks, owned.pdfjs)).toBe(400);
   });
 });
 

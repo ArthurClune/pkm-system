@@ -5,7 +5,8 @@
     "totalOutputBytes": 5520272,
     "precacheBytes": 5494604,
     "precacheEntries": 82,
-    "mermaidOwnedBytes": 3461961
+    "mermaidOwnedBytes": 3461961,
+    "pdfjsOwnedBytes": 1
   },
   "measuredOn": "2026-07-16",
   "rationale": {
@@ -15,6 +16,7 @@
     "totalOutputBytes": "Sum of every emitted output file. Guards against overall bundle bloat regardless of chunk split.",
     "precacheBytes": "Sum of the Workbox precache manifest entry sizes. This is the offline app-shell weight a cold install downloads. Must stay bounded so install stays fast and quota-safe.",
     "precacheEntries": "Number of precache manifest entries. Guards against an explosion of precached files (e.g. a new eagerly-split dependency family).",
-    "mermaidOwnedBytes": "Raw bytes of chunks WHOLLY owned by the Mermaid module graph (Rollup module ownership, not output file-name substrings). Mermaid stays fully precached / never-online under this explicit cap; ownership is all-or-nothing per chunk so the cap cannot absorb unrelated code."
+    "mermaidOwnedBytes": "Raw bytes of chunks WHOLLY owned by the Mermaid module graph (Rollup module ownership, not output file-name substrings). Mermaid stays fully precached / never-online under this explicit cap; ownership is all-or-nothing per chunk so the cap cannot absorb unrelated code.",
+    "pdfjsOwnedBytes": "Raw bytes of chunks WHOLLY owned by the lazy PDF viewer module graph (PdfViewer.tsx + react-pdf + pdfjs-dist; Rollup module ownership, not file-name substrings), mirroring mermaidOwnedBytes. The pdf.js worker is an emitted .mjs asset rather than a chunk, so it is bounded by largestAssetBytes/totalOutputBytes/precacheBytes instead of this cap."
   }
 }

@@ -31,9 +31,9 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // the sqlite wasm binary must be precached or the replica cannot
-        // start offline
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,wasm}"],
+        // the sqlite wasm binary and the pdf.js worker (.mjs) must be
+        // precached or the replica/PDF viewer cannot start offline
+        globPatterns: ["**/*.{js,mjs,css,html,ico,png,svg,wasm}"],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         // Hard raw-byte/entry ceiling on the offline-shell precache: fails the
         // build if the final Workbox manifest exceeds budgets.json.

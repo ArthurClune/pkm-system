@@ -57,7 +57,15 @@ vi.mock("react-pdf", async () => {
     }, []);
     return <div data-testid="pdf-document">{children}</div>;
   }
-  function Page({ pageNumber }: { pageNumber: number }) {
+  function Page({ pageNumber, onRenderSuccess }: {
+    pageNumber: number;
+    onRenderSuccess?: () => void;
+  }) {
+    // the real react-pdf Page fires this once the canvas has rasterized
+    useEffect(() => {
+      onRenderSuccess?.();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     return <canvas data-testid={`page-${pageNumber}`} />;
   }
   return { Document, Page, pdfjs: { GlobalWorkerOptions: {} } };
@@ -94,6 +102,17 @@ it("mounts a page when the mount observer sees it approach", async () => {
   await renderLoaded();
   act(() => mountObserver().cb([slotEntry(3, 0.01)]));
   expect(screen.getByTestId("page-3")).toBeInTheDocument();
+});
+
+it("drops the placeholder minHeight once a page has rendered", async () => {
+  // Placeholder heights assume all pages match page 1; a rendered canvas is
+  // the real height, so keeping minHeight leaves trailing whitespace under
+  // shorter pages in mixed-page-size PDFs.
+  await renderLoaded();
+  const slot1 = document.querySelector('[data-page="1"]') as HTMLElement;
+  const slot2 = document.querySelector('[data-page="2"]') as HTMLElement;
+  expect(slot1.style.minHeight).toBe(""); // page 1 rendered: canvas owns the height
+  expect(slot2.style.minHeight).not.toBe(""); // still an unrendered placeholder
 });
 
 it("updates the indicator to the most-visible page", async () => {

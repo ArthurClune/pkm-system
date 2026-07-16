@@ -48,6 +48,10 @@ function PdfPages({ numPages, aspect, onCurrentPage }: {
   const [width, setWidth] = useState(0);
   // page 1 mounts eagerly so something renders before any observer fires
   const [mounted, setMounted] = useState<ReadonlySet<number>>(new Set([1]));
+  // pages whose canvas has rasterized: their real height replaces the
+  // placeholder minHeight, so mixed-page-size PDFs don't keep page-1-shaped
+  // whitespace under shorter pages
+  const [rendered, setRendered] = useState<ReadonlySet<number>>(new Set());
   const ratiosRef = useRef(new Map<number, number>());
 
   // fit-to-width: track the frame's content width
@@ -102,7 +106,7 @@ function PdfPages({ numPages, aspect, onCurrentPage }: {
           key={n}
           className="pdf-page-slot"
           data-page={n}
-          style={{ minHeight: placeholderHeight(width, aspect) }}
+          style={{ minHeight: rendered.has(n) ? undefined : placeholderHeight(width, aspect) }}
         >
           {mounted.has(n) && (
             <Page
@@ -110,6 +114,9 @@ function PdfPages({ numPages, aspect, onCurrentPage }: {
               width={width > 0 ? width : undefined}
               renderTextLayer={false}
               renderAnnotationLayer={false}
+              onRenderSuccess={() =>
+                setRendered((prev) => (prev.has(n) ? prev : new Set(prev).add(n)))
+              }
             />
           )}
         </div>

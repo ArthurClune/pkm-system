@@ -6,7 +6,7 @@ export function PdfFallbackLink({ href, label, note }:
     { href: string; label: string; note?: string }) {
   return (
     <span className="pdf-embed">
-      {note !== undefined && <span className="pdf-error-note">{note}</span>}
+      {!!note && <span className="pdf-error-note">{note}</span>}
       <a href={href} download className="pdf-download">
         {label || "Download PDF"}
       </a>

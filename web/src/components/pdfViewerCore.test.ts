@@ -24,6 +24,11 @@ describe("currentPageFromRatios", () => {
     const ratios = new Map([[1, 0], [2, 0], [3, 0.4]]);
     expect(currentPageFromRatios(ratios)).toBe(3);
   });
+
+  it("returns 1 when page 1 is unmeasured and every measured page is at 0", () => {
+    const ratios = new Map([[2, 0], [3, 0]]);
+    expect(currentPageFromRatios(ratios)).toBe(1);
+  });
 });
 
 describe("placeholderHeight", () => {
@@ -37,5 +42,14 @@ describe("placeholderHeight", () => {
 
   it("never returns less than 1 (unmeasured container)", () => {
     expect(placeholderHeight(0, null)).toBe(1);
+  });
+
+  it("clamps a negative width to the 1px floor", () => {
+    expect(placeholderHeight(-300, null)).toBe(1);
+  });
+
+  it("guards against non-finite width", () => {
+    expect(placeholderHeight(Number.NaN, null)).toBe(1);
+    expect(placeholderHeight(Number.POSITIVE_INFINITY, null)).toBe(1);
   });
 });

@@ -1,4 +1,7 @@
-// pattern: Functional Core
+// pattern: Imperative Shell
+// Reads BlockRefContext/BlockRefRequestContext/SidebarContext, requests a
+// missing ref via an effect, and navigates on click -- all runtime React
+// state/effect/navigation, not a pure rendering decision.
 import { useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { BlockRefContext, BlockRefRequestContext,

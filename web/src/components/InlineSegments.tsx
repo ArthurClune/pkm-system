@@ -1,4 +1,9 @@
-// pattern: Functional Core
+// pattern: Imperative Shell
+// Dispatches each tokenized segment to its renderer. isPdfAssetHref/
+// isSafeHref below are pure, but the module as a whole composes several
+// Imperative Shell components (AssetImage, BlockRef, PageLink, TodoCheckbox,
+// BlueskyEmbed, MermaidDiagram, QueryBlock) that read React context, fetch,
+// or navigate, so it's a shell rather than a pure rendering decision.
 import type { BlockSegment } from "../grammar/tokenize";
 import { AssetImage } from "./AssetImage";
 import { BlockRef } from "./BlockRef";

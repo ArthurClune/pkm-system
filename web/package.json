@@ -10,8 +10,9 @@
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc",
+    "check:fcis": "node tooling/fcis.mjs",
     "e2e": "pnpm build && playwright test",
-    "verify": "pnpm typecheck && pnpm test:coverage && pnpm e2e",
+    "verify": "pnpm typecheck && pnpm check:fcis && pnpm test:coverage && pnpm e2e",
     "gen-types": "openapi-typescript src/api/openapi.json -o src/api/types.d.ts"
   },
   "dependencies": {

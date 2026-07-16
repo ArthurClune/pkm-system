@@ -1,0 +1,9 @@
+{
+  "src/api/ops.ts": "Type-only aliases over the generated OpenAPI schema (src/api/types.d.ts) -- no runtime declarations, nothing to classify.",
+  "src/api/payloads.ts": "Type-only re-exports of generated OpenAPI response shapes (src/api/types.d.ts) -- no runtime declarations, nothing to classify.",
+  "src/router.ts": "Static React Router future-flag constants shared by main.tsx and every test's MemoryRouter -- a config value, not FCIS logic to classify.",
+  "src/replica/baseSchema.gen.ts": "Generated verbatim from server/src/pkm/schema_dump.py (a SQL DDL string constant) -- data, not hand-written logic; see the file's own generated-file comment.",
+  "src/replica/testDb.ts": "Test-only in-memory sqlite-wasm helper, excluded from unit coverage the same as *.test.ts (see vite.config.ts coverage.exclude) -- test support, not app runtime code.",
+  "src/test-helpers.ts": "Shared test fixtures/mocks used only by *.test.ts files, excluded from unit coverage the same as test-setup.ts -- test support, not app runtime code.",
+  "src/test-setup.ts": "Vitest global setup (jest-dom, WebSocket/matchMedia stubs), excluded from unit coverage -- test support, not app runtime code."
+}

@@ -1,10 +1,11 @@
 ---
 # pkm-q89w
 title: Fix multi-select move and deletion
-status: todo
+status: completed
 type: bug
+priority: normal
 created_at: 2026-07-14T21:14:34Z
-updated_at: 2026-07-14T21:14:34Z
+updated_at: 2026-07-16T15:28:46Z
 ---
 
 Multi-block selection is only partially functional: moving a selection moves only the first selected block, and selected blocks cannot be deleted as a set.

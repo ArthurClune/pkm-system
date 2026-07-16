@@ -1,10 +1,11 @@
 ---
 # pkm-ss9k
 title: 'Offline-shell E2E flake: resyncSeq remount churn'
-status: todo
+status: completed
 type: bug
+priority: normal
 created_at: 2026-07-16T13:01:52Z
-updated_at: 2026-07-16T13:01:52Z
+updated_at: 2026-07-16T15:28:46Z
 ---
 
 The offline-shell cold-start E2E (web/e2e/offline-shell.spec.ts, 'cold start offline' test) can fail once in a full-suite run with Playwright's 'element is visible, enabled but not stable' timeout while clicking a journal block in the ONLINE phase. Observed once on 2026-07-16 during the pkm-c1cg final verification; passed 4/4 isolated re-runs and two subsequent full verifies.

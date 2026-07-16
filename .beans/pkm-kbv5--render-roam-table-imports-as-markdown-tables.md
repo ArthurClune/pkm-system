@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-07-16T20:47:29Z
-updated_at: 2026-07-16T20:55:44Z
+updated_at: 2026-07-16T21:50:45Z
 ---
 
 Roam imports on [[AI Pricing]] contain {{table}} blocks that should render as Markdown tables, but currently do not. Use the recent PDF import work as the reference pattern.
@@ -13,9 +13,9 @@ Roam imports on [[AI Pricing]] contain {{table}} blocks that should render as Ma
 ## Checklist
 
 - [x] Reproduce the AI Pricing table failure and identify the root cause
-- [ ] Add a focused regression test and confirm it fails
-- [ ] Implement the minimal frontend table renderer
-- [ ] Add the `/table` creation command
+- [x] Add a focused regression test and confirm it fails
+- [x] Implement the minimal frontend table renderer
+- [x] Add the `/table` creation command
 - [ ] Run focused and full verification
 - [ ] Commit, push, merge with --no-ff, and push main
 - [ ] Document the result and complete the bean

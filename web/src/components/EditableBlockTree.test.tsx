@@ -313,6 +313,17 @@ test("/t filters to text+todo; ArrowDown+Enter picks /todo", () => {
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} ");
 });
 
+test("typing /tab offers Table; Enter inserts {{table}}", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/tab" } });
+  ta.setSelectionRange(4, 4);
+  expect(screen.getByRole("option", { name: "Table" })).toBeInTheDocument();
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{table}}")
+});
+
 test("clicking a slash-menu row picks it (mouseDown, not click)", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });

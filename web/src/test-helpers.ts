@@ -12,6 +12,20 @@ export function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/** A promise plus its settlers, for tests that need to control exactly when
+ * an in-flight request resolves relative to other events (rerenders, other
+ * requests) — used to reproduce out-of-order async resolution. */
+export function defer<T = void>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
 /** Stub global fetch; handlers are [urlPrefix, body] pairs, FIRST match
  * wins — list more-specific prefixes first. Unmatched urls 404. */
 export function stubFetch(handlers: [string, unknown][]) {

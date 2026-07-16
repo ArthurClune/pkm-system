@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
-import { jsonResponse, stubFetch } from "../test-helpers";
+import { defer, jsonResponse, stubFetch } from "../test-helpers";
 import { SidebarNav } from "./SidebarNav";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -152,6 +152,134 @@ it("moving an entry down calls the reorder API with the new order", async () => 
     const links = screen.getAllByRole("link");
     expect(links.map((l) => l.textContent)).toEqual(["AI", "AWS"]);
   });
+});
+
+// --- mutation lane serialization (pkm-stn6) ---
+
+it("disables every mutating control while a reorder mutation and its refresh are in flight", async () => {
+  const put = defer<Response>();
+  let sidebarGets = 0;
+  const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    if (url === "/api/sidebar" && method === "GET") {
+      sidebarGets += 1;
+      return jsonResponse({ entries: sidebarGets === 1
+        ? [{ id: 1, title: "AWS" }, { id: 2, title: "AI" }]
+        : [{ id: 2, title: "AI" }, { id: 1, title: "AWS" }] });
+    }
+    if (url === "/api/sidebar" && method === "PUT") return put.promise;
+    return jsonResponse({ detail: "not found" }, 404);
+  });
+  vi.stubGlobal("fetch", mock);
+
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  await screen.findByRole("link", { name: "AWS" });
+  fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+  fireEvent.click(screen.getByRole("button", { name: /move aws down/i }));
+
+  // The PUT (and the refresh that follows it) are still pending: every
+  // control that could start a conflicting mutation must be disabled.
+  await waitFor(() => expect(screen.getByRole("button", { name: /remove aws/i })).toBeDisabled());
+  expect(screen.getByRole("button", { name: /remove ai/i })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^add$/i })).toBeDisabled();
+
+  put.resolve(jsonResponse({ ok: true }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /remove aws/i })).not.toBeDisabled());
+});
+
+it("catches a reorder failure without crashing and reports it", async () => {
+  const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    if (url === "/api/sidebar" && method === "GET") {
+      return jsonResponse({ entries: [{ id: 1, title: "AWS" }, { id: 2, title: "AI" }] });
+    }
+    if (url === "/api/sidebar" && method === "PUT") return jsonResponse({ detail: "boom" }, 500);
+    return jsonResponse({ detail: "not found" }, 404);
+  });
+  vi.stubGlobal("fetch", mock);
+
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  await screen.findByRole("link", { name: "AWS" });
+  fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+  fireEvent.click(screen.getByRole("button", { name: /move aws down/i }));
+
+  expect(await screen.findByText(/couldn.t save/i)).toBeInTheDocument();
+});
+
+it("catches a remove failure, disables controls until settled, and allows a successful retry", async () => {
+  let deleteCalls = 0;
+  let sidebarGets = 0;
+  const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    if (url === "/api/sidebar" && method === "GET") {
+      sidebarGets += 1;
+      return jsonResponse({ entries: sidebarGets === 1 ? [{ id: 1, title: "AWS" }] : [] });
+    }
+    if (url === "/api/sidebar/1" && method === "DELETE") {
+      deleteCalls += 1;
+      return deleteCalls === 1 ? jsonResponse({ detail: "boom" }, 500) : jsonResponse({ ok: true });
+    }
+    return jsonResponse({ detail: "not found" }, 404);
+  });
+  vi.stubGlobal("fetch", mock);
+
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  await screen.findByRole("link", { name: "AWS" });
+  fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+  fireEvent.click(screen.getByRole("button", { name: /remove aws/i }));
+
+  await screen.findByText(/couldn.t save/i);
+  expect(screen.getByRole("link", { name: "AWS" })).toBeInTheDocument(); // failed: no refresh applied
+
+  fireEvent.click(screen.getByRole("button", { name: /remove aws/i }));
+  await waitFor(() => expect(screen.queryByRole("link", { name: "AWS" })).toBeNull());
+  expect(screen.queryByText(/couldn.t save/i)).toBeNull();
+});
+
+it("computes a reorder from the entries current when the lane begins, not when it was queued", async () => {
+  const addHeld = defer<Response>();
+  let sidebarGets = 0;
+  let putBody: unknown = null;
+  const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    if (url === "/api/sidebar" && method === "GET") {
+      sidebarGets += 1;
+      if (sidebarGets === 1) {
+        return jsonResponse({ entries: [{ id: 1, title: "AWS" }, { id: 2, title: "AI" }] });
+      }
+      return jsonResponse({ entries: [
+        { id: 1, title: "AWS" }, { id: 2, title: "AI" }, { id: 3, title: "Crypto" },
+      ] });
+    }
+    if (url === "/api/sidebar" && method === "POST") return addHeld.promise;
+    if (url === "/api/sidebar" && method === "PUT") {
+      putBody = JSON.parse(String(init?.body));
+      return jsonResponse({ ok: true });
+    }
+    return jsonResponse({ detail: "not found" }, 404);
+  });
+  vi.stubGlobal("fetch", mock);
+
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav /></MemoryRouter>);
+  await screen.findByRole("link", { name: "AWS" });
+  fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+  fireEvent.change(screen.getByPlaceholderText(/add page/i), { target: { value: "Crypto" } });
+
+  // Both the add and the reorder are queued before either control could have
+  // been disabled by the other's mutation starting.
+  act(() => {
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /move aws down/i }));
+  });
+
+  addHeld.resolve(jsonResponse({ id: 3, title: "Crypto" }));
+  await screen.findByRole("link", { name: "Crypto" });
+
+  await waitFor(() => expect(putBody).toEqual({ order: [2, 1, 3] }));
 });
 
 it("disables the up button on the first entry and the down button on the last", async () => {

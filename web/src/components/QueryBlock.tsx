@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { OfflineError, apiFetch } from "../api/client";
 import type { BlockGroup, GroupsPayload } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
@@ -22,34 +22,56 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const load = async (from: number) => {
+  // Every fetch (the expr's own load and each page request) is stamped with
+  // a monotonically increasing request id; a response is applied only if
+  // it's still current when it resolves. This — not an AbortController — is
+  // what actually drops stale results: the offline gateway (pkm-y8p0) can
+  // still complete a request whose abort it never honored, so the id check
+  // stays the single source of truth regardless of how a response arrives.
+  // pageInFlight additionally blocks a second page request from firing at
+  // all while one is outstanding (e.g. a double-clicked "Show more").
+  const requestIdRef = useRef(0);
+  const pageInFlightRef = useRef(false);
+
+  const load = async (from: number, requestId: number) => {
     setLoading(true);
     try {
       const p = await apiFetch<GroupsPayload>(
         `/api/query?expr=${encodeURIComponent(expr)}&limit=${PAGE_SIZE}&offset=${from}`);
+      if (requestId !== requestIdRef.current) return; // superseded: drop silently
       setGroups((g) => (from === 0 ? p.groups : mergeGroups(g, p.groups)));
       setTotal(p.total);
       setOffset(from + p.groups.reduce((n, gr) => n + gr.items.length, 0));
       setError(null);
     } catch (e: unknown) {
+      if (requestId !== requestIdRef.current) return;
       // query blocks are online-only in v1 (spec section 4)
       setError(e instanceof OfflineError ? "query unavailable offline"
                                          : String(e));
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
+      if (from !== 0) pageInFlightRef.current = false;
     }
   };
 
   useEffect(() => {
     if (capped) return;
+    const requestId = ++requestIdRef.current;
+    pageInFlightRef.current = false;
     setGroups([]);
     setTotal(null);
     setOffset(0);
     setError(null);
-    void load(0);
+    void load(0, requestId);
     // load(0) reads only `expr`/`capped` from scope; re-run on those alone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expr, capped]);
+
+  const loadMore = () => {
+    if (pageInFlightRef.current) return;
+    pageInFlightRef.current = true;
+    void load(offset, ++requestIdRef.current);
+  };
 
   if (capped) {
     // Inert placeholder matching the pre-live fallback: no fetch, no results.
@@ -78,7 +100,7 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
         </div>
       ))}
       {total !== null && offset < total && (
-        <button className="show-more btn-secondary" onClick={() => void load(offset)} disabled={loading}>
+        <button className="show-more btn-secondary" onClick={loadMore} disabled={loading}>
           {loading ? "Loading…" : "Show more"}
         </button>
       )}

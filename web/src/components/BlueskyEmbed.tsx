@@ -30,21 +30,38 @@ function resolveHandle(handle: string): Promise<string> {
 export function BlueskyEmbed({ href }: { href: string }) {
   const embedId = useId();
   const actor = parseBlueskyPostUrl(href)?.actor ?? null;
-  const [did, setDid] = useState<string | null>(
-    actor?.startsWith("did:") ? actor : null,
-  );
-  const [height, setHeight] = useState<number | null>(null);
+  const actorIsDid = actor?.startsWith("did:") ?? false;
+
+  // A raw-DID actor IS its own did — computed fresh every render, so it can
+  // never go stale. A handle actor's did is resolved asynchronously and
+  // kept keyed by the actor it was resolved for (actor-keyed DID result):
+  // if href moves on to a different actor before resolution arrives, the
+  // stored key no longer matches the current actor and the stale result is
+  // simply not used, without needing to race-check inside the effect.
+  const [resolvedDid, setResolvedDid] = useState<{ actor: string; did: string } | null>(null);
+  const did = actor === null ? null
+    : actorIsDid ? actor
+    : (resolvedDid?.actor === actor ? resolvedDid.did : null);
 
   useEffect(() => {
-    if (!actor || actor.startsWith("did:")) return;
+    if (!actor || actorIsDid) return;
     let alive = true;
-    setDid(null);
     resolveHandle(actor).then(
-      (resolved) => { if (alive) setDid(resolved); },
+      (resolved) => { if (alive) setResolvedDid({ actor, did: resolved }); },
       () => {},
     );
     return () => { alive = false; };
-  }, [href, actor]);
+  }, [actor, actorIsDid]);
+
+  // The reported height is specific to this href's post; a new href means a
+  // new post, so a height reported for the previous one must not linger
+  // until the new iframe reports its own (href/post-keyed height).
+  const [heightKey, setHeightKey] = useState(href);
+  const [height, setHeight] = useState<number | null>(null);
+  if (href !== heightKey) {
+    setHeightKey(href);
+    setHeight(null);
+  }
 
   // the embed page reports its rendered height, keyed by our id param —
   // the same protocol Bluesky's official embed.js uses

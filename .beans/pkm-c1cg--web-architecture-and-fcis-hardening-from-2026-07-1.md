@@ -38,7 +38,7 @@ Address the correctness, complexity, design, maintainability, and FCIS findings 
 - [x] 3. pkm-z77x — Prevent outline refetches from overwriting or discarding newer state
 - [x] 4. pkm-viah — Eliminate simultaneous same-title editor divergence
 - [x] 5. pkm-wudz — Extract pure editor and sync state machines from large shells
-- [ ] 6. pkm-1jw6 — Correct and enforce TypeScript FCIS boundaries
+- [x] 6. pkm-1jw6 — Correct and enforce TypeScript FCIS boundaries
 - [x] 7. pkm-stn6 — Standardize async UI request and mutation lifecycles
 - [x] 8. pkm-dcmm — Own replica worker lifecycle and clarify queue idle semantics
 - [x] 9. pkm-1cq3 — Consolidate reference and TODO grammar scanning

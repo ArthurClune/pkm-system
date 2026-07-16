@@ -42,3 +42,9 @@ code-opaque refAtCaret, backtick-adjacent hashtag, attribute leading
 whitespace, autolink chunk-seam) judged contract-mandated or harmless
 unpinned edges; no previously-pinned assertion changed. Documented in the
 pkm-1cq3 bean for the final audit.
+Task 9: complete (pkm-1jw6; commit 503d99f, review clean)
+Minor review findings deferred to final whole-branch triage: fcis.mjs AST
+edge-extraction/type-only helpers (lines ~55-115) lack direct unit tests
+(exercised only via the live check:fcis run); fcis-core.mjs header detection
+is a whole-file scan so a stray "// pattern:" comment elsewhere in a file
+would register as a duplicate-header diagnostic.

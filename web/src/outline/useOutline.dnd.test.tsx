@@ -36,13 +36,32 @@ it("dnd.moveTo enqueues one move op with no page_title and reorders optimistical
   ];
   const getOutline = setup(sync, "Page", initial);
   act(() => {
-    getOutline().dnd.moveTo("u2",
+    getOutline().dnd.moveTo(["u2"],
       { parent_uid: null, order_idx: 0, page_title: "Page" });
   });
   expect(sync.sent).toEqual([
     [{ op: "move", uid: "u2", parent_uid: null, order_idx: 0 }],
   ]);
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["u2", "u1"]);
+});
+
+it("dnd.moveTo with a group moves every block, order preserved (pkm-q89w)", () => {
+  const sync = makeSync();
+  const initial = [
+    block("u1", "first", { order_idx: 0 }),
+    block("u2", "second", { order_idx: 1 }),
+    block("u3", "third", { order_idx: 2 }),
+  ];
+  const getOutline = setup(sync, "Page", initial);
+  act(() => {
+    getOutline().dnd.moveTo(["u2", "u3"],
+      { parent_uid: null, order_idx: 0, page_title: "Page" });
+  });
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "u2", parent_uid: null, order_idx: 0 },
+    { op: "move", uid: "u3", parent_uid: null, order_idx: 1 },
+  ]]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["u2", "u3", "u1"]);
 });
 
 it("onSetViewType enqueues one op and updates the tree optimistically", () => {

@@ -70,3 +70,24 @@ it("resolveDrop from another page never returns null (content must move)", () =>
   const t = resolveDrop(page(), "P", OTHER, 5, 0);
   expect(t).toEqual({ parent_uid: null, order_idx: 3, page_title: "P" });
 });
+
+// --- group drag: a drag that carries a multi-block selection (pkm-q89w) ---
+
+it("dropRows excludes every dragged subtree of a group drag", () => {
+  const drag: DragSource = { uid: "a", pageTitle: "P", uids: ["a", "d"] };
+  expect(dropRows(page(), drag, "P").map((r) => r.uid)).toEqual(["f"]);
+});
+
+it("resolveDrop resolves a group drop to the run's first slot", () => {
+  // dragging [d, f] above a: insert at the top, before a
+  const drag: DragSource = { uid: "d", pageTitle: "P", uids: ["d", "f"] };
+  expect(resolveDrop(page(), "P", drag, 0, 0))
+    .toEqual({ parent_uid: null, order_idx: 0, page_title: "P" });
+});
+
+it("resolveDrop returns null when a group drop changes nothing", () => {
+  // [d, f] dropped right back where they already sit (after a's subtree)
+  const drag: DragSource = { uid: "d", pageTitle: "P", uids: ["d", "f"] };
+  const rows = dropRows(page(), drag, "P"); // [a, b, c]
+  expect(resolveDrop(page(), "P", drag, rows.length, 0)).toBeNull();
+});

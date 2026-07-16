@@ -7,11 +7,14 @@ import { createContext, useContext, useMemo, useRef, useState,
          type ReactNode } from "react";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import type { DragSource, DropTarget } from "../outline/dnd";
+import { dragUids, type DragSource, type DropTarget } from "../outline/dnd";
+import { groupMoveOps } from "../outline/edits";
 import { useSync } from "../sync/SyncProvider";
 
 export interface OutlineDndApi {
-  moveTo(uid: string, target: DropTarget): void;
+  /** Move a group of blocks (a multi-block selection's roots, document
+   * order; a plain drag passes one uid) to the target as a contiguous run. */
+  moveTo(uids: string[], target: DropTarget): void;
   removeSubtreeLocal(uid: string): BlockNode | null;
   insertSubtreeLocal(node: BlockNode, target: DropTarget): void;
 }
@@ -72,29 +75,41 @@ export function DndProvider({ children }: { children: ReactNode }) {
     },
     drop: (d, target) => {
       const src = outlinesRef.current.get(d.pageTitle)?.api;
+      const uids = dragUids(d); // one uid, or a whole selection (pkm-q89w)
       if (target.page_title === d.pageTitle) {
         if (src) {
-          src.moveTo(d.uid, target);
+          src.moveTo(uids, target);
         } else {
-          const ops: BlockOp[] = [{ op: "move", uid: d.uid,
-            parent_uid: target.parent_uid, order_idx: target.order_idx }];
-          sync.enqueue(ops, ["page", d.pageTitle]);
+          sync.enqueue(
+            groupMoveOps(uids, target.parent_uid, target.order_idx),
+            ["page", d.pageTitle]);
         }
       } else {
-        const node = src?.removeSubtreeLocal(d.uid) ?? null;
         const dst = outlinesRef.current.get(target.page_title)?.api;
-        if (dst && node) dst.insertSubtreeLocal(node, target);
-        const ops: BlockOp[] = [{ op: "move", uid: d.uid,
-          parent_uid: target.parent_uid, order_idx: target.order_idx,
-          page_title: target.page_title }];
+        // Per-uid surgery + ops at consecutive slots: block k inserts before
+        // whatever now sits at order_idx + k, keeping the run's order.
+        const moves = uids.map((uid, k) => ({
+          uid,
+          node: src?.removeSubtreeLocal(uid) ?? null,
+          orderIdx: target.order_idx + k,
+        }));
+        for (const m of moves) {
+          if (dst && m.node) {
+            dst.insertSubtreeLocal(m.node, { ...target, order_idx: m.orderIdx });
+          }
+        }
+        const ops: BlockOp[] = moves.map((m) => ({ op: "move", uid: m.uid,
+          parent_uid: target.parent_uid, order_idx: m.orderIdx,
+          page_title: target.page_title }));
         const ticket = sync.enqueue(
           ops, ["page", d.pageTitle, target.page_title],
         );
-        if (node) {
-          sync.attachOutlineReplay(ticket, target.page_title, [{
-            type: "insert-subtree", node,
-            parentUid: target.parent_uid, orderIdx: target.order_idx,
-          }]);
+        const replays = moves
+          .filter((m) => m.node !== null)
+          .map((m) => ({ type: "insert-subtree" as const, node: m.node!,
+                         parentUid: target.parent_uid, orderIdx: m.orderIdx }));
+        if (replays.length > 0) {
+          sync.attachOutlineReplay(ticket, target.page_title, replays);
         }
       }
       setDrag(null);

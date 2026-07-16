@@ -33,9 +33,20 @@ it("same-page drop delegates to the registered outline's moveTo", () => {
   dnd().registerOutline("P", api);
   dnd().drop({ uid: "u1", pageTitle: "P" },
              { parent_uid: null, order_idx: 2, page_title: "P" });
-  expect(api.moveTo).toHaveBeenCalledWith("u1",
+  expect(api.moveTo).toHaveBeenCalledWith(["u1"],
     { parent_uid: null, order_idx: 2, page_title: "P" });
   expect(sync.sent).toEqual([]); // moveTo enqueues internally, fake doesn't
+});
+
+it("a same-page group drop passes the whole selection to moveTo (pkm-q89w)", () => {
+  const { sync, dnd } = setup();
+  const api = fakeOutline();
+  dnd().registerOutline("P", api);
+  dnd().drop({ uid: "u2", pageTitle: "P", uids: ["u1", "u2", "u3"] },
+             { parent_uid: null, order_idx: 5, page_title: "P" });
+  expect(api.moveTo).toHaveBeenCalledWith(["u1", "u2", "u3"],
+    { parent_uid: null, order_idx: 5, page_title: "P" });
+  expect(sync.sent).toEqual([]);
 });
 
 it("same-page drop with no registered outline enqueues the op directly", () => {
@@ -44,6 +55,16 @@ it("same-page drop with no registered outline enqueues the op directly", () => {
              { parent_uid: "x", order_idx: 0, page_title: "P" });
   expect(sync.sent).toEqual([[
     { op: "move", uid: "u1", parent_uid: "x", order_idx: 0 }]]);
+  expect(sync.tickets[0].scope).toEqual(["page", "P"]);
+});
+
+it("group drop with no registered outline enqueues sequential move ops (pkm-q89w)", () => {
+  const { sync, dnd } = setup();
+  dnd().drop({ uid: "u1", pageTitle: "P", uids: ["u1", "u2"] },
+             { parent_uid: "x", order_idx: 3, page_title: "P" });
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "u1", parent_uid: "x", order_idx: 3 },
+    { op: "move", uid: "u2", parent_uid: "x", order_idx: 4 }]]);
   expect(sync.tickets[0].scope).toEqual(["page", "P"]);
 });
 
@@ -96,6 +117,36 @@ it("unmounted cross-page target skips insertion but retains subtree replay", () 
     sync.tickets[0], "B", [{
       type: "insert-subtree", node: moved, parentUid: null, orderIdx: 1,
     }],
+  );
+});
+
+it("a cross-page group drop moves every block: surgery, ops, and replays (pkm-q89w)", () => {
+  const attachOutlineReplay = vi.fn();
+  const { sync, dnd } = setup({ attachOutlineReplay });
+  const one: BlockNode = block("u1", "one");
+  const two: BlockNode = block("u2", "two");
+  const removeSubtreeLocal = vi.fn((uid: string) =>
+    uid === "u1" ? one : uid === "u2" ? two : null);
+  const src = fakeOutline({ removeSubtreeLocal });
+  const dst = fakeOutline();
+  dnd().registerOutline("A", src);
+  dnd().registerOutline("B", dst);
+  dnd().drop({ uid: "u1", pageTitle: "A", uids: ["u1", "u2"] },
+             { parent_uid: null, order_idx: 1, page_title: "B" });
+  expect(removeSubtreeLocal.mock.calls.map((c) => c[0])).toEqual(["u1", "u2"]);
+  expect(dst.insertSubtreeLocal).toHaveBeenNthCalledWith(1, one,
+    { parent_uid: null, order_idx: 1, page_title: "B" });
+  expect(dst.insertSubtreeLocal).toHaveBeenNthCalledWith(2, two,
+    { parent_uid: null, order_idx: 2, page_title: "B" });
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "u1", parent_uid: null, order_idx: 1, page_title: "B" },
+    { op: "move", uid: "u2", parent_uid: null, order_idx: 2, page_title: "B" },
+  ]]);
+  expect(attachOutlineReplay).toHaveBeenCalledWith(
+    sync.tickets[0], "B", [
+      { type: "insert-subtree", node: one, parentUid: null, orderIdx: 1 },
+      { type: "insert-subtree", node: two, parentUid: null, orderIdx: 2 },
+    ],
   );
 });
 

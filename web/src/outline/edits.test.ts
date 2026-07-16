@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { block } from "../test-helpers";
 import { findNode } from "./tree";
 import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
-         moveBlockDown, moveBlockUp, moveSelectionDown, moveSelectionUp,
-         outdentBlock, setCollapsed, setHeading,
+         moveBlockDown, moveBlocksTo, moveBlockUp, moveSelectionDown,
+         moveSelectionUp, outdentBlock, setCollapsed, setHeading,
          setViewType, splitBlock } from "./edits";
 
 describe("clampCaret", () => {
@@ -185,6 +185,57 @@ describe("moveSelectionUp / moveSelectionDown (pkm-q89w)", () => {
   test("empty selection is a no-op", () => {
     expect(moveSelectionUp(tree(), P, []).ops).toEqual([]);
     expect(moveSelectionDown(tree(), P, []).ops).toEqual([]);
+  });
+});
+
+describe("moveBlocksTo (pkm-q89w drag)", () => {
+  test("moves every uid to the target as a contiguous run, order preserved", () => {
+    // drop [b, c] at the very top: one move op per block, sequential slots
+    const r = moveBlocksTo(tree(), P, ["b", "c"], null, 0);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b", parent_uid: null, order_idx: 0 },
+      { op: "move", uid: "c", parent_uid: null, order_idx: 1 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b", "c", "a"]);
+    // b keeps its subtree through the move
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1", "b2"]);
+  });
+
+  test("reparents a cross-parent root run, order preserved", () => {
+    // b's children dragged out to the top level
+    const r = moveBlocksTo(tree(), P, ["b1", "b2"], null, 0);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b1", parent_uid: null, order_idx: 0 },
+      { op: "move", uid: "b2", parent_uid: null, order_idx: 1 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b1", "b2", "a", "b", "c"]);
+    expect(findNode(r.blocks, "b")!.children).toEqual([]);
+  });
+
+  test("a selected parent + its child moves only the parent (subtree comes along)", () => {
+    const r = moveBlocksTo(tree(), P, ["b", "b1"], null, 0);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b", parent_uid: null, order_idx: 0 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b", "a", "c"]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1", "b2"]);
+  });
+
+  test("moving into a new parent block", () => {
+    const r = moveBlocksTo(tree(), P, ["a", "c"], "b", 4); // after b2 (idx 3)
+    expect(r.ops).toEqual([
+      { op: "move", uid: "a", parent_uid: "b", order_idx: 4 },
+      { op: "move", uid: "c", parent_uid: "b", order_idx: 5 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b"]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1", "b2", "a", "c"]);
+  });
+
+  test("empty uids is a no-op", () => {
+    expect(moveBlocksTo(tree(), P, [], null, 0).ops).toEqual([]);
   });
 });
 

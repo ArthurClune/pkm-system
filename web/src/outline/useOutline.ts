@@ -15,7 +15,7 @@ import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { backspaceAtStart, deleteSelection, indentBlock, moveBlockDown,
-         moveBlockUp, moveSelectionDown, moveSelectionUp,
+         moveBlocksTo, moveBlockUp, moveSelectionDown, moveSelectionUp,
          outdentBlock, setCollapsed, setHeading, splitBlock,
          setViewType,
          type EditResult, type FocusTarget } from "./edits";
@@ -310,11 +310,8 @@ export function useOutline(
   }), [run, flushNow, pageTitle, selection]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
-    moveTo: (uid, target) => run((b) => {
-      const ops: BlockOp[] = [{ op: "move", uid,
-        parent_uid: target.parent_uid, order_idx: target.order_idx }];
-      return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
-    }),
+    moveTo: (uids, target) => run((b) =>
+      moveBlocksTo(b, pageTitle, uids, target.parent_uid, target.order_idx)),
     removeSubtreeLocal: (uid) => {
       flushNow();
       const { tree, node } = removeSubtree(blocksRef.current, uid);

@@ -8,7 +8,8 @@
 // positions, because the server leaves gaps.
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp, SetViewTypeOp } from "../api/ops";
-import { applyOps, findNode, locate, visibleNeighbor } from "./tree";
+import { applyOps, findNode, locate, selectionRoots,
+         visibleNeighbor } from "./tree";
 
 export interface FocusTarget {
   uid: string;
@@ -169,6 +170,29 @@ export function moveSelectionDown(blocks: BlockNode[], pageTitle: string,
   return done(blocks, pageTitle, ops, null);
 }
 
+/** The op batch that moves `uids` (pre-reduced to selection roots, document
+ * order) to consecutive slots starting at orderIdx under parentUid. Each op's
+ * order_idx is one past the previous: applying them in sequence (client
+ * applyOps and server ops_apply share the semantics) shifts non-group
+ * siblings right while already-placed group members stay put, so the run
+ * lands contiguously in its original order. */
+export function groupMoveOps(uids: string[], parentUid: string | null,
+                             orderIdx: number): BlockOp[] {
+  return uids.map((uid, k) => (
+    { op: "move", uid, parent_uid: parentUid, order_idx: orderIdx + k }));
+}
+
+/** Move every listed block (a multi-block selection) to the drop target as
+ * one contiguous run, preserving their relative order. Only selection roots
+ * get a move op — a selected descendant travels inside its parent's subtree. */
+export function moveBlocksTo(blocks: BlockNode[], pageTitle: string,
+                             uids: string[], parentUid: string | null,
+                             orderIdx: number): EditResult {
+  const roots = selectionRoots(blocks, uids);
+  if (roots.length === 0) return noop(blocks);
+  return done(blocks, pageTitle, groupMoveOps(roots, parentUid, orderIdx), null);
+}
+
 /** Delete every selected block. Only "root" uids — those with no ancestor
  * also in the selection — get an explicit delete op: deleting a block already
  * removes its whole subtree (see tree.ts applyOne), so a selected descendant
@@ -177,12 +201,7 @@ export function moveSelectionDown(blocks: BlockNode[], pageTitle: string,
  * null (nothing left to focus). */
 export function deleteSelection(blocks: BlockNode[], pageTitle: string,
                                 uids: string[]): EditResult {
-  if (uids.length === 0) return noop(blocks);
-  const set = new Set(uids);
-  const roots = uids.filter((uid) => {
-    const found = locate(blocks, uid);
-    return !found?.parent || !set.has(found.parent.uid);
-  });
+  const roots = selectionRoots(blocks, uids);
   if (roots.length === 0) return noop(blocks);
   const ops: BlockOp[] = roots.map((uid) => ({ op: "delete", uid }));
   const before = visibleNeighbor(blocks, uids[0], "up");

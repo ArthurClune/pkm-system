@@ -3,11 +3,25 @@
 // legal, and what move op a (boundary, depth) resolves to. The DOM shell
 // (useDropZone) only measures pixels and calls in here.
 import type { BlockNode } from "../api/payloads";
+import { groupMoveOps } from "./edits";
 import { applyOps, locate } from "./tree";
 
 export const INDENT_PX = 30; // .block-children: 22px margin-left + 8px padding
 
-export interface DragSource { uid: string; pageTitle: string }
+export interface DragSource {
+  /** The grabbed block (the drag handle). */
+  uid: string;
+  pageTitle: string;
+  /** When the grabbed block is part of a multi-block selection, the whole
+   * group being dragged: the selection's root uids in document order,
+   * including `uid` (pkm-q89w). Absent for a plain single-block drag. */
+  uids?: string[];
+}
+
+/** Every uid a drag carries (the group when present, else the grab handle). */
+export function dragUids(drag: DragSource): string[] {
+  return drag.uids ?? [drag.uid];
+}
 export interface DropTarget {
   parent_uid: string | null;
   order_idx: number;
@@ -15,16 +29,17 @@ export interface DropTarget {
 }
 export interface DropRow { uid: string; depth: number; collapsed: boolean }
 
-/** On-screen rows (collapsed children hidden), excluding the dragged
+/** On-screen rows (collapsed children hidden), excluding every dragged
  * subtree when the drag comes from this page — boundaries behave as if the
- * block were already lifted out. */
+ * blocks were already lifted out. */
 export function dropRows(blocks: BlockNode[], drag: DragSource,
                          pageTitle: string): DropRow[] {
   const out: DropRow[] = [];
-  const skipUid = drag.pageTitle === pageTitle ? drag.uid : null;
+  const skip = drag.pageTitle === pageTitle
+    ? new Set(dragUids(drag)) : new Set<string>();
   const walk = (nodes: BlockNode[], depth: number) => {
     for (const n of nodes) {
-      if (n.uid === skipUid) continue;
+      if (skip.has(n.uid)) continue;
       out.push({ uid: n.uid, depth, collapsed: n.collapsed });
       if (!n.collapsed) walk(n.children, depth + 1);
     }
@@ -101,8 +116,8 @@ export function resolveDrop(blocks: BlockNode[], pageTitle: string,
   const target: DropTarget =
     { parent_uid: parentUid, order_idx: orderIdx, page_title: pageTitle };
   if (drag.pageTitle === pageTitle) {
-    const after = applyOps(blocks, [{ op: "move", uid: drag.uid,
-      parent_uid: parentUid, order_idx: orderIdx }], pageTitle);
+    const after = applyOps(
+      blocks, groupMoveOps(dragUids(drag), parentUid, orderIdx), pageTitle);
     if (shape(after) === shape(blocks)) return null;
   }
   return target;

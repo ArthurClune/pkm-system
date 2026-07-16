@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { block } from "../test-helpers";
 import { extendSelection, needsDeleteConfirmation, selectedUids,
-         selectionText } from "./blockSelection";
+         selectionDragUids, selectionText } from "./blockSelection";
 
 // a: "one", b: "two", c(collapsed): "three" with hidden child c1, d: "four"
 const BLOCKS = [
@@ -60,6 +60,27 @@ describe("extendSelection", () => {
   it("clamps at the top edge", () => {
     expect(extendSelection(BLOCKS, { anchor: "d", head: "a" }, "up"))
       .toEqual({ anchor: "d", head: "a" });
+  });
+});
+
+describe("selectionDragUids (pkm-q89w drag)", () => {
+  it("returns the selection's uids when the grabbed block is part of it", () => {
+    expect(selectionDragUids(BLOCKS, { anchor: "a", head: "b" }, "a"))
+      .toEqual(["a", "b"]);
+    expect(selectionDragUids(BLOCKS, { anchor: "a", head: "b" }, "b"))
+      .toEqual(["a", "b"]);
+  });
+
+  it("returns null when the grabbed block is outside the selection", () => {
+    expect(selectionDragUids(BLOCKS, { anchor: "a", head: "b" }, "d")).toBeNull();
+  });
+
+  it("reduces a parent + selected descendant to the parent (root uids only)", () => {
+    // expand c so its child c1 is visible and selectable
+    const expanded = BLOCKS.map((b) =>
+      b.uid === "c" ? { ...b, collapsed: false } : b);
+    expect(selectionDragUids(expanded, { anchor: "c", head: "d" }, "c"))
+      .toEqual(["c", "d"]); // c1 folded into c's subtree
   });
 });
 

@@ -52,6 +52,60 @@ it("bullets are draggable and a drop reorders via one move op", () => {
   expect(texts).toEqual(["two", "one"]);
 });
 
+it("dragging a block inside a multi-block selection moves the whole selection (pkm-q89w)", () => {
+  const sync = renderPage([
+    block("u1", "one", { order_idx: 0 }),
+    block("u2", "two", { order_idx: 1 }),
+    block("u3", "three", { order_idx: 2 }),
+  ]);
+  // select u2 + u3 through the real editor wiring (Shift+ArrowDown at edge)
+  fireEvent.click(screen.getByText("two"));
+  const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "ArrowDown", shiftKey: true });
+  expect(document.querySelectorAll(".block-row.selected")).toHaveLength(2);
+
+  // drag u2's bullet to the top boundary: the whole [u2, u3] run moves
+  const transfer = dt();
+  fireEvent.dragStart(document.querySelector('[data-uid="u2"] .bullet')!,
+                      { dataTransfer: transfer });
+  const zone = document.querySelector(".block-tree")!;
+  fireEvent.dragOver(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
+  fireEvent.drop(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
+
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "u2", parent_uid: null, order_idx: 0 },
+    { op: "move", uid: "u3", parent_uid: null, order_idx: 1 },
+  ]]);
+  const texts = [...document.querySelectorAll(".block-text")].map((n) => n.textContent);
+  expect(texts).toEqual(["two", "three", "one"]);
+});
+
+it("dragging a block outside the selection moves only that block (pkm-q89w)", () => {
+  const sync = renderPage([
+    block("u1", "one", { order_idx: 0 }),
+    block("u2", "two", { order_idx: 1 }),
+    block("u3", "three", { order_idx: 2 }),
+  ]);
+  // select u1 + u2, then drag the unselected u3
+  fireEvent.click(screen.getByText("one"));
+  const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "ArrowDown", shiftKey: true });
+  expect(document.querySelectorAll(".block-row.selected")).toHaveLength(2);
+
+  const transfer = dt();
+  fireEvent.dragStart(document.querySelector('[data-uid="u3"] .bullet')!,
+                      { dataTransfer: transfer });
+  const zone = document.querySelector(".block-tree")!;
+  fireEvent.dragOver(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
+  fireEvent.drop(zone, { clientX: 0, clientY: -1, dataTransfer: transfer });
+
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "u3", parent_uid: null, order_idx: 0 },
+  ]]);
+});
+
 it("an empty page accepts a top-level drop from another page", () => {
   const sync = makeSync();
   render(

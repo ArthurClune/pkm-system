@@ -1,2 +1,9 @@
 allowBuilds:
   esbuild: true
+# pdfjs-dist is react-pdf's pinned dependency (deliberately NOT a direct
+# dependency, so react-pdf's pin stays the single source of version truth).
+# PdfViewer.tsx references its worker by bare specifier
+# (new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url)), which
+# pnpm's strict layout would otherwise make unresolvable from app code.
+publicHoistPattern:
+  - pdfjs-dist

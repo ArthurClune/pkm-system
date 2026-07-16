@@ -3,9 +3,12 @@
 // session registry it dispatches into. Entries are recorded by useOutline's
 // run() and replayed through the SAME pipeline as any edit — sync.enqueue for
 // durability plus applyLocal on the page's mounted session for instant
-// rendering. A page with no live session still gets correct data (the queue
-// and replica apply the batch); the registered navigator then brings the
-// user there to see it.
+// rendering. A session can outlive its component (e.g. an offline edit's
+// undelivered write keeps it alive after navigating away), so whether the
+// effect is visible is decided by registered hooks, not session existence:
+// when this page has no mounted outline (no registered hooks), the app
+// navigates there so the effect is visible, even if a lingering session
+// still exists to receive the data.
 import type { BlockOp } from "../api/ops";
 import type { WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
@@ -93,9 +96,13 @@ function dispatch(sync: HistoryDispatch, batch: BlockOp[], title: string,
   if (handle) {
     handle.applyLocal(write, batch);
     handle.release();
-    hooks.get(title)?.forEach((h) => h.applyFocus(focus));
+  }
+  const registered = hooks.get(title);
+  if (registered) {
+    registered.forEach((h) => h.applyFocus(focus));
   } else {
-    // Data is already correct (queue/replica); show the user where it landed.
+    // No mounted outline to show the effect (a lingering session, if any,
+    // already has correct data); bring the user to where it landed.
     navigator?.(pagePath(title));
   }
 }

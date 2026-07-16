@@ -165,7 +165,7 @@ export function useOutline(
     const inverse = invertOps(pre, pageTitle, ops);
     if (inverse !== null && inverse.length > 0) {
       recordHistory({
-        pageTitle, ops, inverse,
+        pageTitle, ops: [...ops], inverse,
         focusBefore: focusRef.current,
         focusAfter: result.focus ?? focusRef.current,
       });

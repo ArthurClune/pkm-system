@@ -223,13 +223,14 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
   const editingTableSubtree = !fallback && focusInSubtree(node, focus?.uid ?? null);
   const showTable = !editingTableSubtree && tableRows !== null;
   const chevronHasChildren = showTable ? false : hasChildren;
+  const chevronClosed = node.collapsed && !(editingTableSubtree && tableRows !== null);
   return (
     <div className="block">
       <div className={"block-row" + (focused ? " focused" : "")
              + (isSelected ? " selected" : "")}
            data-uid={node.uid}>
         <button
-          className={"chevron" + (node.collapsed ? " closed" : "") + (chevronHasChildren ? "" : " hidden")}
+          className={"chevron" + (chevronClosed ? " closed" : "") + (chevronHasChildren ? "" : " hidden")}
           onClick={() => handlers.onToggleCollapsed(node.uid, !node.collapsed)}
           disabled={fallback || readOnly || !chevronHasChildren}
           aria-label="toggle children"

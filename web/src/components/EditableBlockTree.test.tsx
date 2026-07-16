@@ -935,6 +935,8 @@ test("a rendered Roam table stays in raw mode when focus moves to a revealed des
   expect(screen.getByText("Model")).toBeInTheDocument();
   expect(screen.getByText("Claude")).toBeInTheDocument();
   expect(focusedTextarea()).toHaveValue("$5");
+  expect(view.container.querySelector('[data-uid="table"] .chevron'))
+    .not.toHaveClass("closed");
   expect(document.activeElement).toBe(focusedTextarea());
   expect(focusedTextarea().selectionStart).toBe(1);
 });

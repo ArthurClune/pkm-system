@@ -18,6 +18,28 @@ const caretToEnd = (page: Page) =>
   input(page).evaluate((el: HTMLTextAreaElement) =>
     el.setSelectionRange(el.value.length, el.value.length));
 
+type BlockNode = { text: string; children: BlockNode[] };
+
+function flattenText(blocks: BlockNode[]): string[] {
+  return blocks.flatMap((b) => [b.text, ...flattenText(b.children)]);
+}
+
+// Polls the server's own copy of today's page until it contains `text`
+// verbatim. Used instead of a client-side "no banner" check before a reload:
+// the offline banner only renders once syncingAfterReconnect is set (i.e.
+// after an actual disconnect) — see OfflineIndicator.tsx. In a normally
+// connected session pending>0 shows no banner at all, so waiting on the
+// banner is vacuous and a reload can race the last queued mutation's HTTP
+// delivery. Polling the server directly is deterministic.
+async function waitForServerText(page: Page, pageTitle: string, text: string) {
+  await expect.poll(async () => {
+    const res = await page.request.get(`/api/page/${encodeURIComponent(pageTitle)}`);
+    if (!res.ok()) return [];
+    const body = await res.json() as { blocks: BlockNode[] };
+    return flattenText(body.blocks);
+  }, { timeout: 20_000 }).toContain(text);
+}
+
 // Markers unique to this spec: other e2e specs share the same server/DB
 // (single worker, serial run) and already leave content on today's page
 // (e.g. edit.spec.ts's "second block"), so plain words like "second" would
@@ -29,6 +51,7 @@ test("undo and redo across text and structure", async ({ page }) => {
   await login(page);
   const today = page.locator(".journal-day").first();
   await expect(today).toBeVisible();
+  const pageTitle = await today.locator("h1.page-title").innerText();
 
   // block-row count is not assumed to start at 0: other specs share the DB
   // and run first, so track the delta this test introduces instead of an
@@ -53,7 +76,7 @@ test("undo and redo across text and structure", async ({ page }) => {
 
   // one structural step: split into a second block
   await today.getByText(FIRST).click();
-  await input(page).press("End");
+  await caretToEnd(page);
   await input(page).press("Enter");
   await input(page).fill(SECOND);
   await input(page).press("Escape");
@@ -76,8 +99,12 @@ test("undo and redo across text and structure", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect(today.getByText(SECOND, { exact: true })).toBeVisible();
 
-  // survives the server round-trip
-  await expect(page.locator(".ws-banner")).toHaveCount(0);
+  // survives the server round-trip: wait for the server's own copy of the
+  // page to contain the redone text before reloading. A ".ws-banner" check
+  // here would be vacuous — while connected, pending>0 renders no banner at
+  // all (see waitForServerText above), so it never actually waits for the
+  // final redo batch to reach the server, and reload() can race it.
+  await waitForServerText(page, pageTitle, SECOND);
   await page.reload();
   await expect(page.locator(".journal-day").first().getByText(SECOND, { exact: true }))
     .toBeVisible();

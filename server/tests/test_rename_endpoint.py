@@ -198,3 +198,57 @@ def test_rename_new_title_with_close_brackets_422(client):
     r = _rename(client, "AI", "A]]B")
     assert r.status_code == 422
     assert client.get("/api/page/AI").status_code == 200
+
+
+def test_rename_race_condition_returns_409(client, monkeypatch):
+    """Simulates a concurrent rename onto the same free title: another
+    writer inserts the target title between the route's collision check
+    and the UPDATE, so the UPDATE itself trips the UNIQUE(pages.title)
+    constraint. This must surface as a 409, not an unhandled 500."""
+    import pkm.server.routes_pages as routes_pages
+    from pkm.server.store import rename_page_rows as real_rename_page_rows
+
+    def racy_rename_page_rows(db, page_id, old_title, new_title, now_ms):
+        # another request "wins" the race and creates the target title
+        # first, on the same connection, right before the real mutation
+        db.execute("INSERT INTO pages(title) VALUES (?)", (new_title,))
+        real_rename_page_rows(db, page_id, old_title, new_title, now_ms)
+
+    monkeypatch.setattr(routes_pages, "rename_page_rows",
+                        racy_rename_page_rows)
+
+    r = _rename(client, "Machine Learning", "Race Title")
+    assert r.status_code == 409
+    assert r.json()["detail"] == "page 'Race Title' already exists"
+
+    # source page survived untouched
+    body = client.get("/api/page/Machine Learning").json()
+    assert [b["text"] for b in body["blocks"]] == ["Tags:: #AI", "Papers"]
+
+
+def test_rename_self_referencing_block_rewrites_in_place(client, seeded_config):
+    """A block on the page being renamed that itself links to that same
+    page (e.g. a self-referential note) must be rewritten to the new
+    title too, and its refs row must keep targeting the renamed page's id
+    (the id never changes on a plain rename)."""
+    con = sqlite3.connect(seeded_config.db_path)
+    con.executescript("""
+        INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,
+                           collapsed)
+        VALUES ('uid_self', 1, NULL, 2, 'About [[Machine Learning]] itself', 0);
+        INSERT INTO refs VALUES ('uid_self', 1, 'link');
+    """)
+    con.commit()
+    con.close()
+
+    r = _rename(client, "Machine Learning", "ML Stuff")
+    assert r.status_code == 200
+
+    con = sqlite3.connect(seeded_config.db_path)
+    text = con.execute("SELECT text FROM blocks WHERE uid = 'uid_self'"
+                       ).fetchone()[0]
+    refs = con.execute("SELECT target_page_id, kind FROM refs"
+                       " WHERE src_block_uid = 'uid_self'").fetchall()
+    con.close()
+    assert text == "About [[ML Stuff]] itself"
+    assert refs == [(1, "link")]

@@ -277,6 +277,13 @@ describe("tokenizeBlock", () => {
     ]);
   });
 
+  it("does not close math with a $$ inside a later inline code span", () => {
+    expect(tokenizeBlock("cost is $$5 and pid via `echo $$`")).toEqual([
+      { kind: "text", text: "cost is $$5 and pid via " },
+      { kind: "inline-code", code: "echo $$" },
+    ]);
+  });
+
   it("math interior is verbatim TeX: no emphasis or refs parsed inside", () => {
     expect(tokenizeBlock("see $$a **b** c$$")).toEqual([
       { kind: "text", text: "see " },

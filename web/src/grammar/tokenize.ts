@@ -174,7 +174,16 @@ function tokenizeInline(
       }
     }
     if (ch === "$" && text.startsWith("$$", i)) {
-      const close = text.indexOf("$$", i + 2);
+      // Code wins: a "$$" that falls inside an inline-code scanner token
+      // (e.g. the one in "`echo $$`") cannot close math, so skip past that
+      // token's end and keep searching for a code-free close.
+      const codeTokens = [...byStart.values()].filter((t) => t.kind === "inline-code");
+      let close = text.indexOf("$$", i + 2);
+      while (close !== -1) {
+        const codeTok = codeTokens.find((t) => t.start < close! && close! < t.end);
+        if (!codeTok) break;
+        close = text.indexOf("$$", codeTok.end);
+      }
       if (close !== -1 && close + 2 <= to
           && text.slice(i + 2, close).trim() !== "") {
         flushText();

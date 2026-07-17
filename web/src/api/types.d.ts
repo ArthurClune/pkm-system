@@ -149,8 +149,12 @@ export interface paths {
         /**
          * Rename Page
          * @description Rename a page, rewriting every [[link]]/#tag/attr:: in block text.
-         *     409 when the new title is taken and allow_merge is false; Task 3 wires
-         *     the merge. Case-sensitive throughout, like pages.title itself.
+         *     When the new title is taken: 409 unless allow_merge is true, in which
+         *     case the source page is concatenated onto the target (source's
+         *     top-level blocks appended after the target's, referencing text
+         *     rewritten to the target, source page row dropped) -- a confirm-gated
+         *     merge, not a silent overwrite. Case-sensitive throughout, like
+         *     pages.title itself.
          */
         post: operations["rename_page_api_page__title__rename_post"];
         delete?: never;

@@ -89,3 +89,31 @@ def rename_page_rows(db: sqlite3.Connection, page_id: int, old_title: str,
                (new_title, now_ms, page_id))
     rewrite_referencing_blocks(db, page_id, old_title, new_title, now_ms)
     retitle_sidebar_entry(db, old_title, new_title)
+
+
+def merge_page_rows(db: sqlite3.Connection, source_id: int, target_id: int,
+                    old_title: str, new_title: str, now_ms: int) -> None:
+    """Concatenate source onto target: rewrite/reindex referencing text
+    first (so [[new]] resolves to the target), append the source's
+    top-level blocks after the target's (subtrees follow via parent_uid;
+    uids never change, so ((uid)) block refs keep resolving), then drop
+    the source page row. Never commits."""
+    rewrite_referencing_blocks(db, source_id, old_title, new_title, now_ms)
+    base = db.execute(
+        "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
+        " WHERE page_id = ? AND parent_uid IS NULL",
+        (target_id,)).fetchone()[0]
+    tops = db.execute(
+        "SELECT uid FROM blocks WHERE page_id = ? AND parent_uid IS NULL"
+        " ORDER BY order_idx", (source_id,)).fetchall()
+    for i, row in enumerate(tops):
+        db.execute(
+            "UPDATE blocks SET page_id = ?, order_idx = ?, updated_at = ?"
+            " WHERE uid = ?", (target_id, base + i, now_ms, row["uid"]))
+    db.execute(  # descendants: same page, original order_idx
+        "UPDATE blocks SET page_id = ?, updated_at = ? WHERE page_id = ?",
+        (target_id, now_ms, source_id))
+    db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
+               (now_ms, target_id))
+    db.execute("DELETE FROM pages WHERE id = ?", (source_id,))
+    retitle_sidebar_entry(db, old_title, new_title)

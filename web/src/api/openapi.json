@@ -304,7 +304,7 @@
     "/api/page/{title}/rename": {
       "post": {
         "summary": "Rename Page",
-        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\n409 when the new title is taken and allow_merge is false; Task 3 wires\nthe merge. Case-sensitive throughout, like pages.title itself.",
+        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself.",
         "operationId": "rename_page_api_page__title__rename_post",
         "parameters": [
           {

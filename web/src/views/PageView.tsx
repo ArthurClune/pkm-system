@@ -5,6 +5,7 @@ import { apiFetch } from "../api/client";
 import type { PagePayload } from "../api/payloads";
 import { BacklinksSection } from "../components/BacklinksSection";
 import { BlockRefProvider } from "../components/BlockRefProvider";
+import { PageTitle } from "../components/PageTitle";
 import { UnlinkedSection } from "../components/UnlinkedSection";
 import { encodeTitle, titleFromPathname } from "../paths";
 import { useResync } from "../sync/SyncProvider";
@@ -134,7 +135,7 @@ export function PageView() {
   return (
     <BlockRefProvider seed={payload.block_ref_texts}>
       <article className="page">
-        <h1 className="page-title">{payload.page.title}</h1>
+        <PageTitle title={payload.page.title} />
         <EditablePage key={payload.page.title} title={payload.page.title}
                       initial={payload.blocks} composer />
       </article>

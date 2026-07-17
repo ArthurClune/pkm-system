@@ -137,6 +137,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/page/{title}/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rename Page
+         * @description Rename a page, rewriting every [[link]]/#tag/attr:: in block text.
+         *     When the new title is taken: 409 unless allow_merge is true, in which
+         *     case the source page is concatenated onto the target (source's
+         *     top-level blocks appended after the target's, referencing text
+         *     rewritten to the target, source page row dropped) -- a confirm-gated
+         *     merge, not a silent overwrite. Case-sensitive throughout, like
+         *     pages.title itself.
+         */
+        post: operations["rename_page_api_page__title__rename_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/unlinked": {
         parameters: {
             query?: never;
@@ -682,6 +708,16 @@ export interface components {
                 [key: string]: components["schemas"]["BlockRefText"];
             };
         };
+        /** RenamePageRequest */
+        RenamePageRequest: {
+            /** New Title */
+            new_title: string;
+            /**
+             * Allow Merge
+             * @default false
+             */
+            allow_merge: boolean;
+        };
         /** ReorderSidebarEntriesRequest */
         ReorderSidebarEntriesRequest: {
             /** Order */
@@ -1104,6 +1140,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageMeta"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_page_api_page__title__rename_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                title: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenamePageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

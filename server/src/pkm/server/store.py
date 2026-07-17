@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import sqlite3
 
+from pkm.refs import extract
+from pkm.rename import rewrite_title_refs
+
 
 def fetch_page(db: sqlite3.Connection, title: str) -> sqlite3.Row | None:
     return db.execute(
@@ -37,3 +40,80 @@ def delete_page_rows(db: sqlite3.Connection, page_id: int,
     db.execute("DELETE FROM blocks WHERE page_id = ?", (page_id,))
     db.execute("DELETE FROM pages WHERE id = ?", (page_id,))
     db.execute("DELETE FROM sidebar_entries WHERE title = ?", (title,))
+
+
+def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: int,
+                               old_title: str, new_title: str,
+                               now_ms: int) -> None:
+    """Rewrite [[old]]/#old/old:: in every block that refs `page_id`, then
+    reindex those blocks' refs from the rewritten text. Must run AFTER the
+    new title exists in pages (rename applied / merge target present) so
+    the reindex resolves [[new]] to the surviving row instead of creating
+    a page. Never commits."""
+    rows = db.execute(
+        """SELECT DISTINCT b.uid, b.text FROM refs r
+             JOIN blocks b ON b.uid = r.src_block_uid
+            WHERE r.target_page_id = ?""", (page_id,)).fetchall()
+    for row in rows:
+        new_text = rewrite_title_refs(row["text"], old_title, new_title)
+        if new_text != row["text"]:
+            db.execute(
+                "UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
+                (new_text, now_ms, row["uid"]))
+        db.execute("DELETE FROM refs WHERE src_block_uid = ?", (row["uid"],))
+        for ref in extract(new_text).refs:
+            page = get_or_create_page(db, ref.title, now_ms)
+            db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
+                       (row["uid"], page["id"], ref.kind))
+
+
+def retitle_sidebar_entry(db: sqlite3.Connection, old_title: str,
+                          new_title: str) -> None:
+    """Follow a rename/merge in the title-keyed sidebar table. If an entry
+    already exists under the new title (merge target pinned, or an orphan),
+    the old entry is dropped instead of violating UNIQUE(title)."""
+    if db.execute("SELECT 1 FROM sidebar_entries WHERE title = ?",
+                  (new_title,)).fetchone() is not None:
+        db.execute("DELETE FROM sidebar_entries WHERE title = ?",
+                   (old_title,))
+    else:
+        db.execute("UPDATE sidebar_entries SET title = ? WHERE title = ?",
+                   (new_title, old_title))
+
+
+def rename_page_rows(db: sqlite3.Connection, page_id: int, old_title: str,
+                     new_title: str, now_ms: int) -> None:
+    """Rename in place. Refs stay valid (keyed by page id); pages_fts is
+    trigger-maintained. Never commits."""
+    db.execute("UPDATE pages SET title = ?, updated_at = ? WHERE id = ?",
+               (new_title, now_ms, page_id))
+    rewrite_referencing_blocks(db, page_id, old_title, new_title, now_ms)
+    retitle_sidebar_entry(db, old_title, new_title)
+
+
+def merge_page_rows(db: sqlite3.Connection, source_id: int, target_id: int,
+                    old_title: str, new_title: str, now_ms: int) -> None:
+    """Concatenate source onto target: rewrite/reindex referencing text
+    first (so [[new]] resolves to the target), append the source's
+    top-level blocks after the target's (subtrees follow via parent_uid;
+    uids never change, so ((uid)) block refs keep resolving), then drop
+    the source page row. Never commits."""
+    rewrite_referencing_blocks(db, source_id, old_title, new_title, now_ms)
+    base = db.execute(
+        "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
+        " WHERE page_id = ? AND parent_uid IS NULL",
+        (target_id,)).fetchone()[0]
+    tops = db.execute(
+        "SELECT uid FROM blocks WHERE page_id = ? AND parent_uid IS NULL"
+        " ORDER BY order_idx", (source_id,)).fetchall()
+    for i, row in enumerate(tops):
+        db.execute(
+            "UPDATE blocks SET page_id = ?, order_idx = ?, updated_at = ?"
+            " WHERE uid = ?", (target_id, base + i, now_ms, row["uid"]))
+    db.execute(  # descendants: same page, original order_idx
+        "UPDATE blocks SET page_id = ?, updated_at = ? WHERE page_id = ?",
+        (target_id, now_ms, source_id))
+    db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
+               (now_ms, target_id))
+    db.execute("DELETE FROM pages WHERE id = ?", (source_id,))
+    retitle_sidebar_entry(db, old_title, new_title)

@@ -20,7 +20,9 @@ from pkm.server.ops_core import UID_RE as _UID_RE
 from pkm.server.response_models import (
     BlockRefsPayload, CurrentWorkPayload, GroupsPayload, JournalPayload,
     PageMeta, PagePayload)
-from pkm.server.store import delete_page_rows, fetch_page, get_or_create_page
+from pkm.server.store import (delete_page_rows, fetch_page,
+                              get_or_create_page, merge_page_rows,
+                              rename_page_rows)
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -31,6 +33,11 @@ _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
 
 class CreatePageRequest(BaseModel):
     title: str = Field(min_length=1)
+
+
+class RenamePageRequest(BaseModel):
+    new_title: str = Field(min_length=1)
+    allow_merge: bool = False
 
 
 def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
@@ -176,6 +183,49 @@ def delete_page(request: Request, title: str,
     db.commit()
     notify.nudge_threadpool(request, db)
     return {"ok": True}
+
+
+@router.post("/api/page/{title:path}/rename")
+def rename_page(request: Request, title: str, body: RenamePageRequest,
+                db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """Rename a page, rewriting every [[link]]/#tag/attr:: in block text.
+    When the new title is taken: 409 unless allow_merge is true, in which
+    case the source page is concatenated onto the target (source's
+    top-level blocks appended after the target's, referencing text
+    rewritten to the target, source page row dropped) -- a confirm-gated
+    merge, not a silent overwrite. Case-sensitive throughout, like
+    pages.title itself."""
+    new_title = body.new_title.strip()
+    if not new_title:
+        raise HTTPException(status_code=422,
+                            detail="title must not be blank")
+    if "[[" in new_title or "]]" in new_title:
+        raise HTTPException(status_code=422,
+                            detail="bracket sequences ([[ or ]]) are not"
+                                    " allowed in titles")
+    page = fetch_page(db, title)
+    if page is None:
+        raise HTTPException(status_code=404, detail="page not found")
+    if new_title == title:
+        raise HTTPException(status_code=400, detail="title is unchanged")
+    if date_for_title(title) is not None:
+        raise HTTPException(status_code=400,
+                            detail="daily notes cannot be renamed")
+    now_ms = int(time.time() * 1000)
+    target = fetch_page(db, new_title)
+    if target is None:
+        rename_page_rows(db, page["id"], title, new_title, now_ms)
+        result = "renamed"
+    elif not body.allow_merge:
+        raise HTTPException(status_code=409,
+                            detail=f"page {new_title!r} already exists")
+    else:
+        merge_page_rows(db, page["id"], target["id"], title, new_title,
+                        now_ms)
+        result = "merged"
+    db.commit()
+    notify.nudge_threadpool(request, db)
+    return {"result": result, "title": new_title}
 
 
 @router.get("/api/unlinked", response_model=GroupsPayload)

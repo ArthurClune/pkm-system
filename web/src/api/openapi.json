@@ -301,6 +301,58 @@
         }
       }
     },
+    "/api/page/{title}/rename": {
+      "post": {
+        "summary": "Rename Page",
+        "description": "Rename a page, rewriting every [[link]]/#tag/attr:: in block text.\nWhen the new title is taken: 409 unless allow_merge is true, in which\ncase the source page is concatenated onto the target (source's\ntop-level blocks appended after the target's, referencing text\nrewritten to the target, source page row dropped) -- a confirm-gated\nmerge, not a silent overwrite. Case-sensitive throughout, like\npages.title itself.",
+        "operationId": "rename_page_api_page__title__rename_post",
+        "parameters": [
+          {
+            "name": "title",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Title"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenamePageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Rename Page Api Page  Title  Rename Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/unlinked": {
       "get": {
         "summary": "Get Unlinked",
@@ -1817,6 +1869,25 @@
           "block_ref_texts"
         ],
         "title": "PagePayload"
+      },
+      "RenamePageRequest": {
+        "properties": {
+          "new_title": {
+            "type": "string",
+            "minLength": 1,
+            "title": "New Title"
+          },
+          "allow_merge": {
+            "type": "boolean",
+            "title": "Allow Merge",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_title"
+        ],
+        "title": "RenamePageRequest"
       },
       "ReorderSidebarEntriesRequest": {
         "properties": {

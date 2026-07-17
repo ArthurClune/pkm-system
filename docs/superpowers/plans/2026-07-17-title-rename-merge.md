@@ -471,7 +471,9 @@ git commit -m "Add page rename endpoint with ref rewrite (pkm-g0t5)"
 git push
 ```
 
----### Task 3: Merge path
+---
+
+### Task 3: Merge path
 
 **Files:**
 - Modify: `server/src/pkm/server/store.py` (append `merge_page_rows`)

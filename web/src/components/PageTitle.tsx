@@ -72,7 +72,6 @@ export function PageTitle({ title }: { title: string }) {
   return (
     <input className="page-title page-title-input" defaultValue={title}
            aria-label="Page title"
-           // eslint-disable-next-line jsx-a11y/no-autofocus
            autoFocus
            onKeyDown={(e) => {
              if (e.key === "Enter") {

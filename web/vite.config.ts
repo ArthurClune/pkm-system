@@ -33,7 +33,13 @@ export default defineConfig({
       workbox: {
         // the sqlite wasm binary and the pdf.js worker (.mjs) must be
         // precached or the replica/PDF viewer cannot start offline
-        globPatterns: ["**/*.{js,mjs,css,html,ico,png,svg,wasm}"],
+        globPatterns: [
+          "**/*.{js,mjs,css,html,ico,png,svg,wasm}",
+          // Offline math: the core KaTeX faces (Main, Math, AMS, Size1-4).
+          // Exotic faces (Fraktur, Script, Typewriter, ...) load on demand
+          // online and fall back to system fonts offline.
+          "**/KaTeX_{Main,Math,AMS,Size1,Size2,Size3,Size4}-*.woff2",
+        ],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         // Hard raw-byte/entry ceiling on the offline-shell precache: fails the
         // build if the final Workbox manifest exceeds budgets.json.

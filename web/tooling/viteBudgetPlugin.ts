@@ -116,6 +116,10 @@ const isPdfjsSeed = (id: string): boolean =>
   (id.includes("node_modules") && /[\\/](react-pdf|pdfjs-dist)[\\/]/.test(id)) ||
   /[\\/]src[\\/]components[\\/]PdfViewer\.tsx$/.test(id);
 
+/** KaTeX graph seeds: katex package modules under node_modules. */
+const isKatexSeed = (id: string): boolean =>
+  id.includes("node_modules") && /[\\/]katex[\\/]/.test(id);
+
 /**
  * Vite/Rollup plugin: enforce the production bundle budgets in generateBundle,
  * once, against the final emitted output.
@@ -144,6 +148,7 @@ export function budgetPlugin(): Plugin {
       const owned = {
         mermaid: collectOwned(graph, isMermaidSeed),
         pdfjs: collectOwned(graph, isPdfjsSeed),
+        katex: collectOwned(graph, isKatexSeed),
       };
       const report = evaluateBundleBudgets(files, chunks, owned);
       const text = formatReport("bundle", report);

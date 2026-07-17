@@ -23,6 +23,8 @@ export interface BuildBudgets {
   /** Raw bytes of chunks wholly owned by the lazy PDF viewer module graph
    * (PdfViewer.tsx + react-pdf + pdfjs-dist). */
   pdfjsOwnedBytes: number;
+  /** Raw bytes of chunks wholly owned by the lazy KaTeX module graph. */
+  katexOwnedBytes: number;
 }
 
 /** One emitted output file: a chunk or an asset. */
@@ -102,6 +104,7 @@ export function ownedChunkBytes(
 export interface OwnedModuleSets {
   mermaid: ReadonlySet<string>;
   pdfjs: ReadonlySet<string>;
+  katex: ReadonlySet<string>;
 }
 
 export function evaluateBundleBudgets(
@@ -123,6 +126,8 @@ export function evaluateBundleBudgets(
       ownedChunkBytes(chunks, owned.mermaid)),
     check("pdfjsOwnedBytes", budgets.pdfjsOwnedBytes,
       ownedChunkBytes(chunks, owned.pdfjs)),
+    check("katexOwnedBytes", budgets.katexOwnedBytes,
+      ownedChunkBytes(chunks, owned.katex)),
   ];
   return {
     ok: checks.every((c) => c.ok),

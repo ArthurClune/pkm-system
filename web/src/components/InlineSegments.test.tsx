@@ -187,3 +187,11 @@ it("renders malformed percent-encoding in a pdf macro label as the raw filename"
   expect(screen.getByRole("link", { name: "bad%2.pdf" })).toBeInTheDocument();
   await waitFor(() => expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument());
 });
+
+it("dispatches math segments to MathSpan and renders KaTeX output", async () => {
+  const { container } = render(
+    <InlineSegments segments={[{ kind: "math", tex: "x^2", display: false }]} />,
+  );
+  expect(container.textContent).toBe("$$x^2$$"); // loading fallback
+  await waitFor(() => expect(container.querySelector(".katex")).not.toBeNull());
+});

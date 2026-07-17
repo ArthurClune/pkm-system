@@ -234,4 +234,56 @@ describe("tokenizeBlock", () => {
     expect(tokenizeBlock("{{[[pdf]]}}")
       .some((s) => s.kind === "pdf-embed")).toBe(false);
   });
+
+  it("renders $$...$$ mid-text as inline math", () => {
+    expect(tokenizeBlock("some text $$x^2$$ more text")).toEqual([
+      { kind: "text", text: "some text " },
+      { kind: "math", tex: "x^2", display: false },
+      { kind: "text", text: " more text" },
+    ]);
+  });
+
+  it("renders a whole-block $$...$$ as display math, tolerating surrounding whitespace", () => {
+    expect(tokenizeBlock("$$\\sum_{i=1}^n i$$")).toEqual([
+      { kind: "math", tex: "\\sum_{i=1}^n i", display: true },
+    ]);
+    expect(tokenizeBlock("  $$e^{i\\pi} = -1$$ \n")).toEqual([
+      { kind: "math", tex: "e^{i\\pi} = -1", display: true },
+    ]);
+  });
+
+  it("renders two $$...$$ in one block as two inline maths, not one display", () => {
+    expect(tokenizeBlock("$$a$$ and $$b$$")).toEqual([
+      { kind: "math", tex: "a", display: false },
+      { kind: "text", text: " and " },
+      { kind: "math", tex: "b", display: false },
+    ]);
+  });
+
+  it("keeps unclosed $$ and empty/whitespace-only $$$$ as plain text", () => {
+    expect(tokenizeBlock("cost is $$5 total")).toEqual([
+      { kind: "text", text: "cost is $$5 total" },
+    ]);
+    expect(tokenizeBlock("$$$$")).toEqual([{ kind: "text", text: "$$$$" }]);
+    expect(tokenizeBlock("a $$  $$ b")).toEqual([{ kind: "text", text: "a $$  $$ b" }]);
+  });
+
+  it("code wins over math: $$ inside inline code and fences stays literal", () => {
+    expect(tokenizeBlock("`$$x$$`")).toEqual([
+      { kind: "inline-code", code: "$$x$$" },
+    ]);
+    expect(tokenizeBlock("```\n$$x$$\n```")).toEqual([
+      { kind: "code-block", lang: null, code: "$$x$$" },
+    ]);
+  });
+
+  it("math interior is verbatim TeX: no emphasis or refs parsed inside", () => {
+    expect(tokenizeBlock("see $$a **b** c$$")).toEqual([
+      { kind: "text", text: "see " },
+      { kind: "math", tex: "a **b** c", display: false },
+    ]);
+    expect(tokenizeBlock("$$[[Page]]$$")).toEqual([
+      { kind: "math", tex: "[[Page]]", display: true },
+    ]);
+  });
 });

@@ -4,7 +4,7 @@
 // (scan.ts, which follows server/src/pkm/refs.py semantics); this file owns
 // only the rendering-side grammar the scanner does not model: markdown
 // links and images, bare-URL autolinking, emphasis, {{query}} blocks,
-// {{pdf}} embed macros (Roam's PDF-embed spelling) and line breaks. Ref
+// {{pdf}} embed macros (Roam's PDF-embed spelling), $$ math, and line breaks. Ref
 // *extraction* lives in refs.ts on the same scanner.
 
 import { scanGrammar, type GrammarToken } from "./scan";
@@ -20,6 +20,7 @@ export type InlineSegment =
   | { kind: "block-ref"; uid: string }
   | { kind: "image"; alt: string; src: string }
   | { kind: "link"; text: string; href: string }
+  | { kind: "math"; tex: string; display: boolean }
   | { kind: EmphasisKind; children: InlineSegment[] };
 
 export type BlockSegment =
@@ -31,6 +32,10 @@ export type BlockSegment =
 
 const QUERY_PREFIX = /^\{\{(?:\[\[)?query(?:\]\])?:\s*/;
 const PDF_PREFIX = /^\{\{(?:\[\[)?pdf(?:\]\])?:\s*/;
+// A block whose ENTIRE trimmed text is one $$...$$ (no inner $$) renders in
+// KaTeX display mode. Checked against raw text before any other grammar, so
+// whole-block math is fully verbatim TeX.
+const BLOCK_MATH_RE = /^\$\$([\s\S]+)\$\$$/;
 
 const EMPHASIS: [string, EmphasisKind][] = [
   ["**", "bold"], ["__", "italic"], ["~~", "strike"], ["^^", "highlight"],
@@ -168,6 +173,16 @@ function tokenizeInline(
         }
       }
     }
+    if (ch === "$" && text.startsWith("$$", i)) {
+      const close = text.indexOf("$$", i + 2);
+      if (close !== -1 && close + 2 <= to
+          && text.slice(i + 2, close).trim() !== "") {
+        flushText();
+        out.push({ kind: "math", tex: text.slice(i + 2, close), display: false });
+        i = close + 2;
+        continue;
+      }
+    }
     let matchedEmphasis = false;
     for (const [marker, kind] of EMPHASIS) {
       if (!text.startsWith(marker, i)) continue;
@@ -190,6 +205,11 @@ function tokenizeInline(
 }
 
 export function tokenizeBlock(text: string): BlockSegment[] {
+  const blockMath = BLOCK_MATH_RE.exec(text.trim());
+  if (blockMath && !blockMath[1].includes("$$") && blockMath[1].trim() !== "") {
+    return [{ kind: "math", tex: blockMath[1], display: true }];
+  }
+
   const { tokens } = scanGrammar(text);
   // Tokens are sorted outer-before-inner, so on a shared start the wider
   // token wins the map slot (e.g. an attribute over a hashtag in "#x:: y").

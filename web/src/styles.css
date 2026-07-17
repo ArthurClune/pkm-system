@@ -381,6 +381,8 @@ mark.highlight { background: var(--color-highlight-bg); }
 .mermaid-diagram { display: block; margin: 4px 0; overflow-x: auto; }
 .mermaid-diagram svg { max-width: 100%; }
 .mermaid-diagram-error-note { color: var(--color-text-muted); font-size: 13px; margin: 0 0 4px; }
+.math-display { display: block; overflow-x: auto; }
+.math-error { background: var(--color-bg-subtle); border-radius: var(--radius-control); padding: 0 3px; color: var(--color-text-muted); }
 .bluesky-embed { display: block; width: 100%; max-width: 550px; height: 300px;
   border: none; border-radius: var(--radius-card); margin: 4px 0; }
 .todo-checkbox { margin-right: 6px; vertical-align: middle; }

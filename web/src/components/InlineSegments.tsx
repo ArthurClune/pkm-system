@@ -10,6 +10,7 @@ import { BlockRef } from "./BlockRef";
 import { isBlueskyPostUrl } from "./bluesky";
 import { BlueskyEmbed } from "./BlueskyEmbed";
 import { CodeBlock } from "./CodeBlock";
+import { MathSpan } from "./MathSpan";
 import { MermaidDiagram } from "./MermaidDiagram";
 import { PageLink } from "./PageLink";
 import { PdfEmbed } from "./PdfEmbed";
@@ -59,6 +60,8 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       return <br />;
     case "inline-code":
       return <code className="inline-code">{seg.code}</code>;
+    case "math":
+      return <MathSpan tex={seg.tex} display={seg.display} />;
     case "page-ref":
       return <PageLink title={seg.title} tag={seg.tag} />;
     case "attribute":

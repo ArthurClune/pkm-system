@@ -246,6 +246,10 @@ button { font: inherit; }
 .page-title { font-size: 28px; font-weight: 600; letter-spacing: -0.01em;
   margin: 0 0 16px; }
 .page-title a { color: inherit; }
+.page-title-editable { cursor: text; }
+.page-title-input { display: block; width: 100%; padding: 0; border: none;
+  outline: none; background: transparent; color: inherit;
+  font-family: inherit; }
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
 

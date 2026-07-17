@@ -186,3 +186,15 @@ def test_allow_merge_without_collision_is_plain_rename(client):
     r = _rename(client, "AI", "Fresh Title", allow_merge=True)
     assert r.status_code == 200
     assert r.json()["result"] == "renamed"
+
+
+def test_rename_new_title_with_open_brackets_422(client):
+    r = _rename(client, "AI", "Evil [[Title")
+    assert r.status_code == 422
+    assert client.get("/api/page/AI").status_code == 200
+
+
+def test_rename_new_title_with_close_brackets_422(client):
+    r = _rename(client, "AI", "A]]B")
+    assert r.status_code == 422
+    assert client.get("/api/page/AI").status_code == 200

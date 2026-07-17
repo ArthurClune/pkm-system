@@ -199,6 +199,10 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
     if not new_title:
         raise HTTPException(status_code=422,
                             detail="title must not be blank")
+    if "[[" in new_title or "]]" in new_title:
+        raise HTTPException(status_code=422,
+                            detail="bracket sequences ([[ or ]]) are not"
+                                    " allowed in titles")
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")

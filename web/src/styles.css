@@ -354,6 +354,20 @@ a.tag:hover { color: var(--color-link); text-decoration: none;
 }
 mark.highlight { background: var(--color-highlight-bg); }
 .asset-image { max-width: 100%; border-radius: var(--radius-card); display: block; margin: 4px 0; }
+.asset-image-trigger { appearance: none; display: block; max-width: 100%; margin: 4px 0;
+  padding: 0; border: 0; border-radius: var(--radius-card); background: transparent;
+  color: inherit; font: inherit; line-height: 0; text-align: left; cursor: zoom-in; }
+.asset-image-trigger .asset-image { margin: 0; }
+.asset-image-trigger:focus-visible { outline: 2px solid var(--color-link); outline-offset: 2px; }
+.image-overlay { position: fixed; inset: 0; z-index: 1000;
+  display: flex; flex-direction: column; background: rgb(0 0 0 / 88%); }
+.image-overlay-bar { display: flex; justify-content: flex-end;
+  padding: 8px 16px; border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg); }
+.image-overlay-stage { flex: 1; min-width: 0; min-height: 0; display: flex;
+  align-items: center; justify-content: center; padding: 16px; cursor: zoom-out; }
+.image-overlay-image { display: block; max-width: 100%; max-height: 100%;
+  width: auto; height: auto; object-fit: contain; cursor: default; }
 .asset-image-placeholder {
   display: block; margin: 4px 0; padding: 12px 16px;
   border: 1px dashed var(--color-border); border-radius: var(--radius-card);

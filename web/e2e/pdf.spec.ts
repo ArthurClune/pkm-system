@@ -56,7 +56,7 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   await expect(page.locator(".pdf-page-indicator")).toHaveText("Page 3 of 3");
 
   // expand to the fullscreen overlay; Escape collapses it
-  await page.getByRole("button", { name: "Expand" }).click();
+  await page.getByRole("button", { name: "Expand", exact: true }).click();
   const overlay = page.locator(".pdf-overlay");
   await expect(overlay).toBeVisible();
   await expect(overlay.locator("canvas").first()).toBeVisible();
@@ -88,7 +88,7 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   await expect(overlay).toHaveCount(0);
   // closing hands focus back to Expand and unlocks body scrolling (the
   // inline overflow style is removed, not just overridden)
-  await expect(page.getByRole("button", { name: "Expand" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Expand", exact: true })).toBeFocused();
   expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
 });
 

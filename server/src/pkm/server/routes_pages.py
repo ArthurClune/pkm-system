@@ -230,7 +230,10 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
         # request creates new_title between that check and this
         # mutation/commit, and the UNIQUE(pages.title) constraint trips
         # here instead. Surface the same 409 as the collision we would
-        # have raised had we seen it in time, not a raw 500.
+        # have raised had we seen it in time, not a raw 500. Labeling any
+        # IntegrityError this way relies on rename_page_rows retitling
+        # pages FIRST (so a title race trips before sidebar UNIQUE could)
+        # and on the helpers' refs inserts being INSERT OR IGNORE.
         db.rollback()
         raise HTTPException(status_code=409,
                             detail=f"page {new_title!r} already exists")

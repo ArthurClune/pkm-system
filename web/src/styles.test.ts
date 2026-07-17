@@ -174,3 +174,24 @@ describe("Roam tables (pkm-kbv5)", () => {
     expect(ruleFor(".roam-table th")).toContain("text-align: left;");
   });
 });
+
+describe("uploaded image expansion (pkm-aze9)", () => {
+  test("the uploaded-image trigger preserves layout and has visible keyboard focus", () => {
+    const trigger = ruleFor(".asset-image-trigger");
+    expect(trigger).toContain("display: block;");
+    expect(trigger).toContain("max-width: 100%;");
+    expect(trigger).toContain("cursor: zoom-in;");
+    expect(ruleFor(".asset-image-trigger:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+  });
+
+  test("the overlay fills the viewport and the image is contained without cropping", () => {
+    const overlay = ruleFor(".image-overlay");
+    expect(overlay).toContain("position: fixed;");
+    expect(overlay).toContain("inset: 0;");
+    const image = ruleFor(".image-overlay-image");
+    expect(image).toContain("max-width: 100%;");
+    expect(image).toContain("max-height: 100%;");
+    expect(image).toContain("object-fit: contain;");
+  });
+});

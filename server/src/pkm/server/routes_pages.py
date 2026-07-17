@@ -213,17 +213,27 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
                             detail="daily notes cannot be renamed")
     now_ms = int(time.time() * 1000)
     target = fetch_page(db, new_title)
-    if target is None:
-        rename_page_rows(db, page["id"], title, new_title, now_ms)
-        result = "renamed"
-    elif not body.allow_merge:
+    try:
+        if target is None:
+            rename_page_rows(db, page["id"], title, new_title, now_ms)
+            result = "renamed"
+        elif not body.allow_merge:
+            raise HTTPException(status_code=409,
+                                detail=f"page {new_title!r} already exists")
+        else:
+            merge_page_rows(db, page["id"], target["id"], title, new_title,
+                            now_ms)
+            result = "merged"
+        db.commit()
+    except sqlite3.IntegrityError:
+        # Our fetch_page(new_title) check above can go stale: another
+        # request creates new_title between that check and this
+        # mutation/commit, and the UNIQUE(pages.title) constraint trips
+        # here instead. Surface the same 409 as the collision we would
+        # have raised had we seen it in time, not a raw 500.
+        db.rollback()
         raise HTTPException(status_code=409,
                             detail=f"page {new_title!r} already exists")
-    else:
-        merge_page_rows(db, page["id"], target["id"], title, new_title,
-                        now_ms)
-        result = "merged"
-    db.commit()
     notify.nudge_threadpool(request, db)
     return {"result": result, "title": new_title}
 

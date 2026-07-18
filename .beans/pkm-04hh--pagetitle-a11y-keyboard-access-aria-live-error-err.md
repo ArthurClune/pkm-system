@@ -1,10 +1,11 @@
 ---
 # pkm-04hh
 title: 'PageTitle a11y: keyboard access, aria-live error, error reset on nav'
-status: todo
+status: scrapped
 type: feature
+priority: normal
 created_at: 2026-07-17T19:30:20Z
-updated_at: 2026-07-17T19:30:20Z
+updated_at: 2026-07-18T12:12:28Z
 ---
 
 Follow-up from pkm-g0t5 final review (a11y bundle for the click-to-edit page title):

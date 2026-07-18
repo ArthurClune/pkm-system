@@ -85,6 +85,14 @@ def test_parse_graph_source_rejects_invalid_strict_fields(field: str, value: obj
         parse_graph_source(raw, asset_names={"sample.svg"})
 
 
+@pytest.mark.parametrize("value", [True, 3.0])
+def test_parse_graph_source_rejects_strict_heading_coercion(value: object) -> None:
+    raw = valid_source()
+    raw["pages"][0]["blocks"][0]["heading"] = value
+    with pytest.raises(SourceValidationError, match=r"pages\.0\.blocks\.0\.heading"):
+        parse_graph_source(raw, asset_names={"sample.svg"})
+
+
 def test_parse_graph_source_rejects_cross_page_parent() -> None:
     raw = valid_source()
     raw["pages"].append({

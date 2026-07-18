@@ -7,7 +7,16 @@ from collections import defaultdict
 from collections.abc import Set
 from typing import Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+)
 
 ASSET_PLACEHOLDER_RE = re.compile(r"\{\{asset:([^{}]+)\}\}")
 
@@ -26,6 +35,14 @@ class BlockSource(BaseModel):
     order_idx: StrictInt = Field(ge=0)
     text: StrictStr
     heading: Literal[1, 2, 3] | None
+
+    @field_validator("heading", mode="before")
+    @classmethod
+    def _validate_heading(cls, value: object) -> object:
+        if value is None or type(value) is int:
+            return value
+        raise ValueError("heading must be an exact integer")
+
     collapsed: StrictBool
     view_type: Literal["numbered", "document"] | None
     created_at: StrictInt | None

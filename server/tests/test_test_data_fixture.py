@@ -13,6 +13,39 @@ TEST_DATA = Path(__file__).parents[2] / "test-data"
 def test_committed_graph_covers_supported_examples() -> None:
     raw = json.loads((TEST_DATA / "graph.json").read_text(encoding="utf-8"))
     source = parse_graph_source(raw, asset_names={"sample.svg", "sample.pdf"})
+    assert [page.title for page in source.pages] == [
+        "Project Atlas",
+        "Formatting Lab",
+        "Garden 🌱",
+        "July 18th, 2026",
+    ]
+    assert len(source.pages) == 4
+    assert [
+        [block.uid for block in page.blocks]
+        for page in source.pages
+    ] == [
+        ["atlas-outline", "atlas-status", "atlas-todo", "atlas-image", "atlas-block-ref"],
+        [
+            "format-table",
+            "format-code",
+            "format-mermaid",
+            "format-inline-math",
+            "format-display-math",
+            "format-invalid-math",
+            "format-pdf",
+            "format-embed",
+        ],
+        ["garden-backlink"],
+        ["journal-entry"],
+    ]
+    assert sum(len(page.blocks) for page in source.pages) == 15
+    for page in source.pages:
+        assert page.created_at == 1784332800000
+        assert page.updated_at == 1784332860000
+        for block in page.blocks:
+            assert block.created_at == 1784332800000
+            assert block.updated_at == 1784332860000
+
     pages = {page.title: page for page in source.pages}
     blocks = {block.uid: block for page in source.pages for block in page.blocks}
 

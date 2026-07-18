@@ -1,9 +1,13 @@
 // The embedded PDF viewer end-to-end: upload a real 3-page PDF, link it in a
 // block, and drive the react-pdf viewer -- pages rasterize to canvases, the
 // indicator follows scroll, and the fullscreen overlay opens/closes (pkm-srek).
+import { readFileSync } from "node:fs";
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { makePdf } from "./pdf-fixture";
+
+const samplePdf = readFileSync(
+  new URL("../../test-data/assets/sample.pdf", import.meta.url),
+);
 
 async function login(page: Page) {
   await page.goto("/login");
@@ -25,7 +29,7 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   // page.request shares the logged-in cookie jar
   const res = await page.request.post("/api/assets", {
     multipart: {
-      file: { name: "three-page.pdf", mimeType: "application/pdf", buffer: makePdf(3) },
+      file: { name: "sample.pdf", mimeType: "application/pdf", buffer: samplePdf },
     },
   });
   expect(res.ok()).toBe(true);
@@ -97,7 +101,7 @@ test("Roam-style {{[[pdf]]: …}} macro renders the viewer (pkm-ph1m)", async ({
 
   const res = await page.request.post("/api/assets", {
     multipart: {
-      file: { name: "macro page.pdf", mimeType: "application/pdf", buffer: makePdf(1) },
+      file: { name: "sample.pdf", mimeType: "application/pdf", buffer: samplePdf },
     },
   });
   expect(res.ok()).toBe(true);
@@ -114,7 +118,7 @@ test("Roam-style {{[[pdf]]: …}} macro renders the viewer (pkm-ph1m)", async ({
   await input(page).press("Escape");
 
   await expect(page.locator(".pdf-frame")).toBeVisible();
-  await expect(page.locator(".pdf-page-slot canvas")).toBeVisible();
+  await expect(page.locator(".pdf-page-slot canvas").first()).toBeVisible();
   // the macro carries no link text: the label is the decoded filename
-  await expect(page.locator(".pdf-download")).toHaveText("macro page.pdf");
+  await expect(page.locator(".pdf-download")).toHaveText("sample.pdf");
 });

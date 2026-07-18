@@ -82,6 +82,37 @@ def test_query_endpoint_excludes_query_source_blocks(client, seeded_config):
     assert [i["uid"] for g in body["groups"] for i in g["items"]] == ["uid_b3"]
 
 
+def test_query_endpoint_returns_every_match(client, seeded_config):
+    con = open_db(seeded_config.db_path)
+    blocks = [
+        (f"uid_many_{i:03d}", 1, None, i + 10, f"result {i} [[Paper]]",
+         None, 0, None, None)
+        for i in range(101)
+    ]
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        blocks,
+    )
+    con.executemany(
+        "INSERT INTO refs VALUES (?,?,?)",
+        [(uid, 4, "link") for uid, *_ in blocks],
+    )
+    con.commit()
+    con.close()
+
+    body = client.get(
+        "/api/query", params={"expr": "{and: [[Paper]]}"},
+    ).json()
+    items = [item for group in body["groups"] for item in group["items"]]
+
+    # 101 inserted matches plus seeded uid_b3. This exceeds the old default
+    # limit of 100 and proves the endpoint returns the complete result set.
+    assert body["total"] == 102
+    assert len(items) == 102
+    assert {item["uid"] for item in items} >= {"uid_many_000", "uid_many_100"}
+
+
 def test_query_endpoint_bad_expr_400(client):
     r = client.get("/api/query", params={"expr": "{between: [[A]] [[B]]}"})
     assert r.status_code == 400

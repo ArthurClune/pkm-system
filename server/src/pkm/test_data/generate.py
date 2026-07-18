@@ -10,6 +10,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from pkm.filenames import safe_filename
@@ -19,6 +20,19 @@ from pkm.server.mime_sniff import sniff_mime
 from pkm.test_data.core import build_rows, parse_graph_source
 
 DEFAULT_SOURCE = Path(__file__).resolve().parents[4] / "test-data" / "graph.json"
+
+
+@dataclass(frozen=True)
+class _AbsentOutputClaim:
+    device: int
+    inode: int
+    ctime_ns: int
+
+
+@dataclass(frozen=True)
+class _OutputClaim:
+    backup_dir: Path | None
+    absent_output: _AbsentOutputClaim | None = None
 
 
 def _index_assets(asset_dir: Path) -> tuple[dict[str, Asset], dict[str, Path]]:
@@ -46,16 +60,23 @@ def _backup_path(output_dir: Path) -> Path:
     return output_dir.parent / f".{output_dir.name}.backup-{uuid.uuid4().hex}"
 
 
-def _claim_output(output_dir: Path) -> tuple[Path, bool]:
-    backup_dir = _backup_path(output_dir)
-    claimed_absent = False
+def _claim_output(output_dir: Path) -> _OutputClaim:
     try:
         os.mkdir(output_dir)
-        claimed_absent = True
     except FileExistsError:
-        pass
-    os.replace(output_dir, backup_dir)
-    return backup_dir, claimed_absent
+        backup_dir = _backup_path(output_dir)
+        os.replace(output_dir, backup_dir)
+        return _OutputClaim(backup_dir=backup_dir)
+
+    claim_stat = output_dir.stat()
+    return _OutputClaim(
+        backup_dir=None,
+        absent_output=_AbsentOutputClaim(
+            device=claim_stat.st_dev,
+            inode=claim_stat.st_ino,
+            ctime_ns=claim_stat.st_ctime_ns,
+        ),
+    )
 
 
 def _validate_claimed_output(backup_dir: Path, output_dir: Path) -> Path | None:
@@ -75,34 +96,56 @@ def _validate_claimed_output(backup_dir: Path, output_dir: Path) -> Path | None:
     raise FileExistsError(f"refusing to replace non-empty output: {output_dir}")
 
 
-def _restore_claimed_output(
-    backup_dir: Path,
-    output_dir: Path,
-    claimed_absent: bool,
-    exc: Exception,
-) -> None:
+def _cleanup_unchanged_absent_output_claim(output_dir: Path, claim: _AbsentOutputClaim) -> None:
+    if output_dir.is_symlink() or not output_dir.is_dir():
+        return
+
     try:
-        if claimed_absent:
-            os.rmdir(backup_dir)
-        else:
-            os.replace(backup_dir, output_dir)
+        current_stat = output_dir.stat()
+    except OSError:
+        return
+
+    if (
+        current_stat.st_dev != claim.device
+        or current_stat.st_ino != claim.inode
+        or current_stat.st_ctime_ns != claim.ctime_ns
+    ):
+        return
+
+    try:
+        os.rmdir(output_dir)
+    except OSError:
+        pass
+
+
+def _restore_claimed_output(claim: _OutputClaim, output_dir: Path, exc: Exception) -> None:
+    if claim.backup_dir is None:
+        absent_output = claim.absent_output
+        if absent_output is not None:
+            _cleanup_unchanged_absent_output_claim(output_dir, absent_output)
+        return
+
+    try:
+        os.replace(claim.backup_dir, output_dir)
     except OSError as restore_exc:
-        raise RuntimeError(f"{exc}; backup retained at {backup_dir}") from restore_exc
+        raise RuntimeError(f"{exc}; backup retained at {claim.backup_dir}") from restore_exc
 
 
 def _publish_staged(staging_dir: Path, output_dir: Path) -> None:
     """Atomically publish a staged data directory without discarding live data."""
-    backup_dir, claimed_absent = _claim_output(output_dir)
+    claim = _claim_output(output_dir)
     try:
-        config_path = _validate_claimed_output(backup_dir, output_dir)
-        if config_path is not None:
-            _copy_config(config_path, staging_dir)
+        if claim.backup_dir is not None:
+            config_path = _validate_claimed_output(claim.backup_dir, output_dir)
+            if config_path is not None:
+                _copy_config(config_path, staging_dir)
         os.replace(staging_dir, output_dir)
     except Exception as exc:
-        _restore_claimed_output(backup_dir, output_dir, claimed_absent, exc)
+        _restore_claimed_output(claim, output_dir, exc)
         raise
 
-    shutil.rmtree(backup_dir)
+    if claim.backup_dir is not None:
+        shutil.rmtree(claim.backup_dir)
 
 
 def generate(source_path: Path, output_dir: Path) -> None:

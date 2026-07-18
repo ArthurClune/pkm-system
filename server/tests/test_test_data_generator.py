@@ -156,6 +156,28 @@ def test_publish_restores_config_when_publication_fails(tmp_path: Path, monkeypa
     assert not (output / "pkm.sqlite3").exists()
 
 
+def test_publish_keeps_absent_output_claim_until_final_replace(tmp_path: Path, monkeypatch) -> None:
+    output = tmp_path / "data"
+    staging = tmp_path / ".data.staging"
+    staging.mkdir()
+    (staging / "pkm.sqlite3").write_bytes(b"new-db")
+    real_replace = os.replace
+
+    def race_final_publish(src: Path, dst: Path) -> None:
+        if Path(src) == staging and Path(dst) == output:
+            assert output.is_dir()
+            assert list(output.iterdir()) == []
+            marker = output / "concurrent.txt"
+            marker.write_bytes(b"keep-me")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(generate_module.os, "replace", race_final_publish)
+    with pytest.raises(OSError):
+        _publish_staged(staging, output)
+    assert (output / "concurrent.txt").read_bytes() == b"keep-me"
+    assert not (output / "pkm.sqlite3").exists()
+
+
 @pytest.mark.parametrize("kind", ["file", "symlink", "dangling_symlink"])
 def test_publish_refuses_claimed_non_directory_output(tmp_path: Path, kind: str) -> None:
     output = tmp_path / "data"

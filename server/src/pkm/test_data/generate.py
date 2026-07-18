@@ -46,48 +46,61 @@ def _backup_path(output_dir: Path) -> Path:
     return output_dir.parent / f".{output_dir.name}.backup-{uuid.uuid4().hex}"
 
 
-def _raise_with_restored_backup(backup_dir: Path, output_dir: Path, exc: Exception) -> None:
-    try:
-        os.replace(backup_dir, output_dir)
-    except OSError as restore_exc:
-        raise RuntimeError(f"{exc}; backup retained at {backup_dir}") from restore_exc
-    raise exc
-
-
-def _publish_staged(staging_dir: Path, output_dir: Path) -> None:
-    """Atomically publish a staged data directory without discarding live data."""
-    if not output_dir.exists():
-        os.replace(staging_dir, output_dir)
-        return
-
+def _claim_output(output_dir: Path) -> tuple[Path, bool]:
     backup_dir = _backup_path(output_dir)
+    claimed_absent = False
+    try:
+        os.mkdir(output_dir)
+        claimed_absent = True
+    except FileExistsError:
+        pass
     os.replace(output_dir, backup_dir)
+    return backup_dir, claimed_absent
+
+
+def _validate_claimed_output(backup_dir: Path, output_dir: Path) -> Path | None:
+    if backup_dir.is_symlink() or not backup_dir.is_dir():
+        raise FileExistsError(f"refusing to replace non-empty output: {output_dir}")
 
     entries = list(backup_dir.iterdir())
-    config_path: Path | None = None
     if not entries:
-        pass
-    elif (
+        return None
+    if (
         len(entries) == 1
         and entries[0].name == "config.json"
         and entries[0].is_file()
         and not entries[0].is_symlink()
     ):
-        config_path = entries[0]
-    else:
-        _raise_with_restored_backup(
-            backup_dir,
-            output_dir,
-            FileExistsError(f"refusing to replace non-empty output: {output_dir}"),
-        )
+        return entries[0]
+    raise FileExistsError(f"refusing to replace non-empty output: {output_dir}")
 
-    if config_path is not None:
-        _copy_config(config_path, staging_dir)
 
+def _restore_claimed_output(
+    backup_dir: Path,
+    output_dir: Path,
+    claimed_absent: bool,
+    exc: Exception,
+) -> None:
     try:
+        if claimed_absent:
+            os.rmdir(backup_dir)
+        else:
+            os.replace(backup_dir, output_dir)
+    except OSError as restore_exc:
+        raise RuntimeError(f"{exc}; backup retained at {backup_dir}") from restore_exc
+
+
+def _publish_staged(staging_dir: Path, output_dir: Path) -> None:
+    """Atomically publish a staged data directory without discarding live data."""
+    backup_dir, claimed_absent = _claim_output(output_dir)
+    try:
+        config_path = _validate_claimed_output(backup_dir, output_dir)
+        if config_path is not None:
+            _copy_config(config_path, staging_dir)
         os.replace(staging_dir, output_dir)
-    except OSError as exc:
-        _raise_with_restored_backup(backup_dir, output_dir, exc)
+    except Exception as exc:
+        _restore_claimed_output(backup_dir, output_dir, claimed_absent, exc)
+        raise
 
     shutil.rmtree(backup_dir)
 

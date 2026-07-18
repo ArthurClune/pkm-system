@@ -156,6 +156,57 @@ def test_publish_restores_config_when_publication_fails(tmp_path: Path, monkeypa
     assert not (output / "pkm.sqlite3").exists()
 
 
+@pytest.mark.parametrize("kind", ["file", "symlink", "dangling_symlink"])
+def test_publish_refuses_claimed_non_directory_output(tmp_path: Path, kind: str) -> None:
+    output = tmp_path / "data"
+    target_dir = tmp_path / "claimed-target"
+    target_dir.mkdir()
+    if kind == "file":
+        output.write_bytes(b"keep-me")
+    elif kind == "symlink":
+        output.symlink_to(target_dir, target_is_directory=True)
+    else:
+        output.symlink_to(tmp_path / "missing-target", target_is_directory=True)
+    staging = tmp_path / ".data.staging"
+    staging.mkdir()
+    (staging / "pkm.sqlite3").write_bytes(b"new-db")
+
+    with pytest.raises(FileExistsError, match="refusing to replace non-empty output"):
+        _publish_staged(staging, output)
+
+    if kind == "file":
+        assert output.read_bytes() == b"keep-me"
+    elif kind == "symlink":
+        assert output.is_symlink()
+        assert output.resolve() == target_dir.resolve()
+    else:
+        assert output.is_symlink()
+        assert not output.exists()
+    assert not (output / "pkm.sqlite3").exists()
+    assert not list(tmp_path.glob(".data.backup-*"))
+
+
+def test_publish_restores_config_when_copy_config_fails(tmp_path: Path, monkeypatch) -> None:
+    output = tmp_path / "data"
+    output.mkdir()
+    (output / "config.json").write_bytes(b"keep-me")
+    staging = tmp_path / ".data.staging"
+    staging.mkdir()
+    (staging / "pkm.sqlite3").write_bytes(b"new-db")
+
+    def fail_copy(config_path: Path, staged_output: Path) -> None:
+        del config_path, staged_output
+        raise OSError("simulated config copy failure")
+
+    monkeypatch.setattr(generate_module, "_copy_config", fail_copy)
+    with pytest.raises(OSError, match="simulated config copy failure"):
+        _publish_staged(staging, output)
+
+    assert (output / "config.json").read_bytes() == b"keep-me"
+    assert not (output / "pkm.sqlite3").exists()
+    assert not list(tmp_path.glob(".data.backup-*"))
+
+
 def test_generate_rejects_missing_asset_directory(tmp_path: Path) -> None:
     source = tmp_path / "graph.json"
     source.write_text((TEST_DATA / "graph.json").read_text(encoding="utf-8"), encoding="utf-8")

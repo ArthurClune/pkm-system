@@ -5,7 +5,23 @@ from typing import Any
 
 import pytest
 
-from pkm.test_data.core import SourceValidationError, parse_graph_source
+from pkm.importer.assets import Asset
+from pkm.importer.rows import Rows
+from pkm.test_data.core import (
+    SourceValidationError,
+    build_rows,
+    expand_asset_placeholders,
+    parse_graph_source,
+)
+
+ASSETS = {
+    "sample.svg": Asset(
+        sha256="ab" * 32,
+        filename="sample image.svg",
+        mime="image/svg+xml",
+        size=123,
+    ),
+}
 
 
 def valid_source() -> dict[str, Any]:
@@ -47,6 +63,45 @@ def test_parse_graph_source_accepts_strict_valid_source() -> None:
     source = parse_graph_source(valid_source(), asset_names={"sample.svg"})
     assert source.pages[0].blocks[0].collapsed is True
     assert source.sidebar_entries == ("Project Atlas",)
+
+
+def test_expand_asset_placeholders_quotes_filename() -> None:
+    assert expand_asset_placeholders("![x]({{asset:sample.svg}})", ASSETS) == (
+        f"![x](/assets/{'ab' * 32}/sample%20image.svg)"
+    )
+
+
+def test_build_rows_preserves_tree_presentation_and_derives_refs() -> None:
+    raw = valid_source()
+    raw["pages"][0]["blocks"][1]["text"] = (
+        "Status:: [[Active]] #Research ((atlas-root)) {{embed: ((atlas-root))}}"
+    )
+    source = parse_graph_source(raw, asset_names=ASSETS.keys())
+    source_before = source.model_copy(deep=True)
+
+    prepared = build_rows(source, ASSETS)
+    prepared_again = build_rows(source, ASSETS)
+
+    assert isinstance(prepared.rows, Rows)
+    pages_by_title = {row[1]: row for row in prepared.rows.pages}
+    assert {"Project Atlas", "Active", "Research"} <= pages_by_title.keys()
+    blocks_by_uid = {row[0]: row for row in prepared.rows.blocks}
+    assert blocks_by_uid["atlas-root"][6] == 1
+    assert blocks_by_uid["atlas-root"][9] == "numbered"
+    assert blocks_by_uid["atlas-child"][2] == "atlas-root"
+    assert blocks_by_uid["atlas-child"][3] == 0
+    refs = {
+        (uid, prepared.rows.pages[target_id - 1][1], kind)
+        for uid, target_id, kind in prepared.rows.refs
+    }
+    assert ("atlas-child", "Active", "link") in refs
+    assert ("atlas-child", "Status", "attribute") in refs
+    assert ("atlas-child", "Research", "tag") in refs
+    assert prepared.rows.block_ref_count == 2
+    assert prepared.rows.embed_count == 1
+    assert prepared.sidebar_rows == (("Project Atlas", 0),)
+    assert source == source_before
+    assert prepared == prepared_again
 
 
 @pytest.mark.parametrize(

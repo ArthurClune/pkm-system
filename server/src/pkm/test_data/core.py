@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Set
+from collections.abc import Mapping, Set
+from dataclasses import dataclass
 from typing import Literal, cast
+from urllib.parse import quote
+
+from pkm.importer.assets import Asset
+from pkm.importer.parse_export import Block, Export, Page
+from pkm.importer.rows import Rows, to_rows
 
 from pydantic import (
     BaseModel,
@@ -84,6 +90,75 @@ def parse_graph_source(raw: object, *, asset_names: Set[str]) -> GraphSource:
     _validate_sidebar_entries(source)
     _validate_asset_placeholders(source, asset_names)
     return source
+
+
+@dataclass(frozen=True)
+class PreparedGraph:
+    """Database and sidebar rows derived from one validated source graph."""
+
+    rows: Rows
+    sidebar_rows: tuple[tuple[str, int], ...]
+
+
+def expand_asset_placeholders(text: str, assets_by_name: Mapping[str, Asset]) -> str:
+    """Replace validated named placeholders with deterministic asset URLs."""
+    return ASSET_PLACEHOLDER_RE.sub(
+        lambda match: (
+            f"/assets/{assets_by_name[match.group(1)].sha256}/"
+            f"{quote(assets_by_name[match.group(1)].filename)}"
+        ),
+        text,
+    )
+
+
+def build_rows(source: GraphSource, assets_by_name: Mapping[str, Asset]) -> PreparedGraph:
+    """Convert a validated source graph into importer rows and sidebar positions."""
+    export = Export(
+        pages=tuple(_build_page(page) for page in source.pages),
+        orphan_block_count=0,
+        skipped_entities=0,
+        attr_counts={},
+    )
+    rows = to_rows(export, lambda text: expand_asset_placeholders(text, assets_by_name))
+    sidebar_rows = tuple((title, index) for index, title in enumerate(source.sidebar_entries))
+    return PreparedGraph(rows=rows, sidebar_rows=sidebar_rows)
+
+
+def _build_page(page: PageSource) -> Page:
+    return Page(
+        title=page.title,
+        created_at=page.created_at,
+        edited_at=page.updated_at,
+        children=_build_block_children(page.blocks),
+    )
+
+
+def _build_block_children(blocks: tuple[BlockSource, ...]) -> tuple[Block, ...]:
+    children_by_parent_uid: dict[str | None, list[BlockSource]] = defaultdict(list)
+    for block in blocks:
+        children_by_parent_uid[block.parent_uid].append(block)
+    for group in children_by_parent_uid.values():
+        group.sort(key=lambda block: block.order_idx)
+
+    built: dict[str, Block] = {}
+
+    def build(block: BlockSource) -> Block:
+        if block.uid in built:
+            return built[block.uid]
+        result = Block(
+            uid=block.uid,
+            text=block.text,
+            heading=block.heading,
+            view_type=block.view_type,
+            open=not block.collapsed,
+            created_at=block.created_at,
+            edited_at=block.updated_at,
+            children=tuple(build(child) for child in children_by_parent_uid.get(block.uid, ())),
+        )
+        built[block.uid] = result
+        return result
+
+    return tuple(build(block) for block in children_by_parent_uid.get(None, ()))
 
 
 def _format_validation_error(exc: ValidationError) -> str:

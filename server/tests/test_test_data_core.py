@@ -85,11 +85,21 @@ def test_build_rows_preserves_tree_presentation_and_derives_refs() -> None:
     assert isinstance(prepared.rows, Rows)
     pages_by_title = {row[1]: row for row in prepared.rows.pages}
     assert {"Project Atlas", "Active", "Research"} <= pages_by_title.keys()
+    assert pages_by_title["Project Atlas"][2] == 1784332800000
+    assert pages_by_title["Project Atlas"][3] == 1784332860000
     blocks_by_uid = {row[0]: row for row in prepared.rows.blocks}
+    assert blocks_by_uid["atlas-root"][4] == (
+        "Root ![sample](/assets/" + ("ab" * 32) + "/sample%20image.svg)"
+    )
+    assert "{{asset:sample.svg}}" not in blocks_by_uid["atlas-root"][4]
     assert blocks_by_uid["atlas-root"][6] == 1
+    assert blocks_by_uid["atlas-root"][7] == 1784332800000
+    assert blocks_by_uid["atlas-root"][8] == 1784332860000
     assert blocks_by_uid["atlas-root"][9] == "numbered"
     assert blocks_by_uid["atlas-child"][2] == "atlas-root"
     assert blocks_by_uid["atlas-child"][3] == 0
+    assert blocks_by_uid["atlas-child"][7] is None
+    assert blocks_by_uid["atlas-child"][8] is None
     refs = {
         (uid, prepared.rows.pages[target_id - 1][1], kind)
         for uid, target_id, kind in prepared.rows.refs

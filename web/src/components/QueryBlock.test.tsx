@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -20,26 +20,24 @@ function renderExpr(expr: string) {
   return render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={expr} /></MemoryRouter>);
 }
 
-it("evaluates on mount, groups by page, shows the total, paginates", async () => {
+it("renders more than seventy results from one request without show more", async () => {
+  const items = Array.from({ length: 71 }, (_, i) => ({
+    uid: `uid_q${i}`,
+    text: `result ${i}`,
+  }));
   const fetchMock = stubFetch([
-    [`/api/query?expr=${ENC}&limit=20&offset=1`, {
-      groups: [{ page_id: 7, page_title: "July 1st, 2026", items: [
-        { uid: "uid_q2", text: "second [[Link]]" }] }],
-      total: 2,
-    }],
     [`/api/query?expr=${ENC}`, {
-      groups: [{ page_id: 6, page_title: "Generative Models", items: [
-        { uid: "uid_q1", text: "a [[Link]] here" }] }],
-      total: 2,
+      groups: [{ page_id: 6, page_title: "Generative Models", items }],
+      total: items.length,
     }],
   ]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR} /></MemoryRouter>);
-  expect(await screen.findByRole("link", { name: "Generative Models" })).toBeInTheDocument();
-  expect(screen.getByText("2 results")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledWith(
-    `/api/query?expr=${ENC}&limit=20&offset=0`, undefined);
-  fireEvent.click(screen.getByRole("button", { name: /show more/i }));
-  expect(await screen.findByRole("link", { name: "July 1st, 2026" })).toBeInTheDocument();
+
+  renderExpr(EXPR);
+
+  expect(await screen.findByText("result 70")).toBeInTheDocument();
+  expect(screen.getByText("71 results")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledWith(`/api/query?expr=${ENC}`, undefined);
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
 });
 
@@ -69,24 +67,36 @@ it("caps nested query recursion with an inert placeholder and no extra fetch", a
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-it("clears a stale error once a show-more retry succeeds", async () => {
-  let calls = 0;
-  vi.stubGlobal("fetch", vi.fn(async () => {
-    calls += 1;
-    if (calls === 2) {
-      return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+it("clears the current error when a changed expression succeeds", async () => {
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith(`/api/query?expr=${ENC_A}`)) {
+      return Promise.resolve(jsonResponse({ detail: "boom" }, 500));
     }
-    return new Response(JSON.stringify({
-      groups: [{ page_id: 1, page_title: "P", items: [
-        { uid: `uid_e${calls}`, text: `item ${calls}` }] }],
-      total: 3,
-    }), { status: 200 });
-  }));
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR} /></MemoryRouter>);
-  fireEvent.click(await screen.findByRole("button", { name: /show more/i }));
+    if (url.startsWith(`/api/query?expr=${ENC_B}`)) {
+      return Promise.resolve(jsonResponse({
+        groups: [{
+          page_id: 2,
+          page_title: "Beta page",
+          items: [{ uid: "b1", text: "recovered" }],
+        }],
+        total: 1,
+      }));
+    }
+    throw new Error(`unexpected url ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const { rerender } = renderExpr(EXPR_A);
   expect(await screen.findByText(/500/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /show more/i }));
-  expect(await screen.findByText("item 3")).toBeInTheDocument();
+
+  rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <QueryBlock expr={EXPR_B} />
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByText("recovered")).toBeInTheDocument();
   expect(screen.queryByText(/500/)).toBeNull();
 });
 
@@ -130,43 +140,6 @@ it("keeps only the current expr's results when a superseded expr resolves late",
   expect(screen.getByText("Beta page")).toBeInTheDocument();
 });
 
-it("drops an obsolete pagination response after a rerender changes the expr", async () => {
-  const pageA = defer<Response>();
-  const initialB = defer<Response>();
-  const fetchMock = vi.fn((input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === `/api/query?expr=${ENC_A}&limit=20&offset=0`) {
-      return Promise.resolve(jsonResponse({
-        groups: [{ page_id: 1, page_title: "Alpha page", items: [{ uid: "a1", text: "a" }] }], total: 2,
-      }));
-    }
-    if (url === `/api/query?expr=${ENC_A}&limit=20&offset=1`) return pageA.promise;
-    if (url.startsWith(`/api/query?expr=${ENC_B}`)) return initialB.promise;
-    throw new Error(`unexpected url ${url}`);
-  });
-  vi.stubGlobal("fetch", fetchMock);
-
-  const { rerender } = renderExpr(EXPR_A);
-  await screen.findByText("Alpha page");
-  fireEvent.click(screen.getByRole("button", { name: /show more/i })); // A's page-2 request now pending
-
-  rerender(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><QueryBlock expr={EXPR_B} /></MemoryRouter>);
-  initialB.resolve(jsonResponse({
-    groups: [{ page_id: 5, page_title: "Beta page", items: [{ uid: "b1", text: "b" }] }], total: 1,
-  }));
-  expect(await screen.findByText("Beta page")).toBeInTheDocument();
-
-  // A's stale page-2 response arrives after the rerender to B; it must not merge into B's groups.
-  await act(async () => {
-    pageA.resolve(jsonResponse({
-      groups: [{ page_id: 1, page_title: "Alpha page", items: [{ uid: "a2", text: "a2" }] }], total: 2,
-    }));
-    await Promise.resolve();
-  });
-  expect(screen.queryByText("a2")).toBeNull();
-  expect(screen.getByText("Beta page")).toBeInTheDocument();
-});
-
 it("ignores a stale generation's rejection while the current generation is still pending", async () => {
   const a = defer<Response>();
   const b = defer<Response>();
@@ -191,66 +164,4 @@ it("ignores a stale generation's rejection while the current generation is still
   b.resolve(jsonResponse({ groups: [{ page_id: 9, page_title: "Beta page", items: [] }], total: 0 }));
   expect(await screen.findByText("Beta page")).toBeInTheDocument();
   expect(screen.queryByText(/stale network failure/)).toBeNull();
-});
-
-it("recovers the page guard after a show-more that paginates from offset 0", async () => {
-  // Degenerate backend state: an empty first page but a nonzero total keeps
-  // offset at 0, so "Show more" issues a page request with from === 0. Once
-  // it settles, the guard must reopen — pagination must not lock up forever.
-  let calls = 0;
-  const fetchMock = vi.fn((input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === `/api/query?expr=${ENC_A}&limit=20&offset=0`) {
-      calls += 1;
-      return Promise.resolve(jsonResponse({ groups: [], total: 1 }));
-    }
-    throw new Error(`unexpected url ${url}`);
-  });
-  vi.stubGlobal("fetch", fetchMock);
-
-  renderExpr(EXPR_A);
-  const button = await screen.findByRole("button", { name: /show more/i });
-  expect(calls).toBe(1);
-
-  fireEvent.click(button); // page request with from === 0
-  await screen.findByRole("button", { name: /show more/i });
-  expect(calls).toBe(2);
-
-  fireEvent.click(button); // guard must have reopened after the previous one settled
-  await vi.waitFor(() => expect(calls).toBe(3));
-});
-
-it("ignores a second show-more click while a page request is already in flight", async () => {
-  const page = defer<Response>();
-  let pageCalls = 0;
-  const fetchMock = vi.fn((input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === `/api/query?expr=${ENC_A}&limit=20&offset=0`) {
-      return Promise.resolve(jsonResponse({
-        groups: [{ page_id: 1, page_title: "P", items: [{ uid: "x1", text: "x" }] }], total: 3,
-      }));
-    }
-    if (url === `/api/query?expr=${ENC_A}&limit=20&offset=1`) {
-      pageCalls += 1;
-      return page.promise;
-    }
-    throw new Error(`unexpected url ${url}`);
-  });
-  vi.stubGlobal("fetch", fetchMock);
-
-  renderExpr(EXPR_A);
-  const button = await screen.findByRole("button", { name: /show more/i });
-  // Both clicks are dispatched before React can commit a disabling rerender,
-  // so this exercises the component's own guard rather than the DOM's.
-  act(() => {
-    fireEvent.click(button);
-    fireEvent.click(button);
-  });
-  expect(pageCalls).toBe(1);
-
-  page.resolve(jsonResponse({
-    groups: [{ page_id: 1, page_title: "P", items: [{ uid: "x2", text: "y" }] }], total: 3,
-  }));
-  expect(await screen.findByText("y")).toBeInTheDocument();
-  expect(pageCalls).toBe(1);
 });

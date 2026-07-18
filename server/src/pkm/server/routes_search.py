@@ -45,9 +45,8 @@ def search(q: str = "", limit: int = 20,
 
 
 @router.get("/api/query", response_model=GroupsPayload)
-def run_query(expr: str, limit: int = 100, offset: int = 0,
+def run_query(expr: str,
               db: sqlite3.Connection = Depends(get_db)) -> dict:
-    limit = max(1, min(limit, 500))
     try:
         sql, params = plan_sql(parse_query(expr))
     except QueryParseError as e:
@@ -63,8 +62,9 @@ def run_query(expr: str, limit: int = 100, offset: int = 0,
               FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
               JOIN pages p ON p.id = b.page_id
              WHERE {_QUERY_SOURCE_FILTER}
-             ORDER BY p.title, b.uid LIMIT ? OFFSET ?""",
-        [*params, limit, offset]).fetchall()
+             ORDER BY p.title, b.uid""",
+        params,
+    ).fetchall()
     groups: list[dict] = []
     index: dict[int, dict] = {}
     for r in rows:

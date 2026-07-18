@@ -1344,8 +1344,6 @@ export interface operations {
         parameters: {
             query: {
                 expr: string;
-                limit?: number;
-                offset?: number;
             };
             header?: never;
             path?: never;

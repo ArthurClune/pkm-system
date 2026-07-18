@@ -102,30 +102,25 @@ header comment (see `CLAUDE.md`).
 
 ### 1. Server
 
+From the repository root:
+
 ```bash
+uv sync --project server
+uv run --project server pytest
+uv run --project server python -m pkm.test_data.generate --out data
 cd server
-uv sync            # creates .venv and installs deps (incl. dev group)
-uv run pytest      # run the backend test suite
-```
-
-Create a data directory with a `config.json` (prompts for the app password;
-`--insecure-cookie` lets the session cookie work over plain http in dev):
-
-```bash
 uv run python -m pkm.server.setup --data-dir ../data --insecure-cookie
-```
-
-Then run the server (defaults: `--data-dir data`, port 8974, binds the
-`bind_hosts` from config — `127.0.0.1` by default):
-
-```bash
 uv run python -m pkm.server.run --data-dir ../data
 ```
 
+`pkm.server.setup` creates `data/config.json` and remains responsible for the
+password and cookie settings.
+
 ### 2. Importing your Roam graph (optional)
 
-Export your graph from Roam as **EDN** (not markdown — that loses uids and
-structure) and download the linked files, then:
+If you want to replace the synthetic fixture with a Roam export, export your
+graph as **EDN** (not markdown — that loses uids and structure) and download
+the linked files, then:
 
 ```bash
 cd server
@@ -136,6 +131,17 @@ uv run python -m pkm.importer.run /path/to/export.edn \
 Each run builds a fresh database and atomically swaps it in, ending with a
 report of everything imported (and anything unrecognised — nothing is
 silently dropped). It's safe to re-run.
+
+### Regenerating the local data
+
+```bash
+# Stop the server first.
+rm -f data/pkm.sqlite3 data/pkm.sqlite3-wal data/pkm.sqlite3-shm
+rm -rf data/assets
+uv run --project server python -m pkm.test_data.generate --out data
+```
+
+This preserves your `data/config.json` and authentication.
 
 ### 3. Web app
 

@@ -42,7 +42,8 @@ repository's `test-data/graph.json`, and the documented development output is
 Generated state remains uncommitted:
 
 - `data/pkm.sqlite3`
-- `data/assets/<sha256>/<filename>`
+- `data/assets/<first-two-sha256-characters>/<sha256>`; graph URLs use
+  `/assets/<sha256>/<filename>`
 - `data/config.json`, created separately by the existing server setup command
 
 ## Dataset content

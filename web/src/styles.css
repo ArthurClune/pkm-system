@@ -443,6 +443,30 @@ mark.highlight { background: var(--color-highlight-bg); }
   border: 1px solid transparent; border-radius: var(--radius-card);
   background: var(--color-bg-subtle); }
 .backlink-item:hover, .query-item:hover { background: var(--color-selected-bg); }
+
+/* linked-refs filter (pkm-m4an) */
+.section-header .filter-toggle { margin-left: 10px; font-size: 12px;
+  text-transform: none; letter-spacing: normal; padding: 1px 10px; }
+.filter-panel { margin: 8px 0 12px; padding: 8px 10px;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-card); }
+.filter-active { display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px; margin-bottom: 8px; }
+.filter-candidates { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-chip { font-size: 13px; padding: 1px 10px; border-radius: 999px;
+  background: var(--color-bg); border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary); cursor: pointer; }
+.filter-chip:hover { border-color: var(--color-border-input);
+  color: var(--color-text); }
+.filter-chip.included { background: var(--color-selected-bg);
+  border-color: var(--color-border-input); color: var(--color-text); }
+.filter-chip.excluded { text-decoration: line-through; opacity: 0.7; }
+.filter-clear { font-size: 12px; background: none; border: none;
+  color: var(--color-link-ext); cursor: pointer; }
+.filter-loading, .filter-empty, .filter-no-match { font-size: 13px;
+  color: var(--color-text-secondary); }
+
 .breadcrumbs { font-size: 12px; color: var(--color-text-muted); margin-bottom: 2px; }
 .show-more { margin-top: 8px; padding: 4px 12px; }
 

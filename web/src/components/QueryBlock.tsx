@@ -5,9 +5,6 @@ import type { BlockGroup, GroupsPayload } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
-import { mergeGroups } from "./groups";
-
-const PAGE_SIZE = 20;
 
 // A query whose results contain another {{query}} (e.g. a self-matching
 // block) would otherwise re-mount an identical QueryBlock and recurse
@@ -18,68 +15,38 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
   const capped = depth >= MAX_DEPTH;
   const [groups, setGroups] = useState<BlockGroup[]>([]);
   const [total, setTotal] = useState<number | null>(null);
-  const [offset, setOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  // Every fetch (the expr's own load and each page request) is stamped with
-  // a monotonically increasing request id; a response is applied only if
-  // it's still current when it resolves. This — not an AbortController — is
-  // what actually drops stale results: the offline gateway (pkm-y8p0) can
-  // still complete a request whose abort it never honored, so the id check
-  // stays the single source of truth regardless of how a response arrives.
-  // pageRequest additionally blocks a second page request from firing at
-  // all while one is outstanding (e.g. a double-clicked "Show more"). It
-  // holds the owning request's id, not a boolean, so only the request that
-  // set it may clear it on settle — a stale generation's page request
-  // settling late can't reopen the guard while the current generation's
-  // page request is still in flight, and a page request issued from
-  // offset 0 (empty first page with a nonzero total) still releases it.
+  // Every expression load is stamped with a monotonically increasing request
+  // id. A response is applied only if it is still current when it resolves;
+  // this drops stale responses even when the offline gateway does not honor an
+  // AbortController.
   const requestIdRef = useRef(0);
-  const pageRequestRef = useRef<number | null>(null);
 
-  // useCallback keyed on `expr` (its only reactive input): its identity is
-  // stable across renders that don't change the query, so the effect below
-  // re-runs exactly when the expression changes -- the same firing the old
-  // hook-deps suppression documented, now proven by the checker.
-  const load = useCallback(async (from: number, requestId: number) => {
-    setLoading(true);
+  const load = useCallback(async (requestId: number) => {
     try {
       const p = await apiFetch<GroupsPayload>(
-        `/api/query?expr=${encodeURIComponent(expr)}&limit=${PAGE_SIZE}&offset=${from}`);
-      if (requestId !== requestIdRef.current) return; // superseded: drop silently
-      setGroups((g) => (from === 0 ? p.groups : mergeGroups(g, p.groups)));
+        `/api/query?expr=${encodeURIComponent(expr)}`);
+      if (requestId !== requestIdRef.current) return;
+      setGroups(p.groups);
       setTotal(p.total);
-      setOffset(from + p.groups.reduce((n, gr) => n + gr.items.length, 0));
       setError(null);
     } catch (e: unknown) {
       if (requestId !== requestIdRef.current) return;
       // query blocks are online-only in v1 (spec section 4)
       setError(e instanceof OfflineError ? "query unavailable offline"
                                          : String(e));
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
-      if (pageRequestRef.current === requestId) pageRequestRef.current = null;
     }
   }, [expr]);
 
   useEffect(() => {
     if (capped) return;
     const requestId = ++requestIdRef.current;
-    pageRequestRef.current = null;
     setGroups([]);
     setTotal(null);
-    setOffset(0);
     setError(null);
-    void load(0, requestId);
+    void load(requestId);
   }, [capped, load]);
-
-  const loadMore = () => {
-    if (pageRequestRef.current !== null) return;
-    const requestId = ++requestIdRef.current;
-    pageRequestRef.current = requestId;
-    void load(offset, requestId);
-  };
 
   if (capped) {
     // Inert placeholder matching the pre-live fallback: no fetch, no results.
@@ -107,11 +74,6 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
           ))}
         </div>
       ))}
-      {total !== null && offset < total && (
-        <button className="show-more btn-secondary" onClick={loadMore} disabled={loading}>
-          {loading ? "Loading…" : "Show more"}
-        </button>
-      )}
     </div>
   );
 }

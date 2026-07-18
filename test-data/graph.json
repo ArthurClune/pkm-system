@@ -1,0 +1,198 @@
+{
+  "pages": [
+    {
+      "title": "Project Atlas",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "atlas-outline",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "Project outline for [[Formatting Lab]]",
+          "heading": 1,
+          "collapsed": true,
+          "view_type": "numbered",
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "atlas-status",
+          "parent_uid": "atlas-outline",
+          "order_idx": 0,
+          "text": "Status:: [[Active]]",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "atlas-todo",
+          "parent_uid": "atlas-outline",
+          "order_idx": 1,
+          "text": "{{[[TODO]]}} Review [[Formatting Lab]] #Research",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "atlas-image",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "![Synthetic sample]({{asset:sample.svg}})",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "atlas-block-ref",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "See table ((format-table))",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "Formatting Lab",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "format-table",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "| Feature | Example |\n| --- | --- |\n| Links | [[Project Atlas]] |",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "format-code",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "Use `inline code` or:\n```python\nprint(\"synthetic\")\n```",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "format-mermaid",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "```mermaid\ngraph TD\n  A[Plan] --> B[Build]\n```",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "format-inline-math",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Einstein wrote $E = mc^2$.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "format-display-math",
+          "parent_uid": null,
+          "order_idx": 4,
+          "text": "$$\\int_0^1 x^2 dx = \\frac{1}{3}$$",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "format-invalid-math",
+          "parent_uid": null,
+          "order_idx": 5,
+          "text": "$$\\notARealCommand{x}$$",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "format-pdf",
+          "parent_uid": null,
+          "order_idx": 6,
+          "text": "{{pdf: {{asset:sample.pdf}}}}",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "format-embed",
+          "parent_uid": null,
+          "order_idx": 7,
+          "text": "{{embed: ((atlas-todo))}}",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "Garden 🌱",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "garden-backlink",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "A Unicode page linked to [[Project Atlas]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "July 18th, 2026",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "journal-entry",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "Worked on [[Project Atlas]] with #Research.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    }
+  ],
+  "sidebar_entries": ["Project Atlas", "Formatting Lab", "Garden 🌱"]
+}

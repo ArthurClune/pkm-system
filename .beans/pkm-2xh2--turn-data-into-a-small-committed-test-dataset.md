@@ -1,11 +1,11 @@
 ---
 # pkm-2xh2
 title: Turn data/ into a small committed test dataset
-status: in-progress
+status: completed
 type: task
 priority: low
 created_at: 2026-07-17T19:07:25Z
-updated_at: 2026-07-18T12:27:44Z
+updated_at: 2026-07-18T19:55:53Z
 ---
 
 data/ is currently a gitignored 15MB copy of the full Roam import (July 8-9: 4,313 pages, 52,695 blocks, 1,647 assets in the content-addressed store) that dev servers/importers use as the default --data-dir. (sample-data/ in .gitignore was the original Roam .edn export source, not a test set.)
@@ -20,7 +20,11 @@ Replace it with a real, small test dataset:
 ## Checklist
 
 - [x] Approve fixture design and scope
-- [ ] Add independently created test-data fixtures and usage documentation
-- [ ] Add selective automated coverage while retaining isolated test databases
-- [ ] Verify server and web test suites
-- [ ] Review fixture content and complete documentation
+- [x] Add independently created test-data fixtures and usage documentation
+- [x] Add selective automated coverage while retaining isolated test databases
+- [x] Verify server and web test suites
+- [x] Review fixture content and complete documentation
+
+## Summary of Changes
+
+Added a committed synthetic graph and valid media fixtures under `test-data/`, a validated staged generator for local `data/`, selective shared-fixture coverage, and fresh-checkout development instructions. Existing focused and temporary test databases remain isolated.

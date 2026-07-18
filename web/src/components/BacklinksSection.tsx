@@ -21,7 +21,11 @@ export function BacklinksSection({ title, initial }:
   const [error, setError] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
-  const hasMore = groups.length < initial.total_pages;
+  // total_pages can shrink or grow server-side (multi-tab sync) between
+  // mount and panel open; track it in state so completion is derived from
+  // the latest known value, not whatever was frozen at mount.
+  const [totalPages, setTotalPages] = useState(initial.total_pages);
+  const hasMore = groups.length < totalPages;
   const fullyLoaded = !hasMore;
 
   const fetchBatch = async (offset: number, limit: number) => {
@@ -53,14 +57,17 @@ export function BacklinksSection({ title, initial }:
     setError(null);
     try {
       let all = groups;
-      let total = initial.total_pages;
+      let total = totalPages;
       while (all.length < total) {
         const batch = await fetchBatch(all.length, 100);
+        total = batch.total_pages; // trust the latest response, shrunk or grown
         if (batch.groups.length === 0) break; // total shrank server-side
-        total = batch.total_pages; // ...or grew: trust the latest response
+        const before = all.length;
         all = mergeGroups(all, batch.groups);
+        if (all.length === before) break; // no growth; avoid re-requesting forever
         setGroups(all);
       }
+      setTotalPages(total);
     } catch (e: unknown) {
       setError(String(e));
     } finally {
@@ -93,8 +100,8 @@ export function BacklinksSection({ title, initial }:
       <section className="backlinks">
         <h2 className="section-header">
           Linked references ({filtering
-            ? `${visible.length} of ${initial.total_pages}` : initial.total_pages})
-          {initial.total_pages > 0 && (
+            ? `${visible.length} of ${totalPages}` : totalPages})
+          {totalPages > 0 && (
             <button className="filter-toggle btn-secondary" aria-expanded={panelOpen}
                     onClick={() => (panelOpen ? setPanelOpen(false) : openPanel())}>
               Filter{filtering

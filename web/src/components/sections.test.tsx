@@ -227,3 +227,28 @@ it("opening the filter panel loads all remaining backlinks first (pkm-m4an)", as
   // show-more is hidden while the panel is open, even though it was eligible
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
 });
+
+it("filter panel reaches loaded state when the backlink total shrinks server-side (pkm-m4an)", async () => {
+  const shrinkInitial: Backlinks = {
+    groups: [{ page_id: 1, page_title: "Daily A", items: [
+      { uid: "f1", text: "alpha", breadcrumbs: [] }] }],
+    // stale total_pages=3 frozen at mount; server now only has 1 page.
+    total_pages: 3, offset: 0, limit: 20,
+  };
+  const shrunk = pagePayload("Claude", [], {
+    backlinks: { groups: [], total_pages: 1, offset: 1, limit: 100 },
+  });
+  stubFetch([["/api/page/Claude?bl_offset=1&bl_limit=100", shrunk]]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="Claude" initial={shrinkInitial} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /filter/i }));
+  // must settle into a loaded state -- not hang forever on the loading message
+  expect(await screen.findByText(/no references to filter on/i)).toBeInTheDocument();
+  expect(screen.queryByText(/loading all references/i)).toBeNull();
+  expect(screen.queryByText(/error/i)).toBeNull();
+  // stale M in the header is also corrected once the real total is known
+  expect(screen.getByText(/linked references \(1\)/i)).toBeInTheDocument();
+});

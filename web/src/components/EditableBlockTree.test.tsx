@@ -674,6 +674,41 @@ test("/upload strips the trigger and hands picked files to onFiles (pkm-coz9)", 
   expect(h.onFiles).toHaveBeenCalledWith("u1", 0, [file]);
 });
 
+test("the upload input survives the block blurring while the native picker is "
+     + "open, so a late file choice still reaches onFiles (pkm-gbsb)", () => {
+  const h = handlers();
+  const view = mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "/upload" } });
+  ta.setSelectionRange(7, 7);
+  fireEvent.keyDown(ta, { key: "Enter" }); // pick /upload, opens the native dialog
+
+  // The native dialog taking focus blurs the textarea; in the real app
+  // onBlurBlock -> setFocus(null) unmounts BlockInput while the picker is
+  // still open. Simulate that focus loss here.
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={BLOCKS} focus={null} handlers={h}
+                         readOnly={false} />
+    </MemoryRouter>);
+  expect(screen.queryByRole("textbox")).toBeNull(); // BlockInput did unmount
+
+  const input = screen.getByLabelText("Upload file") as HTMLInputElement;
+  const file = new File(["x"], "pic.png", { type: "image/png" });
+  fireEvent.change(input, { target: { files: [file] } });
+  expect(h.onFiles).toHaveBeenCalledWith("u1", 0, [file]);
+});
+
+test("only one upload input exists in the tree regardless of block count", () => {
+  mount(handlers(), { uid: "u1", cursor: 0 });
+  expect(screen.getAllByLabelText("Upload file")).toHaveLength(1);
+});
+
+test("a readOnly tree renders no upload input", () => {
+  mount(handlers(), null, true);
+  expect(screen.queryByLabelText("Upload file")).toBeNull();
+});
+
 test("Shift+ArrowDown at a block edge starts a block selection (pkm-9b8n)", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });

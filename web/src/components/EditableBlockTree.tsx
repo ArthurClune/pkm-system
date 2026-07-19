@@ -83,6 +83,26 @@ interface TreeProps {
 export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                                     readOnly, fallback = false }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
+  // The /upload file picker (pkm-gbsb): owned by the tree root, not the
+  // focus-scoped BlockInput. The native dialog taking focus blurs the
+  // textarea, which unmounts BlockInput while the dialog is still open; a
+  // picker-owned input would be detached from the DOM by the time the user
+  // picks a file, so its change event would never dispatch. This one input
+  // is shared across every block, with the pending target recorded here.
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadTargetRef = useRef<{ uid: string; at: number } | null>(null);
+  const requestUpload = (uid: string, at: number) => {
+    uploadTargetRef.current = { uid, at };
+    fileInputRef.current?.click();
+  };
+  const onPickUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // let the same file be picked again later
+    const target = uploadTargetRef.current;
+    uploadTargetRef.current = null;
+    if (files.length === 0 || !target) return;
+    handlers.onFiles(target.uid, target.at, files);
+  };
   // Bullet context menu (pkm-y6af); one per tree, anchored at the pointer.
   const [menu, setMenu] = useState<{
     uid: string;
@@ -135,12 +155,19 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
       {blocks.map((b, index) => (
         <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
                        handlers={handlers} readOnly={readOnly}
-                       fallback={fallback}
+                       fallback={fallback} onRequestUpload={requestUpload}
                        viewMode="document" number={index + 1}
                        openMenuUid={menu?.uid ?? null}
                        onOpenMenu={(uid, x, y, viewMode, trigger) =>
                          setMenu({ uid, x, y, viewMode, trigger })} />
       ))}
+      {!fallback && !readOnly && (
+        <input ref={fileInputRef} type="file" multiple
+               className="upload-input" aria-label="Upload file"
+               accept={"image/*,application/pdf,text/plain,text/markdown,"
+                 + "text/csv,application/json,.doc,.docx,.xls,.xlsx,.ppt,.pptx"}
+               onChange={onPickUpload} />
+      )}
       {!fallback && menu && (
         <BlockMenu x={menu.x} y={menu.y} onClose={closeMenu}
           items={blockMenuItems(
@@ -200,10 +227,15 @@ function focusInSubtree(node: BlockNode, focusUid: string | null): boolean {
 }
 
 function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
-                         viewMode, number, openMenuUid, onOpenMenu }: {
+                         onRequestUpload, viewMode, number, openMenuUid,
+                         onOpenMenu }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
+  /** Click the tree-owned upload input for `uid`, splicing at offset `at`
+   * once files are chosen (pkm-gbsb) — see EditableBlockTree for why the
+   * input can't live in BlockInput itself. */
+  onRequestUpload: (uid: string, at: number) => void;
   viewMode: EffectiveBlockView;
   number: number;
   openMenuUid: string | null;
@@ -284,7 +316,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
         </span>
         {focused ? (
           <BlockInput node={node} cursor={focus.cursor} handlers={handlers}
-                      readOnly={readOnly} />
+                      readOnly={readOnly} onRequestUpload={onRequestUpload} />
         ) : (
           <WrapperTag className={"block-text" + (quoted !== null ? " quote-block" : "")}
                       onClick={() => {
@@ -305,7 +337,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
           {node.children.map((c, index) => (
             <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}
                            handlers={handlers} readOnly={readOnly}
-                           fallback={fallback}
+                           fallback={fallback} onRequestUpload={onRequestUpload}
                            viewMode={childrenView} number={index + 1}
                            openMenuUid={openMenuUid}
                            onOpenMenu={onOpenMenu} />
@@ -316,9 +348,10 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
   );
 }
 
-function BlockInput({ node, cursor, handlers, readOnly }: {
+function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   node: BlockNode; cursor: number;
   handlers: OutlineHandlers; readOnly: boolean;
+  onRequestUpload: (uid: string, at: number) => void;
 }) {
   const headingClass =
     node.heading === 1 ? " heading-1" :
@@ -334,10 +367,6 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
   // `cursor` is the intended initial caret and later prop changes (which
   // don't happen for the focused block) must not re-run the focus effect.
   const initialCursorRef = useRef(cursor);
-  // The /upload file picker, and the caret offset the trigger was stripped at
-  // (where the asset markdown should be spliced once files are chosen).
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const uploadAtRef = useRef(0);
   const navigate = useNavigate();
   // Whether the user has typed edits not yet committed to the block tree.
   // Focus alone is not a draft: while dirty, remote text still lands on the
@@ -437,16 +466,16 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
 
   const pick = (row: AcRow) => {
     if (!ac) return;
-    // "/upload": strip the trigger, then open a file picker. onPickUpload
-    // splices the uploaded asset's markdown in (via handlers.onFiles) once the
-    // user has chosen files.
+    // "/upload": strip the trigger, then open the tree-owned file picker.
+    // handlers.onFiles splices the uploaded asset's markdown in once the user
+    // has chosen files; the input outlives this component (pkm-gbsb) because
+    // choosing a file blurs (and so unmounts) BlockInput.
     if (row.command === "upload") {
       const at = ac.start - 1; // where the "/" was
       setAc(null);
       setAcSelected(0);
       setText(draft.slice(0, at) + draft.slice(caret), at);
-      uploadAtRef.current = at;
-      fileInputRef.current?.click();
+      onRequestUpload(node.uid, at);
       return;
     }
     const applied = row.command
@@ -590,13 +619,6 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
     handlers.onFiles(node.uid, e.currentTarget.selectionStart, files);
   };
 
-  const onPickUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = ""; // let the same file be picked again later
-    if (files.length === 0 || readOnly) return;
-    handlers.onFiles(node.uid, uploadAtRef.current, files);
-  };
-
   const onCompositionStart = () => {
     composingRef.current = true;
   };
@@ -617,13 +639,6 @@ function BlockInput({ node, cursor, handlers, readOnly }: {
                 onCompositionEnd={onCompositionEnd} />
       {!readOnly && (
         <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
-      )}
-      {!readOnly && (
-        <input ref={fileInputRef} type="file" multiple
-               className="upload-input" aria-label="Upload file"
-               accept={"image/*,application/pdf,text/plain,text/markdown,"
-                 + "text/csv,application/json,.doc,.docx,.xls,.xlsx,.ppt,.pptx"}
-               onChange={onPickUpload} />
       )}
     </div>
   );

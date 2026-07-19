@@ -10,6 +10,7 @@ from pkm.importer.rows import Rows
 from pkm.test_data.core import (
     SourceValidationError,
     build_rows,
+    deduplicate_assets_by_sha,
     expand_asset_placeholders,
     parse_graph_source,
 )
@@ -63,6 +64,15 @@ def test_parse_graph_source_accepts_strict_valid_source() -> None:
     source = parse_graph_source(valid_source(), asset_names={"sample.svg"})
     assert source.pages[0].blocks[0].collapsed is True
     assert source.sidebar_entries == ("Project Atlas",)
+
+
+def test_deduplicate_assets_by_sha_keeps_first_named_asset_per_content() -> None:
+    shared = Asset(sha256="cd" * 32, filename="alpha.bin", mime="application/octet-stream", size=4)
+    duplicate = Asset(sha256="cd" * 32, filename="beta.bin", mime="application/octet-stream", size=4)
+    unique = Asset(sha256="ef" * 32, filename="gamma.bin", mime="application/octet-stream", size=4)
+    by_name = {"alpha.bin": shared, "beta.bin": duplicate, "gamma.bin": unique}
+
+    assert deduplicate_assets_by_sha(by_name) == (shared, unique)
 
 
 def test_expand_asset_placeholders_quotes_filename() -> None:

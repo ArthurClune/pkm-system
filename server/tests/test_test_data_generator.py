@@ -299,3 +299,32 @@ def test_main_uses_default_source(tmp_path: Path) -> None:
     output = tmp_path / "data"
     assert main(["--out", str(output)]) == 0
     assert (output / "pkm.sqlite3").is_file()
+
+
+def test_generate_succeeds_with_pre_existing_empty_output_directory(tmp_path: Path) -> None:
+    output = tmp_path / "data"
+    output.mkdir()
+    generate(TEST_DATA / "graph.json", output)
+    assert (output / "pkm.sqlite3").is_file()
+
+
+def test_generate_deduplicates_assets_with_identical_content(tmp_path: Path) -> None:
+    source_dir = tmp_path / "source"
+    shutil.copytree(TEST_DATA, source_dir)
+    duplicate_bytes = b"identical-payload"
+    (source_dir / "assets" / "dup-alpha.bin").write_bytes(duplicate_bytes)
+    (source_dir / "assets" / "dup-beta.bin").write_bytes(duplicate_bytes)
+    output = tmp_path / "data"
+
+    generate(source_dir / "graph.json", output)
+
+    con = sqlite3.connect(output / "pkm.sqlite3")
+    try:
+        rows = list(
+            con.execute("SELECT sha256, filename FROM assets WHERE filename LIKE 'dup-%'")
+        )
+    finally:
+        con.close()
+
+    expected_sha = hashlib.sha256(duplicate_bytes).hexdigest()
+    assert rows == [(expected_sha, "dup-alpha.bin")]

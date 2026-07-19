@@ -111,6 +111,20 @@ def expand_asset_placeholders(text: str, assets_by_name: Mapping[str, Asset]) ->
     )
 
 
+def deduplicate_assets_by_sha(assets_by_name: Mapping[str, Asset]) -> tuple[Asset, ...]:
+    """Collapse differently named assets that share content into one row per SHA-256.
+
+    The `assets` table is keyed by content hash, so two fixture files with
+    identical bytes but different names must collapse to a single row. The
+    asset first encountered in `assets_by_name`'s iteration order wins the
+    row's filename.
+    """
+    by_sha: dict[str, Asset] = {}
+    for asset in assets_by_name.values():
+        by_sha.setdefault(asset.sha256, asset)
+    return tuple(by_sha.values())
+
+
 def build_rows(source: GraphSource, assets_by_name: Mapping[str, Asset]) -> PreparedGraph:
     """Convert a validated source graph into importer rows and sidebar positions."""
     export = Export(

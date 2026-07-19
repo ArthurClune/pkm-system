@@ -17,7 +17,7 @@ from pkm.filenames import safe_filename
 from pkm.importer.assets import Asset
 from pkm.server.db import init_db, open_db
 from pkm.server.mime_sniff import sniff_mime
-from pkm.test_data.core import build_rows, parse_graph_source
+from pkm.test_data.core import build_rows, deduplicate_assets_by_sha, parse_graph_source
 
 DEFAULT_SOURCE = Path(__file__).resolve().parents[4] / "test-data" / "graph.json"
 
@@ -185,7 +185,7 @@ def generate(source_path: Path, output_dir: Path) -> None:
                 "INSERT INTO assets VALUES (?,?,?,?,NULL)",
                 [
                     (asset.sha256, asset.filename, asset.mime, asset.size)
-                    for asset in assets_by_name.values()
+                    for asset in deduplicate_assets_by_sha(assets_by_name)
                 ],
             )
             con.executemany(

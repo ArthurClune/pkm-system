@@ -170,6 +170,17 @@ def plan_save(payload: dict, page_title: str, parent_spec: str | None,
     return _Planner(uids).creates(payload, page_title, parent_spec, items, todo)
 
 
+def asset_block_text(filename: str, mime: str, url: str) -> str:
+    """Render an uploaded asset as a block: image embed, `pdf` macro, or a
+    plain link, keyed off the asset's mime type. Pure text shaping shared
+    by the CLI (`pkm upload`) and the MCP server's upload tool."""
+    if mime.startswith("image/"):
+        return f"![{filename}]({url})"
+    if mime == "application/pdf":
+        return f"{{{{[[pdf]]: {url}}}}}"
+    return f"[{filename}]({url})"
+
+
 def referenced_pages(commands: list[dict]) -> list[str]:
     """Page titles a batch's commands need fetched (in first-seen order),
     so the shell knows what to fetch/create before planning."""
@@ -281,5 +292,5 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
 
 __all__ = [
     "BuildError", "parse_outline", "next_child_idx", "resolve_parent",
-    "plan_save", "referenced_pages", "plan_batch",
+    "plan_save", "asset_block_text", "referenced_pages", "plan_batch",
 ]

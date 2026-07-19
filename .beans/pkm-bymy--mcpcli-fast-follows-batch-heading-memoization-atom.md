@@ -1,11 +1,11 @@
 ---
 # pkm-bymy
 title: 'MCP/CLI fast-follows: batch heading memoization, atomic config write, update-stdin newline'
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-07-19T18:02:50Z
-updated_at: 2026-07-19T18:20:05Z
+updated_at: 2026-07-19T18:23:09Z
 ---
 
 Follow-ups from the pkm-w05j final whole-branch review (branch worktree-pkm-w05j-mcp-cli, review 2026-07-19):

@@ -655,7 +655,34 @@ test("typing [ twice opens the [[ page-link autocomplete (pkm-3sxw)", () => {
   // rAF that places it, so set it explicitly before the second keystroke.
   ta.setSelectionRange(1, 1);
   fireEvent.keyDown(ta, { key: "[" }); // -> "[[]]" caret 2, ref popup opens
-  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[]]");
+  // caret inside the open ref: the draft is flush-held (pkm-xlah)
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[]]", true);
+});
+
+test("typing with the caret inside an open [[ ref holds the draft flush "
+     + "(pkm-xlah)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  // auto-pair state: "[[How LLM]]" with the caret before the closer
+  fireEvent.change(ta, {
+    target: { value: "[[How LLM]]", selectionStart: 9, selectionEnd: 9 },
+  });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[How LLM]]", true);
+});
+
+test("a #tag token holds the draft flush until the token ends (pkm-xlah)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  fireEvent.change(ta, {
+    target: { value: "#How", selectionStart: 4, selectionEnd: 4 },
+  });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "#How", true);
+  fireEvent.change(ta, {
+    target: { value: "#How ", selectionStart: 5, selectionEnd: 5 },
+  });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "#How ");
 });
 
 test("/upload strips the trigger and hands picked files to onFiles (pkm-coz9)", () => {

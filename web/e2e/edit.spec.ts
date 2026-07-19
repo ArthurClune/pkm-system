@@ -107,6 +107,41 @@ test("can click back into a line after emptying it (pkm-mc07)", async ({ page })
   await expect(input(page)).toBeFocused();
 });
 
+test("pausing mid [[ autocomplete does not create the partial page (pkm-xlah)", async ({ page }) => {
+  // unique titles: the e2e DB is shared across specs and retries
+  const stamp = Date.now();
+  const scratch = `RefHold${stamp}`;
+  const partial = `Xlah${stamp} Wo`;
+  const full = `Xlah${stamp} Work`;
+  await login(page);
+  const createRes = await page.request.post("/api/pages", { data: { title: scratch } });
+  expect(createRes.ok()).toBeTruthy();
+  await page.goto(`/page/${encodeURIComponent(scratch)}`);
+  await page.getByText("Click to start writing…").click();
+
+  await input(page).pressSequentially("see ");
+  await input(page).press("[");
+  await afterPaint(page); // auto-pair caret restoration runs after paint
+  await input(page).press("[");
+  await afterPaint(page);
+  await input(page).pressSequentially(`Xlah${stamp} Wo`);
+  // pause well past the 500ms draft debounce with the ref still half-typed;
+  // the held draft must not autosave (autosaving would create the page)
+  await page.waitForTimeout(900);
+  const midType = await page.request.get(`/api/page/${encodeURIComponent(partial)}`);
+  expect(midType.status()).toBe(404);
+
+  // finishing the ref creates only the completed title
+  await input(page).pressSequentially("rk");
+  await page.getByRole("option", { name: `New page: ${full}` }).click();
+  await input(page).press("Escape"); // blur: flushes the draft op
+  await waitForServerText(page, scratch, `see [[${full}]]`);
+  expect((await page.request.get(`/api/page/${encodeURIComponent(partial)}`)).status())
+    .toBe(404);
+  expect((await page.request.get(`/api/page/${encodeURIComponent(full)}`)).ok())
+    .toBeTruthy();
+});
+
 test("edits broadcast live to a second client", async ({ browser, badResponses }) => {
   const ctxA = await browser.newContext();
   const ctxB = await browser.newContext();

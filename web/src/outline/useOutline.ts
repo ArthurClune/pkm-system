@@ -244,9 +244,16 @@ export function useOutline(
       // already have moved it (the old textarea's unmount-blur arrives late).
       setFocus((f) => (f?.uid === uid ? null : f));
     },
-    onDraftChange: (uid, text) => {
+    onDraftChange: (uid, text, holdFlush) => {
       pendingRef.current = { uid, text };
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      // held (pkm-xlah): the caret is mid [[ref / #tag token — autosaving now
+      // would create a page from the half-typed title. The draft stays
+      // pending; blur, structural edits, undo, and tab-hide still flush it.
+      if (holdFlush) return;
       timerRef.current = setTimeout(flushNow, TEXT_DEBOUNCE_MS);
     },
     onSplit: (uid, cursor) =>

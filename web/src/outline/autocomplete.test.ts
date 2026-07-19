@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { applyCompletion, detectAutocomplete } from "./autocomplete";
+import { applyCompletion, detectAutocomplete,
+         holdsDraftFlush } from "./autocomplete";
 
 describe("detectAutocomplete", () => {
   test("open [[ before the cursor", () => {
@@ -56,6 +57,25 @@ describe("detectAutocomplete", () => {
   test("a leading digit does not trigger (quiet in dates/numbers)", () => {
     expect(detectAutocomplete("a /2020 budget", 7)).toBeNull();
     expect(detectAutocomplete("/1", 2)).toBeNull();
+  });
+});
+
+describe("holdsDraftFlush", () => {
+  test("holds while the caret is inside an open [[ ref", () => {
+    // auto-pair leaves "[[How LLM]]" with the caret before the closer
+    expect(holdsDraftFlush(detectAutocomplete("[[How LLM]]", 9))).toBe(true);
+    expect(holdsDraftFlush(detectAutocomplete("see [[", 6))).toBe(true);
+  });
+
+  test("holds mid #tag token", () => {
+    expect(holdsDraftFlush(detectAutocomplete("a #ta", 5))).toBe(true);
+  });
+
+  test("does not hold for slash commands, closed refs, or plain text", () => {
+    expect(holdsDraftFlush(detectAutocomplete("/py", 3))).toBe(false);
+    expect(holdsDraftFlush(detectAutocomplete("see [[Done]] after", 18)))
+      .toBe(false);
+    expect(holdsDraftFlush(null)).toBe(false);
   });
 });
 

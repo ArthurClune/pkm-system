@@ -46,6 +46,15 @@ export function detectAutocomplete(text: string,
   return null;
 }
 
+/** Whether the debounced draft autosave should be deferred: the caret is
+ * mid-token in a page-creating context ([[ ref or #tag), so committing now
+ * would materialise the half-typed title as a page — the server creates a
+ * page for every ref it indexes (pkm-xlah). Slash commands create nothing,
+ * so they never hold. Explicit commits (blur, structural edits) still flush. */
+export function holdsDraftFlush(ctx: AcContext | null): boolean {
+  return ctx !== null && (ctx.kind === "ref" || ctx.kind === "tag");
+}
+
 export function applyCompletion(text: string, cursor: number, ctx: AcContext,
                                 title: string): { text: string; cursor: number } {
   const after = text.slice(cursor);

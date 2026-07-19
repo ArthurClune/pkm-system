@@ -9,7 +9,7 @@ import type { BlockNode } from "../api/payloads";
 import { clampCaret, type FocusTarget } from "../outline/edits";
 import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
-import { applyCompletion, detectAutocomplete,
+import { applyCompletion, detectAutocomplete, holdsDraftFlush,
          type AcContext } from "../outline/autocomplete";
 import { type TextSelection } from "../outline/keyEdits";
 import { decideEditorKey } from "../outline/keyboardPolicy";
@@ -34,7 +34,10 @@ export interface OutlineHandlers {
    * moved focus elsewhere, the old textarea's unmount-blur arrives late and
    * must not clear the new focus (the hook checks the uid). */
   onBlurBlock(uid: string): void;
-  onDraftChange(uid: string, text: string): void;
+  /** holdFlush (pkm-xlah): the caret sits mid [[ref / #tag token, so the
+   * debounced autosave must wait — flushing now would create a page from the
+   * half-typed title. Blur/structural commits flush held drafts regardless. */
+  onDraftChange(uid: string, text: string, holdFlush?: boolean): void;
   onSplit(uid: string, cursor: number): void;
   onIndent(uid: string): void;
   onOutdent(uid: string): void;
@@ -452,13 +455,22 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   // Apply a bracket/link key edit. Unlike a normal keystroke this bypasses
   // onChange (we preventDefault), so we re-derive the autocomplete context here
   // — that's what lets typing "[" twice open the [[ page-link popup.
+  // A draft typed with the caret inside an open [[ ref / #tag token is
+  // flush-held (pkm-xlah): the debounced autosave would turn the half-typed
+  // title into a page. The plain two-arg form is kept when not held.
+  const notifyDraft = (text: string, ctx: AcContext | null) => {
+    if (holdsDraftFlush(ctx)) handlers.onDraftChange(node.uid, text, true);
+    else handlers.onDraftChange(node.uid, text);
+  };
+
   const applyKeyEdit = (r: TextSelection) => {
     dirtyRef.current = true;
     setDraft(r.text);
     setCaret(r.selStart);
     setAcSelected(0);
-    setAc(detectAutocomplete(r.text, r.selStart));
-    handlers.onDraftChange(node.uid, r.text);
+    const ctx = detectAutocomplete(r.text, r.selStart);
+    setAc(ctx);
+    notifyDraft(r.text, ctx);
     requestAnimationFrame(() => {
       ref.current?.setSelectionRange(r.selStart, r.selEnd);
     });
@@ -501,8 +513,9 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
     setDraft(value);
     setCaret(pos);
     setAcSelected(0);
-    setAc(detectAutocomplete(value, pos));
-    handlers.onDraftChange(node.uid, value);
+    const ctx = detectAutocomplete(value, pos);
+    setAc(ctx);
+    notifyDraft(value, ctx);
   };
 
   // The keydown POLICY lives in the functional core (keyboardPolicy.ts); this

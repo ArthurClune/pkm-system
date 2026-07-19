@@ -1,11 +1,11 @@
 ---
 # pkm-xlah
 title: Pausing mid page-ref autocomplete creates partial pages
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-19T15:35:25Z
-updated_at: 2026-07-19T15:44:24Z
+updated_at: 2026-07-19T15:51:13Z
 ---
 
 Typing [[How LLM (auto-pair closes to [[How LLM]]), then pausing >500ms, creates page 'How LLM' even though the user was still typing toward 'How LLMs Work'.
@@ -27,3 +27,9 @@ Fix: defer the debounced flush while the caret sits inside an in-progress [[ ref
 - `web/src/components/EditableBlockTree.tsx`: `OutlineHandlers.onDraftChange` gains optional `holdFlush`; BlockInput passes it from the freshly derived autocomplete context (onChange + key-edit paths).
 - `web/src/outline/useOutline.ts`: a held draft clears any armed debounce timer and does not re-arm it; the draft stays pending and still flushes at every explicit commit point (blur, structural edits, undo, tab-hidden).
 - Tests: unit (holdsDraftFlush, component hold flag, useOutline.draftHold.test.tsx debounce behaviour) + E2E in edit.spec.ts proving the partial page 404s server-side mid-pause and only the completed title becomes a page.
+
+## Review notes (fable review, pre-merge)
+
+Verdict: ready to merge, no critical/important issues. Known limitations accepted by design:
+- Hold is caret-scoped: editing elsewhere in the block while a half-typed ref sits earlier in the text still autosaves it after 500ms.
+- visibilitychange→hidden still flushes a held draft (durability over cleanliness) — on mobile, app-switching mid-[[ can still create the partial page. Follow-up bean only if this shows up in practice.

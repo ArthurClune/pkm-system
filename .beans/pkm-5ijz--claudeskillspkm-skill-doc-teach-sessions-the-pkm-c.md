@@ -1,10 +1,11 @@
 ---
 # pkm-5ijz
 title: .claude/skills/pkm skill doc — teach sessions the pkm CLI/MCP
-status: todo
+status: completed
 type: task
+priority: normal
 created_at: 2026-07-19T18:09:00Z
-updated_at: 2026-07-19T18:09:00Z
+updated_at: 2026-07-19T18:24:44Z
 ---
 
 Write a project skill (.claude/skills/pkm/SKILL.md) so Claude Code sessions know to drive the PKM through the pkm CLI (and pkm-mcp where relevant) instead of poking the DB or HTTP by hand.
@@ -18,5 +19,11 @@ Content to cover:
 
 Process: invoke /superpowers:writing-skills FIRST when writing the skill (CLAUDE.md requirement).
 
-- [ ] Write skill doc
-- [ ] Verify a fresh session picks it up and uses the CLI
+- [x] Write skill doc
+- [x] Verify a fresh session picks it up and uses the CLI
+
+## Summary of Changes
+
+Added `.claude/skills/pkm/SKILL.md` (reference skill, ~430 words) covering invocation (`uv run --project server pkm`), config/auth boundaries (never mint tokens or read the DB; stop and ask the user to `pkm login` on 401), all read verbs (`--json`), write verbs incl. batch alias/heading semantics (post-pkm-bymy: repeated `"## Heading"` parents resolve to one heading per batch), MCP note, and gotchas (404 = deploy gap; 8974 is prod).
+
+Process per bean: invoked /superpowers:writing-skills first and followed RED-GREEN. Baseline (no skill): both test agents escalated — interactive `pkm login` dead-end, then session-cookie minting, raw curl probing, and a direct SQLite copy+hand-run query. With the skill: agents used the CLI verbs, verified writes via `pkm get`, and on the `pkm todos` 404 correctly reported the pending-deploy gap instead of DB-poking. Final verification: a fresh headless `claude -p` session in the repo discovered the skill unprompted and answered a page-read task via `pkm get --json`.

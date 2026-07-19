@@ -200,6 +200,14 @@ class ChangesPayload(BaseModel):
     tombstones: list[SyncTombstone]
 
 
+class BlockPayload(BaseModel):
+    """GET /api/block/{uid}: one block's subtree with page context."""
+    page: PageMeta
+    block: BlockNode
+    breadcrumbs: list[str]
+    block_ref_texts: dict[str, BlockRefText]
+
+
 class SnapshotPayload(BaseModel):
     generation: str
     seq: int

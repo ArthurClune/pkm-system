@@ -163,6 +163,46 @@
         }
       }
     },
+    "/api/block/{uid}": {
+      "get": {
+        "summary": "Get Block",
+        "description": "One block's subtree plus its page and ancestor texts (pkm-w05j:\nthe CLI/MCP `get <uid>` read; pages remain the only other read unit).",
+        "operationId": "get_block_api_block__uid__get",
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/page/{title}": {
       "get": {
         "summary": "Get Page",
@@ -1228,6 +1268,39 @@
           "children"
         ],
         "title": "BlockNode"
+      },
+      "BlockPayload": {
+        "properties": {
+          "page": {
+            "$ref": "#/components/schemas/PageMeta"
+          },
+          "block": {
+            "$ref": "#/components/schemas/BlockNode"
+          },
+          "breadcrumbs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Breadcrumbs"
+          },
+          "block_ref_texts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BlockRefText"
+            },
+            "type": "object",
+            "title": "Block Ref Texts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "block",
+          "breadcrumbs",
+          "block_ref_texts"
+        ],
+        "title": "BlockPayload",
+        "description": "GET /api/block/{uid}: one block's subtree with page context."
       },
       "BlockRefText": {
         "properties": {

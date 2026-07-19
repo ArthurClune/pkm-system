@@ -94,6 +94,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/block/{uid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Block
+         * @description One block's subtree plus its page and ancestor texts (pkm-w05j:
+         *     the CLI/MCP `get <uid>` read; pages remain the only other read unit).
+         */
+        get: operations["get_block_api_block__uid__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/page/{title}": {
         parameters: {
             query?: never;
@@ -494,6 +515,20 @@ export interface components {
             updated_at: number | null;
             /** Children */
             children: components["schemas"]["BlockNode"][];
+        };
+        /**
+         * BlockPayload
+         * @description GET /api/block/{uid}: one block's subtree with page context.
+         */
+        BlockPayload: {
+            page: components["schemas"]["PageMeta"];
+            block: components["schemas"]["BlockNode"];
+            /** Breadcrumbs */
+            breadcrumbs: string[];
+            /** Block Ref Texts */
+            block_ref_texts: {
+                [key: string]: components["schemas"]["BlockRefText"];
+            };
         };
         /** BlockRefText */
         BlockRefText: {
@@ -1040,6 +1075,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BlockRefsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_block_api_block__uid__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                uid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockPayload"];
                 };
             };
             /** @description Validation Error */

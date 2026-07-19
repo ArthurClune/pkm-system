@@ -18,12 +18,12 @@ from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
 from pkm.server.ops_core import UID_RE as _UID_RE
 from pkm.server.response_models import (
-    BlockRefsPayload, CurrentWorkPayload, GroupsPayload, JournalPayload,
-    PageMeta, PagePayload)
+    BlockPayload, BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
+    JournalPayload, PageMeta, PagePayload)
 from pkm.server.store import (delete_page_rows, fetch_page,
                               get_or_create_page, merge_page_rows,
                               rename_page_rows)
-from pkm.server.tree import build_tree, collect_block_ref_uids
+from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -130,6 +130,34 @@ def get_block_refs(uids: str,
             raise HTTPException(status_code=422,
                                 detail=f"malformed uid: {uid!r}")
     return {"block_ref_texts": _resolve_ref_uids(db, wanted)}
+
+
+@router.get("/api/block/{uid}", response_model=BlockPayload)
+def get_block(uid: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """One block's subtree plus its page and ancestor texts (pkm-w05j:
+    the CLI/MCP `get <uid>` read; pages remain the only other read unit)."""
+    if not _UID_RE.fullmatch(uid):
+        raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
+    row = db.execute(
+        "SELECT b.page_id, p.id, p.title, p.created_at, p.updated_at"
+        "  FROM blocks b JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
+        (uid,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="block not found")
+    blocks = db.execute(
+        f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+        (row["page_id"],)).fetchall()
+    node = find_node(build_tree(blocks), uid)
+    assert node is not None  # the block row exists on this page
+    texts = [r["text"] for r in blocks]
+    return {
+        "page": {"id": row["id"], "title": row["title"],
+                 "created_at": row["created_at"],
+                 "updated_at": row["updated_at"]},
+        "block": node,
+        "breadcrumbs": _fetch_ancestors(db, [uid]).get(uid, []),
+        "block_ref_texts": _block_ref_texts(db, texts),
+    }
 
 
 @router.get("/api/page/{title:path}", response_model=PagePayload)

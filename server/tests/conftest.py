@@ -68,3 +68,18 @@ def client(anon_client) -> TestClient:
     r = anon_client.post("/api/login", json={"password": TEST_PASSWORD})
     assert r.status_code == 200
     return anon_client
+
+
+@pytest.fixture()
+def pkm_client(anon_client):
+    """A PkmClient driving the in-process app: real login, explicit
+    Cookie header (the jar is cleared so the header is what authenticates)."""
+    from pkm.client.api import PkmClient
+    from pkm.client.core import CliConfig
+
+    r = anon_client.post("/api/login", json={"password": TEST_PASSWORD})
+    assert r.status_code == 200
+    token = anon_client.cookies["pkm_session"]
+    anon_client.cookies.clear()
+    cfg = CliConfig(url="http://testserver", token=token)
+    return PkmClient(cfg, http=anon_client)

@@ -38,6 +38,17 @@ def build_tree(rows: Sequence[Mapping]) -> list[dict]:
     return nodes(None)
 
 
+def find_node(nodes: list[dict], uid: str) -> dict | None:
+    """Depth-first search of a build_tree() result for the node with `uid`."""
+    for node in nodes:
+        if node["uid"] == uid:
+            return node
+        found = find_node(node["children"], uid)
+        if found is not None:
+            return found
+    return None
+
+
 def collect_block_ref_uids(texts: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []

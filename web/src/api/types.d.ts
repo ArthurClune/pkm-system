@@ -94,6 +94,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/block/{uid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Block
+         * @description One block's subtree plus its page and ancestor texts (pkm-w05j:
+         *     the CLI/MCP `get <uid>` read; pages remain the only other read unit).
+         */
+        get: operations["get_block_api_block__uid__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/page/{title}": {
         parameters: {
             query?: never;
@@ -285,6 +306,31 @@ export interface paths {
          * @description Page-title completion for the editor's [[ / # popup.
          */
         get: operations["titles_api_titles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/todos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Todos
+         * @description Blocks whose text starts with a {{TODO}} marker, grouped by page
+         *     (pkm-w05j). SQL narrows to TODO-containing candidates; the shared
+         *     pkm.todo matcher (the grammar's block-start rule, both bracket
+         *     variants, '> ' quote prefix) decides. Marker-based rather than
+         *     refs-based: the editor emits the bracket-less {{TODO}}, which
+         *     creates no ref row to query.
+         */
+        get: operations["todos_api_todos_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -494,6 +540,20 @@ export interface components {
             updated_at: number | null;
             /** Children */
             children: components["schemas"]["BlockNode"][];
+        };
+        /**
+         * BlockPayload
+         * @description GET /api/block/{uid}: one block's subtree with page context.
+         */
+        BlockPayload: {
+            page: components["schemas"]["PageMeta"];
+            block: components["schemas"]["BlockNode"];
+            /** Breadcrumbs */
+            breadcrumbs: string[];
+            /** Block Ref Texts */
+            block_ref_texts: {
+                [key: string]: components["schemas"]["BlockRefText"];
+            };
         };
         /** BlockRefText */
         BlockRefText: {
@@ -1053,6 +1113,37 @@ export interface operations {
             };
         };
     };
+    get_block_api_block__uid__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                uid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_page_api_page__title__get: {
         parameters: {
             query?: {
@@ -1390,6 +1481,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TitlesPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    todos_api_todos_get: {
+        parameters: {
+            query?: {
+                page?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupsPayload"];
                 };
             };
             /** @description Validation Error */

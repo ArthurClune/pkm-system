@@ -169,6 +169,42 @@ pnpm gen-types     # regenerate TS API types from the server's OpenAPI schema
 To serve the built SPA from the backend itself (no Vite), build it and set
 `web_dist` in `config.json` (the setup script's `--web-dist` flag does this).
 
+## CLI and MCP access
+
+LLM agents (and humans) can drive the PKM from the command line or over MCP.
+Both talk to the running server's HTTP API and share one login:
+
+    cd server && uv run pkm login --url http://127.0.0.1:8974
+
+This stores a year-long session token in `~/.config/pkm-cli/config.json`
+(override the path with `PKM_CLI_CONFIG`; point at another server per-call
+with `PKM_URL`).
+
+CLI quick reference (`uv run pkm <cmd> --help` for details):
+
+    pkm get "Page Title" | today | <uid>     # markdown; --uids / --json
+    pkm todos [-p "Page"]
+    pkm save [-p "Page"] [--parent "## H"|"((uid))"] [--todo] "text" | -
+    pkm update <uid> "new text" | -D | -T
+    pkm search "term" / pkm refs "Page" / pkm query "{and: [[A]] [[B]]}"
+    pkm upload file.png [-p "Page"] [--no-block]
+    pkm batch < commands.json                # atomic multi-op transaction
+
+MCP (stdio) server for Claude Code — from the repo root:
+
+    claude mcp add pkm -- uv run --project server pkm-mcp
+
+or in `.mcp.json`:
+
+    {"mcpServers": {"pkm": {"command": "uv",
+                            "args": ["run", "--project", "server", "pkm-mcp"]}}}
+
+For Claude Desktop, use the same command/args in
+`claude_desktop_config.json` under `mcpServers`, but `--project` must be
+an absolute path to the repo's `server/` directory (e.g.
+`"args": ["run", "--project", "/absolute/path/to/pkm/server", "pkm-mcp"]`).
+Run `pkm login` once first — the MCP server reads the same config file.
+
 ## Deployment
 
 Production runs as launchd services on a Mac, fronted by Tailscale Serve for

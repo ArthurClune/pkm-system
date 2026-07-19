@@ -97,11 +97,15 @@ class _Planner:
     set of uids created earlier in the same batch: they are not on the
     fetched page payload, so their first child starts at order_idx 0
     instead of consulting `next_child_idx` (which would raise, since the
-    block doesn't exist in the payload)."""
+    block doesn't exist in the payload). Also memoizes missing '## Heading'
+    parents by (page, level, text): a repeated spec across separate
+    `creates` calls (i.e. separate batch commands) reuses the heading
+    already planned instead of creating a duplicate."""
 
     def __init__(self, uids: Iterator[str]):
         self._uids = uids
         self._next_idx: dict[tuple[str, str | None], int] = {}
+        self._headings: dict[tuple[str, int, str], str] = {}
 
     def next_uid(self) -> str:
         return next(self._uids)
@@ -137,12 +141,16 @@ class _Planner:
         created: set[str] = set()
         if missing_heading is not None:
             level, text = missing_heading
-            uid = self.next_uid()
-            ops.append(_create(uid, page, None,
-                               self.bump(payload, page, None, in_batch),
-                               text, level))
-            created.add(uid)
-            parent = uid
+            heading_key = (page, level, text)
+            if heading_key in self._headings:
+                parent = self._headings[heading_key]
+            else:
+                parent = self.next_uid()
+                ops.append(_create(parent, page, None,
+                                   self.bump(payload, page, None, in_batch),
+                                   text, level))
+                self._headings[heading_key] = parent
+            created.add(parent)
         stack: list[str | None] = [parent]
         for depth, text in items:
             del stack[depth + 1:]

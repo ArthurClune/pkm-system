@@ -138,6 +138,8 @@ def cmd_update(args: argparse.Namespace, client: PkmClient) -> int:
         new_text = with_state(current, "TODO")
     else:
         new_text = _read_text_arg(args.text)
+        if args.text in (None, "-"):
+            new_text = new_text.rstrip("\n")
     client.post_ops([{"op": "update_text", "uid": args.uid,
                       "text": new_text,
                       "base_text_hash": text_hash(current)}],

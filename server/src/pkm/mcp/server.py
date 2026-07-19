@@ -122,10 +122,9 @@ def batch(commands: list[dict]) -> str:
     parent?, as?), todo (like create, {{TODO}}-prefixed), update (uid,
     text), move (uid, page, parent?, index?), delete (uid), outline
     (page, parent?, items: nested string arrays). 'as' names a created
-    block; later parents may reference it as '{{alias}}'. Note: a new
-    '## Heading' parent is created once per command — to nest several
-    commands under one new heading, create it once with 'as:' and
-    reference it via '{{alias}}' in later commands."""
+    block; later parents may reference it as '{{alias}}'. A '## Heading'
+    parent is matched on the page or created once per batch: repeating
+    the same spec across commands reuses the heading already created."""
     client = _client()
     pages = {t: _ensure_page(client, t) for t in referenced_pages(commands)}
     ops = plan_batch(commands, pages, uids=_uids())

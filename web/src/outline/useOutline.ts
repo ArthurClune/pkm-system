@@ -44,6 +44,9 @@ export interface Outline {
   dnd: OutlineDndApi;
   createFirstBlock(): void;
   appendBlock(text: string): void;
+  /** Most recent /upload, paste, or drag-drop failure, if any (pkm-gbsb). */
+  uploadError: string | null;
+  dismissUploadError(): void;
 }
 
 export function useOutline(
@@ -56,6 +59,10 @@ export function useOutline(
   const [session, setSession] = useState<OutlineSessionHandle | null>(null);
   const [ownsEditor, setOwnsEditor] = useState(false);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
+  // Most recent /upload, paste, or drag-drop failure (pkm-gbsb): uploadAsset
+  // rejections used to be swallowed silently. Cleared at the start of the
+  // next upload attempt, or explicitly via dismissUploadError.
+  const [uploadError, setUploadError] = useState<string | null>(null);
   // A live multi-block selection (Shift+Arrow), mutually exclusive with an
   // editing focus: starting one blurs the textarea, focusing a block clears it.
   const [selection, setSelection] = useState<BlockSelection | null>(null);
@@ -276,14 +283,23 @@ export function useOutline(
       return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
     }),
     onFiles: (uid, cursor, files) => {
+      setUploadError(null);
       void (async () => {
         let inserted = "";
+        const failures: string[] = [];
         for (const file of files) {
           try {
             inserted += (inserted ? " " : "") + assetMarkdown(await uploadAsset(file));
-          } catch {
+          } catch (err) {
             // failed upload: leave the text untouched rather than half-splice
+            const reason = err instanceof Error ? err.message : String(err);
+            failures.push(`${file.name}: ${reason}`);
           }
+        }
+        if (failures.length > 0) {
+          setUploadError(failures.length === 1
+            ? `Upload failed — ${failures[0]}`
+            : `${failures.length} uploads failed — ${failures.join("; ")}`);
         }
         if (inserted === "") return;
         run((b) => {
@@ -398,5 +414,7 @@ export function useOutline(
     dnd,
     createFirstBlock,
     appendBlock,
+    uploadError,
+    dismissUploadError: () => setUploadError(null),
   };
 }

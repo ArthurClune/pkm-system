@@ -252,6 +252,10 @@ button { font: inherit; }
   font-family: inherit; }
 .loading, .empty, .empty-day { color: var(--color-text-muted); }
 .error { color: var(--color-error); }
+/* /upload, paste, drag-drop failures (pkm-gbsb): inline, dismissible, next
+ * to the outline they failed in rather than a page-global banner. */
+.upload-error { display: flex; align-items: center; gap: 8px; }
+.upload-error button { padding: 1px 8px; font-size: 13px; }
 
 /* top bar: spans the main pane, houses the search bar + the page ("...") menu */
 .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px;

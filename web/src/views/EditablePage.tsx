@@ -62,6 +62,15 @@ export function EditablePage({ title, initial, composer = false }: {
          style={ownsEditor ? { position: "relative" } : undefined}
          {...(ownsEditor && !outline.readOnly ? zoneProps : {})}
          onDragEnd={ownsEditor ? () => dnd.endDrag() : undefined}>
+      {ownsEditor && outline.uploadError && (
+        <p className="error upload-error" role="alert">
+          {outline.uploadError}
+          <button type="button" className="btn-secondary"
+                  onClick={outline.dismissUploadError}>
+            Dismiss
+          </button>
+        </p>
+      )}
       {outline.blocks.length === 0 && ownsEditor ? (
         <div className="empty-drop-zone">
           <button className="empty-page" disabled={outline.readOnly}

@@ -8,12 +8,17 @@ dependencies = [
     "python-multipart>=0.0.9",
     "uvicorn>=0.30",
     "websockets>=13",
+    "httpx2>=2.5.0",
+    "mcp>=1.28",
 ]
+
+[project.scripts]
+pkm = "pkm.cli.main:main"
+pkm-mcp = "pkm.mcp.server:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8",
-    "httpx2>=2.5.0",
     "pyrefly>=1.1",
     "ruff>=0.15.20",
     "pytest-cov>=7.1.0",

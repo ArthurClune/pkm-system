@@ -1,11 +1,11 @@
 ---
 # pkm-vphw
 title: Harden synthetic data generator edge cases
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-07-18T20:58:19Z
-updated_at: 2026-07-18T20:58:19Z
+updated_at: 2026-07-19T14:07:29Z
 ---
 
 Follow-ups from the pkm-2xh2 final review.

@@ -1,10 +1,11 @@
 ---
 # pkm-zotb
 title: 'KaTeX bundle hygiene: dedupe dual katex, drop @types/katex, measure entry growth'
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-07-17T18:57:17Z
-updated_at: 2026-07-17T18:57:17Z
+updated_at: 2026-07-19T14:07:29Z
 ---
 
 Follow-ups from pkm-lr96 final review (branch feature/latex-support):

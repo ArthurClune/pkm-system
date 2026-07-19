@@ -200,8 +200,10 @@ or in `.mcp.json`:
                             "args": ["run", "--project", "server", "pkm-mcp"]}}}
 
 For Claude Desktop, use the same command/args in
-`claude_desktop_config.json` under `mcpServers`. Run `pkm login` once
-first — the MCP server reads the same config file.
+`claude_desktop_config.json` under `mcpServers`, but `--project` must be
+an absolute path to the repo's `server/` directory (e.g.
+`"args": ["run", "--project", "/absolute/path/to/pkm/server", "pkm-mcp"]`).
+Run `pkm login` once first — the MCP server reads the same config file.
 
 ## Deployment
 

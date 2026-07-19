@@ -83,3 +83,17 @@ def test_render_backlinks():
         "\n"
         "## July 7th, 2026\n"
         "- Studying\n")
+
+
+def test_render_empty_text_block():
+    payload = {
+        "page": {"id": 1, "title": "Test", "created_at": None,
+                 "updated_at": None},
+        "blocks": [
+            _node("u1", ""),  # empty text
+        ],
+        "backlinks": {"groups": [], "total_pages": 0, "offset": 0, "limit": 100},
+        "block_ref_texts": {},
+    }
+    assert render_page(payload) == "# Test\n\n-\n"
+    assert render_page(payload, include_uids=True) == "# Test\n\n-  ^u1\n"

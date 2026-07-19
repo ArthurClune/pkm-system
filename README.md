@@ -190,6 +190,24 @@ CLI quick reference (`uv run pkm <cmd> --help` for details):
     pkm upload file.png [-p "Page"] [--no-block]
     pkm batch < commands.json                # atomic multi-op transaction
 
+Notes: `pkm save` with no `-p` targets today's daily note (pages are created
+if missing); multi-line text is an outline (2-space indent = nesting); `--json`
+is available on the read verbs; `pkm login --password-stdin` suits scripts.
+
+`pkm batch` applies a JSON array of `{command, params}` objects in one
+transaction. Commands: `create` (page, text, parent?, as?), `todo` (like
+create, `{{TODO}}`-prefixed), `update` (uid, text), `move` (uid, page,
+parent?, index?), `delete` (uid), `outline` (page, parent?, items — nested
+string arrays). `as` names a created block so later commands can use it as
+`"parent": "{{alias}}"`; a `"## Heading"` parent is matched on the page or
+created — once per command, so create shared headings once with `as`:
+
+    [{"command": "create",
+      "params": {"page": "AI", "text": "[[Meeting]] notes", "as": "mtg"}},
+     {"command": "outline",
+      "params": {"page": "AI", "parent": "{{mtg}}",
+                 "items": ["Attendees", "Actions"]}}]
+
 MCP (stdio) server for Claude Code — from the repo root:
 
     claude mcp add pkm -- uv run --project server pkm-mcp
@@ -204,6 +222,11 @@ For Claude Desktop, use the same command/args in
 an absolute path to the repo's `server/` directory (e.g.
 `"args": ["run", "--project", "/absolute/path/to/pkm/server", "pkm-mcp"]`).
 Run `pkm login` once first — the MCP server reads the same config file.
+
+The MCP server exposes ten tools mirroring the CLI: `get_page`, `get_block`,
+`search`, `query`, `backlinks`, `todos`, `save_note`, `update_block`, `batch`
+(same command format as `pkm batch`), and `upload_asset`. Reads return
+markdown annotated with `^uid` markers that the write tools accept.
 
 ## Deployment
 

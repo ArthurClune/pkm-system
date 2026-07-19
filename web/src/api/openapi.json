@@ -715,6 +715,53 @@
         }
       }
     },
+    "/api/todos": {
+      "get": {
+        "summary": "Todos",
+        "description": "Blocks whose text starts with a {{TODO}} marker, grouped by page\n(pkm-w05j). SQL narrows to TODO-containing candidates; the shared\npkm.todo matcher (the grammar's block-start rule, both bracket\nvariants, '> ' quote prefix) decides. Marker-based rather than\nrefs-based: the editor emits the bracket-less {{TODO}}, which\ncreates no ref row to query.",
+        "operationId": "todos_api_todos_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupsPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sidebar": {
       "get": {
         "summary": "Get Sidebar",

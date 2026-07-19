@@ -12,6 +12,7 @@ from pkm.server.fts import escape_fts_query
 from pkm.server.query import parse_query, plan_sql, QueryParseError
 from pkm.server.response_models import (
     GroupsPayload, SearchPayload, TitlesPayload)
+from pkm.todo import is_todo
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -97,3 +98,35 @@ def titles(q: str = "", limit: int = 10,
              LIMIT ?""",
         (f"%{esc}%", f"{esc}%", limit)).fetchall()
     return {"titles": [r["title"] for r in rows]}
+
+
+@router.get("/api/todos", response_model=GroupsPayload)
+def todos(page: str | None = None,
+          db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """Blocks whose text starts with a {{TODO}} marker, grouped by page
+    (pkm-w05j). SQL narrows to TODO-containing candidates; the shared
+    pkm.todo matcher (the grammar's block-start rule, both bracket
+    variants, '> ' quote prefix) decides. Marker-based rather than
+    refs-based: the editor emits the bracket-less {{TODO}}, which
+    creates no ref row to query."""
+    sql = ("SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title"
+           "  FROM blocks b JOIN pages p ON p.id = b.page_id"
+           " WHERE instr(b.text, 'TODO') > 0")
+    params: list[str] = []
+    if page is not None:
+        sql += " AND p.title = ?"
+        params.append(page)
+    sql += " ORDER BY p.title, b.uid"
+    rows = [r for r in db.execute(sql, params).fetchall()
+            if is_todo(r["text"])]
+    groups: list[dict] = []
+    index: dict[int, dict] = {}
+    for r in rows:
+        group = index.get(r["page_id"])
+        if group is None:
+            group = {"page_id": r["page_id"],
+                     "page_title": r["page_title"], "items": []}
+            index[r["page_id"]] = group
+            groups.append(group)
+        group["items"].append({"uid": r["uid"], "text": r["text"]})
+    return {"groups": groups, "total": len(rows)}

@@ -1,11 +1,11 @@
 ---
 # pkm-w05j
 title: MCP Server/CLI
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-14T19:51:14Z
-updated_at: 2026-07-19T17:50:20Z
+updated_at: 2026-07-19T18:09:06Z
 ---
 
 We need a MCP server and/or CLI server for LLMs to use
@@ -19,7 +19,7 @@ Key decisions: HTTP-API-only access; login-once cookie cache; Python inside serv
 - [x] Design doc written and committed
 - [x] Implementation plan (writing-plans)
 - [x] Implementation
-- [ ] Follow-up bean: .claude/skills/pkm skill doc
+- [x] Follow-up bean: .claude/skills/pkm skill doc (pkm-5ijz)
 
 
 ## Summary of Changes

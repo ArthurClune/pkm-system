@@ -86,6 +86,18 @@ def test_update_done_and_todo_flags(run, pkm_client):
     assert pkm_client.get_block(uid)["block"]["text"] == "{{TODO}} task x"
 
 
+def test_update_stdin_strips_trailing_newline(run, pkm_client):
+    code, _, _ = run("update", "uid_b6", "-", stdin="rewritten\n")
+    assert code == 0
+    assert pkm_client.get_block("uid_b6")["block"]["text"] == "rewritten"
+
+
+def test_update_stdin_strips_multiple_trailing_newlines_only(run, pkm_client):
+    code, _, _ = run("update", "uid_b6", "-", stdin="rewritten  \n\n")
+    assert code == 0
+    assert pkm_client.get_block("uid_b6")["block"]["text"] == "rewritten  "
+
+
 def test_update_requires_exactly_one_change(run):
     code, _, err = run("update", "uid_b6")
     assert code == 1

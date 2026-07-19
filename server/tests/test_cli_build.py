@@ -152,3 +152,20 @@ def test_plan_batch_missing_page_payload():
     with pytest.raises(BuildError, match="page not fetched"):
         plan_batch([{"command": "create", "params": {"page": "X", "text": "x"}}],
                    {}, uid_gen())
+
+
+def test_plan_batch_reuses_repeated_missing_heading():
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "## Notes",
+                    "text": "first"}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "## Notes",
+                    "text": "second"}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
+    heading_ops = [o for o in ops if o.get("heading") is not None]
+    content_ops = [o for o in ops if o.get("heading") is None]
+    assert len(heading_ops) == 1
+    assert [o["parent_uid"] for o in content_ops] == [heading_ops[0]["uid"]] * 2
+    assert [o["order_idx"] for o in content_ops] == [0, 1]

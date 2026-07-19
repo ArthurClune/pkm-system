@@ -200,13 +200,13 @@ create, `{{TODO}}`-prefixed), `update` (uid, text), `move` (uid, page,
 parent?, index?), `delete` (uid), `outline` (page, parent?, items — nested
 string arrays). `as` names a created block so later commands can use it as
 `"parent": "{{alias}}"`; a `"## Heading"` parent is matched on the page or
-created — once per command, so create shared headings once with `as`:
+created once per batch — repeating the same `"## Heading"` spec across
+commands reuses the heading already created:
 
     [{"command": "create",
-      "params": {"page": "AI", "text": "[[Meeting]] notes", "as": "mtg"}},
-     {"command": "outline",
-      "params": {"page": "AI", "parent": "{{mtg}}",
-                 "items": ["Attendees", "Actions"]}}]
+      "params": {"page": "AI", "parent": "## Meetings", "text": "notes"}},
+     {"command": "create",
+      "params": {"page": "AI", "parent": "## Meetings", "text": "more notes"}}]
 
 MCP (stdio) server for Claude Code — from the repo root:
 

@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from pkm.client import api as client_api
@@ -22,6 +24,31 @@ def test_save_and_load_config(monkeypatch, tmp_path):
     monkeypatch.delenv("PKM_URL", raising=False)
     cfg = CliConfig(url="http://x:1", token="t")
     client_api.save_config(cfg)
+    assert (tmp_path / "c.json").stat().st_mode & 0o777 == 0o600
+    assert client_api.load_config() == cfg
+
+
+def test_save_config_creates_via_atomic_exclusive_tempfile(monkeypatch, tmp_path):
+    monkeypatch.setenv("PKM_CLI_CONFIG", str(tmp_path / "c.json"))
+    monkeypatch.delenv("PKM_URL", raising=False)
+    opens: list[tuple[str, int, int]] = []
+    real_open = os.open
+
+    def spy_open(path, flags, mode=0o777):
+        opens.append((str(path), flags, mode))
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(client_api.os, "open", spy_open)
+    cfg = CliConfig(url="http://x:1", token="t")
+    client_api.save_config(cfg)
+
+    assert len(opens) == 1
+    path, flags, mode = opens[0]
+    assert flags & os.O_EXCL
+    assert flags & os.O_CREAT
+    assert mode == 0o600
+    assert path != str(tmp_path / "c.json")  # written via a temp file, not in place
+    assert [p.name for p in tmp_path.iterdir()] == ["c.json"]  # no leftover temp file
     assert (tmp_path / "c.json").stat().st_mode & 0o777 == 0o600
     assert client_api.load_config() == cfg
 

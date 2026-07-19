@@ -93,7 +93,8 @@ and committed with the route changes.
 Behaviour:
 
 - **Output:** markdown by default (indented bullets, headings rendered);
-  `--json` on every verb for structured data with uids.
+  `--json` on the read verbs (`get`, `search`, `refs`, `query`, `todos`) for
+  structured data with uids.
 - **stdin:** `pkm save -` reads text from stdin (avoids leading-`-`
   flag-parsing). Multi-line input becomes sibling blocks; indentation
   (2 spaces or tab) becomes nesting, so a whole outline lands in one call.

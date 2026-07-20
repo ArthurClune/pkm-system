@@ -166,3 +166,34 @@ test("edits broadcast live to a second client", async ({ browser, badResponses }
   await ctxA.close();
   await ctxB.close();
 });
+
+test("Cmd-B bolds the selection and renders <strong> (pkm-kkpe)", async ({ page }) => {
+  // unique page: the e2e DB is shared across specs/retries, and today's
+  // journal must stay untouched (other specs assume its state)
+  const title = `BoldKey${Date.now()}`;
+  await login(page);
+  const createRes = await page.request.post("/api/pages", { data: { title } });
+  expect(createRes.ok()).toBeTruthy();
+  await page.goto(`/page/${encodeURIComponent(title)}`);
+  await page.getByText("Click to start writing…").click();
+
+  await input(page).fill("make bold now");
+  // select "bold" (5..9) and toggle
+  await input(page).evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(5, 9));
+  await input(page).press("Meta+b");
+  await expect(input(page)).toHaveValue("make **bold** now");
+  // applyKeyEdit restores the post-toggle selection inside a rAF (the
+  // controlled-value re-render otherwise collapses it to the end, same as
+  // the bracket auto-pair caret restoration above) — wait for it before the
+  // next toggle reads the selection, or a fast enough press races it.
+  await afterPaint(page);
+  // toggle straight back off (selection stays on the inner text), then on again
+  await input(page).press("Meta+b");
+  await expect(input(page)).toHaveValue("make bold now");
+  await afterPaint(page);
+  await input(page).press("Meta+b");
+  await input(page).press("Escape"); // blur: flushes the draft op
+
+  await waitForServerText(page, title, "make **bold** now");
+  await expect(page.locator(".block-text strong", { hasText: "bold" })).toBeVisible();
+});

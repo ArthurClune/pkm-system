@@ -59,8 +59,8 @@ const NONE: KeyDecision = { type: "none" };
 // Shift chords stay free for future shortcuts. Only shortcuts mirroring a
 // system-wide convention (undo/redo, todo-cycle on Enter) accept Meta or
 // Ctrl so they also work on non-Mac keyboards.
-const META_WRAP_EDITS: Record<string,
-  (text: string, selStart: number, selEnd: number) => TextSelection> = {
+const META_WRAP_EDITS: Partial<Record<string,
+  (text: string, selStart: number, selEnd: number) => TextSelection>> = {
   k: wrapLink,
   b: (t, s, e) => toggleEmphasis(t, s, e, "**"),
   i: (t, s, e) => toggleEmphasis(t, s, e, "__"),

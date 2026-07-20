@@ -1,8 +1,9 @@
 // pattern: Functional Core
 // Pure text/caret transforms for editor keystrokes: bracket auto-pairing
-// (typing one of [ ( { ` " ' ) and Cmd-K markdown-link wrapping. Each returns
-// the new textarea value plus the selection to restore afterwards, or null to
-// let the keystroke fall through to the browser's default handling.
+// (typing one of [ ( { ` " ' ), Cmd-K markdown-link wrapping, and Cmd-B/Cmd-I
+// emphasis toggling. Each returns the new textarea value plus the selection to
+// restore afterwards, or null to let the keystroke fall through to the browser's
+// default handling.
 //
 // These are intentionally stateless: "skip over an auto-inserted closing
 // bracket" is inferred from "the next character already equals the one being
@@ -89,7 +90,9 @@ export function wrapLink(
  * selection (markers just outside, or included in the selection) unwraps;
  * anything else wraps, keeping the inner text selected so toggles stack and
  * a second press undoes. A bare caret inserts an empty pair with the caret
- * centered; pressed again there, it deletes the pair. */
+ * centered; pressed again there, it deletes the pair. Multi-line selections are
+ * wrapped literally but will not render as emphasis (the tokenizer skips emphasis
+ * spanning newlines) — deliberate, matching the "user gets what they selected" stance. */
 export function toggleEmphasis(
   text: string, selStart: number, selEnd: number, marker: "**" | "__",
 ): TextSelection {

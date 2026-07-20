@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { autoPairBracket, wrapLink } from "./keyEdits";
+import { autoPairBracket, wrapLink, toggleEmphasis } from "./keyEdits";
 
 describe("autoPairBracket", () => {
   it("auto-closes an opening bracket with the caret inside", () => {
@@ -82,5 +82,64 @@ describe("wrapLink", () => {
     expect(wrapLink("", 0, 0)).toEqual({ text: "[]()", selStart: 1, selEnd: 1 });
     // interior caret in "abcd" at 2
     expect(wrapLink("abcd", 2, 2)).toEqual({ text: "ab[]()cd", selStart: 3, selEnd: 3 });
+  });
+});
+
+describe("toggleEmphasis", () => {
+  it("wraps a selection and keeps the inner text selected", () => {
+    // select "bold" in "make bold now" (5..9)
+    expect(toggleEmphasis("make bold now", 5, 9, "**"))
+      .toEqual({ text: "make **bold** now", selStart: 7, selEnd: 11 });
+    expect(toggleEmphasis("make bold now", 5, 9, "__"))
+      .toEqual({ text: "make __bold__ now", selStart: 7, selEnd: 11 });
+  });
+
+  it("unwraps when the markers sit just outside the selection", () => {
+    // "make **bold** now" with "bold" selected (7..11)
+    expect(toggleEmphasis("make **bold** now", 7, 11, "**"))
+      .toEqual({ text: "make bold now", selStart: 5, selEnd: 9 });
+  });
+
+  it("unwraps when the selection includes the markers", () => {
+    // "make **bold** now" with "**bold**" selected (5..13)
+    expect(toggleEmphasis("make **bold** now", 5, 13, "**"))
+      .toEqual({ text: "make bold now", selStart: 5, selEnd: 9 });
+  });
+
+  it("does not treat a bare marker-only selection as wrapped", () => {
+    // "**" selected (0..2): startsWith and endsWith overlap — must wrap, not strip
+    expect(toggleEmphasis("**", 0, 2, "**"))
+      .toEqual({ text: "******", selStart: 2, selEnd: 4 });
+  });
+
+  it("only unwraps matching markers", () => {
+    // italic markers around the selection, toggling bold: wrap, don't strip
+    expect(toggleEmphasis("__it__", 2, 4, "**"))
+      .toEqual({ text: "__**it**__", selStart: 4, selEnd: 6 });
+  });
+
+  it("inserts an empty pair at a bare caret with the caret centered", () => {
+    expect(toggleEmphasis("ab", 1, 1, "**"))
+      .toEqual({ text: "a****b", selStart: 3, selEnd: 3 });
+    expect(toggleEmphasis("", 0, 0, "__"))
+      .toEqual({ text: "____", selStart: 2, selEnd: 2 });
+  });
+
+  it("deletes an empty pair when the caret sits between it", () => {
+    // "a**|**b" caret at 3
+    expect(toggleEmphasis("a****b", 3, 3, "**"))
+      .toEqual({ text: "ab", selStart: 1, selEnd: 1 });
+  });
+
+  it("handles carets at the text boundaries without wrapping negative slices", () => {
+    expect(toggleEmphasis("x", 0, 0, "**"))
+      .toEqual({ text: "****x", selStart: 2, selEnd: 2 });
+    expect(toggleEmphasis("x", 1, 1, "**"))
+      .toEqual({ text: "x****", selStart: 3, selEnd: 3 });
+  });
+
+  it("wraps a selection at the very start and end of the text", () => {
+    expect(toggleEmphasis("hi", 0, 2, "__"))
+      .toEqual({ text: "__hi__", selStart: 2, selEnd: 4 });
   });
 });

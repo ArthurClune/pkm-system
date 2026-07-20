@@ -6,7 +6,7 @@
 // this module only decides. Ordering mirrors the former inline onKeyDown chain
 // exactly, so behaviour is unchanged.
 import { cycleTodo } from "../grammar/todo";
-import { autoPairBracket, BRACKET_CHARS, wrapLink,
+import { autoPairBracket, BRACKET_CHARS, toggleEmphasis, wrapLink,
          type TextSelection } from "./keyEdits";
 import { refTitleAtCaret } from "./refAtCaret";
 
@@ -52,6 +52,19 @@ export type KeyDecision =
   | { type: "none" };
 
 const NONE: KeyDecision = { type: "none" };
+
+// Modifier convention: letter-chord editing shortcuts are Meta-only with
+// Ctrl/Alt/Shift excluded — Ctrl+letter is left to the emacs-style textarea
+// bindings macOS provides (Ctrl-K kill-line, Ctrl-B back-char, ...), and
+// Shift chords stay free for future shortcuts. Only shortcuts mirroring a
+// system-wide convention (undo/redo, todo-cycle on Enter) accept Meta or
+// Ctrl so they also work on non-Mac keyboards.
+const META_WRAP_EDITS: Record<string,
+  (text: string, selStart: number, selEnd: number) => TextSelection> = {
+  k: wrapLink,
+  b: (t, s, e) => toggleEmphasis(t, s, e, "**"),
+  i: (t, s, e) => toggleEmphasis(t, s, e, "__"),
+};
 
 export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   const pos = i.selStart;
@@ -107,8 +120,9 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
       heading: headingDigit === "0" ? null : Number(headingDigit),
     };
   }
-  if (i.metaKey && !i.ctrlKey && !i.altKey && i.key.toLowerCase() === "k") {
-    return { type: "key-edit", edit: wrapLink(i.draft, pos, i.selEnd) };
+  const wrapEdit = META_WRAP_EDITS[i.key.toLowerCase()];
+  if (wrapEdit && i.metaKey && !i.ctrlKey && !i.altKey && !i.shiftKey) {
+    return { type: "key-edit", edit: wrapEdit(i.draft, pos, i.selEnd) };
   }
   if (!i.metaKey && !i.ctrlKey && !i.altKey && BRACKET_CHARS.has(i.key)) {
     const edit = autoPairBracket(i.draft, pos, i.selEnd, i.key);

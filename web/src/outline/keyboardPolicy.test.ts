@@ -356,3 +356,56 @@ describe("decideEditorKey undo/redo (pkm-7q14)", () => {
     expect(decideEditorKey(input({ key: "z", metaKey: true, readOnly: true }))).toEqual({ type: "none" });
   });
 });
+
+describe("decideEditorKey meta-wrap shortcuts (Cmd-K/B/I)", () => {
+  it("Cmd-B toggles bold as a key-edit", () => {
+    expect(decideEditorKey(input({
+      key: "b", metaKey: true, draft: "make bold now", selStart: 5, selEnd: 9,
+    }))).toEqual({
+      type: "key-edit",
+      edit: { text: "make **bold** now", selStart: 7, selEnd: 11 },
+    });
+  });
+
+  it("Cmd-I toggles italic as a key-edit", () => {
+    expect(decideEditorKey(input({
+      key: "i", metaKey: true, draft: "word", selStart: 0, selEnd: 4,
+    }))).toEqual({
+      type: "key-edit",
+      edit: { text: "__word__", selStart: 2, selEnd: 6 },
+    });
+  });
+
+  it("Cmd-K still wraps a link", () => {
+    expect(decideEditorKey(input({
+      key: "k", metaKey: true, draft: "text", selStart: 0, selEnd: 4,
+    }))).toEqual({
+      type: "key-edit",
+      edit: { text: "[text]()", selStart: 7, selEnd: 7 },
+    });
+  });
+
+  it("ignores the chord when Ctrl, Alt or Shift is also held", () => {
+    for (const extra of [{ ctrlKey: true }, { altKey: true }, { shiftKey: true }]) {
+      expect(decideEditorKey(input({
+        key: "b", metaKey: true, draft: "x", selStart: 0, selEnd: 1, ...extra,
+      }))).toEqual({ type: "none" });
+      // Cmd-Shift-K no longer link-wraps (reserved for future chords)
+      expect(decideEditorKey(input({
+        key: "k", metaKey: true, draft: "x", selStart: 0, selEnd: 1, ...extra,
+      }))).toEqual({ type: "none" });
+    }
+  });
+
+  it("does nothing without Meta (Ctrl-B stays an emacs textarea binding)", () => {
+    expect(decideEditorKey(input({
+      key: "b", ctrlKey: true, draft: "x", selStart: 0, selEnd: 1,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("is read-only gated", () => {
+    expect(decideEditorKey(input({
+      key: "b", metaKey: true, readOnly: true, draft: "x", selStart: 0, selEnd: 1,
+    }))).toEqual({ type: "none" });
+  });
+});

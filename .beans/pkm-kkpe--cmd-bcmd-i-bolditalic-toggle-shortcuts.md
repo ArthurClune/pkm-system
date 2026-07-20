@@ -21,6 +21,6 @@ Add Cmd-B (bold, **) and Cmd-I (italic, __) editor shortcuts with toggle semanti
 - [x] Spec written and committed (docs/superpowers/specs/2026-07-20-bold-italic-shortcuts-design.md)
 - [ ] Implementation plan
 - [x] toggleEmphasis in keyEdits.ts (TDD)
-- [ ] META_WRAP_EDITS table in keyboardPolicy.ts + convention comment
+- [x] META_WRAP_EDITS table in keyboardPolicy.ts + convention comment
 - [ ] Unit + policy tests, e2e for Cmd-B
 - [ ] verify: pnpm verify, server untouched

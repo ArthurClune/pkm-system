@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-07-21T14:00:14Z
-updated_at: 2026-07-21T14:11:46Z
+updated_at: 2026-07-21T14:30:37Z
 ---
 
 Make Tab and Shift-Tab apply consistent one-level indentation changes to a multi-block selection. Shift-Tab must stop the whole operation if any selected block is already at the maximum left edge; Tab must preserve the same one-level nesting constraints as single-block indentation.
@@ -15,8 +15,8 @@ Make Tab and Shift-Tab apply consistent one-level indentation changes to a multi
 - [x] Explore editor context and establish root cause
 - [x] Clarify selection semantics and success criteria
 - [x] Compare approaches and obtain design approval
-- [ ] Write, self-review, commit, and obtain approval for design spec
-- [ ] Write and review implementation plan
+- [x] Write, self-review, commit, and obtain approval for design spec
+- [x] Write and review implementation plan
 - [ ] Implement with failing tests first
 - [ ] Run focused and full verification
 - [ ] Review, complete bean, commit, push, and merge with --no-ff

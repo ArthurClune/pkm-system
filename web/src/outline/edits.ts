@@ -72,6 +72,90 @@ export function splitBlock(blocks: BlockNode[], pageTitle: string, uid: string,
   return done(blocks, pageTitle, ops, { uid: newUid, cursor: 0 });
 }
 
+interface SelectionSiblingRun {
+  uids: string[];
+  parent: BlockNode | null;
+  siblings: BlockNode[];
+  first: number;
+}
+
+/** Reduce selected descendants to roots, then group consecutive roots that
+ * shared a parent in the original tree. All destinations are derived from
+ * these original runs before any move is applied. */
+function selectionSiblingRuns(blocks: BlockNode[], uids: string[]):
+    SelectionSiblingRun[] | null {
+  if (uids.length === 0) return [];
+  if (uids.some((uid) => !locate(blocks, uid))) return null;
+  const runs: SelectionSiblingRun[] = [];
+  for (const uid of selectionRoots(blocks, uids)) {
+    const found = locate(blocks, uid);
+    if (!found) return null;
+    const last = runs[runs.length - 1];
+    if (last && last.siblings === found.siblings
+        && found.index === last.first + last.uids.length) {
+      last.uids.push(uid);
+    } else {
+      runs.push({
+        uids: [uid], parent: found.parent,
+        siblings: found.siblings, first: found.index,
+      });
+    }
+  }
+  return runs;
+}
+
+/** Indent every selected root exactly once. Complete preflight precedes op
+ * generation, so one first-sibling run aborts the whole gesture and selected
+ * siblings can never become one another's parent. */
+export function indentSelection(blocks: BlockNode[], pageTitle: string,
+                                uids: string[]): EditResult {
+  const runs = selectionSiblingRuns(blocks, uids);
+  if (!runs || runs.length === 0 || runs.some((run) => run.first === 0)) {
+    return noop(blocks);
+  }
+  const ops: BlockOp[] = [];
+  for (const run of runs) {
+    const target = run.siblings[run.first - 1];
+    const lastChild = target.children[target.children.length - 1];
+    if (target.collapsed) {
+      ops.push({ op: "set_collapsed", uid: target.uid, collapsed: false });
+    }
+    ops.push(...groupMoveOps(
+      run.uids, target.uid, lastChild ? lastChild.order_idx + 1 : 0,
+    ));
+  }
+  return done(blocks, pageTitle, ops, null);
+}
+
+/** Outdent every selected root exactly once. A top-level run aborts the whole
+ * gesture; otherwise each run lands consecutively after its former parent. */
+export function outdentSelection(blocks: BlockNode[], pageTitle: string,
+                                 uids: string[]): EditResult {
+  const runs = selectionSiblingRuns(blocks, uids);
+  if (!runs || runs.length === 0
+      || runs.some((run) => run.parent === null)) {
+    return noop(blocks);
+  }
+  const plans: Array<{
+    uids: string[];
+    parentUid: string | null;
+    orderIdx: number;
+  }> = [];
+  for (const run of runs) {
+    if (!run.parent) return noop(blocks);
+    const parentLoc = locate(blocks, run.parent.uid);
+    if (!parentLoc) return noop(blocks);
+    plans.push({
+      uids: run.uids,
+      parentUid: parentLoc.parent?.uid ?? null,
+      orderIdx: idxAfter(parentLoc.siblings, parentLoc.index),
+    });
+  }
+  const ops = plans.flatMap((plan) =>
+    groupMoveOps(plan.uids, plan.parentUid, plan.orderIdx));
+  return done(blocks, pageTitle, ops, null);
+}
+
 export function indentBlock(blocks: BlockNode[], pageTitle: string,
                             uid: string): EditResult {
   const found = locate(blocks, uid);

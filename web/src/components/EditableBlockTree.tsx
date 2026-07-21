@@ -59,6 +59,10 @@ export interface OutlineHandlers {
   onStartBlockSelection(uid: string, dir: "up" | "down"): void;
   onExtendBlockSelection(dir: "up" | "down"): void;
   onClearBlockSelection(): void;
+  /** Tab/Shift-Tab while a block selection is active: atomically change every
+   * selected root's depth by one while preserving the selected structure. */
+  onIndentSelection(): void;
+  onOutdentSelection(): void;
   /** Alt+Arrow while a block selection is active: move every selected block
    * as a group, preserving their relative order (pkm-q89w). */
   onMoveSelectionUp(): void;
@@ -129,7 +133,11 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (fallback || !selection) return;
-    if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    if (!readOnly && e.key === "Tab") {
+      e.preventDefault();
+      if (e.shiftKey) handlers.onOutdentSelection();
+      else handlers.onIndentSelection();
+    } else if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault();
       handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {

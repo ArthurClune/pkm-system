@@ -2,9 +2,10 @@ import { describe, expect, test } from "vitest";
 import { block } from "../test-helpers";
 import { findNode } from "./tree";
 import { backspaceAtStart, clampCaret, deleteSelection, indentBlock,
-         moveBlockDown, moveBlocksTo, moveBlockUp, moveSelectionDown,
-         moveSelectionUp, moveSubtreeDown, moveSubtreeUp, outdentBlock,
-         setCollapsed, setHeading, setViewType, splitBlock } from "./edits";
+         indentSelection, moveBlockDown, moveBlocksTo, moveBlockUp,
+         moveSelectionDown, moveSelectionUp, moveSubtreeDown, moveSubtreeUp,
+         outdentBlock, outdentSelection, setCollapsed, setHeading,
+         setViewType, splitBlock } from "./edits";
 
 describe("clampCaret", () => {
   test("keeps the offset when it fits the new length", () => {
@@ -115,6 +116,145 @@ describe("indent / outdent", () => {
 
   test("top-level blocks can't outdent", () => {
     expect(outdentBlock(tree(), P, "a").ops).toEqual([]);
+  });
+});
+
+const selectionTree = () => [
+  block("a", "A", {
+    order_idx: 0,
+    children: [
+      block("a0", "A zero", { order_idx: 0 }),
+      block("a1", "A one", {
+        order_idx: 1,
+        children: [block("a1x", "A one child", { order_idx: 0 })],
+      }),
+    ],
+  }),
+  block("b", "B", {
+    order_idx: 1,
+    children: [block("b1", "B child", { order_idx: 0 })],
+  }),
+  block("c", "C", { order_idx: 2 }),
+];
+
+const mixedOutdentTree = () => [
+  block("root", "Root", {
+    order_idx: 0,
+    children: [
+      block("p", "P", {
+        order_idx: 0,
+        children: [
+          block("p0", "P zero", { order_idx: 0 }),
+          block("x", "X", { order_idx: 1 }),
+        ],
+      }),
+      block("q", "Q", {
+        order_idx: 1,
+        children: [block("q1", "Q child", { order_idx: 0 })],
+      }),
+    ],
+  }),
+  block("z", "Z", { order_idx: 1 }),
+];
+
+describe("indentSelection / outdentSelection (pkm-0ovd)", () => {
+  test("indents one sibling run under one parent without staircasing", () => {
+    const r = indentSelection(selectionTree(), P, ["b", "b1", "c"]);
+
+    expect(r.ops).toEqual([
+      { op: "move", uid: "b", parent_uid: "a", order_idx: 2 },
+      { op: "move", uid: "c", parent_uid: "a", order_idx: 3 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["a"]);
+    expect(findNode(r.blocks, "a")!.children.map((n) => n.uid))
+      .toEqual(["a0", "a1", "b", "c"]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1"]);
+  });
+
+  test("indents mixed-level roots from original destinations by one level", () => {
+    const r = indentSelection(selectionTree(), P, ["a1", "a1x", "b", "b1"]);
+
+    expect(r.ops).toEqual([
+      { op: "move", uid: "a1", parent_uid: "a0", order_idx: 0 },
+      { op: "move", uid: "b", parent_uid: "a", order_idx: 2 },
+    ]);
+    expect(findNode(r.blocks, "a0")!.children.map((n) => n.uid))
+      .toEqual(["a1"]);
+    expect(findNode(r.blocks, "a1")!.children.map((n) => n.uid))
+      .toEqual(["a1x"]);
+    expect(findNode(r.blocks, "a")!.children.map((n) => n.uid))
+      .toEqual(["a0", "b"]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1"]);
+  });
+
+  test("expands a collapsed destination once before moving its run", () => {
+    const t = selectionTree();
+    findNode(t, "a")!.collapsed = true;
+
+    const r = indentSelection(t, P, ["b", "b1", "c"]);
+
+    expect(r.ops).toEqual([
+      { op: "set_collapsed", uid: "a", collapsed: false },
+      { op: "move", uid: "b", parent_uid: "a", order_idx: 2 },
+      { op: "move", uid: "c", parent_uid: "a", order_idx: 3 },
+    ]);
+  });
+
+  test("one first-sibling run aborts every indent run", () => {
+    const t = selectionTree();
+    const r = indentSelection(
+      t, P, ["a0", "a1", "a1x", "b", "b1"],
+    );
+
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toBe(t);
+  });
+
+  test("outdents one sibling run consecutively after its former parent", () => {
+    const r = outdentSelection(selectionTree(), P, ["a0", "a1", "a1x"]);
+
+    expect(r.ops).toEqual([
+      { op: "move", uid: "a0", parent_uid: null, order_idx: 1 },
+      { op: "move", uid: "a1", parent_uid: null, order_idx: 2 },
+    ]);
+    expect(r.blocks.map((n) => n.uid))
+      .toEqual(["a", "a0", "a1", "b", "c"]);
+    expect(findNode(r.blocks, "a1")!.children.map((n) => n.uid))
+      .toEqual(["a1x"]);
+  });
+
+  test("outdents mixed-level roots once while preserving their subtrees", () => {
+    const r = outdentSelection(
+      mixedOutdentTree(), P, ["x", "q", "q1"],
+    );
+
+    expect(r.ops).toEqual([
+      { op: "move", uid: "x", parent_uid: "root", order_idx: 1 },
+      { op: "move", uid: "q", parent_uid: null, order_idx: 1 },
+    ]);
+    expect(findNode(r.blocks, "root")!.children.map((n) => n.uid))
+      .toEqual(["p", "x"]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["root", "q", "z"]);
+    expect(findNode(r.blocks, "q")!.children.map((n) => n.uid))
+      .toEqual(["q1"]);
+  });
+
+  test("one top-level root aborts every outdent run", () => {
+    const t = selectionTree();
+    const r = outdentSelection(t, P, ["a1", "a1x", "b", "b1"]);
+
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toBe(t);
+  });
+
+  test("empty or missing selections are no-ops", () => {
+    const t = selectionTree();
+    expect(indentSelection(t, P, []).ops).toEqual([]);
+    expect(outdentSelection(t, P, []).ops).toEqual([]);
+    expect(indentSelection(t, P, ["missing"]).ops).toEqual([]);
+    expect(outdentSelection(t, P, ["missing"]).ops).toEqual([]);
   });
 });
 

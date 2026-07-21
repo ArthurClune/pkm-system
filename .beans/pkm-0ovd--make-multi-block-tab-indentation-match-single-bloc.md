@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-07-21T14:00:14Z
-updated_at: 2026-07-21T14:30:37Z
+updated_at: 2026-07-21T15:15:02Z
 ---
 
 Make Tab and Shift-Tab apply consistent one-level indentation changes to a multi-block selection. Shift-Tab must stop the whole operation if any selected block is already at the maximum left edge; Tab must preserve the same one-level nesting constraints as single-block indentation.
@@ -17,8 +17,8 @@ Make Tab and Shift-Tab apply consistent one-level indentation changes to a multi
 - [x] Compare approaches and obtain design approval
 - [x] Write, self-review, commit, and obtain approval for design spec
 - [x] Write and review implementation plan
-- [ ] Implement with failing tests first
-- [ ] Run focused and full verification
+- [x] Implement with failing tests first
+- [x] Run focused and full verification
 - [ ] Review, complete bean, commit, push, and merge with --no-ff
 
 ## Investigation
@@ -34,3 +34,7 @@ Root cause: an active block selection unmounts the focused textarea and moves ke
 ## Related follow-up
 
 pkm-tu3a tracks hierarchy-preserving outline paste. It will use a separate pure clipboard-forest/create-op planner; this indentation fix does not need a generic tree-diff engine.
+
+## Summary of Changes
+
+Added atomic one-level Tab and Shift-Tab planning for multi-block selections, wired it through tree-owned selection keyboard handling and the existing sync/undo pipeline, and covered same-level, mixed-level, read-only, atomic-edge, undo, and browser round-trip behavior.

@@ -1,11 +1,11 @@
 ---
 # pkm-0ovd
 title: Make multi-block Tab indentation match single blocks
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-07-21T14:00:14Z
-updated_at: 2026-07-21T15:15:02Z
+updated_at: 2026-07-21T15:18:56Z
 ---
 
 Make Tab and Shift-Tab apply consistent one-level indentation changes to a multi-block selection. Shift-Tab must stop the whole operation if any selected block is already at the maximum left edge; Tab must preserve the same one-level nesting constraints as single-block indentation.
@@ -19,7 +19,7 @@ Make Tab and Shift-Tab apply consistent one-level indentation changes to a multi
 - [x] Write and review implementation plan
 - [x] Implement with failing tests first
 - [x] Run focused and full verification
-- [ ] Review, complete bean, commit, push, and merge with --no-ff
+- [x] Review, complete bean, commit, push, and merge with --no-ff
 
 ## Investigation
 

@@ -332,7 +332,7 @@ h2.block-text, .block-input.heading-2 { font-size: 1.25rem; font-weight: 600; }
 h3.block-text, .block-input.heading-3 { font-size: 1.1rem; font-weight: 600; }
 
 /* inline */
-a.tag:hover { color: var(--color-link); text-decoration: none;
+a.tag:hover { color: var(--color-tag); text-decoration: none;
   border-color: var(--color-border); }
 /* the attribute name is a field label, not content: small caps, muted, and
  * the source "::" stays in the textarea only (pkm-7t7o) */

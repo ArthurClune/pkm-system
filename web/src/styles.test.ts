@@ -59,9 +59,9 @@ describe("metadata chips (pkm-7t7o)", () => {
     expect(tag).toContain("border: 1px solid var(--color-border-subtle);");
   });
 
-  test("tag chips shift to the link colour on hover without underlining", () => {
+  test("tag chips retain the tag colour on hover without underlining", () => {
     const hover = ruleFor("a.tag:hover");
-    expect(hover).toContain("color: var(--color-link);");
+    expect(hover).toContain("color: var(--color-tag);");
     expect(hover).toContain("text-decoration: none;");
   });
 });

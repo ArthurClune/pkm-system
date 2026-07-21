@@ -49,6 +49,28 @@ it("undo reverses a structural edit and redo replays it", () => {
   expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["b"]);
 });
 
+it("undo reverses a whole selection indent in one step", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [
+    block("a", "alpha", { order_idx: 0 }),
+    block("b", "beta", { order_idx: 1 }),
+    block("c", "gamma", { order_idx: 2 }),
+  ]);
+  act(() => outline().handlers.onStartBlockSelection("b", "down"));
+  act(() => outline().handlers.onIndentSelection());
+  expect(outline().blocks[0].children.map((n) => n.uid))
+    .toEqual(["b", "c"]);
+
+  act(() => outline().handlers.onUndo());
+
+  expect(outline().blocks.map((n) => n.uid)).toEqual(["a", "b", "c"]);
+  expect(sync.sent).toHaveLength(2);
+  expect(sync.sent[1]).toEqual([
+    { op: "move", uid: "c", parent_uid: null, order_idx: 2 },
+    { op: "move", uid: "b", parent_uid: null, order_idx: 1 },
+  ]);
+});
+
 it("undo restores a deleted block's text via subtree recreate", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());

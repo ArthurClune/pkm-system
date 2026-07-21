@@ -14,10 +14,10 @@ import { encodeTitle } from "../paths";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
-import { backspaceAtStart, deleteSelection, indentBlock, moveBlockDown,
-         moveBlocksTo, moveBlockUp, moveSelectionDown, moveSelectionUp,
-         moveSubtreeDown, moveSubtreeUp, outdentBlock, setCollapsed,
-         setHeading, splitBlock, setViewType,
+import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
+         moveBlockDown, moveBlocksTo, moveBlockUp, moveSelectionDown,
+         moveSelectionUp, moveSubtreeDown, moveSubtreeUp, outdentBlock,
+         outdentSelection, setCollapsed, setHeading, splitBlock, setViewType,
          type EditResult, type FocusTarget } from "./edits";
 import { invertOps } from "./history";
 import { applyOps, findNode, insertSubtree, removeSubtree,
@@ -333,6 +333,14 @@ export function useOutline(
     onExtendBlockSelection: (dir) =>
       setSelection((s) => (s ? extendSelection(blocksRef.current, s, dir) : s)),
     onClearBlockSelection: () => setSelection(null),
+    onIndentSelection: () => {
+      if (!selection) return;
+      run((b) => indentSelection(b, pageTitle, selectedUids(b, selection)));
+    },
+    onOutdentSelection: () => {
+      if (!selection) return;
+      run((b) => outdentSelection(b, pageTitle, selectedUids(b, selection)));
+    },
     // Alt+Arrow while a block selection is active (pkm-q89w): move every
     // selected block as a group. Recomputed against the tree `run` actually
     // operates on (post text-flush), not the possibly-stale blocksRef, though

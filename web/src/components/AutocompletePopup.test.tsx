@@ -21,6 +21,7 @@ function handlers(): OutlineHandlers {
     onToggleTodo: vi.fn(), onFiles: vi.fn(),
     onStartBlockSelection: vi.fn(), onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
+    onIndentSelection: vi.fn(), onOutdentSelection: vi.fn(),
     onMoveSelectionUp: vi.fn(), onMoveSelectionDown: vi.fn(),
     onDeleteBlockSelection: vi.fn(),
     onUndo: vi.fn(), onRedo: vi.fn(),

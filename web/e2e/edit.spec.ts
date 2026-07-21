@@ -72,6 +72,55 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
   await expect(page.locator(".backlink-text")).toContainText("second block");
 });
 
+test("Tab and Shift-Tab move a multi-block selection one level (pkm-0ovd)", async ({ page }) => {
+  const title = `MultiIndent${Date.now()}`;
+  await login(page);
+  const createRes = await page.request.post("/api/pages", { data: { title } });
+  expect(createRes.ok()).toBeTruthy();
+  await page.goto(`/page/${encodeURIComponent(title)}`);
+  await page.getByText("Click to start writing…").click();
+
+  await input(page).fill("indent parent");
+  await input(page).press("Enter");
+  await input(page).fill("indent first");
+  await input(page).press("Enter");
+  await input(page).fill("indent second");
+
+  const topRows = page.locator(".block-tree > .block > .block-row");
+  await expect(topRows).toHaveCount(3);
+  const parentUid = await topRows.nth(0).getAttribute("data-uid");
+  const firstUid = await topRows.nth(1).getAttribute("data-uid");
+  const secondUid = await topRows.nth(2).getAttribute("data-uid");
+  expect(parentUid).not.toBeNull();
+  expect(firstUid).not.toBeNull();
+  expect(secondUid).not.toBeNull();
+
+  await input(page).press("Shift+ArrowUp");
+  const tree = page.locator(".block-tree");
+  await expect(tree).toBeFocused();
+  await expect(page.locator(".block-row.selected")).toHaveCount(2);
+
+  await page.keyboard.press("Tab");
+
+  const childRows = page.locator(
+    `.block-row[data-uid="${parentUid}"] + .block-children > .block > .block-row`,
+  );
+  await expect(childRows).toHaveCount(2);
+  await expect(childRows.nth(0)).toHaveAttribute("data-uid", firstUid!);
+  await expect(childRows.nth(1)).toHaveAttribute("data-uid", secondUid!);
+  await expect(tree).toBeFocused();
+  await expect(page.locator(".block-row.selected")).toHaveCount(2);
+
+  await page.keyboard.press("Shift+Tab");
+
+  await expect(topRows).toHaveCount(3);
+  await expect(topRows.nth(0)).toHaveAttribute("data-uid", parentUid!);
+  await expect(topRows.nth(1)).toHaveAttribute("data-uid", firstUid!);
+  await expect(topRows.nth(2)).toHaveAttribute("data-uid", secondUid!);
+  await expect(tree).toBeFocused();
+  await expect(page.locator(".block-row.selected")).toHaveCount(2);
+});
+
 test("can click back into a line after emptying it (pkm-mc07)", async ({ page }) => {
   await login(page);
   const today = page.locator(".journal-day").first();

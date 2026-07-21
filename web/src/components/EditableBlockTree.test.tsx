@@ -18,6 +18,7 @@ function handlers(): OutlineHandlers {
     onToggleTodo: vi.fn(), onFiles: vi.fn(),
     onStartBlockSelection: vi.fn(), onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
+    onIndentSelection: vi.fn(), onOutdentSelection: vi.fn(),
     onMoveSelectionUp: vi.fn(), onMoveSelectionDown: vi.fn(),
     onDeleteBlockSelection: vi.fn(),
     onUndo: vi.fn(), onRedo: vi.fn(),
@@ -764,11 +765,15 @@ test("Shift+Arrow inside a multi-line block extends text, not blocks (pkm-9b8n)"
   expect(h.onStartBlockSelection).not.toHaveBeenCalled();
 });
 
-function mountSelected(h: OutlineHandlers, selection: { anchor: string; head: string }) {
+function mountSelected(
+  h: OutlineHandlers,
+  selection: { anchor: string; head: string },
+  readOnly = false,
+) {
   return render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <EditableBlockTree blocks={BLOCKS} focus={null} selection={selection}
-                         handlers={h} readOnly={false} />
+                         handlers={h} readOnly={readOnly} />
     </MemoryRouter>);
 }
 
@@ -786,6 +791,30 @@ test("Shift+Arrow on the selection extends it; Escape clears it (pkm-9b8n)", () 
   expect(h.onExtendBlockSelection).toHaveBeenCalledWith("down");
   fireEvent.keyDown(tree, { key: "Escape" });
   expect(h.onClearBlockSelection).toHaveBeenCalled();
+});
+
+test("Tab and Shift-Tab indent and outdent an editable selection (pkm-0ovd)", () => {
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+
+  expect(fireEvent.keyDown(tree, { key: "Tab" })).toBe(false);
+  expect(h.onIndentSelection).toHaveBeenCalledTimes(1);
+  expect(fireEvent.keyDown(tree, { key: "Tab", shiftKey: true })).toBe(false);
+  expect(h.onOutdentSelection).toHaveBeenCalledTimes(1);
+});
+
+test("Tab does not mutate a read-only selection (pkm-0ovd)", () => {
+  const h = handlers();
+  const { container } = mountSelected(
+    h, { anchor: "u1", head: "u2" }, true,
+  );
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+
+  expect(fireEvent.keyDown(tree, { key: "Tab" })).toBe(true);
+  expect(fireEvent.keyDown(tree, { key: "Tab", shiftKey: true })).toBe(true);
+  expect(h.onIndentSelection).not.toHaveBeenCalled();
+  expect(h.onOutdentSelection).not.toHaveBeenCalled();
 });
 
 test("a plain arrow collapses the selection back to editing the head (pkm-9b8n)", () => {

@@ -68,6 +68,44 @@ it("onMoveSelectionDown moves every selected block as a group", () => {
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["c", "a", "b"]);
 });
 
+it("indents and outdents the selected run as one batch without clearing it", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", abc());
+  act(() => getOutline().handlers.onStartBlockSelection("b", "down"));
+
+  act(() => getOutline().handlers.onIndentSelection());
+
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "b", parent_uid: "a", order_idx: 0 },
+    { op: "move", uid: "c", parent_uid: "a", order_idx: 1 },
+  ]]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["a"]);
+  expect(getOutline().blocks[0].children.map((b) => b.uid))
+    .toEqual(["b", "c"]);
+  expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
+
+  act(() => getOutline().handlers.onOutdentSelection());
+
+  expect(sync.sent[1]).toEqual([
+    { op: "move", uid: "b", parent_uid: null, order_idx: 1 },
+    { op: "move", uid: "c", parent_uid: null, order_idx: 2 },
+  ]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["a", "b", "c"]);
+  expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
+});
+
+it("keeps the whole selection unchanged when one indent run is ineligible", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", abc());
+  act(() => getOutline().handlers.onStartBlockSelection("a", "down"));
+
+  act(() => getOutline().handlers.onIndentSelection());
+
+  expect(sync.sent).toEqual([]);
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(["a", "b", "c"]);
+  expect(getOutline().selection).toEqual({ anchor: "a", head: "b" });
+});
+
 it("deleting 5 or fewer selected blocks proceeds without confirmation", () => {
   const confirmSpy = vi.fn(() => false); // if this got called, the test should fail below
   vi.stubGlobal("confirm", confirmSpy);

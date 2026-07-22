@@ -6,7 +6,7 @@ import type { Backlinks } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import type { DeliveryOutcome, WriteOutcome, WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
-import { makeSync, pagePayload, stubFetch } from "../test-helpers";
+import { jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { BacklinksSection } from "./BacklinksSection";
 import { mergeGroups } from "./groups";
 import { UnlinkedSection } from "./UnlinkedSection";
@@ -115,6 +115,204 @@ it("shows an error and re-enables the button when show-more fails", async () => 
   fireEvent.click(screen.getByRole("button", { name: /show more/i }));
   expect(await screen.findByText(/500/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /show more/i })).not.toBeDisabled();
+});
+
+it("refresh generation replaces the first backlink batch", async () => {
+  const refreshed = pagePayload("ACME", [], {
+    backlinks: {
+      groups: [{ page_id: 8, page_title: "Fresh Source", items: [
+        { uid: "fresh", text: "[[ACME]] now linked", breadcrumbs: [] },
+      ] }],
+      total_pages: 1, offset: 0, limit: 20,
+    },
+  });
+  stubFetch([["/api/page/ACME?bl_offset=0&bl_limit=20", refreshed]]);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={initial} refreshGeneration={0} />
+    </MemoryRouter>,
+  );
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={initial} refreshGeneration={1} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("link", { name: "Fresh Source" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "July 7th, 2026" })).toBeNull();
+});
+
+it("refresh with an open filter panel refetches from offset 0 at limit 100 until complete", async () => {
+  const fetchMock = stubFetch([
+    ["/api/page/Claude?bl_offset=1&bl_limit=100", pagePayload("Claude", [], {
+      backlinks: {
+        groups: [{ page_id: 12, page_title: "Fresh B", items: [
+          { uid: "fresh-b", text: "beta [[Claude]] #Idea", breadcrumbs: [] },
+        ] }],
+        total_pages: 2, offset: 1, limit: 100,
+      },
+    })],
+    ["/api/page/Claude?bl_offset=0&bl_limit=100", pagePayload("Claude", [], {
+      backlinks: {
+        groups: [{ page_id: 11, page_title: "Fresh A", items: [
+          { uid: "fresh-a", text: "alpha [[Claude]] #Paper", breadcrumbs: [] },
+        ] }],
+        total_pages: 2, offset: 0, limit: 100,
+      },
+    })],
+  ]);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="Claude"
+        initial={{ ...filterInitial, groups: filterInitial.groups.slice(0, 1), total_pages: 1 }}
+        refreshGeneration={0} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /filter/i }));
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="Claude"
+        initial={{ ...filterInitial, groups: filterInitial.groups.slice(0, 1), total_pages: 1 }}
+        refreshGeneration={1} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("link", { name: "Fresh A" })).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: "Fresh B" })).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/page/Claude?bl_offset=0&bl_limit=100", undefined);
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/page/Claude?bl_offset=1&bl_limit=100", undefined);
+  expect(screen.queryByRole("link", { name: "Daily A" })).toBeNull();
+});
+
+it("refresh preserves filter selections and panel state while replacing groups", async () => {
+  const refreshed = pagePayload("Claude", [], {
+    backlinks: {
+      groups: [
+        { page_id: 11, page_title: "Fresh Visible", items: [
+          { uid: "fresh-visible", text: "clean [[Claude]] #Idea", breadcrumbs: [] },
+        ] },
+        { page_id: 12, page_title: "Fresh Hidden", items: [
+          { uid: "fresh-hidden", text: "blocked [[Claude]] #Paper #Idea", breadcrumbs: [] },
+        ] },
+      ],
+      total_pages: 2, offset: 0, limit: 100,
+    },
+  });
+  stubFetch([["/api/page/Claude?bl_offset=0&bl_limit=100", refreshed]]);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="Claude" initial={filterInitial} refreshGeneration={0} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /filter/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Paper (2)" }), { shiftKey: true });
+  fireEvent.click(screen.getByRole("button", { name: "Idea (1)" }));
+  expect(screen.getByText(/linked references \(1 of 2\)/i)).toBeInTheDocument();
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="Claude" initial={filterInitial} refreshGeneration={1} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole("link", { name: "Fresh Visible" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /filter \(2\)/i }))
+    .toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "Idea" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Paper" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Fresh Hidden" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Daily A" })).toBeNull();
+});
+
+it("failed refresh keeps old groups and offers retry refresh", async () => {
+  let refreshCalls = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/page/ACME?bl_offset=0&bl_limit=20") {
+      refreshCalls += 1;
+      if (refreshCalls === 1) {
+        return new Response(JSON.stringify({ detail: "refresh boom" }), { status: 500 });
+      }
+      return jsonResponse(pagePayload("ACME", [], {
+        backlinks: {
+          groups: [{ page_id: 10, page_title: "Recovered Source", items: [
+            { uid: "recovered", text: "[[ACME]] linked", breadcrumbs: [] },
+          ] }],
+          total_pages: 1, offset: 0, limit: 20,
+        },
+      }));
+    }
+    return new Response(JSON.stringify({ detail: "not found" }), { status: 404 });
+  }));
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={initial} refreshGeneration={0} />
+    </MemoryRouter>,
+  );
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={initial} refreshGeneration={1} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText(/request failed: 500/i)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "July 7th, 2026" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /retry refresh/i })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /retry refresh/i }));
+  expect(await screen.findByRole("link", { name: "Recovered Source" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "July 7th, 2026" })).toBeNull();
+});
+
+it("ignores an older refresh response that resolves after a newer generation", async () => {
+  const older = deferred<Response>();
+  const newer = deferred<Response>();
+  let calls = 0;
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    if (String(input) !== "/api/page/ACME?bl_offset=0&bl_limit=20") {
+      return Promise.resolve(new Response(JSON.stringify({ detail: "not found" }), { status: 404 }));
+    }
+    calls += 1;
+    return calls === 1 ? older.promise : newer.promise;
+  }));
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={initial} refreshGeneration={0} />
+    </MemoryRouter>,
+  );
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={initial} refreshGeneration={1} />
+    </MemoryRouter>,
+  );
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={initial} refreshGeneration={2} />
+    </MemoryRouter>,
+  );
+  await act(async () => {
+    newer.resolve(jsonResponse(pagePayload("ACME", [], {
+      backlinks: {
+        groups: [{ page_id: 11, page_title: "Newest Source", items: [
+          { uid: "newest", text: "[[ACME]] newest", breadcrumbs: [] },
+        ] }],
+        total_pages: 1, offset: 0, limit: 20,
+      },
+    })));
+    await newer.promise;
+    await Promise.resolve();
+  });
+  expect(await screen.findByRole("link", { name: "Newest Source" })).toBeInTheDocument();
+  await act(async () => {
+    older.resolve(jsonResponse(pagePayload("ACME", [], {
+      backlinks: {
+        groups: [{ page_id: 12, page_title: "Stale Source", items: [
+          { uid: "stale", text: "[[ACME]] stale", breadcrumbs: [] },
+        ] }],
+        total_pages: 1, offset: 0, limit: 20,
+      },
+    })));
+    await older.promise;
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("link", { name: "Newest Source" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Stale Source" })).toBeNull();
 });
 
 it("unlinked references fetch lazily on first open and paginate", async () => {

@@ -142,8 +142,12 @@ def test_non_op_write_paths_emit_seq_nudge(client):
 
 
 def test_daily_autocreate_on_get_emits_seq_nudge(client):
+    from datetime import date
+    from pkm.server.daily import title_for_date
+
     with client.websocket_connect("/api/ws") as ws:
-        r = client.get("/api/page/July%2013th,%202026")
+        today = title_for_date(date.today())
+        r = client.get(f"/api/page/{today}")
         assert r.status_code == 200
         assert _frames_until_seq(ws)[-1]["type"] == "seq"
 

@@ -1,6 +1,20 @@
-from datetime import date
+from datetime import date, timedelta
 
 from pkm.server.daily import title_for_date
+
+
+def test_get_past_daily_404s_and_creates_nothing(client):
+    yesterday = title_for_date(date.today() - timedelta(days=1))
+    assert client.get(f"/api/page/{yesterday}").status_code == 404
+    # a second GET still 404s: the first one must not have created a row
+    assert client.get(f"/api/page/{yesterday}").status_code == 404
+
+
+def test_get_today_still_autocreates(client):
+    today = title_for_date(date.today())
+    r = client.get(f"/api/page/{today}")
+    assert r.status_code == 200
+    assert r.json()["page"]["title"] == today
 
 
 def test_page_tree_shape(client):
@@ -79,7 +93,7 @@ def test_missing_page_404(client):
 
 
 def test_missing_daily_page_auto_creates(client):
-    title = title_for_date(date(2031, 3, 3))
+    title = title_for_date(date.today())
     r = client.get(f"/api/page/{title}")
     assert r.status_code == 200
     assert r.json()["page"]["title"] == title

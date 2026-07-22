@@ -124,3 +124,20 @@ parity tests mirror the server cases.
 - Service-worker update strategy for stale bundles (fix B makes stale
   bundles fail loudly, which is the safety property; forcing updates is a
   separate concern).
+
+## Amendments (2026-07-22 final review)
+
+1. **Network-shaped pull failures are excluded from stall counting.** A
+   dropped connection, DNS failure, or other transport-level error (anything
+   that is not an `ApiError`, a `ReplicaError`, or the pending-changed
+   starvation error) still schedules its backoff retry but no longer
+   increments `consecutiveFailures` or reports `{mode: "stalled"}`. The
+   offline banner already owns network-down UX; "stalled" is reserved for
+   the replica itself failing to make progress (a rejected batch, a
+   replica-side RPC error, or `pullLoop` starving on pending-batch churn).
+2. **`recovery-failed` now re-reports `ready` on a later success.** Reporting
+   `{mode: "recovery-failed"}` sets `reportedNonReady` at the point it is
+   reported, not only once the failure run crosses the stall threshold, so a
+   subsequent successful pull's `noteSuccess` re-emits `{mode: "ready"}`
+   instead of leaving the failed banner and stale `replicaState` stuck
+   indefinitely.

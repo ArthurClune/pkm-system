@@ -1,6 +1,8 @@
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../api/client";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { PendingBatch, Replica, ReplicaInit } from "../replica/client";
+import { ReplicaError } from "../replica/rpc";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, ResetBlockedError, RETRY_BASE_MS,
   RETRY_MAX_MS, type ReplicaState,
@@ -638,7 +640,12 @@ test("reports stalled after 3 consecutive failed pulls and retries with backoff"
   vi.useFakeTimers();
   try {
     const replica = fakeReplica();
-    const fetchJson = vi.fn(async () => { throw new Error("changes offline"); });
+    // replica-shaped failure (an HTTP error surfaced as ApiError): this is
+    // what "the replica can't make progress" looks like, as opposed to a
+    // dropped connection -- see the finding 2 tests below.
+    const fetchJson = vi.fn(async () => {
+      throw new ApiError(503, "/api/sync/changes");
+    });
     const { states, onState } = collector();
     const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
 
@@ -665,7 +672,7 @@ test("a successful pull clears the stall and resets the backoff", async () => {
     const replica = fakeReplica();
     let failing = true;
     const fetchJson = vi.fn(async (path: string) => {
-      if (failing) throw new Error("changes offline");
+      if (failing) throw new ApiError(503, "/api/sync/changes");
       if (path === "/api/sync/snapshot") return SNAP;
       return feed();
     });
@@ -710,6 +717,118 @@ test("caps pending-changed retries per pull", async () => {
   expect(applyChanges.mock.calls.length).toBe(PENDING_CHANGED_CAP);
   // a single starved pull is one failed attempt, not (yet) a stall
   expect(states.some((s) => s.mode === "stalled")).toBe(false);
+});
+
+test("network-shaped pull failures never stall, however many retries (pkm-80ds finding 2)", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica();
+    const fetchJson = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // failure 1: ready is still reported by doStart
+    expect(states.at(-1)).toEqual({ mode: "ready" });
+
+    // Advance well past the point where a stall-shaped failure run would
+    // have crossed STALL_AFTER_FAILURES (3).
+    for (let i = 0; i < 8; i += 1) {
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS);
+    }
+
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+    // offline editing must stay enabled: mode never left "ready"
+    expect(states.at(-1)).toEqual({ mode: "ready" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("pulls failing with ReplicaError still stall at 3 (pkm-80ds finding 2)", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica();
+    const fetchJson = vi.fn(async () => {
+      throw new ReplicaError("replica rpc failed", false);
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // failure 1
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); // failure 2
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); // failure 3 -> stalled
+    expect(states.at(-1)).toEqual({ mode: "stalled", error: "replica rpc failed" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a mix of network and replica errors stalls only once 3 replica-shaped failures accrue (pkm-80ds finding 2)", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica();
+    const errors = [
+      new TypeError("Failed to fetch"),
+      new TypeError("Failed to fetch"),
+      new ApiError(503, "/api/sync/changes"),
+      new ApiError(503, "/api/sync/changes"),
+      new ApiError(503, "/api/sync/changes"),
+    ];
+    let call = 0;
+    const fetchJson = vi.fn(async () => { throw errors[Math.min(call++, errors.length - 1)]; });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // network failure 1/2 (not counted)
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); // network failure 2/2 (not counted)
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); // replica failure 1/3
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 4); // replica failure 2/3
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 8); // replica failure 3/3 -> stalled
+    expect(states.at(-1)).toEqual({ mode: "stalled", error: expect.any(String) });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("recovery-failed re-reports ready once a later pull succeeds (pkm-80ds finding 1)", async () => {
+  // Before the fix, a recovery-failed report that never crossed the stall
+  // threshold left reportedNonReady false, so a later successful pull's
+  // noteSuccess never re-emitted "ready" -- the banner and stale
+  // replicaState stuck around forever despite a healthy replica.
+  const replica = fakeReplica({
+    applyChanges: vi.fn()
+      .mockResolvedValueOnce({ status: "needs-bootstrap" })
+      .mockResolvedValue({ status: "applied", cursor: 5 }),
+  });
+  let snapshotShouldFail = true;
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/sync/snapshot") {
+      if (snapshotShouldFail) throw new Error("snapshot offline");
+      return SNAP;
+    }
+    return feed();
+  });
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+  expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "snapshot offline" });
+
+  snapshotShouldFail = false;
+  await sync.start(); // next pull attempt: recovery succeeds this time
+  expect(states.at(-1)).toEqual({ mode: "ready" });
 });
 
 test("resetLocalData flushes, resets and bootstraps", async () => {

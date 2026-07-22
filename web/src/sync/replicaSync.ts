@@ -7,8 +7,10 @@
 // dedup makes replayed flushes safe), and a failed flush keeps the old
 // database: degraded beats data loss.
 
+import { ApiError } from "../api/client";
 import type { Changes, Snapshot } from "../replica/apply";
 import type { PendingBatch, RecoveryCommit, Replica } from "../replica/client";
+import { ReplicaError } from "../replica/rpc";
 import type { OpQueue } from "./opQueue";
 
 export type ReplicaState =
@@ -73,6 +75,24 @@ export interface ReplicaSyncDeps {
 const errText = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
+/** Thrown by pullLoop when the pending-batch id list never stops changing
+ * (PENDING_CHANGED_CAP retries exhausted): a real replica-side stall, not a
+ * transport hiccup, so noteFailure's classifier must recognize it by type
+ * rather than by message text. */
+class PullStarvedError extends Error {}
+
+/** Network-down failures (dropped connection, DNS, an offline fetch) are not
+ * wedged-replica symptoms -- the offline banner already owns network-down
+ * UX, and counting them here would flip a whole offline session read-only
+ * via computeEditability. Only failures that mean "the replica itself
+ * cannot make progress" -- a rejected/failed API call, a replica-side RPC
+ * error, or pull() starving on pending-batch churn -- count toward the
+ * stall threshold; anything else still retries with backoff but is neither
+ * counted nor reported as stalled. */
+const isStallShaped = (error: unknown): boolean =>
+  error instanceof ApiError || error instanceof ReplicaError ||
+  error instanceof PullStarvedError;
+
 export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const { replica, fetchJson, clientId, onState } = deps;
   const queue = deps.queue ?? {
@@ -116,10 +136,12 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   const noteFailure = (error: unknown): void => {
-    consecutiveFailures += 1;
-    if (consecutiveFailures >= STALL_AFTER_FAILURES) {
-      reportedNonReady = true;
-      onState({ mode: "stalled", error: errText(error) });
+    if (isStallShaped(error)) {
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= STALL_AFTER_FAILURES) {
+        reportedNonReady = true;
+        onState({ mode: "stalled", error: errText(error) });
+      }
     }
     if (!stopped && retryTimer === null) {
       retryTimer = setTimeout(() => {
@@ -187,6 +209,12 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       const poisonOwnsRecovery = authoritativeRepair === "poison" ||
         error === poisonPreempted;
       if (options.reportReplicaFailure && !poisonOwnsRecovery) {
+        // Without this, a recovery-failed report that never crosses the
+        // stall threshold (e.g. the very first failure) leaves
+        // reportedNonReady false, so noteSuccess's later "ready" re-emission
+        // is gated off and the banner (plus the stale replicaState it
+        // reflects) sticks forever despite a healthy replica.
+        reportedNonReady = true;
         onState({ mode: "recovery-failed", error: errText(error) });
       }
       if (token !== null) {
@@ -232,7 +260,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         if (res.status === "pending-changed") {
           pendingChangedRetries += 1;
           if (pendingChangedRetries >= PENDING_CHANGED_CAP) {
-            throw new Error("pull starved: pending batches kept changing");
+            throw new PullStarvedError(
+              "pull starved: pending batches kept changing");
           }
           continue;
         }

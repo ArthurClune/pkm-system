@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-07-22T09:04:05Z
-updated_at: 2026-07-22T09:24:48Z
+updated_at: 2026-07-22T09:41:38Z
 ---
 
 Unify block movement on Shift+Cmd+Arrow for focused blocks and active multi-block selections. Selected movement must work within and across parent boundaries while atomically preserving depth, hierarchy, and order; remove Option/Alt+Arrow movement.
@@ -23,3 +23,7 @@ Unify block movement on Shift+Cmd+Arrow for focused blocks and active multi-bloc
 The collapsed-subtree report was withdrawn after it could not be reproduced; browser verification also confirmed that moving a collapsed parent carries its descendants. The remaining root cause is a split shortcut design: focused Shift+Cmd+Arrow uses depth-preserving subtree movement, selected Option/Alt+Arrow uses a sibling-only planner, and selected Shift+Cmd+Arrow falls into generic selection extension.
 
 Approved design: remove Option/Alt+Arrow movement and make Shift+Cmd+Arrow the sole focused/selected move shortcut. Multi-selection movement is atomic and preserves each selected root run's absolute depth, hierarchy, and order within and across parent boundaries. Spec: `docs/superpowers/specs/2026-07-22-unified-block-move-shortcut-design.md`.
+
+## Implementation plan
+
+Detailed execution plan: `docs/superpowers/plans/2026-07-22-unified-block-move-shortcut.md`. The worktree baseline passed `cd web && pnpm verify` before implementation.

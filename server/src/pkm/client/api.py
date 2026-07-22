@@ -121,10 +121,9 @@ class PkmClient:
     def create_page(self, title: str) -> dict:
         return self._request("POST", "/api/pages", json={"title": title})
 
-    def post_ops(self, ops: list[dict],
-                 batch_id: str | None = None) -> dict:
+    def post_ops(self, ops: list[dict], batch_id: str) -> dict:
         try:
-            batch = OpBatch(client_id=CLIENT_ID, batch_id=batch_id, ops=ops)  # type: ignore[arg-type]
+            batch = OpBatch(client_id=CLIENT_ID, batch_id=batch_id, ops=ops)
         except ValueError as e:
             raise ApiError(422, f"invalid ops: {e}")
         return self._request("POST", "/api/ops",

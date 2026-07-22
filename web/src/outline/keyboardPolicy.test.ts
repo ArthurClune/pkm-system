@@ -378,6 +378,44 @@ describe("decideEditorKey boundary arrows", () => {
       .toEqual({ type: "arrow", dir: "up" });
   });
 
+  it("stays in the block on ArrowUp when a wrapped display line is measured above the caret", () => {
+    // No logical newline before the caret (so the old heuristic alone would
+    // jump), but the shell measured the caret as NOT on the first display
+    // line of a soft-wrapped block: native caret-up should win instead.
+    expect(decideEditorKey(input({
+      key: "ArrowUp", draft: "one long line with no newlines at all", selStart: 20,
+      selEnd: 20, caretOnFirstDisplayLine: false,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("still jumps on ArrowUp when caretOnFirstDisplayLine is true or unmeasured", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", draft: "wraps but caret is on the first display line",
+      selStart: 5, selEnd: 5, caretOnFirstDisplayLine: true,
+    }))).toEqual({ type: "arrow", dir: "up" });
+    // undefined = unmeasured (jsdom, or measurement bailed) -> old behaviour.
+    expect(decideEditorKey(input({
+      key: "ArrowUp", draft: "no newline here", selStart: 5, selEnd: 5,
+    }))).toEqual({ type: "arrow", dir: "up" });
+  });
+
+  it("stays in the block on ArrowDown when a wrapped display line is measured below the selection end", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowDown", draft: "one long line with no newlines at all", selStart: 20,
+      selEnd: 20, caretOnLastDisplayLine: false,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("still jumps on ArrowDown when caretOnLastDisplayLine is true or unmeasured", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowDown", draft: "wraps but selEnd is on the last display line",
+      selStart: 5, selEnd: 5, caretOnLastDisplayLine: true,
+    }))).toEqual({ type: "arrow", dir: "down" });
+    expect(decideEditorKey(input({
+      key: "ArrowDown", draft: "no newline here", selStart: 5, selEnd: 5,
+    }))).toEqual({ type: "arrow", dir: "down" });
+  });
+
   it("does not move up from a lower line", () => {
     expect(decideEditorKey(input({ key: "ArrowUp", draft: "a\nb", selStart: 3, selEnd: 3 })))
       .toEqual({ type: "none" });

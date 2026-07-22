@@ -27,6 +27,13 @@ export interface EditorKeyInput {
   acRowsLength: number;
   /** Currently highlighted autocomplete row. */
   acSelected: number;
+  /** Whether the collapsed caret sits on the first VISUAL (display) line of
+   * a soft-wrapped textarea, as measured by the shell. `undefined` when
+   * unmeasured (jsdom, or the shell chose not to measure) — boundary-arrow
+   * decisions then fall back to the logical-newline-only heuristic. */
+  caretOnFirstDisplayLine?: boolean;
+  /** Same as caretOnFirstDisplayLine, for the last visual line. */
+  caretOnLastDisplayLine?: boolean;
 }
 
 export type KeyDecision =
@@ -177,10 +184,17 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   // text navigation (Cmd-Left = caret to line start, ...) and hijacking them
   // into block navigation would preventDefault the native behaviour.
   if (i.metaKey || i.ctrlKey || i.altKey) return NONE;
-  if (i.key === "ArrowUp" && !i.draft.slice(0, pos).includes("\n")) {
+  // The logical-newline check alone can't see soft-wrapping: a block with no
+  // "\n" at all still spans several VISUAL lines, and the caret should move
+  // up/down within it before focus jumps to the neighbouring block. The
+  // shell measures the real display line when it can; `!== false` keeps the
+  // old newline-only behaviour when unmeasured (jsdom, or a bail-out).
+  if (i.key === "ArrowUp" && !i.draft.slice(0, pos).includes("\n")
+      && i.caretOnFirstDisplayLine !== false) {
     return { type: "arrow", dir: "up" };
   }
-  if (i.key === "ArrowDown" && !i.draft.slice(i.selEnd).includes("\n")) {
+  if (i.key === "ArrowDown" && !i.draft.slice(i.selEnd).includes("\n")
+      && i.caretOnLastDisplayLine !== false) {
     return { type: "arrow", dir: "down" };
   }
   if (i.key === "ArrowLeft" && pos === 0 && caretOnly) {

@@ -4,10 +4,13 @@ A single-user, self-hosted replacement for Roam Research: an outliner-style
 notes app with daily notes, `[[page links]]`, backlinks, full-text search and
 locally-hosted assets, running on a Mac and reached over Tailscale.
 
-This is the orientation document. The authoritative details — full data model,
-API contracts, rejected alternatives, and the findings from running each phase
-against the real graph — live in the detailed docs linked throughout, chiefly
-the **[full design spec](superpowers/specs/2026-07-08-roam-migration-pkm-design.md)**.
+This is the orientation document for the *design* — the decisions and their
+why. The authoritative details — full data model, API contracts, rejected
+alternatives, and the findings from running each phase against the real graph
+— live in the detailed docs linked throughout, chiefly the
+**[full design spec](superpowers/specs/2026-07-08-roam-migration-pkm-design.md)**.
+For a map of the codebase as it stands (modules, API reference, diagrams),
+start at **[architecture/overview.md](architecture/overview.md)**.
 
 ## Core idea
 

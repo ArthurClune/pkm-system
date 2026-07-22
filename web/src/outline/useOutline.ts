@@ -284,7 +284,7 @@ export function useOutline(
       const node = findNode(blocksRef.current, to);
       setFocus({
         uid: to,
-        cursor: dir === "down" || dir === "right" ? 0 : (node?.text.length ?? 0),
+        cursor: dir === "right" ? 0 : (node?.text.length ?? 0),
       });
     },
     onToggleCollapsed: (uid, collapsed) =>

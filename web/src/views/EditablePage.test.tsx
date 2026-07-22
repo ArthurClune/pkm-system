@@ -217,7 +217,7 @@ test("Backspace at the start merges with the previous block", () => {
   expect(screen.getByRole("textbox")).toHaveValue("firstsecond");
 });
 
-test("boundary arrows move editor focus to the visible neighbour", () => {
+test("boundary arrows use text end vertically and preserve horizontal entry", () => {
   mount();
   let ta = focusBlock("second");
   ta.setSelectionRange(0, 0);
@@ -225,7 +225,19 @@ test("boundary arrows move editor focus to the visible neighbour", () => {
   ta = screen.getByRole("textbox") as HTMLTextAreaElement;
   expect(ta).toHaveValue("first");
   expect(ta.selectionStart).toBe(5);
+
   fireEvent.keyDown(ta, { key: "ArrowDown" });
+  ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  expect(ta).toHaveValue("second");
+  expect(ta.selectionStart).toBe(6);
+
+  ta.setSelectionRange(0, 0);
+  fireEvent.keyDown(ta, { key: "ArrowLeft" });
+  ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  expect(ta).toHaveValue("first");
+  expect(ta.selectionStart).toBe(5);
+
+  fireEvent.keyDown(ta, { key: "ArrowRight" });
   ta = screen.getByRole("textbox") as HTMLTextAreaElement;
   expect(ta).toHaveValue("second");
   expect(ta.selectionStart).toBe(0);

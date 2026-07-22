@@ -42,7 +42,7 @@ export function OfflineIndicator() {
           </>
         )}
       </div>
-    ) : (
+    ) : problem.kind === "rejected-batch" ? (
     <div className="ws-banner" role={
       problem.repair === "failed" || problem.repair === "mark-failed"
         ? "alert" : "status"
@@ -71,7 +71,7 @@ export function OfflineIndicator() {
         <pre>{JSON.stringify(problem.event.ops, null, 2)}</pre>
       </details>
     </div>
-    );
+    ) : null; // replica-stalled banner rendering lands in Task 9
 
   let connectivity = null;
   if (status === "connected") {

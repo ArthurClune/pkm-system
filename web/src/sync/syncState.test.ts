@@ -52,6 +52,26 @@ describe("computeEditability", () => {
       readOnlyReason: "offline — this graph is not yet available locally",
     });
   });
+
+  it("explains a stalled replica offline", () => {
+    expect(computeEditability("reconnecting", "stalled", false)).toEqual({
+      canEdit: false,
+      readOnlyReason: "local data is stale — reset local data to recover",
+    });
+  });
+
+  it("still allows connected editing while stalled (server-authoritative)", () => {
+    expect(computeEditability("connected", "stalled", false)).toEqual({
+      canEdit: true, readOnlyReason: undefined,
+    });
+  });
+
+  it("quota exhaustion still wins over a stalled replica", () => {
+    expect(computeEditability("reconnecting", "stalled", true)).toEqual({
+      canEdit: false,
+      readOnlyReason: "local storage is full — reconnect to sync",
+    });
+  });
 });
 
 describe("transitionSync mode-ready resync", () => {
@@ -189,6 +209,134 @@ describe("transitionSync legacy repair", () => {
       kind: "legacy-rejected", repair: "repaired", error: "reject",
     }), { type: "dismiss" });
     expect(t.state.problem).toBeUndefined();
+  });
+});
+
+describe("transitionSync replica-stalled lifecycle", () => {
+  it("sets a stalled problem with reset idle", () => {
+    const t = transitionSync(createSyncState(), {
+      type: "replica-stalled", error: "replica db locked",
+    });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "replica db locked", reset: "idle",
+    });
+    expect(t.effects).toEqual([]);
+  });
+
+  it("never clobbers a delivery problem of a different kind", () => {
+    const existing: SyncProblem = {
+      kind: "rejected-batch", event: poison(), repair: "running",
+    };
+    const t = transitionSync(withProblem(existing), {
+      type: "replica-stalled", error: "replica db locked",
+    });
+    expect(t.state.problem).toEqual(existing);
+    expect(t.effects).toEqual([]);
+  });
+
+  it("updates the error text on a re-report without stomping an in-flight reset", () => {
+    const running = withProblem({
+      kind: "replica-stalled", error: "old error", reset: "running",
+    } as SyncProblem);
+    const t = transitionSync(running, {
+      type: "replica-stalled", error: "new error",
+    });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "new error", reset: "running",
+    });
+  });
+
+  it("updates the error text and pending/resetError on a re-report, preserving reset", () => {
+    const blocked = withProblem({
+      kind: "replica-stalled", error: "old error", reset: "blocked", pending: 3,
+    } as SyncProblem);
+    const t = transitionSync(blocked, {
+      type: "replica-stalled", error: "new error",
+    });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "new error", reset: "blocked", pending: 3,
+    });
+  });
+
+  it("clears a replica-stalled problem on unstall when not mid-reset", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "idle",
+    }), { type: "replica-unstalled" });
+    expect(t.state.problem).toBeUndefined();
+  });
+
+  it("does not clear a replica-stalled problem on unstall while a reset is running", () => {
+    const running: SyncProblem = {
+      kind: "replica-stalled", error: "x", reset: "running",
+    };
+    const t = transitionSync(withProblem(running), { type: "replica-unstalled" });
+    expect(t.state.problem).toEqual(running);
+  });
+
+  it("leaves other problem kinds alone on unstall", () => {
+    const other: SyncProblem = { kind: "poison-discovery", error: "y" };
+    const t = transitionSync(withProblem(other), { type: "replica-unstalled" });
+    expect(t.state.problem).toEqual(other);
+  });
+
+  it("does nothing on unstall when there is no problem", () => {
+    const t = transitionSync(createSyncState(), { type: "replica-unstalled" });
+    expect(t.state.problem).toBeUndefined();
+    expect(t.effects).toEqual([]);
+  });
+
+  it("moves reset to running on reset-started, clearing pending/resetError", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "failed", resetError: "boom",
+    }), { type: "reset-started" });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "x", reset: "running",
+      pending: undefined, resetError: undefined,
+    });
+    expect(t.effects).toEqual([]);
+  });
+
+  it("defensively creates a replica-stalled problem on reset-started if missing", () => {
+    const t = transitionSync(createSyncState(), { type: "reset-started" });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "", reset: "running",
+      pending: undefined, resetError: undefined,
+    });
+  });
+
+  it("carries pending on reset-blocked", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "running",
+    }), { type: "reset-blocked", pending: 4 });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "x", reset: "blocked", pending: 4,
+      resetError: undefined,
+    });
+  });
+
+  it("carries resetError on reset-failed", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "running",
+    }), { type: "reset-failed", error: "reset boom" });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "x", reset: "failed",
+      resetError: "reset boom", pending: undefined,
+    });
+  });
+
+  it("clears the problem and bumps resync on reset-succeeded", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "running",
+    }), { type: "reset-succeeded" });
+    expect(t.state.problem).toBeUndefined();
+    expect(t.effects).toEqual([{ type: "bump-resync" }]);
+  });
+
+  it("bumps resync on reset-succeeded but leaves an unrelated problem alone", () => {
+    const other: SyncProblem = { kind: "poison-discovery", error: "y" };
+    const t = transitionSync(withProblem(other), { type: "reset-succeeded" });
+    expect(t.state.problem).toEqual(other);
+    expect(t.effects).toEqual([{ type: "bump-resync" }]);
   });
 });
 

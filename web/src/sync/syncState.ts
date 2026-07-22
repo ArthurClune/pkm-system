@@ -19,7 +19,10 @@ export type SyncProblem =
       error?: string }
   | { kind: "poison-discovery"; error: string }
   | { kind: "legacy-rejected"; repair: "running" | "failed" | "repaired";
-      error: string; repairError?: string };
+      error: string; repairError?: string }
+  | { kind: "replica-stalled"; error: string;
+      reset: "idle" | "running" | "blocked" | "failed";
+      pending?: number; resetError?: string };
 
 export interface SyncState {
   problem: SyncProblem | undefined;
@@ -41,6 +44,12 @@ export type SyncEvent =
   | { type: "legacy-repair-started"; error: string }
   | { type: "legacy-repair-succeeded"; error: string }
   | { type: "legacy-repair-failed"; error: string; repairError: string }
+  | { type: "replica-stalled"; error: string }
+  | { type: "replica-unstalled" }
+  | { type: "reset-started" }
+  | { type: "reset-blocked"; pending: number }
+  | { type: "reset-failed"; error: string }
+  | { type: "reset-succeeded" }
   | { type: "dismiss" };
 
 export type SyncEffect = { type: "bump-resync" };
@@ -65,7 +74,9 @@ export function computeEditability(
     ? "local storage is full — reconnect to sync"
     : replicaMode === "recovery-failed"
       ? "local data recovery failed — reconnect to continue"
-      : "offline — this graph is not yet available locally";
+      : replicaMode === "stalled"
+        ? "local data is stale — reset local data to recover"
+        : "offline — this graph is not yet available locally";
   return { canEdit: false, readOnlyReason };
 }
 
@@ -123,11 +134,73 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
         kind: "legacy-rejected", repair: "failed", error: event.error,
         repairError: event.repairError,
       });
+    case "replica-stalled": {
+      const current = state.problem;
+      // Delivery problems (a different kind) take precedence over a
+      // background replica-stalled report — leave the state untouched.
+      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
+      // A re-report (Task 6's engine re-emits stalled on every retry) must
+      // not stomp an in-flight reset the user is already watching.
+      return problem(state, current?.kind === "replica-stalled"
+        ? { ...current, error: event.error }
+        : { kind: "replica-stalled", error: event.error, reset: "idle" });
+    }
+    case "replica-unstalled": {
+      const current = state.problem;
+      return current?.kind === "replica-stalled" && current.reset !== "running"
+        ? problem(state, undefined) : { state, effects: [] };
+    }
+    case "reset-started": {
+      const current = state.problem;
+      // Delivery problems (a different kind) take precedence — leave the state untouched.
+      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
+      // Create or update the replica-stalled problem to move reset to running.
+      const base = current?.kind === "replica-stalled"
+        ? current : { kind: "replica-stalled" as const, error: "", reset: "idle" as const };
+      return problem(state, {
+        ...base, reset: "running", pending: undefined, resetError: undefined,
+      });
+    }
+    case "reset-blocked": {
+      const current = state.problem;
+      // Delivery problems (a different kind) take precedence — leave the state untouched.
+      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
+      // Create or update the replica-stalled problem to move reset to blocked.
+      const base = current?.kind === "replica-stalled"
+        ? current : { kind: "replica-stalled" as const, error: "", reset: "idle" as const };
+      return problem(state, {
+        ...base, reset: "blocked", pending: event.pending, resetError: undefined,
+      });
+    }
+    case "reset-failed": {
+      const current = state.problem;
+      // Delivery problems (a different kind) take precedence — leave the state untouched.
+      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
+      // Create or update the replica-stalled problem to move reset to failed.
+      const base = current?.kind === "replica-stalled"
+        ? current : { kind: "replica-stalled" as const, error: "", reset: "idle" as const };
+      return problem(state, {
+        ...base, reset: "failed", resetError: event.error, pending: undefined,
+      });
+    }
+    case "reset-succeeded": {
+      const current = state.problem;
+      return current?.kind === "replica-stalled"
+        ? problem(state, undefined, [{ type: "bump-resync" }])
+        : { state, effects: [{ type: "bump-resync" }] };
+    }
     case "dismiss": {
       const current = state.problem;
       const repaired = (current?.kind === "legacy-rejected"
         || current?.kind === "rejected-batch") && current.repair === "repaired";
-      return repaired ? problem(state, undefined) : { state, effects: [] };
+      // A stalled replica's idle/running states are the only signal a user
+      // has that local data is broken — only an acknowledged blocked/failed
+      // reset outcome may be dismissed. A later re-report re-raises the
+      // banner as a fresh idle problem (see the "replica-stalled" case).
+      const acknowledgedReset = current?.kind === "replica-stalled"
+        && (current.reset === "blocked" || current.reset === "failed");
+      return repaired || acknowledgedReset
+        ? problem(state, undefined) : { state, effects: [] };
     }
     default: {
       const exhaustive: never = event;

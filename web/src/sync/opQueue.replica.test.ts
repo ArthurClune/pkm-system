@@ -254,7 +254,10 @@ test("quota-failed enqueue surfaces and degrades to a direct post", async () => 
   await q.drain();
   expect(quotas.length).toBe(1);
   // best-effort legacy post so the edit still lands while online
-  expect(bodies[0].body).toEqual({ client_id: clientId, ops: [op("u1")] });
+  const body = bodies[0].body as { client_id: string; batch_id?: string; ops: unknown[] };
+  expect(body.client_id).toBe(clientId);
+  expect(body.batch_id).toBeDefined();
+  expect(body.ops).toEqual([op("u1")]);
 });
 
 test("other replica enqueue failures report desync", async () => {

@@ -18,7 +18,7 @@ def todo_client(client):
         {"op": "create", "uid": "todo_p1", "page_title": "Paper",
          "parent_uid": None, "order_idx": 0, "text": "> {{TODO}} quoted task"},
     ]
-    r = client.post("/api/ops", json={"client_id": "t", "ops": ops})
+    r = client.post("/api/ops", json={"client_id": "t", "batch_id": "todo_batch", "ops": ops})
     assert r.status_code == 200
     return client
 

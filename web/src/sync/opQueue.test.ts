@@ -29,10 +29,10 @@ test("ops enqueued in the same tick coalesce into one batch", async () => {
   q.enqueue([op("u2"), op("u3")]);
   await q.drain();
   expect(mock).toHaveBeenCalledTimes(1);
-  expect(bodies[0]).toEqual({
-    client_id: clientId,
-    ops: [op("u1"), op("u2"), op("u3")],
-  });
+  const body = bodies[0] as { client_id: string; batch_id?: string; ops: unknown[] };
+  expect(body.client_id).toBe(clientId);
+  expect(body.batch_id).toBeDefined();
+  expect(body.ops).toEqual([op("u1"), op("u2"), op("u3")]);
 });
 
 test("ops enqueued while a batch is in flight go in the next batch", async () => {
@@ -330,6 +330,38 @@ test("legacy 503 retains work and retries after 250ms", async () => {
   }
 });
 
+test("legacy queue sends a batch_id and freezes the slice across retries", async () => {
+  vi.useFakeTimers();
+  try {
+    const { bodies, mock } = capturingFetch([
+      () => jsonResponse({ detail: "busy" }, 500),
+      () => jsonResponse({ ok: true }),
+      () => jsonResponse({ ok: true }),
+    ]);
+    const q = createOpQueue(null, () => undefined);
+    await q.enqueue([op("a")]).settled;
+
+    await expect(q.drain()).resolves.toMatchObject({
+      status: "blocked", reason: "retryable", pending: 1,
+    });
+    q.enqueue([op("b")]); // arrives during backoff; must NOT join the retry
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(q.drain()).resolves.toEqual({ status: "drained" });
+
+    expect(mock).toHaveBeenCalledTimes(3);
+    const [first, second, third] = bodies as Array<
+      { batch_id?: string; ops: unknown[] }
+    >;
+    expect(first.batch_id).toBeDefined();
+    expect(second.batch_id).toBe(first.batch_id);
+    expect(second.ops).toEqual(first.ops); // frozen: op "b" absent
+    expect(third.batch_id).not.toBe(first.batch_id);
+    expect(third.ops).toEqual([op("b")]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a missed in-flight kick does not bypass the scheduled 5xx backoff", async () => {
   vi.useFakeTimers();
   try {
@@ -356,7 +388,10 @@ test("a missed in-flight kick does not bypass the scheduled 5xx backoff", async 
     expect(calls).toBe(1);
     await vi.advanceTimersByTimeAsync(1);
     await expect(later.delivered).resolves.toEqual({ status: "delivered" });
-    expect(calls).toBe(2);
+    // The frozen retry (call 2) resends only u1, byte-identical to call 1;
+    // u2 -- enqueued after that slice was frozen -- gets its own call 3,
+    // sent immediately once the retry succeeds (no further backoff).
+    expect(calls).toBe(3);
   } finally {
     vi.useRealTimers();
   }

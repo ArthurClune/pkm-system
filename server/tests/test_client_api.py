@@ -101,14 +101,16 @@ def test_post_ops_creates_block(pkm_client):
     uid = new_uid()
     r = pkm_client.post_ops([{"op": "create", "uid": uid,
                               "page_title": "AI", "parent_uid": None,
-                              "order_idx": 1, "text": "from client"}])
+                              "order_idx": 1, "text": "from client"}],
+                            batch_id="cli-batch-0001a")
     assert r["applied"] == 1
     assert pkm_client.get_block(uid)["block"]["text"] == "from client"
 
 
 def test_post_ops_rejects_malformed_op_locally(pkm_client):
     with pytest.raises(ApiError) as e:
-        pkm_client.post_ops([{"op": "create", "uid": "x!"}])  # missing fields
+        pkm_client.post_ops([{"op": "create", "uid": "x!"}],  # missing fields
+                            batch_id="cli-batch-0002b")
     assert e.value.status == 422
 
 

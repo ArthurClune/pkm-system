@@ -8,6 +8,7 @@ import { block, FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
+import { RETRY_BASE_MS } from "./replicaSync";
 import { SyncProvider, useSync, type Sync } from "./SyncProvider";
 
 function Probe({ onBatch }: { onBatch: (b: WsBatch) => void }) {
@@ -1446,6 +1447,239 @@ test("overlapping reconnects share one completion and leave no stale intent", as
     });
     expect(changeCalls).toBe(baselineChanges + 1);
     expect(sync.resyncSeq).toBe(baselineResync + 1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+// --- replica stall + manual reset (Fix A) ---
+
+test("repeated pull failures surface a replica-stalled problem", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplicaForProvider();
+    let changesCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) {
+        changesCalls += 1;
+        return new Response("boom", { status: 500 });
+      }
+      return jsonResponse({ ok: true });
+    }));
+    let sync!: Sync;
+    function Grab() { sync = useSync(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { await Promise.resolve(); }); // pull 1 fails
+    expect(sync.problem).toBeUndefined();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); }); // pull 2 fails
+    expect(sync.problem).toBeUndefined();
+
+    // pull 3 fails -> stalled
+    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
+    expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
+    expect(changesCalls).toBeGreaterThanOrEqual(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a recovered pull clears the replica-stalled problem", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplicaForProvider();
+    let failing = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) {
+        if (failing) return new Response("boom", { status: 500 });
+        return jsonResponse(EMPTY_FEED);
+      }
+      return jsonResponse({ ok: true });
+    }));
+    let sync!: Sync;
+    function Grab() { sync = useSync(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
+    expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
+
+    failing = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 4); });
+    expect(sync.problem).toBeUndefined();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("recovery-failed while connected also surfaces replica-stalled", async () => {
+  let releaseSnapshot!: () => void;
+  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/sync/snapshot") {
+      await snapshotGate;
+      return new Response("boom", { status: 500 });
+    }
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ ok: true });
+  }));
+  const replica = fakeReplicaForProvider();
+  replica.init = async () => ({ ok: true, empty: false, cursor: 0,
+                                schemaMismatch: true, pendingBatches: [] });
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); }); // socket connects before recovery settles
+  expect(sync.status).toBe("connected");
+
+  await act(async () => { releaseSnapshot(); await Promise.resolve(); await Promise.resolve(); });
+  await vi.waitFor(() => {
+    expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
+  });
+});
+
+test("recovery-failed while not connected leaves the problem unchanged", async () => {
+  let releaseSnapshot!: () => void;
+  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/sync/snapshot") {
+      await snapshotGate;
+      return new Response("boom", { status: 500 });
+    }
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ ok: true });
+  }));
+  const replica = fakeReplicaForProvider();
+  replica.init = async () => ({ ok: true, empty: false, cursor: 0,
+                                schemaMismatch: true, pendingBatches: [] });
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  // socket never connects -- status stays "connecting"
+  expect(sync.status).toBe("connecting");
+
+  await act(async () => { releaseSnapshot(); await Promise.resolve(); await Promise.resolve(); });
+  await vi.waitFor(() => {
+    expect(sync.replicaMode).toBe("recovery-failed");
+  });
+  expect(sync.problem).toBeUndefined();
+});
+
+test("resetReplica success path clears the problem and bumps resync", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplicaForProvider();
+    let failing = true; // only the changes feed fails; bootstrap must succeed
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) {
+        if (failing) return new Response("boom", { status: 500 });
+        return jsonResponse(EMPTY_FEED);
+      }
+      return jsonResponse({ ok: true });
+    }));
+    let sync!: Sync;
+    function Grab() { sync = useSync(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
+    expect(sync.problem).toMatchObject({ kind: "replica-stalled" });
+    const baselineResync = sync.resyncSeq;
+
+    failing = false; // resetReplica's own feed pull succeeds
+    await act(async () => { await sync.resetReplica(); });
+
+    expect(sync.problem).toBeUndefined();
+    expect(sync.resyncSeq).toBeGreaterThan(baselineResync);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("resetReplica surfaces ResetBlockedError as a blocked reset with pending count", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/ops") return new Response("boom", { status: 503 });
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ ok: true });
+  }));
+  const replica = fakeReplicaForProvider();
+  const pendingBatch: { id: number; batch_id: string; ops: BlockOp[];
+                        poisoned: boolean } =
+    { id: 1, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+  replica.prepareRecovery = async () =>
+    ({ token: "lease-1", batches: [pendingBatch] });
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+
+  await act(async () => { await sync.resetReplica(); }); // discardPending defaults false
+
+  expect(sync.problem).toMatchObject({
+    kind: "replica-stalled", reset: "blocked", pending: 1,
+  });
+});
+
+test("resetReplica(true) discards pending writes instead of flushing them", async () => {
+  const opsPosts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/ops") { opsPosts.push(url); return new Response("boom", { status: 503 }); }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ ok: true });
+  }));
+  const replica = fakeReplicaForProvider();
+  const pendingBatch: { id: number; batch_id: string; ops: BlockOp[];
+                        poisoned: boolean } =
+    { id: 1, batch_id: "b1", ops: [{ op: "delete", uid: "u1" }], poisoned: false };
+  replica.prepareRecovery = async () =>
+    ({ token: "lease-1", batches: [pendingBatch] });
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+
+  await act(async () => { await sync.resetReplica(true); });
+
+  expect(opsPosts).toEqual([]); // discardPending skipped the flush entirely
+  expect(sync.problem).toBeUndefined(); // reset succeeded, no blocked/failed problem
+});
+
+test("provider unmount stops the replica sync's backoff retry timer", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplicaForProvider();
+    let changesCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      if (url.startsWith("/api/sync/changes")) {
+        changesCalls += 1;
+        return new Response("boom", { status: 500 });
+      }
+      return jsonResponse({ ok: true });
+    }));
+    const { unmount } = render(<SyncProvider replica={replica}><div /></SyncProvider>);
+    await act(async () => { await Promise.resolve(); }); // pull 1 fails, schedules a retry
+    const callsAtUnmount = changesCalls;
+    expect(callsAtUnmount).toBeGreaterThan(0);
+
+    unmount();
+    await act(async () => { await Promise.resolve(); }); // let the deferred teardown run
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(changesCalls).toBe(callsAtUnmount); // no further retries after stop()
   } finally {
     vi.useRealTimers();
   }

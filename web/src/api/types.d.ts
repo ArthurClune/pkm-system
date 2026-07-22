@@ -742,7 +742,7 @@ export interface components {
             /** Client Id */
             client_id: string;
             /** Batch Id */
-            batch_id?: string | null;
+            batch_id: string;
             /** Ops */
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["SetViewTypeOp"] | components["schemas"]["CreatePageOp"])[];
         };

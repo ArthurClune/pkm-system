@@ -5,7 +5,7 @@
 // online visit, and a daily page with content pushes via its block ops'
 // page_title anyway (spec section 1).
 
-import { dateForTitle } from "../daily";
+import { titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { phraseQuery } from "./fts";
@@ -90,7 +90,9 @@ export function pagePayload(db: ReplicaDb, title: string, blOffset: number,
   const limit = Math.max(1, Math.min(blLimit, 100));
   let page = fetchPage(db, title);
   if (page === null) {
-    if (dateForTitle(title) === null) return null;
+    // Mirror of the server rule (bean pkm-fy52): only TODAY auto-creates
+    // on read; other daily titles 404 like normal pages.
+    if (title !== titleForDate(new Date(nowMs))) return null;
     getOrCreateLocalPage(db, title, nowMs); // local only, no push
     page = fetchPage(db, title);
     if (page === null) return null; // unreachable

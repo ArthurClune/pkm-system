@@ -166,7 +166,10 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
     bl_limit = max(1, min(bl_limit, 100))
     page = fetch_page(db, title)
     if page is None:
-        if date_for_title(title) is None:
+        # Only TODAY auto-creates on read (journal semantics). Auto-creating
+        # any daily title resurrected deleted dailies as zombies and let
+        # plain reads mint pages (bean pkm-fy52).
+        if date_for_title(title) != date.today():
             raise HTTPException(status_code=404, detail="page not found")
         page = get_or_create_page(db, title, int(time.time() * 1000))
         db.commit()

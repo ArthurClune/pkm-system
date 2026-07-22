@@ -1829,16 +1829,9 @@
             "title": "Client Id"
           },
           "batch_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 64,
-                "minLength": 8
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 8,
             "title": "Batch Id"
           },
           "ops": {
@@ -1892,6 +1885,7 @@
         "type": "object",
         "required": [
           "client_id",
+          "batch_id",
           "ops"
         ],
         "title": "OpBatch"

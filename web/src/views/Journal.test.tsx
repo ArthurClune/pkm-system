@@ -6,6 +6,7 @@ import type { JournalDay } from "../api/payloads";
 import {
   acquireOutlineSession,
   isOutlineSessionActive,
+  repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, stubFetch } from "../test-helpers";
@@ -381,6 +382,95 @@ it("stops auto-loading after 3 consecutive empty batches", async () => {
   // three all-empty batches in a row -> sentinel replaced by a manual button
   expect(await screen.findByRole("button", { name: /load older days/i }))
     .toBeInTheDocument();
+});
+
+it("treats a 404 on an active session's authoritative refetch as an empty day, " +
+   "not a failed load (pkm-fy52: day deleted underneath us)", async () => {
+  const title = "July 8th, 2026";
+  const journal = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    if (url.startsWith("/api/journal?")) return journal.promise;
+    if (url.startsWith("/api/page/")) {
+      return Promise.resolve(jsonResponse({ detail: "not found" }, 404));
+    }
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+  );
+  let active: ReturnType<typeof acquireOutlineSession> | null = null;
+  try {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/journal?days=5", undefined,
+    ));
+    // Opened mid-flight (after the journal fetch dispatched, before it
+    // resolved): the response processes this title via the "active at
+    // response" branch, which re-fetches the day's own page rather than
+    // trusting the journal payload.
+    active = acquireOutlineSession(title, [block("u1", "existing content")]);
+    await act(async () => {
+      journal.resolve(jsonResponse({
+        days: [day("2026-07-08", title, [block("u1", "journal-sent content")])],
+        block_ref_texts: {},
+      }));
+      await journal.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // The journal's own payload for this title must never be trusted once
+    // a session was already active — and the resulting authoritative
+    // refetch 404s (the page was deleted underneath us), which must
+    // resolve to an empty day, not surface an error or keep stale content.
+    expect(screen.queryByText("journal-sent content")).not.toBeInTheDocument();
+    await waitFor(() => expect(
+      screen.queryByText("existing content"),
+    ).not.toBeInTheDocument());
+    expect(document.querySelectorAll(".error")).toHaveLength(0);
+  } finally {
+    journal.resolve(jsonResponse({ days: [], block_ref_texts: {} }));
+    view.unmount();
+    active?.release();
+  }
+});
+
+it("a repair-triggered day reload treats a 404 as an empty day (pkm-fy52)", async () => {
+  const title = "July 8th, 2026";
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/journal/cleanup") {
+      return Promise.resolve(jsonResponse({ deleted: [] }));
+    }
+    if (url.startsWith("/api/journal?")) {
+      return Promise.resolve(jsonResponse({
+        days: [day("2026-07-08", title)], block_ref_texts: {},
+      }));
+    }
+    if (url.startsWith("/api/page/")) {
+      return Promise.resolve(jsonResponse({ detail: "not found" }, 404));
+    }
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
+  );
+  try {
+    expect(await screen.findByText("entry 2026-07-08")).toBeInTheDocument();
+
+    // A repair epoch forces every active session through its stored
+    // authoritative loader (no explicit override) — the other 404 call site.
+    await act(async () => { await repairActiveOutlineSessions(); });
+
+    expect(screen.queryByText("entry 2026-07-08")).not.toBeInTheDocument();
+    expect(document.querySelectorAll(".error")).toHaveLength(0);
+  } finally {
+    view.unmount();
+  }
 });
 
 it("fires the empty-daily cleanup once on mount", async () => {

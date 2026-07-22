@@ -23,7 +23,8 @@ def test_bootstrap_snapshot_has_everything_and_a_seq(client):
 
 def test_feed_returns_full_block_payload_and_advances_cursor(client):
     start = _drain(client)["latest_seq"]
-    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "feed_cursor1",
+                                      "ops": [
         {"op": "update_text", "uid": "uid_b1", "text": "now says [[AI]]"}]})
     assert r.status_code == 200
     feed = _drain(client, since=start)
@@ -40,7 +41,8 @@ def test_feed_returns_full_block_payload_and_advances_cursor(client):
 
 def test_view_type_change_reaches_changes_feed_and_snapshot(client):
     start = _drain(client)["latest_seq"]
-    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "view_type1",
+                                      "ops": [
         {"op": "set_view_type", "uid": "uid_b2", "view_type": "numbered"}]})
     assert r.status_code == 200
     feed = _drain(client, since=start)
@@ -56,7 +58,8 @@ def test_window_split_ships_dependency_page_for_refs(client):
     containing only the block's journal row must ship the referenced page
     payload so the client's refs FK target exists."""
     start = _drain(client)["latest_seq"]
-    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "window_split1",
+                                      "ops": [
         {"op": "update_text", "uid": "uid_b6",
          "text": "links [[Brand New Page]]"}]})
     assert r.status_code == 200
@@ -79,7 +82,8 @@ def test_window_split_ships_dependency_page_for_refs(client):
 
 def test_delete_yields_tombstones_for_whole_subtree(client):
     start = _drain(client)["latest_seq"]
-    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "tombstone1",
+                                      "ops": [
         {"op": "delete", "uid": "uid_b2"}]})
     assert r.status_code == 200
     feed = _drain(client, since=start)
@@ -145,7 +149,8 @@ def test_cross_page_subtree_move_journals_every_subtree_row(client):
     page_id, and the journal must carry every affected descendant so
     replicas relocate the subtree, not just the moved root."""
     start = _drain(client)["latest_seq"]
-    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "cross_subtree1",
+                                      "ops": [
         {"op": "move", "uid": "uid_b2", "parent_uid": None, "order_idx": 5,
          "page_title": "AI"}]})
     assert r.status_code == 200

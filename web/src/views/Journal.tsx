@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { apiFetch } from "../api/client";
+import { ApiError, apiFetch } from "../api/client";
 import type { BlockRefText, JournalDay, JournalPayload,
                   PagePayload } from "../api/payloads";
 import { BlockRefProvider } from "../components/BlockRefProvider";
@@ -17,6 +17,20 @@ import { EditablePage } from "./EditablePage";
 
 const BATCH = 5;
 const MAX_EMPTY_BATCHES = 3;
+
+// A day's authoritative page fetch 404s when it's been deleted (or never
+// created) underneath us — an empty-daily prune, or the server's
+// today-only auto-create (pkm-fy52) declining a non-today title. Either
+// way that's an empty day, not a failed load.
+async function fetchDayBlocks(title: string): Promise<PagePayload["blocks"]> {
+  try {
+    const page = await apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`);
+    return page.blocks;
+  } catch (e: unknown) {
+    if (e instanceof ApiError && e.status === 404) return [];
+    throw e;
+  }
+}
 
 export function Journal() {
   const [days, setDays] = useState<JournalDay[]>([]);
@@ -43,12 +57,7 @@ export function Journal() {
       session = acquireOutlineSession(title, null);
       sessionsRef.current.set(title, session);
       sessionLoaderCleanupRef.current.set(title,
-        session.setAuthoritativeLoader(async () => {
-          const page = await apiFetch<PagePayload>(
-            `/api/page/${encodeTitle(title)}`,
-          );
-          return page.blocks;
-        }));
+        session.setAuthoritativeLoader(() => fetchDayBlocks(title)));
     }
     return session;
   }, []);
@@ -88,12 +97,8 @@ export function Journal() {
         if (captured) {
           captured.receive(day.blocks);
         } else if (activeAtResponse) {
-          void session.requestAuthoritative(async () => {
-            const page = await apiFetch<PagePayload>(
-              `/api/page/${encodeTitle(day.title)}`,
-            );
-            return page.blocks;
-          }).catch(() => undefined);
+          void session.requestAuthoritative(() => fetchDayBlocks(day.title))
+            .catch(() => undefined);
         } else {
           const token = session.beginAuthoritativeRead(source);
           session.receiveAuthoritative(token, day.blocks);

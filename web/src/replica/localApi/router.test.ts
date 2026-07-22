@@ -78,6 +78,24 @@ describe("daily auto-creation", () => {
     expect(t.db.select("SELECT * FROM pending_ops")).toEqual([]);
   });
 
+  test("missing past daily 404s locally and creates no row", () => {
+    const yesterday = titleForDate(new Date(NOW - 24 * 60 * 60 * 1000));
+    expectStatus(call("GET", `/api/page/${encodeURIComponent(yesterday)}`),
+                 404);
+    expectStatus(call("GET", `/api/page/${encodeURIComponent(yesterday)}`),
+                 404);
+    expect(t.db.select("SELECT * FROM pages WHERE title = ?", [yesterday]))
+      .toEqual([]);
+  });
+
+  test("missing future daily 404s locally and creates no row", () => {
+    const tomorrow = titleForDate(new Date(NOW + 24 * 60 * 60 * 1000));
+    expectStatus(call("GET", `/api/page/${encodeURIComponent(tomorrow)}`),
+                 404);
+    expect(t.db.select("SELECT * FROM pages WHERE title = ?", [tomorrow]))
+      .toEqual([]);
+  });
+
   test("journal without before includes an auto-created today", () => {
     const title = titleForDate(new Date(NOW));
     const body = expectStatus(call("GET", "/api/journal?days=1"), 200) as {

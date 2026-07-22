@@ -88,9 +88,10 @@ BlockOp = Annotated[Union[CreateOp, UpdateTextOp, MoveOp, DeleteOp,
 
 class OpBatch(BaseModel):
     client_id: str = Field(min_length=1, max_length=64)
-    # Durable client queues retry pushes; batch_id makes the retry safe.
-    # Absent => pre-offline client, applied unconditionally as before.
-    batch_id: str | None = Field(default=None, min_length=8, max_length=64)
+    # Required since 2026-07-22 (bean pkm-ri5b): id-less batches cannot be
+    # deduplicated, so any retry or replay re-applies. Pre-offline clients
+    # now fail loudly (422) instead of corrupting silently.
+    batch_id: str = Field(min_length=8, max_length=64)
     ops: list[BlockOp] = Field(min_length=1, max_length=500)
 
 

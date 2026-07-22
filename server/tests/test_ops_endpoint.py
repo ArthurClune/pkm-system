@@ -3,14 +3,22 @@ import sqlite3
 from pkm.server.ops_core import text_hash
 
 
-def _post(client, *ops, client_id="c1"):
+_batch_counter = 0
+
+def _post(client, *ops, client_id="c1", batch_id=None):
+    global _batch_counter
+    if batch_id is None:
+        _batch_counter += 1
+        batch_id = f"batch_{_batch_counter:08d}"
     return client.post("/api/ops",
-                       json={"client_id": client_id, "ops": list(ops)})
+                       json={"client_id": client_id, "batch_id": batch_id,
+                             "ops": list(ops)})
 
 
 def test_ops_require_auth(anon_client):
     r = anon_client.post("/api/ops", json={
         "client_id": "c1",
+        "batch_id": "auth_test1",
         "ops": [{"op": "delete", "uid": "uid_b1"}]})
     assert r.status_code == 401
 
@@ -118,6 +126,7 @@ def test_cycle_move_rejected(client):
 
 def test_malformed_batch_422(client):
     r = client.post("/api/ops", json={"client_id": "c1",
+                                      "batch_id": "malform1",
                                       "ops": [{"op": "explode"}]})
     assert r.status_code == 422
 
@@ -125,7 +134,8 @@ def test_malformed_batch_422(client):
 def test_cross_page_move_under_parent(client, seeded_config):
     # uid_b4 (on "July 7th, 2026") becomes a child of uid_b2 (on "Machine
     # Learning"): subtree page_id follows, uid unchanged.
-    r = client.post("/api/ops", json={"client_id": "t", "ops": [
+    r = client.post("/api/ops", json={"client_id": "t", "batch_id": "cross_move_1",
+                                      "ops": [
         {"op": "move", "uid": "uid_b4", "parent_uid": "uid_b2",
          "order_idx": 99}]})
     assert r.status_code == 200
@@ -138,7 +148,8 @@ def test_cross_page_move_under_parent(client, seeded_config):
 
 
 def test_cross_page_move_top_level_auto_creates_page(client, seeded_config):
-    r = client.post("/api/ops", json={"client_id": "t", "ops": [
+    r = client.post("/api/ops", json={"client_id": "t", "batch_id": "auto_page1",
+                                      "ops": [
         {"op": "move", "uid": "uid_b4", "parent_uid": None, "order_idx": 0,
          "page_title": "July 1st, 2026"}]})
     assert r.status_code == 200
@@ -157,7 +168,8 @@ def test_cross_page_move_subtree_and_backlinks_survive(client, seeded_config):
     # uid_b2 has child uid_b3 ("[[Attention Is All You Need]] is a [[Paper]]").
     # Move uid_b2 to July 7th: child's page_id follows; refs rows untouched;
     # the moved text is still findable via search (FTS keyed by rowid).
-    r = client.post("/api/ops", json={"client_id": "t", "ops": [
+    r = client.post("/api/ops", json={"client_id": "t", "batch_id": "subtree1",
+                                      "ops": [
         {"op": "move", "uid": "uid_b2", "parent_uid": None, "order_idx": 9,
          "page_title": "July 7th, 2026"}]})
     assert r.status_code == 200
@@ -181,7 +193,8 @@ def test_batch_rollback_undoes_auto_created_page(client, seeded_config):
     # pages row mid-batch); op 1 fails. The whole transaction must roll back —
     # the auto-created page and the move both vanish. Exercises the real
     # db.rollback() in routes_ops, not just the pure planner.
-    r = client.post("/api/ops", json={"client_id": "t", "ops": [
+    r = client.post("/api/ops", json={"client_id": "t", "batch_id": "rollback1",
+                                      "ops": [
         {"op": "move", "uid": "uid_b4", "parent_uid": None, "order_idx": 0,
          "page_title": "Brand New Page"},
         {"op": "delete", "uid": "ghost99"}]})
@@ -198,7 +211,8 @@ def test_batch_rollback_undoes_auto_created_page(client, seeded_config):
 
 
 def test_cross_page_move_page_title_parent_mismatch_400(client):
-    r = client.post("/api/ops", json={"client_id": "t", "ops": [
+    r = client.post("/api/ops", json={"client_id": "t", "batch_id": "mismatch1",
+                                      "ops": [
         {"op": "move", "uid": "uid_b4", "parent_uid": "uid_b2",
          "order_idx": 0, "page_title": "July 7th, 2026"}]})
     assert r.status_code == 400
@@ -206,7 +220,7 @@ def test_cross_page_move_page_title_parent_mismatch_400(client):
 
 
 def test_create_page_op_creates_and_is_idempotent(client):
-    body = {"client_id": "c1", "ops": [
+    body = {"client_id": "c1", "batch_id": "create_page1", "ops": [
         {"op": "create_page", "page_title": "Offline Made Me"}]}
     assert client.post("/api/ops", json=body).status_code == 200
     assert client.post("/api/ops", json=body).status_code == 200  # replayable
@@ -219,7 +233,8 @@ def test_create_page_op_creates_and_is_idempotent(client):
 
 def test_create_page_op_reaches_changes_feed(client):
     start = client.get("/api/sync/changes").json()["latest_seq"]
-    client.post("/api/ops", json={"client_id": "c1", "ops": [
+    client.post("/api/ops", json={"client_id": "c1", "batch_id": "feed_vis1",
+                                  "ops": [
         {"op": "create_page", "page_title": "Feed Visible"}]})
     feed = client.get(f"/api/sync/changes?since={start}").json()
     assert "Feed Visible" in {p["title"] for p in feed["pages"]}
@@ -228,7 +243,8 @@ def test_create_page_op_reaches_changes_feed(client):
 def test_conflict_copy_lands_next_to_target(client):
     # uid_b1's live text is "Tags:: #AI" (conftest seed); simulate an
     # offline edit based on stale text
-    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "conflict1",
+                                      "ops": [
         {"op": "update_text", "uid": "uid_b1", "text": "offline edit",
          "base_text_hash": text_hash("some stale base")}]})
     assert r.status_code == 200
@@ -241,9 +257,11 @@ def test_conflict_copy_lands_next_to_target(client):
 def test_no_false_conflict_after_structural_change(client):
     base = "Tags:: #AI"
     # a collapse (structural op) between base and push must NOT conflict
-    client.post("/api/ops", json={"client_id": "c1", "ops": [
+    client.post("/api/ops", json={"client_id": "c1", "batch_id": "struct_chg1",
+                                  "ops": [
         {"op": "set_collapsed", "uid": "uid_b1", "collapsed": True}]})
-    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "struct_chg2",
+                                      "ops": [
         {"op": "update_text", "uid": "uid_b1", "text": "clean edit",
          "base_text_hash": text_hash(base)}]})
     assert r.status_code == 200
@@ -254,9 +272,11 @@ def test_no_false_conflict_after_structural_change(client):
 def test_orphaned_edit_lands_on_todays_daily_page(client):
     from datetime import date
     from pkm.server.daily import title_for_date
-    client.post("/api/ops", json={"client_id": "c1", "ops": [
+    client.post("/api/ops", json={"client_id": "c1", "batch_id": "orphan_edit1",
+                                  "ops": [
         {"op": "delete", "uid": "uid_b6"}]})
-    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "orphan_edit2",
+                                      "ops": [
         {"op": "update_text", "uid": "uid_b6", "text": "edited after delete",
          "base_text_hash": text_hash("whatever")}]})
     assert r.status_code == 200
@@ -267,6 +287,7 @@ def test_orphaned_edit_lands_on_todays_daily_page(client):
 
 
 def test_hashless_update_on_missing_block_still_400s(client):
-    r = client.post("/api/ops", json={"client_id": "c1", "ops": [
+    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "gone_uid1",
+                                      "ops": [
         {"op": "update_text", "uid": "gone_uid1", "text": "x"}]})
     assert r.status_code == 400

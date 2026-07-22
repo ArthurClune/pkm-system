@@ -14,7 +14,8 @@ B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 
 
 def test_batch_parses_discriminated_ops():
-    batch = OpBatch.model_validate({"client_id": "c1", "ops": [
+    batch = OpBatch.model_validate({"client_id": "c1", "batch_id": "test_batch1",
+                                   "ops": [
         {"op": "create", "uid": "newuid1", "page_title": "P",
          "order_idx": 0, "text": "hi"},
         {"op": "delete", "uid": "uid_b3"},
@@ -26,9 +27,10 @@ def test_batch_parses_discriminated_ops():
 def test_batch_rejects_unknown_op_and_empty():
     with pytest.raises(ValidationError):
         OpBatch.model_validate(
-            {"client_id": "c1", "ops": [{"op": "explode", "uid": "uid_b3"}]})
+            {"client_id": "c1", "batch_id": "test_batch2",
+             "ops": [{"op": "explode", "uid": "uid_b3"}]})
     with pytest.raises(ValidationError):
-        OpBatch(client_id="c1", ops=[])
+        OpBatch(client_id="c1", batch_id="test_batch3", ops=[])
 
 
 def test_plan_create():

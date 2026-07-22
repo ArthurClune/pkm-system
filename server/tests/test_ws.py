@@ -34,6 +34,7 @@ def test_ops_broadcast_to_connected_clients(client):
     with client.websocket_connect("/api/ws") as ws:
         r = client.post("/api/ops", json={
             "client_id": "sender-1",
+            "batch_id": "ws_broadcast1",
             "ops": [{"op": "set_collapsed", "uid": "uid_b2",
                      "collapsed": True}]})
         assert r.status_code == 200
@@ -54,6 +55,7 @@ def test_cross_page_move_broadcast_carries_resolved_page_title(client):
     with client.websocket_connect("/api/ws") as ws:
         r = client.post("/api/ops", json={
             "client_id": "sender-1",
+            "batch_id": "ws_move_title1",
             "ops": [{"op": "move", "uid": "uid_b4", "parent_uid": "uid_b2",
                      "order_idx": 99}]})
         assert r.status_code == 200
@@ -68,6 +70,7 @@ def test_same_page_move_broadcast_keeps_page_title_null(client):
     with client.websocket_connect("/api/ws") as ws:
         r = client.post("/api/ops", json={
             "client_id": "sender-1",
+            "batch_id": "ws_same_page1",
             "ops": [{"op": "move", "uid": "uid_b3", "parent_uid": None,
                      "order_idx": 0}]})
         assert r.status_code == 200
@@ -80,10 +83,12 @@ def test_failed_batch_broadcasts_nothing(client):
     with client.websocket_connect("/api/ws") as ws:
         r = client.post("/api/ops", json={
             "client_id": "sender-1",
+            "batch_id": "ws_failed1",
             "ops": [{"op": "delete", "uid": "ghost99"}]})
         assert r.status_code == 400
         ok = client.post("/api/ops", json={
             "client_id": "sender-2",
+            "batch_id": "ws_ok_batch1",
             "ops": [{"op": "set_collapsed", "uid": "uid_b1",
                      "collapsed": True}]})
         assert ok.status_code == 200
@@ -116,6 +121,7 @@ def test_ops_commit_emits_seq_nudge_after_batch_frame(client):
     with client.websocket_connect("/api/ws") as ws:
         r = client.post("/api/ops", json={
             "client_id": "n1",
+            "batch_id": "ws_seq_nudge1",
             "ops": [{"op": "update_text", "uid": "uid_b1", "text": "x"}]})
         assert r.status_code == 200
         frames = _frames_until_seq(ws)
@@ -136,8 +142,12 @@ def test_non_op_write_paths_emit_seq_nudge(client):
 
 
 def test_daily_autocreate_on_get_emits_seq_nudge(client):
+    from datetime import date
+    from pkm.server.daily import title_for_date
+
     with client.websocket_connect("/api/ws") as ws:
-        r = client.get("/api/page/July%2013th,%202026")
+        today = title_for_date(date.today())
+        r = client.get(f"/api/page/{today}")
         assert r.status_code == 200
         assert _frames_until_seq(ws)[-1]["type"] == "seq"
 

@@ -22,21 +22,20 @@ async def post_ops(request: Request,
                    batch: OpBatch,
                    db: sqlite3.Connection = Depends(get_db)) -> dict:
     now = int(time.time() * 1000)
-    rhash = batch_request_hash(batch) if batch.batch_id is not None else None
-    if batch.batch_id is not None:
-        row = db.execute(
-            "SELECT request_hash, response FROM applied_batches"
-            " WHERE batch_id = ?", (batch.batch_id,)).fetchone()
-        if row is not None:
-            if row["request_hash"] != rhash:
-                # same dict shape as the 400 OpError detail below, so
-                # clients parse one error contract (pkm-x7a5)
-                raise HTTPException(
-                    status_code=409,
-                    detail={"index": None,
-                            "reason": "batch_id was already used with"
-                                      " different ops"})
-            return json.loads(row["response"])  # replay: stored ack, no effects
+    rhash = batch_request_hash(batch)
+    row = db.execute(
+        "SELECT request_hash, response FROM applied_batches"
+        " WHERE batch_id = ?", (batch.batch_id,)).fetchone()
+    if row is not None:
+        if row["request_hash"] != rhash:
+            # same dict shape as the 400 OpError detail below, so
+            # clients parse one error contract (pkm-x7a5)
+            raise HTTPException(
+                status_code=409,
+                detail={"index": None,
+                        "reason": "batch_id was already used with"
+                                  " different ops"})
+        return json.loads(row["response"])  # replay: stored ack, no effects
     try:
         broadcast_ops = apply_batch(db, batch, now)
     except OpError as e:
@@ -44,20 +43,19 @@ async def post_ops(request: Request,
         raise HTTPException(status_code=400,
                             detail={"index": e.index, "reason": e.reason})
     response = {"ok": True, "ts": now, "applied": len(batch.ops)}
-    if batch.batch_id is not None:
-        try:
-            db.execute(
-                "INSERT INTO applied_batches VALUES (?,?,?,?)",
-                (batch.batch_id, rhash, json.dumps(response), now))
-        except sqlite3.IntegrityError:
-            # two concurrent submissions of the same batch raced; this one
-            # loses -- roll back its effects and serve the winner's ack
-            db.rollback()
-            row = db.execute(
-                "SELECT response FROM applied_batches WHERE batch_id = ?",
-                (batch.batch_id,)).fetchone()
-            assert row is not None
-            return json.loads(row["response"])
+    try:
+        db.execute(
+            "INSERT INTO applied_batches VALUES (?,?,?,?)",
+            (batch.batch_id, rhash, json.dumps(response), now))
+    except sqlite3.IntegrityError:
+        # two concurrent submissions of the same batch raced; this one
+        # loses -- roll back its effects and serve the winner's ack
+        db.rollback()
+        row = db.execute(
+            "SELECT response FROM applied_batches WHERE batch_id = ?",
+            (batch.batch_id,)).fetchone()
+        assert row is not None
+        return json.loads(row["response"])
     db.commit()
     await request.app.state.hub.broadcast({
         "client_id": batch.client_id,

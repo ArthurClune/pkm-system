@@ -16,7 +16,7 @@ import { createReplica, type Replica } from "../replica/client";
 import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue, type DrainOutcome,
          type PoisonEvent, type WriteTicket } from "./opQueue";
-import { createReplicaSync, type ReplicaState } from "./replicaSync";
+import { createReplicaSync, ResetBlockedError, type ReplicaState } from "./replicaSync";
 import { connectSocket, type WsBatch } from "./socket";
 import { computeEditability, transitionSync,
          type SyncEvent, type SyncStatus, type SyncProblem } from "./syncState";
@@ -53,6 +53,10 @@ export interface Sync {
   retryProblem(): Promise<void>;
   /** Clear repaired details. Failed/running problems cannot be dismissed. */
   dismissProblem(): void;
+  /** Manual recovery for a stalled replica (Fix A): flushes pending writes
+   * then rebuilds from a fresh snapshot. Pass discardPending=true to proceed
+   * even when the flush cannot be delivered. */
+  resetReplica(discardPending?: boolean): Promise<void>;
   enqueue(ops: BlockOp[], scope?: readonly string[]): WriteTicket;
   attachOutlineReplay(ticket: WriteTicket, title: string,
                       replay: readonly OutlineReplayAction[]): void;
@@ -70,6 +74,7 @@ export const SyncContext = createContext<Sync>({
   pending: 0,
   retryProblem: () => Promise.resolve(),
   dismissProblem: () => undefined,
+  resetReplica: () => Promise.resolve(),
   enqueue: () => {
     // a silent default would drop writes without a trace
     throw new Error("enqueue called outside <SyncProvider>");
@@ -235,6 +240,21 @@ export function SyncProvider({ children, replica }: {
       queue,
       onState: (next) => {
         if (mountedRef.current) setReplicaState(next);
+        // Delivery health (Fix A): a wedged replica or a failed recovery
+        // while the socket is up both need the same stalled banner + reset
+        // action; recovery-failed while offline keeps its existing
+        // read-only-reason behavior instead (computeEditability). statusRef
+        // (not the `status` state closed over at memo-creation time) is the
+        // current socket status: this callback fires long after this memo
+        // was built.
+        if (next.mode === "stalled") {
+          applySync({ type: "replica-stalled", error: next.error });
+        } else if (next.mode === "ready") {
+          applySync({ type: "replica-unstalled" });
+        } else if (next.mode === "recovery-failed" &&
+                   statusRef.current === "connected") {
+          applySync({ type: "replica-stalled", error: next.error });
+        }
       },
     }) : null;
     // queue is a mount-stable useMemo value; listing it keeps this memo
@@ -474,6 +494,9 @@ export function SyncProvider({ children, replica }: {
       // leaves mountedRef false and performs cleanup exactly once.
       queueMicrotask(() => {
         if (mountedRef.current) return;
+        // A stopped instance's in-flight pull may still finish, but must not
+        // reschedule another backoff retry that outlives this component.
+        replicaSync?.stop();
         queue.dispose();
         const owned = ownedReplicaRef.current;
         ownedReplicaRef.current = null;
@@ -541,10 +564,28 @@ export function SyncProvider({ children, replica }: {
       } else if (currentProblem?.kind === "rejected-batch" &&
           currentProblem.repair === "repaired") {
         repairTargetsRef.current = [];
+      } else if (currentProblem?.kind === "replica-stalled" &&
+          (currentProblem.reset === "blocked" || currentProblem.reset === "failed")) {
+        // No local ref cleanup needed here: acknowledging a blocked/failed
+        // reset just clears the banner — a later stall re-report re-raises
+        // it fresh (see syncState's "dismiss"/"replica-stalled" handling).
       } else {
         return;
       }
       applySync({ type: "dismiss" });
+    },
+    resetReplica: async (discardPending = false) => {
+      applySync({ type: "reset-started" });
+      try {
+        await replicaSync?.resetLocalData({ discardPending });
+        applySync({ type: "reset-succeeded" });
+      } catch (e: unknown) {
+        if (e instanceof ResetBlockedError) {
+          applySync({ type: "reset-blocked", pending: e.pending });
+        } else {
+          applySync({ type: "reset-failed", error: String(e) });
+        }
+      }
     },
     enqueue: (ops, scope) => {
       const ticket = queue.enqueue(ops, scope);

@@ -8,7 +8,7 @@ import { useSync } from "../sync/SyncProvider";
 
 export function OfflineIndicator() {
   const { status, canEdit, pending, readOnlyReason, problem,
-          retryProblem, dismissProblem } = useSync();
+          retryProblem, dismissProblem, resetReplica } = useSync();
   const [syncingAfterReconnect, setSyncingAfterReconnect] =
     useState(status !== "connected");
 
@@ -42,7 +42,7 @@ export function OfflineIndicator() {
           </>
         )}
       </div>
-    ) : (
+    ) : problem.kind === "rejected-batch" ? (
     <div className="ws-banner" role={
       problem.repair === "failed" || problem.repair === "mark-failed"
         ? "alert" : "status"
@@ -71,7 +71,27 @@ export function OfflineIndicator() {
         <pre>{JSON.stringify(problem.event.ops, null, 2)}</pre>
       </details>
     </div>
-    );
+    ) : problem.kind === "replica-stalled" ? (
+      <div className="ws-banner" role="alert">
+        {problem.reset === "blocked" ? (
+          <>{problem.pending} unsent change{problem.pending === 1 ? "" : "s"} could
+            not be delivered.{" "}
+            <button type="button" onClick={() => { void resetReplica(true); }}>
+              Discard and reset
+            </button>
+            <button type="button" onClick={dismissProblem}>Keep waiting</button>
+          </>
+        ) : (
+          <>Local sync is stuck: {problem.error}{" "}
+            {problem.reset === "failed" && <>Reset failed: {problem.resetError}.{" "}</>}
+            <button type="button" disabled={problem.reset === "running"}
+                    onClick={() => { void resetReplica(false); }}>
+              Reset local data
+            </button>
+          </>
+        )}
+      </div>
+    ) : null;
 
   let connectivity = null;
   if (status === "connected") {

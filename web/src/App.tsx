@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { MenuIcon } from "./components/icons";
 import { OfflineIndicator } from "./components/OfflineIndicator";
@@ -40,6 +40,8 @@ export function App() {
   // apply to an empty (invisible) sidebar.
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const idRef = useRef(1);
+  const appShellRef = useRef<HTMLDivElement>(null);
+  const bannerStackRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   const sidebarApi = useMemo(() => ({
@@ -50,6 +52,30 @@ export function App() {
       setSidebarHidden(false); // opening while hidden must not be a silent no-op
     },
   }), []);
+
+  useLayoutEffect(() => {
+    const shell = appShellRef.current;
+    const bannerStack = bannerStackRef.current;
+    if (!shell || !bannerStack) return;
+
+    const updateBannerHeight = () => {
+      shell.style.setProperty(
+        "--app-banner-height",
+        `${bannerStack.getBoundingClientRect().height}px`,
+      );
+    };
+    updateBannerHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      return () => shell.style.removeProperty("--app-banner-height");
+    }
+    const observer = new ResizeObserver(updateBannerHeight);
+    observer.observe(bannerStack);
+    return () => {
+      observer.disconnect();
+      shell.style.removeProperty("--app-banner-height");
+    };
+  }, []);
 
   // Cmd/Ctrl-U (focus search) lives in SearchBar, next to the input it targets.
   useEffect(() => {
@@ -73,50 +99,54 @@ export function App() {
     <SyncProvider>
       <DndProvider>
         <SidebarContext.Provider value={sidebarApi}>
-          <div className="app">
-            <OfflineIndicator />
-            <UndoRedoKeys />
-            <button className="hamburger" aria-label="menu"
-                    onClick={() => setNavOpen((o) => !o)}>
-              <MenuIcon />
-            </button>
-            <nav className={"left-nav" + (navOpen ? " open" : "") + (sidebarCollapsed ? " collapsed" : "")}>
-              <div className="nav-title">pkm</div>
-              {/* "primary": always accent-coloured, unlike the pinned pages
-                * below which are muted until active (pkm-nn7o) */}
-              <NavLink to="/" end onClick={() => setNavOpen(false)}
-                       className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
-                Daily Notes
-              </NavLink>
-              <NavLink to="/current-work" onClick={() => setNavOpen(false)}
-                       className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
-                Current Work
-              </NavLink>
-              <ThemeToggle />
-              <SidebarNav onNavigate={() => setNavOpen(false)} />
-            </nav>
-            <div className="content-area">
-              <TopBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
-              <main className="main-pane">
-                <Routes>
-                  <Route path="/" element={<Journal />} />
-                  <Route path="/current-work" element={<CurrentWork />} />
-                  <Route path="/page/*" element={<PageView />} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </main>
+          <div className="app-shell" ref={appShellRef}>
+            <div className="app-banner-stack" ref={bannerStackRef}>
+              <OfflineIndicator />
             </div>
-            {stack.length > 0 && !sidebarHidden && (
-              <aside className="sidebar">
-                {stack.map((entry) => (
-                  <SidebarPanel
-                    key={entry.id}
-                    title={entry.title}
-                    onClose={() => setStack((s) => s.filter((e) => e.id !== entry.id))}
-                  />
-                ))}
-              </aside>
-            )}
+            <div className="app">
+              <UndoRedoKeys />
+              <button className="hamburger" aria-label="menu"
+                      onClick={() => setNavOpen((o) => !o)}>
+                <MenuIcon />
+              </button>
+              <nav className={"left-nav" + (navOpen ? " open" : "") + (sidebarCollapsed ? " collapsed" : "")}>
+                <div className="nav-title">pkm</div>
+                {/* "primary": always accent-coloured, unlike the pinned pages
+                  * below which are muted until active (pkm-nn7o) */}
+                <NavLink to="/" end onClick={() => setNavOpen(false)}
+                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
+                  Daily Notes
+                </NavLink>
+                <NavLink to="/current-work" onClick={() => setNavOpen(false)}
+                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
+                  Current Work
+                </NavLink>
+                <ThemeToggle />
+                <SidebarNav onNavigate={() => setNavOpen(false)} />
+              </nav>
+              <div className="content-area">
+                <TopBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
+                <main className="main-pane">
+                  <Routes>
+                    <Route path="/" element={<Journal />} />
+                    <Route path="/current-work" element={<CurrentWork />} />
+                    <Route path="/page/*" element={<PageView />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </main>
+              </div>
+              {stack.length > 0 && !sidebarHidden && (
+                <aside className="sidebar">
+                  {stack.map((entry) => (
+                    <SidebarPanel
+                      key={entry.id}
+                      title={entry.title}
+                      onClose={() => setStack((s) => s.filter((e) => e.id !== entry.id))}
+                    />
+                  ))}
+                </aside>
+              )}
+            </div>
           </div>
         </SidebarContext.Provider>
       </DndProvider>

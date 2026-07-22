@@ -26,6 +26,61 @@ const afterPaint = (page: Page) =>
   page.evaluate(() => new Promise<void>((resolve) =>
     requestAnimationFrame(() => resolve())));
 
+test("offline banner stays in document flow above responsive chrome", async ({ page, context }) => {
+  let offline = false;
+  const live: WebSocketRoute[] = [];
+  await page.routeWebSocket(/\/api\/ws$/, (ws) => {
+    if (offline) {
+      void ws.close();
+      return;
+    }
+    ws.connectToServer();
+    live.push(ws);
+  });
+
+  const snapshot = page.waitForResponse("**/api/sync/snapshot");
+  const changes = page.waitForResponse("**/api/sync/changes*");
+  await login(page);
+  await snapshot;
+  await changes;
+
+  offline = true;
+  await context.setOffline(true);
+  for (const ws of live.splice(0)) await ws.close();
+
+  const banner = page.locator(".ws-banner");
+  await expect(banner).toContainText("Offline");
+  const bannerBox = await banner.boundingBox();
+  const topBarBox = await page.locator(".top-bar").boundingBox();
+  expect(bannerBox).not.toBeNull();
+  expect(topBarBox).not.toBeNull();
+  expect(topBarBox!.y).toBeGreaterThanOrEqual(bannerBox!.y + bannerBox!.height);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const hamburger = page.getByRole("button", { name: "menu", exact: true });
+  await expect.poll(async () => {
+    const mobileBannerBox = await banner.boundingBox();
+    const hamburgerBox = await hamburger.boundingBox();
+    if (!mobileBannerBox || !hamburgerBox) return false;
+    return hamburgerBox.y >= mobileBannerBox.y + mobileBannerBox.height;
+  }).toBe(true);
+  const hamburgerBox = await hamburger.boundingBox();
+  expect(hamburgerBox).not.toBeNull();
+  expect(await hamburger.evaluate(
+    (element) => getComputedStyle(element).position,
+  )).toBe("fixed");
+
+  await page.locator(".main-pane").evaluate((element) => {
+    element.style.minHeight = "2000px";
+  });
+  await page.evaluate(() => window.scrollTo(0, 800));
+  const scrolledHamburgerBox = await page.getByRole(
+    "button", { name: "menu", exact: true },
+  ).boundingBox();
+  expect(scrolledHamburgerBox).not.toBeNull();
+  expect(scrolledHamburgerBox!.y).toBe(hamburgerBox!.y);
+});
+
 test("offline: edit, create page, link, navigate; reconnect drains to server", async ({ page, context }) => {
   test.setTimeout(60_000);
 

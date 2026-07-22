@@ -444,7 +444,7 @@ function createReplicaQueue(replica: Replica,
           if (error instanceof ReplicaError && error.quota) {
             quota.emit(error);
             try {
-              await postOps(ops);
+              await postOps(ops, newUid());
               resolveDelivery({ status: "delivered" });
             } catch (deliveryError: unknown) {
               resolveDelivery({ status: "failed", error: deliveryError });
@@ -494,6 +494,13 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
   let drainAgain = false;
   let kickScheduled = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  // A retried batch must resend a byte-identical payload under the same id
+  // (the server binds batch_id to a sha256 of the ops), so this survives
+  // across the separate runDrain() calls a 5xx retry makes: it is only
+  // cleared on success or a terminal 4xx, never merely because runDrain
+  // returned. Ops enqueued during a retry's backoff must not silently join
+  // an already-attempted batch.
+  let frozen: { id: string; ops: BlockOp[] } | null = null;
   const deliveries: Array<{
     remaining: number;
     resolve(outcome: DeliveryOutcome): void;
@@ -575,9 +582,10 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
     const initialBlock = terminalReason(qstate);
     if (initialBlock !== null) return terminal(initialBlock);
     while (pending.length > 0) {
-      const batch = pending.slice(0, MAX_BATCH);
+      frozen ??= { id: newUid(), ops: pending.slice(0, MAX_BATCH) };
+      const batch = frozen.ops;
       try {
-        await postOps(batch);
+        await postOps(batch, frozen.id);
       } catch (error: unknown) {
         if (!(error instanceof ApiError) || error.status >= 500) {
           return failed(error);
@@ -588,6 +596,7 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
         dispatch({ type: "pause" });
         const discarded = rejectBatchDeliveries(batch.length, error);
         pending.splice(0, discarded);
+        frozen = null;
         try { onDesync(error); } catch { /* listener isolation */ }
         // dispatch({ type: "pause" }) above unconditionally sets recovering
         // true (see queueState.ts), so this is never false: the loop always
@@ -596,6 +605,7 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
       }
       pending.splice(0, batch.length);
       deliverOps(batch.length);
+      frozen = null;
       dispatch({ type: "batch-succeeded" });
       const loopBlock = terminalReason(qstate);
       if (loopBlock !== null) return terminal(loopBlock);

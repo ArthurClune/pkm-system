@@ -44,6 +44,15 @@ describe("decideEditorKey autocomplete precedence", () => {
       .toEqual({ type: "ac-close" });
   });
 
+  it("leaves Option/Alt+ArrowUp and ArrowDown to the platform even with rows open", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", altKey: true, acRowsLength: 3, acSelected: 1,
+    }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({
+      key: "ArrowDown", altKey: true, acRowsLength: 3, acSelected: 1,
+    }))).toEqual({ type: "none" });
+  });
+
   it("falls through to normal handling for keys the popup ignores", () => {
     // Enter is a split once the popup is closed, not an ac-pick.
     expect(decideEditorKey(input({ key: "Enter", acRowsLength: 0 })))
@@ -135,11 +144,14 @@ describe("decideEditorKey subtree move (pkm-hx2w)", () => {
     }))).toEqual({ type: "start-block-selection", dir: "up" });
   });
 
-  it("leaves Alt+Arrow (no Shift) as the single-block move, unaffected", () => {
-    expect(decideEditorKey(input({ key: "ArrowUp", altKey: true })))
-      .toEqual({ type: "move-up" });
-    expect(decideEditorKey(input({ key: "ArrowDown", altKey: true })))
-      .toEqual({ type: "move-down" });
+  it("leaves every Option/Alt+Arrow variant to the platform", () => {
+    for (const key of ["ArrowUp", "ArrowDown"]) {
+      expect(decideEditorKey(input({ key, altKey: true })))
+        .toEqual({ type: "none" });
+      expect(decideEditorKey(input({
+        key, altKey: true, shiftKey: true, metaKey: true,
+      }))).toEqual({ type: "none" });
+    }
   });
 
   it("is suppressed while read-only", () => {
@@ -282,11 +294,14 @@ describe("decideEditorKey structural keys", () => {
       .toEqual({ type: "outdent" });
   });
 
-  it("moves the block on Alt+Arrow", () => {
-    expect(decideEditorKey(input({ key: "ArrowUp", altKey: true })))
-      .toEqual({ type: "move-up" });
-    expect(decideEditorKey(input({ key: "ArrowDown", altKey: true })))
-      .toEqual({ type: "move-down" });
+  it("leaves every Option/Alt+Arrow variant to the platform", () => {
+    for (const key of ["ArrowUp", "ArrowDown"]) {
+      expect(decideEditorKey(input({ key, altKey: true })))
+        .toEqual({ type: "none" });
+      expect(decideEditorKey(input({
+        key, altKey: true, shiftKey: true, metaKey: true,
+      }))).toEqual({ type: "none" });
+    }
   });
 
   it("backspaces into the previous block at the start", () => {

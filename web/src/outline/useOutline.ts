@@ -15,10 +15,10 @@ import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
-         moveBlockDown, moveBlocksTo, moveBlockUp, moveSelectionDown,
-         moveSelectionUp, moveSubtreeDown, moveSubtreeUp, outdentBlock,
-         outdentSelection, setCollapsed, setHeading, splitBlock, setViewType,
-         type EditResult, type FocusTarget } from "./edits";
+         moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
+         moveSubtreeUp, outdentBlock, outdentSelection, setCollapsed,
+         setHeading, splitBlock, setViewType, type EditResult,
+         type FocusTarget } from "./edits";
 import { invertOps } from "./history";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
@@ -260,8 +260,6 @@ export function useOutline(
       run((b) => splitBlock(b, pageTitle, uid, cursor, newUid())),
     onIndent: (uid) => run((b) => indentBlock(b, pageTitle, uid)),
     onOutdent: (uid) => run((b) => outdentBlock(b, pageTitle, uid)),
-    onMoveUp: (uid) => run((b) => moveBlockUp(b, pageTitle, uid)),
-    onMoveDown: (uid) => run((b) => moveBlockDown(b, pageTitle, uid)),
     onMoveSubtreeUp: (uid) => run((b) => moveSubtreeUp(b, pageTitle, uid)),
     onMoveSubtreeDown: (uid) => run((b) => moveSubtreeDown(b, pageTitle, uid)),
     onBackspaceAtStart: (uid) => run((b) => backspaceAtStart(b, pageTitle, uid)),
@@ -341,10 +339,9 @@ export function useOutline(
       if (!selection) return;
       run((b) => outdentSelection(b, pageTitle, selectedUids(b, selection)));
     },
-    // Alt+Arrow while a block selection is active (pkm-q89w): move every
-    // selected block as a group. Recomputed against the tree `run` actually
-    // operates on (post text-flush), not the possibly-stale blocksRef, though
-    // a selection has no pending draft to flush.
+    // Shift+Cmd+Arrow while a block selection is active: the pure planner
+    // preflights every selected root run and run() keeps the gesture in one
+    // optimistic, synced, undoable batch. Selection state remains active.
     onMoveSelectionUp: () => {
       if (!selection) return;
       run((b) => moveSelectionUp(b, pageTitle, selectedUids(b, selection)));

@@ -44,6 +44,39 @@ function idxAfter(siblings: BlockNode[], index: number): number {
   return next ? next.order_idx : siblings[index].order_idx + 1;
 }
 
+type MoveDirection = "up" | "down";
+
+interface CrossParentDestination {
+  parentUid: string;
+  orderIdx: number;
+  expandUid: string | null;
+}
+
+/** At a sibling-list edge, preserve absolute depth by moving into the
+ * previous/next sibling of the current parent. */
+function crossParentDestination(
+  blocks: BlockNode[],
+  parent: BlockNode | null,
+  direction: MoveDirection,
+): CrossParentDestination | null {
+  if (!parent) return null;
+  const parentLoc = locate(blocks, parent.uid);
+  if (!parentLoc) return null;
+  const targetIndex = direction === "up"
+    ? parentLoc.index - 1
+    : parentLoc.index + 1;
+  const target = parentLoc.siblings[targetIndex];
+  if (!target) return null;
+  const orderIdx = direction === "up"
+    ? (target.children[target.children.length - 1]?.order_idx ?? -1) + 1
+    : target.children[0]?.order_idx ?? 0;
+  return {
+    parentUid: target.uid,
+    orderIdx,
+    expandUid: target.collapsed ? target.uid : null,
+  };
+}
+
 export function splitBlock(blocks: BlockNode[], pageTitle: string, uid: string,
                            cursor: number, newUid: string): EditResult {
   const found = locate(blocks, uid);
@@ -218,17 +251,18 @@ export function moveSubtreeUp(blocks: BlockNode[], pageTitle: string,
   const found = locate(blocks, uid);
   if (!found) return noop(blocks);
   if (found.index > 0) return moveBlockUp(blocks, pageTitle, uid);
-  if (!found.parent) return noop(blocks);
-  const parentLoc = locate(blocks, found.parent.uid);
-  if (!parentLoc || parentLoc.index === 0) return noop(blocks);
-  const p = parentLoc.siblings[parentLoc.index - 1];
-  const last = p.children[p.children.length - 1];
+  const destination = crossParentDestination(blocks, found.parent, "up");
+  if (!destination) return noop(blocks);
   const ops: BlockOp[] = [];
-  if (p.collapsed) {
-    ops.push({ op: "set_collapsed", uid: p.uid, collapsed: false });
+  if (destination.expandUid) {
+    ops.push({
+      op: "set_collapsed", uid: destination.expandUid, collapsed: false,
+    });
   }
-  ops.push({ op: "move", uid, parent_uid: p.uid,
-             order_idx: last ? last.order_idx + 1 : 0 });
+  ops.push({
+    op: "move", uid, parent_uid: destination.parentUid,
+    order_idx: destination.orderIdx,
+  });
   return done(blocks, pageTitle, ops, null);
 }
 
@@ -240,67 +274,109 @@ export function moveSubtreeDown(blocks: BlockNode[], pageTitle: string,
                                 uid: string): EditResult {
   const found = locate(blocks, uid);
   if (!found) return noop(blocks);
-  if (found.index < found.siblings.length - 1) return moveBlockDown(blocks, pageTitle, uid);
-  if (!found.parent) return noop(blocks);
-  const parentLoc = locate(blocks, found.parent.uid);
-  if (!parentLoc || parentLoc.index === parentLoc.siblings.length - 1) return noop(blocks);
-  const n = parentLoc.siblings[parentLoc.index + 1];
-  const ops: BlockOp[] = [];
-  if (n.collapsed) {
-    ops.push({ op: "set_collapsed", uid: n.uid, collapsed: false });
+  if (found.index < found.siblings.length - 1) {
+    return moveBlockDown(blocks, pageTitle, uid);
   }
-  ops.push({ op: "move", uid, parent_uid: n.uid,
-             order_idx: n.children[0]?.order_idx ?? 0 });
+  const destination = crossParentDestination(blocks, found.parent, "down");
+  if (!destination) return noop(blocks);
+  const ops: BlockOp[] = [];
+  if (destination.expandUid) {
+    ops.push({
+      op: "set_collapsed", uid: destination.expandUid, collapsed: false,
+    });
+  }
+  ops.push({
+    op: "move", uid, parent_uid: destination.parentUid,
+    order_idx: destination.orderIdx,
+  });
   return done(blocks, pageTitle, ops, null);
 }
 
-/** Locate uids as a single contiguous run of siblings — same parent,
- * consecutive positions, in the given order. Null when they aren't (a
- * multi-block selection can span parent/child levels; only a plain sibling
- * run has an unambiguous "move as a group" meaning, matching the single-block
- * moveBlockUp/moveBlockDown's own same-parent restriction). */
-function locateSiblingRun(blocks: BlockNode[], uids: string[]):
-    { parent: BlockNode | null; siblings: BlockNode[]; first: number; last: number }
-    | null {
-  if (uids.length === 0) return null;
-  const head = locate(blocks, uids[0]);
-  if (!head) return null;
-  const { parent, siblings, index: first } = head;
-  for (let k = 1; k < uids.length; k++) {
-    const found = locate(blocks, uids[k]);
-    if (!found || found.siblings !== siblings || found.index !== first + k) {
-      return null;
-    }
-  }
-  return { parent, siblings, first, last: first + uids.length - 1 };
+interface SelectionRunMovePlan {
+  expandUid: string | null;
+  ops: BlockOp[];
 }
 
-/** Move a contiguous run of selected sibling blocks up as a group: the
- * sibling directly above hops to the far side of the run instead, so none of
- * the selected blocks move relative to each other (or need their own move
- * op). No-op when the uids aren't a plain sibling run, or already at the top. */
+function planSelectionRunMove(
+  blocks: BlockNode[],
+  run: SelectionSiblingRun,
+  direction: MoveDirection,
+): SelectionRunMovePlan | null {
+  const last = run.first + run.uids.length - 1;
+  if (direction === "up" && run.first > 0) {
+    const previous = run.siblings[run.first - 1];
+    return {
+      expandUid: null,
+      ops: [{
+        op: "move", uid: previous.uid,
+        parent_uid: run.parent?.uid ?? null,
+        order_idx: idxAfter(run.siblings, last),
+      }],
+    };
+  }
+  if (direction === "down" && last < run.siblings.length - 1) {
+    const next = run.siblings[last + 1];
+    return {
+      expandUid: null,
+      ops: [{
+        op: "move", uid: next.uid,
+        parent_uid: run.parent?.uid ?? null,
+        order_idx: run.siblings[run.first].order_idx,
+      }],
+    };
+  }
+  const destination = crossParentDestination(
+    blocks, run.parent, direction,
+  );
+  if (!destination) return null;
+  return {
+    expandUid: destination.expandUid,
+    ops: groupMoveOps(
+      run.uids, destination.parentUid, destination.orderIdx,
+    ),
+  };
+}
+
+function moveSelection(
+  blocks: BlockNode[],
+  pageTitle: string,
+  uids: string[],
+  direction: MoveDirection,
+): EditResult {
+  const runs = selectionSiblingRuns(blocks, uids);
+  if (!runs || runs.length === 0) return noop(blocks);
+  const plans: SelectionRunMovePlan[] = [];
+  for (const run of runs) {
+    const plan = planSelectionRunMove(blocks, run, direction);
+    if (!plan) return noop(blocks);
+    plans.push(plan);
+  }
+
+  const selectedRoots = new Set(runs.flatMap((run) => run.uids));
+  const expanded = new Set<string>();
+  const ops: BlockOp[] = [];
+  for (const plan of plans) {
+    if (plan.expandUid
+        && !selectedRoots.has(plan.expandUid)
+        && !expanded.has(plan.expandUid)) {
+      ops.push({
+        op: "set_collapsed", uid: plan.expandUid, collapsed: false,
+      });
+      expanded.add(plan.expandUid);
+    }
+    ops.push(...plan.ops);
+  }
+  return done(blocks, pageTitle, ops, null);
+}
+
 export function moveSelectionUp(blocks: BlockNode[], pageTitle: string,
                                 uids: string[]): EditResult {
-  const run = locateSiblingRun(blocks, uids);
-  if (!run || run.first === 0) return noop(blocks);
-  const prev = run.siblings[run.first - 1];
-  const ops: BlockOp[] = [{ op: "move", uid: prev.uid,
-                            parent_uid: run.parent?.uid ?? null,
-                            order_idx: idxAfter(run.siblings, run.last) }];
-  return done(blocks, pageTitle, ops, null);
+  return moveSelection(blocks, pageTitle, uids, "up");
 }
 
-/** Mirror of moveSelectionUp: the sibling directly below hops in front of
- * the run. */
 export function moveSelectionDown(blocks: BlockNode[], pageTitle: string,
                                   uids: string[]): EditResult {
-  const run = locateSiblingRun(blocks, uids);
-  if (!run || run.last === run.siblings.length - 1) return noop(blocks);
-  const next = run.siblings[run.last + 1];
-  const ops: BlockOp[] = [{ op: "move", uid: next.uid,
-                            parent_uid: run.parent?.uid ?? null,
-                            order_idx: run.siblings[run.first].order_idx }];
-  return done(blocks, pageTitle, ops, null);
+  return moveSelection(blocks, pageTitle, uids, "down");
 }
 
 /** The op batch that moves `uids` (pre-reduced to selection roots, document

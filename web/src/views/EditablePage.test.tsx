@@ -190,19 +190,20 @@ test("Shift+Tab outdents a child through the real editor wiring", () => {
   ]);
 });
 
-test.each([
-  ["ArrowUp", { op: "move", uid: "u2", parent_uid: null, order_idx: 0 }],
-  ["ArrowDown", { op: "move", uid: "u2", parent_uid: null, order_idx: 3 }],
-])("Alt+%s moves the focused block in that direction", (key, expected) => {
-  const sync = mount(makeSync(), [
-    block("u1", "first", { order_idx: 0 }),
-    block("u2", "second", { order_idx: 1 }),
-    block("u3", "third", { order_idx: 2 }),
-  ]);
-  const ta = focusBlock("second");
-  fireEvent.keyDown(ta, { key, altKey: true });
-  expect(sync.sent).toEqual([[expected]]);
-});
+test.each(["ArrowUp", "ArrowDown"])(
+  "Alt+%s does not enqueue a focused block move",
+  (key) => {
+    const sync = mount(makeSync(), [
+      block("u1", "first", { order_idx: 0 }),
+      block("u2", "second", { order_idx: 1 }),
+      block("u3", "third", { order_idx: 2 }),
+    ]);
+    const ta = focusBlock("second");
+
+    expect(fireEvent.keyDown(ta, { key, altKey: true })).toBe(true);
+    expect(sync.sent).toEqual([]);
+  },
+);
 
 test("Backspace at the start merges with the previous block", () => {
   const sync = mount();

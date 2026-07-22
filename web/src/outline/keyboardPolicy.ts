@@ -41,8 +41,6 @@ export type KeyDecision =
   | { type: "split"; cursor: number }
   | { type: "indent" }
   | { type: "outdent" }
-  | { type: "move-up" }
-  | { type: "move-down" }
   | { type: "move-subtree-up" }
   | { type: "move-subtree-down" }
   | { type: "backspace-at-start" }
@@ -70,7 +68,13 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   const pos = i.selStart;
   const caretOnly = i.selStart === i.selEnd;
 
-  // Autocomplete popup owns the arrows / Enter / Tab / Escape while open.
+  // Option/Alt+Arrow belongs to native text navigation. Catch every modifier
+  // variant before autocomplete, Shift selection, or boundary-arrow handling
+  // can claim it.
+  if (i.altKey && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
+    return NONE;
+  }
+  // Autocomplete popup owns the unmodified arrows / Enter / Tab / Escape while open.
   if (i.acRowsLength > 0) {
     if (i.key === "ArrowDown") {
       return { type: "ac-move", selected: Math.min(i.acSelected + 1, i.acRowsLength - 1) };
@@ -87,11 +91,10 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
     const title = refTitleAtCaret(i.draft, pos);
     if (title) return { type: "navigate-ref", title };
   }
-  // Shift+Cmd+Arrow moves the block's whole subtree (pkm-hx2w) — a macOS
-  // text-selection chord repurposed here, so it must be caught before the
-  // plain-Shift block-selection-start check below (same shiftKey+Arrow
-  // shape) even though it's a mutation and so is read-only-gated like
-  // Alt-Arrow's single-block move, not read-only-safe like that check.
+  // Shift+Cmd+Arrow is the sole application movement chord: move the
+  // block's whole subtree (pkm-hx2w). It must be caught before the plain-
+  // Shift block-selection-start check below (same shiftKey+Arrow shape), and
+  // like any mutation it is read-only-gated.
   if (i.shiftKey && i.metaKey && !i.ctrlKey && !i.altKey
       && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
     if (i.readOnly) return NONE;
@@ -143,9 +146,6 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   }
   if (i.key === "Enter" && !i.shiftKey) return { type: "split", cursor: pos };
   if (i.key === "Tab") return i.shiftKey ? { type: "outdent" } : { type: "indent" };
-  if (i.altKey && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
-    return i.key === "ArrowUp" ? { type: "move-up" } : { type: "move-down" };
-  }
   if (i.key === "Backspace" && pos === 0 && caretOnly) {
     return { type: "backspace-at-start" };
   }

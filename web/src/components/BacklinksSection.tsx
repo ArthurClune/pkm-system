@@ -28,6 +28,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   // the latest known value, not whatever was frozen at mount.
   const [totalPages, setTotalPages] = useState(initial.total_pages);
   const refreshEpoch = useRef(0);
+  const refreshInFlight = useRef(false);
   const seenRefreshGeneration = useRef(refreshGeneration);
   const hasMore = groups.length < totalPages;
   const fullyLoaded = !hasMore;
@@ -38,6 +39,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     ), [title]);
 
   const loadMore = async () => {
+    if (refreshInFlight.current) return;
     const epoch = refreshEpoch.current;
     setLoading(true);
     setError(null);
@@ -60,6 +62,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   // The filter panel needs every backlink loaded: chips and counts must
   // not lie about pages that simply weren't fetched yet.
   const loadAll = async () => {
+    if (refreshInFlight.current) return;
     const epoch = refreshEpoch.current;
     setLoading(true);
     setError(null);
@@ -90,6 +93,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
 
   const refresh = useCallback(async () => {
     const epoch = ++refreshEpoch.current;
+    refreshInFlight.current = true;
     setRefreshing(true);
     setRefreshError(null);
     try {
@@ -115,7 +119,10 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     } catch (refreshFailure: unknown) {
       if (epoch === refreshEpoch.current) setRefreshError(String(refreshFailure));
     } finally {
-      if (epoch === refreshEpoch.current) setRefreshing(false);
+      if (epoch === refreshEpoch.current) {
+        refreshInFlight.current = false;
+        setRefreshing(false);
+      }
     }
   }, [fetchBatch, initial.limit, panelOpen]);
 
@@ -126,6 +133,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   }, [refreshGeneration, refresh]);
 
   const openPanel = () => {
+    if (refreshInFlight.current) return;
     setPanelOpen(true);
     if (hasMore) void loadAll();
   };
@@ -153,7 +161,8 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
             ? `${visible.length} of ${totalPages}` : totalPages})
           {totalPages > 0 && (
             <button className="filter-toggle btn-secondary" aria-expanded={panelOpen}
-                    onClick={() => (panelOpen ? setPanelOpen(false) : openPanel())}>
+                    onClick={() => (panelOpen ? setPanelOpen(false) : openPanel())}
+                    disabled={refreshing && !panelOpen}>
               Filter{filtering
                 ? ` (${filter.include.length + filter.exclude.length})` : ""}
             </button>
@@ -215,13 +224,13 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
         {error && <p className="error">{error}</p>}
         {error && panelOpen && !fullyLoaded && (
           <button className="show-more btn-secondary" onClick={() => void loadAll()}
-                  disabled={loading}>
+                  disabled={loading || refreshing}>
             {loading ? "Loading…" : "Retry"}
           </button>
         )}
         {hasMore && !panelOpen && (
           <button className="show-more btn-secondary" onClick={() => void loadMore()}
-                  disabled={loading}>
+                  disabled={loading || refreshing}>
             {loading ? "Loading…" : "Show more"}
           </button>
         )}

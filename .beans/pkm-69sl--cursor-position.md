@@ -5,7 +5,7 @@ status: in-progress
 type: feature
 priority: normal
 created_at: 2026-07-22T15:00:11Z
-updated_at: 2026-07-22T15:39:00Z
+updated_at: 2026-07-22T15:40:45Z
 ---
 
 When clicking into a block, the cursor should be placed at the end of line (ready for user input) not the start
@@ -15,8 +15,8 @@ When clicking into a block, the cursor should be placed at the end of line (read
 - [x] Explore project context and recent changes
 - [x] Clarify cursor placement semantics
 - [x] Compare implementation approaches and approve design
-- [ ] Write and review design spec
-- [ ] Write implementation plan
+- [x] Write and review design spec
+- [x] Write implementation plan
 - [ ] Add a failing regression test
 - [ ] Implement the minimal fix
 - [ ] Run required verification
@@ -29,3 +29,7 @@ For every non-empty block, first pointer focus and cross-block ArrowUp/ArrowDown
 ## Design
 
 Approved design recorded in `docs/superpowers/specs/2026-07-22-pkm-69sl-cursor-position-design.md`.
+
+## Implementation Plan
+
+Plan recorded in `docs/superpowers/plans/2026-07-22-pkm-69sl-cursor-position.md`.

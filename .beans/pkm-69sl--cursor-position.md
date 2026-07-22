@@ -1,11 +1,11 @@
 ---
 # pkm-69sl
 title: cursor position
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-22T15:00:11Z
-updated_at: 2026-07-22T15:44:50Z
+updated_at: 2026-07-22T15:46:55Z
 ---
 
 When clicking into a block, the cursor should be placed at the end of line (ready for user input) not the start
@@ -20,7 +20,7 @@ When clicking into a block, the cursor should be placed at the end of line (read
 - [x] Add a failing regression test
 - [x] Implement the minimal fix
 - [x] Run required verification
-- [ ] Commit, push, and complete bean
+- [x] Commit, push, and complete bean
 
 ## Clarified acceptance criteria
 

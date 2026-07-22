@@ -55,6 +55,9 @@ export interface OutlineHandlers {
   /** Begin a multi-block selection from `uid` towards `dir` (Shift+Arrow at a
    * block edge); the current block is included. */
   onStartBlockSelection(uid: string, dir: "up" | "down"): void;
+  /** Ctrl+Cmd+Arrow Up/Down (pkm-am54): select exactly `uid` as a one-block
+   * selection; further presses extend it via onExtendBlockSelection. */
+  onSelectBlock(uid: string): void;
   onExtendBlockSelection(dir: "up" | "down"): void;
   onClearBlockSelection(): void;
   /** Tab/Shift-Tab while a block selection is active: atomically change every
@@ -145,6 +148,11 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
       }
     } else if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
                && verticalArrow) {
+      e.preventDefault();
+      handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
+    } else if (e.ctrlKey && e.metaKey && !e.shiftKey && !e.altKey
+               && verticalArrow) {
+      // Ctrl+Cmd+Up/Down keeps extending the selection it started (pkm-am54).
       e.preventDefault();
       handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
@@ -566,6 +574,20 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
       case "start-block-selection":
         e.preventDefault();
         handlers.onStartBlockSelection(node.uid, decision.dir);
+        return;
+      case "select-to-block-edge":
+        // Ctrl+Cmd+Left/Right (pkm-am54): the native binding stops at the
+        // display line of a wrapped block; we select to the block boundary.
+        e.preventDefault();
+        if (decision.edge === "start") {
+          el.setSelectionRange(0, el.selectionEnd, "backward");
+        } else {
+          el.setSelectionRange(el.selectionStart, el.value.length, "forward");
+        }
+        return;
+      case "select-whole-block":
+        e.preventDefault();
+        handlers.onSelectBlock(node.uid);
         return;
       case "set-heading":
         e.preventDefault();

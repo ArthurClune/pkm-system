@@ -158,6 +158,21 @@ it("keeps the whole selection unchanged when one indent run is ineligible", () =
   expect(getOutline().selection).toEqual({ anchor: "a", head: "b" });
 });
 
+it("onSelectBlock selects exactly that block and ends editing (pkm-am54)", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", abc());
+  act(() => getOutline().handlers.onFocusBlock("b", 2));
+
+  act(() => getOutline().handlers.onSelectBlock("b"));
+
+  expect(getOutline().selection).toEqual({ anchor: "b", head: "b" });
+  expect(getOutline().focus).toBeNull();
+
+  // further Ctrl+Cmd presses extend one block at a time from that anchor
+  act(() => getOutline().handlers.onExtendBlockSelection("down"));
+  expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
+});
+
 it("deleting 5 or fewer selected blocks proceeds without confirmation", () => {
   const confirmSpy = vi.fn(() => false); // if this got called, the test should fail below
   vi.stubGlobal("confirm", confirmSpy);

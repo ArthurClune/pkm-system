@@ -341,6 +341,14 @@ export function useOutline(
       setFocus(null);
       setSelection({ anchor: uid, head });
     },
+    // Ctrl+Cmd+Up/Down in a block (pkm-am54): a one-block selection anchored
+    // on that block — the "select the whole block" step that further presses
+    // then extend. Same flush/blur contract as onStartBlockSelection.
+    onSelectBlock: (uid) => {
+      flushNow();
+      setFocus(null);
+      setSelection({ anchor: uid, head: uid });
+    },
     onExtendBlockSelection: (dir) =>
       setSelection((s) => (s ? extendSelection(blocksRef.current, s, dir) : s)),
     onClearBlockSelection: () => setSelection(null),

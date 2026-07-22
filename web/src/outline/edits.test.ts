@@ -328,6 +328,22 @@ const selectedMoveTree = () => [
   }),
 ];
 
+const selectedDestinationTree = () => [
+  block("a", "A", { order_idx: 0 }),
+  block("b", "B", {
+    order_idx: 1,
+    collapsed: true,
+    children: [block("b0", "B child", { order_idx: 0 })],
+  }),
+  block("c", "C", {
+    order_idx: 2,
+    children: [
+      block("c0", "C first", { order_idx: 0 }),
+      block("c1", "C second", { order_idx: 1 }),
+    ],
+  }),
+];
+
 describe("moveSubtreeUp / moveSubtreeDown (pkm-hx2w)", () => {
   test("up: a previous sibling means a plain sibling swap", () => {
     const r = moveSubtreeUp(deepTree(), P, "b2");
@@ -505,6 +521,19 @@ describe("moveSelectionUp / moveSelectionDown (pkm-8jt5)", () => {
     expect(findNode(r.blocks, "first")!.collapsed).toBe(true);
     expect(findNode(r.blocks, "first")!.children.map((n) => n.uid))
       .toEqual(["first0"]);
+  });
+
+  test("up: a collapsed selected destination root stays collapsed", () => {
+    const r = moveSelectionUp(selectedDestinationTree(), P, ["b", "c0", "c1"]);
+
+    expect(r.ops).toEqual([
+      { op: "move", uid: "a", parent_uid: null, order_idx: 2 },
+      { op: "move", uid: "c0", parent_uid: "b", order_idx: 1 },
+      { op: "move", uid: "c1", parent_uid: "b", order_idx: 2 },
+    ]);
+    expect(findNode(r.blocks, "b")!.collapsed).toBe(true);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b0", "c0", "c1"]);
   });
 
   test("moves eligible mixed-depth runs from original positions", () => {

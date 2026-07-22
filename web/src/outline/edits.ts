@@ -352,10 +352,13 @@ function moveSelection(
     plans.push(plan);
   }
 
+  const selectedRoots = new Set(runs.flatMap((run) => run.uids));
   const expanded = new Set<string>();
   const ops: BlockOp[] = [];
   for (const plan of plans) {
-    if (plan.expandUid && !expanded.has(plan.expandUid)) {
+    if (plan.expandUid
+        && !selectedRoots.has(plan.expandUid)
+        && !expanded.has(plan.expandUid)) {
       ops.push({
         op: "set_collapsed", uid: plan.expandUid, collapsed: false,
       });

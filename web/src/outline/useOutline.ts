@@ -4,13 +4,14 @@
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState } from "react";
-import { apiFetch } from "../api/client";
+import { ApiError, apiFetch } from "../api/client";
 import type { PagePayload, BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { OutlineHandlers } from "../components/EditableBlockTree";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
 import { encodeTitle } from "../paths";
+import { dateForTitle } from "../replica/daily";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
@@ -88,10 +89,22 @@ export function useOutline(
     };
     const unsubscribe = handle.subscribe(adoptShared);
     const removeLoader = handle.setAuthoritativeLoader(async () => {
-      const page = await apiFetch<PagePayload>(
-        `/api/page/${encodeTitle(pageTitle)}`,
-      );
-      return page.blocks;
+      try {
+        const page = await apiFetch<PagePayload>(
+          `/api/page/${encodeTitle(pageTitle)}`,
+        );
+        return page.blocks;
+      } catch (e: unknown) {
+        // A missing (non-today) daily 404s (pkm-fy52: today-only
+        // auto-create) — a deleted-underneath-us day, not a failed load.
+        // Every EditablePage registers its own loader here, and the last
+        // one registered wins for default-loader reads (repair epochs,
+        // remote-ops catch-up) — so this guard, not just the view-level
+        // one, is what those paths actually hit once mounted.
+        if (e instanceof ApiError && e.status === 404 &&
+            dateForTitle(pageTitle) !== null) return [];
+        throw e;
+      }
     });
     const lease = editorOwner ? handle.claimEditor(editorOwner) : null;
     const updateLease = () => setOwnsEditor(lease?.granted ?? false);

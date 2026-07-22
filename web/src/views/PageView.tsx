@@ -1,13 +1,14 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { apiFetch } from "../api/client";
+import { ApiError, apiFetch } from "../api/client";
 import type { PagePayload } from "../api/payloads";
 import { BacklinksSection } from "../components/BacklinksSection";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { PageTitle } from "../components/PageTitle";
 import { UnlinkedSection } from "../components/UnlinkedSection";
 import { encodeTitle, titleFromPathname } from "../paths";
+import { dateForTitle } from "../replica/daily";
 import { useResync } from "../sync/SyncProvider";
 import { acquireOutlineSession,
          type AuthoritativeReadSource,
@@ -15,6 +16,20 @@ import { acquireOutlineSession,
          type ParentReadiness,
          type ReadToken } from "../outline/outlineSessions";
 import { EditablePage } from "./EditablePage";
+
+// A non-today daily page 404s if nobody has written to it yet or it was
+// pruned empty (server: GET /api/page auto-creates only today's daily,
+// pkm-fy52). Render it as an empty editable page instead of an error — the
+// first edit lazily creates the row via CreateOp's get_or_create.
+const emptyDailyPayload = (title: string): PagePayload => ({
+  page: { id: -1, title, created_at: 0, updated_at: 0 },
+  blocks: [],
+  backlinks: { groups: [], total_pages: 0, offset: 0, limit: 20 },
+  block_ref_texts: {},
+});
+
+const missingDaily = (e: unknown, title: string): boolean =>
+  e instanceof ApiError && e.status === 404 && dateForTitle(title) !== null;
 
 export function PageView() {
   const { pathname, hash } = useLocation();
@@ -76,6 +91,17 @@ export function PageView() {
         }
       })
       .catch((e: unknown) => {
+        if (missingDaily(e, title)) {
+          const p = emptyDailyPayload(title);
+          const accepted = handle.receiveParentAuthoritative(token, p);
+          if (readRef.current === read && (accepted || source !== "parent")) {
+            readRef.current = null;
+          }
+          if (seq === seqRef.current && accepted && source !== "parent") {
+            setPayload({ ...p, blocks: handle.getSnapshot().blocks });
+          }
+          return;
+        }
         const owned = handle.failAuthoritativeRead(token, e);
         if (readRef.current === read && source !== "parent") {
           readRef.current = null;
@@ -90,10 +116,15 @@ export function PageView() {
     const handle = acquireOutlineSession(title, null);
     sessionRef.current = handle;
     const removeLoader = handle.setAuthoritativeLoader(async () => {
-      const page = await apiFetch<PagePayload>(
-        `/api/page/${encodeTitle(title)}`,
-      );
-      return page.blocks;
+      try {
+        const page = await apiFetch<PagePayload>(
+          `/api/page/${encodeTitle(title)}`,
+        );
+        return page.blocks;
+      } catch (e: unknown) {
+        if (missingDaily(e, title)) return [];
+        throw e;
+      }
     });
     const removeParentController = handle.setParentReadController(
       () => load("parent", handle),

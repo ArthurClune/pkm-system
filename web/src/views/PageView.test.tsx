@@ -78,6 +78,21 @@ it("shows an error state on 404", async () => {
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
+it("renders an empty editable page for a missing daily title (pkm-fy52)", async () => {
+  stubFetch([]);
+  renderAt("/page/July%201st%2C%202026");
+  expect(await screen.findByRole("heading", { name: "July 1st, 2026" }))
+    .toBeInTheDocument();
+  expect(screen.queryByText(/could not load/i)).not.toBeInTheDocument();
+  expect(document.querySelector(".page")).not.toBeNull();
+});
+
+it("still shows the error for a missing normal page (pkm-fy52)", async () => {
+  stubFetch([]);
+  renderAt("/page/No%20Such%20Page");
+  expect(await screen.findByText(/could not load/i)).toBeInTheDocument();
+});
+
 it("releases a failed parent read when the page unmounts", async () => {
   stubFetch([]);
   const view = renderAt("/page/Failed%20read");

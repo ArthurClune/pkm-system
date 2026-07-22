@@ -195,3 +195,12 @@ describe("uploaded image expansion (pkm-aze9)", () => {
     expect(image).toContain("object-fit: contain;");
   });
 });
+
+describe("unlinked reference Link action (pkm-965i)", () => {
+  test("keeps text flexible and the compact action visible", () => {
+    expect(ruleFor(".unlinked-link-row")).toContain("display: flex;");
+    expect(ruleFor(".unlinked-link-row .backlink-text")).toContain("min-width: 0;");
+    expect(ruleFor(".reference-link-button")).toContain("flex-shrink: 0;");
+    expect(ruleFor(".reference-link-button")).toContain("font-size: 12px;");
+  });
+});

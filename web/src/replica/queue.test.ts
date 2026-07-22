@@ -33,6 +33,21 @@ describe("enqueueBatch", () => {
       .toEqual([{ text: "edited once" }]);
   });
 
+  test("preserves an explicit base_text_hash", () => {
+    enqueueBatch(t.db, [{
+      op: "update_text",
+      uid: "uid_q1",
+      text: "linked snapshot",
+      base_text_hash: "snapshot-hash",
+    }], 99, "batch-explicit");
+
+    const ops = JSON.parse(t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    expect(ops[0].base_text_hash).toBe("snapshot-hash");
+    expect(t.db.select("SELECT text FROM blocks WHERE uid='uid_q1'"))
+      .toEqual([{ text: "linked snapshot" }]);
+  });
+
   test("persists even when optimistic apply cannot (un-hydrated blocks)", () => {
     // during the bootstrap window the user edits server-rendered blocks the
     // replica hasn't hydrated yet: the local apply is best-effort, but the

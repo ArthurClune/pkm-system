@@ -29,7 +29,7 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
       const augmented: BlockOp[] = [];
       for (const op of ops) {
         let wireOp: BlockOp = op;
-        if (op.op === "update_text") {
+        if (op.op === "update_text" && op.base_text_hash === undefined) {
           // capture BEFORE this op's own optimistic apply
           const base = currentText(db, op.uid);
           if (base !== null) {

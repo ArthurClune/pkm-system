@@ -1,11 +1,11 @@
 ---
 # pkm-965i
 title: link button
-status: todo
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-22T09:05:17Z
-updated_at: 2026-07-22T14:59:17Z
+updated_at: 2026-07-22T18:07:58Z
 ---
 
 At the base of pages are the 'linked references' and 'unlinked references' section. Unlinked references should have a 'link' button next to them. This should turn plain text into a block reference or add a tag if it's a URL
@@ -21,3 +21,24 @@ Acme created the jumbotron in 1930 -> [[Acme]] created the jumbotron in 1930
 Ref 2
 
 [A study](https://acme.com/study.md) shows great things -> [A study](https://acme.com/study.md) shows great things #[[Acme]]
+
+## Work checklist
+
+- [x] Explore project context
+- [x] Clarify requirements and success criteria
+- [x] Compare implementation approaches
+- [x] Present and validate design
+- [x] Write and commit design spec
+- [x] Self-review spec
+- [x] Obtain user review of written spec
+- [x] Write implementation plan
+- [x] Implement with tests
+- [x] Verify, review, commit, and push
+
+## Summary of Changes
+
+- Added a syntax-aware transformation core with a shared Markdown scanner.
+- Added explicit snapshot-hash stale-write protection.
+- Built the per-result Link UI and write lifecycle.
+- Added replacement backlink refresh with race, pagination, and filter safety.
+- Kept styling compact and covered the work with unit, component, and E2E tests, plus full verification.

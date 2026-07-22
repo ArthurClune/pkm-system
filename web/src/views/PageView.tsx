@@ -36,6 +36,7 @@ export function PageView() {
   const title = titleFromPathname(pathname);
   const [payload, setPayload] = useState<PagePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [linkedRefreshGeneration, setLinkedRefreshGeneration] = useState(0);
   const seqRef = useRef(0);
   const sessionRef = useRef<OutlineSessionHandle | null>(null);
   const readRef = useRef<{
@@ -144,6 +145,9 @@ export function PageView() {
       handle.release();
     };
   }, [load, title]);
+  const onLinked = useCallback(() => {
+    setLinkedRefreshGeneration((generation) => generation + 1);
+  }, []);
   const resync = useCallback(() => load("resync"), [load]);
   useResync(resync); // rejected batch or reconnect: guarded authoritative read
   useEffect(() => { document.title = `${title} — pkm`; }, [title]);
@@ -170,8 +174,17 @@ export function PageView() {
         <EditablePage key={payload.page.title} title={payload.page.title}
                       initial={payload.blocks} composer />
       </article>
-      <BacklinksSection key={`bl-${title}`} title={title} initial={payload.backlinks} />
-      <UnlinkedSection key={`ul-${title}`} title={title} />
+      <BacklinksSection
+        key={`bl-${title}`}
+        title={payload.page.title}
+        initial={payload.backlinks}
+        refreshGeneration={linkedRefreshGeneration}
+      />
+      <UnlinkedSection
+        key={`ul-${title}`}
+        title={payload.page.title}
+        onLinked={onLinked}
+      />
     </BlockRefProvider>
   );
 }

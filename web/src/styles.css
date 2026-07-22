@@ -450,6 +450,10 @@ mark.highlight { background: var(--color-highlight-bg); }
   border: 1px solid transparent; border-radius: var(--radius-card);
   background: var(--color-bg-subtle); }
 .backlink-item:hover, .query-item:hover { background: var(--color-selected-bg); }
+.unlinked-link-row { display: flex; align-items: flex-start; gap: 8px; }
+.unlinked-link-row .backlink-text { flex: 1; min-width: 0; }
+.reference-link-button { flex-shrink: 0; font-size: 12px; padding: 1px 8px; }
+.unlinked-item-error { margin: 4px 0 0; }
 
 /* linked-refs filter (pkm-m4an) */
 .section-header .filter-toggle { margin-left: 10px; font-size: 12px;

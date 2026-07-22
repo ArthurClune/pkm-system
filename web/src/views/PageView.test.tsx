@@ -69,6 +69,45 @@ it("keeps literal slashes in namespace titles", async () => {
   expect(fetchMock).toHaveBeenCalledWith("/api/page/AWS/SCP", undefined);
 });
 
+it("links with the canonical payload title and refreshes backlinks", async () => {
+  const sync = makeSync();
+  const refreshed = pagePayload("ACME", [], { backlinks: {
+    groups: [{ page_id: 9, page_title: "Source", items: [{
+      uid: "uid_unlinked", text: "[[ACME]] mention", breadcrumbs: [],
+    }] }],
+    total_pages: 1, offset: 0, limit: 20,
+  } });
+  const fetchMock = stubFetch([
+    ["/api/page/ACME?bl_offset=0&bl_limit=20", refreshed],
+    ["/api/unlinked?title=ACME", {
+      groups: [{ page_id: 9, page_title: "Source", items: [
+        { uid: "uid_unlinked", text: "Acme mention" },
+      ] }],
+      total: 1,
+    }],
+    ["/api/page/acme", pagePayload("ACME", [])],
+  ]);
+
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/acme"]}>
+        <Routes><Route path="/page/*" element={<PageView />} /></Routes>
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  expect(await screen.findByRole("heading", { name: "ACME" })).toBeInTheDocument();
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  fireEvent.click(await screen.findByRole("button", { name: "Link" }));
+  await vi.waitFor(() => expect(sync.sent).toHaveLength(1));
+  expect(sync.sent[0][0]).toMatchObject({
+    op: "update_text", uid: "uid_unlinked", text: "[[ACME]] mention",
+  });
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/page/ACME?bl_offset=0&bl_limit=20", undefined,
+  ));
+  expect(await screen.findByRole("link", { name: "Source" })).toBeInTheDocument();
+});
+
 it("shows an error state on 404", async () => {
   const fetchMock = stubFetch([]);
   renderAt("/page/Nope");

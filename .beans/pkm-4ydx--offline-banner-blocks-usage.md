@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-07-22T09:03:34Z
-updated_at: 2026-07-22T15:44:08Z
+updated_at: 2026-07-22T15:58:11Z
 ---
 
 The offline banner stays at the top of the page,overlaying on UI elements including search bar etc, impeding work offline. It should sit at the top of the page pushing other elements down rather than floating over
@@ -16,6 +16,7 @@ The offline banner stays at the top of the page,overlaying on UI elements includ
 - [x] Add a failing regression test
 - [x] Implement the minimal layout fix
 - [x] Run required verification
+- [x] Reverify responsive layout after viewport resize
 
 
 ## Investigation
@@ -25,3 +26,7 @@ The banner used `position: fixed`, removing it from document flow and placing it
 ## Summary of Changes
 
 Moved offline and sync banners into a normal-flow app banner stack so they push the desktop layout down. The stack height is measured and exposed through a CSS custom property so fixed mobile chrome remains below wrapped or multiple banners and stays available while scrolling. Added a Playwright regression covering desktop top-bar clearance, mobile hamburger clearance, and fixed behavior after scrolling. Verified with `cd web && pnpm verify` (1,360 unit tests and 20 Playwright tests).
+
+## Verification Follow-up
+
+Made the mobile geometry assertion wait for the ResizeObserver-driven banner offset after viewport changes. The focused regression passed 10/10 repeated runs, followed by a clean `cd web && pnpm verify` run (1,360 unit tests and 20 Playwright tests).

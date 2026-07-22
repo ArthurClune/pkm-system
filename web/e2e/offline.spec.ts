@@ -57,14 +57,16 @@ test("offline banner stays in document flow above responsive chrome", async ({ p
   expect(topBarBox!.y).toBeGreaterThanOrEqual(bannerBox!.y + bannerBox!.height);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  const mobileBannerBox = await banner.boundingBox();
-  const hamburgerBox = await page.getByRole("button", { name: "menu", exact: true }).boundingBox();
-  expect(mobileBannerBox).not.toBeNull();
+  const hamburger = page.getByRole("button", { name: "menu", exact: true });
+  await expect.poll(async () => {
+    const mobileBannerBox = await banner.boundingBox();
+    const hamburgerBox = await hamburger.boundingBox();
+    if (!mobileBannerBox || !hamburgerBox) return false;
+    return hamburgerBox.y >= mobileBannerBox.y + mobileBannerBox.height;
+  }).toBe(true);
+  const hamburgerBox = await hamburger.boundingBox();
   expect(hamburgerBox).not.toBeNull();
-  expect(hamburgerBox!.y).toBeGreaterThanOrEqual(
-    mobileBannerBox!.y + mobileBannerBox!.height,
-  );
-  expect(await page.getByRole("button", { name: "menu", exact: true }).evaluate(
+  expect(await hamburger.evaluate(
     (element) => getComputedStyle(element).position,
   )).toBe("fixed");
 

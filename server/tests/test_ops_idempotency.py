@@ -31,12 +31,12 @@ def test_same_batch_id_different_ops_is_rejected(client):
     assert r2.status_code == 409
 
 
-def test_batch_without_batch_id_behaves_as_today(client):
+def test_batch_without_batch_id_is_rejected(client):
+    """Id-less batches dedupe nowhere, so replays re-apply; the server now
+    rejects them outright (2026-07-22 incident, bean pkm-ri5b)."""
     body = {"client_id": "c1", "ops": [
         {"op": "set_collapsed", "uid": "uid_b1", "collapsed": True}]}
-    assert client.post("/api/ops", json=body).status_code == 200
-    # replaying WITHOUT batch_id re-applies (idempotent op, still 200):
-    assert client.post("/api/ops", json=body).status_code == 200
+    assert client.post("/api/ops", json=body).status_code == 422
 
 
 def test_rejected_batch_is_not_recorded(client):

@@ -123,6 +123,8 @@ class PkmClient:
 
     def post_ops(self, ops: list[dict],
                  batch_id: str | None = None) -> dict:
+        if batch_id is None:
+            batch_id = new_uid()
         try:
             batch = OpBatch(client_id=CLIENT_ID, batch_id=batch_id, ops=ops)
         except ValueError as e:

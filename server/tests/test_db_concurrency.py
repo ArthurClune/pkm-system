@@ -51,7 +51,8 @@ def test_concurrent_open_db_calls_survive_an_in_flight_ops_transaction(tmp_path)
     writer = sqlite3.connect(db_path)
     writer.row_factory = sqlite3.Row
     writer.execute("BEGIN IMMEDIATE")
-    apply_batch(writer, OpBatch(client_id="writer", ops=[
+    apply_batch(writer, OpBatch(client_id="writer", batch_id="concurrent_test1",
+                                ops=[
         CreateOp(op="create", uid="uid_writer1", page_title="P",
                  parent_uid=None, order_idx=0, text="hello"),
     ]), NOW)

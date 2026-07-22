@@ -15,8 +15,12 @@ def test_non_ascii_digit_timestamp_rejected():
 
 
 def test_create_heading_bounds(client):
+    counter = [0]
     def create(heading):
-        return client.post("/api/ops", json={"client_id": "c1", "ops": [
+        counter[0] += 1
+        return client.post("/api/ops", json={"client_id": "c1",
+                                             "batch_id": f"heading_bound_{counter[0]}",
+                                             "ops": [
             {"op": "create", "uid": "newuid7",
              "page_title": "Machine Learning", "parent_uid": None,
              "order_idx": 5, "text": "h", "heading": heading}]})

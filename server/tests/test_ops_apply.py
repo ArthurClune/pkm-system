@@ -14,8 +14,13 @@ def db(seeded_config):
     con.close()
 
 
+_batch_counter = 0
+
 def _batch(*ops) -> OpBatch:
-    return OpBatch(client_id="t", ops=list(ops))
+    global _batch_counter
+    _batch_counter += 1
+    return OpBatch(client_id="t", batch_id=f"test_batch_{_batch_counter:08d}",
+                   ops=list(ops))
 
 
 def test_create_inserts_shifts_and_derives_refs(db):

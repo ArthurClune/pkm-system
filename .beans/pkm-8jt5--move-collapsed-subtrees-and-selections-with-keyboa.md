@@ -1,11 +1,11 @@
 ---
 # pkm-8jt5
 title: Unify block movement on Shift+Cmd+Arrow
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-07-22T09:04:05Z
-updated_at: 2026-07-22T11:14:14Z
+updated_at: 2026-07-22T11:39:42Z
 ---
 
 Unify block movement on Shift+Cmd+Arrow for focused blocks and active multi-block selections. Selected movement must work within and across parent boundaries while atomically preserving depth, hierarchy, and order; remove Option/Alt+Arrow movement.
@@ -16,7 +16,7 @@ Unify block movement on Shift+Cmd+Arrow for focused blocks and active multi-bloc
 - [x] Add failing regression tests for unified shortcut routing and depth-preserving selected-range movement
 - [x] Implement the minimal shared fix while preserving single-block and drag behavior
 - [x] Run focused tests and full web verification
-- [ ] Review, summarize, complete, commit, push, and merge with --no-ff
+- [x] Review, summarize, complete, commit, push, and merge with --no-ff
 
 ## Investigation and approved design
 

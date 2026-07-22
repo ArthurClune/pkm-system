@@ -196,7 +196,10 @@ button { font: inherit; }
 .btn-secondary:disabled { opacity: 0.35; cursor: default; }
 
 /* layout */
-.app { display: flex; min-height: 100vh; }
+.app-shell { display: flex; flex-direction: column; min-height: 100vh;
+  --app-banner-height: 0px; }
+.app-banner-stack { flex-shrink: 0; }
+.app { display: flex; flex: 1; min-height: 0; }
 .left-nav { width: 200px; flex-shrink: 0; padding: 16px; background: var(--color-bg-subtle);
   border-right: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 8px;
   overflow-y: auto; }
@@ -508,7 +511,8 @@ mark.highlight { background: var(--color-highlight-bg); }
 .sidebar-panel-title { font-size: 17px; margin: 0 0 8px; }
 .panel-close { background: none; border: none; cursor: pointer;
   color: var(--color-text-muted); font-size: 16px; }
-.hamburger { display: none; position: fixed; top: 10px; left: 10px; z-index: 30;
+.hamburger { display: none; position: fixed;
+  top: calc(var(--app-banner-height) + 10px); left: 10px; z-index: 30;
   background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-control);
   padding: 4px 8px; cursor: pointer; color: var(--color-text); }
 
@@ -517,14 +521,16 @@ mark.highlight { background: var(--color-highlight-bg); }
 
 /* responsive: sidebar overlays under 900px */
 @media (max-width: 900px) {
-  .sidebar { position: fixed; right: 0; top: 0; height: 100vh; width: 340px;
+  .sidebar { position: fixed; right: 0; top: var(--app-banner-height);
+    height: calc(100vh - var(--app-banner-height)); width: 340px;
     box-shadow: -4px 0 16px rgba(var(--shadow-rgb), 0.2); z-index: 10; }
 }
 
 /* phone (<600px): nav behind a hamburger; view-only by construction */
 @media (max-width: 600px) {
   .hamburger { display: block; }
-  .left-nav { position: fixed; left: 0; top: 0; height: 100vh; z-index: 25;
+  .left-nav { position: fixed; left: 0; top: var(--app-banner-height);
+    height: calc(100vh - var(--app-banner-height)); z-index: 25;
     transform: translateX(-100%); transition: transform 0.15s; }
   .left-nav.open { transform: translateX(0); }
   /* the desktop collapse toggle must not fight the hamburger overlay here;
@@ -543,8 +549,8 @@ mark.highlight { background: var(--color-highlight-bg); }
 .journal-status { min-height: 1.5em; color: var(--color-text-muted); margin: 4px 0; }
 
 /* --- plan 5: sync --- */
-.ws-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-  background: var(--color-banner-bg); color: var(--color-banner-text); text-align: center; padding: 4px 8px;
+.ws-banner { background: var(--color-banner-bg); color: var(--color-banner-text);
+  text-align: center; padding: 4px 8px;
   font-size: 13px; }
 
 /* --- plan 5: editor --- */

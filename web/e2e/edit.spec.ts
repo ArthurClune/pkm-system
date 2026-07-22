@@ -121,6 +121,102 @@ test("Tab and Shift-Tab move a multi-block selection one level (pkm-0ovd)", asyn
   await expect(page.locator(".block-row.selected")).toHaveCount(2);
 });
 
+test("Shift-Cmd moves a selected run within and across a parent (pkm-8jt5)", async ({ page }) => {
+  const title = `SelectedMove${Date.now()}`;
+  await login(page);
+  const createRes = await page.request.post("/api/pages", { data: { title } });
+  expect(createRes.ok()).toBeTruthy();
+  await page.goto(`/page/${encodeURIComponent(title)}`);
+  await page.getByText("Click to start writing…").click();
+
+  const rowWithText = (text: string) => page.locator(".block-row", {
+    has: page.locator(".block-text", { hasText: text }),
+  });
+
+  await input(page).fill("left parent");
+  await input(page).press("Enter");
+  await input(page).fill("left existing");
+  await input(page).press("Tab");
+  await expect(page.locator(".block-children textarea.block-input")).toBeFocused();
+  await input(page).press("Escape");
+  await expect(rowWithText("left existing").locator(".block-text")).toBeVisible();
+
+  await rowWithText("left existing").locator(".block-text").click();
+  await caretToEnd(page);
+  await input(page).press("Enter");
+  await input(page).press("Shift+Tab");
+  await expect(input(page)).toBeFocused();
+  await input(page).fill("source parent");
+  await input(page).press("Enter");
+  await input(page).fill("source seed");
+  await input(page).press("Tab");
+  await expect(page.locator(".block-children textarea.block-input")).toBeFocused();
+  await input(page).press("Escape");
+  await expect(rowWithText("source seed").locator(".block-text")).toBeVisible();
+
+  await rowWithText("source seed").locator(".block-text").click();
+  await caretToEnd(page);
+  await input(page).press("Enter");
+  await input(page).fill("move first");
+  await input(page).press("Enter");
+  await input(page).fill("move second");
+  await input(page).press("Escape");
+  await expect(rowWithText("move second").locator(".block-text")).toBeVisible();
+
+  await rowWithText("move second").locator(".block-text").click();
+  await caretToEnd(page);
+  await input(page).press("Enter");
+  await input(page).press("Shift+Tab");
+  await expect(input(page)).toBeFocused();
+  await input(page).fill("right parent");
+  await input(page).press("Escape");
+  const leftUid = await rowWithText("left parent").getAttribute("data-uid");
+  const sourceUid = await rowWithText("source parent").getAttribute("data-uid");
+  const seedUid = await rowWithText("source seed").getAttribute("data-uid");
+  const firstUid = await rowWithText("move first").getAttribute("data-uid");
+  const secondUid = await rowWithText("move second").getAttribute("data-uid");
+  expect(leftUid).not.toBeNull();
+  expect(sourceUid).not.toBeNull();
+  expect(seedUid).not.toBeNull();
+  expect(firstUid).not.toBeNull();
+  expect(secondUid).not.toBeNull();
+
+  await rowWithText("move second").locator(".block-text").click();
+  await caretToEnd(page);
+  await input(page).press("Shift+ArrowUp");
+  const tree = page.locator(".block-tree");
+  const selectedRows = page.locator(".block-row.selected");
+  await expect(tree).toBeFocused();
+  await expect(selectedRows).toHaveCount(2);
+
+  const directChildren = (uid: string) => page.locator(
+    `.block-row[data-uid="${uid}"] + .block-children > .block > .block-row`,
+  );
+
+  await page.keyboard.press("Shift+Meta+ArrowUp");
+
+  const sourceChildren = directChildren(sourceUid!);
+  await expect(sourceChildren).toHaveCount(3);
+  await expect(sourceChildren.nth(0)).toHaveAttribute("data-uid", firstUid!);
+  await expect(sourceChildren.nth(1)).toHaveAttribute("data-uid", secondUid!);
+  await expect(sourceChildren.nth(2)).toHaveAttribute("data-uid", seedUid!);
+  await expect(tree).toBeFocused();
+  await expect(selectedRows).toHaveCount(2);
+
+  await page.keyboard.press("Shift+Meta+ArrowUp");
+
+  await expect(sourceChildren).toHaveCount(1);
+  await expect(sourceChildren.nth(0)).toHaveAttribute("data-uid", seedUid!);
+  const leftChildren = directChildren(leftUid!);
+  await expect(leftChildren).toHaveCount(3);
+  await expect(leftChildren.nth(1)).toHaveAttribute("data-uid", firstUid!);
+  await expect(leftChildren.nth(2)).toHaveAttribute("data-uid", secondUid!);
+  await expect(tree).toBeFocused();
+  await expect(selectedRows).toHaveCount(2);
+  await expect(selectedRows.nth(0)).toHaveAttribute("data-uid", firstUid!);
+  await expect(selectedRows.nth(1)).toHaveAttribute("data-uid", secondUid!);
+});
+
 test("can click back into a line after emptying it (pkm-mc07)", async ({ page }) => {
   await login(page);
   const today = page.locator(".journal-day").first();

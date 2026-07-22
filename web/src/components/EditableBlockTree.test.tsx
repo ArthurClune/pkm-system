@@ -10,7 +10,6 @@ function handlers(): OutlineHandlers {
   return {
     onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftChange: vi.fn(),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
-    onMoveUp: vi.fn(), onMoveDown: vi.fn(),
     onMoveSubtreeUp: vi.fn(), onMoveSubtreeDown: vi.fn(),
     onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
@@ -176,10 +175,6 @@ test("keyboard map dispatches to the right handlers", () => {
   expect(h.onIndent).toHaveBeenCalledWith("u1");
   fireEvent.keyDown(ta, { key: "Tab", shiftKey: true });
   expect(h.onOutdent).toHaveBeenCalledWith("u1");
-  fireEvent.keyDown(ta, { key: "ArrowUp", altKey: true });
-  expect(h.onMoveUp).toHaveBeenCalledWith("u1");
-  fireEvent.keyDown(ta, { key: "ArrowDown", altKey: true });
-  expect(h.onMoveDown).toHaveBeenCalledWith("u1");
   fireEvent.keyDown(ta, { key: "ArrowUp", shiftKey: true, metaKey: true });
   expect(h.onMoveSubtreeUp).toHaveBeenCalledWith("u1");
   fireEvent.keyDown(ta, { key: "ArrowDown", shiftKey: true, metaKey: true });
@@ -191,6 +186,18 @@ test("keyboard map dispatches to the right handlers", () => {
   expect(h.onBackspaceAtStart).toHaveBeenCalledWith("u1");
   fireEvent.keyDown(ta, { key: "ArrowLeft" });
   expect(h.onArrow).toHaveBeenCalledWith("u1", "left");
+});
+
+test("Option+Arrow stays with browser text handling", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+
+  expect(fireEvent.keyDown(ta, { key: "ArrowUp", altKey: true })).toBe(true);
+  expect(fireEvent.keyDown(ta, { key: "ArrowDown", altKey: true })).toBe(true);
+  expect(h.onMoveSubtreeUp).not.toHaveBeenCalled();
+  expect(h.onMoveSubtreeDown).not.toHaveBeenCalled();
+  expect(h.onArrow).not.toHaveBeenCalled();
 });
 
 test("Ctrl-Alt-0 through Ctrl-Alt-3 set plain text and heading levels", () => {
@@ -837,14 +844,47 @@ test("Cmd-C copies the selected blocks' text in document order (pkm-9b8n)", () =
   expect(writeText).toHaveBeenCalledWith("hello [[World]]\n{{[[TODO]]}} task");
 });
 
-test("Alt+ArrowUp/Down on a selection moves the whole group, not just one block (pkm-q89w)", () => {
+test("Shift+Cmd+Arrow moves a selection before plain Shift handling", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
-  fireEvent.keyDown(tree, { key: "ArrowUp", altKey: true });
-  expect(h.onMoveSelectionUp).toHaveBeenCalled();
-  fireEvent.keyDown(tree, { key: "ArrowDown", altKey: true });
-  expect(h.onMoveSelectionDown).toHaveBeenCalled();
+
+  expect(fireEvent.keyDown(tree, {
+    key: "ArrowUp", shiftKey: true, metaKey: true,
+  })).toBe(false);
+  expect(h.onMoveSelectionUp).toHaveBeenCalledTimes(1);
+  expect(fireEvent.keyDown(tree, {
+    key: "ArrowDown", shiftKey: true, metaKey: true,
+  })).toBe(false);
+  expect(h.onMoveSelectionDown).toHaveBeenCalledTimes(1);
+  expect(h.onExtendBlockSelection).not.toHaveBeenCalled();
+});
+
+test("selected Option+Arrow remains unhandled", () => {
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: "u1", head: "u2" });
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+
+  expect(fireEvent.keyDown(tree, { key: "ArrowUp", altKey: true })).toBe(true);
+  expect(fireEvent.keyDown(tree, { key: "ArrowDown", altKey: true })).toBe(true);
+  expect(h.onMoveSelectionUp).not.toHaveBeenCalled();
+  expect(h.onMoveSelectionDown).not.toHaveBeenCalled();
+  expect(h.onExtendBlockSelection).not.toHaveBeenCalled();
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+});
+
+test("read-only Shift+Cmd does not move or extend a selection", () => {
+  const h = handlers();
+  const { container } = mountSelected(
+    h, { anchor: "u1", head: "u2" }, true,
+  );
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+
+  expect(fireEvent.keyDown(tree, {
+    key: "ArrowUp", shiftKey: true, metaKey: true,
+  })).toBe(true);
+  expect(h.onMoveSelectionUp).not.toHaveBeenCalled();
+  expect(h.onExtendBlockSelection).not.toHaveBeenCalled();
 });
 
 test("Backspace/Delete on a selection deletes the whole group (pkm-q89w)", () => {

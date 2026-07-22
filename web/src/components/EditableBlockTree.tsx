@@ -41,8 +41,6 @@ export interface OutlineHandlers {
   onSplit(uid: string, cursor: number): void;
   onIndent(uid: string): void;
   onOutdent(uid: string): void;
-  onMoveUp(uid: string): void;
-  onMoveDown(uid: string): void;
   /** Shift+Cmd+Arrow: move the block's whole subtree, preserving depth,
    * possibly crossing a parent boundary (pkm-hx2w). */
   onMoveSubtreeUp(uid: string): void;
@@ -63,8 +61,8 @@ export interface OutlineHandlers {
    * selected root's depth by one while preserving the selected structure. */
   onIndentSelection(): void;
   onOutdentSelection(): void;
-  /** Alt+Arrow while a block selection is active: move every selected block
-   * as a group, preserving their relative order (pkm-q89w). */
+  /** Shift+Cmd+Arrow while a block selection is active: atomically move every
+   * selected root one depth-preserving position. */
   onMoveSelectionUp(): void;
   onMoveSelectionDown(): void;
   /** Backspace/Delete while a block selection is active: delete every
@@ -133,11 +131,20 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (fallback || !selection) return;
+    const verticalArrow = e.key === "ArrowUp" || e.key === "ArrowDown";
     if (!readOnly && e.key === "Tab") {
       e.preventDefault();
       if (e.shiftKey) handlers.onOutdentSelection();
       else handlers.onIndentSelection();
-    } else if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    } else if (e.shiftKey && e.metaKey && !e.ctrlKey && !e.altKey
+               && verticalArrow) {
+      if (!readOnly) {
+        e.preventDefault();
+        if (e.key === "ArrowUp") handlers.onMoveSelectionUp();
+        else handlers.onMoveSelectionDown();
+      }
+    } else if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
+               && verticalArrow) {
       e.preventDefault();
       handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
@@ -146,15 +153,11 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     } else if (e.key === "Escape") {
       e.preventDefault();
       handlers.onClearBlockSelection();
-    } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-      e.preventDefault();
-      if (e.key === "ArrowUp") handlers.onMoveSelectionUp();
-      else handlers.onMoveSelectionDown();
     } else if (e.key === "Backspace" || e.key === "Delete") {
       e.preventDefault();
       handlers.onDeleteBlockSelection();
-    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-      // a plain arrow collapses the selection back to editing the head block
+    } else if (!e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
+               && verticalArrow) {
       e.preventDefault();
       handlers.onFocusBlock(selection.head, 0);
     }
@@ -584,18 +587,9 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
         e.preventDefault();
         handlers.onOutdent(node.uid);
         return;
-      case "move-up":
-        e.preventDefault();
-        handlers.onMoveUp(node.uid);
-        return;
-      case "move-down":
-        e.preventDefault();
-        handlers.onMoveDown(node.uid);
-        return;
       case "move-subtree-up":
-        // preventDefault matters here more than for move-up: Shift-Cmd-Arrow
-        // is a macOS text-selection key and must not extend the textarea's
-        // native selection.
+        // Shift-Cmd-Arrow is a macOS text-selection key and must not extend
+        // the textarea's native selection.
         e.preventDefault();
         handlers.onMoveSubtreeUp(node.uid);
         return;

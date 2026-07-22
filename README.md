@@ -238,6 +238,9 @@ backup and restore procedures.
 
 ## Documentation
 
+- **[Architecture docs](docs/architecture/overview.md)** — codebase
+  orientation for new contributors (human or agent): system overview,
+  backend + API, frontend, and the sync/offline protocol
 - **[Design document](docs/design.md)** — high-level architecture and key
   decisions, linking to the detailed specs and plans in `docs/superpowers/`
 - **[Deployment guide](deploy/README.md)** — install, update, backups, restore,

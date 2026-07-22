@@ -501,6 +501,7 @@
     "/api/journal": {
       "get": {
         "summary": "Get Journal",
+        "description": "Newest-first batch of non-empty daily pages (pkm-03x6). The head\nbatch (no `before`) starts with today \u2014 auto-created so there is a\npage to compose into, even when empty \u2014 followed by the most recent\nnon-empty days; `before` pages strictly backwards from that date.\nEmpty days are omitted, and a batch shorter than `days` tells the\nclient the journal is exhausted.",
         "operationId": "get_journal_api_journal_get",
         "parameters": [
           {

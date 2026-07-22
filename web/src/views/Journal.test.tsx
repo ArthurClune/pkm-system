@@ -352,35 +352,74 @@ it("releases captured session reservations when unmounted in flight", async () =
   await journal.promise;
 });
 
-it("stops auto-loading after 3 consecutive empty batches", async () => {
-  const empty = (from: string, dates: string[]) =>
-    [`/api/journal?days=5&before=${from}`,
-     { days: dates.map((d) => day(d, d, [], false)) }] as [string, unknown];
+it("stops auto-loading when a batch comes back short (journal exhausted)", async () => {
+  // pkm-03x6: the API returns only non-empty days; fewer than requested
+  // means there is nothing older, so the journal stops asking entirely.
   const fetchMock = stubFetch([
-    empty("2026-07-04", ["2026-07-03", "2026-07-02", "2026-07-01", "2026-06-30", "2026-06-29"]),
-    empty("2026-06-29", ["2026-06-28", "2026-06-27", "2026-06-26", "2026-06-25", "2026-06-24"]),
-    empty("2026-06-24", ["2026-06-23", "2026-06-22", "2026-06-21", "2026-06-20", "2026-06-19"]),
+    ["/api/journal?days=5&before=2026-07-04", { days: [
+      day("2026-06-20", "June 20th, 2026"),
+    ] }],
     ["/api/journal?days=5", { days: [
       day("2026-07-08", "July 8th, 2026"),
-      day("2026-07-07", "July 7th, 2026", [], false),
-      day("2026-07-06", "July 6th, 2026", [], false),
-      day("2026-07-05", "July 5th, 2026", [], false),
-      day("2026-07-04", "July 4th, 2026", [], false),
+      day("2026-07-07", "July 7th, 2026"),
+      day("2026-07-06", "July 6th, 2026"),
+      day("2026-07-05", "July 5th, 2026"),
+      day("2026-07-04", "July 4th, 2026"),
     ] }],
   ]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
   await screen.findByRole("link", { name: "July 8th, 2026" });
   intersect();
+  expect(await screen.findByRole("link", { name: "June 20th, 2026" }))
+    .toBeInTheDocument();
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
     "/api/journal?days=5&before=2026-07-04", undefined));
+  // exhausted: no sentinel to keep polling, and no manual button either
+  await waitFor(() =>
+    expect(document.querySelector(".journal-sentinel")).toBeNull());
+  expect(screen.queryByRole("button", { name: /load older days/i }))
+    .not.toBeInTheDocument();
+});
+
+it("a resync reloads the whole scrolled window, not just the head batch " +
+   "(pkm-wstt)", async () => {
+  const head = [
+    day("2026-07-22", "July 22nd, 2026"),
+    day("2026-07-14", "July 14th, 2026"),
+    day("2026-07-09", "July 9th, 2026"),
+    day("2026-07-07", "July 7th, 2026"),
+    day("2026-07-04", "July 4th, 2026"),
+  ];
+  const older = [
+    day("2026-07-02", "July 2nd, 2026"),
+    day("2026-06-30", "June 30th, 2026"),
+    day("2026-06-29", "June 29th, 2026"),
+    day("2026-06-22", "June 22nd, 2026"),
+    day("2026-06-20", "June 20th, 2026"),
+  ];
+  const fetchMock = stubFetch([
+    ["/api/journal?days=10", { days: [...head, ...older] }],
+    ["/api/journal?days=5&before=2026-07-04", { days: older }],
+    ["/api/journal?days=5", { days: head }],
+  ]);
+  const sync = makeSync();
+  const inSync = (s: typeof sync) => (
+    <SyncContext.Provider value={s}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(inSync(sync));
+  await screen.findByRole("link", { name: "July 22nd, 2026" });
   intersect();
+  await screen.findByRole("link", { name: "June 20th, 2026" });
+
+  rerender(inSync({ ...sync, resyncSeq: 1 }));
+  // ten days were on screen, so the reload asks for all ten in one batch
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/journal?days=5&before=2026-06-29", undefined));
-  intersect();
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/journal?days=5&before=2026-06-24", undefined));
-  // three all-empty batches in a row -> sentinel replaced by a manual button
-  expect(await screen.findByRole("button", { name: /load older days/i }))
+    "/api/journal?days=10", undefined));
+  expect(await screen.findByRole("link", { name: "June 20th, 2026" }))
+    .toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "July 22nd, 2026" }))
     .toBeInTheDocument();
 });
 

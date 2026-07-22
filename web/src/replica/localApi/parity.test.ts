@@ -49,7 +49,7 @@ describe("local API parity with the server routes", () => {
   for (const c of fixture.cases.filter((c) => IMPLEMENTED(c.name))) {
     test(c.name, () => {
       const result = handleLocalApi(t.db, {
-        method: "GET", path: c.path, nowMs: 1752364800000, // 2026-07-13 UTC
+        method: "GET", path: c.path, nowMs: 1752364800000, // 2025-07-13 UTC
       });
       expect(result.handled).toBe(true);
       if (result.handled) {

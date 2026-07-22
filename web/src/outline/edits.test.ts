@@ -307,6 +307,27 @@ const deepTree = () => [
   block("c", "gamma", { order_idx: 7 }),
 ];
 
+const selectedMoveTree = () => [
+  block("left", "Left", {
+    order_idx: 0,
+    children: [block("left0", "Left child", { order_idx: 0 })],
+  }),
+  block("source", "Source", {
+    order_idx: 1,
+    children: [
+      block("first", "First", {
+        order_idx: 0,
+        children: [block("first0", "First child", { order_idx: 0 })],
+      }),
+      block("second", "Second", { order_idx: 1 }),
+    ],
+  }),
+  block("right", "Right", {
+    order_idx: 2,
+    children: [block("right0", "Right child", { order_idx: 0 })],
+  }),
+];
+
 describe("moveSubtreeUp / moveSubtreeDown (pkm-hx2w)", () => {
   test("up: a previous sibling means a plain sibling swap", () => {
     const r = moveSubtreeUp(deepTree(), P, "b2");
@@ -433,20 +454,18 @@ describe("moveSubtreeUp / moveSubtreeDown (pkm-hx2w)", () => {
   });
 });
 
-describe("moveSelectionUp / moveSelectionDown (pkm-q89w)", () => {
-  test("up: the run [b, c] swaps past the sibling above (a moves after c)", () => {
+describe("moveSelectionUp / moveSelectionDown (pkm-8jt5)", () => {
+  test("up: a same-parent run swaps with the sibling above", () => {
     const r = moveSelectionUp(tree(), P, ["b", "c"]);
     expect(r.ops).toEqual([
       { op: "move", uid: "a", parent_uid: null, order_idx: 8 },
     ]);
     expect(r.blocks.map((n) => n.uid)).toEqual(["b", "c", "a"]);
-    // the moved run keeps its own relative order and doesn't move itself
-    expect(r.blocks[0].uid).toBe("b");
     expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
       .toEqual(["b1", "b2"]);
   });
 
-  test("down: the run [a, b] swaps past the sibling below (c moves before a)", () => {
+  test("down: a same-parent run swaps with the sibling below", () => {
     const r = moveSelectionDown(tree(), P, ["a", "b"]);
     expect(r.ops).toEqual([
       { op: "move", uid: "c", parent_uid: null, order_idx: 0 },
@@ -454,20 +473,84 @@ describe("moveSelectionUp / moveSelectionDown (pkm-q89w)", () => {
     expect(r.blocks.map((n) => n.uid)).toEqual(["c", "a", "b"]);
   });
 
-  test("a run already at the top/bottom edge is a no-op", () => {
-    expect(moveSelectionUp(tree(), P, ["a", "b"]).ops).toEqual([]);
-    expect(moveSelectionDown(tree(), P, ["b", "c"]).ops).toEqual([]);
+  test("up: an edge run becomes the previous parent's last children", () => {
+    const r = moveSelectionUp(
+      selectedMoveTree(), P, ["first", "first0", "second"],
+    );
+
+    expect(r.ops).toEqual([
+      { op: "move", uid: "first", parent_uid: "left", order_idx: 1 },
+      { op: "move", uid: "second", parent_uid: "left", order_idx: 2 },
+    ]);
+    expect(findNode(r.blocks, "left")!.children.map((n) => n.uid))
+      .toEqual(["left0", "first", "second"]);
+    expect(findNode(r.blocks, "source")!.children).toEqual([]);
+    expect(findNode(r.blocks, "first")!.children.map((n) => n.uid))
+      .toEqual(["first0"]);
   });
 
-  test("uids that aren't a contiguous sibling run are a no-op", () => {
-    // "a" is top-level, "b1" is b's child: different parents.
-    expect(moveSelectionUp(tree(), P, ["a", "b1"]).ops).toEqual([]);
-    expect(moveSelectionDown(tree(), P, ["a", "b1"]).ops).toEqual([]);
+  test("down: a collapsed root carries hidden descendants without expanding", () => {
+    const t = selectedMoveTree();
+    findNode(t, "first")!.collapsed = true;
+
+    const r = moveSelectionDown(t, P, ["first", "second"]);
+
+    expect(r.ops).toEqual([
+      { op: "move", uid: "first", parent_uid: "right", order_idx: 0 },
+      { op: "move", uid: "second", parent_uid: "right", order_idx: 1 },
+    ]);
+    expect(findNode(r.blocks, "right")!.children.map((n) => n.uid))
+      .toEqual(["first", "second", "right0"]);
+    expect(findNode(r.blocks, "source")!.children).toEqual([]);
+    expect(findNode(r.blocks, "first")!.collapsed).toBe(true);
+    expect(findNode(r.blocks, "first")!.children.map((n) => n.uid))
+      .toEqual(["first0"]);
   });
 
-  test("empty selection is a no-op", () => {
-    expect(moveSelectionUp(tree(), P, []).ops).toEqual([]);
-    expect(moveSelectionDown(tree(), P, []).ops).toEqual([]);
+  test("moves eligible mixed-depth runs from original positions", () => {
+    const r = moveSelectionUp(selectionTree(), P, ["a1", "b"]);
+
+    expect(r.ops).toEqual([
+      { op: "move", uid: "a0", parent_uid: "a", order_idx: 2 },
+      { op: "move", uid: "a", parent_uid: null, order_idx: 2 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["b", "a", "c"]);
+    expect(findNode(r.blocks, "a")!.children.map((n) => n.uid))
+      .toEqual(["a1", "a0"]);
+    expect(findNode(r.blocks, "a1")!.children.map((n) => n.uid))
+      .toEqual(["a1x"]);
+    expect(findNode(r.blocks, "b")!.children.map((n) => n.uid))
+      .toEqual(["b1"]);
+  });
+
+  test("one ineligible run aborts every mixed-depth run", () => {
+    const t = selectionTree();
+    const r = moveSelectionUp(t, P, ["a0", "b"]);
+
+    expect(r.ops).toEqual([]);
+    expect(r.blocks).toBe(t);
+  });
+
+  test("expands a collapsed cross-parent destination before its moves", () => {
+    const t = selectedMoveTree();
+    findNode(t, "left")!.collapsed = true;
+
+    const r = moveSelectionUp(t, P, ["first", "second"]);
+
+    expect(r.ops).toEqual([
+      { op: "set_collapsed", uid: "left", collapsed: false },
+      { op: "move", uid: "first", parent_uid: "left", order_idx: 1 },
+      { op: "move", uid: "second", parent_uid: "left", order_idx: 2 },
+    ]);
+    expect(findNode(r.blocks, "left")!.collapsed).toBe(false);
+  });
+
+  test("empty and unknown selections are no-ops", () => {
+    const t = selectedMoveTree();
+    expect(moveSelectionUp(t, P, []).ops).toEqual([]);
+    expect(moveSelectionDown(t, P, []).ops).toEqual([]);
+    expect(moveSelectionUp(t, P, ["missing"]).ops).toEqual([]);
+    expect(moveSelectionDown(t, P, ["missing"]).ops).toEqual([]);
   });
 });
 

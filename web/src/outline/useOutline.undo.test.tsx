@@ -71,6 +71,39 @@ it("undo reverses a whole selection indent in one step", () => {
   ]);
 });
 
+it("undo reverses a whole cross-parent selection move in one step", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, [
+    block("a", "A", {
+      order_idx: 0,
+      children: [block("a0", "A child", { order_idx: 0 })],
+    }),
+    block("b", "B", {
+      order_idx: 1,
+      children: [
+        block("b0", "B first", { order_idx: 0 }),
+        block("b1", "B second", { order_idx: 1 }),
+      ],
+    }),
+    block("c", "C", { order_idx: 2 }),
+  ]);
+  act(() => outline().handlers.onStartBlockSelection("b0", "down"));
+  act(() => outline().handlers.onMoveSelectionUp());
+  expect(outline().blocks[0].children.map((n) => n.uid))
+    .toEqual(["a0", "b0", "b1"]);
+
+  act(() => outline().handlers.onUndo());
+
+  expect(outline().blocks[0].children.map((n) => n.uid)).toEqual(["a0"]);
+  expect(outline().blocks[1].children.map((n) => n.uid))
+    .toEqual(["b0", "b1"]);
+  expect(sync.sent).toHaveLength(2);
+  expect(sync.sent[1]).toEqual([
+    { op: "move", uid: "b1", parent_uid: "b", order_idx: 1 },
+    { op: "move", uid: "b0", parent_uid: "b", order_idx: 0 },
+  ]);
+});
+
 it("undo restores a deleted block's text via subtree recreate", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, ab());

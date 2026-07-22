@@ -35,6 +35,24 @@ const abc = () => [
   block("c", "gamma", { order_idx: 2 }),
 ];
 
+const crossParentTree = () => [
+  block("a", "A", {
+    order_idx: 0,
+    children: [block("a0", "A child", { order_idx: 0 })],
+  }),
+  block("b", "B", {
+    order_idx: 1,
+    children: [
+      block("b0", "B first", {
+        order_idx: 0,
+        children: [block("b0x", "B grandchild", { order_idx: 0 })],
+      }),
+      block("b1", "B second", { order_idx: 1 }),
+    ],
+  }),
+  block("c", "C", { order_idx: 2 }),
+];
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -66,6 +84,40 @@ it("onMoveSelectionDown moves every selected block as a group", () => {
     [{ op: "move", uid: "c", parent_uid: null, order_idx: 0 }],
   ]);
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["c", "a", "b"]);
+});
+
+it("queues and applies one cross-parent selection move batch", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", crossParentTree());
+  act(() => getOutline().handlers.onStartBlockSelection("b0", "down"));
+  act(() => getOutline().handlers.onExtendBlockSelection("down"));
+  expect(getOutline().selection).toEqual({ anchor: "b0", head: "b1" });
+
+  act(() => getOutline().handlers.onMoveSelectionUp());
+
+  expect(sync.sent).toEqual([[
+    { op: "move", uid: "b0", parent_uid: "a", order_idx: 1 },
+    { op: "move", uid: "b1", parent_uid: "a", order_idx: 2 },
+  ]]);
+  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["a", "b", "c"]);
+  expect(getOutline().blocks[0].children.map((n) => n.uid))
+    .toEqual(["a0", "b0", "b1"]);
+  expect(getOutline().blocks[0].children[1].children.map((n) => n.uid))
+    .toEqual(["b0x"]);
+  expect(getOutline().selection).toEqual({ anchor: "b0", head: "b1" });
+});
+
+it("does not enqueue when one selected movement run is ineligible", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", crossParentTree());
+  act(() => getOutline().handlers.onStartBlockSelection("a0", "down"));
+  expect(getOutline().selection).toEqual({ anchor: "a0", head: "b" });
+
+  act(() => getOutline().handlers.onMoveSelectionUp());
+
+  expect(sync.sent).toEqual([]);
+  expect(getOutline().blocks.map((n) => n.uid)).toEqual(["a", "b", "c"]);
+  expect(getOutline().selection).toEqual({ anchor: "a0", head: "b" });
 });
 
 it("indents and outdents the selected run as one batch without clearing it", () => {

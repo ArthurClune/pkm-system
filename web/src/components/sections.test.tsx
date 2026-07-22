@@ -1,14 +1,33 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Backlinks } from "../api/payloads";
-import { pagePayload, stubFetch } from "../test-helpers";
+import { sha256Hex } from "../replica/sha256";
+import type { DeliveryOutcome, WriteOutcome, WriteTicket } from "../sync/opQueue";
+import { SyncContext } from "../sync/SyncProvider";
+import { makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { BacklinksSection } from "./BacklinksSection";
 import { mergeGroups } from "./groups";
 import { UnlinkedSection } from "./UnlinkedSection";
 
 afterEach(() => vi.unstubAllGlobals());
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+function unlinkedPayload() {
+  return {
+    groups: [{ page_id: 2, page_title: "Source", items: [
+      { uid: "uid_u1", text: "Acme created it" },
+      { uid: "uid_u2", text: "Acme reviewed it" },
+    ] }],
+    total: 2,
+  };
+}
 
 const initial: Backlinks = {
   groups: [{
@@ -122,6 +141,237 @@ it("unlinked references fetch lazily on first open and paginate", async () => {
   fireEvent.click(screen.getByRole("button", { name: /show more/i }));
   expect(await screen.findByText(/épilogue/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
+});
+
+it("queues a canonical update with the snapshot hash and source scope", async () => {
+  stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
+  const sync = makeSync();
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <UnlinkedSection title="ACME" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  fireEvent.click((await screen.findAllByRole("button", { name: "Link" }))[0]);
+  await vi.waitFor(() => expect(sync.sent).toHaveLength(1));
+  expect(sync.sent[0]).toEqual([{
+    op: "update_text",
+    uid: "uid_u1",
+    text: "[[ACME]] created it",
+    base_text_hash: sha256Hex("Acme created it"),
+  }]);
+  expect(sync.tickets[0].scope).toEqual(["page", "Source"]);
+});
+
+it("renders one Link button per result and disables only the pending result", async () => {
+  stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
+  const sync = makeSync();
+  const settled = deferred<WriteOutcome>();
+  const delivered = deferred<DeliveryOutcome>();
+  sync.enqueue = vi.fn((ops, scope) => {
+    sync.sent.push(ops);
+    const ticket = {
+      id: "controlled-write-1",
+      scope: scope ?? [],
+      settled: settled.promise,
+      delivered: delivered.promise,
+    } satisfies WriteTicket;
+    sync.tickets.push(ticket);
+    return ticket;
+  });
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <UnlinkedSection title="ACME" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  fireEvent.click((await screen.findAllByRole("button", { name: "Link" }))[0]);
+  expect(await screen.findByRole("button", { name: "Linking…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Link" })).toBeEnabled();
+});
+
+it("disables Link with the read-only reason as its tooltip", async () => {
+  stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
+  const sync = makeSync("reconnecting", {
+    canEdit: false,
+    readOnlyReason: "Replica unavailable",
+  });
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <UnlinkedSection title="ACME" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  const buttons = await screen.findAllByRole("button", { name: "Link" });
+  expect(buttons).toHaveLength(2);
+  buttons.forEach((button) => {
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "Replica unavailable");
+  });
+});
+
+it("hides a durably persisted item and notifies only after delivery", async () => {
+  stubFetch([["/api/unlinked?title=ACME", {
+    groups: [{ page_id: 2, page_title: "Source", items: [
+      { uid: "uid_u1", text: "Acme created it" },
+    ] }],
+    total: 1,
+  }]]);
+  const sync = makeSync();
+  const settled = deferred<WriteOutcome>();
+  const delivered = deferred<DeliveryOutcome>();
+  const onLinked = vi.fn();
+  sync.enqueue = vi.fn((ops, scope) => {
+    sync.sent.push(ops);
+    const ticket = {
+      id: "controlled-write-1",
+      scope: scope ?? [],
+      settled: settled.promise,
+      delivered: delivered.promise,
+    } satisfies WriteTicket;
+    sync.tickets.push(ticket);
+    return ticket;
+  });
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <UnlinkedSection title="ACME" onLinked={onLinked} />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  fireEvent.click(await screen.findByRole("button", { name: "Link" }));
+  await act(async () => {
+    settled.resolve({ status: "persisted", pending: 1 });
+    await settled.promise;
+  });
+  await vi.waitFor(() => {
+    expect(screen.queryByText("Acme created it")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Source" })).toBeNull();
+  });
+  expect(onLinked).not.toHaveBeenCalled();
+  await act(async () => {
+    delivered.resolve({ status: "delivered" });
+    await delivered.promise;
+  });
+  await vi.waitFor(() => expect(onLinked).toHaveBeenCalledTimes(1));
+});
+
+it("retains the item when local persistence fails", async () => {
+  stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
+  const sync = makeSync();
+  const settled = deferred<WriteOutcome>();
+  const delivered = deferred<DeliveryOutcome>();
+  sync.enqueue = vi.fn((ops, scope) => {
+    sync.sent.push(ops);
+    const ticket = {
+      id: "controlled-write-1",
+      scope: scope ?? [],
+      settled: settled.promise,
+      delivered: delivered.promise,
+    } satisfies WriteTicket;
+    sync.tickets.push(ticket);
+    return ticket;
+  });
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <UnlinkedSection title="ACME" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  fireEvent.click((await screen.findAllByRole("button", { name: "Link" }))[0]);
+  await act(async () => {
+    settled.resolve({ status: "failed", error: new Error("disk full") });
+    await settled.promise;
+  });
+  expect(screen.getByText("Acme created it")).toBeInTheDocument();
+  expect(await screen.findByText("Error: disk full")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Link" })[0]).toBeEnabled();
+});
+
+it("restores the item and permits retry after delivery fails", async () => {
+  stubFetch([["/api/unlinked?title=ACME", {
+    groups: [{ page_id: 2, page_title: "Source", items: [
+      { uid: "uid_u1", text: "Acme created it" },
+    ] }],
+    total: 1,
+  }]]);
+  const sync = makeSync();
+  const firstSettled = deferred<WriteOutcome>();
+  const firstDelivered = deferred<DeliveryOutcome>();
+  const secondSettled = deferred<WriteOutcome>();
+  const secondDelivered = deferred<DeliveryOutcome>();
+  const pairs = [
+    { settled: firstSettled, delivered: firstDelivered, id: "controlled-write-1" },
+    { settled: secondSettled, delivered: secondDelivered, id: "controlled-write-2" },
+  ];
+  let next = 0;
+  sync.enqueue = vi.fn((ops, scope) => {
+    sync.sent.push(ops);
+    const pair = pairs[next++]!;
+    const ticket = {
+      id: pair.id,
+      scope: scope ?? [],
+      settled: pair.settled.promise,
+      delivered: pair.delivered.promise,
+    } satisfies WriteTicket;
+    sync.tickets.push(ticket);
+    return ticket;
+  });
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <UnlinkedSection title="ACME" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  fireEvent.click(await screen.findByRole("button", { name: "Link" }));
+  await act(async () => {
+    firstSettled.resolve({ status: "persisted", pending: 1 });
+    await firstSettled.promise;
+  });
+  await vi.waitFor(() => expect(screen.queryByText("Acme created it")).toBeNull());
+  await act(async () => {
+    firstDelivered.resolve({ status: "failed", error: new Error("server down") });
+    await firstDelivered.promise;
+  });
+  expect(await screen.findByText("Acme created it")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Source" })).toBeInTheDocument();
+  expect(await screen.findByText("Error: server down")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Link" }));
+  expect(sync.enqueue).toHaveBeenCalledTimes(2);
+});
+
+it("reports no-safe-match without enqueueing", async () => {
+  stubFetch([["/api/unlinked?title=ACME", {
+    groups: [{ page_id: 2, page_title: "Source", items: [
+      { uid: "uid_u1", text: "`ACME`" },
+    ] }],
+    total: 1,
+  }]]);
+  const sync = makeSync();
+  const enqueue = vi.fn(sync.enqueue);
+  sync.enqueue = enqueue;
+  render(
+    <SyncContext.Provider value={sync}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <UnlinkedSection title="ACME" />
+      </MemoryRouter>
+    </SyncContext.Provider>,
+  );
+  fireEvent.click(screen.getByText(/unlinked references/i));
+  fireEvent.click(await screen.findByRole("button", { name: "Link" }));
+  expect(await screen.findByText("No linkable occurrence found.")).toBeInTheDocument();
+  expect(enqueue).not.toHaveBeenCalled();
 });
 
 it("shows an error and re-enables the button when unlinked show-more fails", async () => {

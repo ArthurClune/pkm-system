@@ -1,7 +1,10 @@
 import { expect, test, vi } from "vitest";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { PendingBatch, Replica, ReplicaInit } from "../replica/client";
-import { createReplicaSync, type ReplicaState } from "./replicaSync";
+import {
+  createReplicaSync, PENDING_CHANGED_CAP, ResetBlockedError, RETRY_BASE_MS,
+  type ReplicaState,
+} from "./replicaSync";
 
 const SNAP: Snapshot = {
   generation: "gen-1", seq: 5, pages: [], blocks: [], sidebar: [],
@@ -629,4 +632,144 @@ test("overlapping nudges coalesce into a trailing pull", async () => {
   // one hanging pull + windows: no unbounded fan-out
   expect(fetchJson.mock.calls.length).toBeLessThanOrEqual(3);
   expect(fetchJson.mock.calls.at(-1)?.[0]).toBe("/api/sync/changes?since=9");
+});
+
+test("reports stalled after 3 consecutive failed pulls and retries with backoff", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica();
+    const fetchJson = vi.fn(async () => { throw new Error("changes offline"); });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // pull 1 fails (not yet stalled)
+    expect(states.at(-1)).toEqual({ mode: "ready" });
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); // retry 2 fails
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); // retry 3 fails -> stalled
+    expect(states.at(-1)).toEqual({ mode: "stalled", error: expect.any(String) });
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 4); // retry 4 also fails, stays stalled
+    expect(states.filter((s) => s.mode === "stalled").length).toBeGreaterThan(0);
+    expect(states.at(-1)).toEqual({ mode: "stalled", error: expect.any(String) });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a successful pull clears the stall and resets the backoff", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica();
+    let failing = true;
+    const fetchJson = vi.fn(async (path: string) => {
+      if (failing) throw new Error("changes offline");
+      if (path === "/api/sync/snapshot") return SNAP;
+      return feed();
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // failure 1
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); // failure 2
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); // failure 3 -> stalled
+    expect(states.at(-1)).toEqual({ mode: "stalled", error: expect.any(String) });
+
+    failing = false;
+    const callsBeforeRecovery = fetchJson.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 4); // scheduled retry now succeeds
+    expect(states.at(-1)).toEqual({ mode: "ready" });
+
+    // backoff reset: the next failure retries at RETRY_BASE_MS, not the
+    // multi-second delay it would have reached had backoff kept growing.
+    failing = true;
+    sync.onSeq(9999);
+    await sync.idle();
+    const callsBeforeReset = fetchJson.mock.calls.length;
+    expect(callsBeforeReset).toBeGreaterThan(callsBeforeRecovery);
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS - 1);
+    expect(fetchJson.mock.calls.length).toBe(callsBeforeReset);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchJson.mock.calls.length).toBeGreaterThan(callsBeforeReset);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("caps pending-changed retries per pull", async () => {
+  const applyChanges = vi.fn(async () => ({ status: "pending-changed" as const }));
+  const replica = fakeReplica({ applyChanges });
+  const fetchJson = vi.fn(async () => feed());
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+
+  expect(applyChanges.mock.calls.length).toBe(PENDING_CHANGED_CAP);
+  // a single starved pull is one failed attempt, not (yet) a stall
+  expect(states.some((s) => s.mode === "stalled")).toBe(false);
+});
+
+test("resetLocalData flushes, resets and bootstraps", async () => {
+  const batch: PendingBatch = {
+    id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false,
+  };
+  const posted: string[] = [];
+  const commitRecovery = vi.fn(async (_token: string, input) => {
+    expect(input).toEqual({ kind: "reset", snapshot: { ...SNAP, seq: 42 } });
+  });
+  const replica = fakeReplica({
+    prepareRecovery: async () => ({ token: "lease-reset", batches: [batch] }),
+    commitRecovery,
+  });
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      posted.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") return { ...SNAP, seq: 42 };
+    return feed();
+  });
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+  await sync.start();
+
+  await sync.resetLocalData({ discardPending: false });
+
+  expect(posted).toEqual(["b-1"]);
+  expect(commitRecovery).toHaveBeenCalled();
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+});
+
+test("resetLocalData without discardPending surfaces a blocked reset when flush fails", async () => {
+  const batch: PendingBatch = {
+    id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false,
+  };
+  const replica = fakeReplica({
+    prepareRecovery: async () => ({ token: "lease-reset", batches: [batch] }),
+  });
+  let snapshotCalls = 0;
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") throw new Error("flush offline");
+    if (path === "/api/sync/snapshot") { snapshotCalls += 1; return SNAP; }
+    return feed();
+  });
+  const { onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+  await sync.start();
+
+  let caught: unknown;
+  try {
+    await sync.resetLocalData({ discardPending: false });
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBeInstanceOf(ResetBlockedError);
+  expect((caught as ResetBlockedError).pending).toBe(1);
+  expect(replica.calls).toContain("abortRecovery");
+  expect(replica.calls).not.toContain("commitRecovery");
+  expect(snapshotCalls).toBe(0);
 });

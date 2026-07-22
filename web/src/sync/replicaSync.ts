@@ -15,7 +15,8 @@ export type ReplicaState =
   | { mode: "starting" }
   | { mode: "no-replica" }
   | { mode: "ready" }
-  | { mode: "recovery-failed"; error: string };
+  | { mode: "recovery-failed"; error: string }
+  | { mode: "stalled"; error: string };
 
 export interface ReplicaSync {
   /** Idempotent: first call initializes (+ bootstrap/recovery as needed);
@@ -32,7 +33,26 @@ export interface ReplicaSync {
   /** Release poison recovery ownership after row deletion/resync scheduling.
    * This does not resume delivery; the provider owns that final ordering. */
   completeAuthoritativeRepair(reason: "poison"): void;
+  /** Manual recovery for a wedged replica (incident: pullLoop failures were
+   * silently swallowed and the cursor froze). Flushes pending writes (unless
+   * discardPending) then rebuilds from a fresh snapshot. Throws
+   * ResetBlockedError when discardPending is false and the flush fails. */
+  resetLocalData(opts: { discardPending: boolean }): Promise<void>;
 }
+
+/** Thrown by resetLocalData when discardPending is false and the pending-batch
+ * flush fails: the caller must re-ask with discardPending true to proceed, or
+ * leave the (still-intact) database alone. */
+export class ResetBlockedError extends Error {
+  constructor(readonly pending: number) {
+    super("unsent changes not delivered");
+  }
+}
+
+export const STALL_AFTER_FAILURES = 3;
+export const PENDING_CHANGED_CAP = 20;
+export const RETRY_BASE_MS = 1000;
+export const RETRY_MAX_MS = 60000;
 
 export interface ReplicaSyncDeps {
   replica: Replica;
@@ -65,6 +85,42 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // by message; it is an Error (not a Symbol) only so it is a throwable the
   // lint's only-throw-error rule accepts -- the identity check is what matters.
   const poisonPreempted = new Error("poison preempted normal recovery");
+
+  // Stall detection + backoff retry (Fix A): pullLoop errors used to be
+  // swallowed outright, so a wedged replica had zero surfaced symptoms. A run
+  // of consecutive failed pull attempts is now reported and retried with
+  // growing backoff; `reportedNonReady` avoids re-announcing "ready" on every
+  // ordinary successful pull -- only a pull that follows a reported failure
+  // needs to clear it.
+  let consecutiveFailures = 0;
+  let retryDelay = RETRY_BASE_MS;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let reportedNonReady = false;
+
+  const noteSuccess = (): void => {
+    consecutiveFailures = 0;
+    retryDelay = RETRY_BASE_MS;
+    if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
+    if (reportedNonReady) {
+      reportedNonReady = false;
+      onState({ mode: "ready" });
+    }
+  };
+
+  const noteFailure = (error: unknown): void => {
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= STALL_AFTER_FAILURES) {
+      reportedNonReady = true;
+      onState({ mode: "stalled", error: errText(error) });
+    }
+    if (retryTimer === null) {
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void pull();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
+    }
+  };
 
   // The queue fires this synchronously on the 4xx path, before the durable
   // poison mark and its public event. A normal recovery lease acquired just
@@ -151,6 +207,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   const pullLoop = async (): Promise<void> => {
+    // Counts consecutive "pending-changed" refetches across this whole call
+    // (including across an `again`-triggered restart): a feed that never
+    // stops racing the local queue must eventually be treated as a failed
+    // pull attempt rather than spin forever.
+    let pendingChangedRetries = 0;
     do {
       again = false;
       let done = false;
@@ -160,14 +221,27 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         const feed = (await fetchJson(
           `/api/sync/changes?since=${cursor}`)) as Changes;
         const res = await replica.applyChanges(feed, expectedPendingIds);
-        if (res.status === "pending-changed") continue;
+        if (res.status === "pending-changed") {
+          pendingChangedRetries += 1;
+          if (pendingChangedRetries >= PENDING_CHANGED_CAP) {
+            throw new Error("pull starved: pending batches kept changing");
+          }
+          continue;
+        }
         if (res.status === "needs-bootstrap") {
           // A rejected batch owns recovery until the provider has deleted its
           // durable row and scheduled resync. Normal Task 2 recovery would
           // flush later valid rows and resume a boolean-paused queue, breaking
           // poison's stronger ordering and failed-Retry barrier.
           if (authoritativeRepair === "poison") return;
-          if (!(await recover("rebase"))) return;
+          if (!(await recover("rebase"))) {
+            // A poison signal that arrived mid-recovery (flush-time
+            // preemption) is already reported/retried by its own owner and
+            // must stay silent here too; any other recovery failure is a
+            // genuine failed pull attempt.
+            if (authoritativeRepair === "poison") return;
+            throw new Error("replica recovery failed during pull");
+          }
           done = feed.latest_seq <= cursor;
         } else {
           cursor = res.cursor;
@@ -184,7 +258,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       return pulling;
     }
     pulling = pullLoop()
-      .catch(() => undefined) // network gone: next nudge/reconnect retries
+      .then(() => noteSuccess(), (error: unknown) => noteFailure(error))
       .finally(() => { pulling = null; });
     return pulling;
   };
@@ -250,6 +324,35 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     },
     completeAuthoritativeRepair(reason) {
       if (authoritativeRepair === reason) authoritativeRepair = null;
+    },
+    async resetLocalData({ discardPending }) {
+      queue.pause("recovery");
+      let token: string | null = null;
+      try {
+        const lease = await replica.prepareRecovery();
+        token = lease.token;
+        if (!discardPending) {
+          try {
+            await flushBatches([...lease.batches], () => undefined);
+          } catch {
+            throw new ResetBlockedError(
+              lease.batches.filter((b) => !b.poisoned).length,
+            );
+          }
+        }
+        const snapshot = (await fetchJson("/api/sync/snapshot")) as Snapshot;
+        await replica.commitRecovery(token, { kind: "reset", snapshot });
+        token = null; // commit released the worker gate
+        cursor = snapshot.seq;
+        noteSuccess();
+      } catch (error: unknown) {
+        if (token !== null) {
+          try { await replica.abortRecovery(token); } catch { /* already released */ }
+        }
+        throw error;
+      } finally {
+        queue.resume("recovery");
+      }
     },
   };
 }

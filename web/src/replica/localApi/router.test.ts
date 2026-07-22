@@ -7,7 +7,7 @@ import { titleForDate } from "../daily";
 import { openTestDb, type TestDb } from "../testDb";
 import { handleLocalApi, type LocalApiResult } from "./router";
 
-const NOW = 1752403200000; // 2026-07-13 (mid-day UTC, same day in local time)
+const NOW = 1752403200000; // 2025-07-13 (mid-day UTC, same day in local time)
 
 let t: TestDb;
 beforeEach(async () => {
@@ -105,13 +105,45 @@ describe("daily auto-creation", () => {
     expect(body.days[0]).toMatchObject({ title, exists: true });
   });
 
-  test("journal with a valid before lists absent days as exists:false", () => {
+  function addDaily(id: number, title: string, texts: string[]) {
+    t.db.exec("INSERT INTO pages(id, title, created_at, updated_at)"
+      + " VALUES (?,?,NULL,NULL)", [id, title]);
+    texts.forEach((text, i) => {
+      t.db.exec(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        + " heading, collapsed, created_at, updated_at)"
+        + " VALUES (?,?,NULL,?,?,NULL,0,0,0)", [`uid_${id}_${i}`, id, i, text]);
+    });
+  }
+
+  test("journal with before returns only non-empty dailies, newest first "
+    + "(pkm-03x6: empty and whitespace-only days are omitted)", () => {
+    addDaily(11, "July 9th, 2026", ["entry nine"]);
+    addDaily(12, "July 8th, 2026", [" ", "\t\n"]);
+    addDaily(13, "July 5th, 2026", ["entry five"]);
     const body = expectStatus(
       call("GET", "/api/journal?before=2026-07-10&days=2"), 200) as {
       days: { date: string; exists: boolean }[];
     };
-    expect(body.days.map((d) => d.date)).toEqual(["2026-07-09", "2026-07-08"]);
-    expect(body.days.every((d) => !d.exists)).toBe(true);
+    expect(body.days.map((d) => d.date)).toEqual(["2026-07-09", "2026-07-05"]);
+    expect(body.days.every((d) => d.exists)).toBe(true);
+  });
+
+  test("journal head is today plus the most recent non-empty days", () => {
+    addDaily(11, "July 9th, 2025", ["entry nine"]);
+    const body = expectStatus(call("GET", "/api/journal?days=2"), 200) as {
+      days: { date: string; title: string }[];
+    };
+    expect(body.days.map((d) => d.date)).toEqual(["2025-07-13", "2025-07-09"]);
+  });
+
+  test("journal returns a short batch when the past is exhausted", () => {
+    addDaily(11, "July 9th, 2026", ["entry nine"]);
+    const body = expectStatus(
+      call("GET", "/api/journal?before=2026-07-09&days=5"), 200) as {
+      days: unknown[];
+    };
+    expect(body.days).toEqual([]);
   });
 });
 

@@ -3,7 +3,8 @@ from datetime import date
 import pytest
 
 from pkm.server.daily import (
-    date_for_title, is_page_empty, past_week_dates, title_for_date)
+    date_for_title, is_page_empty, past_week_dates, select_journal_days,
+    title_for_date)
 
 CASES = [
     (date(2026, 7, 1), "July 1st, 2026"),
@@ -55,3 +56,43 @@ def test_past_week_dates_crosses_month_boundary():
 ])
 def test_is_page_empty(texts, empty):
     assert is_page_empty(texts) is empty
+
+
+NONEMPTY = {date(2026, 7, 14), date(2026, 7, 9), date(2026, 7, 2),
+            date(2026, 7, 22)}
+
+
+def test_select_journal_days_head_is_today_then_recent_nonempty():
+    # today leads even when empty (composing); gaps are skipped
+    assert select_journal_days(NONEMPTY, today=date(2026, 7, 22),
+                               before=None, limit=3) == [
+        date(2026, 7, 22), date(2026, 7, 14), date(2026, 7, 9)]
+
+
+def test_select_journal_days_head_does_not_duplicate_nonempty_today():
+    days = select_journal_days(NONEMPTY, today=date(2026, 7, 22),
+                               before=None, limit=5)
+    assert days == [date(2026, 7, 22), date(2026, 7, 14),
+                    date(2026, 7, 9), date(2026, 7, 2)]
+
+
+def test_select_journal_days_head_when_today_is_empty():
+    assert select_journal_days({date(2026, 7, 14)}, today=date(2026, 7, 22),
+                               before=None, limit=5) == [
+        date(2026, 7, 22), date(2026, 7, 14)]
+
+
+def test_select_journal_days_head_limit_one_is_just_today():
+    assert select_journal_days(NONEMPTY, today=date(2026, 7, 22),
+                               before=None, limit=1) == [date(2026, 7, 22)]
+
+
+def test_select_journal_days_cursor_is_exclusive_newest_first():
+    assert select_journal_days(NONEMPTY, today=date(2026, 7, 22),
+                               before=date(2026, 7, 14), limit=5) == [
+        date(2026, 7, 9), date(2026, 7, 2)]
+
+
+def test_select_journal_days_cursor_returns_fewer_when_exhausted():
+    assert select_journal_days(NONEMPTY, today=date(2026, 7, 22),
+                               before=date(2026, 7, 2), limit=5) == []

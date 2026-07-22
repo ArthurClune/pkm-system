@@ -4,7 +4,7 @@ pure pieces of the empty-daily cleanup: date window + emptiness test."""
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import date, timedelta
 
 _MONTHS = ["January", "February", "March", "April", "May", "June", "July",
@@ -44,3 +44,18 @@ def past_week_dates(today: date) -> list[date]:
 def is_page_empty(texts: Sequence[str]) -> bool:
     """True when every block text is empty/whitespace (or there are none)."""
     return all(not t.strip() for t in texts)
+
+
+def select_journal_days(nonempty: Iterable[date], today: date,
+                        before: date | None, limit: int) -> list[date]:
+    """The dates a journal batch shows, newest first (pkm-03x6). With no
+    cursor: today leads — always, even when empty, so there is a page to
+    compose into — followed by the most recent non-empty days before it.
+    With a `before` cursor: the most recent non-empty days strictly before
+    it. Empty gap days are omitted entirely; a batch shorter than `limit`
+    tells the client the journal is exhausted."""
+    if before is None:
+        pool = sorted((d for d in nonempty if d < today), reverse=True)
+        return [today, *pool[:max(0, limit - 1)]]
+    pool = sorted((d for d in nonempty if d < before), reverse=True)
+    return pool[:limit]

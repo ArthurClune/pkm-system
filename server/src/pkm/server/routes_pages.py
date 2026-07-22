@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from datetime import date, timedelta
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -13,7 +13,8 @@ from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.backlinks import group_backlinks
 from pkm.server.daily import (
-    date_for_title, is_page_empty, past_week_dates, title_for_date)
+    date_for_title, is_page_empty, past_week_dates, select_journal_days,
+    title_for_date)
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
 from pkm.server.ops_core import UID_RE as _UID_RE
@@ -338,37 +339,53 @@ def get_current_work(now_ms: int | None = None,
     return {"sections": sections}
 
 
+# Non-empty = any block with non-whitespace text; the trim char set matches
+# is_page_empty()'s strip() for ASCII whitespace, and the offline shim runs
+# the identical SQL so both engines agree byte-for-byte (spec section 7).
+_NONEMPTY_DAILY_SQL = (
+    "SELECT title FROM pages WHERE EXISTS ("
+    " SELECT 1 FROM blocks b WHERE b.page_id = pages.id"
+    " AND trim(b.text, char(9)||char(10)||char(13)||char(32)) <> '')")
+
+
 @router.get("/api/journal", response_model=JournalPayload)
 def get_journal(request: Request, before: str | None = None, days: int = 7,
                 db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """Newest-first batch of non-empty daily pages (pkm-03x6). The head
+    batch (no `before`) starts with today — auto-created so there is a
+    page to compose into, even when empty — followed by the most recent
+    non-empty days; `before` pages strictly backwards from that date.
+    Empty days are omitted, and a batch shorter than `days` tells the
+    client the journal is exhausted."""
     days = max(1, min(days, 31))
+    cursor: date | None = None
     if before:
         try:
-            start = date.fromisoformat(before)
+            cursor = date.fromisoformat(before)
         except ValueError:
             raise HTTPException(status_code=400, detail="invalid before date")
-    else:
-        start = date.today() + timedelta(days=1)
+    today = date.today()
+    if cursor is None and fetch_page(db, title_for_date(today)) is None:
+        get_or_create_page(db, title_for_date(today), int(time.time() * 1000))
+        db.commit()
+        notify.nudge_threadpool(request, db)
+    nonempty: set[date] = set()
+    for row in db.execute(_NONEMPTY_DAILY_SQL).fetchall():
+        d = date_for_title(row["title"])
+        if d is not None:
+            nonempty.add(d)
     out = []
     texts: list[str] = []
-    for i in range(1, days + 1):
-        d = start - timedelta(days=i)
-        title = title_for_date(d)
-        page = fetch_page(db, title)
-        if page is None and d == date.today():
-            page = get_or_create_page(db, title, int(time.time() * 1000))
-            db.commit()
-            notify.nudge_threadpool(request, db)
-        if page is None:
-            out.append({"date": d.isoformat(), "title": title,
-                        "exists": False, "blocks": []})
-        else:
-            blocks = db.execute(
-                f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
-                (page["id"],)).fetchall()
-            texts.extend(r["text"] for r in blocks)
-            out.append({"date": d.isoformat(), "title": title,
-                        "exists": True, "blocks": build_tree(blocks)})
+    for d in select_journal_days(nonempty, today, cursor, days):
+        page = fetch_page(db, title_for_date(d))
+        if page is None:  # pragma: no cover - selected days exist
+            continue
+        blocks = db.execute(
+            f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
+            (page["id"],)).fetchall()
+        texts.extend(r["text"] for r in blocks)
+        out.append({"date": d.isoformat(), "title": page["title"],
+                    "exists": True, "blocks": build_tree(blocks)})
     return {"days": out, "block_ref_texts": _block_ref_texts(db, texts)}
 
 

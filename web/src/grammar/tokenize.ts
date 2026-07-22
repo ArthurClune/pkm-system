@@ -7,6 +7,7 @@
 // {{pdf}} embed macros (Roam's PDF-embed spelling), $$ math, and line breaks. Ref
 // *extraction* lives in refs.ts on the same scanner.
 
+import { scanMarkdownLinkAt } from "./markdown";
 import { scanGrammar, type GrammarToken } from "./scan";
 
 export type EmphasisKind = "bold" | "italic" | "strike" | "highlight";
@@ -58,24 +59,6 @@ function scanMacro(
   }
   if (depth !== 0) return null;
   return [text.slice(i + m[0].length, j - 2).trim(), j];
-}
-
-/** From i pointing at "[": {text, href, end} for [text](href), or null. */
-function scanMarkdownLink(
-  text: string, i: number,
-): { text: string; href: string; end: number } | null {
-  let depth = 1;
-  let j = i + 1;
-  while (j < text.length && depth > 0) {
-    if (text[j] === "\n") return null;
-    if (text[j] === "[") depth += 1;
-    else if (text[j] === "]") depth -= 1;
-    j += 1;
-  }
-  if (depth !== 0 || text[j] !== "(") return null;
-  const close = text.indexOf(")", j + 1);
-  if (close === -1 || text.slice(j + 1, close).includes("\n")) return null;
-  return { text: text.slice(i + 1, j - 1), href: text.slice(j + 1, close), end: close + 1 };
 }
 
 function parseFence(body: string): BlockSegment {
@@ -143,19 +126,27 @@ function tokenizeInline(
       }
     }
     if (ch === "!" && text.startsWith("![", i)) {
-      const link = scanMarkdownLink(text, i + 1);
-      if (link && link.end <= to) {
+      const link = scanMarkdownLinkAt(text, i);
+      if (link?.kind === "image" && link.end <= to) {
         flushText();
-        out.push({ kind: "image", alt: link.text, src: link.href });
+        out.push({
+          kind: "image",
+          alt: text.slice(link.label.start, link.label.end),
+          src: text.slice(link.destination.start, link.destination.end),
+        });
         i = link.end;
         continue;
       }
     }
     if (ch === "[" && !text.startsWith("[[", i)) {
-      const link = scanMarkdownLink(text, i);
-      if (link && link.end <= to) {
+      const link = scanMarkdownLinkAt(text, i);
+      if (link?.kind === "link" && link.end <= to) {
         flushText();
-        out.push({ kind: "link", text: link.text, href: link.href });
+        out.push({
+          kind: "link",
+          text: text.slice(link.label.start, link.label.end),
+          href: text.slice(link.destination.start, link.destination.end),
+        });
         i = link.end;
         continue;
       }

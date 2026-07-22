@@ -152,6 +152,9 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
     }
     case "reset-started": {
       const current = state.problem;
+      // Delivery problems (a different kind) take precedence — leave the state untouched.
+      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
+      // Create or update the replica-stalled problem to move reset to running.
       const base = current?.kind === "replica-stalled"
         ? current : { kind: "replica-stalled" as const, error: "", reset: "idle" as const };
       return problem(state, {
@@ -160,6 +163,9 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
     }
     case "reset-blocked": {
       const current = state.problem;
+      // Delivery problems (a different kind) take precedence — leave the state untouched.
+      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
+      // Create or update the replica-stalled problem to move reset to blocked.
       const base = current?.kind === "replica-stalled"
         ? current : { kind: "replica-stalled" as const, error: "", reset: "idle" as const };
       return problem(state, {
@@ -168,6 +174,9 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
     }
     case "reset-failed": {
       const current = state.problem;
+      // Delivery problems (a different kind) take precedence — leave the state untouched.
+      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
+      // Create or update the replica-stalled problem to move reset to failed.
       const base = current?.kind === "replica-stalled"
         ? current : { kind: "replica-stalled" as const, error: "", reset: "idle" as const };
       return problem(state, {

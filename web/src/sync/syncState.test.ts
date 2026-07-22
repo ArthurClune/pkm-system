@@ -338,6 +338,49 @@ describe("transitionSync replica-stalled lifecycle", () => {
     expect(t.state.problem).toEqual(other);
     expect(t.effects).toEqual([{ type: "bump-resync" }]);
   });
+
+  it("does not clobber a rejected-batch problem on reset-started", () => {
+    const existing: SyncProblem = {
+      kind: "rejected-batch", event: poison(), repair: "running",
+    };
+    const t = transitionSync(withProblem(existing), { type: "reset-started" });
+    expect(t.state.problem).toEqual(existing);
+    expect(t.effects).toEqual([]);
+  });
+
+  it("does not clobber a rejected-batch problem on reset-blocked", () => {
+    const existing: SyncProblem = {
+      kind: "rejected-batch", event: poison(), repair: "running",
+    };
+    const t = transitionSync(withProblem(existing), { type: "reset-blocked", pending: 2 });
+    expect(t.state.problem).toEqual(existing);
+    expect(t.effects).toEqual([]);
+  });
+
+  it("does not clobber a rejected-batch problem on reset-failed", () => {
+    const existing: SyncProblem = {
+      kind: "rejected-batch", event: poison(), repair: "running",
+    };
+    const t = transitionSync(withProblem(existing), { type: "reset-failed", error: "boom" });
+    expect(t.state.problem).toEqual(existing);
+    expect(t.effects).toEqual([]);
+  });
+
+  it("defensively creates a replica-stalled problem with reset blocked when missing", () => {
+    const t = transitionSync(createSyncState(), { type: "reset-blocked", pending: 5 });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "", reset: "blocked", pending: 5,
+      resetError: undefined,
+    });
+  });
+
+  it("defensively creates a replica-stalled problem with reset failed when missing", () => {
+    const t = transitionSync(createSyncState(), { type: "reset-failed", error: "boom" });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "", reset: "failed",
+      resetError: "boom", pending: undefined,
+    });
+  });
 });
 
 describe("transitionSync exhaustiveness", () => {

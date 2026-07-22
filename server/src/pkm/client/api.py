@@ -123,10 +123,8 @@ class PkmClient:
 
     def post_ops(self, ops: list[dict],
                  batch_id: str | None = None) -> dict:
-        if batch_id is None:
-            batch_id = new_uid()
         try:
-            batch = OpBatch(client_id=CLIENT_ID, batch_id=batch_id, ops=ops)
+            batch = OpBatch(client_id=CLIENT_ID, batch_id=batch_id, ops=ops)  # type: ignore[arg-type]
         except ValueError as e:
             raise ApiError(422, f"invalid ops: {e}")
         return self._request("POST", "/api/ops",

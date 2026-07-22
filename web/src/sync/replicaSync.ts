@@ -38,6 +38,11 @@ export interface ReplicaSync {
    * discardPending) then rebuilds from a fresh snapshot. Throws
    * ResetBlockedError when discardPending is false and the flush fails. */
   resetLocalData(opts: { discardPending: boolean }): Promise<void>;
+  /** Stops scheduling backoff retries and clears any pending retry timer.
+   * The provider must call this on teardown (unmount) so a stopped instance
+   * doesn't leak a timer that outlives its component; an in-flight pull may
+   * still finish after stop() but will not reschedule another retry. */
+  stop(): void;
 }
 
 /** Thrown by resetLocalData when discardPending is false and the pending-batch
@@ -96,12 +101,15 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let retryDelay = RETRY_BASE_MS;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let reportedNonReady = false;
+  // Set by stop(): a torn-down instance must not leak a timer past unmount,
+  // so a still-in-flight pull's eventual noteFailure must not reschedule.
+  let stopped = false;
 
-  const noteSuccess = (): void => {
+  const noteSuccess = (opts: { force?: boolean } = {}): void => {
     consecutiveFailures = 0;
     retryDelay = RETRY_BASE_MS;
     if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
-    if (reportedNonReady) {
+    if (reportedNonReady || opts.force) {
       reportedNonReady = false;
       onState({ mode: "ready" });
     }
@@ -113,7 +121,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       reportedNonReady = true;
       onState({ mode: "stalled", error: errText(error) });
     }
-    if (retryTimer === null) {
+    if (!stopped && retryTimer === null) {
       retryTimer = setTimeout(() => {
         retryTimer = null;
         void pull();
@@ -326,9 +334,21 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       if (authoritativeRepair === reason) authoritativeRepair = null;
     },
     async resetLocalData({ discardPending }) {
+      // A rejected-batch repair owns recovery until the provider has deleted
+      // its durable row and scheduled resync; a manual reset must not steal
+      // that lease out from under it (mirrors the needs-bootstrap guard in
+      // pullLoop). Bail before touching the queue or acquiring a lease.
+      if (authoritativeRepair === "poison") {
+        throw new Error("rejected-batch repair in progress");
+      }
       queue.pause("recovery");
       let token: string | null = null;
       try {
+        // Unlike schema/generation recovery, a manual reset must not tear
+        // down a database out from under a pull that already passed the
+        // pending-id guard; that pull's stale window could otherwise apply
+        // after the full snapshot and move the cursor/state backwards.
+        await (pulling ?? Promise.resolve());
         const lease = await replica.prepareRecovery();
         token = lease.token;
         if (!discardPending) {
@@ -344,15 +364,27 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         await replica.commitRecovery(token, { kind: "reset", snapshot });
         token = null; // commit released the worker gate
         cursor = snapshot.seq;
-        noteSuccess();
+        // Unlike ordinary pull success, a reset must report ready even when
+        // no prior failure was announced, and must (re)enable pulls: it can
+        // resolve a recovery-failed state that left `started` false (a
+        // failed doStart never got here) as well as one where it was already
+        // true (a failed in-pull recovery).
+        started = true;
+        noteSuccess({ force: true });
       } catch (error: unknown) {
         if (token !== null) {
           try { await replica.abortRecovery(token); } catch { /* already released */ }
         }
         throw error;
       } finally {
-        queue.resume("recovery");
+        if (authoritativeRepair !== "poison") {
+          queue.resume("recovery");
+        }
       }
+    },
+    stop() {
+      stopped = true;
+      if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
     },
   };
 }

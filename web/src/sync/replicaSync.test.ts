@@ -3,7 +3,7 @@ import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { PendingBatch, Replica, ReplicaInit } from "../replica/client";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, ResetBlockedError, RETRY_BASE_MS,
-  type ReplicaState,
+  RETRY_MAX_MS, type ReplicaState,
 } from "./replicaSync";
 
 const SNAP: Snapshot = {
@@ -772,4 +772,147 @@ test("resetLocalData without discardPending surfaces a blocked reset when flush 
   expect(replica.calls).toContain("abortRecovery");
   expect(replica.calls).not.toContain("commitRecovery");
   expect(snapshotCalls).toBe(0);
+});
+
+test("resetLocalData succeeding after a failed doStart reports ready and re-enables pulls", async () => {
+  // init succeeds but schema recovery's snapshot fails: doStart returns
+  // early, `started` never gets set, and the replica is left recovery-failed
+  // with pulls permanently no-op'd until something re-enables them.
+  const batch: PendingBatch = {
+    id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false,
+  };
+  const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: [batch] });
+  let snapshotShouldFail = true;
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") return { ok: true };
+    if (path === "/api/sync/snapshot") {
+      if (snapshotShouldFail) throw new Error("snapshot offline");
+      return SNAP;
+    }
+    return feed();
+  });
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+  expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "snapshot offline" });
+
+  snapshotShouldFail = false;
+  await sync.resetLocalData({ discardPending: true });
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+
+  const callsBefore = fetchJson.mock.calls.length;
+  sync.onSeq(999); // cursor is now SNAP.seq (5); a higher seq must trigger a pull
+  await sync.idle();
+  expect(fetchJson.mock.calls.length).toBeGreaterThan(callsBefore);
+  expect(fetchJson.mock.calls.at(-1)?.[0]).toBe("/api/sync/changes?since=5");
+  sync.stop();
+});
+
+test("resetLocalData succeeding from recovery-failed reported via a failed runRecovery also ends ready", async () => {
+  // Here `started` was already true (init succeeded before the pull's
+  // needs-bootstrap recovery failed); a reset must still force-report ready
+  // rather than rely on a previously-reported stall to unlock it.
+  const batch: PendingBatch = {
+    id: 8, batch_id: "b-8", ops: [{ op: "delete", uid: "uid_a8" }], poisoned: false,
+  };
+  const replica = fakeReplica({
+    applyChanges: vi.fn().mockResolvedValueOnce({ status: "needs-bootstrap" }),
+    prepareRecovery: async () => ({ token: "lease-feed", batches: [batch] }),
+  });
+  let opsShouldFail = true;
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") {
+      if (opsShouldFail) throw new Error("feed flush offline");
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+  expect(states.at(-1)).toEqual({ mode: "recovery-failed", error: "feed flush offline" });
+
+  opsShouldFail = false;
+  await sync.resetLocalData({ discardPending: true });
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+  sync.stop();
+});
+
+test("resetLocalData rejects immediately when poison owns recovery, without touching the queue or lease", async () => {
+  const replica = fakeReplica();
+  let signalPoisonPending: () => void = () => undefined;
+  const queue = {
+    pause: vi.fn(),
+    resume: vi.fn(),
+    onPoisonPending: (listener: () => void) => {
+      signalPoisonPending = listener;
+      return () => undefined;
+    },
+  };
+  const fetchJson = vi.fn(async () => feed());
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+  signalPoisonPending();
+
+  await expect(sync.resetLocalData({ discardPending: true }))
+    .rejects.toThrow("rejected-batch repair in progress");
+
+  expect(replica.calls).not.toContain("prepareRecovery");
+  expect(queue.pause).not.toHaveBeenCalled();
+});
+
+test("resetLocalData does not resume the queue when poison now owns recovery", async () => {
+  const replica = fakeReplica();
+  let signalPoisonPending: () => void = () => undefined;
+  const queue = {
+    pause: vi.fn(),
+    resume: vi.fn(),
+    onPoisonPending: (listener: () => void) => {
+      signalPoisonPending = listener;
+      return () => undefined;
+    },
+  };
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/sync/snapshot") {
+      // poison observed mid-reset, after the entry guard already passed
+      signalPoisonPending();
+      return SNAP;
+    }
+    return feed();
+  });
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+
+  await sync.resetLocalData({ discardPending: true });
+
+  expect(queue.resume).not.toHaveBeenCalled();
+});
+
+test("stop() clears the pending retry timer and prevents further scheduling", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica();
+    const fetchJson = vi.fn(async () => { throw new Error("changes offline"); });
+    const { onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // failure 1: a retry timer is now scheduled
+    const callsBeforeStop = fetchJson.mock.calls.length;
+
+    sync.stop();
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 2);
+
+    expect(fetchJson.mock.calls.length).toBe(callsBeforeStop);
+  } finally {
+    vi.useRealTimers();
+  }
 });

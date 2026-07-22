@@ -86,7 +86,7 @@ describe("top bar cohesion (pkm-absu)", () => {
   });
 
   test("top-bar buttons share one ghost style", () => {
-    const ghost = ruleFor(".top-bar-menu-button, .sidebar-toggle-button");
+    const ghost = ruleFor(".top-bar-menu-button, .sidebar-toggle-button, .help-button");
     expect(ghost).toContain("border: 1px solid transparent;");
   });
 

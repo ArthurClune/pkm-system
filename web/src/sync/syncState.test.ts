@@ -381,6 +381,38 @@ describe("transitionSync replica-stalled lifecycle", () => {
       resetError: "boom", pending: undefined,
     });
   });
+
+  it("dismisses a blocked replica-stalled problem", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "blocked", pending: 3,
+    }), { type: "dismiss" });
+    expect(t.state.problem).toBeUndefined();
+  });
+
+  it("dismisses a failed replica-stalled problem", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "failed", resetError: "boom",
+    }), { type: "dismiss" });
+    expect(t.state.problem).toBeUndefined();
+  });
+
+  it("does not dismiss an idle replica-stalled problem (only signal of a broken replica)", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "idle",
+    }), { type: "dismiss" });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "x", reset: "idle",
+    });
+  });
+
+  it("does not dismiss a running replica-stalled reset", () => {
+    const t = transitionSync(withProblem({
+      kind: "replica-stalled", error: "x", reset: "running",
+    }), { type: "dismiss" });
+    expect(t.state.problem).toEqual({
+      kind: "replica-stalled", error: "x", reset: "running",
+    });
+  });
 });
 
 describe("transitionSync exhaustiveness", () => {

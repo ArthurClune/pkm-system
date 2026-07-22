@@ -193,7 +193,14 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       const current = state.problem;
       const repaired = (current?.kind === "legacy-rejected"
         || current?.kind === "rejected-batch") && current.repair === "repaired";
-      return repaired ? problem(state, undefined) : { state, effects: [] };
+      // A stalled replica's idle/running states are the only signal a user
+      // has that local data is broken — only an acknowledged blocked/failed
+      // reset outcome may be dismissed. A later re-report re-raises the
+      // banner as a fresh idle problem (see the "replica-stalled" case).
+      const acknowledgedReset = current?.kind === "replica-stalled"
+        && (current.reset === "blocked" || current.reset === "failed");
+      return repaired || acknowledgedReset
+        ? problem(state, undefined) : { state, effects: [] };
     }
     default: {
       const exhaustive: never = event;

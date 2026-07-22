@@ -176,3 +176,79 @@ it("repaired rejection keeps details until Dismiss", () => {
   expect(dismissProblem).toHaveBeenCalledTimes(1);
   expect(retryProblem).not.toHaveBeenCalled();
 });
+
+it("shows a stalled replica banner with a reset button", () => {
+  renderWith({
+    problem: {
+      kind: "replica-stalled", error: "replica db locked", reset: "idle",
+    } as unknown as Sync["problem"],
+  });
+  expect(screen.getByRole("alert"))
+    .toHaveTextContent("Local sync is stuck: replica db locked");
+  expect(screen.getByRole("button", { name: "Reset local data" })).toBeEnabled();
+});
+
+it("clicking Reset local data calls resetReplica(false)", () => {
+  const resetReplica = vi.fn(async () => undefined);
+  renderWith({
+    problem: {
+      kind: "replica-stalled", error: "replica db locked", reset: "idle",
+    } as unknown as Sync["problem"],
+    resetReplica,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Reset local data" }));
+  expect(resetReplica).toHaveBeenCalledTimes(1);
+  expect(resetReplica).toHaveBeenCalledWith(false);
+});
+
+it("disables the reset button while a reset is running", () => {
+  renderWith({
+    problem: {
+      kind: "replica-stalled", error: "replica db locked", reset: "running",
+    } as unknown as Sync["problem"],
+  });
+  expect(screen.getByRole("button", { name: "Reset local data" })).toBeDisabled();
+});
+
+it("shows the reset failure message alongside the retry button", () => {
+  renderWith({
+    problem: {
+      kind: "replica-stalled", error: "replica db locked", reset: "failed",
+      resetError: "disk full",
+    } as unknown as Sync["problem"],
+  });
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Local sync is stuck: replica db locked Reset failed: disk full.");
+  expect(screen.getByRole("button", { name: "Reset local data" })).toBeEnabled();
+});
+
+it("shows the blocked-reset banner with discard and keep-waiting actions", () => {
+  const resetReplica = vi.fn(async () => undefined);
+  const dismissProblem = vi.fn();
+  renderWith({
+    problem: {
+      kind: "replica-stalled", error: "replica db locked", reset: "blocked", pending: 3,
+    } as unknown as Sync["problem"],
+    resetReplica,
+    dismissProblem,
+  });
+  expect(screen.getByRole("alert"))
+    .toHaveTextContent("3 unsent changes could not be delivered.");
+
+  fireEvent.click(screen.getByRole("button", { name: "Discard and reset" }));
+  expect(resetReplica).toHaveBeenCalledTimes(1);
+  expect(resetReplica).toHaveBeenCalledWith(true);
+
+  fireEvent.click(screen.getByRole("button", { name: "Keep waiting" }));
+  expect(dismissProblem).toHaveBeenCalledTimes(1);
+});
+
+it("uses the singular for one unsent blocked change", () => {
+  renderWith({
+    problem: {
+      kind: "replica-stalled", error: "replica db locked", reset: "blocked", pending: 1,
+    } as unknown as Sync["problem"],
+  });
+  expect(screen.getByRole("alert"))
+    .toHaveTextContent("1 unsent change could not be delivered.");
+});

@@ -564,6 +564,11 @@ export function SyncProvider({ children, replica }: {
       } else if (currentProblem?.kind === "rejected-batch" &&
           currentProblem.repair === "repaired") {
         repairTargetsRef.current = [];
+      } else if (currentProblem?.kind === "replica-stalled" &&
+          (currentProblem.reset === "blocked" || currentProblem.reset === "failed")) {
+        // No local ref cleanup needed here: acknowledging a blocked/failed
+        // reset just clears the banner — a later stall re-report re-raises
+        // it fresh (see syncState's "dismiss"/"replica-stalled" handling).
       } else {
         return;
       }

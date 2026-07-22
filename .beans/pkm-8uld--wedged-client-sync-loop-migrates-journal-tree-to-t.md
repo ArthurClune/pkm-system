@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: high
 created_at: 2026-07-22T09:51:25Z
-updated_at: 2026-07-22T10:02:59Z
+updated_at: 2026-07-22T13:20:00Z
 ---
 
 Found investigating "daily notes vanished apart from today" (2026-07-22).
@@ -48,9 +48,9 @@ Code root causes identified so far:
 
 - [x] Capture iPad replay live — iPad load produced ZERO op mutations. The visible "daily notes reset" on loading the iPad was: journal-mount POST /api/journal/cleanup deleting empty daily pages (incl. the three zombies the CLI reads created, seq 11392-11394) + the ws-nudged resync remounting the other device's journal view. Not a replay; cleanup + resync working as designed on top of already-emptied days.
 - [x] Root-cause established (see Root cause summary below); per-device wedge triggers no longer observable (all devices cleared). Prime suspects for the original applyChanges/recovery failures: storage quota during 15MB snapshot re-bootstrap after the Jul 19/20 deploy generation flips, all swallowed by replicaSync's silent catch.
-- [ ] Fix: pull wedge must surface/recover instead of silent catch
-- [ ] Fix/harden: no-batch_id ops path (reject or version-gate stale clients; SW update strategy)
-- [ ] Decide cleanup guard (e.g. don't delete a daily emptied by a cross-page move, or tombstone)
+- [x] Fix: pull wedge must surface/recover instead of silent catch
+- [x] Fix/harden: no-batch_id ops path (reject or version-gate stale clients; SW update strategy)
+- [ ] Decide cleanup guard (e.g. don't delete a daily emptied by a cross-page move, or tombstone) — deferred: cleanup tombstone/guard decision tracked with pkm-mly7 (journal DnD clarification)
 
 ## Root cause summary (final)
 

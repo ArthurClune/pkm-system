@@ -16,7 +16,7 @@ import { useResync } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
 
 const BATCH = 5;
-const MAX_EMPTY_BATCHES = 3;
+const SERVER_MAX_DAYS = 31; // get_journal clamps `days`; asking for more is moot
 
 // A day's authoritative page fetch 404s when it's been deleted (or never
 // created) underneath us — an empty-daily prune, or the server's
@@ -36,11 +36,16 @@ export function Journal() {
   const [days, setDays] = useState<JournalDay[]>([]);
   const [refTexts, setRefTexts] = useState<Record<string, BlockRefText>>({});
   const [autoLoad, setAutoLoad] = useState(true);
+  // The API returns only non-empty days (pkm-03x6), so a batch shorter than
+  // requested means the journal's past is exhausted: nothing left to load.
+  const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // Refs, not state, so the IntersectionObserver callback never goes stale.
   const daysRef = useRef<JournalDay[]>([]);
-  const emptyStreakRef = useRef(0);
+  // Day count on screen when a resync reset the cursor: the head reload asks
+  // for the whole window so the view doesn't collapse to one batch (pkm-wstt).
+  const windowRef = useRef(0);
   const loadingRef = useRef(false);
   const genRef = useRef(0);
   const mountedRef = useRef(false);
@@ -86,8 +91,12 @@ export function Journal() {
       const current = daysRef.current;
       const oldest = current[current.length - 1]?.date;
       // `before` is exclusive of the date given: passing the oldest loaded
-      // date returns the day before it first (days come back newest-first).
-      const qs = oldest ? `?days=${BATCH}&before=${oldest}` : `?days=${BATCH}`;
+      // date returns the next non-empty day before it (newest-first). A head
+      // load after a resync re-requests the whole on-screen window instead.
+      const want = oldest ? BATCH : Math.min(
+        SERVER_MAX_DAYS, Math.max(BATCH, windowRef.current));
+      windowRef.current = 0;
+      const qs = oldest ? `?days=${want}&before=${oldest}` : `?days=${want}`;
       const p = await apiFetch<JournalPayload>(`/api/journal${qs}`);
       if (!mountedRef.current || gen !== genRef.current) return;
       const received = p.days.map((day) => {
@@ -113,9 +122,10 @@ export function Journal() {
       setRefTexts((m) => oldest
         ? { ...m, ...p.block_ref_texts }
         : { ...p.block_ref_texts });
-      emptyStreakRef.current =
-        p.days.some((d) => d.exists) ? 0 : emptyStreakRef.current + 1;
-      if (emptyStreakRef.current >= MAX_EMPTY_BATCHES) setAutoLoad(false);
+      if (p.days.length < want) {
+        setAutoLoad(false);
+        setDone(true);
+      }
     } catch (e: unknown) {
       if (!mountedRef.current || gen !== genRef.current) return;
       setError(String(e));
@@ -175,8 +185,9 @@ export function Journal() {
     // Freshness doesn't need the remount — block content flows through the
     // shared outline sessions, and the head reload below replaces the day
     // list in place under stable per-date keys when it lands.
+    windowRef.current = daysRef.current.length;
     daysRef.current = [];
-    emptyStreakRef.current = 0;
+    setDone(false);
     setAutoLoad(true);
     void loadMore("resync");
   }, [loadMore, releaseAllReads]);
@@ -215,7 +226,7 @@ export function Journal() {
       </p>
       {autoLoad
         ? <div ref={sentinelRef} className="journal-sentinel" />
-        : (
+        : done ? null : (
           <button className="show-more btn-secondary"
                   onClick={() => { setAutoLoad(true); void loadMore(); }}>
             Load older days

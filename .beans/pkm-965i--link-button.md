@@ -1,11 +1,11 @@
 ---
 # pkm-965i
 title: link button
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-22T09:05:17Z
-updated_at: 2026-07-22T16:39:54Z
+updated_at: 2026-07-22T18:07:58Z
 ---
 
 At the base of pages are the 'linked references' and 'unlinked references' section. Unlinked references should have a 'link' button next to them. This should turn plain text into a block reference or add a tag if it's a URL
@@ -32,5 +32,13 @@ Ref 2
 - [x] Self-review spec
 - [x] Obtain user review of written spec
 - [x] Write implementation plan
-- [ ] Implement with tests
-- [ ] Verify, review, commit, and push
+- [x] Implement with tests
+- [x] Verify, review, commit, and push
+
+## Summary of Changes
+
+- Added a syntax-aware transformation core with a shared Markdown scanner.
+- Added explicit snapshot-hash stale-write protection.
+- Built the per-result Link UI and write lifecycle.
+- Added replacement backlink refresh with race, pagination, and filter safety.
+- Kept styling compact and covered the work with unit, component, and E2E tests, plus full verification.

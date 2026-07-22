@@ -1,11 +1,11 @@
 ---
 # pkm-8uld
 title: Wedged client sync loop migrates journal tree to today and replays stale ops
-status: in-progress
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-22T09:51:25Z
-updated_at: 2026-07-22T13:20:00Z
+updated_at: 2026-07-22T12:48:34Z
 ---
 
 Found investigating "daily notes vanished apart from today" (2026-07-22).
@@ -25,10 +25,10 @@ Since ~2026-07-08, every morning the entire daily-note content tree (single top-
 
 ## Root-cause questions
 
-- [ ] Why does the pull cursor stop advancing (poison change entry? apply error swallowed without cursor advance)?
-- [ ] Why do op-queue retries re-apply instead of dedup'ing on batch_id?
-- [ ] What generates a fresh top-level MoveOp with page_title = current today each morning (only DnD stamps page_title on moves — durable intent replay? outline replay regeneration)?
-- [ ] Server hardening: cleanup deleted the emptied husks, making the damage invisible — consider tombstones/telemetry or requiring batch_id.
+- [x] Why does the pull cursor stop advancing — ANSWERED: pullLoop swallowed every error (`.catch(() => undefined)`) and failed recoveries returned silently; likely trigger a failed full-snapshot re-bootstrap after the Jul 19/20 deploys. Fixed in pkm-80ds (stall detection, backoff, banner, resetLocalData).
+- [x] Why do op-queue retries re-apply — ANSWERED: legacy queue and quota fallback POSTed without batch_id (server applied unconditionally). Fixed in pkm-ri5b (batch_id required, fallbacks mint/freeze ids).
+- [x] What generates the fresh daily MoveOp — ANSWERED: Arthur's own deliberate morning drag of the Todos root; not an automation. The wedged clients only made the aftermath confusing.
+- [x] Server hardening — batch_id now required (pkm-ri5b); GET no longer resurrects dailies (pkm-fy52); cleanup tombstone/guard decision deferred to pkm-mly7.
 
 ## Recovery notes
 
@@ -50,7 +50,7 @@ Code root causes identified so far:
 - [x] Root-cause established (see Root cause summary below); per-device wedge triggers no longer observable (all devices cleared). Prime suspects for the original applyChanges/recovery failures: storage quota during 15MB snapshot re-bootstrap after the Jul 19/20 deploy generation flips, all swallowed by replicaSync's silent catch.
 - [x] Fix: pull wedge must surface/recover instead of silent catch
 - [x] Fix/harden: no-batch_id ops path (reject or version-gate stale clients; SW update strategy)
-- [ ] Decide cleanup guard (e.g. don't delete a daily emptied by a cross-page move, or tombstone) — deferred: cleanup tombstone/guard decision tracked with pkm-mly7 (journal DnD clarification)
+- [x] Decide cleanup guard — DEFERRED to pkm-mly7 (journal DnD clarification): whether cleanup should tombstone or spare days emptied by cross-page moves.
 
 ## Root cause summary (final)
 
@@ -64,3 +64,9 @@ Layered failure, no single bug:
    - Stale service-worker bundles keep pre-fix clients alive indefinitely.
 
 All three devices have now been cleared/re-bootstrapped and sync is healthy (cursors advancing past 11394).
+
+## Summary of Changes
+
+All three fix beans shipped on branch worktree-sync-hardening, merged to main at 11b2017 (2026-07-22): pkm-ri5b (batch_id required end-to-end), pkm-fy52 (today-only auto-create, empty-editable missing dailies), pkm-80ds (stall detection, backoff, resetLocalData, replica-stalled banner). Follow-ups: pkm-913m (stall-shape classification of in-pull recovery errors), pkm-mly7 (journal DnD + cleanup guard, draft pending Arthur's clarification).
+
+**Deploy note:** stale PWA bundles (the incident's root) will 422 on /api/ops after this deploys and land in the visible rejected-batch repair flow — old tabs must be refreshed after deploy.

@@ -1,11 +1,12 @@
 // pattern: Imperative Shell
 // The durable op queue (spec section 3): pending batches live INSIDE the
 // replica database as wire-format JSON, so queued offline edits survive
-// tab refresh and browser restart. Each update_text captures its
-// base_text_hash from the replica's CURRENT text before the batch applies
-// optimistically — a user's own edit chain therefore flushes cleanly (op
-// N leaves the text op N+1's hash matches). Poisoned batches (server
-// 4xx) are set aside, never retried forever (spec section 6).
+// tab refresh and browser restart. update_text captures a current
+// base_text_hash only when one is not already supplied; explicit
+// snapshot hashes are preserved, and a user's own edit chain therefore
+// flushes cleanly (op N leaves the text op N+1's hash matches).
+// Poisoned batches (server 4xx) are set aside, never retried forever
+// (spec section 6).
 
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import type { PendingBatch, PoisonedBatch } from "./client";

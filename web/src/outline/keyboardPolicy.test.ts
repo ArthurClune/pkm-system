@@ -313,6 +313,65 @@ describe("decideEditorKey structural keys", () => {
   });
 });
 
+describe("decideEditorKey ctrl-cmd selection (pkm-am54)", () => {
+  it("selects to the block start on Ctrl+Cmd+ArrowLeft", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowLeft", ctrlKey: true, metaKey: true, draft: "hello",
+      selStart: 3, selEnd: 3,
+    }))).toEqual({ type: "select-to-block-edge", edge: "start" });
+  });
+
+  it("selects to the block end on Ctrl+Cmd+ArrowRight", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowRight", ctrlKey: true, metaKey: true, draft: "hello",
+      selStart: 3, selEnd: 3,
+    }))).toEqual({ type: "select-to-block-edge", edge: "end" });
+  });
+
+  it("selects the whole block on Ctrl+Cmd+ArrowUp/Down from anywhere", () => {
+    for (const key of ["ArrowUp", "ArrowDown"]) {
+      // collapsed caret mid-block
+      expect(decideEditorKey(input({
+        key, ctrlKey: true, metaKey: true, draft: "hello",
+        selStart: 3, selEnd: 3,
+      }))).toEqual({ type: "select-whole-block" });
+      // an existing text selection is replaced by the block selection
+      expect(decideEditorKey(input({
+        key, ctrlKey: true, metaKey: true, draft: "hello",
+        selStart: 0, selEnd: 3,
+      }))).toEqual({ type: "select-whole-block" });
+    }
+  });
+
+  it("still selects while read-only (selection/copy are read-only-safe)", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", ctrlKey: true, metaKey: true, readOnly: true,
+    }))).toEqual({ type: "select-whole-block" });
+    expect(decideEditorKey(input({
+      key: "ArrowLeft", ctrlKey: true, metaKey: true, readOnly: true,
+      draft: "x", selStart: 1, selEnd: 1,
+    }))).toEqual({ type: "select-to-block-edge", edge: "start" });
+  });
+
+  it("wins over an open autocomplete popup", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", ctrlKey: true, metaKey: true, acRowsLength: 3,
+      acSelected: 1,
+    }))).toEqual({ type: "select-whole-block" });
+  });
+
+  it("ignores the chords when Shift or Alt is also held", () => {
+    for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
+      for (const extra of [{ shiftKey: true }, { altKey: true }]) {
+        expect(decideEditorKey(input({
+          key, ctrlKey: true, metaKey: true, draft: "x",
+          selStart: 1, selEnd: 1, ...extra,
+        }))).toEqual({ type: "none" });
+      }
+    }
+  });
+});
+
 describe("decideEditorKey boundary arrows", () => {
   it("moves focus up when the caret is on the first line", () => {
     expect(decideEditorKey(input({ key: "ArrowUp", draft: "a\nb", selStart: 1 })))
@@ -343,6 +402,36 @@ describe("decideEditorKey boundary arrows", () => {
     }))).toEqual({ type: "arrow", dir: "right" });
     expect(decideEditorKey(input({
       key: "ArrowRight", draft: "abc", selStart: 1, selEnd: 1,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("leaves Meta/Ctrl/Alt arrows at block boundaries to the platform", () => {
+    // Cmd-Left at the start, Cmd-Up on the first line, etc. are native text
+    // navigation (caret to line/document boundary) and must not fall through
+    // to block navigation, which would preventDefault the native behaviour.
+    expect(decideEditorKey(input({
+      key: "ArrowLeft", metaKey: true, selStart: 0, selEnd: 0,
+    }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({
+      key: "ArrowLeft", altKey: true, selStart: 0, selEnd: 0,
+    }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({
+      key: "ArrowUp", metaKey: true, draft: "a", selStart: 1, selEnd: 1,
+    }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({
+      key: "ArrowDown", ctrlKey: true, draft: "a", selStart: 1, selEnd: 1,
+    }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({
+      key: "ArrowRight", metaKey: true, draft: "a", selStart: 1, selEnd: 1,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("keeps block-selection start on plain Shift only (no Meta/Ctrl)", () => {
+    // Ctrl-Shift-Up is a native select-to-paragraph-start binding; it must
+    // not hijack into a block selection.
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, ctrlKey: true, draft: "x",
+      selStart: 0, selEnd: 0,
     }))).toEqual({ type: "none" });
   });
 });

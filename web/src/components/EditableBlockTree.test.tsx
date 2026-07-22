@@ -15,7 +15,8 @@ function handlers(): OutlineHandlers {
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
     onToggleTodo: vi.fn(), onFiles: vi.fn(),
-    onStartBlockSelection: vi.fn(), onExtendBlockSelection: vi.fn(),
+    onStartBlockSelection: vi.fn(), onSelectBlock: vi.fn(),
+    onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
     onIndentSelection: vi.fn(), onOutdentSelection: vi.fn(),
     onMoveSelectionUp: vi.fn(), onMoveSelectionDown: vi.fn(),
@@ -799,6 +800,49 @@ test("Shift+Arrow inside a multi-line block extends text, not blocks (pkm-9b8n)"
   expect(h.onStartBlockSelection).not.toHaveBeenCalled();
 });
 
+test("Ctrl+Cmd+ArrowLeft selects to the block start and stays there (pkm-am54)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 5 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(5, 5);
+  expect(fireEvent.keyDown(ta, {
+    key: "ArrowLeft", ctrlKey: true, metaKey: true,
+  })).toBe(false); // preventDefault: we own the selection, not the browser
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([0, 5]);
+  // pressing again changes nothing — already selected to the start
+  fireEvent.keyDown(ta, { key: "ArrowLeft", ctrlKey: true, metaKey: true });
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([0, 5]);
+});
+
+test("Ctrl+Cmd+ArrowRight selects to the block end (pkm-am54)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 6 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(6, 6);
+  expect(fireEvent.keyDown(ta, {
+    key: "ArrowRight", ctrlKey: true, metaKey: true,
+  })).toBe(false);
+  expect([ta.selectionStart, ta.selectionEnd])
+    .toEqual([6, "hello [[World]]".length]);
+});
+
+test("Ctrl+Cmd+ArrowUp/Down selects the whole block instead of moving focus (pkm-am54)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 0);
+  expect(fireEvent.keyDown(ta, {
+    key: "ArrowUp", ctrlKey: true, metaKey: true,
+  })).toBe(false);
+  expect(h.onSelectBlock).toHaveBeenCalledWith("u1");
+  expect(fireEvent.keyDown(ta, {
+    key: "ArrowDown", ctrlKey: true, metaKey: true,
+  })).toBe(false);
+  expect(h.onSelectBlock).toHaveBeenCalledTimes(2);
+  expect(h.onArrow).not.toHaveBeenCalled();
+  expect(h.onStartBlockSelection).not.toHaveBeenCalled();
+});
+
 function mountSelected(
   h: OutlineHandlers,
   selection: { anchor: string; head: string },
@@ -869,6 +913,22 @@ test("Cmd-C copies the selected blocks' text in document order (pkm-9b8n)", () =
   const tree = container.querySelector(".block-tree") as HTMLDivElement;
   fireEvent.keyDown(tree, { key: "c", metaKey: true });
   expect(writeText).toHaveBeenCalledWith("hello [[World]]\n{{[[TODO]]}} task");
+});
+
+test("Ctrl+Cmd+Arrow extends an active selection block-by-block (pkm-am54)", () => {
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: "u1", head: "u1" });
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+  expect(fireEvent.keyDown(tree, {
+    key: "ArrowDown", ctrlKey: true, metaKey: true,
+  })).toBe(false);
+  expect(h.onExtendBlockSelection).toHaveBeenCalledWith("down");
+  expect(fireEvent.keyDown(tree, {
+    key: "ArrowUp", ctrlKey: true, metaKey: true,
+  })).toBe(false);
+  expect(h.onExtendBlockSelection).toHaveBeenCalledWith("up");
+  expect(h.onMoveSelectionUp).not.toHaveBeenCalled();
+  expect(h.onMoveSelectionDown).not.toHaveBeenCalled();
 });
 
 test("Shift+Cmd+Arrow moves a selection before plain Shift handling", () => {

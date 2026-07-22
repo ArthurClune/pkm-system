@@ -217,6 +217,59 @@ test("Shift-Cmd moves a selected run within and across a parent (pkm-8jt5)", asy
   await expect(selectedRows.nth(1)).toHaveAttribute("data-uid", secondUid!);
 });
 
+test("Ctrl-Cmd arrows select to block edge, then whole blocks (pkm-am54)", async ({ page }) => {
+  const title = `CtrlCmdSelect${Date.now()}`;
+  await login(page);
+  const createRes = await page.request.post("/api/pages", { data: { title } });
+  expect(createRes.ok()).toBeTruthy();
+  await page.goto(`/page/${encodeURIComponent(title)}`);
+  await page.getByText("Click to start writing…").click();
+
+  await input(page).fill("alpha block");
+  await input(page).press("Enter");
+  await input(page).fill("beta block");
+  await input(page).press("Enter");
+  await input(page).fill("gamma block");
+
+  const topRows = page.locator(".block-tree > .block > .block-row");
+  await expect(topRows).toHaveCount(3);
+  const betaUid = await topRows.nth(1).getAttribute("data-uid");
+  expect(betaUid).not.toBeNull();
+
+  // focus "beta block" with the caret mid-text
+  await topRows.nth(1).locator(".block-text").click();
+  await expect(input(page)).toHaveValue("beta block");
+  await input(page).evaluate((el: HTMLTextAreaElement) =>
+    el.setSelectionRange(6, 6));
+
+  // Ctrl+Cmd+Left selects to the block start and stops there
+  await input(page).press("Control+Meta+ArrowLeft");
+  await expect
+    .poll(() => input(page).evaluate((el: HTMLTextAreaElement) =>
+      [el.selectionStart, el.selectionEnd]))
+    .toEqual([0, 6]);
+  await input(page).press("Control+Meta+ArrowLeft");
+  await expect
+    .poll(() => input(page).evaluate((el: HTMLTextAreaElement) =>
+      [el.selectionStart, el.selectionEnd]))
+    .toEqual([0, 6]);
+
+  // first Ctrl+Cmd+Up: exactly the current block becomes a block selection
+  await input(page).press("Control+Meta+ArrowUp");
+  const selectedRows = page.locator(".block-row.selected");
+  await expect(selectedRows).toHaveCount(1);
+  await expect(selectedRows.first()).toHaveAttribute("data-uid", betaUid!);
+  await expect(page.locator(".block-tree")).toBeFocused();
+
+  // further presses extend block-by-block: up adds alpha, down shrinks back
+  await page.keyboard.press("Control+Meta+ArrowUp");
+  await expect(selectedRows).toHaveCount(2);
+  await page.keyboard.press("Control+Meta+ArrowDown");
+  await expect(selectedRows).toHaveCount(1);
+  await page.keyboard.press("Control+Meta+ArrowDown");
+  await expect(selectedRows).toHaveCount(2);
+});
+
 test("can click back into a line after emptying it (pkm-mc07)", async ({ page }) => {
   await login(page);
   const today = page.locator(".journal-day").first();

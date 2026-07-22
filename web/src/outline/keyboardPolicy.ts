@@ -36,6 +36,8 @@ export type KeyDecision =
   | { type: "blur" }
   | { type: "navigate-ref"; title: string }
   | { type: "start-block-selection"; dir: "up" | "down" }
+  | { type: "select-to-block-edge"; edge: "start" | "end" }
+  | { type: "select-whole-block" }
   | { type: "set-heading"; heading: number | null }
   | { type: "key-edit"; edit: TextSelection }
   | { type: "split"; cursor: number }
@@ -74,6 +76,24 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   if (i.altKey && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
     return NONE;
   }
+  // Ctrl+Cmd+Arrow is the selection chord (pkm-am54): Left/Right select from
+  // the caret to the block's start/end (the whole logical block, not the
+  // display line native selection stops at); Up/Down lift the caret into a
+  // whole-block selection that further presses extend (the tree container
+  // owns those once the selection exists). Selection is read-only-safe, and
+  // like Option+Arrow above this precedes the autocomplete popup's claim on
+  // vertical arrows.
+  if (i.ctrlKey && i.metaKey && !i.altKey && !i.shiftKey) {
+    if (i.key === "ArrowLeft") {
+      return { type: "select-to-block-edge", edge: "start" };
+    }
+    if (i.key === "ArrowRight") {
+      return { type: "select-to-block-edge", edge: "end" };
+    }
+    if (i.key === "ArrowUp" || i.key === "ArrowDown") {
+      return { type: "select-whole-block" };
+    }
+  }
   // Autocomplete popup owns the unmodified arrows / Enter / Tab / Escape while open.
   if (i.acRowsLength > 0) {
     if (i.key === "ArrowDown") {
@@ -100,9 +120,12 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
     if (i.readOnly) return NONE;
     return i.key === "ArrowUp" ? { type: "move-subtree-up" } : { type: "move-subtree-down" };
   }
-  // Shift+Arrow at the block's vertical edge (collapsed caret) starts a
+  // Plain Shift+Arrow at the block's vertical edge (collapsed caret) starts a
   // multi-block selection; copying is read-only-safe so this precedes the cut.
-  if (i.shiftKey && caretOnly && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
+  // Meta/Ctrl variants are excluded: Ctrl+Shift+Up is native
+  // select-to-paragraph-start and must stay with the platform.
+  if (i.shiftKey && !i.metaKey && !i.ctrlKey && caretOnly
+      && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
     const up = i.key === "ArrowUp";
     const atEdge = up ? !i.draft.slice(0, pos).includes("\n")
                       : !i.draft.slice(i.selEnd).includes("\n");
@@ -149,6 +172,11 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   if (i.key === "Backspace" && pos === 0 && caretOnly) {
     return { type: "backspace-at-start" };
   }
+  // Boundary arrows move focus between blocks — but only unmodified (plus
+  // the documented Shift fall-through above): Meta/Ctrl/Alt arrows are native
+  // text navigation (Cmd-Left = caret to line start, ...) and hijacking them
+  // into block navigation would preventDefault the native behaviour.
+  if (i.metaKey || i.ctrlKey || i.altKey) return NONE;
   if (i.key === "ArrowUp" && !i.draft.slice(0, pos).includes("\n")) {
     return { type: "arrow", dir: "up" };
   }

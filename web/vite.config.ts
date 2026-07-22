@@ -1,7 +1,13 @@
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vitest/config";
 import { budgetPlugin, precacheBudgetTransform } from "./tooling/viteBudgetPlugin";
+
+// The Help view's `docs/keyboard.md?raw` import reaches one directory above
+// web/'s project root; Vite's dev/test server denies fs access outside the
+// root by default, so the repo root must be allow-listed explicitly.
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 // PKM_API_PORT lets dev/verification runs proxy to a scratch server without
 // touching 8974, which the production launchd service owns on this machine.
@@ -82,6 +88,7 @@ export default defineConfig({
   // breaks under dep optimization (upstream guidance)
   optimizeDeps: { exclude: ["@sqlite.org/sqlite-wasm"] },
   server: {
+    fs: { allow: [repoRoot] },
     proxy: {
       "/api": { target: apiTarget, ws: true },
       "/assets": apiTarget,

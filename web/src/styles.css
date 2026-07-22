@@ -265,10 +265,10 @@ button { font: inherit; }
   width: var(--pane-width); margin: 0 auto 0 var(--pane-left); padding: 8px 4px; }
 /* ghost buttons: quiet until hovered, so the bar reads as one surface
  * (transparent border rather than none keeps hover from shifting layout) */
-.top-bar-menu-button, .sidebar-toggle-button { display: flex; align-items: center;
+.top-bar-menu-button, .sidebar-toggle-button, .help-button { display: flex; align-items: center;
   background: none; cursor: pointer; border: 1px solid transparent;
   border-radius: var(--radius-control); padding: 5px 8px; color: var(--color-text-secondary); }
-.top-bar-menu-button:hover, .sidebar-toggle-button:hover {
+.top-bar-menu-button:hover, .sidebar-toggle-button:hover, .help-button:hover {
   background: var(--color-bg-subtle); color: var(--color-text); }
 /* context label (current page / view); also the spacer that splits the bar
  * into its left and right button groups (pkm-absu) */
@@ -352,6 +352,14 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .roam-table th, .roam-table td { border: 1px solid var(--color-border);
   padding: 6px 8px; vertical-align: top; }
 .roam-table th { background: var(--color-bg-subtle); text-align: left; font-weight: 600; }
+/* renders docs/keyboard.md (help/parseHelpMarkdown.ts); prose lines are
+ * capped for readability, tables stay full width to fit their columns */
+.help-page h1, .help-page h2, .help-page h3, .help-page p { max-width: 640px; }
+.help-page h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 16px; }
+.help-page h2 { font-size: 20px; font-weight: 600; margin: 32px 0 10px; }
+.help-page h3 { font-size: 16px; font-weight: 600; color: var(--color-text-secondary); margin: 20px 0 8px; }
+.help-page p { margin: 0 0 14px; color: var(--color-text-secondary); }
+.help-page .roam-table-scroll { margin: 4px 0 20px; }
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
   border-radius: 2px; background: var(--color-link); margin-right: 6px; vertical-align: middle; }
 .block-ref.unresolved { color: var(--color-text-muted); }

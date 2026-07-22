@@ -13,6 +13,7 @@ import { DndProvider } from "./dnd/DndContext";
 import { SyncProvider } from "./sync/SyncProvider";
 import { useSidebarCollapsed } from "./useSidebarCollapsed";
 import { CurrentWork } from "./views/CurrentWork";
+import { Help } from "./views/Help";
 import { Journal } from "./views/Journal";
 import { PageView } from "./views/PageView";
 
@@ -131,6 +132,7 @@ export function App() {
                     <Route path="/" element={<Journal />} />
                     <Route path="/current-work" element={<CurrentWork />} />
                     <Route path="/page/*" element={<PageView />} />
+                    <Route path="/help" element={<Help />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </main>

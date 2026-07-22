@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
-import { MoreHorizontalIcon, PanelLeftIcon } from "./icons";
+import { HelpCircleIcon, MoreHorizontalIcon, PanelLeftIcon } from "./icons";
 import { SearchBar } from "./SearchBar";
 
 /** Menu bar spanning the top of the main pane. Houses the left-nav collapse
@@ -25,7 +25,8 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   // and right button groups.
   const barLabel = title
     ?? (pathname === "/" ? "Daily Notes" : null)
-    ?? (pathname === "/current-work" ? "Current Work" : null);
+    ?? (pathname === "/current-work" ? "Current Work" : null)
+    ?? (pathname === "/help" ? "Help" : null);
   const { openInSidebar } = useContext(SidebarContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -74,6 +75,10 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
       </button>
       <span className="top-bar-title">{barLabel}</span>
       <SearchBar />
+      <button type="button" className="help-button" aria-label="help"
+              title="Keyboard shortcuts" onClick={() => navigate("/help")}>
+        <HelpCircleIcon />
+      </button>
       {title !== null && (
         <div className="top-bar-page-menu" ref={menuRef}>
           <button type="button" className="top-bar-menu-button"

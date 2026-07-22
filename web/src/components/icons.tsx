@@ -86,3 +86,13 @@ export function MenuIcon() {
     </Icon>
   );
 }
+
+export function HelpCircleIcon() {
+  return (
+    <Icon>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.09 9a3 3 0 0 1 5.82 1c0 2-3 2.5-3 4" />
+      <path d="M12 17h.01" />
+    </Icon>
+  );
+}

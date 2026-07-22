@@ -6,6 +6,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { BlockNode } from "../api/payloads";
+import { measureCaretDisplayLine } from "../outline/caretDisplayLine";
 import { clampCaret, type FocusTarget } from "../outline/edits";
 import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
@@ -542,12 +543,24 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   // returned semantic decision (preventDefault, blur, navigation, edits).
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
+    // Display-line measurement is real layout work, so it's only done for
+    // the plain (unmodified) arrow that would actually consult it (pkm-2867)
+    // — never for the Shift/Meta/Ctrl chords, which have their own logic,
+    // and never for any other key. ArrowUp only needs "first" (measured at
+    // selStart, matching the core's own up-check); ArrowDown only needs
+    // "last" (at selEnd) — never both, so only one mirror is ever built.
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+    const caretOnFirstDisplayLine = plain && e.key === "ArrowUp"
+      ? measureCaretDisplayLine(el, el.selectionStart)?.first : undefined;
+    const caretOnLastDisplayLine = plain && e.key === "ArrowDown"
+      ? measureCaretDisplayLine(el, el.selectionEnd)?.last : undefined;
     const decision = decideEditorKey({
       key: e.key, code: e.code,
       metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
       shiftKey: e.shiftKey,
       selStart: el.selectionStart, selEnd: el.selectionEnd,
       draft, readOnly, acRowsLength: acRows.length, acSelected,
+      caretOnFirstDisplayLine, caretOnLastDisplayLine,
     });
     switch (decision.type) {
       case "none":

@@ -27,7 +27,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   // mount and panel open; track it in state so completion is derived from
   // the latest known value, not whatever was frozen at mount.
   const [totalPages, setTotalPages] = useState(initial.total_pages);
-  const refreshSeq = useRef(0);
+  const refreshEpoch = useRef(0);
   const seenRefreshGeneration = useRef(refreshGeneration);
   const hasMore = groups.length < totalPages;
   const fullyLoaded = !hasMore;
@@ -38,10 +38,12 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     ), [title]);
 
   const loadMore = async () => {
+    const epoch = refreshEpoch.current;
     setLoading(true);
     setError(null);
     try {
       const payload = await fetchBatch(groups.length, initial.limit);
+      if (epoch !== refreshEpoch.current) return;
       setGroups((current) => mergeGroups(current, payload.backlinks.groups));
       setTotalPages(payload.backlinks.total_pages);
       setExtraRefTexts((current) => ({
@@ -49,7 +51,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
         ...payload.block_ref_texts,
       }));
     } catch (loadFailure: unknown) {
-      setError(String(loadFailure));
+      if (epoch === refreshEpoch.current) setError(String(loadFailure));
     } finally {
       setLoading(false);
     }
@@ -58,6 +60,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   // The filter panel needs every backlink loaded: chips and counts must
   // not lie about pages that simply weren't fetched yet.
   const loadAll = async () => {
+    const epoch = refreshEpoch.current;
     setLoading(true);
     setError(null);
     try {
@@ -66,6 +69,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
       let refTexts = { ...extraRefTexts };
       while (all.length < total) {
         const payload = await fetchBatch(all.length, 100);
+        if (epoch !== refreshEpoch.current) return;
         total = payload.backlinks.total_pages;
         refTexts = { ...refTexts, ...payload.block_ref_texts };
         if (payload.backlinks.groups.length === 0) break;
@@ -73,27 +77,30 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
         all = mergeGroups(all, payload.backlinks.groups);
         if (all.length === before) break;
       }
+      if (epoch !== refreshEpoch.current) return;
       setGroups(all);
       setTotalPages(total);
       setExtraRefTexts(refTexts);
     } catch (loadFailure: unknown) {
-      setError(String(loadFailure));
+      if (epoch === refreshEpoch.current) setError(String(loadFailure));
     } finally {
       setLoading(false);
     }
   };
 
   const refresh = useCallback(async () => {
-    const seq = ++refreshSeq.current;
+    const epoch = ++refreshEpoch.current;
     setRefreshing(true);
     setRefreshError(null);
     try {
       let payload = await fetchBatch(0, panelOpen ? 100 : initial.limit);
+      if (epoch !== refreshEpoch.current) return;
       let nextGroups = payload.backlinks.groups;
       let nextTotal = payload.backlinks.total_pages;
       let nextRefTexts = { ...payload.block_ref_texts };
       while (panelOpen && nextGroups.length < nextTotal) {
         payload = await fetchBatch(nextGroups.length, 100);
+        if (epoch !== refreshEpoch.current) return;
         nextTotal = payload.backlinks.total_pages;
         nextRefTexts = { ...nextRefTexts, ...payload.block_ref_texts };
         if (payload.backlinks.groups.length === 0) break;
@@ -101,14 +108,14 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
         nextGroups = mergeGroups(nextGroups, payload.backlinks.groups);
         if (nextGroups.length === before) break;
       }
-      if (seq !== refreshSeq.current) return;
+      if (epoch !== refreshEpoch.current) return;
       setGroups(nextGroups);
       setTotalPages(nextTotal);
       setExtraRefTexts(nextRefTexts);
     } catch (refreshFailure: unknown) {
-      if (seq === refreshSeq.current) setRefreshError(String(refreshFailure));
+      if (epoch === refreshEpoch.current) setRefreshError(String(refreshFailure));
     } finally {
-      if (seq === refreshSeq.current) setRefreshing(false);
+      if (epoch === refreshEpoch.current) setRefreshing(false);
     }
   }, [fetchBatch, initial.limit, panelOpen]);
 

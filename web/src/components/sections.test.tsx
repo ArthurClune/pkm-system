@@ -315,6 +315,147 @@ it("ignores an older refresh response that resolves after a newer generation", a
   expect(screen.queryByRole("link", { name: "Stale Source" })).toBeNull();
 });
 
+it("ignores a stale show-more response that resolves after a refresh generation", async () => {
+  const staleMore = deferred<Response>();
+  const refresh = deferred<Response>();
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/page/ACME?bl_offset=1&bl_limit=20") return staleMore.promise;
+    if (url === "/api/page/ACME?bl_offset=0&bl_limit=20") return refresh.promise;
+    return Promise.resolve(new Response(JSON.stringify({ detail: "not found" }), { status: 404 }));
+  }));
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={initial} refreshGeneration={0} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={initial} refreshGeneration={1} />
+    </MemoryRouter>,
+  );
+  await act(async () => {
+    refresh.resolve(jsonResponse(pagePayload("ACME", [], {
+      backlinks: {
+        groups: [{ page_id: 10, page_title: "Fresh Source", items: [
+          { uid: "fresh", text: "[[ACME]] refreshed", breadcrumbs: [] },
+        ] }],
+        total_pages: 1, offset: 0, limit: 20,
+      },
+    })));
+    await refresh.promise;
+    await Promise.resolve();
+  });
+  expect(await screen.findByRole("link", { name: "Fresh Source" })).toBeInTheDocument();
+  await act(async () => {
+    staleMore.resolve(jsonResponse(pagePayload("ACME", [], {
+      backlinks: {
+        groups: [{ page_id: 11, page_title: "Stale Page", items: [
+          { uid: "stale-more", text: "[[ACME]] stale page", breadcrumbs: [] },
+        ] }],
+        total_pages: 2, offset: 1, limit: 20,
+      },
+    })));
+    await staleMore.promise;
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("link", { name: "Fresh Source" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Stale Page" })).toBeNull();
+});
+
+it("ignores a stale filter-panel load-all response that resolves after a refresh generation", async () => {
+  const staleLoadAll = deferred<Response>();
+  const refresh = deferred<Response>();
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/page/Claude?bl_offset=1&bl_limit=100") return staleLoadAll.promise;
+    if (url === "/api/page/Claude?bl_offset=0&bl_limit=100") return refresh.promise;
+    return Promise.resolve(new Response(JSON.stringify({ detail: "not found" }), { status: 404 }));
+  }));
+  const partial = {
+    ...filterInitial,
+    groups: filterInitial.groups.slice(0, 1),
+  };
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="Claude" initial={partial} refreshGeneration={0} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /filter/i }));
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="Claude" initial={partial} refreshGeneration={1} />
+    </MemoryRouter>,
+  );
+  await act(async () => {
+    refresh.resolve(jsonResponse(pagePayload("Claude", [], {
+      backlinks: {
+        groups: [{ page_id: 10, page_title: "Fresh Visible", items: [
+          { uid: "fresh-visible", text: "clean [[Claude]] #Idea", breadcrumbs: [] },
+        ] }],
+        total_pages: 1, offset: 0, limit: 100,
+      },
+    })));
+    await refresh.promise;
+    await Promise.resolve();
+  });
+  expect(await screen.findByRole("link", { name: "Fresh Visible" })).toBeInTheDocument();
+  await act(async () => {
+    staleLoadAll.resolve(jsonResponse(pagePayload("Claude", [], {
+      backlinks: {
+        groups: [{ page_id: 2, page_title: "Daily B", items: [
+          { uid: "stale-load-all", text: "gamma [[Claude]]", breadcrumbs: ["reading #Paper"] },
+        ] }],
+        total_pages: 2, offset: 1, limit: 100,
+      },
+    })));
+    await staleLoadAll.promise;
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("link", { name: "Fresh Visible" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Daily B" })).toBeNull();
+});
+
+it("changing filter-panel state does not issue a second refresh for the same generation", async () => {
+  const refresh = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    if (String(input) === "/api/page/ACME?bl_offset=0&bl_limit=20") return refresh.promise;
+    return Promise.resolve(new Response(JSON.stringify({ detail: "not found" }), { status: 404 }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const singlePage = { ...initial, total_pages: 1 };
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={singlePage} refreshGeneration={0} />
+    </MemoryRouter>,
+  );
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="ACME" initial={singlePage} refreshGeneration={1} />
+    </MemoryRouter>,
+  );
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: /filter/i }));
+  await act(async () => { await Promise.resolve(); });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: /filter/i }));
+  await act(async () => { await Promise.resolve(); });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    refresh.resolve(jsonResponse(pagePayload("ACME", [], {
+      backlinks: {
+        groups: singlePage.groups,
+        total_pages: 1,
+        offset: 0,
+        limit: 20,
+      },
+    })));
+    await refresh.promise;
+    await Promise.resolve();
+  });
+});
+
 it("unlinked references fetch lazily on first open and paginate", async () => {
   const fetchMock = stubFetch([
     ["/api/unlinked?title=Machine%20Learning&limit=20&offset=1", {

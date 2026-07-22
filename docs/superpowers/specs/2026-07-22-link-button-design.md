@@ -2,7 +2,7 @@
 
 **Bean:** pkm-965i  
 **Date:** 2026-07-22  
-**Status:** Design approved; written spec awaiting review
+**Status:** Approved
 
 ## Goal
 

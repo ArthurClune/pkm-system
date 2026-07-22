@@ -5,7 +5,7 @@ status: in-progress
 type: feature
 priority: normal
 created_at: 2026-07-22T09:05:17Z
-updated_at: 2026-07-22T16:25:18Z
+updated_at: 2026-07-22T16:39:54Z
 ---
 
 At the base of pages are the 'linked references' and 'unlinked references' section. Unlinked references should have a 'link' button next to them. This should turn plain text into a block reference or add a tag if it's a URL
@@ -30,7 +30,7 @@ Ref 2
 - [x] Present and validate design
 - [x] Write and commit design spec
 - [x] Self-review spec
-- [ ] Obtain user review of written spec
-- [ ] Write implementation plan
+- [x] Obtain user review of written spec
+- [x] Write implementation plan
 - [ ] Implement with tests
 - [ ] Verify, review, commit, and push

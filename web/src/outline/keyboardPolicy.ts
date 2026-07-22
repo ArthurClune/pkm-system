@@ -68,7 +68,13 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   const pos = i.selStart;
   const caretOnly = i.selStart === i.selEnd;
 
-  // Autocomplete popup owns the arrows / Enter / Tab / Escape while open.
+  // Option/Alt+Arrow belongs to native text navigation. Catch every modifier
+  // variant before autocomplete, Shift selection, or boundary-arrow handling
+  // can claim it.
+  if (i.altKey && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
+    return NONE;
+  }
+  // Autocomplete popup owns the unmodified arrows / Enter / Tab / Escape while open.
   if (i.acRowsLength > 0) {
     if (i.key === "ArrowDown") {
       return { type: "ac-move", selected: Math.min(i.acSelected + 1, i.acRowsLength - 1) };
@@ -93,11 +99,6 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
       && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
     if (i.readOnly) return NONE;
     return i.key === "ArrowUp" ? { type: "move-subtree-up" } : { type: "move-subtree-down" };
-  }
-  // Option/Alt+Arrow belongs to native text navigation. Catch every modifier
-  // variant before Shift selection or boundary-arrow handling can claim it.
-  if (i.altKey && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
-    return NONE;
   }
   // Shift+Arrow at the block's vertical edge (collapsed caret) starts a
   // multi-block selection; copying is read-only-safe so this precedes the cut.

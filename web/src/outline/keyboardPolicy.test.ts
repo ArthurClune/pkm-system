@@ -44,6 +44,15 @@ describe("decideEditorKey autocomplete precedence", () => {
       .toEqual({ type: "ac-close" });
   });
 
+  it("leaves Option/Alt+ArrowUp and ArrowDown to the platform even with rows open", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowUp", altKey: true, acRowsLength: 3, acSelected: 1,
+    }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({
+      key: "ArrowDown", altKey: true, acRowsLength: 3, acSelected: 1,
+    }))).toEqual({ type: "none" });
+  });
+
   it("falls through to normal handling for keys the popup ignores", () => {
     // Enter is a split once the popup is closed, not an ac-pick.
     expect(decideEditorKey(input({ key: "Enter", acRowsLength: 0 })))

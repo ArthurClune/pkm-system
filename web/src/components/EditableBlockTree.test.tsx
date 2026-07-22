@@ -356,6 +356,33 @@ test("/t filters to text+todo; ArrowDown+Enter picks /todo", () => {
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} ");
 });
 
+test("Option/Alt+Arrow stays unhandled while autocomplete is open", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+
+  fireEvent.change(ta, { target: { value: "/t" } });
+  ta.setSelectionRange(2, 2);
+  expect(screen.getByRole("option", { name: "Text" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "To-do" })).toBeInTheDocument();
+  expect(fireEvent.keyDown(ta, { key: "ArrowDown", altKey: true })).toBe(true);
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```\n\n```");
+
+  fireEvent.change(ta, { target: { value: "/t" } });
+  ta.setSelectionRange(2, 2);
+  fireEvent.keyDown(ta, { key: "ArrowDown" });
+  expect(fireEvent.keyDown(ta, { key: "ArrowUp", altKey: true })).toBe(true);
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} ");
+
+  expect(h.onArrow).not.toHaveBeenCalled();
+  expect(h.onMoveSubtreeUp).not.toHaveBeenCalled();
+  expect(h.onMoveSubtreeDown).not.toHaveBeenCalled();
+  expect(h.onStartBlockSelection).not.toHaveBeenCalled();
+  expect(h.onSplit).not.toHaveBeenCalled();
+});
+
 test("typing /tab offers Table; Enter inserts {{table}}", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });

@@ -1,6 +1,6 @@
 # Unified Block Move Shortcut Design
 
-**Date:** 2026-07-22  
+**Date:** 2026-07-22
 **Bean:** pkm-8jt5
 
 ## Problem

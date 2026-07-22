@@ -146,6 +146,7 @@ export function makeSync(status: SyncStatus = "connected",
     pending: 0,
     retryProblem: () => Promise.resolve(),
     dismissProblem: () => undefined,
+    resetReplica: () => Promise.resolve(),
     enqueue: (ops, scope): WriteTicket => {
       sent.push(ops);
       const write = {

@@ -12,6 +12,7 @@ function syncWith(overrides: Partial<Sync>): Sync {
     pending: 0,
     retryProblem: () => Promise.resolve(),
     dismissProblem: () => undefined,
+    resetReplica: () => Promise.resolve(),
     enqueue: () => ({
       id: "test-write", scope: [],
       settled: Promise.resolve({ status: "persisted", pending: 0 }),

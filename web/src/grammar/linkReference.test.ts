@@ -67,4 +67,51 @@ describe("linkUnlinkedReference", () => {
     expect(linked("ACME", "")).toEqual({ status: "no-safe-match" });
     expect(linked("unrelated", "ACME")).toEqual({ status: "no-safe-match" });
   });
+
+  test("does not corrupt a bare URL whose host contains the title", () => {
+    expect(linked("a link test https://testpage.com/url more text", "Testpage"))
+      .toEqual({ status: "no-safe-match" });
+  });
+
+  test("does not corrupt a bare http URL whose host contains the title", () => {
+    expect(linked("see http://testpage.example/url", "Testpage"))
+      .toEqual({ status: "no-safe-match" });
+  });
+
+  test("does not corrupt a bare URL whose path segment contains the title", () => {
+    expect(linked("see https://example.test/testpage/more here", "Testpage"))
+      .toEqual({ status: "no-safe-match" });
+  });
+
+  test("does not corrupt a bare URL whose query string contains the title", () => {
+    expect(linked("see https://example.test/page?testpage=1 here", "Testpage"))
+      .toEqual({ status: "no-safe-match" });
+  });
+
+  test("still links an eligible plain occurrence adjacent to an unrelated URL", () => {
+    expect(linked("testpage https://example.test/other", "Testpage"))
+      .toEqual({
+        status: "linked",
+        match: "plain",
+        text: "[[Testpage]] https://example.test/other",
+      });
+  });
+
+  test("links a plain occurrence outside a URL even when the same word also appears inside one", () => {
+    expect(linked("testpage href https://testpage.com/url", "Testpage"))
+      .toEqual({
+        status: "linked",
+        match: "plain",
+        text: "[[Testpage]] href https://testpage.com/url",
+      });
+  });
+
+  test("still links words unrelated to a URL sitting elsewhere in the same text", () => {
+    expect(linked("testpage is here, see https://example.test/other", "Testpage"))
+      .toEqual({
+        status: "linked",
+        match: "plain",
+        text: "[[Testpage]] is here, see https://example.test/other",
+      });
+  });
 });

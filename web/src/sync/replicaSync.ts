@@ -231,14 +231,20 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
   };
 
-  const recover = async (kind: RecoveryCommit["kind"]): Promise<boolean> => {
+  // Returns the underlying failure (not just a boolean) so a caller that
+  // re-throws on failure -- pullLoop's needs-bootstrap path -- can preserve
+  // the original error's type for isStallShaped instead of rethrowing a
+  // synthetic stand-in that always classifies as network-shaped (pkm-913m).
+  const recover = async (
+    kind: RecoveryCommit["kind"],
+  ): Promise<{ ok: true } | { ok: false; error: unknown }> => {
     try {
       await runRecovery(kind, {
         flush: true, resume: true, reportReplicaFailure: true,
       });
-      return true;
-    } catch {
-      return false;
+      return { ok: true };
+    } catch (error: unknown) {
+      return { ok: false, error };
     }
   };
 
@@ -271,13 +277,16 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           // flush later valid rows and resume a boolean-paused queue, breaking
           // poison's stronger ordering and failed-Retry barrier.
           if (authoritativeRepair === "poison") return;
-          if (!(await recover("rebase"))) {
+          const rebased = await recover("rebase");
+          if (!rebased.ok) {
             // A poison signal that arrived mid-recovery (flush-time
             // preemption) is already reported/retried by its own owner and
             // must stay silent here too; any other recovery failure is a
-            // genuine failed pull attempt.
+            // genuine failed pull attempt -- rethrow the real error so
+            // isStallShaped classifies it correctly (pkm-913m) instead of a
+            // synthetic stand-in that always looked network-shaped.
             if (authoritativeRepair === "poison") return;
-            throw new Error("replica recovery failed during pull");
+            throw rebased.error;
           }
           done = feed.latest_seq <= cursor;
         } else {
@@ -311,7 +320,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     if (init.schemaMismatch) {
       // deploy changed the DDL: one coordinator flushes and rebuilds under
       // the same worker lease used for feed generation/reset recovery.
-      if (!(await recover("reset"))) return;
+      if (!(await recover("reset")).ok) return;
     } else if (init.empty) {
       await bootstrap();
     }

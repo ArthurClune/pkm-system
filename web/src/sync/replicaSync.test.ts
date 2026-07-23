@@ -802,6 +802,65 @@ test("a mix of network and replica errors stalls only once 3 replica-shaped fail
   }
 });
 
+test("repeatedly-failing in-pull recovery with a stall-shaped underlying error stalls at 3 (pkm-913m)", async () => {
+  // Before the fix, the needs-bootstrap path rethrew a synthetic plain Error
+  // ("replica recovery failed during pull") instead of the recovery's real
+  // failure, so isStallShaped never recognized it and consecutiveFailures
+  // never advanced no matter how many times recovery failed.
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica({
+      applyChanges: vi.fn(async () => ({ status: "needs-bootstrap" as const })),
+    });
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path === "/api/sync/snapshot") {
+        throw new ReplicaError("replica rpc failed", false);
+      }
+      return feed();
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // recovery failure 1/3
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); // recovery failure 2/3
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); // recovery failure 3/3 -> stalled
+    expect(states.at(-1)).toEqual({ mode: "stalled", error: "replica rpc failed" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("repeatedly-failing in-pull recovery with a network-shaped underlying error never stalls (pkm-913m)", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica({
+      applyChanges: vi.fn(async () => ({ status: "needs-bootstrap" as const })),
+    });
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path === "/api/sync/snapshot") throw new TypeError("Failed to fetch");
+      return feed();
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // recovery failure 1
+
+    // Advance well past the point where a stall-shaped failure run would
+    // have crossed STALL_AFTER_FAILURES (3).
+    for (let i = 0; i < 8; i += 1) {
+      await vi.advanceTimersByTimeAsync(RETRY_MAX_MS);
+    }
+
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("recovery-failed re-reports ready once a later pull succeeds (pkm-80ds finding 1)", async () => {
   // Before the fix, a recovery-failed report that never crossed the stall
   // threshold left reportedNonReady false, so a later successful pull's

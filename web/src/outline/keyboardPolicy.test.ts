@@ -68,7 +68,14 @@ describe("decideEditorKey Escape / navigation", () => {
   it("navigates when Ctrl-O fires inside a page reference", () => {
     expect(decideEditorKey(input({
       key: "o", ctrlKey: true, draft: "see [[Target]]", selStart: 8, selEnd: 8,
-    }))).toEqual({ type: "navigate-ref", title: "Target" });
+    }))).toEqual({ type: "navigate-ref", title: "Target", sidebar: false });
+  });
+
+  it("opens in the sidebar when Ctrl-Shift-O fires inside a page reference (pkm-a1e4)", () => {
+    expect(decideEditorKey(input({
+      key: "o", ctrlKey: true, shiftKey: true, draft: "see [[Target]]",
+      selStart: 8, selEnd: 8,
+    }))).toEqual({ type: "navigate-ref", title: "Target", sidebar: true });
   });
 
   it("leaves Ctrl-O alone when the caret is not inside a reference", () => {

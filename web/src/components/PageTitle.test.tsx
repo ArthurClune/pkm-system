@@ -31,7 +31,6 @@ function startEditing(title: string) {
 
 beforeEach(() => {
   apiFetchMock.mockReset();
-  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
 it("renders the title as a heading", () => {
@@ -80,7 +79,7 @@ it("unchanged or blank titles commit as a no-op", () => {
   expect(apiFetchMock).not.toHaveBeenCalled();
 });
 
-it("409 asks to merge and retries with allow_merge", async () => {
+it("409 shows an in-app merge confirm dialog and retries with allow_merge", async () => {
   apiFetchMock
     .mockRejectedValueOnce(new ApiError(409, "/api/page/My%20Page/rename"))
     .mockResolvedValueOnce({ result: "merged", title: "Existing" });
@@ -88,26 +87,33 @@ it("409 asks to merge and retries with allow_merge", async () => {
   const input = startEditing("My Page");
   fireEvent.change(input, { target: { value: "Existing" } });
   fireEvent.blur(input);
+  await waitFor(() => expect(screen.getByRole("alertdialog")).toBeInTheDocument());
+  expect(screen.getByRole("alertdialog")).toHaveTextContent(
+    'Page "Existing" already exists — merge this page into it?');
+  fireEvent.click(screen.getByRole("button", { name: "Merge" }));
+
   await waitFor(() =>
     expect(screen.getByTestId("loc")).toHaveTextContent("/page/Existing"));
-  expect(window.confirm).toHaveBeenCalledWith(
-    'Page "Existing" already exists — merge this page into it?');
   expect(apiFetchMock).toHaveBeenLastCalledWith(
     "/api/page/My%20Page/rename", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ new_title: "Existing", allow_merge: true }),
     });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
 it("declining the merge confirm leaves everything alone", async () => {
-  vi.mocked(window.confirm).mockReturnValue(false);
   apiFetchMock.mockRejectedValue(new ApiError(409, "x"));
   mount("My Page");
   const input = startEditing("My Page");
   fireEvent.change(input, { target: { value: "Existing" } });
   fireEvent.blur(input);
+  await waitFor(() => expect(screen.getByRole("alertdialog")).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
   await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(screen.getByTestId("loc")).toHaveTextContent("/page/x");
   expect(screen.getByRole("heading", { name: "My Page" })).toBeInTheDocument();
 });

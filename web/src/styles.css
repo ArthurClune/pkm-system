@@ -194,6 +194,24 @@ button { font: inherit; }
 .btn-secondary:hover:not(:disabled) { background: var(--color-selected-bg);
   color: var(--color-text); }
 .btn-secondary:disabled { opacity: 0.35; cursor: default; }
+/* destructive confirm-dialog action (Delete, etc.) */
+.btn-danger { background: var(--color-error); border: 1px solid var(--color-error);
+  border-radius: var(--radius-control); color: #fff; cursor: pointer; }
+.btn-danger:hover { opacity: 0.9; }
+
+/* in-app confirm() replacement (pkm-pe79): window.confirm is suppressed by
+ * iPadOS Safari in standalone/PWA mode, so destructive actions use this
+ * instead -- see components/ConfirmDialog.tsx */
+.confirm-dialog-overlay { position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: rgb(0 0 0 / 45%); padding: 16px; }
+.confirm-dialog { background: var(--color-bg-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15);
+  padding: 20px; max-width: 360px; width: 100%; }
+.confirm-dialog-title { font-weight: 600; margin: 0 0 8px; }
+.confirm-dialog-message { margin: 0 0 16px; color: var(--color-text); }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.confirm-dialog-actions button { padding: 6px 14px; }
 
 /* layout */
 .app-shell { display: flex; flex-direction: column; min-height: 100vh;

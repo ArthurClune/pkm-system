@@ -69,10 +69,12 @@ test("renaming onto an existing page merges after confirm", async ({ page }) => 
   await input(page).press("Escape");
   await waitForServerText(page, "Merge A g0t5", "content-from-a-g0t5");
 
-  page.on("dialog", (dialog) => void dialog.accept());
   await page.locator("h1.page-title").click();
   await page.locator("input.page-title-input").fill("Merge B g0t5");
   await page.locator("input.page-title-input").press("Enter");
+  // pkm-pe79: the merge confirm is an in-app dialog now (window.confirm is
+  // suppressed by iPadOS Safari in standalone mode), not a native one.
+  await page.getByRole("button", { name: "Merge" }).click();
 
   // landed on the merged page, source content appended
   await expect(page).toHaveURL(/\/page\/Merge%20B%20g0t5/);

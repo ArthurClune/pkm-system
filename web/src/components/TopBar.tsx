@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
+import { useConfirm } from "./ConfirmDialog";
 import { HelpCircleIcon, MoreHorizontalIcon, PanelLeftIcon } from "./icons";
 import { SearchBar } from "./SearchBar";
 
@@ -31,10 +32,13 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
+  const { confirm, dialog } = useConfirm();
 
   const handleDelete = async () => {
     if (title === null) return;
-    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    const ok = await confirm(`Delete "${title}"? This cannot be undone.`,
+      { confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     let deleted = true;
     try {
       await apiFetch(`/api/page/${encodeTitle(title)}`, { method: "DELETE" });
@@ -103,6 +107,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
           )}
         </div>
       )}
+      {dialog}
     </div>
   );
 }

@@ -103,8 +103,7 @@ it("Shift+Enter on the create-page row still creates and navigates", async () =>
   const input = renderBar(openInSidebar);
   fireEvent.change(input, { target: { value: "papers" } });
   await screen.findByText('Create page "papers"');
-  fireEvent.keyDown(input, { key: "ArrowDown" }); // page row, then create row
-  fireEvent.keyDown(input, { key: "ArrowDown" });
+  // Create row is now first (initial selection), so no arrow downs needed
   await act(async () => {
     fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
   });

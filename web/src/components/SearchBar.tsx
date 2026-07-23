@@ -138,8 +138,8 @@ export function SearchBar() {
   const showCreateRow = trimmedQuery !== "" && resultsQuery === trimmedQuery
     && !hasExactPageMatch(rows, trimmedQuery);
   const displayRows: ResultRow[] = showCreateRow
-    ? [...rows, { key: CREATE_ROW_KEY, title: trimmedQuery,
-                  label: `Create page "${trimmedQuery}"`, snippet: null }]
+    ? [{ key: CREATE_ROW_KEY, title: trimmedQuery,
+         label: `Create page "${trimmedQuery}"`, snippet: null }, ...rows]
     : rows;
 
   // `sidebar`: open the row's page in the sidebar instead of navigating the

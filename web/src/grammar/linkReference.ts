@@ -11,6 +11,27 @@ const ALNUM = /[\p{L}\p{N}]/u;
 const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// Bare http(s) URLs are atomic: a word that happens to sit inside one (host,
+// path, or query) must never be wrapped, or the URL gets corrupted (e.g.
+// "https://testpage.com/url" -> "https://[[Testpage]].com/url"). Mirrors the
+// boundary + trailing-punctuation-trim rule tokenize.ts uses for autolinking
+// bare URLs, so a word is "inside a URL" here exactly when it would render
+// as part of an autolinked URL there.
+const BARE_URL_RE = /https?:\/\/\S+/g;
+
+function scanBareUrls(text: string): Span[] {
+  const spans: Span[] = [];
+  for (const match of text.matchAll(BARE_URL_RE)) {
+    const start = match.index;
+    if (start === undefined) continue;
+    if (start > 0 && !/[\s([{]/.test(text[start - 1])) continue;
+    const url = match[0].replace(/[.,;:!?'")\]}>]+$/, "");
+    if (/^https?:\/\/$/.test(url)) continue;
+    spans.push({ start, end: start + url.length });
+  }
+  return spans;
+}
+
 const overlaps = (left: Span, right: Span): boolean =>
   left.start < right.end && right.start < left.end;
 
@@ -68,7 +89,8 @@ export function linkUnlinkedReference(
       || token.kind === "code-fence",
   );
   const markdown = scanMarkdownLinks(text);
-  const allProtected: readonly Span[] = [...grammarProtected, ...markdown];
+  const bareUrls = scanBareUrls(text);
+  const allProtected: readonly Span[] = [...grammarProtected, ...markdown, ...bareUrls];
   const plain = found.find((candidate) =>
     !allProtected.some((span) => overlaps(candidate, span)),
   );

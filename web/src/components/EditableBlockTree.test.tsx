@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
-import { block } from "../test-helpers";
+import { SidebarContext } from "../contexts";
+import { block, stubFetch } from "../test-helpers";
 import type { OutlineHandlers } from "./EditableBlockTree";
 import { EditableBlockTree } from "./EditableBlockTree";
 
@@ -586,13 +587,14 @@ function mountWithPageRoute(h: OutlineHandlers,
     </MemoryRouter>);
 }
 
-test("Ctrl-O inside a [[page reference]] navigates to that page (pkm-ul9u)", () => {
+test("Ctrl-O inside a [[page reference]] navigates to that page (pkm-ul9u)", async () => {
+  stubFetch([["/api/pages", { id: 1, title: "World", created_at: 0, updated_at: 0 }]]);
   const h = handlers();
   mountWithPageRoute(h, { uid: "u1", cursor: 0 });
   const ta = focusedTextarea();
   ta.setSelectionRange(9, 9); // caret inside "[[World]]" (block text: "hello [[World]]")
   fireEvent.keyDown(ta, { key: "o", ctrlKey: true });
-  expect(screen.getByText("page view here")).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByText("page view here")).toBeInTheDocument());
 });
 
 test("Ctrl-O outside a ref does not navigate or preventDefault (pkm-ul9u)", () => {
@@ -602,6 +604,50 @@ test("Ctrl-O outside a ref does not navigate or preventDefault (pkm-ul9u)", () =
   ta.setSelectionRange(2, 2); // caret inside "hello", not a ref
   fireEvent.keyDown(ta, { key: "o", ctrlKey: true });
   expect(screen.queryByText("page view here")).toBeNull();
+  expect(screen.getByText("home")).toBeInTheDocument();
+});
+
+// pkm-a1e4: a freshly-typed [[ref]] whose caret never left the brackets has
+// no server-side row yet (the create-on-flush path is held mid-token,
+// pkm-xlah) -- Ctrl-O used to navigate straight to a page that 404s. It must
+// create the page first.
+test("Ctrl-O creates the target page before navigating if it doesn't exist yet (pkm-a1e4)", async () => {
+  const fetchMock = stubFetch([
+    ["/api/pages", { id: 9, title: "World", created_at: 0, updated_at: 0 }],
+  ]);
+  const h = handlers();
+  mountWithPageRoute(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(9, 9);
+  fireEvent.keyDown(ta, { key: "o", ctrlKey: true });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/pages",
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ title: "World" }),
+    })));
+  await waitFor(() => expect(screen.getByText("page view here")).toBeInTheDocument());
+});
+
+test("Ctrl-Shift-O opens the reference in the sidebar instead of navigating (pkm-a1e4)", async () => {
+  stubFetch([["/api/pages", { id: 9, title: "World", created_at: 0, updated_at: 0 }]]);
+  const openInSidebar = vi.fn();
+  const h = handlers();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+      <SidebarContext.Provider value={{ openInSidebar }}>
+        <EditableBlockTree blocks={BLOCKS} focus={{ uid: "u1", cursor: 0 }}
+                           handlers={h} readOnly={false} />
+      </SidebarContext.Provider>
+      <Routes>
+        <Route path="/" element={<p>home</p>} />
+        <Route path="/page/*" element={<p>page view here</p>} />
+      </Routes>
+    </MemoryRouter>);
+  const ta = focusedTextarea();
+  ta.setSelectionRange(9, 9);
+  fireEvent.keyDown(ta, { key: "o", ctrlKey: true, shiftKey: true });
+  await waitFor(() => expect(openInSidebar).toHaveBeenCalledWith("World"));
+  // the main pane must not have navigated
   expect(screen.getByText("home")).toBeInTheDocument();
 });
 

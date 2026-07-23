@@ -3,12 +3,13 @@
 // everything else renders through the read pipeline. This file owns DOM
 // concerns (focus placement, auto-grow, key mapping) and delegates every
 // semantic decision to the handlers (useOutline).
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { apiFetch } from "../api/client";
 import type { BlockNode } from "../api/payloads";
 import { measureCaretDisplayLine } from "../outline/caretDisplayLine";
 import { clampCaret, type FocusTarget } from "../outline/edits";
-import { BlockEditContext } from "../contexts";
+import { BlockEditContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { applyCompletion, detectAutocomplete, holdsDraftFlush,
          type AcContext } from "../outline/autocomplete";
@@ -391,6 +392,7 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   // don't happen for the focused block) must not re-run the focus effect.
   const initialCursorRef = useRef(cursor);
   const navigate = useNavigate();
+  const { openInSidebar } = useContext(SidebarContext);
   // Whether the user has typed edits not yet committed to the block tree.
   // Focus alone is not a draft: while dirty, remote text still lands on the
   // tree but the textarea keeps the local draft (last-write-wins); with no
@@ -496,6 +498,31 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
     });
   };
 
+  // Ctrl-O / Ctrl-Shift-O over a [[page reference]] (pkm-a1e4): the target
+  // page may not exist server-side yet. A ref only gets-or-created when its
+  // block text actually flushes (ops_apply.py, mirroring every ref in the
+  // committed text) -- while the caret still sits inside the [[...]] token
+  // the draft flush is held (pkm-xlah), so a brand-new reference typed this
+  // session has no row at all. POST /api/pages is idempotent (creating an
+  // existing page just returns it, routes_pages.create_page) so it's safe
+  // to call unconditionally before navigating/opening, the same
+  // create-then-go sequence SearchBar's "Create page" row uses. Best-effort:
+  // if creation fails (e.g. offline), still navigate/open as before -- the
+  // destination view surfaces its own error if the page truly isn't there.
+  const ensureRefPageThenOpen = async (title: string, sidebar: boolean) => {
+    try {
+      await apiFetch("/api/pages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+    } catch {
+      // fall through regardless
+    }
+    if (sidebar) openInSidebar(title);
+    else navigate(pagePath(title));
+  };
+
   const pick = (row: AcRow) => {
     if (!ac) return;
     // "/upload": strip the trigger, then open the tree-owned file picker.
@@ -582,7 +609,7 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
         return;
       case "navigate-ref":
         e.preventDefault();
-        navigate(pagePath(decision.title));
+        void ensureRefPageThenOpen(decision.title, decision.sidebar);
         return;
       case "start-block-selection":
         e.preventDefault();

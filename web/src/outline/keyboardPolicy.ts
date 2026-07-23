@@ -41,7 +41,9 @@ export type KeyDecision =
   | { type: "ac-pick" }
   | { type: "ac-close" }
   | { type: "blur" }
-  | { type: "navigate-ref"; title: string }
+  /** sidebar: Ctrl-Shift-O — open in the sidebar (same as shift-clicking a
+   * wiki link) instead of navigating the main pane. */
+  | { type: "navigate-ref"; title: string; sidebar: boolean }
   | { type: "start-block-selection"; dir: "up" | "down" }
   | { type: "select-to-block-edge"; edge: "start" | "end" }
   | { type: "select-whole-block" }
@@ -113,10 +115,13 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
     if (i.key === "Escape") return { type: "ac-close" };
   }
   if (i.key === "Escape") return { type: "blur" };
-  // Ctrl-O inside a [[page reference]] opens that page (Meta/Alt left alone).
+  // Ctrl-O inside a [[page reference]] opens that page (Meta/Alt left alone);
+  // Ctrl-Shift-O opens it in the sidebar instead, mirroring shift-click on a
+  // rendered wiki link (PageLink.tsx). The target page may not exist server
+  // side yet — the shell (EditableBlockTree) creates it before navigating.
   if (i.ctrlKey && !i.metaKey && !i.altKey && i.key.toLowerCase() === "o") {
     const title = refTitleAtCaret(i.draft, pos);
-    if (title) return { type: "navigate-ref", title };
+    if (title) return { type: "navigate-ref", title, sidebar: i.shiftKey };
   }
   // Shift+Cmd+Arrow is the sole application movement chord: move the
   // block's whole subtree (pkm-hx2w). It must be caught before the plain-

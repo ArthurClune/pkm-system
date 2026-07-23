@@ -118,41 +118,49 @@ it("closes the menu on Escape", () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-it("picking 'Delete page…' asks for confirmation, and cancelling makes no request", () => {
+// pkm-pe79: window.confirm/alert are suppressed by iPadOS Safari in
+// standalone/PWA mode -- these exercise the in-app dialog that replaced it
+// (a real DOM dialog, not window.confirm, so this also proves the flow
+// doesn't depend on a native API iPad silently no-ops).
+it("picking 'Delete page…' shows an in-app confirm dialog, and cancelling makes no request", () => {
   const fetchMock = stubFetch([]);
-  vi.stubGlobal("confirm", vi.fn(() => false));
   renderTopBar("/page/Paper");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
 
-  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Paper"));
+  const dialog = screen.getByRole("alertdialog");
+  expect(dialog).toHaveTextContent("Paper");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
   expect(fetchMock).not.toHaveBeenCalled();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(screen.getByRole("menu")).toBeInTheDocument(); // untouched: nothing happened
 });
 
-it("confirming delete sends DELETE to the page's URL, closes the menu, and navigates to /", async () => {
+it("confirming delete in the dialog sends DELETE to the page's URL, closes the menu, and navigates to /", async () => {
   const fetchMock = stubFetch([["/api/page/Machine%20Learning", { ok: true }]]);
-  vi.stubGlobal("confirm", vi.fn(() => true));
   renderTopBar("/page/Machine%20Learning");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
   await act(async () => {
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   });
 
   expect(fetchMock).toHaveBeenCalledWith("/api/page/Machine%20Learning",
     expect.objectContaining({ method: "DELETE" }));
   expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(screen.getByText("home")).toBeInTheDocument();
 });
 
 it("a failed delete closes the menu but does not navigate", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
-  vi.stubGlobal("confirm", vi.fn(() => true));
   renderTopBar("/page/Paper");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
   await act(async () => {
-    fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   });
 
   expect(screen.queryByRole("menu")).toBeNull();

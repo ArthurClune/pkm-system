@@ -5,7 +5,7 @@ status: todo
 type: feature
 priority: normal
 created_at: 2026-07-24T16:35:31Z
-updated_at: 2026-07-24T16:43:32Z
+updated_at: 2026-07-24T16:50:47Z
 ---
 
 Testing the pkm skill/CLI as an agent (2026-07-24 session: AGI notes review + database-vendor meeting lookup) surfaced friction points. These matter because the same verbs will eventually back an in-app assistant.
@@ -17,6 +17,7 @@ Findings from real usage:
 - [ ] **Resolve block refs in `get`.** Output prints `((uid))` opaquely; heavily block-ref'd pages (e.g. AGI) are full of dead ends requiring extra fetches. Add `--resolve-refs` to inline the referenced text (marked as an embed, cycle-safe).
 - [ ] **Fully revise `--help` for every verb.** `pkm batch --help` prints only `usage: pkm batch [-h]` — no command list, no params, no JSON example; the format is only documented in the README. Agents reach for `--help` first, so audit all verbs (get, search, refs, query, todos, save, update, upload, batch, login) and make each self-sufficient: argument semantics, accepted formats (page titles vs uids vs "## Heading"/((uid))/{{alias}} parents), and a short example. For `batch`, embed the full op reference (create/todo/update/move/delete/outline) in the help epilog.
 - [ ] **Position control for batch `create`.** Creating a section heading via batch appends it mid/end-of-page; getting it into place needed a re-`get` to learn its uid plus a second `move` with a hand-computed top-level index. Support `index` on `create` (and document whether `{{alias}}` works as `move.uid`, not just as `parent`).
+- [ ] **Token-lean output modes.** Tool output is resent with the whole conversation every turn in an agent loop, so verbosity compounds. Add: `get --section "## H"` / `--depth N` (fetch a subtree instead of a 5k-token page); a lower default `search` limit plus `--compact` (title + uid, no snippets); minified `--json` (pretty-printed 2-space indent costs ~25% extra for machine consumers). Matters most for [[pkm-wn2s]].
 - [ ] **Empty-result hints.** `query` returning `{"groups": [], "total": 0}` gives the agent nothing to steer by. Consider a hint field (e.g. per-ref match counts: "[[Meeting]] matches 312 blocks, [[Databases]] matches 51, intersection 0") so the caller can tell "bad query shape" from "genuinely nothing".
 
 What already works well (keep/lean into): `refs` breadcrumbs answered "who did I meet and when" almost by themselves; natural-language date titles in `get`; `--uids` output pairing cleanly with `update`/`batch`.

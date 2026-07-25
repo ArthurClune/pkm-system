@@ -45,6 +45,10 @@ export function App() {
   const appShellRef = useRef<HTMLDivElement>(null);
   const bannerStackRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  // Governs both whether <aside class="sidebar"> renders (below) and how
+  // much room the center pane claims (pkm-57mo): the two must agree, or the
+  // pane would stay narrow next to a sidebar that isn't actually there.
+  const rightSidebarOpen = stack.length > 0 && !sidebarHidden;
 
   const sidebarApi = useMemo(() => ({
     openInSidebar: (title: string) => {
@@ -105,7 +109,9 @@ export function App() {
             <div className="app-banner-stack" ref={bannerStackRef}>
               <OfflineIndicator />
             </div>
-            <div className="app">
+            <div className={"app"
+              + (sidebarCollapsed ? " nav-collapsed" : "")
+              + (rightSidebarOpen ? "" : " no-sidebar")}>
               <UndoRedoKeys />
               <button className="hamburger" aria-label="menu"
                       onClick={() => setNavOpen((o) => !o)}>
@@ -142,7 +148,7 @@ export function App() {
                   </Routes>
                 </main>
               </div>
-              {stack.length > 0 && !sidebarHidden && (
+              {rightSidebarOpen && (
                 <aside className="sidebar">
                   {stack.map((entry) => (
                     <SidebarPanel

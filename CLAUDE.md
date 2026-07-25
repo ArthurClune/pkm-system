@@ -49,5 +49,4 @@ For routine edits these rules are sufficient. Invoke the `howto-functional-vs-im
 
 ## Git
 
-- Always push after committing -- don't leave commits unpushed
 - **Use --no-ff when merging branches**: `git merge --no-ff branch-name` to preserve branch structure in history

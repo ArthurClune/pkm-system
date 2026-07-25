@@ -99,6 +99,16 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
                 </button>
               </li>
               <li role="none">
+                {/* Plain download navigation (cookies carry auth) rather than
+                    fetch+blob, matching PdfFallbackLink's pattern -- the
+                    server sets Content-Disposition: attachment either way,
+                    so `download` is a belt-and-suspenders hint. */}
+                <a role="menuitem" href={`/api/export/page/${encodeTitle(title)}`}
+                   download onClick={() => setMenuOpen(false)}>
+                  Export as Markdown
+                </a>
+              </li>
+              <li role="none">
                 <button type="button" role="menuitem" onClick={() => void handleDelete()}>
                   Delete page…
                 </button>

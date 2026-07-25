@@ -58,7 +58,7 @@ Inside `pkm/server/`:
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
 | `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
 | `auth.py` / `auth_core.py` | Shell / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens |
-| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py` | Shell | The HTTP surface (table below) |
+| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_export.py` | Shell | The HTTP surface (table below) |
 | `ops_core.py` | Core | Op models + pure `plan_op()` → effect tuples |
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
@@ -247,6 +247,9 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | **Assets** | | |
 | POST | `/api/assets` | Multipart upload → content-addressed storage |
 | GET | `/assets/{sha256}/{filename}` | Serve by digest (immutable cache) |
+| **Export** | | |
+| GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
+| GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
 
 ### Assets
 
@@ -286,7 +289,13 @@ Roam block uids, ordering and timestamps are preserved, so every existing
   to `export/pages/<title>.md` and dailies to `export/journal/YYYY-MM-DD.md`
   (`markdown.py` resolves `((refs))` to text), and mirrors assets
   incrementally. Markdown files are rewritten byte-identically when unchanged,
-  so the git diff of a nightly export is minimal.
+  so the git diff of a nightly export is minimal. On-demand exports are also
+  exposed over HTTP (`routes_export.py`, pkm-uvqf): a single page renders via
+  `markdown.render_page` (one-level `((ref))` resolution scoped to that
+  page's own referenced uids) and downloads as `.md`; the whole graph runs
+  the same `export_graph()` into a temp dir and downloads zipped. The web UI
+  surfaces these as "Export as Markdown" (page menu) and a whole-database
+  export link (Help page).
 - **Backup job** (`python -m pkm.backup`, nightly via launchd): takes an
   online SQLite `.backup()` snapshot from a read-only connection into
   `backups/sqlite/pkm-YYYY-MM-DD.sqlite3` (pruned by `rotation.py`: newest 14

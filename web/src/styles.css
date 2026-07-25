@@ -254,9 +254,28 @@ button { font: inherit; }
 .nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px; }
 .content-area { flex: 1; min-width: 0; display: flex; flex-direction: column;
   /* card geometry shared by .top-bar and .main-pane; --pane-left leans the
-   * card left so the gutter is ~1/3 of what centering would give (pkm-7cbq) */
+   * card left so the gutter is ~1/3 of what centering would give (pkm-7cbq).
+   * Both vars are widened below (pkm-57mo) when a sidebar's absence frees up
+   * window width, so the pane grows into it instead of sitting in a fixed
+   * 860px column regardless of how much room is actually available. */
   --pane-width: min(860px, calc(100% - 32px));
   --pane-left: max(16px, calc((100% - 860px) / 6)); }
+/* left nav collapsed, right sidebar still open: the lean-left anchor (toward
+ * the sidebar) still makes sense, just with more width freed on the left. */
+.app.nav-collapsed .content-area {
+  --pane-width: min(1040px, calc(100% - 48px));
+  --pane-left: max(24px, calc((100% - 1040px) / 6)); }
+/* right sidebar absent: nothing pulls the pane toward one side, so center it
+ * (an explicit "auto" left margin, paired with the auto right margin already
+ * on .main-pane/.top-bar, centers a fixed-width box) with a bigger cap. */
+.app.no-sidebar .content-area {
+  --pane-width: min(1160px, calc(100% - 64px));
+  --pane-left: auto; }
+/* both freed: the widest, most-centered case. Higher specificity than either
+ * single-class rule above, so it always wins for this combination
+ * regardless of source order. */
+.app.nav-collapsed.no-sidebar .content-area {
+  --pane-width: min(1320px, calc(100% - 96px)); }
 .main-pane { flex: 1; min-width: 0; width: var(--pane-width);
   margin: 10px auto 40px var(--pane-left);
   padding: 30px 50px 120px;

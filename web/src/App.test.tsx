@@ -254,6 +254,87 @@ it("search stays reachable via the top bar when the sidebar is collapsed", async
   expect(input).toHaveFocus();
 });
 
+// pkm-57mo: the center pane widens into whatever space a missing/collapsed
+// sidebar frees up. The pane's own width is a CSS var driven off these
+// classes, so the classes are what's testable in JS; the actual widths are
+// asserted in e2e/page-width.spec.ts.
+it("the .app container has no-sidebar by default (no stack, no left collapse)", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+  );
+  await screen.findByPlaceholderText("Search…");
+  const app = container.querySelector(".app");
+  expect(app).toHaveClass("no-sidebar");
+  expect(app).not.toHaveClass("nav-collapsed");
+});
+
+it("opening a page in the sidebar drops the no-sidebar class from .app", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+      block("uid_m1", "see [[Paper]]")])],
+  ]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+      <App />
+    </MemoryRouter>,
+  );
+  const app = container.querySelector(".app");
+  expect(app).toHaveClass("no-sidebar");
+
+  fireEvent.click(await screen.findByRole("link", { name: "Paper" }), { shiftKey: true });
+  await screen.findByText("paper body");
+  expect(app).not.toHaveClass("no-sidebar");
+});
+
+it("hiding the stacked sidebar (Cmd-/) restores the no-sidebar class on .app", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+    ["/api/page/Machine%20Learning", pagePayload("Machine Learning", [
+      block("uid_m1", "see [[Paper]]")])],
+  ]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Machine%20Learning"]}>
+      <App />
+    </MemoryRouter>,
+  );
+  const app = container.querySelector(".app");
+  fireEvent.click(await screen.findByRole("link", { name: "Paper" }), { shiftKey: true });
+  await screen.findByText("paper body");
+  expect(app).not.toHaveClass("no-sidebar");
+
+  fireEvent.keyDown(window, { key: "/", metaKey: true });
+  expect(screen.queryByText("paper body")).toBeNull();
+  expect(app).toHaveClass("no-sidebar");
+});
+
+it("collapsing the left nav adds nav-collapsed to .app; restoring it removes it", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+  );
+  const app = container.querySelector(".app");
+  expect(app).not.toHaveClass("nav-collapsed");
+
+  fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  expect(app).toHaveClass("nav-collapsed");
+
+  fireEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+  expect(app).not.toHaveClass("nav-collapsed");
+});
+
+it("both a collapsed left nav and an absent right sidebar apply both classes together", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+  );
+  const app = container.querySelector(".app");
+  fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  expect(app).toHaveClass("nav-collapsed");
+  expect(app).toHaveClass("no-sidebar");
+});
+
 it("unknown route renders the not-found view", () => {
   stubFetch([]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/definitely/not/a/route"]}><App /></MemoryRouter>);

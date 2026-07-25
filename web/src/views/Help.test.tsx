@@ -12,12 +12,11 @@ it("renders the real doc as the /help page, with a title and a known shortcut ro
   expect(document.title).toBe("Keyboard shortcuts — pkm");
 });
 
-it("offers a whole-database markdown export download link (pkm-uvqf)", () => {
+it("no longer offers the whole-database export here -- it moved to Settings (pkm-7myl)", () => {
   render(<Help />);
 
-  const link = screen.getByRole("link", { name: /export.*markdown/i });
-  expect(link).toHaveAttribute("href", "/api/export.zip");
-  expect(link).toHaveAttribute("download");
+  expect(screen.queryByRole("link", { name: /export.*markdown/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 2, name: "Export" })).not.toBeInTheDocument();
 });
 
 it("renders headings, paragraphs, and table rows with inline code spans", () => {

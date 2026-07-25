@@ -407,6 +407,12 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .help-page h3 { font-size: 16px; font-weight: 600; color: var(--color-text-secondary); margin: 20px 0 8px; }
 .help-page p { margin: 0 0 14px; color: var(--color-text-secondary); }
 .help-page .roam-table-scroll { margin: 4px 0 20px; }
+/* /settings (pkm-7myl): a plain list of sections, each free to grow its
+ * own controls later -- same prose-width convention as .help-page. */
+.settings-page { max-width: 640px; }
+.settings-section { margin: 24px 0; }
+.settings-section h2 { font-size: 20px; font-weight: 600; margin: 0 0 10px; }
+.settings-section p { margin: 0; color: var(--color-text-secondary); }
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
   border-radius: 2px; background: var(--color-link); margin-right: 6px; vertical-align: middle; }
 .block-ref.unresolved { color: var(--color-text-muted); }

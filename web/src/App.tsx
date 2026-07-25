@@ -17,6 +17,7 @@ import { CurrentWork } from "./views/CurrentWork";
 import { Help } from "./views/Help";
 import { Journal } from "./views/Journal";
 import { PageView } from "./views/PageView";
+import { Settings } from "./views/Settings";
 
 interface SidebarEntry {
   id: number; // monotonic: the same title can be stacked twice
@@ -135,6 +136,14 @@ export function App() {
                 </NavLink>
                 <ThemeToggle />
                 <SidebarNav onNavigate={() => setNavOpen(false)} />
+                {/* Secondary, below the user-editable favourites -- deliberately
+                  * not styled "primary" like Daily Notes/Current Work/TODO
+                  * above (pkm-7myl). Only one setting exists today; more are
+                  * coming, so this link -- not those -- is where they'll live. */}
+                <NavLink to="/settings" onClick={() => setNavOpen(false)}
+                         className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
+                  Settings
+                </NavLink>
               </nav>
               <div className="content-area">
                 <TopBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
@@ -144,6 +153,7 @@ export function App() {
                     <Route path="/current-work" element={<CurrentWork />} />
                     <Route path="/page/*" element={<PageView />} />
                     <Route path="/help" element={<Help />} />
+                    <Route path="/settings" element={<Settings />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </main>

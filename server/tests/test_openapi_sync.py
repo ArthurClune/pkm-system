@@ -24,9 +24,12 @@ REGEN = ("regenerate with `uv run python -m pkm.server.openapi_dump "
 
 # Routes exempt from the "must declare a response_model" rule because they
 # don't return a JSON API payload: a health check, the schema introspection
-# endpoint itself, and a binary file download. Keep this list explicit and
-# minimal - anything else returning bare-dict JSON is a bug.
-EXEMPT_READ_ROUTES = {"/healthz", "/api/openapi.json", "/assets/{sha256}/{filename}"}
+# endpoint itself, and binary file downloads (an asset, a page rendered to
+# markdown, and the whole-graph markdown export as a zip -- pkm-uvqf). Keep
+# this list explicit and minimal - anything else returning bare-dict JSON is
+# a bug.
+EXEMPT_READ_ROUTES = {"/healthz", "/api/openapi.json", "/assets/{sha256}/{filename}",
+                      "/api/export/page/{title}", "/api/export.zip"}
 
 # Write routes return small ad-hoc JSON acks by design, so only GETs are
 # auto-checked - except the upload response, the one non-GET payload the web

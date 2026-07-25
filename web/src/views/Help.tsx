@@ -59,6 +59,16 @@ export function Help() {
   return (
     <article className="help-page">
       <HelpBlocks blocks={blocks} />
+      <h2>Export</h2>
+      <p>
+        {/* Whole-database export (pkm-uvqf): infrequent and global, so it
+            lives here rather than crowding the per-page top-bar menu.
+            Plain download navigation -- the session cookie carries auth,
+            same as the per-page "Export as Markdown" action. */}
+        <a className="help-export-link" href="/api/export.zip" download>
+          Export whole database as Markdown (.zip)
+        </a>
+      </p>
     </article>
   );
 }

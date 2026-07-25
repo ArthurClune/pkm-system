@@ -90,6 +90,22 @@ it("page menu button starts closed and toggles aria-expanded on click", () => {
   expect(screen.getByRole("menuitem", { name: "Open in sidebar" })).toBeInTheDocument();
 });
 
+it("shows an 'Export as Markdown' download link in the page menu (pkm-uvqf)", () => {
+  renderTopBar("/page/Machine Learning");
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  const link = screen.getByRole("menuitem", { name: "Export as Markdown" });
+  expect(link.tagName).toBe("A");
+  expect(link).toHaveAttribute("href", "/api/export/page/Machine%20Learning");
+  expect(link).toHaveAttribute("download");
+});
+
+it("encodes slashes in namespaced page titles for the export link (pkm-uvqf)", () => {
+  renderTopBar("/page/AWS/SCP");
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  const link = screen.getByRole("menuitem", { name: "Export as Markdown" });
+  expect(link).toHaveAttribute("href", "/api/export/page/AWS/SCP");
+});
+
 it("picking 'Open in sidebar' calls openInSidebar with the current page title and closes the menu", () => {
   const openInSidebar = vi.fn();
   renderTopBar("/page/Machine%20Learning", openInSidebar);

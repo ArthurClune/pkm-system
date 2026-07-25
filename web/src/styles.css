@@ -273,9 +273,13 @@ button { font: inherit; }
   --pane-left: auto; }
 /* both freed: the widest, most-centered case. Higher specificity than either
  * single-class rule above, so it always wins for this combination
- * regardless of source order. */
+ * regardless of source order. Slightly wider side margins than a plain
+ * scale-up of the other combinations would give (pkm-5nif): with no
+ * sidebar to lean toward at all, a wide flat expanse of text read as too
+ * close to the window edges, so the gutter is a bit more generous and the
+ * cap a bit lower than the 96px/1320px this replaced. */
 .app.nav-collapsed.no-sidebar .content-area {
-  --pane-width: min(1320px, calc(100% - 96px)); }
+  --pane-width: min(1240px, calc(100% - 160px)); }
 .main-pane { flex: 1; min-width: 0; width: var(--pane-width);
   margin: 10px auto 40px var(--pane-left);
   padding: 30px 50px 120px;
@@ -337,9 +341,14 @@ button { font: inherit; }
   padding: 4px 0; list-style: none; min-width: 160px; background: var(--color-bg-surface);
   border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
+/* the export item is an <a download> among <button> siblings (pkm-uvqf); the
+ * global `a { font-weight: 600 }` rule (pkm-1eaj) otherwise wins the cascade
+ * here since this selector didn't previously set font-weight at all, so the
+ * anchor rendered bold next to the buttons' inherited normal weight
+ * (pkm-ciy8) -- pin it explicitly rather than relying on non-override. */
 .top-bar-menu button, .top-bar-menu a { display: block; width: 100%; text-align: left;
   background: none; border: none; padding: 6px 12px; cursor: pointer; color: var(--color-text);
-  text-decoration: none; box-sizing: border-box; }
+  font-weight: normal; text-decoration: none; box-sizing: border-box; }
 .top-bar-menu button:hover, .top-bar-menu a:hover { background: var(--color-selected-bg); }
 
 /* outline */

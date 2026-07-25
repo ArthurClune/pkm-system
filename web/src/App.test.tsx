@@ -88,6 +88,25 @@ it("Daily Notes and Current Work are both primary links, whatever the route (pkm
   expect(screen.getByRole("link", { name: "Current Work" }).className).toContain("primary");
 });
 
+it("links to TODO under Daily Notes and Current Work (pkm-6s7l)", async () => {
+  stubFetch([["/api/page/TODO", pagePayload("TODO", [block("uid_t1", "todo body")])]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/TODO"]}><App /></MemoryRouter>);
+
+  const links = screen.getAllByRole("link").map((link) => link.textContent);
+  expect(links.slice(0, 3)).toEqual(["Daily Notes", "Current Work", "TODO"]);
+  expect(screen.getByRole("link", { name: "TODO" })).toHaveAttribute("href", "/page/TODO");
+  expect(await screen.findByRole("heading", { name: "TODO" })).toBeInTheDocument();
+});
+
+it("the TODO nav link is a primary link and reflects the active route", async () => {
+  stubFetch([["/api/page/TODO", pagePayload("TODO", [block("uid_t1", "todo body")])]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/TODO"]}><App /></MemoryRouter>);
+
+  const link = screen.getByRole("link", { name: "TODO" });
+  expect(link.className).toContain("primary");
+  expect(link.className).toContain("active");
+});
+
 it("the top bar has a focusable search bar; the left nav has no search entry", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);

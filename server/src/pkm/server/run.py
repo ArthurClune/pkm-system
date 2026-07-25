@@ -14,6 +14,7 @@ import uvicorn
 
 from pkm.server.app import create_app
 from pkm.server.config import load_config
+from pkm.server.logfmt import uvicorn_log_config
 
 
 def bind_sockets(hosts: list[str], port: int) -> list[socket.socket]:
@@ -47,7 +48,11 @@ def main(argv: list[str] | None = None) -> int:
     # create_app() runs init_db() (WAL mode + base schema) itself, so
     # serving is never accidentally started against a non-WAL or
     # schema-less (e.g. brand-new, never-imported) database.
-    server = uvicorn.Server(uvicorn.Config(create_app(config), port=args.port))
+    # access_log=False: the RequestLogMiddleware in create_app() emits the
+    # access lines instead (same stdout stream, plus durations).
+    server = uvicorn.Server(uvicorn.Config(
+        create_app(config), port=args.port,
+        log_config=uvicorn_log_config(), access_log=False))
     server.run(sockets=sockets)
     return 0
 

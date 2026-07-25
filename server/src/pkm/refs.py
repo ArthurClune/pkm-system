@@ -11,7 +11,14 @@ from dataclasses import dataclass
 
 _CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
-_ATTRIBUTE = re.compile(r"^\s*([^\[\]{}:\n]+?)::")
+# No leading `\s*` here (see extract() below): `\s` is a near-subset of
+# this negated class, and pairing a greedy `\s*` with a lazy quantifier
+# over an overlapping class is O(n^2) to fail on an all-whitespace run of
+# length n (every one of the n split points between the two groups gets
+# its own full lazy re-scan). A block that is one large fenced code block
+# collapses to exactly such a run once _strip_code() blanks it out
+# (pkm-7myl: a ~258KB pasted block took ~224s to `.match()` here).
+_ATTRIBUTE = re.compile(r"([^\[\]{}:\n]+?)::")
 _HASHTAG = re.compile(r"(?:^|(?<=[\s(]))#([\w/.\-]+)")
 _BLOCK_REF = re.compile(r"\(\(([a-zA-Z0-9_-]{6,})\)\)")
 _EMBED = re.compile(r"\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]")
@@ -65,7 +72,11 @@ def _scan_brackets(text: str, nested: bool = False) -> list[tuple[str, bool]]:
 def extract(text: str) -> ParsedRefs:
     clean = _strip_code(text)
     refs: list[Ref] = []
-    if m := _ATTRIBUTE.match(clean):
+    # Leading whitespace is stripped here (a plain, linear str.lstrip()) so
+    # _ATTRIBUTE only ever has to match once, at a fixed start position --
+    # see the comment on _ATTRIBUTE for why folding this into the regex
+    # itself is quadratic on pathological input.
+    if m := _ATTRIBUTE.match(clean.lstrip()):
         refs.append(Ref(m.group(1).strip(), "attribute"))
     for title, is_tag in _scan_brackets(clean):
         refs.append(Ref(title, "tag" if is_tag else "link"))

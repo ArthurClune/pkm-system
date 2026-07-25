@@ -295,7 +295,20 @@ Roam block uids, ordering and timestamps are preserved, so every existing
   page's own referenced uids) and downloads as `.md`; the whole graph runs
   the same `export_graph()` into a temp dir and downloads zipped. The web UI
   surfaces these as "Export as Markdown" (page menu) and a whole-database
-  export link (Help page).
+  export link (Settings page, pkm-7myl — moved off Help, which now hosts
+  only the static keyboard-shortcut doc; Settings is a plain growable list
+  of sections for future settings).
+- **`extract()` (`refs.py`) is O(n) per call, not O(n²)** (pkm-7myl): the
+  attribute regex used to pair a greedy `\s*` with a lazy class that mostly
+  overlaps it, which is quadratic to *fail* against a long run with no
+  `::` anywhere — exactly what one large fenced code block becomes once
+  `_strip_code()` blanks it out. `export_graph()` calls `extract()` (via
+  `collect_block_ref_uids`) once per block, so a single pathological block
+  in a real graph could make the whole-database export take minutes
+  instead of instant — indistinguishable, from the browser, from the
+  download simply not working. Leading whitespace is now stripped in
+  Python (`str.lstrip()`, linear, no backtracking) before the regex ever
+  runs.
 - **Backup job** (`python -m pkm.backup`, nightly via launchd): takes an
   online SQLite `.backup()` snapshot from a read-only connection into
   `backups/sqlite/pkm-YYYY-MM-DD.sqlite3` (pruned by `rotation.py`: newest 14

@@ -360,3 +360,26 @@ it("unknown route renders the not-found view", () => {
   expect(screen.getByText("Page not found")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Go to Daily Notes" })).toBeInTheDocument();
 });
+
+it("Settings nav link sits below the user-editable favourites, not with the primary links (pkm-7myl)", () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+  );
+  const nav = container.querySelector(".left-nav");
+  // Role "link" only catches <a>/NavLink elements, not the ThemeToggle or
+  // SidebarNav's "Edit" toggle (both <button>s) -- so this is exactly the
+  // three primary destinations plus Settings, in DOM order.
+  const links = within(nav as HTMLElement).getAllByRole("link").map((el) => el.textContent);
+  expect(links).toEqual(["Daily Notes", "Current Work", "TODO", "Settings"]);
+
+  const settingsLink = screen.getByRole("link", { name: "Settings" });
+  expect(settingsLink).not.toHaveClass("primary");
+});
+
+it("Settings nav link navigates to /settings", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+});

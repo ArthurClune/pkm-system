@@ -196,6 +196,22 @@ describe("uploaded image expansion (pkm-aze9)", () => {
   });
 });
 
+describe("top bar page menu (pkm-ciy8)", () => {
+  test("menu buttons and the export-as-markdown anchor share the same weight", () => {
+    const item = ruleFor(".top-bar-menu button, .top-bar-menu a");
+    expect(item).toContain("font-weight: normal;");
+    expect(item).toContain("text-decoration: none;");
+    expect(item).toContain("color: var(--color-text);");
+  });
+});
+
+describe("full-width layout margins (pkm-5nif)", () => {
+  test("the no-sidebar case keeps a wider gutter than the other combinations", () => {
+    const noSidebar = ruleFor(".app.nav-collapsed.no-sidebar .content-area");
+    expect(noSidebar).toContain("min(1240px, calc(100% - 160px))");
+  });
+});
+
 describe("unlinked reference Link action (pkm-965i)", () => {
   test("keeps text flexible and the compact action visible", () => {
     expect(ruleFor(".unlinked-link-row")).toContain("display: flex;");

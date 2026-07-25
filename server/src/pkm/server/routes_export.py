@@ -1,8 +1,20 @@
 # pattern: Imperative Shell
-"""Markdown export HTTP routes (pkm-uvqf): plain downloads, not JSON API
-payloads, so neither declares a `response_model` (see EXEMPT_READ_ROUTES in
-tests/test_openapi_sync.py). Both reuse the same Core render/writer that the
-nightly backup job drives (pkm.export.markdown / pkm.export.writer)."""
+"""Markdown export HTTP routes: plain downloads, not JSON API payloads, so
+neither declares a `response_model` (see EXEMPT_READ_ROUTES in
+tests/test_openapi_sync.py).
+
+`GET /api/export.zip` reuses the exact Core renderer the nightly backup job
+drives (pkm.export.writer.export_graph / pkm.export.markdown.render_page):
+raw query command, one-level ((ref)) resolution -- unchanged (pkm-uvqf).
+
+`GET /api/export/page/{title}` is the end-user single-page export
+(pkm-kplp): it resolves {{query: ...}} macros to their actual results and
+((refs)) recursively to plain text, via the separate Core renderer in
+pkm.export.resolve, so the download reads like what a reader of the live
+page would see. This route gathers the (bounded, cycle-safe) transitive
+closure of referenced-block text and query results the resolver needs,
+then hands it to the pure renderer -- it never mutates export_graph's
+semantics."""
 from __future__ import annotations
 
 import io
@@ -14,11 +26,16 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from pkm.export.markdown import page_filename, render_page
+from pkm.export.markdown import page_filename
+from pkm.export.resolve import (
+    BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, QueryResult, QueryResultGroup,
+    QueryResultItem, find_query_macros, render_page_resolved)
 from pkm.export.writer import export_graph
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
+from pkm.server.query import (
+    QUERY_SOURCE_FILTER, parse_query, plan_sql, QueryParseError)
 from pkm.server.store import fetch_page
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
@@ -31,17 +48,88 @@ _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
               " created_at, updated_at, view_type")
 
 
-def _uid_to_text(db: sqlite3.Connection, texts: list[str]) -> dict[str, str]:
-    """One-level ((ref)) resolution: the uid's own text, unexpanded further --
-    matches export_graph()'s single-pass behaviour, not the live API's
-    transitive chase (there is no client to keep re-rendering nested refs)."""
-    uids = collect_block_ref_uids(texts)
-    if not uids:
-        return {}
-    marks = ",".join("?" * len(uids))
-    rows = db.execute(f"SELECT uid, text FROM blocks WHERE uid IN ({marks})",
-                      uids).fetchall()
-    return {r["uid"]: r["text"] for r in rows}
+def _run_query(db: sqlite3.Connection, expr: str) -> QueryResult | None:
+    """Execute one {{query: ...}} expression, shaped for the resolved
+    renderer. None on a bad expression (e.g. stale/hand-edited syntax) --
+    the caller then leaves the macro's raw text in place, same fallback as
+    an unresolved ((ref)). Mirrors routes_search.run_query's SQL, kept as
+    its own copy (a routes module importing another routes module's
+    handler internals would be the wrong direction of coupling); the
+    exclusion filter and query plan themselves are shared via query.py."""
+    try:
+        sql, params = plan_sql(parse_query(expr))
+    except QueryParseError:
+        return None
+    total = db.execute(
+        f"""SELECT count(*) FROM ({sql}) m
+              JOIN blocks b ON b.uid = m.uid
+             WHERE {QUERY_SOURCE_FILTER}""",
+        params).fetchone()[0]
+    rows = db.execute(
+        f"""SELECT b.uid, b.text, p.title AS page_title
+              FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
+              JOIN pages p ON p.id = b.page_id
+             WHERE {QUERY_SOURCE_FILTER}
+             ORDER BY p.title, b.uid""",
+        params).fetchall()
+    order: list[str] = []
+    items_by_page: dict[str, list[QueryResultItem]] = {}
+    for r in rows:
+        items = items_by_page.setdefault(r["page_title"], [])
+        if not items:
+            order.append(r["page_title"])
+        items.append(QueryResultItem(uid=r["uid"], text=r["text"]))
+    groups = tuple(QueryResultGroup(page_title=title,
+                                    items=tuple(items_by_page[title]))
+                   for title in order)
+    return QueryResult(total=total, groups=groups)
+
+
+def _gather_resolution_data(
+    db: sqlite3.Connection, initial_texts: list[str],
+) -> tuple[dict[str, str], dict[str, QueryResult]]:
+    """Breadth-first, depth-capped closure of every uid and query expression
+    the resolved renderer might need: round `depth` fetches/executes the
+    macros found in round `depth - 1`'s freshly-discovered text, for as
+    many rounds as pkm.export.resolve's own depth caps allow (so no work
+    happens the renderer would just discard as capped anyway).
+
+    A `visited` set per kind makes revisiting the same uid or expression a
+    no-op rather than a refetch -- the guard against a cyclic ((ref)) chain
+    looping forever, not a depth check alone (map lookups are cheap; the
+    fetch itself is the thing worth not repeating)."""
+    uid_to_text: dict[str, str] = {}
+    query_results: dict[str, QueryResult] = {}
+    visited_uids: set[str] = set()
+    visited_exprs: set[str] = set()
+    level_texts = initial_texts
+    depth = 0
+    while level_texts and depth < BLOCK_REF_MAX_DEPTH:
+        next_texts: list[str] = []
+        uids = sorted({u for u in collect_block_ref_uids(level_texts)
+                      if u not in visited_uids})
+        if uids:
+            visited_uids.update(uids)
+            marks = ",".join("?" * len(uids))
+            rows = db.execute(
+                f"SELECT uid, text FROM blocks WHERE uid IN ({marks})",
+                uids).fetchall()
+            for r in rows:
+                uid_to_text[r["uid"]] = r["text"]
+                next_texts.append(r["text"])
+        if depth < QUERY_MAX_DEPTH:
+            exprs = {expr for text in level_texts
+                    for _, _, expr in find_query_macros(text)} - visited_exprs
+            for expr in exprs:
+                visited_exprs.add(expr)
+                result = _run_query(db, expr)
+                if result is not None:
+                    query_results[expr] = result
+                    for group in result.groups:
+                        next_texts.extend(item.text for item in group.items)
+        level_texts = next_texts
+        depth += 1
+    return uid_to_text, query_results
 
 
 @router.get("/api/export/page/{title:path}")
@@ -54,7 +142,9 @@ def export_page_markdown(title: str,
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["id"],)).fetchall()
     texts = [r["text"] for r in blocks]
-    body = render_page(page["title"], build_tree(blocks), _uid_to_text(db, texts))
+    uid_to_text, query_results = _gather_resolution_data(db, texts)
+    body = render_page_resolved(page["title"], build_tree(blocks),
+                                uid_to_text, query_results)
     filename = page_filename(page["title"], set())
     return Response(
         content=body, media_type="text/markdown",

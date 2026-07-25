@@ -16,6 +16,15 @@ class QueryParseError(ValueError):
     pass
 
 
+# Excludes a query's own matching blocks from its results (a block whose
+# text IS a {{query: ...}} macro, not one it merely returned): shared by
+# routes_search.run_query (live /api/query) and routes_export's resolved
+# single-page export (pkm-kplp), which both execute the same plan_sql().
+QUERY_SOURCE_FILTER = (
+    "NOT (ltrim(b.text) LIKE '{{[[query]]:%' OR ltrim(b.text) LIKE '{{query:%')"
+)
+
+
 @dataclass(frozen=True)
 class QueryNode:
     kind: str  # 'and' | 'or' | 'not' | 'page'

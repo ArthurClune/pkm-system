@@ -287,15 +287,31 @@ Roam block uids, ordering and timestamps are preserved, so every existing
 
 - **Markdown export** (`export/writer.py::export_graph`): renders every page
   to `export/pages/<title>.md` and dailies to `export/journal/YYYY-MM-DD.md`
-  (`markdown.py` resolves `((refs))` to text), and mirrors assets
+  (`markdown.py` resolves `((refs))` to text, one level deep, and keeps
+  `{{query: ...}}` macros as the raw command), and mirrors assets
   incrementally. Markdown files are rewritten byte-identically when unchanged,
-  so the git diff of a nightly export is minimal. On-demand exports are also
-  exposed over HTTP (`routes_export.py`, pkm-uvqf): a single page renders via
-  `markdown.render_page` (one-level `((ref))` resolution scoped to that
-  page's own referenced uids) and downloads as `.md`; the whole graph runs
-  the same `export_graph()` into a temp dir and downloads zipped. The web UI
-  surfaces these as "Export as Markdown" (page menu) and a whole-database
-  export link (Help page).
+  so the git diff of a nightly export is minimal. The whole-database export
+  is also exposed over HTTP (`routes_export.py`'s `/api/export.zip`,
+  pkm-uvqf): the same `export_graph()` into a temp dir, downloaded zipped --
+  same backup semantics, unchanged by pkm-kplp below.
+- **Single-page export** (`GET /api/export/page/{title}`, `routes_export.py`
+  + `export/resolve.py`, pkm-kplp): the end-user download, deliberately a
+  *different* rendering mode from the backup path above -- it resolves
+  dynamic content to plain text so the download reads like what a reader of
+  the live page would see. `((refs))` resolve recursively (not one level,
+  and inlined as plain text rather than wrapped in parens); `{{query: ...}}`
+  / `{{[[query]]: ...}}` macros execute (via `query.py`'s existing
+  `parse_query`/`plan_sql`, the same plan live `/api/query` runs) and render
+  as a results list grouped by page. Depth caps mirror the live UI's own
+  recursion guards exactly, so nesting behaves identically to the browser:
+  `BlockRef.tsx`'s `MAX_DEPTH = 3` for refs, `QueryBlock.tsx`'s
+  `MAX_DEPTH = 2` for nested queries. Resolution and rendering are pure
+  (`export/resolve.py`, given precomputed uid->text and expr->results maps);
+  the route gathers that data with a depth-capped, cycle-safe breadth-first
+  fetch (a `visited` set stops a cyclic `((ref))` chain from refetching
+  forever -- the caps alone stop it from *rendering* forever). The web UI
+  surfaces both exports as "Export as Markdown" (page menu, single page) and
+  a whole-database export link (Help page).
 - **Backup job** (`python -m pkm.backup`, nightly via launchd): takes an
   online SQLite `.backup()` snapshot from a read-only connection into
   `backups/sqlite/pkm-YYYY-MM-DD.sqlite3` (pruned by `rotation.py`: newest 14

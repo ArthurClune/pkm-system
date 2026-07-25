@@ -9,16 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
-from pkm.server.query import parse_query, plan_sql, QueryParseError
+from pkm.server.query import (
+    QUERY_SOURCE_FILTER, parse_query, plan_sql, QueryParseError)
 from pkm.server.response_models import (
     GroupsPayload, SearchPayload, TitlesPayload)
 from pkm.todo import is_todo
 
 router = APIRouter(dependencies=[Depends(require_auth)])
-
-_QUERY_SOURCE_FILTER = (
-    "NOT (ltrim(b.text) LIKE '{{[[query]]:%' OR ltrim(b.text) LIKE '{{query:%')"
-)
 
 
 @router.get("/api/search", response_model=SearchPayload)
@@ -55,14 +52,14 @@ def run_query(expr: str,
     total = db.execute(
         f"""SELECT count(*) FROM ({sql}) m
               JOIN blocks b ON b.uid = m.uid
-             WHERE {_QUERY_SOURCE_FILTER}""",
+             WHERE {QUERY_SOURCE_FILTER}""",
         params,
     ).fetchone()[0]
     rows = db.execute(
         f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
               FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
               JOIN pages p ON p.id = b.page_id
-             WHERE {_QUERY_SOURCE_FILTER}
+             WHERE {QUERY_SOURCE_FILTER}
              ORDER BY p.title, b.uid""",
         params,
     ).fetchall()

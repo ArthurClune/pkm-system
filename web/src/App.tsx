@@ -10,6 +10,7 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { TopBar } from "./components/TopBar";
 import { SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
+import { pagePath } from "./paths";
 import { SyncProvider } from "./sync/SyncProvider";
 import { useSidebarCollapsed } from "./useSidebarCollapsed";
 import { CurrentWork } from "./views/CurrentWork";
@@ -121,6 +122,10 @@ export function App() {
                 <NavLink to="/current-work" onClick={() => setNavOpen(false)}
                          className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                   Current Work
+                </NavLink>
+                <NavLink to={pagePath("TODO")} onClick={() => setNavOpen(false)}
+                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
+                  TODO
                 </NavLink>
                 <ThemeToggle />
                 <SidebarNav onNavigate={() => setNavOpen(false)} />

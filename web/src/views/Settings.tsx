@@ -15,14 +15,23 @@ const SECTIONS: SettingsSection[] = [
     id: "export",
     title: "Export",
     body: (
-      <p>
-        {/* Moved from the Help page (pkm-uvqf shipped it there; pkm-7myl
-            gives whole-db export its own home now that Settings exists).
-            Plain download navigation -- the session cookie carries auth. */}
-        <a className="settings-export-link" href="/api/export.zip" download>
-          Export whole database as Markdown (.zip)
-        </a>
-      </p>
+      <>
+        <p>
+          {/* Moved from the Help page (pkm-uvqf shipped it there; pkm-7myl
+              gives whole-db export its own home now that Settings exists).
+              Plain download navigation -- the session cookie carries auth. */}
+          <a className="settings-export-link" href="/api/export.zip" download>
+            Export whole database as Markdown (.zip)
+          </a>
+        </p>
+        <p className="settings-note">
+          {/* The zip bundles every uploaded asset alongside the markdown and
+              is built server-side before the download starts, so nothing
+              appears to happen for a while on large databases. */}
+          The export includes all uploaded files, so for large databases it
+          can take a minute or more to start downloading.
+        </p>
+      </>
     ),
   },
 ];

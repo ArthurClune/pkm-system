@@ -413,6 +413,7 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .settings-section { margin: 24px 0; }
 .settings-section h2 { font-size: 20px; font-weight: 600; margin: 0 0 10px; }
 .settings-section p { margin: 0; color: var(--color-text-secondary); }
+.settings-section p.settings-note { font-size: 13px; color: var(--color-text-muted); margin-top: 6px; }
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
   border-radius: 2px; background: var(--color-link); margin-right: 6px; vertical-align: middle; }
 .block-ref.unresolved { color: var(--color-text-muted); }

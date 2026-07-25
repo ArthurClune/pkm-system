@@ -11,6 +11,10 @@ it("renders a Settings title and a whole-database export download link (pkm-7myl
   const link = screen.getByRole("link", { name: /export.*markdown/i });
   expect(link).toHaveAttribute("href", "/api/export.zip");
   expect(link).toHaveAttribute("download");
+
+  // the export is slow to start on large databases (assets are bundled and
+  // the zip is built server-side first) -- the page must say so
+  expect(screen.getByText(/can take a minute or more/i)).toBeInTheDocument();
 });
 
 it("structures settings as a list of sections so more items can be added later", () => {

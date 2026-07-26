@@ -140,3 +140,9 @@ def test_no_config_error_is_friendly(monkeypatch, tmp_path, capsys):
     code = main(["get", "X"])
     assert code == 1
     assert "pkm login" in capsys.readouterr().err
+
+
+def test_get_resolve_refs_flag(run):
+    code, out, _ = run("get", "July 7th, 2026", "--resolve-refs")
+    assert code == 0
+    assert '"[[Attention Is All You Need]] is a [[Paper]]" ((uid_b3))' in out

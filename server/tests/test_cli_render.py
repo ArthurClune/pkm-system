@@ -112,3 +112,35 @@ def test_render_empty_text_block():
     }
     assert render_page(payload) == "# Test\n\n-\n"
     assert render_page(payload, include_uids=True) == "# Test\n\n-  ^u1\n"
+
+
+def test_resolve_ref_texts_inlines_and_keeps_uid():
+    from pkm.cli.render import resolve_ref_texts
+    ref_map = {"u9": {"text": "the target", "page_title": "P"}}
+    assert resolve_ref_texts("see ((u9)) here", ref_map) == \
+        'see "the target" ((u9)) here'
+
+
+def test_resolve_ref_texts_unknown_uid_untouched():
+    from pkm.cli.render import resolve_ref_texts
+    assert resolve_ref_texts("see ((zz)) here", {}) == "see ((zz)) here"
+
+
+def test_resolve_ref_texts_nested_and_cyclic():
+    from pkm.cli.render import resolve_ref_texts
+    ref_map = {"a": {"text": "A says ((b))", "page_title": "P"},
+               "b": {"text": "B says ((a))", "page_title": "P"}}
+    out = resolve_ref_texts("root ((a))", ref_map)
+    # a inlined; b inlined inside it; the cyclic ((a)) inside b stays bare
+    assert out == 'root "A says "B says ((a))" ((b))" ((a))'
+
+
+def test_render_page_resolve_refs():
+    payload = {"page": PAGE["page"],
+               "blocks": [_node("u1", "see ((u9))")],
+               "backlinks": PAGE["backlinks"],
+               "block_ref_texts": {"u9": {"text": "target",
+                                          "page_title": "X"}}}
+    out = render_page(payload, resolve_refs=True)
+    assert '- see "target" ((u9))\n' in out
+    assert "see ((u9))" in render_page(payload)  # default unchanged

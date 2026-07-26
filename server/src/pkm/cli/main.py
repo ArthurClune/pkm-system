@@ -59,13 +59,16 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
     elif UID_RE.fullmatch(target):
         try:
             payload = client.get_block(target)
-            _emit(payload, render_block(payload, args.uids), args.json)
+            _emit(payload, render_block(payload, args.uids,
+                                        resolve_refs=args.resolve_refs),
+                 args.json)
             return 0
         except ApiError as e:
             if e.status != 404:
                 raise
     payload = client.get_page(target)
-    _emit(payload, render_page(payload, args.uids), args.json)
+    _emit(payload, render_page(payload, args.uids,
+                               resolve_refs=args.resolve_refs), args.json)
     return 0
 
 
@@ -200,6 +203,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help='page title, uid, or today/yesterday/tomorrow')
     p.add_argument("--uids", action="store_true",
                    help="annotate blocks with ^uid markers")
+    p.add_argument("--resolve-refs", action="store_true",
+                   help="inline ((uid)) block refs as '\"text\" ((uid))'")
     _common(p)
 
     p = sub.add_parser("search", help="full-text search")

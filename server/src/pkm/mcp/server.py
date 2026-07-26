@@ -47,17 +47,21 @@ def _ensure_page(client: PkmClient, title: str) -> dict:
         return client.get_page(title)
 
 
-def get_page(title: str) -> str:
+def get_page(title: str, resolve_refs: bool = False) -> str:
     """Fetch a page as a markdown outline. Blocks are annotated with
     trailing ^uid markers usable with update_block/batch. `title` may be
-    a daily-note title like 'July 19th, 2026'."""
-    return render_page(_client().get_page(title), include_uids=True)
+    a daily-note title like 'July 19th, 2026'. resolve_refs=True inlines
+    ((uid)) block refs as '"referenced text" ((uid))'."""
+    return render_page(_client().get_page(title), include_uids=True,
+                       resolve_refs=resolve_refs)
 
 
-def get_block(uid: str) -> str:
+def get_block(uid: str, resolve_refs: bool = False) -> str:
     """Fetch one block's subtree (with its page and breadcrumb context)
-    as markdown with ^uid markers."""
-    return render_block(_client().get_block(uid), include_uids=True)
+    as markdown with ^uid markers. resolve_refs=True inlines ((uid)) block
+    refs as '"referenced text" ((uid))'."""
+    return render_block(_client().get_block(uid), include_uids=True,
+                        resolve_refs=resolve_refs)
 
 
 def search(q: str, limit: int = 20, exact: bool = False) -> str:

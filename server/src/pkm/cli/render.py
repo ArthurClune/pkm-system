@@ -3,6 +3,26 @@
 CLI/MCP shells decide what to fetch and whether to include uids."""
 from __future__ import annotations
 
+import re
+
+_REF_TOKEN = re.compile(r"\(\(([\w-]+)\)\)")
+
+
+def resolve_ref_texts(text: str, ref_map: dict,
+                      _seen: frozenset = frozenset()) -> str:
+    """Inline ((uid)) tokens from `ref_map` (a payload's block_ref_texts)
+    as '"resolved text" ((uid))' — text visible, uid kept for follow-up.
+    Recurses into resolved text; a uid already being expanded stays a bare
+    token, so ref cycles terminate. Unknown uids are left untouched."""
+    def _sub(m: re.Match) -> str:
+        uid = m.group(1)
+        if uid in _seen or uid not in ref_map:
+            return m.group(0)
+        inner = resolve_ref_texts(ref_map[uid]["text"], ref_map,
+                                  _seen | {uid})
+        return f'"{inner}" (({uid}))'
+    return _REF_TOKEN.sub(_sub, text)
+
 
 def _line(text: str, heading: int | None, depth: int, uid: str,
           include_uids: bool) -> str:
@@ -12,25 +32,31 @@ def _line(text: str, heading: int | None, depth: int, uid: str,
     return f"{'  ' * depth}{bullet}{suffix}"
 
 
-def _bullets(nodes: list[dict], depth: int, include_uids: bool) -> list[str]:
+def _bullets(nodes: list[dict], depth: int, include_uids: bool,
+            ref_map: dict | None) -> list[str]:
     out: list[str] = []
     for n in nodes:
-        out.append(_line(n["text"], n["heading"], depth, n["uid"],
-                         include_uids))
-        out.extend(_bullets(n["children"], depth + 1, include_uids))
+        text = resolve_ref_texts(n["text"], ref_map) if ref_map is not None \
+            else n["text"]
+        out.append(_line(text, n["heading"], depth, n["uid"], include_uids))
+        out.extend(_bullets(n["children"], depth + 1, include_uids, ref_map))
     return out
 
 
-def render_page(payload: dict, include_uids: bool = False) -> str:
+def render_page(payload: dict, include_uids: bool = False,
+                resolve_refs: bool = False) -> str:
+    ref_map = payload["block_ref_texts"] if resolve_refs else None
     lines = [f"# {payload['page']['title']}", ""]
-    lines.extend(_bullets(payload["blocks"], 0, include_uids))
+    lines.extend(_bullets(payload["blocks"], 0, include_uids, ref_map))
     return "\n".join(lines) + "\n"
 
 
-def render_block(payload: dict, include_uids: bool = False) -> str:
+def render_block(payload: dict, include_uids: bool = False,
+                 resolve_refs: bool = False) -> str:
+    ref_map = payload["block_ref_texts"] if resolve_refs else None
     crumbs = " > ".join([payload["page"]["title"], *payload["breadcrumbs"]])
     lines = [f"(in: {crumbs})", ""]
-    lines.extend(_bullets([payload["block"]], 0, include_uids))
+    lines.extend(_bullets([payload["block"]], 0, include_uids, ref_map))
     return "\n".join(lines) + "\n"
 
 

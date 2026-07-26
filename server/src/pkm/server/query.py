@@ -97,18 +97,31 @@ def _parse_title(s: str, pos: int) -> tuple[str, int]:
 _PAGE_SQL = ("SELECT r.src_block_uid AS uid FROM refs r"
              " JOIN pages p ON p.id = r.target_page_id WHERE p.title = ?")
 
+# One-hop opt-in transitivity (expand=True): a block also matches [[X]] if
+# it references a page whose own blocks reference X; all ref kinds count.
+_PAGE_SQL_EXPANDED = (
+    _PAGE_SQL
+    + " UNION SELECT r.src_block_uid AS uid FROM refs r"
+      " WHERE r.target_page_id IN ("
+      "SELECT b2.page_id FROM refs r2"
+      " JOIN blocks b2 ON b2.uid = r2.src_block_uid"
+      " JOIN pages px ON px.id = r2.target_page_id WHERE px.title = ?)"
+)
 
-def plan_sql(node: QueryNode) -> tuple[str, list[str]]:
+
+def plan_sql(node: QueryNode, expand: bool = False) -> tuple[str, list[str]]:
     if node.kind == "page":
         assert node.title is not None  # page nodes always carry a title
+        if expand:
+            return _PAGE_SQL_EXPANDED, [node.title, node.title]
         return _PAGE_SQL, [node.title]
     if node.kind == "not":  # only reachable nested inside and
-        return plan_sql(node.children[0])
+        return plan_sql(node.children[0], expand)
     wrap = "SELECT uid FROM ({})"
     if node.kind == "or":
         parts, params = [], []
         for c in node.children:
-            sql, p = plan_sql(c)
+            sql, p = plan_sql(c, expand)
             parts.append(wrap.format(sql))
             params.extend(p)
         return " UNION ".join(parts), params
@@ -119,12 +132,12 @@ def plan_sql(node: QueryNode) -> tuple[str, list[str]]:
         raise QueryParseError("and needs at least one non-negated operand")
     parts, params = [], []
     for c in positives:
-        sql, p = plan_sql(c)
+        sql, p = plan_sql(c, expand)
         parts.append(wrap.format(sql))
         params.extend(p)
     sql = " INTERSECT ".join(parts)
     for c in negatives:
-        nsql, p = plan_sql(c)
+        nsql, p = plan_sql(c, expand)
         sql += " EXCEPT " + wrap.format(nsql)
         params.extend(p)
     return sql, params

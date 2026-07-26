@@ -43,10 +43,10 @@ def search(q: str = "", limit: int = 20, exact: bool = False,
 
 
 @router.get("/api/query", response_model=GroupsPayload)
-def run_query(expr: str,
+def run_query(expr: str, expand: bool = False,
               db: sqlite3.Connection = Depends(get_db)) -> dict:
     try:
-        sql, params = plan_sql(parse_query(expr))
+        sql, params = plan_sql(parse_query(expr), expand)
     except QueryParseError as e:
         raise HTTPException(status_code=400, detail=str(e))
     total = db.execute(

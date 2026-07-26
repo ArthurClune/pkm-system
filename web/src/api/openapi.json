@@ -649,6 +649,16 @@
               "type": "string",
               "title": "Expr"
             }
+          },
+          {
+            "name": "expand",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Expand"
+            }
           }
         ],
         "responses": {

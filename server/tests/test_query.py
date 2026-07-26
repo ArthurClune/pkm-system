@@ -117,3 +117,19 @@ def test_query_endpoint_bad_expr_400(client):
     r = client.get("/api/query", params={"expr": "{between: [[A]] [[B]]}"})
     assert r.status_code == 400
     assert "unsupported clause" in r.json()["detail"]
+
+
+def test_plan_sql_expand_duplicates_params():
+    from pkm.server.query import QueryNode, plan_sql
+    sql, params = plan_sql(QueryNode("page", "AI"), expand=True)
+    assert params == ["AI", "AI"]
+    assert "UNION" in sql
+
+
+def test_query_endpoint_expand_one_hop(client):
+    base = client.get("/api/query", params={"expr": "{and: [[AI]]}"}).json()
+    assert {i["uid"] for g in base["groups"] for i in g["items"]} == {"uid_b1"}
+    body = client.get("/api/query",
+                      params={"expr": "{and: [[AI]]}", "expand": "true"}).json()
+    assert {i["uid"] for g in body["groups"] for i in g["items"]} == \
+        {"uid_b1", "uid_b4"}

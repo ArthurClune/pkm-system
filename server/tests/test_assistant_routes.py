@@ -47,6 +47,8 @@ def test_message_stream_echo(assistant_client):
     ) as r:
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("text/event-stream")
+        assert r.headers["cache-control"] == "no-cache"
+        assert r.headers["x-accel-buffering"] == "no"
         body = "".join(r.iter_text())
     events = parse_sse(body)
     assert events[0] == ("text_delta", {"text": "echo: hi"})
@@ -102,6 +104,43 @@ def test_delete_conversation(assistant_client):
     # gone
     r = assistant_client.post(f"/api/assistant/conversations/{cid}/messages", json={"text": "hi"})
     assert r.status_code == 404
+
+
+class ExplodingConversation:
+    async def send(self, text):
+        from pkm.assistant.events import TextDelta
+
+        yield TextDelta(text="partial")
+        raise RuntimeError("engine crashed")
+
+    def resolve_confirm(self, tool_use_id, allow):  # pragma: no cover - protocol stub
+        pass
+
+    async def close(self):
+        pass
+
+
+class ExplodingEngine:
+    async def create_conversation(self, system_prompt, model):
+        return ExplodingConversation()
+
+
+def test_mid_stream_engine_error_yields_error_event(seeded_config):
+    from fastapi.testclient import TestClient
+
+    from pkm.server.app import create_app
+
+    with TestClient(create_app(seeded_config, assistant_engine=ExplodingEngine())) as c:
+        r = c.post("/api/login", json={"password": "test-pw"})
+        assert r.status_code == 200
+        cid = c.post("/api/assistant/conversations", json={}).json()["id"]
+        with c.stream("POST", f"/api/assistant/conversations/{cid}/messages", json={"text": "hi"}) as r:
+            assert r.status_code == 200
+            body = "".join(r.iter_text())
+        events = parse_sse(body)
+        assert ("text_delta", {"text": "partial"}) in events
+        assert events[-1][0] == "error"
+        assert "engine crashed" in events[-1][1]["message"]
 
 
 def test_assistant_unconfigured_503(client):

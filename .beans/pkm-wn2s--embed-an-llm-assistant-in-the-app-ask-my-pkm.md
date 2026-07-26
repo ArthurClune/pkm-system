@@ -1,10 +1,11 @@
 ---
 # pkm-wn2s
 title: Embed an LLM assistant in the app (ask-my-PKM)
-status: draft
+status: todo
 type: feature
+priority: normal
 created_at: 2026-07-24T16:48:39Z
-updated_at: 2026-07-24T16:48:39Z
+updated_at: 2026-07-26T21:53:36Z
 ---
 
 Expose the pkm CLI/MCP verb surface (search, get, refs, query, todos, save, update, batch) to an LLM inside the app. Two headline use cases, validated in the 2026-07-24 agent-driving session:
@@ -47,3 +48,7 @@ Design spec: `docs/superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md`
 - [x] Server-side proxy for API keys vs BYO-key → server-side harness with subscription auth (no keys in v1)
 - [x] Read-only first release, or writes → writes with in-chat confirm gate
 - [x] Streaming + tool-call progress display → SSE turn stream; tool-activity line + confirm cards
+
+## Implementation plan (2026-07-26)
+
+Plan: docs/superpowers/plans/2026-07-26-pkm-wn2s-assistant.md (15 tasks, TDD, FakeEngine test strategy; e2e runs against FakeEngine wired into e2e_serve.py — no real LLM in CI). Execute with subagent-driven-development in a worktree.

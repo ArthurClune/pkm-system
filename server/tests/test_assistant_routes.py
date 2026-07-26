@@ -141,9 +141,3 @@ def test_mid_stream_engine_error_yields_error_event(seeded_config):
         assert ("text_delta", {"text": "partial"}) in events
         assert events[-1][0] == "error"
         assert "engine crashed" in events[-1][1]["message"]
-
-
-def test_assistant_unconfigured_503(client):
-    # the standard `client` fixture builds create_app() without an engine
-    r = client.post("/api/assistant/conversations", json={})
-    assert r.status_code == 503

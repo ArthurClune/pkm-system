@@ -42,8 +42,14 @@ def create_app(
     )
     app.state.config = config
     app.state.hub = Hub()
-    # Task 7 replaces this None default with a real ClaudeEngine(base_url=..., session_secret_hex=...)
-    app.state.assistant = AssistantService(assistant_engine) if assistant_engine is not None else None
+    if assistant_engine is None:
+        from pkm.assistant.claude_engine import ClaudeEngine
+
+        assistant_engine = ClaudeEngine(
+            base_url=f"http://127.0.0.1:{api_port}",
+            session_secret_hex=config.session_secret,
+        )
+    app.state.assistant = AssistantService(assistant_engine)
     app.add_middleware(RequestLogMiddleware)
     app.include_router(auth_router)
 

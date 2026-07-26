@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { AssistantPanel } from "./assistant/AssistantPanel";
 import { MenuIcon } from "./components/icons";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { UndoRedoKeys } from "./components/UndoRedoKeys";
@@ -36,6 +37,7 @@ function NotFound() {
 
 export function App() {
   const [navOpen, setNavOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapsed();
   const [stack, setStack] = useState<SidebarEntry[]>([]);
   // Session-only, unlike the left nav's persisted collapse: the panel stack
@@ -97,6 +99,10 @@ export function App() {
         e.preventDefault();
         setSidebarHidden((h) => !h);
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setAssistantOpen((o) => !o);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -114,6 +120,7 @@ export function App() {
               + (sidebarCollapsed ? " nav-collapsed" : "")
               + (rightSidebarOpen ? "" : " no-sidebar")}>
               <UndoRedoKeys />
+              <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
               <button className="hamburger" aria-label="menu"
                       onClick={() => setNavOpen((o) => !o)}>
                 <MenuIcon />
@@ -136,6 +143,13 @@ export function App() {
                 </NavLink>
                 <ThemeToggle />
                 <SidebarNav onNavigate={() => setNavOpen(false)} />
+                <button type="button" className="nav-link primary"
+                        onClick={() => {
+                          setAssistantOpen(true);
+                          setNavOpen(false);
+                        }}>
+                  Assistant
+                </button>
                 {/* Below the user-editable favourites, but styled "primary"
                   * like Daily Notes/Current Work/TODO above (pkm-eztt). Only
                   * one setting exists today; more are coming, so this link --

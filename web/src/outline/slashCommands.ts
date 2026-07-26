@@ -20,23 +20,23 @@ export interface SlashCommand {
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
-  { name: "text", label: "Text" },
-  { name: "todo", label: "To-do" },
-  { name: "table", label: "Table" },
-  { name: "python", label: "Python code block" },
-  { name: "bash", label: "Bash code block" },
-  { name: "javascript", label: "JavaScript code block" },
-  { name: "mermaid", label: "Mermaid diagram" },
+  { name: "text", label: "text" },
+  { name: "todo", label: "to-do" },
+  { name: "table", label: "table" },
+  { name: "python", label: "python code block" },
+  { name: "bash", label: "bash code block" },
+  { name: "javascript", label: "javascript code block" },
+  { name: "mermaid", label: "mermaid diagram" },
   // "upload" has no text transform: picking it strips the trigger and opens a
   // file picker (handled in BlockInput), then splices the asset markdown.
-  { name: "upload", label: "Upload file…" },
-  { name: "h1", label: "Heading 1" },
-  { name: "h2", label: "Heading 2" },
-  { name: "h3", label: "Heading 3" },
-  { name: "normal", label: "Normal text" },
-  { name: "query-and", label: "Query (AND)" },
-  { name: "query-or", label: "Query (OR)" },
-  { name: "query-and-not", label: "Query (AND NOT)" },
+  { name: "upload", label: "upload file…" },
+  { name: "h1", label: "heading 1" },
+  { name: "h2", label: "heading 2" },
+  { name: "h3", label: "heading 3" },
+  { name: "normal", label: "normal text" },
+  { name: "query-and", label: "query (and)" },
+  { name: "query-or", label: "query (or)" },
+  { name: "query-and-not", label: "query (and not)" },
 ];
 
 /** Commands that set a block's heading field (a SetHeadingOp) rather than

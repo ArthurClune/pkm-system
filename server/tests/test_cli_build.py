@@ -169,3 +169,42 @@ def test_plan_batch_reuses_repeated_missing_heading():
     assert len(heading_ops) == 1
     assert [o["parent_uid"] for o in content_ops] == [heading_ops[0]["uid"]] * 2
     assert [o["order_idx"] for o in content_ops] == [0, 1]
+
+
+def test_plan_batch_create_with_index():
+    cmds = [{"command": "create",
+             "params": {"page": "Machine Learning", "text": "top",
+                        "index": 0}}]
+    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
+    assert ops[0]["order_idx"] == 0
+    assert ops[0]["parent_uid"] is None
+
+
+def test_plan_batch_todo_with_index_under_parent():
+    cmds = [{"command": "todo",
+             "params": {"page": "Machine Learning", "parent": "((u2))",
+                        "text": "urgent", "index": 0}}]
+    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
+    assert ops[0]["order_idx"] == 0
+    assert ops[0]["parent_uid"] == "u2"
+    assert ops[0]["text"] == "{{TODO}} urgent"
+
+
+def test_plan_batch_alias_as_uid():
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "x", "as": "n"}},
+        {"command": "move",
+         "params": {"uid": "{{n}}", "page": "Machine Learning",
+                    "parent": "((u2))", "index": 0}},
+        {"command": "update", "params": {"uid": "{{n}}", "text": "y"}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
+    assert ops[1]["op"] == "move" and ops[1]["uid"] == ops[0]["uid"]
+    assert ops[2] == {"op": "update_text", "uid": ops[0]["uid"], "text": "y"}
+
+
+def test_plan_batch_alias_as_uid_unknown_raises():
+    with pytest.raises(BuildError, match="unknown alias"):
+        plan_batch([{"command": "delete", "params": {"uid": "{{ghost}}"}}],
+                   {}, uid_gen())

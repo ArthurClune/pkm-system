@@ -124,12 +124,21 @@ class _Planner:
 
     def creates(self, payload: dict, page: str, parent_spec: str | None,
                 items: list[tuple[int, str]], todo: bool,
-                in_batch: frozenset[str] = frozenset()) -> list[dict]:
+                in_batch: frozenset[str] = frozenset(),
+                index: int | None = None) -> list[dict]:
         """Plan creates for `items` (depth, text) pairs under `parent_spec`.
         Resolves the parent spec first (handling in-batch alias uids, which
         `resolve_parent` can't see since they aren't in the payload), then
         walks the outline maintaining a depth->uid stack so nested items
         attach to the most recently created ancestor at the right depth.
+
+        `index`, when given, becomes the first depth-0 item's `order_idx`
+        verbatim -- the server splices siblings at/after it on insert. Only
+        single-item `create`/`todo` batch commands pass it (never `outline`,
+        never `plan_save`). Mixing an indexed create with plain appends
+        under the same parent in one batch may interleave, since appends
+        keep counting from the payload's original length rather than
+        accounting for the index; see `pkm batch --help`.
         """
         m = _UID_SPEC.match(parent_spec) if parent_spec else None
         if m and m.group(1) in in_batch:
@@ -152,13 +161,19 @@ class _Planner:
                 self._headings[heading_key] = parent
             created.add(parent)
         stack: list[str | None] = [parent]
+        first = True
         for depth, text in items:
             del stack[depth + 1:]
             target = stack[depth]
             if todo and depth == 0:
                 text = with_state(text, "TODO")
             uid = self.next_uid()
-            idx = self.bump(payload, page, target, in_batch | frozenset(created))
+            if depth == 0 and first and index is not None:
+                idx = index
+            else:
+                idx = self.bump(payload, page, target,
+                                in_batch | frozenset(created))
+            first = False
             ops.append(_create(uid, page, target, idx, text))
             created.add(uid)
             if len(stack) == depth + 1:
@@ -225,6 +240,15 @@ def _resolve_alias(spec: str | None, aliases: dict[str, str]) -> str | None:
     return spec
 
 
+def _alias_uid(value: str, aliases: dict[str, str]) -> str:
+    m = _ALIAS_SPEC.match(value)
+    if m:
+        if m.group(1) not in aliases:
+            raise BuildError(f"unknown alias: {m.group(1)}")
+        return aliases[m.group(1)]
+    return value
+
+
 def plan_batch(commands: list[dict], pages: dict[str, dict],
                uids: Iterator[str]) -> list[dict]:
     """Translate a batch of `{command, params}` items into one op list.
@@ -256,7 +280,8 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
             new = planner.creates(payload, title, spec,
                                   [(0, params["text"])],
                                   todo=(name == "todo"),
-                                  in_batch=frozenset(created))
+                                  in_batch=frozenset(created),
+                                  index=params.get("index"))
             ops.extend(new)
             created.update(o["uid"] for o in new)
             if params.get("as"):
@@ -273,10 +298,12 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
             ops.extend(new)
             created.update(o["uid"] for o in new)
         elif name == "update":
-            ops.append({"op": "update_text", "uid": params["uid"],
+            uid = _alias_uid(params["uid"], aliases)
+            ops.append({"op": "update_text", "uid": uid,
                         "text": params["text"]})
         elif name == "move":
             title, payload = _page(params)
+            uid = _alias_uid(params["uid"], aliases)
             spec = _resolve_alias(params.get("parent"), aliases)
             m = _UID_SPEC.match(spec) if spec else None
             if m and m.group(1) in created:
@@ -288,11 +315,12 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
             idx = params.get("index")
             if idx is None:
                 idx = planner.bump(payload, title, parent, frozenset(created))
-            ops.append({"op": "move", "uid": params["uid"],
+            ops.append({"op": "move", "uid": uid,
                         "parent_uid": parent, "order_idx": idx,
                         "page_title": None if parent else title})
         elif name == "delete":
-            ops.append({"op": "delete", "uid": params["uid"]})
+            uid = _alias_uid(params["uid"], aliases)
+            ops.append({"op": "delete", "uid": uid})
         else:
             raise BuildError(f"unknown command: {name!r}")
     return ops

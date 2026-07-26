@@ -82,7 +82,7 @@ class BlockGroup(BaseModel):
 
 
 class GroupsPayload(BaseModel):
-    """Shared by /api/unlinked and /api/query."""
+    """Shared by /api/unlinked and /api/todos."""
     groups: list[BlockGroup]
     total: int
 

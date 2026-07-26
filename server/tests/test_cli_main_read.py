@@ -193,3 +193,14 @@ def test_get_section_on_uid_is_error(run):
     code, _, err = run("get", "uid_b3", "--section", "## Papers")
     assert code == 1
     assert "page" in err
+
+
+def test_get_section_on_uid_shaped_page_title(run, pkm_client):
+    pkm_client.create_page("Databases")
+    pkm_client.post_ops([{"op": "create", "uid": "sec_head_0001",
+                          "page_title": "Databases", "parent_uid": None,
+                          "order_idx": 0, "text": "Vendors", "heading": 2}],
+                        batch_id="t-sec-uidlike")
+    code, out, _ = run("get", "Databases", "--section", "## Vendors")
+    assert code == 0
+    assert "- ## Vendors" in out

@@ -30,7 +30,7 @@ The search→get→refs→get-daily loop is the shape an in-app "ask my PKM" fea
 - `pkm query`: `--expand` (one-hop transitivity through refs); response includes `ref_counts` per operand, rendered as "per-ref block counts: ..." when total is 0.
 - `pkm get`: `--resolve-refs` (inlines `((uid))` as `"text" ((uid))`, cycle-safe), `--section "## H"` (subtree only, pages only), `--depth N` (clip nesting; works on uid targets too).
 - `pkm batch`: `create`/`todo`/`move` accept `"index"` (insert position); `{{alias}}` now works as `uid` in `update`/`move`/`delete`, not just as `parent`.
-- `--json` output is minified (single-line) for all verbs.
+- `--json` output is minified (single-line) for all `--json`-capable verbs (the five read verbs).
 - Every verb's `--help` has a self-sufficient epilog with examples; `pkm batch --help` embeds the full op reference.
 - MCP tools updated to match: `search` (exact), `query` (expand), `get_page`/`get_block` (resolve_refs).
 - Server: `/api/search?exact=`, `/api/query?expand=` + `ref_counts` in `QueryPayload`; `openapi.json` and `web/src/api/types.d.ts` regenerated.

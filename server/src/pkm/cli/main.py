@@ -261,11 +261,11 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
         target = title_for_date(date.today()
                                 + timedelta(days=_RELATIVE[target]))
     elif UID_RE.fullmatch(target):
-        if args.section:
-            print("--section only applies to pages", file=sys.stderr)
-            return 1
         try:
             payload = client.get_block(target)
+            if args.section:
+                print("--section only applies to pages", file=sys.stderr)
+                return 1
             if args.depth:
                 block = clip_depth([payload["block"]], args.depth)[0]
                 payload = {**payload, "block": block}

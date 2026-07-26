@@ -725,7 +725,7 @@ export interface components {
         };
         /**
          * GroupsPayload
-         * @description Shared by /api/unlinked and /api/query.
+         * @description Shared by /api/unlinked and /api/todos.
          */
         GroupsPayload: {
             /** Groups */

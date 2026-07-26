@@ -90,8 +90,8 @@ Ctrl+Cmd and Option/Alt arrow chords still work while the popup is open.
 
 Typing `/` at the start of a block or after a space opens the command
 menu (its keys are listed under "Autocomplete popup" above). Keep typing
-to filter the list — only letters and digits filter, so for the query
-commands type `/query` and pick a variant from the menu.
+to filter the list — e.g. `/py` narrows to the Python code block and
+`/query-o` to the OR query.
 
 | Command | Action |
 |---|---|

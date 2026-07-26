@@ -81,6 +81,8 @@ CASES = [
     ("search_machine", "/api/search?q=machine"),
     ("search_phrase", "/api/search?q=plain%20text"),
     ("search_empty", "/api/search?q=%20"),
+    ("search_exact_miss", "/api/search?q=machi&exact=1"),
+    ("search_exact_hit", "/api/search?q=machine&exact=1"),
 ]
 
 

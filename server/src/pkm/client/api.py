@@ -107,12 +107,17 @@ class PkmClient:
     def get_block(self, uid: str) -> dict:
         return self._request("GET", f"/api/block/{quote(uid, safe='')}")
 
-    def search(self, q: str, limit: int = 20) -> dict:
-        return self._request("GET", "/api/search",
-                             params={"q": q, "limit": limit})
+    def search(self, q: str, limit: int = 20, exact: bool = False) -> dict:
+        params: dict = {"q": q, "limit": limit}
+        if exact:
+            params["exact"] = "true"
+        return self._request("GET", "/api/search", params=params)
 
-    def run_query(self, expr: str) -> dict:
-        return self._request("GET", "/api/query", params={"expr": expr})
+    def run_query(self, expr: str, expand: bool = False) -> dict:
+        params = {"expr": expr}
+        if expand:
+            params["expand"] = "true"
+        return self._request("GET", "/api/query", params=params)
 
     def todos(self, page: str | None = None) -> dict:
         params = {} if page is None else {"page": page}

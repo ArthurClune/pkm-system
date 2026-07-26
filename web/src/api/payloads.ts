@@ -16,7 +16,7 @@ export type BlockRefText = Schemas["BlockRefText"];
 export type BlockRefsPayload = Schemas["BlockRefsPayload"];
 export type PagePayload = Schemas["PagePayload"];
 
-/** Shared by /api/unlinked and /api/query (both return {groups, total}). */
+/** Shared by /api/unlinked and /api/todos (both return {groups, total}). */
 export type GroupItem = Schemas["GroupItem"];
 export type BlockGroup = Schemas["BlockGroup"];
 export type GroupsPayload = Schemas["GroupsPayload"];

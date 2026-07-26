@@ -7,10 +7,10 @@ import type { ReplicaDb } from "../db";
 import { escapeFtsQuery } from "./fts";
 
 export function searchPayload(db: ReplicaDb, q: string,
-                              limit: number): unknown {
+                              limit: number, exact = false): unknown {
   const lim = Math.max(1, Math.min(limit, 100));
   if (q.trim().length === 0) return { pages: [], blocks: [] };
-  const match = escapeFtsQuery(q);
+  const match = escapeFtsQuery(q, exact);
   const pages = db.select(
     `SELECT p.id, p.title FROM pages_fts f
       JOIN pages p ON p.id = f.rowid

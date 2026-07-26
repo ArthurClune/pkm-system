@@ -9,12 +9,13 @@ def _quote(term: str) -> str:
     return '"' + term.replace('"', '""') + '"'
 
 
-def escape_fts_query(q: str) -> str:
+def escape_fts_query(q: str, exact: bool = False) -> str:
     terms = [t for t in re.split(r"\s+", q.strip()) if t]
     if not terms:
         return '""'
     quoted = [_quote(t) for t in terms]
-    quoted[-1] += "*"
+    if not exact:
+        quoted[-1] += "*"
     return " ".join(quoted)
 
 

@@ -82,8 +82,9 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
       "SELECT id, title FROM sidebar_entries ORDER BY order_idx") });
   }
   if (method === "GET" && path === "/api/search") {
+    const exact = q.get("exact") === "1" || q.get("exact") === "true";
     return ok(searchPayload(db, q.get("q") ?? "",
-                            Number(q.get("limit") ?? 20)));
+                            Number(q.get("limit") ?? 20), exact));
   }
   if (method === "POST" && path === "/api/pages" && deps) {
     const title = String((req.body as { title?: unknown })?.title ?? "").trim();

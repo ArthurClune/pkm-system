@@ -47,29 +47,36 @@ def _ensure_page(client: PkmClient, title: str) -> dict:
         return client.get_page(title)
 
 
-def get_page(title: str) -> str:
+def get_page(title: str, resolve_refs: bool = False) -> str:
     """Fetch a page as a markdown outline. Blocks are annotated with
     trailing ^uid markers usable with update_block/batch. `title` may be
-    a daily-note title like 'July 19th, 2026'."""
-    return render_page(_client().get_page(title), include_uids=True)
+    a daily-note title like 'July 19th, 2026'. resolve_refs=True inlines
+    ((uid)) block refs as '"referenced text" ((uid))'."""
+    return render_page(_client().get_page(title), include_uids=True,
+                       resolve_refs=resolve_refs)
 
 
-def get_block(uid: str) -> str:
+def get_block(uid: str, resolve_refs: bool = False) -> str:
     """Fetch one block's subtree (with its page and breadcrumb context)
-    as markdown with ^uid markers."""
-    return render_block(_client().get_block(uid), include_uids=True)
+    as markdown with ^uid markers. resolve_refs=True inlines ((uid)) block
+    refs as '"referenced text" ((uid))'."""
+    return render_block(_client().get_block(uid), include_uids=True,
+                        resolve_refs=resolve_refs)
 
 
-def search(q: str, limit: int = 20) -> str:
-    """Full-text search over page titles and block text."""
-    return render_search(_client().search(q, limit=limit))
+def search(q: str, limit: int = 20, exact: bool = False) -> str:
+    """Full-text search over page titles and block text. exact=True
+    matches whole words only (default prefix-matches the last term)."""
+    return render_search(_client().search(q, limit=limit, exact=exact))
 
 
-def query(expr: str) -> str:
+def query(expr: str, expand: bool = False) -> str:
     """Structured block query, Roam syntax: {and: [[A]] [[B]]},
     {or: ...}, {not: ...} (not only inside and). Operands are [[Page
-    Title]] references."""
-    return render_groups(_client().run_query(expr))
+    Title]] references. expand=True also matches blocks referencing a
+    page that itself references the operand (one hop). An empty result
+    includes per-operand match counts to steer the next query."""
+    return render_groups(_client().run_query(expr, expand=expand))
 
 
 def backlinks(title: str) -> str:

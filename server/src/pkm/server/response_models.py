@@ -82,9 +82,15 @@ class BlockGroup(BaseModel):
 
 
 class GroupsPayload(BaseModel):
-    """Shared by /api/unlinked and /api/query."""
+    """Shared by /api/unlinked and /api/todos."""
     groups: list[BlockGroup]
     total: int
+
+
+class QueryPayload(GroupsPayload):
+    """GET /api/query: groups plus per-operand match counts so an empty
+    result is steerable (bad query shape vs genuinely nothing)."""
+    ref_counts: dict[str, int]
 
 
 class JournalDay(BaseModel):

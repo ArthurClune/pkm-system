@@ -25,14 +25,23 @@ for a password only your partner knows (`--password-stdin` exists for
 scripts *they* drive). **Stop and ask them to run login.** Do not mint
 tokens, sign cookies, or read the DB as a workaround.
 
-## Read verbs (all take `--json`)
+## Read verbs (all take `--json`, minified single-line)
 
     pkm get "Page Title" | today | yesterday | tomorrow | <uid>
     pkm get today --uids          # ^uid markers — fetch these before updating
-    pkm search "term" [--limit N]
+    pkm get "Page" --resolve-refs # inline ((uid)) refs as "text" ((uid)), cycle-safe
+    pkm get "Page" --section "## H" [--depth N]   # subtree only (pages only); --depth also clips uid targets
+    pkm search "term" [--limit N]  # default limit 10
+    pkm search "term" --exact      # whole-word match, no prefix wildcard
+    pkm search "term" --compact    # titles + "[page] ^uid" only, no snippets
     pkm refs "Page Title"                    # backlinks
     pkm query "{and: [[A]] [[B]]}"           # structured {and:/or:/not:}
+    pkm query "{and: [[A]] [[B]]}" --expand  # one-hop: [[X]] also matches via a page X's own blocks reference
     pkm todos [-p "Page"]                    # open {{TODO}} blocks
+
+A `query` with `total: 0` also returns `ref_counts` per operand; the
+rendered output prints "per-ref block counts: ..." so you can tell a typo'd
+operand from operands that just don't intersect.
 
 ## Write verbs
 
@@ -44,11 +53,16 @@ tokens, sign cookies, or read the DB as a workaround.
 - `save` defaults to today's daily note; pages and `"## Heading"` parents
   are created if missing. Multi-line text (or `-` stdin) is an outline:
   2-space indent = nesting.
-- `update` is guarded by a hash of the text the CLI fetched — a conflict
-  error means the block changed underneath you; re-`get` and retry.
+- `update` is guarded by a hash of the text the CLI fetched, but the write
+  always wins — it is never rejected. If the block changed underneath you,
+  your new text still applies and the text you overwrote is preserved as a
+  new `[[conflict]]`-tagged sibling block right after the target; find it
+  via `pkm search`/`pkm refs conflict` and merge by hand if needed.
 - `batch` reads a JSON array of `{command, params}` — `create`, `todo`,
-  `update`, `move`, `delete`, `outline`. `"as": "name"` labels a created
-  block so later commands can target `"parent": "{{name}}"`; repeated
+  `update`, `move`, `delete`, `outline`. `create`/`todo`/`move` accept an
+  `"index"` param to insert at a specific position. `"as": "name"` labels a
+  created block so later commands can target it as `"parent": "{{name}}"`
+  or, for `update`/`move`/`delete`, as `"uid": "{{name}}"`; repeated
   `"## Heading"` parents on the same page resolve to one heading.
 
 ## Gotchas
@@ -57,4 +71,6 @@ tokens, sign cookies, or read the DB as a workaround.
   the CLI (deploy pending). Report the gap; don't fall back to the DB.
 - Port 8974 is the production server on this machine — reads are cheap and
   safe, writes are real. Point tests elsewhere with `PKM_URL`.
+- `--help` on every verb is self-sufficient (argument forms, examples,
+  and for `batch` the full op reference) — prefer it over guessing.
 - Details: README "CLI and MCP access" section; `uv run pkm <verb> --help`.

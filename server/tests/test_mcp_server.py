@@ -35,6 +35,11 @@ def test_search_query_backlinks_todos(tools):
     assert "(0 total)" in tools.todos()
 
 
+def test_search_exact_and_query_expand(tools):
+    assert tools.search("machi", exact=True) == "no results\n"
+    assert "uid_b4" in tools.query("{and: [[AI]]}", expand=True)
+
+
 def test_save_note_returns_uids_and_writes(tools, pkm_client):
     out = tools.save_note("hello from mcp", page="AI")
     assert out.startswith("created ^")
@@ -81,3 +86,8 @@ def test_upload_asset(tools, pkm_client, tmp_path):
 def test_upload_asset_missing_file(tools):
     with pytest.raises(ValueError, match="no such file"):
         tools.upload_asset("/nonexistent/x.png")
+
+
+def test_get_page_resolve_refs(tools):
+    out = tools.get_page("July 7th, 2026", resolve_refs=True)
+    assert '"[[Attention Is All You Need]] is a [[Paper]]" ((uid_b3))' in out

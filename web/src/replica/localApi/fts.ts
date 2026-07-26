@@ -3,11 +3,11 @@
 
 const quote = (term: string): string => `"${term.replaceAll('"', '""')}"`;
 
-export function escapeFtsQuery(q: string): string {
+export function escapeFtsQuery(q: string, exact = false): string {
   const terms = q.trim().split(/\s+/).filter((t) => t.length > 0);
   if (terms.length === 0) return '""';
   const quoted = terms.map(quote);
-  quoted[quoted.length - 1] += "*";
+  if (!exact) quoted[quoted.length - 1] += "*";
   return quoted.join(" ");
 }
 

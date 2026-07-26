@@ -180,27 +180,41 @@ This stores a year-long session token in `~/.config/pkm-cli/config.json`
 (override the path with `PKM_CLI_CONFIG`; point at another server per-call
 with `PKM_URL`).
 
-CLI quick reference (`uv run pkm <cmd> --help` for details):
+CLI quick reference (`uv run pkm <cmd> --help` for details — every verb's
+`--help` is self-sufficient, with argument forms and examples):
 
     pkm get "Page Title" | today | <uid>     # markdown; --uids / --json
+    pkm get "Page" --resolve-refs            # inline ((uid)) refs, cycle-safe
+    pkm get "Page" --section "## H" [--depth N]   # subtree only (pages only)
     pkm todos [-p "Page"]
     pkm save [-p "Page"] [--parent "## H"|"((uid))"] [--todo] "text" | -
     pkm update <uid> "new text" | -D | -T
-    pkm search "term" / pkm refs "Page" / pkm query "{and: [[A]] [[B]]}"
+    pkm search "term" [--limit N] [--exact] [--compact]
+    pkm refs "Page" / pkm query "{and: [[A]] [[B]]}" [--expand]
     pkm upload file.png [-p "Page"] [--no-block]
     pkm batch < commands.json                # atomic multi-op transaction
 
 Notes: `pkm save` with no `-p` targets today's daily note (pages are created
-if missing); multi-line text is an outline (2-space indent = nesting); `--json`
-is available on the read verbs; `pkm login --password-stdin` suits scripts.
+if missing); multi-line text is an outline (2-space indent = nesting);
+`--json` is available on the read verbs and printed minified (single line,
+no indent — cheaper for machine consumers); `pkm login --password-stdin`
+suits scripts. `search --exact` matches whole words only (no prefix
+wildcard); `--compact` prints titles/uids without snippets; the default
+`--limit` is 10. `query --expand` also matches one hop of transitivity
+([[X]] matches blocks referencing a page that itself references X); when a
+query's total is 0, the response (and rendered output) also reports a
+per-operand block count so you can tell a typo'd `[[Page]]` from operands
+that simply don't intersect.
 
 `pkm batch` applies a JSON array of `{command, params}` objects in one
-transaction. Commands: `create` (page, text, parent?, as?), `todo` (like
-create, `{{TODO}}`-prefixed), `update` (uid, text), `move` (uid, page,
-parent?, index?), `delete` (uid), `outline` (page, parent?, items — nested
-string arrays). `as` names a created block so later commands can use it as
-`"parent": "{{alias}}"`; a `"## Heading"` parent is matched on the page or
-created once per batch — repeating the same `"## Heading"` spec across
+transaction. Commands: `create` (page, text, parent?, index?, as?), `todo`
+(like create, `{{TODO}}`-prefixed), `update` (uid, text), `move` (uid,
+page, parent?, index?), `delete` (uid), `outline` (page, parent?, items —
+nested string arrays). `index` inserts `create`/`todo`/`move` at that exact
+position instead of appending. `as` names a created block so later commands
+can use it as `"parent": "{{alias}}"` and, for `update`/`move`/`delete`,
+as `"uid": "{{alias}}"` too; a `"## Heading"` parent is matched on the page
+or created once per batch — repeating the same `"## Heading"` spec across
 commands reuses the heading already created:
 
     [{"command": "create",

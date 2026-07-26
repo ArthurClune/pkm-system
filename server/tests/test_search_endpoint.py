@@ -24,3 +24,16 @@ def test_search_empty_query(client):
 def test_search_quote_injection_is_safe(client):
     r = client.get("/api/search", params={"q": 'NEAR( "x" OR'})
     assert r.status_code == 200  # escaped, not parsed as FTS syntax
+
+
+def test_search_exact_disables_prefix_match(client):
+    body = client.get("/api/search",
+                      params={"q": "machi", "exact": "true"}).json()
+    assert body == {"pages": [], "blocks": []}
+
+
+def test_search_exact_whole_token_still_matches(client):
+    body = client.get("/api/search",
+                      params={"q": "machine", "exact": "true"}).json()
+    assert [p["title"] for p in body["pages"]] == ["Machine Learning"]
+    assert {b["uid"] for b in body["blocks"]} == {"uid_b4", "uid_b6"}

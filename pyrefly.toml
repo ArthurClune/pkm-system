@@ -4,3 +4,4 @@ python-interpreter = "server/.venv/bin/python"
 disable-project-excludes-heuristics = true
 project-excludes = ["**/node_modules", "**/__pycache__", "**/.venv/**/*"]
 use-ignore-files = false
+search-path = ["server/tests"]

@@ -1,6 +1,6 @@
 import asyncio
 
-from .fake_engine import FakeEngine
+from fake_engine import FakeEngine
 from pkm.assistant.engine import AgentEngine
 from pkm.assistant.events import ConfirmRequest, TextDelta, ToolFinished, ToolStarted, TurnDone
 from pkm.assistant.policy import SYSTEM_PROMPT
@@ -64,6 +64,15 @@ def test_close_marks_closed():
     async def scenario():
         engine = FakeEngine()
         conv = await engine.create_conversation(SYSTEM_PROMPT, "haiku")
+        events = []
+
+        async def consume():
+            async for ev in conv.send("please write"):
+                events.append(ev)
+                if isinstance(ev, ConfirmRequest):
+                    break
+
+        await asyncio.wait_for(consume(), timeout=5)
         await conv.close()
         return conv
 

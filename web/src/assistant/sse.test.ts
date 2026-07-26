@@ -39,4 +39,11 @@ describe("createSseParser", () => {
       p.push('event: confirm_request\ndata: {"tool_use_id": "c1", "ops_preview": "save_note(...)"}\n\n'),
     ).toEqual([{ type: "confirm_request", tool_use_id: "c1", ops_preview: "save_note(...)" }]);
   });
+
+  test("event name from the event line wins over a type key in data", () => {
+    const p = createSseParser();
+    expect(p.push('event: text_delta\ndata: {"text": "hi", "type": "error"}\n\n')).toEqual([
+      { type: "text_delta", text: "hi" },
+    ]);
+  });
 });

@@ -28,7 +28,7 @@ function parseFrame(frame: string): AssistantEvent | null {
   if (!EVENT_TYPES.has(eventName) || !data) return null;
   try {
     const payload = JSON.parse(data) as Record<string, unknown>;
-    return { type: eventName, ...payload } as AssistantEvent;
+    return { ...payload, type: eventName } as AssistantEvent;
   } catch {
     return null;
   }

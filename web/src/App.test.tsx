@@ -361,7 +361,7 @@ it("unknown route renders the not-found view", () => {
   expect(screen.getByRole("link", { name: "Go to Daily Notes" })).toBeInTheDocument();
 });
 
-it("Settings nav link sits below the user-editable favourites, not with the primary links (pkm-7myl)", () => {
+it("Settings nav link sits below the user-editable favourites but is styled primary (pkm-eztt)", () => {
   stubFetch([["/api/journal", { days: [] }]]);
   const { container } = render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
@@ -374,7 +374,7 @@ it("Settings nav link sits below the user-editable favourites, not with the prim
   expect(links).toEqual(["Daily Notes", "Current Work", "TODO", "Settings"]);
 
   const settingsLink = screen.getByRole("link", { name: "Settings" });
-  expect(settingsLink).not.toHaveClass("primary");
+  expect(settingsLink).toHaveClass("primary");
 });
 
 it("Settings nav link navigates to /settings", async () => {

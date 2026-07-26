@@ -136,12 +136,12 @@ export function App() {
                 </NavLink>
                 <ThemeToggle />
                 <SidebarNav onNavigate={() => setNavOpen(false)} />
-                {/* Secondary, below the user-editable favourites -- deliberately
-                  * not styled "primary" like Daily Notes/Current Work/TODO
-                  * above (pkm-7myl). Only one setting exists today; more are
-                  * coming, so this link -- not those -- is where they'll live. */}
+                {/* Below the user-editable favourites, but styled "primary"
+                  * like Daily Notes/Current Work/TODO above (pkm-eztt). Only
+                  * one setting exists today; more are coming, so this link --
+                  * not those -- is where they'll live. */}
                 <NavLink to="/settings" onClick={() => setNavOpen(false)}
-                         className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
+                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                   Settings
                 </NavLink>
               </nav>

@@ -1,11 +1,11 @@
 ---
 # pkm-roph
 title: pkm CLI surface improvements from agent-driving test
-status: todo
+status: in-progress
 type: feature
 priority: normal
 created_at: 2026-07-24T16:35:31Z
-updated_at: 2026-07-24T16:50:47Z
+updated_at: 2026-07-26T14:03:54Z
 ---
 
 Testing the pkm skill/CLI as an agent (2026-07-24 session: AGI notes review + database-vendor meeting lookup) surfaced friction points. These matter because the same verbs will eventually back an in-app assistant.

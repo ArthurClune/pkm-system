@@ -6,6 +6,9 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from pkm.assistant.engine import AgentEngine
+from pkm.assistant.routes import router as assistant_router
+from pkm.assistant.service import AssistantService
 from pkm.server.auth import require_auth, router as auth_router
 from pkm.server.config import Config
 from pkm.server.db import init_db
@@ -20,7 +23,12 @@ from pkm.server.routes_sync import router as sync_router
 from pkm.server.ws import Hub, router as ws_router
 
 
-def create_app(config: Config) -> FastAPI:
+def create_app(
+    config: Config,
+    *,
+    api_port: int = 8974,
+    assistant_engine: AgentEngine | None = None,
+) -> FastAPI:
     # init_db() is idempotent and cheap (one WAL pragma + the fully
     # IF-NOT-EXISTS base schema, see schema.py), so calling it here makes
     # WAL mode + a working schema un-forgettable for any entrypoint or
@@ -34,6 +42,8 @@ def create_app(config: Config) -> FastAPI:
     )
     app.state.config = config
     app.state.hub = Hub()
+    # Task 7 replaces this None default with a real ClaudeEngine(base_url=..., session_secret_hex=...)
+    app.state.assistant = AssistantService(assistant_engine) if assistant_engine is not None else None
     app.add_middleware(RequestLogMiddleware)
     app.include_router(auth_router)
 
@@ -52,6 +62,7 @@ def create_app(config: Config) -> FastAPI:
     app.include_router(assets_router)
     app.include_router(export_router)
     app.include_router(ws_router)
+    app.include_router(assistant_router)
 
     @app.get("/healthz")
     def healthz() -> dict:

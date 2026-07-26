@@ -1,4 +1,7 @@
+from collections.abc import Iterator
+
 import pytest
+from fake_engine import FakeEngine
 from fastapi.testclient import TestClient
 
 from pkm.server.app import create_app
@@ -83,3 +86,16 @@ def pkm_client(anon_client):
     anon_client.cookies.clear()
     cfg = CliConfig(url="http://testserver", token=token)
     return PkmClient(cfg, http=anon_client)
+
+
+@pytest.fixture()
+def fake_engine() -> FakeEngine:
+    return FakeEngine()
+
+
+@pytest.fixture()
+def assistant_client(seeded_config, fake_engine) -> Iterator[TestClient]:
+    with TestClient(create_app(seeded_config, assistant_engine=fake_engine)) as c:
+        r = c.post("/api/login", json={"password": TEST_PASSWORD})
+        assert r.status_code == 200
+        yield c

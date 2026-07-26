@@ -220,3 +220,12 @@ class SnapshotPayload(BaseModel):
     pages: list[SyncPage]
     blocks: list[SyncBlock]
     sidebar: list[SyncSidebarEntry]
+
+
+class AssistantConversation(BaseModel):
+    id: str
+    model: str
+
+
+class AssistantAck(BaseModel):
+    ok: bool = True

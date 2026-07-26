@@ -43,9 +43,20 @@ describe("detectAutocomplete", () => {
     expect(detectAutocomplete("path/to/x", 5)).toBeNull();
   });
 
-  test("a space (or other non-letter) after the slash closes the command context", () => {
+  test("a space (or other punctuation) after the slash closes the command context", () => {
     expect(detectAutocomplete("/py ", 4)).toBeNull();
-    expect(detectAutocomplete("/py-thon", 8)).toBeNull();
+    expect(detectAutocomplete("/py.thon", 8)).toBeNull();
+  });
+
+  test("hyphens after a leading letter keep the command context open (for /query-and etc.)", () => {
+    expect(detectAutocomplete("/query-and", 10))
+      .toEqual({ kind: "command", start: 1, query: "query-and" });
+    expect(detectAutocomplete("/query-", 7))
+      .toEqual({ kind: "command", start: 1, query: "query-" });
+    expect(detectAutocomplete("see /query-and-not", 18))
+      .toEqual({ kind: "command", start: 5, query: "query-and-not" });
+    // still quiet after a leading digit, so "/2020-01" in prose stays inert
+    expect(detectAutocomplete("a /2020-01 note", 10)).toBeNull();
   });
 
   test("digits after a leading letter still trigger (for /h1, /h2, /h3)", () => {

@@ -11,10 +11,12 @@ export interface AcContext {
 
 const PLAIN_TAG_RE = /^[A-Za-z0-9_/-]+$/;
 // Must start with a letter (so a bare "/2020" in prose stays quiet) but may
-// be followed by digits (so "/h1", "/h2", "/h3" keep the menu open); any
-// other punctuation or whitespace after the "/" closes the command menu
-// (this also keeps it quiet inside URLs and path-like text, see below).
-const SLASH_QUERY_RE = /^([A-Za-z][A-Za-z0-9]*)?$/;
+// be followed by digits or hyphens (so "/h1" and "/query-and" keep the menu
+// open); any other punctuation or whitespace after the "/" closes the command
+// menu (this also keeps it quiet inside URLs and path-like text, see below).
+// A hyphenated non-command like "/on-site" leaves the context open but
+// matches nothing, which renders no popup and swallows no keys.
+const SLASH_QUERY_RE = /^([A-Za-z][A-Za-z0-9-]*)?$/;
 
 export function detectAutocomplete(text: string,
                                    cursor: number): AcContext | null {

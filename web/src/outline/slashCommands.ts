@@ -34,6 +34,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "h2", label: "Heading 2" },
   { name: "h3", label: "Heading 3" },
   { name: "normal", label: "Normal text" },
+  { name: "query-and", label: "Query (AND)" },
+  { name: "query-or", label: "Query (OR)" },
+  { name: "query-and-not", label: "Query (AND NOT)" },
 ];
 
 /** Commands that set a block's heading field (a SetHeadingOp) rather than
@@ -77,6 +80,20 @@ function applyTodoPrefix(content: string): { text: string; cursor: number } {
   return { text, cursor: text.length };
 }
 
+/** {{query: ...}} expression bodies per command — must match the server's
+ * parse_query grammar (server/src/pkm/server/query.py) exactly. */
+const QUERY_EXPRESSIONS: Record<string, string> = {
+  "query-and": "{and: [[A]] [[B]]}",
+  "query-or": "{or: [[A]] [[B]]}",
+  "query-and-not": "{and: [[A]] {not: [[B]]}}",
+};
+
+function queryPlaceholder(command: string, content: string): { text: string; cursor: number } {
+  if (content.trim()) return { text: content, cursor: content.length };
+  const text = "{{query: " + QUERY_EXPRESSIONS[command] + "}}";
+  return { text, cursor: text.length };
+}
+
 /** Insert a "text block": a lang-less fence wrapping the content, cursor
  * placed inside it. Unwraps first if the content is already a whole fence
  * (of any language) so re-running /text (or converting a code block) doesn't
@@ -103,6 +120,8 @@ export function applySlashCommand(
         : { text: "{{table}}", cursor: "{{table}}".length };
     case "python": case "bash": case "javascript": case "mermaid":
       return wrapFence(content, command);
+    case "query-and": case "query-or": case "query-and-not":
+      return queryPlaceholder(command, content);
     default: return { text: content, cursor: content.length };
   }
 }

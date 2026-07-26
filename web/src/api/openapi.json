@@ -600,6 +600,16 @@
               "default": 20,
               "title": "Limit"
             }
+          },
+          {
+            "name": "exact",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Exact"
+            }
           }
         ],
         "responses": {

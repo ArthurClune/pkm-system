@@ -19,12 +19,12 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 @router.get("/api/search", response_model=SearchPayload)
-def search(q: str = "", limit: int = 20,
+def search(q: str = "", limit: int = 20, exact: bool = False,
            db: sqlite3.Connection = Depends(get_db)) -> dict:
     limit = max(1, min(limit, 100))
     if not q.strip():
         return {"pages": [], "blocks": []}
-    match = escape_fts_query(q)
+    match = escape_fts_query(q, exact)
     pages = [dict(r) for r in db.execute(
         """SELECT p.id, p.title FROM pages_fts f
             JOIN pages p ON p.id = f.rowid

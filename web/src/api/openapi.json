@@ -667,7 +667,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GroupsPayload"
+                  "$ref": "#/components/schemas/QueryPayload"
                 }
               }
             }
@@ -2037,6 +2037,36 @@
           "block_ref_texts"
         ],
         "title": "PagePayload"
+      },
+      "QueryPayload": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/BlockGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "ref_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Ref Counts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups",
+          "total",
+          "ref_counts"
+        ],
+        "title": "QueryPayload",
+        "description": "GET /api/query: groups plus per-operand match counts so an empty\nresult is steerable (bad query shape vs genuinely nothing)."
       },
       "RenamePageRequest": {
         "properties": {

@@ -73,6 +73,21 @@ def test_render_groups_with_uids_and_total():
         "(1 total)\n")
 
 
+def test_render_groups_empty_with_ref_counts_hint():
+    payload = {"groups": [], "total": 0,
+               "ref_counts": {"Meeting": 312, "Databases": 51}}
+    out = render_groups(payload)
+    assert out == ("(0 total)\n"
+                   "per-ref block counts: [[Meeting]] 312, [[Databases]] 51\n")
+
+
+def test_render_groups_no_hint_when_results_exist():
+    payload = {"groups": [{"page_id": 1, "page_title": "AI",
+                           "items": [{"uid": "t1", "text": "x"}]}],
+               "total": 1, "ref_counts": {"AI": 1}}
+    assert "per-ref" not in render_groups(payload)
+
+
 def test_render_backlinks():
     backlinks = {"groups": [{"page_id": 3, "page_title": "July 7th, 2026",
                              "items": [{"uid": "b4", "text": "Studying",

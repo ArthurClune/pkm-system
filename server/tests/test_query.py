@@ -133,3 +133,16 @@ def test_query_endpoint_expand_one_hop(client):
                       params={"expr": "{and: [[AI]]}", "expand": "true"}).json()
     assert {i["uid"] for g in body["groups"] for i in g["items"]} == \
         {"uid_b1", "uid_b4"}
+
+
+def test_page_operands_distinct_first_seen():
+    from pkm.server.query import page_operands, parse_query
+    node = parse_query("{and: [[A]] {or: [[B]] [[A]]} {not: [[C]]}}")
+    assert page_operands(node) == ["A", "B", "C"]
+
+
+def test_query_endpoint_ref_counts(client):
+    body = client.get(
+        "/api/query", params={"expr": "{and: [[Paper]] [[AI]]}"}).json()
+    assert body["total"] == 0
+    assert body["ref_counts"] == {"Paper": 1, "AI": 1}

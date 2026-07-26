@@ -10,9 +10,10 @@ from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
 from pkm.server.query import (
-    QUERY_SOURCE_FILTER, parse_query, plan_sql, QueryParseError)
+    QUERY_SOURCE_FILTER, QueryNode, page_operands, parse_query, plan_sql,
+    QueryParseError)
 from pkm.server.response_models import (
-    GroupsPayload, SearchPayload, TitlesPayload)
+    GroupsPayload, QueryPayload, SearchPayload, TitlesPayload)
 from pkm.todo import is_todo
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -42,13 +43,22 @@ def search(q: str = "", limit: int = 20, exact: bool = False,
     return {"pages": pages, "blocks": blocks}
 
 
-@router.get("/api/query", response_model=GroupsPayload)
+@router.get("/api/query", response_model=QueryPayload)
 def run_query(expr: str, expand: bool = False,
               db: sqlite3.Connection = Depends(get_db)) -> dict:
     try:
-        sql, params = plan_sql(parse_query(expr), expand)
+        node = parse_query(expr)
+        sql, params = plan_sql(node, expand)
     except QueryParseError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    ref_counts = {}
+    for title in page_operands(node):
+        osql, oparams = plan_sql(QueryNode("page", title), expand)
+        ref_counts[title] = db.execute(
+            f"""SELECT count(*) FROM ({osql}) m
+                  JOIN blocks b ON b.uid = m.uid
+                 WHERE {QUERY_SOURCE_FILTER}""",
+            oparams).fetchone()[0]
     total = db.execute(
         f"""SELECT count(*) FROM ({sql}) m
               JOIN blocks b ON b.uid = m.uid
@@ -73,7 +83,7 @@ def run_query(expr: str, expand: bool = False,
             index[r["page_id"]] = group
             groups.append(group)
         group["items"].append({"uid": r["uid"], "text": r["text"]})
-    return {"groups": groups, "total": total}
+    return {"groups": groups, "total": total, "ref_counts": ref_counts}
 
 
 @router.get("/api/titles", response_model=TitlesPayload)

@@ -109,6 +109,20 @@ _PAGE_SQL_EXPANDED = (
 )
 
 
+def page_operands(node: QueryNode) -> list[str]:
+    """Distinct [[Page]] operand titles in an expression, first-seen order
+    (drives /api/query's ref_counts hint)."""
+    if node.kind == "page":
+        assert node.title is not None
+        return [node.title]
+    out: list[str] = []
+    for c in node.children:
+        for title in page_operands(c):
+            if title not in out:
+                out.append(title)
+    return out
+
+
 def plan_sql(node: QueryNode, expand: bool = False) -> tuple[str, list[str]]:
     if node.kind == "page":
         assert node.title is not None  # page nodes always carry a title

@@ -55,6 +55,10 @@ def render_groups(payload: dict, include_uids: bool = True) -> str:
             lines.append(f"- {item['text']}{suffix}")
         lines.append("")
     lines.append(f"({payload['total']} total)")
+    counts = payload.get("ref_counts")
+    if counts and payload["total"] == 0:
+        pairs = ", ".join(f"[[{t}]] {n}" for t, n in counts.items())
+        lines.append(f"per-ref block counts: {pairs}")
     return "\n".join(lines) + "\n"
 
 

@@ -45,8 +45,10 @@ _GET_EPILOG = """\
 target forms:
   "Page Title"                   an exact page title
   today / yesterday / tomorrow   the daily note for that relative date
-  a 12-char uid                  fetches that single block, e.g.
-                                 pkm get abcd1234wxyz
+  a uid (6-32 chars, letters/digits/_/-)   fetches that single block,
+                                 e.g. pkm get abcd1234wxyz -- if no
+                                 block matches, falls back to a page
+                                 lookup on that same string
 
 flags:
   --uids           annotate each block with a trailing ^uid marker
@@ -136,10 +138,13 @@ or -T/--todo is required. TEXT may be "-" to read replacement text
 from stdin. -D marks the block {{DONE}}; -T marks it {{TODO}} (both
 keep the existing text, only changing the task marker).
 
-Text updates are hash-guarded: the write is rejected if the block's
-text changed since it was last fetched (another writer got there
-first). On that conflict, re-fetch with "pkm get <uid> --json" (or
-the page) to see the current text, then retry.
+Text updates are hash-guarded, but the write always wins -- it is
+never rejected. `update` records the hash of the text you fetched; if
+the block changed since then (another writer got there first), your
+new text is still applied, and the text you overwrote is preserved,
+unmodified, as a new sibling block placed right after the target and
+tagged "[[conflict]] ..." -- find it via `pkm search`/`pkm refs
+conflict` and merge by hand if needed.
 
 example:
   pkm update abcd1234wxyz "Finalize the report"
@@ -172,10 +177,16 @@ read from stdin, as one atomic write. Commands and their params:
       "{{name}}".
   todo     same params as create; text is stored {{TODO}}-prefixed.
   update   {uid, text}
-      replaces a block's text (uid may be "{{alias}}").
+      replaces a block's text (uid may be "{{alias}}"). Unlike
+      standalone `pkm update`, batch update carries NO hash guard: it
+      always overwrites, and never preserves a concurrent edit as a
+      conflict sibling.
   move     {uid, page, parent?, index?}
       relocates a block to page/parent (uid and parent may use
-      "{{alias}}").
+      "{{alias}}"). Unlike create/todo/outline, move's "## Heading"
+      destination is NOT created if missing -- the whole batch fails
+      during planning (before any op is applied) if it doesn't
+      already exist on the page.
   delete   {uid}
       removes a block (uid may be "{{alias}}").
   outline  {page, parent?, items}
@@ -183,11 +194,16 @@ read from stdin, as one atomic write. Commands and their params:
       nested lists, one nesting level per indent, e.g.
       ["Groceries", ["Milk", "Eggs"]].
 
-parent (create/todo/outline) and move's destination accept:
-  "## Heading"   a heading with that exact text; created once at page
-                 top level if missing -- repeating the same missing
-                 "## Heading" text elsewhere in the batch reuses that
-                 one heading rather than creating it again
+parent (create/todo/outline) accepts, and move's destination accepts
+except where noted:
+  "## Heading"   a heading with that exact text; created/todo/outline
+                 create it once at page top level if missing --
+                 repeating the same missing "## Heading" text (same
+                 page, same level) elsewhere in the batch reuses that
+                 one heading rather than creating it again (a repeat
+                 on a different page, or at a different level, e.g.
+                 "###", makes its own heading). move requires the
+                 heading to already exist; see above.
   "((uid))"      an existing block's uid
   "{{alias}}"    a block created earlier in this same batch via "as"
 

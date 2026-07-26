@@ -25,6 +25,17 @@ Expose the pkm CLI/MCP verb surface (search, get, refs, query, todos, save, upda
 - Use **adaptive thinking** (`thinking: {type: "adaptive"}`) — never `budget_tokens` (removed on current models).
 - Run **low effort for reads** (`output_config: {effort: "low"}`): the retrieval loop needs no deliberation, and low effort makes tool calls terser and faster. Medium/high only for reorg/synthesis requests.
 - **Cache the static prefix** (system prompt + verb reference/tool schemas): per-turn cost then is mostly 0.1x cache reads — a whole investigation session lands in the cents range on Sonnet.
+- **Superseded by the harness decision (2026-07-26):** the Claude Agent SDK owns thinking/effort/caching. These notes apply only if a raw-API engine is ever built.
+
+## Architecture (decided 2026-07-26)
+
+Design spec: `docs/superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md`
+
+- Server-side agent, harness-based: `AgentEngine` abstraction with a Claude Agent SDK backend first (uses the machine's Claude Code Max login — sanctioned subscription path; Anthropic ToS bans subscription OAuth only in third-party tools). OpenAI-subscription engine (Codex SDK or pi) is the planned second backend.
+- Harness confined to the stdio `pkm-mcp` tool surface only (no built-in tools); write verbs gated by in-chat confirm.
+- Floating panel (`Cmd/Ctrl+J`, Esc closes) + "Assistant" sidebar entry above Settings; per-conversation model dropdown (Sonnet default / Opus / Haiku), server-validated.
+- SSE streaming over `/api/assistant/*` behind existing session auth; ephemeral in-memory conversations.
+- Follow-up beans: HTTP MCP endpoint for tailnet clients; persistent history; second engine.
 
 ## Dependencies
 
@@ -32,7 +43,7 @@ Expose the pkm CLI/MCP verb surface (search, get, refs, query, todos, save, upda
 
 ## Open questions
 
-- [ ] Where does the assistant live in the UI (side panel? command palette? chat page)?
-- [ ] Server-side proxy for API keys vs BYO-key?
-- [ ] Read-only first release, or writes (with in-app confirm before batch apply)?
-- [ ] Streaming + tool-call progress display in the web client
+- [x] Where does the assistant live in the UI → floating panel, `Cmd/Ctrl+J` + sidebar entry above Settings
+- [x] Server-side proxy for API keys vs BYO-key → server-side harness with subscription auth (no keys in v1)
+- [x] Read-only first release, or writes → writes with in-chat confirm gate
+- [x] Streaming + tool-call progress display → SSE turn stream; tool-activity line + confirm cards

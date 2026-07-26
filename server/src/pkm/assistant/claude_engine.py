@@ -24,7 +24,9 @@ from claude_agent_sdk import (
     ResultMessage,
     StreamEvent,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
 from pkm.assistant.events import (
@@ -32,6 +34,7 @@ from pkm.assistant.events import (
     ConfirmRequest,
     ErrorEvent,
     TextDelta,
+    ToolFinished,
     ToolStarted,
     TurnDone,
 )
@@ -58,6 +61,7 @@ class TurnMapper:
 
     def __init__(self) -> None:
         self._saw_delta = False
+        self._tool_names: dict[str, str] = {}
 
     def map(self, msg: Any) -> list[AssistantEvent]:
         if isinstance(msg, StreamEvent):
@@ -75,7 +79,18 @@ class TurnMapper:
                     out.append(TextDelta(text=block.text))
                 elif isinstance(block, ToolUseBlock):
                     short = short_tool_name(block.name)
+                    self._tool_names[block.id] = short
                     out.append(ToolStarted(name=short, summary=tool_summary(short, block.input or {})))
+            return out
+        if isinstance(msg, UserMessage):
+            content = msg.content
+            if not isinstance(content, list):
+                return []
+            out = []
+            for block in content:
+                if isinstance(block, ToolResultBlock):
+                    name = self._tool_names.get(block.tool_use_id, "tool")
+                    out.append(ToolFinished(name=name))
             return out
         if isinstance(msg, ResultMessage):
             if msg.is_error:
@@ -91,6 +106,7 @@ class ClaudeConversation:
         self._queue: asyncio.Queue[AssistantEvent] = asyncio.Queue()
         self._pending: dict[str, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
+        self._pump_task: asyncio.Task[None] | None = None
 
     def attach(self, client: Any) -> None:
         self._client = client
@@ -127,6 +143,7 @@ class ClaudeConversation:
         await self._client.query(text)
         mapper = TurnMapper()
         pump = asyncio.create_task(self._pump(mapper))
+        self._pump_task = pump
         try:
             while True:
                 event = await self._queue.get()
@@ -140,6 +157,8 @@ class ClaudeConversation:
                 pump.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await pump
+            if self._pump_task is pump:
+                self._pump_task = None
 
     async def _pump(self, mapper: TurnMapper) -> None:
         try:
@@ -154,6 +173,13 @@ class ClaudeConversation:
         for fut in self._pending.values():
             if not fut.done():
                 fut.set_result(False)
+        if self._pump_task is not None and not self._pump_task.done():
+            self._pump_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._pump_task
+            self._pump_task = None
+            # unblock any live send() consumer stuck on queue.get()
+            await self._queue.put(ErrorEvent(message="conversation closed"))
         if self._client is not None:
             try:
                 await self._client.disconnect()

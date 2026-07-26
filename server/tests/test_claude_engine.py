@@ -9,11 +9,13 @@ from claude_agent_sdk import (
     PermissionResultDeny,
     ResultMessage,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
 from pkm.assistant.claude_engine import ClaudeEngine, TurnMapper
-from pkm.assistant.events import ConfirmRequest, TextDelta, ToolStarted, TurnDone
+from pkm.assistant.events import ConfirmRequest, ErrorEvent, TextDelta, ToolFinished, ToolStarted, TurnDone
 from pkm.assistant.policy import SYSTEM_PROMPT
 
 SECRET = "ab" * 32
@@ -181,6 +183,32 @@ def test_deny_returns_declined_message(tmp_path):
     assert "declined" in decision.message
 
 
+def test_close_during_live_turn_unblocks_consumer(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        # FakeSDKClient.receive_response() blocks on its empty queue, just
+        # like the real SDK blocks waiting on the CLI subprocess.
+        events: list = []
+
+        async def consume():
+            async for ev in conv.send("hi"):
+                events.append(ev)
+
+        consumer = asyncio.create_task(consume())
+        # let the pump task start and reach the blocking receive_response()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        await conv.close()
+        await asyncio.wait_for(consumer, timeout=5)
+        return events
+
+    events = asyncio.run(scenario())
+    assert events
+    assert events[-1] == ErrorEvent(message="conversation closed")
+
+
 def test_send_streams_mapped_events(tmp_path):
     engine = make_engine(tmp_path)
 
@@ -227,3 +255,22 @@ def test_turn_mapper_error_result():
     events = mapper.map(result)
     assert len(events) == 1
     assert events[0].__class__.__name__ == "ErrorEvent"
+
+
+def test_turn_mapper_emits_tool_finished_from_tool_result():
+    mapper = TurnMapper()
+    assistant_msg = AssistantMessage(
+        content=[ToolUseBlock(id="t1", name="mcp__pkm__search", input={"q": "alpha"})],
+        model="sonnet",
+    )
+    assert mapper.map(assistant_msg) == [ToolStarted(name="search", summary='searching "alpha"')]
+
+    user_msg = UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="ok")])
+    assert mapper.map(user_msg) == [ToolFinished(name="search")]
+
+    # an unrecognised tool_use_id (e.g. mapper created fresh mid-turn) falls back to "tool"
+    unknown_msg = UserMessage(content=[ToolResultBlock(tool_use_id="unknown", content="ok")])
+    assert mapper.map(unknown_msg) == [ToolFinished(name="tool")]
+
+    # a plain string UserMessage (no tool results) maps to nothing
+    assert mapper.map(UserMessage(content="hi")) == []

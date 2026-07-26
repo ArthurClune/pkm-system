@@ -29,6 +29,191 @@ from pkm.todo import with_state
 
 _RELATIVE = {"today": 0, "yesterday": -1, "tomorrow": 1}
 
+_LOGIN_EPILOG = """\
+example:
+  pkm login --url http://127.0.0.1:8974
+
+Prompts for a password interactively unless --password-stdin is
+given, in which case the password is read from stdin (one line, no
+prompt) instead -- use this in scripts and CI, e.g.:
+  echo "mypassword" | pkm login --url http://host:port --password-stdin
+On success the session token is saved to the CLI config file; every
+other command reads it from there, so no further auth flags exist.
+"""
+
+_GET_EPILOG = """\
+target forms:
+  "Page Title"                   an exact page title
+  today / yesterday / tomorrow   the daily note for that relative date
+  a 12-char uid                  fetches that single block, e.g.
+                                 pkm get abcd1234wxyz
+
+flags:
+  --uids           annotate each block with a trailing ^uid marker
+  --resolve-refs   inline ((uid)) block refs as "text" ((uid))
+  --section "## Heading"   only the subtree under that heading/block
+                            (pages only, not a bare uid target)
+  --depth N        clip nesting below N levels deep
+  --json           raw JSON payload instead of rendered markdown
+
+example:
+  pkm get "Machine Learning" --section "## Papers" --depth 2
+"""
+
+_SEARCH_EPILOG = """\
+full-text search over page titles and block text. By default the
+last word of TERM is prefix-matched (e.g. "test" also matches
+"testing"); --exact matches whole words only, no prefix wildcard.
+--compact prints titles/uids only, without snippets -- useful when
+you just want uids to feed into other commands. --limit caps results
+(default 10, and applies separately to pages and blocks).
+
+example:
+  pkm search "machine learning" --limit 5
+  pkm search proj --exact --compact
+"""
+
+_REFS_EPILOG = """\
+lists every block that links to TITLE via [[Page Title]], #tag, or
+{{alias}} syntax -- i.e. this page's backlinks -- grouped by the page
+each linking block lives on.
+
+example:
+  pkm refs "Machine Learning"
+"""
+
+_QUERY_EPILOG = """\
+structured query syntax over [[Page Title]] operands, nestable:
+  {and: [[A]] [[B]]}          blocks referencing both A and B
+  {or: [[A]] [[B]]}           blocks referencing either A or B
+  {and: [[A]] {not: [[B]]}}   blocks referencing A but not B
+"not" is only valid nested inside an "and" clause (matching Roam) --
+a bare {not: ...} or one nested inside {or: ...} is an error.
+
+--expand makes [[X]] also match blocks that reference some page Y
+which itself references X (one hop of transitivity), in addition to
+blocks that reference X directly.
+
+When the query's total is 0, the output also lists a per-[[Page]]
+block count for each operand, so you can tell an empty operand (typo,
+wrong title) apart from operands that individually have matches but
+whose combination doesn't.
+
+example:
+  pkm query "{and: [[Project Alpha]] {not: [[Done]]}}"
+"""
+
+_TODOS_EPILOG = """\
+lists every {{TODO}} block (not {{DONE}}), grouped by page.
+
+example:
+  pkm todos -p "Project Alpha"
+"""
+
+_SAVE_EPILOG = """\
+creates one or more blocks. A single-line TEXT creates one block;
+multi-line TEXT (or piped via stdin using "-") is parsed as an
+outline: each 2-space indent step (a tab also counts as one level)
+nests one level deeper than its parent line. A line may not jump more
+than one level deeper than the line before it.
+
+--parent nests the new block(s) under an existing block, given as
+either "## Heading" (a heading with that exact text; created at page
+top level first if it doesn't already exist) or "((uid))" (an
+existing block's uid). Without --parent, blocks are appended at page
+top level. Without -p/--page, the target is today's daily note.
+
+--todo prefixes only the top-level item(s) with {{TODO}}.
+
+example:
+  pkm save "Buy milk" --todo
+  printf "Groceries\\n  Milk\\n  Eggs\\n" | pkm save - --parent "## Notes"
+"""
+
+_UPDATE_EPILOG = """\
+updates a block's text or task state. Exactly one of TEXT, -D/--done,
+or -T/--todo is required. TEXT may be "-" to read replacement text
+from stdin. -D marks the block {{DONE}}; -T marks it {{TODO}} (both
+keep the existing text, only changing the task marker).
+
+Text updates are hash-guarded: the write is rejected if the block's
+text changed since it was last fetched (another writer got there
+first). On that conflict, re-fetch with "pkm get <uid> --json" (or
+the page) to see the current text, then retry.
+
+example:
+  pkm update abcd1234wxyz "Finalize the report"
+  pkm update abcd1234wxyz -D
+"""
+
+_UPLOAD_EPILOG = """\
+uploads FILE to the server's asset store and prints its URL. Unless
+--no-block is given, a block linking the asset is also created (on
+-p PAGE, default today's daily note; optionally nested under
+--parent, same "## Heading"/"((uid))" forms as `pkm save`). The block
+text depends on FILE's mime type: an image (image/*) embeds as
+"![filename](url)", a PDF (application/pdf) links via the
+{{[[pdf]]: url}} viewer macro, anything else links as a plain
+"[filename](url)".
+
+example:
+  pkm upload ./diagram.png
+  pkm upload ./report.pdf --parent "## Attachments"
+  pkm upload ./data.csv --no-block
+"""
+
+_BATCH_EPILOG = """\
+applies a JSON array of {"command": "...", "params": {...}} objects,
+read from stdin, as one atomic write. Commands and their params:
+
+  create   {page, text, parent?, index?, as?}
+      appends one block. "as": "name" lets later commands in the same
+      batch reference the created block via a parent/uid param of
+      "{{name}}".
+  todo     same params as create; text is stored {{TODO}}-prefixed.
+  update   {uid, text}
+      replaces a block's text (uid may be "{{alias}}").
+  move     {uid, page, parent?, index?}
+      relocates a block to page/parent (uid and parent may use
+      "{{alias}}").
+  delete   {uid}
+      removes a block (uid may be "{{alias}}").
+  outline  {page, parent?, items}
+      creates a nested outline; items is a list of strings and
+      nested lists, one nesting level per indent, e.g.
+      ["Groceries", ["Milk", "Eggs"]].
+
+parent (create/todo/outline) and move's destination accept:
+  "## Heading"   a heading with that exact text; created once at page
+                 top level if missing -- repeating the same missing
+                 "## Heading" text elsewhere in the batch reuses that
+                 one heading rather than creating it again
+  "((uid))"      an existing block's uid
+  "{{alias}}"    a block created earlier in this same batch via "as"
+
+"index" (create/todo/move only) inserts at that exact order_idx; the
+server shifts existing siblings at/after it down to make room. Avoid
+mixing an indexed create/todo with plain (appending) creates/todos
+under the same parent within one batch: the plain ones count from the
+parent's original child count and can interleave with the indexed one
+instead of landing after it.
+
+example:
+  pkm batch <<'EOF'
+  [
+    {"command": "create",
+     "params": {"page": "Groceries", "text": "Shopping list",
+                "as": "list"}},
+    {"command": "todo",
+     "params": {"page": "Groceries", "parent": "{{list}}",
+                "text": "Buy milk"}},
+    {"command": "outline",
+     "params": {"page": "Groceries", "parent": "## Notes",
+                "items": ["Aisle 4", ["Oat milk", "Almond milk"]]}}
+  ]
+  EOF
+"""
+
 
 def _login_http(url: str) -> httpx2.Client:
     return httpx2.Client(base_url=url)  # seam: tests inject a TestClient
@@ -204,7 +389,15 @@ def build_parser() -> argparse.ArgumentParser:
         prog="pkm", description="CLI for the PKM server")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("login", help="log in and save the session")
+    def _add(name: str, help: str, epilog: str) -> argparse.ArgumentParser:
+        # every verb gets a worked example in its own --help: agents call
+        # `pkm <verb> --help` in isolation and need it self-sufficient.
+        return sub.add_parser(
+            name, help=help,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=epilog)
+
+    p = _add("login", "log in and save the session", _LOGIN_EPILOG)
     p.add_argument("--url", default="http://127.0.0.1:8974")
     p.add_argument("--password-stdin", action="store_true",
                    help="read the password from stdin instead of a prompt")
@@ -213,7 +406,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--json", action="store_true",
                        help="raw JSON payload instead of markdown")
 
-    p = sub.add_parser("get", help="fetch a page, daily note, or block")
+    p = _add("get", "fetch a page, daily note, or block", _GET_EPILOG)
     p.add_argument("target",
                    help='page title, uid, or today/yesterday/tomorrow')
     p.add_argument("--uids", action="store_true",
@@ -226,7 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="clip nesting deeper than N levels")
     _common(p)
 
-    p = sub.add_parser("search", help="full-text search")
+    p = _add("search", "full-text search", _SEARCH_EPILOG)
     p.add_argument("term")
     p.add_argument("--limit", type=int, default=10)
     p.add_argument("--exact", action="store_true",
@@ -235,22 +428,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="titles and uids only, no snippets")
     _common(p)
 
-    p = sub.add_parser("refs", help="backlinks for a page")
+    p = _add("refs", "backlinks for a page", _REFS_EPILOG)
     p.add_argument("title")
     _common(p)
 
-    p = sub.add_parser("query", help="structured {and:/or:/not:} query")
+    p = _add("query", "structured {and:/or:/not:} query", _QUERY_EPILOG)
     p.add_argument("expr")
     p.add_argument("--expand", action="store_true",
                    help="[[X]] also matches blocks referencing a page that"
                         " itself references X (one hop)")
     _common(p)
 
-    p = sub.add_parser("todos", help="list {{TODO}} blocks")
+    p = _add("todos", "list {{TODO}} blocks", _TODOS_EPILOG)
     p.add_argument("-p", "--page", default=None)
     _common(p)
 
-    p = sub.add_parser("save", help="create block(s); outline via stdin")
+    p = _add("save", "create block(s); outline via stdin", _SAVE_EPILOG)
     p.add_argument("text", nargs="?", default=None,
                    help='block text, or "-" for stdin (multi-line = outline)')
     p.add_argument("-p", "--page", default=None,
@@ -260,7 +453,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--todo", action="store_true",
                    help="prefix top-level items with {{TODO}}")
 
-    p = sub.add_parser("update", help="update a block's text or task state")
+    p = _add("update", "update a block's text or task state", _UPDATE_EPILOG)
     p.add_argument("uid")
     p.add_argument("text", nargs="?", default=None)
     p.add_argument("-D", "--done", action="store_true",
@@ -268,15 +461,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-T", "--todo", action="store_true",
                    help="mark {{TODO}}")
 
-    p = sub.add_parser("upload", help="upload a file and link it in a page")
+    p = _add("upload", "upload a file and link it in a page",
+             _UPLOAD_EPILOG)
     p.add_argument("file")
     p.add_argument("-p", "--page", default=None)
     p.add_argument("--parent", default=None)
     p.add_argument("--no-block", action="store_true",
                    help="upload only; print the URL, create no block")
 
-    sub.add_parser("batch",
-                   help="apply a JSON array of commands from stdin atomically")
+    _add("batch", "apply a JSON array of commands from stdin atomically",
+         _BATCH_EPILOG)
 
     return parser
 

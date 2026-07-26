@@ -8,6 +8,16 @@ import re
 _REF_TOKEN = re.compile(r"\(\(([\w-]+)\)\)")
 
 
+class RenderError(ValueError):
+    pass
+
+
+def _walk(nodes: list[dict]):
+    for n in nodes:
+        yield n
+        yield from _walk(n["children"])
+
+
 def resolve_ref_texts(text: str, ref_map: dict,
                       _seen: frozenset = frozenset()) -> str:
     """Inline ((uid)) tokens from `ref_map` (a payload's block_ref_texts)
@@ -95,3 +105,24 @@ def render_backlinks(title: str, backlinks: dict) -> str:
         lines.append(f"## {g['page_title']}")
         lines.extend(f"- {i['text']}" for i in g["items"])
     return "\n".join(lines) + "\n"
+
+
+def select_section(blocks: list[dict], spec: str) -> list[dict]:
+    """The subtree rooted at the first block whose text equals `spec`
+    ('## Heading' or bare text). Raises RenderError naming the page's
+    headings when nothing matches."""
+    text = re.sub(r"^#{1,3} ", "", spec)
+    for n in _walk(blocks):
+        if n["text"] == text:
+            return [n]
+    headings = ", ".join(n["text"] for n in _walk(blocks) if n["heading"])
+    raise RenderError(f"no block titled {text!r} on the page"
+                      f" (headings: {headings or 'none'})")
+
+
+def clip_depth(blocks: list[dict], depth: int) -> list[dict]:
+    """Copy `blocks` keeping `depth` levels (1 = top level only)."""
+    if depth <= 0:
+        return []
+    return [{**n, "children": clip_depth(n["children"], depth - 1)}
+            for n in blocks]

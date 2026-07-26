@@ -144,3 +144,17 @@ def test_render_page_resolve_refs():
     out = render_page(payload, resolve_refs=True)
     assert '- see "target" ((u9))\n' in out
     assert "see ((u9))" in render_page(payload)  # default unchanged
+
+
+def test_select_section_and_clip_depth():
+    from pkm.cli.render import RenderError, clip_depth, select_section
+    import pytest
+    blocks = PAGE["blocks"]
+    [sec] = select_section(blocks, "## Papers")
+    assert sec["uid"] == "u2"
+    assert select_section(blocks, "Papers")[0]["uid"] == "u2"
+    with pytest.raises(RenderError, match="Papers"):
+        select_section(blocks, "## Missing")
+    clipped = clip_depth(blocks, 1)
+    assert clipped[1]["children"] == []
+    assert PAGE["blocks"][1]["children"]  # original not mutated

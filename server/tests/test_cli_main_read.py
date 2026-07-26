@@ -146,3 +146,29 @@ def test_get_resolve_refs_flag(run):
     code, out, _ = run("get", "July 7th, 2026", "--resolve-refs")
     assert code == 0
     assert '"[[Attention Is All You Need]] is a [[Paper]]" ((uid_b3))' in out
+
+
+def test_get_section(run):
+    code, out, _ = run("get", "Machine Learning", "--section", "## Papers")
+    assert code == 0
+    assert "Tags:: #AI" not in out
+    assert "- ## Papers" in out and "Attention" in out
+
+
+def test_get_section_missing_lists_headings(run):
+    code, _, err = run("get", "Machine Learning", "--section", "## Nope")
+    assert code == 1
+    assert "Papers" in err
+
+
+def test_get_depth_clips_and_filters_json(run):
+    code, out, _ = run("get", "Machine Learning", "--depth", "1", "--json")
+    assert code == 0
+    blocks = json.loads(out)["blocks"]
+    assert all(b["children"] == [] for b in blocks)
+
+
+def test_get_section_on_uid_is_error(run):
+    code, _, err = run("get", "uid_b3", "--section", "## Papers")
+    assert code == 1
+    assert "page" in err

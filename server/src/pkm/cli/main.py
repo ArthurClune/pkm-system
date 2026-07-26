@@ -20,8 +20,9 @@ from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.cli.build import (BuildError, asset_block_text, plan_batch,
                            plan_save, referenced_pages)
-from pkm.cli.render import (render_backlinks, render_block, render_groups,
-                            render_page, render_search)
+from pkm.cli.render import (RenderError, clip_depth, render_backlinks,
+                            render_block, render_groups, render_page,
+                            render_search, select_section)
 from pkm.server.daily import title_for_date
 from pkm.server.ops_core import UID_RE, text_hash
 from pkm.todo import with_state
@@ -57,8 +58,14 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
         target = title_for_date(date.today()
                                 + timedelta(days=_RELATIVE[target]))
     elif UID_RE.fullmatch(target):
+        if args.section:
+            print("--section only applies to pages", file=sys.stderr)
+            return 1
         try:
             payload = client.get_block(target)
+            if args.depth:
+                block = clip_depth([payload["block"]], args.depth)[0]
+                payload = {**payload, "block": block}
             _emit(payload, render_block(payload, args.uids,
                                         resolve_refs=args.resolve_refs),
                  args.json)
@@ -67,6 +74,12 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
             if e.status != 404:
                 raise
     payload = client.get_page(target)
+    blocks = payload["blocks"]
+    if args.section:
+        blocks = select_section(blocks, args.section)
+    if args.depth:
+        blocks = clip_depth(blocks, args.depth)
+    payload = {**payload, "blocks": blocks}
     _emit(payload, render_page(payload, args.uids,
                                resolve_refs=args.resolve_refs), args.json)
     return 0
@@ -205,6 +218,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="annotate blocks with ^uid markers")
     p.add_argument("--resolve-refs", action="store_true",
                    help="inline ((uid)) block refs as '\"text\" ((uid))'")
+    p.add_argument("--section", default=None, metavar='"## Heading"',
+                   help="only the subtree under this heading/block text")
+    p.add_argument("--depth", type=int, default=None,
+                   help="clip nesting deeper than N levels")
     _common(p)
 
     p = sub.add_parser("search", help="full-text search")
@@ -277,7 +294,7 @@ def main(argv: list[str] | None = None,
         if make_client is None:
             make_client = lambda: PkmClient(client_api.load_config())  # noqa: E731
         return _HANDLERS[args.command](args, make_client())
-    except (ApiError, BuildError, ConfigError) as e:
+    except (ApiError, BuildError, ConfigError, RenderError) as e:
         print(str(e), file=sys.stderr)
         return 1
 

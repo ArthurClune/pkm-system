@@ -171,9 +171,7 @@ Threat model:
   the loopback listener; the file is deleted when the conversation closes.
   The token is a standard session token (1-year validity) — deleting it
   from disk does not revoke it, same as any logged-in session.
-- **Resource caps.** At most 3 concurrent conversations; idle conversations
-  are reaped after ~15 minutes; conversations do not survive a server
-  restart.
+- **Resource caps.** At most 3 concurrent conversations; conversations idle for ~15 minutes are reaped when the next conversation is created (no background timer); conversations do not survive a server restart.
 
 ## Review evidence
 

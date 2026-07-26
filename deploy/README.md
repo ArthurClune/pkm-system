@@ -92,7 +92,7 @@ derived from what's in `backups/` (`data/`).
 The embedded assistant (pkm-wn2s) spawns the `claude` CLI via the Claude
 Agent SDK. The launchd service user therefore needs:
 
-- `node` on PATH and the `claude` CLI installed (`~/.local/bin/claude`)
+- the Claude Agent SDK's bundled `claude` binary (no separate node or CLI install required); a system `claude` install only matters if the SDK's `cli_path` is explicitly overridden
 - a logged-in Claude subscription (`claude /login` as the service user);
   credentials resolve from `~/.claude` / the login Keychain, so the launchd
   plist must run as that user with `HOME` set (it already does)

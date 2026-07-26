@@ -86,6 +86,30 @@ See "While blocks are selected" below for what you can do next.
 
 Ctrl+Cmd and Option/Alt arrow chords still work while the popup is open.
 
+## Slash commands
+
+Typing `/` at the start of a block or after a space opens the command
+menu (its keys are listed under "Autocomplete popup" above). Keep typing
+to filter the list — only letters and digits filter, so for the query
+commands type `/query` and pick a variant from the menu.
+
+| Command | Action |
+|---|---|
+| `/text` | Turn the block into a plain text block (rendered verbatim, no formatting) |
+| `/todo` | Prefix the block with a TODO checkbox |
+| `/table` | Insert a `{{table}}` — the block's child blocks become the table's rows, the first row being the header |
+| `/python`, `/bash`, `/javascript` | Turn the block into a highlighted code block |
+| `/mermaid` | Turn the block into a Mermaid diagram |
+| `/upload` | Pick a file to upload and insert a link to it |
+| `/h1`, `/h2`, `/h3` | Make the block a heading (picking its current level toggles it back to normal text) |
+| `/normal` | Back to normal text |
+| `/query-and` | Insert a query placeholder: `{{query: {and: [[A]] [[B]]}}}` — blocks tagged with both pages |
+| `/query-or` | Insert a query placeholder for blocks tagged with either page |
+| `/query-and-not` | Insert a query placeholder for blocks tagged with the first page but not the second |
+
+Replace the `[[A]]` and `[[B]]` placeholders with real page names to run
+a query.
+
 ## While blocks are selected
 
 The selection owns the keyboard until it's cleared.

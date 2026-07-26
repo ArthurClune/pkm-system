@@ -148,6 +148,31 @@ If the threat model expands, make changes in this order:
 Do not treat additional application hardening as a substitute for Tailscale or
 another authenticated, encrypted network boundary.
 
+## Embedded assistant (pkm-wn2s)
+
+The assistant runs entirely server-side: the browser talks only to
+`/api/assistant/*`, which sits behind the same `pkm_session` cookie auth as
+every other API route. Provider credentials never reach the browser; the
+Claude Agent SDK harness uses the service user's Claude Code login.
+
+Threat model:
+
+- **Prompt injection.** Note content is untrusted input to the model. The
+  blast radius of a fully injected model is the ten PKM MCP tools — the
+  harness runs with all built-in tools disabled (no shell, filesystem, or
+  web access) and `setting_sources=[]`, so filesystem settings/CLAUDE.md
+  are ignored.
+- **Write gating.** The four write verbs (`save_note`, `update_block`,
+  `batch`, `upload_asset`) each require explicit per-call confirmation in
+  the UI before executing; denial is reported to the model as a declined
+  action.
+- **Subprocess auth.** Each conversation mints a fresh `pkm_session` token,
+  written to a 0600 config file passed via `PKM_CLI_CONFIG` and pointing at
+  the loopback listener; the file is deleted when the conversation closes.
+  The token is a standard session token (1-year validity) — deleting it
+  from disk does not revoke it, same as any logged-in session.
+- **Resource caps.** At most 3 concurrent conversations; conversations idle for ~15 minutes are reaped when the next conversation is created (no background timer); conversations do not survive a server restart.
+
 ## Review evidence
 
 The 2026-07-14 review inspected application routing, authentication and

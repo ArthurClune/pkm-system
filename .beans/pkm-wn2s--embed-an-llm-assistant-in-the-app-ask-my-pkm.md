@@ -1,11 +1,11 @@
 ---
 # pkm-wn2s
 title: Embed an LLM assistant in the app (ask-my-PKM)
-status: todo
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-24T16:48:39Z
-updated_at: 2026-07-26T21:53:36Z
+updated_at: 2026-07-26T23:42:02Z
 ---
 
 Expose the pkm CLI/MCP verb surface (search, get, refs, query, todos, save, update, batch) to an LLM inside the app. Two headline use cases, validated in the 2026-07-24 agent-driving session:
@@ -52,3 +52,15 @@ Design spec: `docs/superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md`
 ## Implementation plan (2026-07-26)
 
 Plan: docs/superpowers/plans/2026-07-26-pkm-wn2s-assistant.md (15 tasks, TDD, FakeEngine test strategy; e2e runs against FakeEngine wired into e2e_serve.py — no real LLM in CI). Execute with subagent-driven-development in a worktree.
+
+## Summary of Changes (2026-07-27)
+
+Shipped on branch worktree-pkm-wn2s (28 commits, merged to main):
+
+- **Server** — new `pkm.assistant` package: `events.py` (event union + SSE encoding), `policy.py` (tool gate, model allowlist sonnet/opus/haiku, ops previews, system prompt), `engine.py` (AgentEngine/ConversationHandle protocols), `service.py` (in-memory registry: 3-conversation cap, lazy 15-min idle reap, per-conversation lock, close_all wired to app lifespan), `claude_engine.py` (Claude Agent SDK adapter: MCP-confined to the ten pkm tools, confirm-gated writes via can_use_tool, ENABLE_TOOL_SEARCH=false so MCP tools load eagerly, minted 0600 PKM_CLI_CONFIG per conversation), `routes.py` (app's first SSE endpoints under /api/assistant/*, behind require_auth).
+- **Web** — new `src/assistant/` dir: SSE parser (Functional Core), fetch/stream client (shares the live 401 handler), `useAssistant` hook, floating `AssistantPanel` (Cmd/Ctrl+J + sidebar entry above Settings, model dropdown locks after first message, tool-activity lines, Allow/Deny confirm cards); keyboard.md row.
+- **Tests** — FakeEngine double drives service/route tests (incl. threaded HTTP confirm round-trip) and the Playwright e2e (e2e_serve.py always uses it; no real LLM in CI). 741 server tests (95.71% branch cov), 1498 web unit tests, 35 e2e.
+- **Live smoke (real haiku harness, Max login)**: retrieval turn made a real search tool call; confirm-gated save_note round-trip landed the page. Found+fixed the critical ToolSearch deferral bug this way.
+- **Docs** — SECURITY.md threat-model addendum; deploy/README.md prerequisites (SDK bundles its own claude binary; needs logged-in subscription; no ANTHROPIC_API_KEY in service env).
+
+Follow-up: [[pkm-c98s]] (conversation lifecycle hardening: orphan 409 lockout, harness interrupt, Stop button, ApiError detail, preview truncation).

@@ -34,6 +34,12 @@ export function setUnauthorizedHandler(handler: () => void): void {
   onUnauthorized = handler;
 }
 
+/** Calls the currently-installed unauthorized handler (for internal use by
+ * fetch-like functions that bypass apiFetch). */
+export function callUnauthorizedHandler(): void {
+  onUnauthorized();
+}
+
 export interface GatewayResult {
   handled: boolean;
   status?: number;

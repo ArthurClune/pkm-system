@@ -26,6 +26,7 @@ import uvicorn
 from fastapi import Request
 from fastapi.responses import PlainTextResponse
 
+from fake_engine import FakeEngine
 from pkm.schema import DDL
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
@@ -98,7 +99,7 @@ def main() -> int:
         cookie_secure=False,
         web_dist=web_dist,
     )
-    app = create_app(config)
+    app = create_app(config, assistant_engine=FakeEngine())
 
     @app.exception_handler(Exception)
     async def _log_unhandled(request: Request, exc: Exception) -> PlainTextResponse:

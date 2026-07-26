@@ -2,10 +2,15 @@
 """FastAPI application factory."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from pkm.assistant.engine import AgentEngine
+from pkm.assistant.routes import router as assistant_router
+from pkm.assistant.service import AssistantService
 from pkm.server.auth import require_auth, router as auth_router
 from pkm.server.config import Config
 from pkm.server.db import init_db
@@ -20,7 +25,18 @@ from pkm.server.routes_sync import router as sync_router
 from pkm.server.ws import Hub, router as ws_router
 
 
-def create_app(config: Config) -> FastAPI:
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    yield
+    await app.state.assistant.close_all()
+
+
+def create_app(
+    config: Config,
+    *,
+    api_port: int = 8974,
+    assistant_engine: AgentEngine | None = None,
+) -> FastAPI:
     # init_db() is idempotent and cheap (one WAL pragma + the fully
     # IF-NOT-EXISTS base schema, see schema.py), so calling it here makes
     # WAL mode + a working schema un-forgettable for any entrypoint or
@@ -30,10 +46,19 @@ def create_app(config: Config) -> FastAPI:
     # it first (run.py used to be the only such call).
     init_db(config.db_path)
     app = FastAPI(
-        title="pkm", docs_url=None, redoc_url=None, openapi_url=None
+        title="pkm", docs_url=None, redoc_url=None, openapi_url=None,
+        lifespan=_lifespan,
     )
     app.state.config = config
     app.state.hub = Hub()
+    if assistant_engine is None:
+        from pkm.assistant.claude_engine import ClaudeEngine
+
+        assistant_engine = ClaudeEngine(
+            base_url=f"http://127.0.0.1:{api_port}",
+            session_secret_hex=config.session_secret,
+        )
+    app.state.assistant = AssistantService(assistant_engine)
     app.add_middleware(RequestLogMiddleware)
     app.include_router(auth_router)
 
@@ -52,6 +77,7 @@ def create_app(config: Config) -> FastAPI:
     app.include_router(assets_router)
     app.include_router(export_router)
     app.include_router(ws_router)
+    app.include_router(assistant_router)
 
     @app.get("/healthz")
     def healthz() -> dict:

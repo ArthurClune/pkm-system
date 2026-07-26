@@ -86,3 +86,18 @@ derived from what's in `backups/` (`data/`).
   (same pattern for `backup.*.log`).
 - `tailscale serve status` — confirms the HTTPS Serve forward to the local
   port is still configured after a Tailscale update or reboot.
+
+## Assistant prerequisites
+
+The embedded assistant (pkm-wn2s) spawns the `claude` CLI via the Claude
+Agent SDK. The launchd service user therefore needs:
+
+- the Claude Agent SDK's bundled `claude` binary (no separate node or CLI install required); a system `claude` install only matters if the SDK's `cli_path` is explicitly overridden
+- a logged-in Claude subscription (`claude /login` as the service user);
+  credentials resolve from `~/.claude` / the login Keychain, so the launchd
+  plist must run as that user with `HOME` set (it already does)
+- no `ANTHROPIC_API_KEY` in the service environment (it would override the
+  subscription login and bill per-token)
+
+If the login is missing the assistant returns an error event in-chat; the
+rest of the app is unaffected.

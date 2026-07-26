@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     # access_log=False: the RequestLogMiddleware in create_app() emits the
     # access lines instead (same stdout stream, plus durations).
     server = uvicorn.Server(uvicorn.Config(
-        create_app(config), port=args.port,
+        create_app(config, api_port=args.port), port=args.port,
         log_config=uvicorn_log_config(), access_log=False))
     server.run(sockets=sockets)
     return 0

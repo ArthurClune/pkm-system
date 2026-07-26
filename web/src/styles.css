@@ -698,3 +698,40 @@ mark.highlight { background: var(--color-highlight-bg); }
   /* inset is from the padding box; the 4px border means -9px = 5px past the
    * outer edge (left kept to 2px so the chevron isn't overlapped much) */
   inset: -9px -9px -9px -6px; }
+
+/* Assistant panel */
+.assistant-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 61; /* above .block-menu (60), below modal overlays (1000) */
+  display: flex;
+  flex-direction: column;
+  width: min(420px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 32px));
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15);
+}
+.assistant-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+.assistant-title { font-weight: 600; margin-right: auto; }
+.assistant-model { display: flex; align-items: center; gap: 4px; font-size: 0.85em; color: var(--color-text-secondary); }
+.assistant-close { background: none; border: none; font-size: 1.2em; cursor: pointer; color: var(--color-text-secondary); }
+.assistant-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.assistant-msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-msg-user { align-self: flex-end; background: var(--color-bg-subtle); border-radius: var(--radius-card); padding: 6px 10px; max-width: 85%; }
+.assistant-tool-line { font-size: 0.85em; color: var(--color-text-secondary); font-style: italic; }
+.assistant-confirm-card { border: 1px solid var(--color-border-input); border-radius: var(--radius-card); padding: 10px; }
+.assistant-confirm-title { font-weight: 600; margin-bottom: 6px; }
+.assistant-confirm-card pre { overflow-x: auto; font-size: 0.85em; margin: 0 0 8px; }
+.assistant-confirm-actions { display: flex; gap: 8px; }
+.assistant-error { color: var(--color-error); font-size: 0.9em; }
+.assistant-input { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--color-border); }
+.assistant-input textarea { flex: 1; resize: none; border: 1px solid var(--color-border-input); border-radius: var(--radius-control); padding: 6px 8px; background: inherit; color: inherit; font: inherit; }

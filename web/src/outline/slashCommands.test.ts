@@ -80,6 +80,58 @@ describe("table", () => {
   });
 });
 
+describe("query", () => {
+  test("query-and is offered and creates an exact parseable macro", () => {
+    expect(matchSlashCommands("query-and").map((c) => c.name)).toEqual(["query-and", "query-and-not"]);
+    expect(applySlashCommand("/query-and", 10,
+      { kind: "command", start: 1, query: "query-and" }, "query-and"))
+      .toEqual({ text: "{{query: {and: [[A]] [[B]]}}}", cursor: 29 });
+  });
+
+  test("query-or is offered and creates an exact parseable macro", () => {
+    expect(matchSlashCommands("query-or")).toEqual([
+      { name: "query-or", label: "Query (OR)" },
+    ]);
+    expect(applySlashCommand("/query-or", 9,
+      { kind: "command", start: 1, query: "query-or" }, "query-or"))
+      .toEqual({ text: "{{query: {or: [[A]] [[B]]}}}", cursor: 28 });
+  });
+
+  test("query-and-not is offered and creates an exact parseable macro", () => {
+    expect(matchSlashCommands("query-and-not")).toEqual([
+      { name: "query-and-not", label: "Query (AND NOT)" },
+    ]);
+    expect(applySlashCommand("/query-and-not", 14,
+      { kind: "command", start: 1, query: "query-and-not" }, "query-and-not"))
+      .toEqual({ text: "{{query: {and: [[A]] {not: [[B]]}}}}", cursor: 36 });
+  });
+
+  test("matching 'query' returns all three query commands", () => {
+    expect(matchSlashCommands("query")).toEqual([
+      { name: "query-and", label: "Query (AND)" },
+      { name: "query-or", label: "Query (OR)" },
+      { name: "query-and-not", label: "Query (AND NOT)" },
+    ]);
+  });
+
+  test("prefix matching narrows to a single query command", () => {
+    expect(matchSlashCommands("query-a").map((c) => c.name)).toEqual(["query-and", "query-and-not"]);
+    expect(matchSlashCommands("query-o").map((c) => c.name)).toEqual(["query-or"]);
+  });
+
+  test("does not discard existing content when a query command is picked mid-block", () => {
+    expect(applySlashCommand("notes /query-and", 17,
+      { kind: "command", start: 7, query: "query-and" }, "query-and"))
+      .toEqual({ text: "notes ", cursor: 6 });
+    expect(applySlashCommand("notes /query-or", 15,
+      { kind: "command", start: 7, query: "query-or" }, "query-or"))
+      .toEqual({ text: "notes ", cursor: 6 });
+    expect(applySlashCommand("notes /query-and-not", 20,
+      { kind: "command", start: 7, query: "query-and-not" }, "query-and-not"))
+      .toEqual({ text: "notes ", cursor: 6 });
+  });
+});
+
 describe("applySlashCommand: /todo", () => {
   test("prefixes the block with the TODO marker", () => {
     expect(applySlashCommand("/todo", 5, { kind: "command", start: 1, query: "todo" }, "todo"))

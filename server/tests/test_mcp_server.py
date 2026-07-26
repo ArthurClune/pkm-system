@@ -35,6 +35,11 @@ def test_search_query_backlinks_todos(tools):
     assert "(0 total)" in tools.todos()
 
 
+def test_search_exact_and_query_expand(tools):
+    assert tools.search("machi", exact=True) == "no results\n"
+    assert "uid_b4" in tools.query("{and: [[AI]]}", expand=True)
+
+
 def test_save_note_returns_uids_and_writes(tools, pkm_client):
     out = tools.save_note("hello from mcp", page="AI")
     assert out.startswith("created ^")

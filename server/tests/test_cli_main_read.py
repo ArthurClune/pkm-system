@@ -65,6 +65,12 @@ def test_search(run):
     assert "## Blocks" in out
 
 
+def test_search_exact_flag(run):
+    code, out, _ = run("search", "machi", "--exact")
+    assert code == 0
+    assert out == "no results\n"
+
+
 def test_refs(run):
     code, out, _ = run("refs", "Machine Learning")
     assert code == 0
@@ -83,6 +89,21 @@ def test_query_parse_error_exits_1(run):
     code, _, err = run("query", "{nope: [[X]]}")
     assert code == 1
     assert "unsupported clause" in err
+
+
+def test_query_expand_flag(run):
+    _, base, _ = run("query", "{and: [[AI]]}")
+    assert "^uid_b4" not in base
+    code, out, _ = run("query", "{and: [[AI]]}", "--expand")
+    assert code == 0
+    assert "^uid_b4" in out and "^uid_b1" in out
+
+
+def test_query_empty_result_prints_hint(run):
+    code, out, _ = run("query", "{and: [[Paper]] [[AI]]}")
+    assert code == 0
+    assert "(0 total)" in out
+    assert "per-ref block counts: [[Paper]] 1, [[AI]] 1" in out
 
 
 def test_todos_empty(run):

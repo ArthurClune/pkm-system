@@ -70,7 +70,7 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
 
 
 def cmd_search(args: argparse.Namespace, client: PkmClient) -> int:
-    payload = client.search(args.term, limit=args.limit)
+    payload = client.search(args.term, limit=args.limit, exact=args.exact)
     _emit(payload, render_search(payload), args.json)
     return 0
 
@@ -83,7 +83,7 @@ def cmd_refs(args: argparse.Namespace, client: PkmClient) -> int:
 
 
 def cmd_query(args: argparse.Namespace, client: PkmClient) -> int:
-    payload = client.run_query(args.expr)
+    payload = client.run_query(args.expr, expand=args.expand)
     _emit(payload, render_groups(payload), args.json)
     return 0
 
@@ -205,6 +205,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("search", help="full-text search")
     p.add_argument("term")
     p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--exact", action="store_true",
+                   help="match whole words only (no prefix wildcard)")
     _common(p)
 
     p = sub.add_parser("refs", help="backlinks for a page")
@@ -213,6 +215,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("query", help="structured {and:/or:/not:} query")
     p.add_argument("expr")
+    p.add_argument("--expand", action="store_true",
+                   help="[[X]] also matches blocks referencing a page that"
+                        " itself references X (one hop)")
     _common(p)
 
     p = sub.add_parser("todos", help="list {{TODO}} blocks")

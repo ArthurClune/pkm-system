@@ -36,13 +36,15 @@ export function useAssistant() {
         setItems((prev) => [...prev, { kind: "tool", name: ev.name, summary: ev.summary, done: false }]);
         break;
       case "tool_finished":
-        setItems((prev) =>
-          prev.map((item) =>
-            item.kind === "tool" && item.name === ev.name && !item.done
-              ? { ...item, done: true }
-              : item,
-          ),
-        );
+        setItems((prev) => {
+          const idx = prev.findIndex(
+            (item) => item.kind === "tool" && item.name === ev.name && !item.done,
+          );
+          if (idx === -1) return prev;
+          const item = prev[idx];
+          if (item.kind !== "tool") return prev;
+          return [...prev.slice(0, idx), { ...item, done: true }, ...prev.slice(idx + 1)];
+        });
         break;
       case "confirm_request":
         setPendingConfirm({ toolUseId: ev.tool_use_id, opsPreview: ev.ops_preview });

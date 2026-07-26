@@ -126,4 +126,21 @@ describe("useAssistant", () => {
     expect(latest.error).toContain("cap reached");
     expect(latest.status).toBe("idle");
   });
+
+  test("tool_finished marks only the first pending tool item with that name", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    feed([
+      { type: "tool_started", name: "search", summary: 'searching "foo"' },
+      { type: "tool_started", name: "search", summary: 'searching "bar"' },
+      { type: "tool_finished", name: "search" },
+      { type: "turn_done", usage: null },
+    ]);
+    render(<Harness />);
+    await act(() => latest.send("search"));
+    expect(latest.items).toEqual([
+      { kind: "user", text: "search" },
+      { kind: "tool", name: "search", summary: 'searching "foo"', done: true },
+      { kind: "tool", name: "search", summary: 'searching "bar"', done: false },
+    ]);
+  });
 });

@@ -196,7 +196,7 @@ read from stdin, as one atomic write. Commands and their params:
 
 parent (create/todo/outline) accepts, and move's destination accepts
 except where noted:
-  "## Heading"   a heading with that exact text; created/todo/outline
+  "## Heading"   a heading with that exact text; create/todo/outline
                  create it once at page top level if missing --
                  repeating the same missing "## Heading" text (same
                  page, same level) elsewhere in the batch reuses that

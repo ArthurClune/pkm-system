@@ -810,6 +810,21 @@ export interface components {
                 [key: string]: components["schemas"]["BlockRefText"];
             };
         };
+        /**
+         * QueryPayload
+         * @description GET /api/query: groups plus per-operand match counts so an empty
+         *     result is steerable (bad query shape vs genuinely nothing).
+         */
+        QueryPayload: {
+            /** Groups */
+            groups: components["schemas"]["BlockGroup"][];
+            /** Total */
+            total: number;
+            /** Ref Counts */
+            ref_counts: {
+                [key: string]: number;
+            };
+        };
         /** RenamePageRequest */
         RenamePageRequest: {
             /** New Title */
@@ -1446,6 +1461,7 @@ export interface operations {
             query?: {
                 q?: string;
                 limit?: number;
+                exact?: boolean;
             };
             header?: never;
             path?: never;
@@ -1477,6 +1493,7 @@ export interface operations {
         parameters: {
             query: {
                 expr: string;
+                expand?: boolean;
             };
             header?: never;
             path?: never;
@@ -1490,7 +1507,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GroupsPayload"];
+                    "application/json": components["schemas"]["QueryPayload"];
                 };
             };
             /** @description Validation Error */

@@ -43,7 +43,6 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         <label className="assistant-model">
           model
           <select
-            aria-label="model"
             value={assistant.model}
             disabled={assistant.modelLocked}
             onChange={(e) => assistant.setModel(e.target.value)}

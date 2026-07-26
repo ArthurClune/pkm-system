@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ApiError } from "../api/client";
+import { ApiError, defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
 import { streamMessage } from "./client";
 
 function sseResponse(frames: string[]): Response {
@@ -16,7 +16,10 @@ function sseResponse(frames: string[]): Response {
   });
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  setUnauthorizedHandler(defaultUnauthorizedHandler);
+});
 
 describe("streamMessage", () => {
   test("POSTs the text and forwards parsed events", async () => {
@@ -44,5 +47,13 @@ describe("streamMessage", () => {
   test("throws ApiError on non-OK status", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("nope", { status: 404 }));
     await expect(streamMessage("c1", "hi", () => {})).rejects.toBeInstanceOf(ApiError);
+  });
+
+  test("invokes the unauthorized handler and throws on 401", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 401 }));
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    await expect(streamMessage("c1", "hi", () => {})).rejects.toThrow("401");
+    expect(handler).toHaveBeenCalledOnce();
   });
 });

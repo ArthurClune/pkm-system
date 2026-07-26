@@ -2,7 +2,7 @@
 // HTTP client for /api/assistant/*. streamMessage bypasses apiFetch because
 // apiFetch consumes res.json(); it replicates apiFetch's 401 handling.
 
-import { ApiError, apiFetch, defaultUnauthorizedHandler } from "../api/client";
+import { ApiError, apiFetch, callUnauthorizedHandler } from "../api/client";
 import { createSseParser, type AssistantEvent } from "./sse";
 
 export async function createConversation(
@@ -43,7 +43,7 @@ export async function streamMessage(
     body: JSON.stringify({ text }),
   });
   if (res.status === 401) {
-    defaultUnauthorizedHandler();
+    callUnauthorizedHandler();
     throw new ApiError(401, path);
   }
   if (!res.ok || !res.body) throw new ApiError(res.status, path);
@@ -55,4 +55,5 @@ export async function streamMessage(
     if (done) break;
     for (const ev of parser.push(decoder.decode(value, { stream: true }))) onEvent(ev);
   }
+  for (const ev of parser.push(decoder.decode())) onEvent(ev);
 }

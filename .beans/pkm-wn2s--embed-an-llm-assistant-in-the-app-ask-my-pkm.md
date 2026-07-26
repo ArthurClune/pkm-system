@@ -1,11 +1,11 @@
 ---
 # pkm-wn2s
 title: Embed an LLM assistant in the app (ask-my-PKM)
-status: todo
+status: in-progress
 type: feature
 priority: normal
 created_at: 2026-07-24T16:48:39Z
-updated_at: 2026-07-26T21:53:36Z
+updated_at: 2026-07-26T21:55:34Z
 ---
 
 Expose the pkm CLI/MCP verb surface (search, get, refs, query, todos, save, update, batch) to an LLM inside the app. Two headline use cases, validated in the 2026-07-24 agent-driving session:

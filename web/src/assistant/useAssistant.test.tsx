@@ -98,6 +98,27 @@ describe("useAssistant", () => {
     expect(latest.pendingConfirm).toBeNull();
   });
 
+  test("respondConfirm restores pending state on confirmTool failure", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent({ type: "confirm_request", tool_use_id: "t1", ops_preview: "save_note(...)" });
+        await new Promise<void>(() => {}); // turn stays open awaiting the confirm decision
+      },
+    );
+    mocks.confirmTool.mockRejectedValue(new Error("network down"));
+    render(<Harness />);
+    await act(async () => {
+      latest.send("please write");
+      await Promise.resolve();
+    });
+    expect(latest.pendingConfirm).toEqual({ toolUseId: "t1", opsPreview: "save_note(...)" });
+    await act(() => latest.respondConfirm(true));
+    expect(latest.pendingConfirm).toEqual({ toolUseId: "t1", opsPreview: "save_note(...)" });
+    expect(latest.status).toBe("confirm");
+    expect(latest.error).toBe("network down");
+  });
+
   test("error event surfaces and unlocks", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     feed([{ type: "error", message: "boom" }]);

@@ -93,6 +93,8 @@ def test_create_conversation_options_and_config_file(tmp_path):
     assert opts.tools == []
     assert opts.setting_sources == []
     assert opts.include_partial_messages is True
+    assert opts.max_turns == 40
+    assert opts.env == {"ENABLE_TOOL_SEARCH": "false"}
     assert set(opts.allowed_tools) == {
         f"mcp__pkm__{t}" for t in ("get_page", "get_block", "search", "query", "backlinks", "todos")
     }
@@ -234,6 +236,29 @@ def test_send_streams_mapped_events(tmp_path):
     assert ToolStarted(name="search", summary='searching "alpha"') in events
     assert isinstance(events[-1], TurnDone)
     assert events[-1].usage == {"input_tokens": 5}
+
+
+def test_send_drains_stale_queue_events(tmp_path):
+    """A leftover event from an abandoned turn (e.g. a dropped SSE stream)
+    must not leak into the next turn's output."""
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        conv._queue.put_nowait(TextDelta(text="stale"))
+        client.feed(
+            AssistantMessage(content=[TextBlock(text="fresh")], model="sonnet"),
+            make_result(),
+        )
+        events = [ev async for ev in conv.send("hi")]
+        await conv.close()
+        return events
+
+    events = asyncio.run(scenario())
+    assert TextDelta(text="stale") not in events
+    assert TextDelta(text="fresh") in events
+    assert isinstance(events[-1], TurnDone)
 
 
 def test_turn_mapper_prefers_partial_deltas():

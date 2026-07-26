@@ -140,6 +140,10 @@ class ClaudeConversation:
             fut.set_result(allow)
 
     async def send(self, text: str) -> AsyncIterator[AssistantEvent]:
+        # a dropped SSE stream can abandon a turn mid-queue; leftovers must
+        # not leak into the next turn
+        while not self._queue.empty():
+            self._queue.get_nowait()
         await self._client.query(text)
         mapper = TurnMapper()
         pump = asyncio.create_task(self._pump(mapper))
@@ -230,6 +234,10 @@ class ClaudeEngine:
             setting_sources=[],
             include_partial_messages=True,
             max_turns=MAX_TURNS,
+            # the CLI defers MCP tools behind ToolSearch by default, which
+            # tools=[] would make unreachable -- disabling tool search loads
+            # the ten pkm tools eagerly; verified live 2026-07-27
+            env={"ENABLE_TOOL_SEARCH": "false"},
         )
         client = self._client_factory(options)
         conversation.attach(client)

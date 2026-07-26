@@ -2,6 +2,8 @@
 """FastAPI application factory."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +25,12 @@ from pkm.server.routes_sync import router as sync_router
 from pkm.server.ws import Hub, router as ws_router
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    yield
+    await app.state.assistant.close_all()
+
+
 def create_app(
     config: Config,
     *,
@@ -38,7 +46,8 @@ def create_app(
     # it first (run.py used to be the only such call).
     init_db(config.db_path)
     app = FastAPI(
-        title="pkm", docs_url=None, redoc_url=None, openapi_url=None
+        title="pkm", docs_url=None, redoc_url=None, openapi_url=None,
+        lifespan=_lifespan,
     )
     app.state.config = config
     app.state.hub = Hub()

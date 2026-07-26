@@ -125,6 +125,22 @@ class ExplodingEngine:
         return ExplodingConversation()
 
 
+def test_app_shutdown_closes_live_conversations(seeded_config):
+    from fastapi.testclient import TestClient
+
+    from fake_engine import FakeEngine
+    from pkm.server.app import create_app
+
+    engine = FakeEngine()
+    with TestClient(create_app(seeded_config, assistant_engine=engine)) as c:
+        r = c.post("/api/login", json={"password": "test-pw"})
+        assert r.status_code == 200
+        c.post("/api/assistant/conversations", json={})
+        assert engine.conversations[0].closed is False
+    # TestClient's context manager exit runs the app's shutdown lifespan
+    assert engine.conversations[0].closed is True
+
+
 def test_mid_stream_engine_error_yields_error_event(seeded_config):
     from fastapi.testclient import TestClient
 

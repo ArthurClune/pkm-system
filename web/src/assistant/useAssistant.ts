@@ -88,7 +88,13 @@ export function useAssistant() {
       if (id === null || pending === null) return;
       setPendingConfirm(null);
       setStatus("busy");
-      await confirmTool(id, pending.toolUseId, allow);
+      try {
+        await confirmTool(id, pending.toolUseId, allow);
+      } catch (err) {
+        setPendingConfirm(pending);
+        setStatus("confirm");
+        setError(err instanceof Error ? err.message : String(err));
+      }
     },
     [pendingConfirm],
   );

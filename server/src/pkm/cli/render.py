@@ -70,15 +70,19 @@ def render_block(payload: dict, include_uids: bool = False,
     return "\n".join(lines) + "\n"
 
 
-def render_search(payload: dict) -> str:
+def render_search(payload: dict, compact: bool = False) -> str:
     if not payload["pages"] and not payload["blocks"]:
         return "no results\n"
     lines = ["## Pages"]
     lines.extend(f"- {p['title']}" for p in payload["pages"])
     lines.append("")
     lines.append("## Blocks")
-    lines.extend(f"- [{b['page_title']}] {b['snippet']}"
-                 for b in payload["blocks"])
+    if compact:
+        lines.extend(f"- [{b['page_title']}] ^{b['uid']}"
+                     for b in payload["blocks"])
+    else:
+        lines.extend(f"- [{b['page_title']}] {b['snippet']}"
+                     for b in payload["blocks"])
     return "\n".join(lines) + "\n"
 
 

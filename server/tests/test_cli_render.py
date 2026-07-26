@@ -62,6 +62,18 @@ def test_render_search_empty():
     assert render_search({"pages": [], "blocks": []}) == "no results\n"
 
 
+def test_render_search_compact():
+    payload = {"pages": [{"id": 1, "title": "AI"}],
+               "blocks": [{"uid": "u1", "page_title": "ML",
+                           "snippet": "…<mark>hit</mark>…"}]}
+    assert render_search(payload, compact=True) == (
+        "## Pages\n"
+        "- AI\n"
+        "\n"
+        "## Blocks\n"
+        "- [ML] ^u1\n")
+
+
 def test_render_groups_with_uids_and_total():
     payload = {"groups": [{"page_id": 1, "page_title": "AI",
                            "items": [{"uid": "t1", "text": "{{TODO}} x"}]}],

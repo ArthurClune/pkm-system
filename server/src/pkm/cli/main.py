@@ -35,7 +35,9 @@ def _login_http(url: str) -> httpx2.Client:
 
 
 def _emit(data: dict, rendered: str, as_json: bool) -> None:
-    print(json.dumps(data, indent=2) if as_json else rendered, end="")
+    # minified: agent loops resend tool output every turn (pkm-roph)
+    print(json.dumps(data, separators=(",", ":")) if as_json else rendered,
+          end="")
     if as_json:
         print()
 
@@ -87,7 +89,7 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
 
 def cmd_search(args: argparse.Namespace, client: PkmClient) -> int:
     payload = client.search(args.term, limit=args.limit, exact=args.exact)
-    _emit(payload, render_search(payload), args.json)
+    _emit(payload, render_search(payload, compact=args.compact), args.json)
     return 0
 
 
@@ -226,9 +228,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("search", help="full-text search")
     p.add_argument("term")
-    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--limit", type=int, default=10)
     p.add_argument("--exact", action="store_true",
                    help="match whole words only (no prefix wildcard)")
+    p.add_argument("--compact", action="store_true",
+                   help="titles and uids only, no snippets")
     _common(p)
 
     p = sub.add_parser("refs", help="backlinks for a page")

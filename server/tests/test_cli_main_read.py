@@ -71,6 +71,27 @@ def test_search_exact_flag(run):
     assert out == "no results\n"
 
 
+def test_json_output_is_minified(run):
+    code, out, _ = run("get", "Machine Learning", "--json")
+    assert code == 0
+    assert out.startswith('{"page":')
+    assert '": ' not in out  # no space after separators = minified
+    assert "\n" not in out.rstrip("\n")
+
+
+def test_search_default_limit_is_10():
+    from pkm.cli.main import build_parser
+    args = build_parser().parse_args(["search", "x"])
+    assert args.limit == 10
+
+
+def test_search_compact(run):
+    code, out, _ = run("search", "Papers", "--compact")
+    assert code == 0
+    assert "^uid_b2" in out
+    assert "<mark>" not in out
+
+
 def test_refs(run):
     code, out, _ = run("refs", "Machine Learning")
     assert code == 0

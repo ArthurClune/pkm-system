@@ -575,6 +575,38 @@
         "pages": [],
         "blocks": []
       }
+    },
+    {
+      "name": "search_exact_miss",
+      "path": "/api/search?q=machi&exact=1",
+      "response": {
+        "pages": [],
+        "blocks": []
+      }
+    },
+    {
+      "name": "search_exact_hit",
+      "path": "/api/search?q=machine&exact=1",
+      "response": {
+        "pages": [
+          {
+            "id": 1,
+            "title": "Machine Learning"
+          }
+        ],
+        "blocks": [
+          {
+            "uid": "uid_b5",
+            "page_title": "July 10th, 2026",
+            "snippet": "Studying [[<mark>Machine</mark> Learning]] today"
+          },
+          {
+            "uid": "uid_b7",
+            "page_title": "AI",
+            "snippet": "AI overview mentions <mark>Machine</mark> Learning in plain text"
+          }
+        ]
+      }
     }
   ]
 }

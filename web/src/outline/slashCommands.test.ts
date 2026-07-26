@@ -10,8 +10,8 @@ describe("matchSlashCommands", () => {
   });
 
   test("filters by prefix, case-insensitively", () => {
-    expect(matchSlashCommands("py")).toEqual([{ name: "python", label: "Python code block" }]);
-    expect(matchSlashCommands("PY")).toEqual([{ name: "python", label: "Python code block" }]);
+    expect(matchSlashCommands("py")).toEqual([{ name: "python", label: "python code block" }]);
+    expect(matchSlashCommands("PY")).toEqual([{ name: "python", label: "python code block" }]);
   });
 
   test("no match returns an empty list", () => {
@@ -39,7 +39,7 @@ describe("applySlashCommand: /python /bash /javascript", () => {
   });
 
   test("mermaid is offered and wraps in a mermaid fence (pkm-x2ep)", () => {
-    expect(matchSlashCommands("mer")).toEqual([{ name: "mermaid", label: "Mermaid diagram" }]);
+    expect(matchSlashCommands("mer")).toEqual([{ name: "mermaid", label: "mermaid diagram" }]);
     expect(applySlashCommand("/mermaid", 8, { kind: "command", start: 1, query: "mermaid" }, "mermaid"))
       .toEqual({ text: "```mermaid\n\n```", cursor: 11 });
   });
@@ -67,7 +67,7 @@ describe("applySlashCommand: /text", () => {
 
 describe("table", () => {
   test("table is offered and creates an exact renderable macro", () => {
-    expect(matchSlashCommands("tab")).toEqual([{ name: "table", label: "Table" }]);
+    expect(matchSlashCommands("tab")).toEqual([{ name: "table", label: "table" }]);
     expect(applySlashCommand("/table", 6,
       { kind: "command", start: 1, query: "table" }, "table"))
       .toEqual({ text: "{{table}}", cursor: 9 });
@@ -90,7 +90,7 @@ describe("query", () => {
 
   test("query-or is offered and creates an exact parseable macro", () => {
     expect(matchSlashCommands("query-or")).toEqual([
-      { name: "query-or", label: "Query (OR)" },
+      { name: "query-or", label: "query (or)" },
     ]);
     expect(applySlashCommand("/query-or", 9,
       { kind: "command", start: 1, query: "query-or" }, "query-or"))
@@ -99,7 +99,7 @@ describe("query", () => {
 
   test("query-and-not is offered and creates an exact parseable macro", () => {
     expect(matchSlashCommands("query-and-not")).toEqual([
-      { name: "query-and-not", label: "Query (AND NOT)" },
+      { name: "query-and-not", label: "query (and not)" },
     ]);
     expect(applySlashCommand("/query-and-not", 14,
       { kind: "command", start: 1, query: "query-and-not" }, "query-and-not"))
@@ -108,9 +108,9 @@ describe("query", () => {
 
   test("matching 'query' returns all three query commands", () => {
     expect(matchSlashCommands("query")).toEqual([
-      { name: "query-and", label: "Query (AND)" },
-      { name: "query-or", label: "Query (OR)" },
-      { name: "query-and-not", label: "Query (AND NOT)" },
+      { name: "query-and", label: "query (and)" },
+      { name: "query-or", label: "query (or)" },
+      { name: "query-and-not", label: "query (and not)" },
     ]);
   });
 
@@ -211,6 +211,6 @@ describe("resolveHeading", () => {
 
 describe("upload", () => {
   test("upload is offered in the command menu (pkm-coz9)", () => {
-    expect(matchSlashCommands("up")).toEqual([{ name: "upload", label: "Upload file…" }]);
+    expect(matchSlashCommands("up")).toEqual([{ name: "upload", label: "upload file…" }]);
   });
 });

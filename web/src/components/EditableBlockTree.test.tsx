@@ -338,7 +338,7 @@ test("typing / opens the command menu; Enter wraps the block in a code fence", (
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/py" } });
   ta.setSelectionRange(3, 3);
-  expect(screen.getByRole("option", { name: "Python code block" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "python code block" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onSplit).not.toHaveBeenCalled(); // Enter was consumed by the popup
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```python\n\n```");
@@ -351,9 +351,9 @@ test("/t filters to text+todo; ArrowDown+Enter picks /todo", () => {
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/t" } });
   ta.setSelectionRange(2, 2);
-  expect(screen.getByRole("option", { name: "Text" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "To-do" })).toBeInTheDocument();
-  fireEvent.keyDown(ta, { key: "ArrowDown" }); // "Text" -> "To-do"
+  expect(screen.getByRole("option", { name: "text" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "to-do" })).toBeInTheDocument();
+  fireEvent.keyDown(ta, { key: "ArrowDown" }); // "text" -> "to-do"
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} ");
 });
@@ -365,8 +365,8 @@ test("Option/Alt+Arrow stays unhandled while autocomplete is open", () => {
 
   fireEvent.change(ta, { target: { value: "/t" } });
   ta.setSelectionRange(2, 2);
-  expect(screen.getByRole("option", { name: "Text" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "To-do" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "text" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "to-do" })).toBeInTheDocument();
   expect(fireEvent.keyDown(ta, { key: "ArrowDown", altKey: true })).toBe(true);
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```\n\n```");
@@ -391,7 +391,7 @@ test("typing /tab offers Table; Enter inserts {{table}}", () => {
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/tab" } });
   ta.setSelectionRange(4, 4);
-  expect(screen.getByRole("option", { name: "Table" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "table" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{table}}")
 });
@@ -402,7 +402,7 @@ test("clicking a slash-menu row picks it (mouseDown, not click)", () => {
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/py" } });
   ta.setSelectionRange(3, 3);
-  fireEvent.mouseDown(screen.getByRole("option", { name: "Python code block" }));
+  fireEvent.mouseDown(screen.getByRole("option", { name: "python code block" }));
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```python\n\n```");
   expect(screen.queryByRole("listbox")).toBeNull();
 });
@@ -426,7 +426,7 @@ test("/text on an empty block inserts a lang-less (plain text) fence", () => {
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/text" } });
   ta.setSelectionRange(5, 5);
-  expect(screen.getByRole("option", { name: "Text" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "text" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "```\n\n```");
 });
@@ -448,7 +448,7 @@ test("typing /h1 shows the heading rows; Enter strips the trigger and dispatches
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "hello [[World]] /h1" } });
   ta.setSelectionRange(19, 19);
-  expect(screen.getByRole("option", { name: "Heading 1" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "heading 1" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "hello [[World]] ");
   expect(h.onSetHeading).toHaveBeenCalledWith("u1", 1);
@@ -773,7 +773,7 @@ test("/upload strips the trigger and hands picked files to onFiles (pkm-coz9)", 
   const ta = focusedTextarea();
   fireEvent.change(ta, { target: { value: "/upload" } });
   ta.setSelectionRange(7, 7);
-  expect(screen.getByRole("option", { name: "Upload file…" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "upload file…" })).toBeInTheDocument();
   fireEvent.keyDown(ta, { key: "Enter" }); // pick /upload
   expect(h.onSplit).not.toHaveBeenCalled(); // Enter consumed by the popup
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", ""); // trigger stripped

@@ -1,11 +1,11 @@
 ---
 # pkm-tu3a
 title: Preserve block hierarchy when pasting outlines
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-21T14:11:36Z
-updated_at: 2026-07-21T14:11:46Z
+updated_at: 2026-07-27T21:22:54Z
 ---
 
 When pasted text contains outline indentation, parse it into a temporary forest and create blocks whose parent relationships preserve the clipboard's relative hierarchy. Anchor the resulting forest at the paste location.

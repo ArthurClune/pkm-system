@@ -1,10 +1,11 @@
 ---
 # pkm-c98s
 title: Assistant conversation lifecycle hardening
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-07-26T23:40:43Z
-updated_at: 2026-07-26T23:40:43Z
+updated_at: 2026-07-27T17:50:45Z
 ---
 
 Follow-ups from the pkm-wn2s final review (deferred knowingly at merge):

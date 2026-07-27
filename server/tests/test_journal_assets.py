@@ -136,7 +136,8 @@ def test_asset_serving(client, seeded_config):
     dest.parent.mkdir(parents=True)
     dest.write_bytes(data)
     con = sqlite3.connect(seeded_config.db_path)
-    con.execute("INSERT INTO assets VALUES (?,?,?,?,NULL)",
+    con.execute("INSERT INTO assets(sha256, filename, mime, size, created_at)"
+                " VALUES (?,?,?,?,NULL)",
                 (sha, "fig.png", "image/png", len(data)))
     con.commit()
     con.close()

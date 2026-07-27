@@ -91,7 +91,8 @@ def main(argv: list[str] | None = None) -> int:
             " VALUES (?,?,?,?,?,?,?,?,?,?)", rows.blocks)
         con.executemany("INSERT INTO refs VALUES (?,?,?)", rows.refs)
         con.executemany(
-            "INSERT INTO assets VALUES (?,?,?,?,NULL)",
+            "INSERT INTO assets(sha256, filename, mime, size, created_at)"
+            " VALUES (?,?,?,?,NULL)",
             [(a.sha256, a.filename, a.mime, a.size) for a in unique_assets.values()])
         con.commit()
     finally:

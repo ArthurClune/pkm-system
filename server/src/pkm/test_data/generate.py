@@ -182,7 +182,8 @@ def generate(source_path: Path, output_dir: Path) -> None:
             )
             con.executemany("INSERT INTO refs VALUES (?,?,?)", prepared.rows.refs)
             con.executemany(
-                "INSERT INTO assets VALUES (?,?,?,?,NULL)",
+                "INSERT INTO assets(sha256, filename, mime, size, created_at)"
+                " VALUES (?,?,?,?,NULL)",
                 [
                     (asset.sha256, asset.filename, asset.mime, asset.size)
                     for asset in deduplicate_assets_by_sha(assets_by_name)

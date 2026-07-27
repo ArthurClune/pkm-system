@@ -131,7 +131,8 @@ async def upload_asset(file: UploadFile,
         if not moved:
             tmp_path.unlink(missing_ok=True)
     filename = safe_filename(Path(file.filename or "upload").name)
-    db.execute("INSERT OR IGNORE INTO assets VALUES (?,?,?,?,?)",
+    db.execute("INSERT OR IGNORE INTO assets(sha256, filename, mime, size,"
+               " created_at) VALUES (?,?,?,?,?)",
                (sha, filename, mime, size, int(time.time() * 1000)))
     db.commit()
     row = db.execute(

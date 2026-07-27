@@ -33,9 +33,32 @@ def test_create_conversation_bad_model_400(assistant_client):
     assert r.status_code == 400
 
 
-def test_conversation_cap_409(assistant_client):
-    for _ in range(3):
-        assert assistant_client.post("/api/assistant/conversations", json={}).status_code == 200
+def test_conversation_cap_evicts_oldest_idle_over_http(assistant_client):
+    # pkm-c98s item 1: reaching the cap with idle conversations evicts the
+    # least-recently-used one instead of 409ing, so a reload that orphans
+    # the client-side conversation id can't lock the user out for 15 min.
+    ids = [
+        assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
+        for _ in range(3)
+    ]
+    r = assistant_client.post("/api/assistant/conversations", json={})
+    assert r.status_code == 200
+    assert r.json()["id"] not in ids
+    # the oldest conversation is gone server-side
+    stale = assistant_client.post(
+        f"/api/assistant/conversations/{ids[0]}/messages", json={"text": "hi"}
+    )
+    assert stale.status_code == 404
+
+
+def test_conversation_cap_409_when_every_conversation_is_busy(assistant_client):
+    ids = [
+        assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
+        for _ in range(3)
+    ]
+    service = assistant_client.app.state.assistant
+    for cid in ids:
+        service._entries[cid].busy = True  # simulate all three mid-turn
     r = assistant_client.post("/api/assistant/conversations", json={})
     assert r.status_code == 409
 
@@ -102,6 +125,19 @@ def test_delete_conversation(assistant_client):
     # idempotent
     assert assistant_client.delete(f"/api/assistant/conversations/{cid}").status_code == 200
     # gone
+    r = assistant_client.post(f"/api/assistant/conversations/{cid}/messages", json={"text": "hi"})
+    assert r.status_code == 404
+
+
+def test_close_conversation_via_post_for_sendbeacon(assistant_client):
+    # pkm-c98s item 1: navigator.sendBeacon can only POST (no DELETE, no
+    # custom body/headers), so the same idempotent close is also reachable
+    # by POSTing the conversation's own URL -- used for pagehide cleanup.
+    cid = assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
+    assert assistant_client.post(f"/api/assistant/conversations/{cid}").json() == {"ok": True}
+    # idempotent, and works even when already gone (as sendBeacon fires with
+    # no way to check the response)
+    assert assistant_client.post(f"/api/assistant/conversations/{cid}").status_code == 200
     r = assistant_client.post(f"/api/assistant/conversations/{cid}/messages", json={"text": "hi"})
     assert r.status_code == 404
 

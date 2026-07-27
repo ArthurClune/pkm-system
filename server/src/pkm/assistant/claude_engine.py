@@ -11,7 +11,7 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import Any
 
@@ -139,7 +139,7 @@ class ClaudeConversation:
         if fut is not None and not fut.done():
             fut.set_result(allow)
 
-    async def send(self, text: str) -> AsyncIterator[AssistantEvent]:
+    async def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
         # a dropped SSE stream can abandon a turn mid-queue; leftovers must
         # not leak into the next turn
         while not self._queue.empty():
@@ -148,15 +148,32 @@ class ClaudeConversation:
         mapper = TurnMapper()
         pump = asyncio.create_task(self._pump(mapper))
         self._pump_task = pump
+        finished = False
         try:
             while True:
                 event = await self._queue.get()
                 yield event
                 if isinstance(event, (TurnDone, ErrorEvent)):
+                    finished = True
                     break
         finally:
-            # if the consumer went away mid-turn (browser dropped the SSE
-            # stream), don't block generator close on a live harness turn
+            if not finished:
+                # the SSE consumer dropped mid-turn (browser closed the tab,
+                # navigated away, or the fetch was aborted via the Stop
+                # button): cancelling our local pump task only stops us from
+                # reading further messages, it does NOT stop the CLI
+                # subprocess from continuing to execute the abandoned query.
+                # Tell the harness to actually stop.
+                with contextlib.suppress(Exception):
+                    await self._client.interrupt()
+                # a can_use_tool hook may still be awaiting a decision that
+                # will now never come from the UI; decline it so that
+                # coroutine doesn't hang forever.
+                for fut in self._pending.values():
+                    if not fut.done():
+                        fut.set_result(False)
+            # if the consumer went away mid-turn, don't block generator
+            # close on a live harness turn
             if not pump.done():
                 pump.cancel()
             with contextlib.suppress(asyncio.CancelledError):

@@ -16,6 +16,13 @@ DEFAULT_MODEL = "sonnet"
 
 _MAX_VALUE_CHARS = 120
 
+# ops_preview (pkm-c98s item 6) is what the user reads before approving a
+# write, not the transient "tool is running" indicator -- it must show
+# (almost) everything, clipping only pathologically long values (e.g. a
+# save_note with megabytes of pasted text) so the approval UI stays
+# bounded. See docs/SECURITY.md's "Embedded assistant" section.
+_MAX_PREVIEW_VALUE_CHARS = 4000
+
 
 def mcp_tool_name(short: str) -> str:
     return f"mcp__{MCP_SERVER_NAME}__{short}"
@@ -53,11 +60,15 @@ def resolve_model(name: str | None) -> str:
     return name
 
 
-def _clip(value: object) -> str:
+def _clip(value: object, limit: int = _MAX_VALUE_CHARS) -> str:
     text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-    if len(text) > _MAX_VALUE_CHARS:
-        return text[: _MAX_VALUE_CHARS - 1] + "…"
+    if len(text) > limit:
+        return text[: limit - 1] + "…"
     return text
+
+
+def _clip_preview(value: object) -> str:
+    return _clip(value, limit=_MAX_PREVIEW_VALUE_CHARS)
 
 
 _SUMMARY_KEYS: dict[str, tuple[str, str]] = {
@@ -86,9 +97,9 @@ def ops_preview(short: str, tool_input: dict) -> str:
     if short == "batch":
         ops = tool_input.get("ops") or []
         lines = [f"batch: {len(ops)} operation(s)"]
-        lines += [f"  {i + 1}. {_clip(op)}" for i, op in enumerate(ops)]
+        lines += [f"  {i + 1}. {_clip_preview(op)}" for i, op in enumerate(ops)]
         return "\n".join(lines)
-    args = ", ".join(f"{k}={_clip(v)}" for k, v in tool_input.items())
+    args = ", ".join(f"{k}={_clip_preview(v)}" for k, v in tool_input.items())
     return f"{short}({args})"
 
 

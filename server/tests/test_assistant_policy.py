@@ -67,9 +67,27 @@ def test_ops_preview_batch_lists_ops():
     assert "abc123" in out and "def456" in out
 
 
-def test_ops_preview_truncates_long_values():
-    out = ops_preview("update_block", {"uid": "abc123", "text": "x" * 500})
-    assert len(out) < 400
+def test_ops_preview_does_not_clip_moderate_values():
+    # pkm-c98s item 6: the original 120-char clip made users approve writes
+    # they couldn't fully see. ops_preview (unlike tool_summary) now only
+    # clips pathologically long values, so ordinary note text is shown
+    # in full.
+    text = "x" * 500
+    out = ops_preview("update_block", {"uid": "abc123", "text": text})
+    assert text in out
+
+
+def test_ops_preview_still_clips_pathologically_long_values():
+    out = ops_preview("update_block", {"uid": "abc123", "text": "x" * 20_000})
+    assert len(out) < 5000
+    assert "…" in out
+
+
+def test_tool_summary_still_clips_at_120_for_the_running_indicator():
+    # tool_summary feeds the transient "…searching ..." line next to a
+    # running tool, not the write-approval preview -- keep it short.
+    out = tool_summary("search", {"q": "x" * 500})
+    assert len(out) < 200
 
 
 def test_system_prompt_mentions_tools_and_confirm():

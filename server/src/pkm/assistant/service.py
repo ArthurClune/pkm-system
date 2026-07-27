@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import secrets
 import time
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from pkm.assistant.engine import AgentEngine, ConversationHandle
 from pkm.assistant.events import AssistantEvent
@@ -34,7 +33,7 @@ class _Entry:
     handle: ConversationHandle
     model: str
     last_used: float
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    busy: bool = False
 
 
 class AssistantService:
@@ -56,6 +55,14 @@ class AssistantService:
         resolved = resolve_model(model)
         await self._reap_idle()
         if len(self._entries) >= self._max:
+            # A page reload orphans the client's conversation id without
+            # deleting it server-side; repeated reloads would otherwise
+            # exhaust the cap and 409 every create for up to idle_ttl.
+            # Evicting the least-recently-used IDLE (non-busy) conversation
+            # avoids that lockout; if every conversation is actively
+            # streaming, fall through to the cap error below.
+            await self._evict_oldest_idle()
+        if len(self._entries) >= self._max:
             raise ConversationLimitError(f"at most {self._max} concurrent conversations")
         handle = await self._engine.create_conversation(SYSTEM_PROMPT, resolved)
         cid = secrets.token_hex(8)
@@ -65,16 +72,25 @@ class AssistantService:
 
     def send(self, conversation_id: str, text: str) -> AsyncIterator[AssistantEvent]:
         entry = self._get(conversation_id)
-        if entry.lock.locked():
+        if entry.busy:
             raise BusyError("a turn is already in progress")
+        # Reserve synchronously, before returning the (lazy) async generator
+        # below: two near-simultaneous calls to send() must not both observe
+        # "free", which they could if the flag were only set once the
+        # generator starts running (its first iteration may happen well
+        # after this function returns). No `await` occurs between the check
+        # above and this assignment, so no other coroutine can interleave.
+        entry.busy = True
         return self._stream(conversation_id, entry, text)
 
     async def _stream(self, cid: str, entry: _Entry, text: str) -> AsyncIterator[AssistantEvent]:
-        async with entry.lock:
+        try:
             entry.last_used = self._clock()
             async for event in entry.handle.send(text):
                 yield event
             entry.last_used = self._clock()
+        finally:
+            entry.busy = False
 
     def confirm(self, conversation_id: str, tool_use_id: str, allow: bool) -> None:
         self._get(conversation_id).handle.resolve_confirm(tool_use_id, allow)
@@ -97,7 +113,17 @@ class AssistantService:
 
     async def _reap_idle(self) -> None:
         cutoff = self._clock() - self._idle_ttl
-        stale = [cid for cid, e in self._entries.items() if e.last_used < cutoff and not e.lock.locked()]
+        stale = [cid for cid, e in self._entries.items() if e.last_used < cutoff and not e.busy]
         for cid in stale:
             logger.info("assistant conversation %s reaped (idle)", cid)
             await self.delete(cid)
+
+    async def _evict_oldest_idle(self) -> None:
+        candidates = sorted(
+            ((e.last_used, cid) for cid, e in self._entries.items() if not e.busy),
+        )
+        if not candidates:
+            return  # every conversation is busy; caller will 409
+        _, oldest_cid = candidates[0]
+        logger.info("assistant conversation %s evicted (cap reached, oldest idle)", oldest_cid)
+        await self.delete(oldest_cid)

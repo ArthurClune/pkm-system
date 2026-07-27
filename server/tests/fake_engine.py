@@ -4,6 +4,10 @@
 Behavior is keyed on the user text so Playwright can drive it:
 - "please write"  -> ToolStarted + ConfirmRequest (id "fake-confirm-1"),
                      then Saved./Okay, not saving. after resolve_confirm.
+- "please hang"   -> parks forever (never yields, never finishes) until the
+                     consumer stops iterating (e2e drive for the Stop
+                     button / pkm-c98s item 3: nothing else in this double
+                     can keep a turn "busy" indefinitely to click Stop on).
 - anything else   -> TextDelta("echo: <text>") + TurnDone.
 """
 
@@ -33,6 +37,9 @@ class FakeConversation:
 
     async def send(self, text: str) -> AsyncIterator[AssistantEvent]:
         self.sent.append(text)
+        if "please hang" in text:
+            await asyncio.Event().wait()  # never set: blocks until cancelled
+            return  # pragma: no cover - unreachable
         if "please write" in text:
             self._confirm_seq += 1
             tool_use_id = f"fake-confirm-{self._confirm_seq}"

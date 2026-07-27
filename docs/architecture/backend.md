@@ -57,7 +57,7 @@ Inside `pkm/server/`:
 
 | File | Pattern | Role |
 |---|---|---|
-| `app.py` | Shell | App factory `create_app(config)`; runs `init_db()`, mounts routers, serves the SPA |
+| `app.py` | Shell | App factory `create_app(config)`; runs `init_db()`, builds the `AssistantService` (engine injectable), mounts routers, serves the SPA |
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
 | `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
 | `auth.py` / `auth_core.py` | Shell / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens |
@@ -69,6 +69,11 @@ Inside `pkm/server/`:
 | `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
 | `run.py` / `setup.py` | Shell | `python -m pkm.server.run` entrypoint; `setup` writes `config.json` |
 | `openapi_dump.py` / `shim_parity_dump.py` | Shell | Generated-artifact writers (see [Generated artifacts](#generated-artifacts-and-parity-fixtures)) |
+
+The embedded assistant is the one HTTP surface *not* in this package: its
+routes and service live in the sibling `pkm/assistant/` package
+([details below](#embedded-assistant-pkmassistant)); `app.py` constructs
+the service and mounts its router alongside the ones above.
 
 ## Database
 

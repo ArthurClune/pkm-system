@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-07-27T07:56:20Z
-updated_at: 2026-07-27T08:02:19Z
+updated_at: 2026-07-27T08:18:34Z
 ---
 
 docs/architecture/ (overview.md, backend.md, frontend.md) predate the pkm-wn2s merge and don't cover the embedded LLM assistant (server pkm.assistant package, SSE /api/assistant/* routes, Claude Agent SDK engine, web src/assistant/ panel). Update them to reflect the shipped functionality.
@@ -23,3 +23,5 @@ docs/architecture/ (overview.md, backend.md, frontend.md) predate the pkm-wn2s m
 - design.md: 'Embedded assistant' row in The pieces, linking the pkm-wn2s spec + plan.
 
 SECURITY.md, keyboard.md and deploy/README.md were already updated as part of pkm-wn2s itself.
+
+Follow-up (user review): backend.md's 'Inside pkm/server/' table now cross-references the assistant — app.py row mentions building the AssistantService, and a note after the table explains the assistant routes live in the sibling pkm/assistant/ package.

@@ -730,7 +730,8 @@ mark.highlight { background: var(--color-highlight-bg); }
 .assistant-tool-line { font-size: 0.85em; color: var(--color-text-secondary); font-style: italic; }
 .assistant-confirm-card { border: 1px solid var(--color-border-input); border-radius: var(--radius-card); padding: 10px; }
 .assistant-confirm-title { font-weight: 600; margin-bottom: 6px; }
-.assistant-confirm-card pre { overflow-x: auto; font-size: 0.85em; margin: 0 0 8px; }
+.assistant-confirm-card pre { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85em; margin: 0 0 8px; }
+.assistant-preview-toggle { background: none; border: none; padding: 0; margin: 0 0 8px; color: var(--color-link); font-size: 0.85em; cursor: pointer; text-decoration: underline; }
 .assistant-confirm-actions { display: flex; gap: 8px; }
 .assistant-error { color: var(--color-error); font-size: 0.9em; }
 .assistant-input { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--color-border); }

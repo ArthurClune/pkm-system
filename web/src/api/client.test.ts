@@ -37,6 +37,24 @@ it("throws ApiError carrying the status on other failures", async () => {
   expect((err as ApiError).status).toBe(404);
 });
 
+it("surfaces the server's detail message on ApiError (pkm-c98s item 5)", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(jsonResponse({ detail: "at most 3 concurrent conversations" }, 409)),
+  );
+  const err = await apiFetch("/api/assistant/conversations").catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ApiError);
+  expect((err as ApiError).detail).toBe("at most 3 concurrent conversations");
+  expect((err as ApiError).message).toContain("at most 3 concurrent conversations");
+});
+
+it("leaves detail undefined when the error body isn't JSON with a detail field", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("plain text", { status: 500 })));
+  const err = await apiFetch("/api/x").catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ApiError);
+  expect((err as ApiError).detail).toBeUndefined();
+});
+
 it("serves from the offline gateway without touching the network", async () => {
   const fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
@@ -67,6 +85,7 @@ it("maps shim error statuses to ApiError", async () => {
   expect(err).toBeInstanceOf(ApiError);
   expect(err).not.toBeInstanceOf(OfflineError);
   expect((err as ApiError).status).toBe(404);
+  expect((err as ApiError).detail).toBe("no");
 });
 
 it("falls back to the shim when fetch fails before the socket notices", async () => {

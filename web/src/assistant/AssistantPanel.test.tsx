@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
     modelLocked: false,
     pendingConfirm: null as PendingConfirm | null,
     send: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn(),
     respondConfirm: vi.fn().mockResolvedValue(undefined),
     newChat: vi.fn().mockResolvedValue(undefined),
   },
@@ -88,5 +89,42 @@ describe("AssistantPanel", () => {
     state.current.error = "cap reached";
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText(/cap reached/)).toBeInTheDocument();
+  });
+
+  test("Stop button appears while busy and calls stop() (pkm-c98s item 3)", () => {
+    state.current.status = "idle";
+    const { rerender } = render(<AssistantPanel open onClose={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    state.current.status = "busy";
+    rerender(<AssistantPanel open onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(state.current.stop).toHaveBeenCalled();
+  });
+
+  test("Stop button is not shown during a confirm pause", () => {
+    state.current.status = "confirm";
+    state.current.pendingConfirm = { toolUseId: "t1", opsPreview: "save_note(title=Demo)" };
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  test("long ops previews collapse with a Show full preview toggle (pkm-c98s item 6)", () => {
+    const longPreview = `save_note(text=${"x".repeat(600)})`;
+    state.current.status = "confirm";
+    state.current.pendingConfirm = { toolUseId: "t1", opsPreview: longPreview };
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(screen.queryByText(longPreview)).toBeNull(); // collapsed: not the full string
+    const toggle = screen.getByRole("button", { name: /show full preview/i });
+    fireEvent.click(toggle);
+    expect(screen.getByText(longPreview)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show less/i })).toBeInTheDocument();
+  });
+
+  test("short ops previews render in full with no toggle", () => {
+    state.current.status = "confirm";
+    state.current.pendingConfirm = { toolUseId: "t1", opsPreview: "save_note(title=Demo)" };
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(screen.getByText("save_note(title=Demo)")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show full preview/i })).toBeNull();
   });
 });

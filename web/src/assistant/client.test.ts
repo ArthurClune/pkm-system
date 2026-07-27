@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError, defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
-import { streamMessage } from "./client";
+import { closeConversationBeacon, streamMessage } from "./client";
 
 function sseResponse(frames: string[]): Response {
   const encoder = new TextEncoder();
@@ -49,11 +49,48 @@ describe("streamMessage", () => {
     await expect(streamMessage("c1", "hi", () => {})).rejects.toBeInstanceOf(ApiError);
   });
 
+  test("surfaces the server's detail on non-OK status (pkm-c98s item 5)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ detail: "unknown conversation" }), { status: 404 }),
+    );
+    const err = await streamMessage("c1", "hi", () => {}).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).detail).toBe("unknown conversation");
+  });
+
   test("invokes the unauthorized handler and throws on 401", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 401 }));
     const handler = vi.fn();
     setUnauthorizedHandler(handler);
     await expect(streamMessage("c1", "hi", () => {})).rejects.toThrow("401");
     expect(handler).toHaveBeenCalledOnce();
+  });
+
+  test("passes an AbortSignal through to fetch (pkm-c98s item 3: Stop button)", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(sseResponse(['event: turn_done\ndata: {"usage": null}\n\n']));
+    const controller = new AbortController();
+    await streamMessage("c1", "hi", () => {}, controller.signal);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/assistant/conversations/c1/messages",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+});
+
+describe("closeConversationBeacon", () => {
+  test("sends a beacon to the conversation's own URL", () => {
+    const sendBeacon = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("navigator", { ...navigator, sendBeacon });
+    closeConversationBeacon("c1");
+    expect(sendBeacon).toHaveBeenCalledWith("/api/assistant/conversations/c1");
+    vi.unstubAllGlobals();
+  });
+
+  test("no-ops silently when sendBeacon isn't available", () => {
+    vi.stubGlobal("navigator", {});
+    expect(() => closeConversationBeacon("c1")).not.toThrow();
+    vi.unstubAllGlobals();
   });
 });

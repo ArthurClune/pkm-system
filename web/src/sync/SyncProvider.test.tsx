@@ -1025,7 +1025,7 @@ test("failed poison repair stays visible and Retry succeeds without reapplying i
   expect(sync.problem).toMatchObject({
     kind: "rejected-batch", repair: "failed",
     event: { batchId: "bad-batch", status: 400 },
-    error: "request failed: 503 /api/sync/snapshot",
+    error: "request failed: 503 /api/sync/snapshot: snapshot unavailable",
   });
   expect(posts).toEqual(["bad-batch"]);
 

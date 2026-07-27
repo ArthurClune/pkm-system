@@ -165,13 +165,32 @@ Threat model:
 - **Write gating.** The four write verbs (`save_note`, `update_block`,
   `batch`, `upload_asset`) each require explicit per-call confirmation in
   the UI before executing; denial is reported to the model as a declined
-  action.
+  action. The confirmation card shows the operation preview in full up to
+  4000 characters per value (raised from an earlier 120-character clip that
+  made users approve writes they couldn't fully see); pathologically long
+  single values (e.g. a very large pasted note) are still clipped at that
+  bound, and the panel collapses long previews behind a "Show full preview"
+  toggle that reveals everything the server sent (it cannot reveal more
+  than the 4000-character bound itself).
 - **Subprocess auth.** Each conversation mints a fresh `pkm_session` token,
   written to a 0600 config file passed via `PKM_CLI_CONFIG` and pointing at
   the loopback listener; the file is deleted when the conversation closes.
   The token is a standard session token (1-year validity) — deleting it
   from disk does not revoke it, same as any logged-in session.
-- **Resource caps.** At most 3 concurrent conversations; conversations idle for ~15 minutes are reaped when the next conversation is created (no background timer); conversations do not survive a server restart.
+- **Resource caps.** At most 3 concurrent conversations. Reaching the cap
+  evicts the least-recently-used *idle* conversation instead of rejecting
+  the new one (only genuinely busy — actively streaming — conversations can
+  still produce a 409); conversations idle for ~15 minutes are also reaped
+  when the next conversation is created (no background timer). The web
+  client additionally sends a `navigator.sendBeacon` close request on
+  `pagehide` for the conversation it holds, so a normal tab close/navigate
+  cleans up immediately rather than waiting on the cap or idle timeout.
+  Conversations do not survive a server restart.
+- **Turn cancellation.** Dropping the SSE connection mid-turn (browser
+  navigation, or the panel's Stop button aborting the fetch) calls the
+  harness's `interrupt()` rather than only detaching the server's local
+  reader, so an abandoned turn stops running instead of continuing to spend
+  turns/tokens unobserved up to `max_turns`.
 
 ## Review evidence
 

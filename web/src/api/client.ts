@@ -7,11 +7,37 @@
 
 export class ApiError extends Error {
   readonly status: number;
+  /** The server's `{"detail": "..."}` body, when present (pkm-c98s item 5):
+   * e.g. the assistant's 409 "at most 3 concurrent conversations". */
+  readonly detail?: string;
 
-  constructor(status: number, path: string) {
-    super(`request failed: ${status} ${path}`);
+  constructor(status: number, path: string, detail?: string) {
+    super(detail ? `request failed: ${status} ${path}: ${detail}` : `request failed: ${status} ${path}`);
     this.status = status;
+    this.detail = detail;
   }
+}
+
+/** Best-effort extraction of a FastAPI-shaped `{"detail": "..."}` error
+ * body. Returns undefined for non-JSON bodies or bodies without a string
+ * `detail` field; never throws. */
+export async function readErrorDetail(res: Response): Promise<string | undefined> {
+  try {
+    const body: unknown = await res.clone().json();
+    if (body && typeof body === "object" && typeof (body as { detail?: unknown }).detail === "string") {
+      return (body as { detail: string }).detail;
+    }
+  } catch {
+    // not JSON (or already consumed) -- no detail available
+  }
+  return undefined;
+}
+
+function detailFromBody(body: unknown): string | undefined {
+  if (body && typeof body === "object" && typeof (body as { detail?: unknown }).detail === "string") {
+    return (body as { detail: string }).detail;
+  }
+  return undefined;
 }
 
 /** The app is offline and the local shim does not serve this route. */
@@ -63,7 +89,7 @@ async function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await gateway!.handle(path, init);
   if (!res.handled) throw new OfflineError(path);
   if (res.status !== undefined && res.status >= 400) {
-    throw new ApiError(res.status, path);
+    throw new ApiError(res.status, path, detailFromBody(res.body));
   }
   return res.body as T;
 }
@@ -83,10 +109,10 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
   if (res.status === 401) {
     onUnauthorized();
-    throw new ApiError(401, path);
+    throw new ApiError(401, path, await readErrorDetail(res));
   }
   if (!res.ok) {
-    throw new ApiError(res.status, path);
+    throw new ApiError(res.status, path, await readErrorDetail(res));
   }
   return (await res.json()) as T;
 }

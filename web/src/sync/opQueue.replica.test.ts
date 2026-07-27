@@ -123,7 +123,7 @@ test("a 4xx emits batch details and pauses later delivery before notifying", asy
     batchId: "batch-1",
     ops: [op("bad")],
     status: 400,
-    message: "request failed: 400 /api/ops",
+    message: "request failed: 400 /api/ops: bad op",
   }]);
   expect(outcome).toMatchObject({ status: "blocked", reason: "recovering" });
   expect(replica.rows).toEqual([

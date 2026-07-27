@@ -15,7 +15,7 @@ function handlers(): OutlineHandlers {
     onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
-    onToggleTodo: vi.fn(), onFiles: vi.fn(),
+    onToggleTodo: vi.fn(), onFiles: vi.fn(), onPasteOutline: vi.fn(),
     onStartBlockSelection: vi.fn(), onSelectBlock: vi.fn(),
     onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
@@ -1282,4 +1282,46 @@ test("an unfocused valid Roam table with a heading renders inside div.block-text
   expect(blockText?.tagName).toBe("DIV");
   expect(rendered.closest(".block-text")).toBe(blockText);
   expect(rendered.closest("h1, h2, h3")).toBeNull();
+});
+
+test("multi-line text paste dispatches onPasteOutline with the caret range", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(2, 5);
+  const prevented = !fireEvent.paste(ta, {
+    clipboardData: { files: [], getData: () => "a\n\tb" },
+  });
+  expect(prevented).toBe(true); // preventDefault: we own the paste
+  expect(h.onPasteOutline).toHaveBeenCalledWith("u1", 2, 5, "a\n\tb");
+});
+
+test("single-line paste keeps the native textarea behaviour", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const prevented = !fireEvent.paste(focusedTextarea(), {
+    clipboardData: { files: [], getData: () => "one line" },
+  });
+  expect(prevented).toBe(false);
+  expect(h.onPasteOutline).not.toHaveBeenCalled();
+});
+
+test("file paste still routes to onFiles, never onPasteOutline", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const file = new File(["x"], "x.png", { type: "image/png" });
+  fireEvent.paste(focusedTextarea(), {
+    clipboardData: { files: [file], getData: () => "a\nb" },
+  });
+  expect(h.onFiles).toHaveBeenCalled();
+  expect(h.onPasteOutline).not.toHaveBeenCalled();
+});
+
+test("read-only outlines do not intercept text pastes", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 }, true);
+  fireEvent.paste(focusedTextarea(), {
+    clipboardData: { files: [], getData: () => "a\nb" },
+  });
+  expect(h.onPasteOutline).not.toHaveBeenCalled();
 });

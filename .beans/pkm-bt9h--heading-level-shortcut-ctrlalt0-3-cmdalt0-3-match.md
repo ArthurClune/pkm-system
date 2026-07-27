@@ -1,9 +1,11 @@
 ---
 # pkm-bt9h
 title: Heading-level shortcut Ctrl+Alt+0-3 -> Cmd+Alt+0-3 (match Google Docs)
-status: in-progress
+status: completed
 type: bug
 priority: normal
+created_at: 2026-07-27T08:47:50Z
+updated_at: 2026-07-27T08:47:59Z
 ---
 
 Change the heading-level keyboard shortcut from Ctrl+Alt+<digit> to

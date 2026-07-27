@@ -7,6 +7,7 @@ node_modules/
 coverage/
 .coverage
 .superpowers/
+.clearance-rendered-preview*
 
 # Local environment files
 .env

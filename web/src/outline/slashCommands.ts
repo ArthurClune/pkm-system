@@ -80,12 +80,20 @@ function applyTodoPrefix(content: string): { text: string; cursor: number } {
   return { text, cursor: text.length };
 }
 
-/** {{query: ...}} expression bodies per command — must match the server's
- * parse_query grammar (server/src/pkm/server/query.py) exactly. */
+/** {{query: ...}} expression skeletons per command, operands left as bare
+ * "A" / "B" placeholders (not [[A]] / [[B]] page links -- pkm-nl6h: real
+ * [[...]] tokens get ref-indexed and their pages auto-created the moment
+ * the block's draft flushes, even if the user never edits the placeholder.
+ * The user replaces "A" / "B" with real [[Page]] links (see queryPlaceholder
+ * below and docs/keyboard.md); until then the query is invalid syntax and
+ * QueryBlock surfaces the server's parse error, same as any other malformed
+ * {{query: ...}} the user might type by hand. The clause skeleton itself
+ * must still match the server's parse_query grammar (server/src/pkm/server/
+ * query.py) once real [[Page]] operands are dropped in. */
 const QUERY_EXPRESSIONS: Record<string, string> = {
-  "query-and": "{and: [[A]] [[B]]}",
-  "query-or": "{or: [[A]] [[B]]}",
-  "query-and-not": "{and: [[A]] {not: [[B]]}}",
+  "query-and": "{and: A B}",
+  "query-or": "{or: A B}",
+  "query-and-not": "{and: A {not: B}}",
 };
 
 function queryPlaceholder(command: string, content: string): { text: string; cursor: number } {

@@ -104,12 +104,14 @@ to filter the list — e.g. `/py` narrows to the Python code block and
 | `/upload` | Pick a file to upload and insert a link to it |
 | `/h1`, `/h2`, `/h3` | Make the block a heading (picking its current level toggles it back to normal text) |
 | `/normal` | Back to normal text |
-| `/query-and` | Insert a query placeholder: `{{query: {and: [[A]] [[B]]}}}` — blocks tagged with both pages |
+| `/query-and` | Insert a query placeholder: `{{query: {and: A B}}}` — blocks tagged with both pages |
 | `/query-or` | Insert a query placeholder for blocks tagged with either page |
 | `/query-and-not` | Insert a query placeholder for blocks tagged with the first page but not the second |
 
-Replace the `[[A]]` and `[[B]]` placeholders with real page names to run
-a query.
+Replace the `A` and `B` placeholders with real `[[Page]]` links (type `[[`
+to search for a page) to run a query. The placeholders are plain text, not
+links, so picking one of these commands never creates pages named "A" or
+"B" — the query shows an error until you fill in real page links.
 
 ## While blocks are selected
 

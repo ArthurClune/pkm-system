@@ -6,6 +6,11 @@
 // over-indent jump of any size is exactly one level (malformed input clamps,
 // never throws).
 
+import type { BlockNode } from "../api/payloads";
+import type { BlockOp } from "../api/ops";
+import { clampCaret, idxAfter, type EditResult, type FocusTarget } from "./edits";
+import { applyOps, locate } from "./tree";
+
 export interface PastedNode {
   text: string;
   children: PastedNode[];
@@ -65,4 +70,52 @@ export function parseOutlineForest(text: string): PastedNode[] {
 export function isOutlinePaste(text: string): boolean {
   return text.replace(/\r\n?/g, "\n").includes("\n")
     && parseOutlineForest(text).length > 0;
+}
+
+/** Anchor a parsed clipboard forest at the paste location. The first root's
+ * text splices into the target block at [selStart, selEnd); the first root's
+ * children become the target's FIRST children (expanding a collapsed
+ * target); remaining roots become siblings immediately after the target.
+ * Creates are emitted depth-first so every parent exists before its
+ * children; consecutive-sibling order_idx values rely on applyOps's
+ * insert-before shift, exactly like splitBlock. */
+export function planOutlinePaste(
+  blocks: BlockNode[], pageTitle: string, uid: string,
+  selStart: number, selEnd: number, text: string,
+  newUid: () => string,
+): EditResult {
+  const forest = parseOutlineForest(text);
+  const found = locate(blocks, uid);
+  if (!found || forest.length === 0) return { blocks, ops: [], focus: null };
+  const { node, parent, siblings, index } = found;
+  const [first, ...rest] = forest;
+
+  const start = clampCaret(selStart, node.text.length);
+  const end = Math.max(start, clampCaret(selEnd, node.text.length));
+  const spliced = node.text.slice(0, start) + first.text + node.text.slice(end);
+
+  const ops: BlockOp[] = [];
+  if (spliced !== node.text) ops.push({ op: "update_text", uid, text: spliced });
+  if (first.children.length > 0 && node.collapsed) {
+    ops.push({ op: "set_collapsed", uid, collapsed: false });
+  }
+
+  let focus: FocusTarget = { uid, cursor: start + first.text.length };
+  const createSubtree = (n: PastedNode, parentUid: string | null,
+                         orderIdx: number): void => {
+    const createdUid = newUid();
+    ops.push({ op: "create", uid: createdUid, page_title: pageTitle,
+               parent_uid: parentUid, order_idx: orderIdx, text: n.text });
+    focus = { uid: createdUid, cursor: n.text.length };
+    n.children.forEach((child, i) => createSubtree(child, createdUid, i));
+  };
+
+  const childBase = node.children[0]?.order_idx ?? 0;
+  first.children.forEach((child, i) => createSubtree(child, uid, childBase + i));
+  const rootBase = idxAfter(siblings, index);
+  rest.forEach((root, i) => createSubtree(root, parent?.uid ?? null,
+                                          rootBase + i));
+
+  if (ops.length === 0) return { blocks, ops: [], focus: null };
+  return { blocks: applyOps(blocks, ops, pageTitle), ops, focus };
 }

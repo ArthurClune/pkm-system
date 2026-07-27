@@ -34,24 +34,11 @@ export function extendSelection(
   return next ? { anchor: sel.anchor, head: next } : sel;
 }
 
-/** The selected blocks' text joined with newlines in document order, each
- * line indented with one tab per depth level relative to the shallowest
- * selected block (pkm-tu3a) — what lands on the clipboard when the selection
- * is copied, and what parseOutlineForest round-trips back into structure. */
+/** The selected blocks' text joined with newlines in document order — what
+ * lands on the clipboard when the selection is copied. */
 export function selectionText(blocks: BlockNode[], sel: BlockSelection): string {
-  const uids = selectedUids(blocks, sel);
-  const depths = new Map<string, number>();
-  const walk = (nodes: BlockNode[], depth: number): void => {
-    for (const n of nodes) {
-      depths.set(n.uid, depth);
-      walk(n.children, depth + 1);
-    }
-  };
-  walk(blocks, 0);
-  const base = Math.min(...uids.map((uid) => depths.get(uid) ?? 0));
-  return uids
-    .map((uid) => "\t".repeat((depths.get(uid) ?? base) - base)
-      + (findNode(blocks, uid)?.text ?? ""))
+  return selectedUids(blocks, sel)
+    .map((uid) => findNode(blocks, uid)?.text ?? "")
     .join("\n");
 }
 

@@ -21,7 +21,6 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          setHeading, splitBlock, setViewType, type EditResult,
          type FocusTarget } from "./edits";
 import { invertOps } from "./history";
-import { planOutlinePaste } from "./paste";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
 import { extendSelection, needsDeleteConfirmation, selectedUids,
@@ -333,11 +332,6 @@ export function useOutline(
         });
       })();
     },
-    // Multi-line text paste (pkm-tu3a): one planned batch through run() —
-    // flushed draft, optimistic apply, single server batch, single undo entry.
-    onPasteOutline: (uid, selStart, selEnd, text) =>
-      run((b) => planOutlinePaste(b, pageTitle, uid, selStart, selEnd, text,
-                                  newUid)),
     // Multi-block selection (Shift+Arrow). Starting one flushes the current
     // draft and blurs the textarea (focus → null) so the whole run renders
     // read-only while selected.

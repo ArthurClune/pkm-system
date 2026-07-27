@@ -111,6 +111,22 @@ def render_backlinks(title: str, backlinks: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_assets(payload: dict) -> str:
+    """One asset per block: filename, url, status, then the description."""
+    assets = payload["assets"]
+    if not assets:
+        return "no assets found"
+    parts = []
+    for a in assets:
+        lines = [f"{a['filename']}  ({a['mime']}, {a['size']} bytes,"
+                 f" {a['status']})",
+                 f"  {a['url']}"]
+        if a["description"]:
+            lines.append(f"  {a['description']}")
+        parts.append("\n".join(lines))
+    return "\n\n".join(parts)
+
+
 def select_section(blocks: list[dict], spec: str) -> list[dict]:
     """The subtree rooted at the first block whose text equals `spec`
     ('## Heading' or bare text). Raises RenderError naming the page's

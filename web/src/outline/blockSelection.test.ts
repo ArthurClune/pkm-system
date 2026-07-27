@@ -14,6 +14,19 @@ const BLOCKS = [
   block("d", "four", { order_idx: 3 }),
 ];
 
+const NESTED = [
+  block("r", "root", {
+    order_idx: 0,
+    children: [
+      block("r0", "child", {
+        order_idx: 0,
+        children: [block("r00", "grand", { order_idx: 0 })],
+      }),
+    ],
+  }),
+  block("s", "sibling", { order_idx: 1 }),
+];
+
 describe("selectedUids", () => {
   it("returns the inclusive run in document order (anchor before head)", () => {
     expect(selectedUids(BLOCKS, { anchor: "a", head: "c" })).toEqual(["a", "b", "c"]);
@@ -104,5 +117,13 @@ describe("selectionText", () => {
 
   it("orders by the document even when head precedes anchor", () => {
     expect(selectionText(BLOCKS, { anchor: "c", head: "a" })).toBe("one\ntwo\nthree");
+  });
+
+  it("indents by depth relative to the shallowest selected block (pkm-tu3a)", () => {
+    expect(selectionText(NESTED, { anchor: "r", head: "s" }))
+      .toBe("root\n\tchild\n\t\tgrand\nsibling");
+    // selection entirely below the top level re-bases at zero tabs
+    expect(selectionText(NESTED, { anchor: "r0", head: "r00" }))
+      .toBe("child\n\tgrand");
   });
 });

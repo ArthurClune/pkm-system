@@ -18,6 +18,7 @@ import { decideEditorKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
 import { findNode } from "../outline/tree";
+import { isOutlinePaste } from "../outline/paste";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
 import { pagePath } from "../paths";
@@ -54,6 +55,10 @@ export interface OutlineHandlers {
   onSetViewType(uid: string, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
+  /** Multi-line text paste (pkm-tu3a): parse outline indentation into real
+   * blocks anchored at the caret. Single-line pastes stay native. */
+  onPasteOutline(uid: string, selStart: number, selEnd: number,
+                 text: string): void;
   /** Begin a multi-block selection from `uid` towards `dir` (Shift+Arrow at a
    * block edge); the current block is included. */
   onStartBlockSelection(uid: string, dir: "up" | "down"): void;
@@ -683,10 +688,18 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   };
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (readOnly) return;
     const files = Array.from(e.clipboardData.files);
-    if (files.length === 0 || readOnly) return;
+    if (files.length > 0) {
+      e.preventDefault();
+      handlers.onFiles(node.uid, e.currentTarget.selectionStart, files);
+      return;
+    }
+    const text = e.clipboardData.getData("text/plain");
+    if (!isOutlinePaste(text)) return; // native splice for single lines
     e.preventDefault();
-    handlers.onFiles(node.uid, e.currentTarget.selectionStart, files);
+    handlers.onPasteOutline(node.uid, e.currentTarget.selectionStart,
+                            e.currentTarget.selectionEnd, text);
   };
 
   const onDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {

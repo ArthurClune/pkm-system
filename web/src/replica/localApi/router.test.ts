@@ -145,6 +145,51 @@ describe("daily auto-creation", () => {
     };
     expect(body.days).toEqual([]);
   });
+
+  function addRef(srcUid: string, targetPageId: number, kind = "link") {
+    t.db.exec("INSERT INTO refs VALUES (?,?,?)", [srcUid, targetPageId, kind]);
+  }
+
+  test("journal surfaces an empty day referenced from elsewhere (pkm-vvta)",
+    () => {
+      addDaily(11, "July 9th, 2026", ["entry nine"]);
+      // July 8th has no blocks of its own, but a reminder on July 9th's
+      // page [[links]] to it.
+      t.db.exec("INSERT INTO pages(id, title, created_at, updated_at)"
+        + " VALUES (?,?,NULL,NULL)", [12, "July 8th, 2026"]);
+      addRef("uid_11_0", 12);
+      const body = expectStatus(
+        call("GET", "/api/journal?before=2026-07-10&days=5"), 200) as {
+        days: { date: string; exists: boolean; blocks: unknown[] }[];
+      };
+      expect(body.days.map((d) => d.date))
+        .toEqual(["2026-07-09", "2026-07-08"]);
+      const referenced = body.days[1];
+      expect(referenced.exists).toBe(true);
+      expect(referenced.blocks).toEqual([]);
+    });
+
+  test("journal does not surface an unreferenced empty day", () => {
+    addDaily(11, "July 9th, 2026", ["entry nine"]);
+    t.db.exec("INSERT INTO pages(id, title, created_at, updated_at)"
+      + " VALUES (?,?,NULL,NULL)", [12, "July 8th, 2026"]);
+    const body = expectStatus(
+      call("GET", "/api/journal?before=2026-07-10&days=5"), 200) as {
+      days: { date: string }[];
+    };
+    expect(body.days.map((d) => d.date)).toEqual(["2026-07-09"]);
+  });
+
+  test("a day that is both non-empty and referenced is not duplicated",
+    () => {
+      addDaily(11, "July 9th, 2026", ["entry nine"]);
+      addRef("uid_11_0", 11); // self-reference-ish: still just one day
+      const body = expectStatus(
+        call("GET", "/api/journal?before=2026-07-10&days=5"), 200) as {
+        days: { date: string }[];
+      };
+      expect(body.days.map((d) => d.date)).toEqual(["2026-07-09"]);
+    });
 });
 
 describe("current work", () => {

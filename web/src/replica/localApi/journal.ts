@@ -21,6 +21,12 @@ const NONEMPTY_DAILY_SQL =
   + " SELECT 1 FROM blocks b WHERE b.page_id = pages.id"
   + " AND trim(b.text, char(9)||char(10)||char(13)||char(32)) <> '')";
 
+// Identical SQL to the server's _REFERENCED_DAILY_SQL (pkm-vvta): a daily
+// page with no blocks of its own still counts as non-empty if another page
+// [[links]] to it, so a reminder written elsewhere surfaces on its day.
+const REFERENCED_DAILY_SQL =
+  "SELECT DISTINCT p.title FROM pages p JOIN refs r ON r.target_page_id = p.id";
+
 /** null = invalid `before` date (the caller 400s). */
 export function journalPayload(db: ReplicaDb, before: string | null,
                                days: number, nowMs: number): unknown | null {
@@ -37,9 +43,19 @@ export function journalPayload(db: ReplicaDb, before: string | null,
   if (cursor === null && fetchPage(db, titleForDate(today)) === null) {
     getOrCreateLocalPage(db, titleForDate(today), nowMs);
   }
-  const nonempty: Date[] = [];
+  // A title from both queries (real content AND an inbound ref) must only
+  // contribute one Date -- selectJournalDays takes a plain array, not a
+  // set, and would otherwise double the day up in its output.
+  const nonemptyTitles = new Set<string>();
   for (const row of db.select<{ title: string }>(NONEMPTY_DAILY_SQL)) {
-    const d = dateForTitle(row.title);
+    nonemptyTitles.add(row.title);
+  }
+  for (const row of db.select<{ title: string }>(REFERENCED_DAILY_SQL)) {
+    nonemptyTitles.add(row.title);
+  }
+  const nonempty: Date[] = [];
+  for (const title of nonemptyTitles) {
+    const d = dateForTitle(title);
     if (d !== null) nonempty.push(d);
   }
   const out: unknown[] = [];

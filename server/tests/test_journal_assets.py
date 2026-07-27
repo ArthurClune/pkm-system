@@ -89,6 +89,46 @@ def test_journal_cursor_pages_through_nonempty_days_until_exhausted(
     assert [b["text"] for b in days[0]["blocks"]] == ["older entry"]
 
 
+def test_journal_surfaces_an_empty_day_referenced_from_elsewhere(
+        client, seeded_config):
+    # pkm-vvta: a daily page with zero blocks would normally be invisible
+    # (only non-empty days show, and it isn't "today"). A [[link]] from
+    # another page's block still means it has something worth surfacing --
+    # linked references -- so it counts as non-empty too.
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (90, "July 5th, 2026"))
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,NULL,0,?,NULL,0,NULL,NULL)",
+        ("uid_ref5", 1, "Remind me on [[July 5th, 2026]] to check this"))
+    con.execute("INSERT INTO refs VALUES (?,?,?)", ("uid_ref5", 90, "link"))
+    con.commit()
+    con.close()
+    r = client.get("/api/journal",
+                   params={"before": "2026-07-08", "days": 5})
+    days = r.json()["days"]
+    assert [d["date"] for d in days] == ["2026-07-07", "2026-07-05"]
+    day = days[1]
+    assert day["title"] == "July 5th, 2026"
+    assert day["exists"] is True
+    assert day["blocks"] == []
+
+
+def test_journal_does_not_surface_an_unreferenced_empty_day(
+        client, seeded_config):
+    # Sanity check for the fixture above: a bare empty daily page (no
+    # blocks, no inbound refs) still stays hidden.
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (91, "July 6th, 2026"))
+    con.commit()
+    con.close()
+    r = client.get("/api/journal",
+                   params={"before": "2026-07-08", "days": 5})
+    days = r.json()["days"]
+    assert [d["date"] for d in days] == ["2026-07-07"]
+
+
 def test_asset_serving(client, seeded_config):
     data = b"PNGDATA"
     sha = hashlib.sha256(data).hexdigest()

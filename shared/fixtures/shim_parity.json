@@ -30,6 +30,12 @@
         "Attention Is All You Need",
         1000,
         8000
+      ],
+      [
+        6,
+        "July 9th, 2026",
+        null,
+        null
       ]
     ],
     "blocks": [
@@ -120,6 +126,17 @@
         0,
         1000,
         2000
+      ],
+      [
+        "uid_b9",
+        2,
+        null,
+        1,
+        "Remind me on [[July 9th, 2026]] to check this",
+        null,
+        0,
+        1000,
+        2000
       ]
     ],
     "refs": [
@@ -151,6 +168,11 @@
       [
         "uid_b5",
         1,
+        "link"
+      ],
+      [
+        "uid_b9",
+        6,
         "link"
       ]
     ],
@@ -268,6 +290,17 @@
             "created_at": 1000,
             "updated_at": 2000,
             "children": []
+          },
+          {
+            "uid": "uid_b9",
+            "text": "Remind me on [[July 9th, 2026]] to check this",
+            "heading": null,
+            "view_type": null,
+            "collapsed": false,
+            "order_idx": 1,
+            "created_at": 1000,
+            "updated_at": 2000,
+            "children": []
           }
         ],
         "backlinks": {
@@ -373,6 +406,17 @@
             "created_at": 1000,
             "updated_at": 2000,
             "children": []
+          },
+          {
+            "uid": "uid_b9",
+            "text": "Remind me on [[July 9th, 2026]] to check this",
+            "heading": null,
+            "view_type": null,
+            "collapsed": false,
+            "order_idx": 1,
+            "created_at": 1000,
+            "updated_at": 2000,
+            "children": []
           }
         ],
         "backlinks": {
@@ -444,6 +488,12 @@
                 "children": []
               }
             ]
+          },
+          {
+            "date": "2026-07-09",
+            "title": "July 9th, 2026",
+            "exists": true,
+            "blocks": []
           }
         ],
         "block_ref_texts": {
@@ -452,6 +502,21 @@
             "page_title": "Machine Learning"
           }
         }
+      }
+    },
+    {
+      "name": "journal_referenced_empty_day",
+      "path": "/api/journal?before=2026-07-10&days=5",
+      "response": {
+        "days": [
+          {
+            "date": "2026-07-09",
+            "title": "July 9th, 2026",
+            "exists": true,
+            "blocks": []
+          }
+        ],
+        "block_ref_texts": {}
       }
     },
     {

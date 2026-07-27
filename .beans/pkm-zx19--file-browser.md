@@ -2,10 +2,10 @@
 # pkm-zx19
 title: file browser and attachment improvements
 status: todo
-type: feature
+type: epic
 priority: normal
 created_at: 2026-07-23T13:48:11Z
-updated_at: 2026-07-23T14:00:29Z
+updated_at: 2026-07-27T20:29:20Z
 ---
 
 We need a file browser for attachments. 

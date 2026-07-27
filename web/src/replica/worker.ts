@@ -8,6 +8,7 @@
 
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import { type Oo1DbLike, type ReplicaDb, wrapSqlite } from "./db";
+import { openWithRetry } from "./openRetry";
 import { serveRpc, toPortLike } from "./rpc";
 import { buildHandlers } from "./workerHandlers";
 
@@ -27,11 +28,20 @@ function pragmas(db: ReplicaDb): ReplicaDb {
   return db;
 }
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 async function openDb(): Promise<ReplicaDb> {
   sqlite3 ??= (await sqlite3InitModule()) as unknown as NonNullable<typeof sqlite3>;
-  pool ??= await sqlite3!.installOpfsSAHPoolVfs({ name: "pkm-replica" });
-  rawDb = new pool.OpfsSAHPoolDb(DB_FILE);
-  return pragmas(wrapSqlite(rawDb));
+  // A page reload/navigation can spawn this worker before the previous one
+  // has released the OPFS SAH pool; retry through that transient contention
+  // (pkm-c9hp) instead of surfacing it as a spurious "server rejected"
+  // desync that wipes the active outline.
+  return openWithRetry(async () => {
+    pool ??= await sqlite3!.installOpfsSAHPoolVfs({ name: "pkm-replica" });
+    rawDb = new pool.OpfsSAHPoolDb(DB_FILE);
+    return pragmas(wrapSqlite(rawDb));
+  }, { sleep });
 }
 
 function closeDb(): void {

@@ -260,6 +260,35 @@ test("quota-failed enqueue surfaces and degrades to a direct post", async () => 
   expect(body.ops).toEqual([op("u1")]);
 });
 
+test("an OPFS access-handle contention enqueue failure degrades to a direct post", async () => {
+  // A page reload (or the e2e's per-navigation worker churn) can leave the
+  // prior worker's OPFS SAH pool briefly locked, so replica.enqueue rejects
+  // with the sqlite-wasm "createSyncAccessHandle" contention error. That is a
+  // local-storage problem, never a server rejection: the edit must still be
+  // delivered online, and onDesync (which would wipe the active outline) must
+  // NOT fire (pkm-c9hp).
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica({
+    enqueue: async () => {
+      throw new Error(
+        "Failed to execute 'createSyncAccessHandle' on 'FileSystemFileHandle':"
+        + " Access Handles cannot be created if there is another open Access"
+        + " Handle or Writable stream associated with the same file.");
+    },
+  });
+  const desyncs: unknown[] = [];
+  const q = createOpQueue(replica, (e) => desyncs.push(e));
+  const ticket = q.enqueue([op("u1")]);
+  await q.settled();
+  await q.drain();
+  expect(desyncs).toEqual([]); // no spurious desync repair / outline wipe
+  const body = bodies[0].body as { client_id: string; batch_id?: string; ops: unknown[] };
+  expect(body.client_id).toBe(clientId);
+  expect(body.batch_id).toBeDefined();
+  expect(body.ops).toEqual([op("u1")]);
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+});
+
 test("other replica enqueue failures report desync", async () => {
   fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({

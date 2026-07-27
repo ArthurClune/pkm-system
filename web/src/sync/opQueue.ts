@@ -5,6 +5,7 @@
 import { ApiError, apiFetch } from "../api/client";
 import type { BlockOp } from "../api/ops";
 import type { PoisonedBatch, Replica } from "../replica/client";
+import { isSahPoolContention } from "../replica/openRetry";
 import { ReplicaError } from "../replica/rpc";
 import { newUid } from "../uid";
 import { createQueueState, terminalReason, transitionQueue,
@@ -441,8 +442,17 @@ function createReplicaQueue(replica: Replica,
           if (!qstate.disposed) kick();
         } catch (error: unknown) {
           resolve({ status: "failed", error });
-          if (error instanceof ReplicaError && error.quota) {
-            quota.emit(error);
+          const quotaExhausted = error instanceof ReplicaError && error.quota;
+          // Local storage being unavailable is NOT a server rejection: the
+          // replica is a cache, not the durability boundary. Quota exhaustion
+          // and OPFS access-handle contention (a reload/second tab racing the
+          // prior worker's SAH pool, pkm-c9hp) both mean "cannot persist
+          // locally right now" — deliver the edit straight to the server so it
+          // still lands, rather than firing onDesync, whose authoritative
+          // repair would wipe the active outline to the (edit-less) server
+          // state and detach the editor mid-keystroke.
+          if (quotaExhausted || isSahPoolContention(error)) {
+            if (quotaExhausted) quota.emit(error);
             try {
               await postOps(ops, newUid());
               resolveDelivery({ status: "delivered" });

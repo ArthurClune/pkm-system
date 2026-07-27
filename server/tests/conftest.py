@@ -99,3 +99,34 @@ def assistant_client(seeded_config, fake_engine) -> Iterator[TestClient]:
         r = c.post("/api/login", json={"password": TEST_PASSWORD})
         assert r.status_code == 200
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_openai_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+
+@pytest.fixture()
+def describe_client(seeded_config) -> Iterator[TestClient]:
+    """TestClient (lifespan running, so the describe worker is live) whose
+    DescribeService wraps a FakeDescriber."""
+    from fake_describer import FakeDescriber
+    from pkm.describe.service import DescribeService
+
+    service = DescribeService(seeded_config, FakeDescriber(), None)
+    app = create_app(seeded_config, describe_service=service)
+    with TestClient(app) as c:
+        r = c.post("/api/login", json={"password": TEST_PASSWORD})
+        assert r.status_code == 200
+        yield c
+
+
+@pytest.fixture()
+def describe_disabled_client(seeded_config) -> Iterator[TestClient]:
+    from pkm.describe.service import DescribeService
+
+    service = DescribeService(seeded_config, None, "OPENAI_API_KEY is not set")
+    with TestClient(create_app(seeded_config, describe_service=service)) as c:
+        r = c.post("/api/login", json={"password": TEST_PASSWORD})
+        assert r.status_code == 200
+        yield c

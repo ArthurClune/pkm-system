@@ -986,6 +986,57 @@
         }
       }
     },
+    "/api/assets/search": {
+      "get": {
+        "summary": "Search Assets",
+        "description": "LIKE search over description + filename (pkm-zc0c). Empty q lists\nmost-recent uploads \u2014 the seed of the file-browser list endpoint.\nLIKE, not FTS: personal-scale table, and no offline-parity burden.",
+        "operationId": "search_assets_api_assets_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetSearchPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/assets/{sha256}/{filename}": {
       "get": {
         "summary": "Get Asset",
@@ -1053,6 +1104,64 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AssetUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/assets/describe-status": {
+      "get": {
+        "summary": "Describe Status",
+        "operationId": "describe_status_api_assets_describe_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DescribeStatusPayload"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/assets/scan": {
+      "post": {
+        "summary": "Scan",
+        "operationId": "scan_api_assets_scan_post",
+        "parameters": [
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Force"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanPayload"
                 }
               }
             }
@@ -1369,6 +1478,89 @@
           "title"
         ],
         "title": "AddSidebarEntryRequest"
+      },
+      "AssetSearchItem": {
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "mime": {
+            "type": "string",
+            "title": "Mime"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "described",
+              "failed",
+              "pending"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sha256",
+          "filename",
+          "mime",
+          "size",
+          "created_at",
+          "url",
+          "description",
+          "status"
+        ],
+        "title": "AssetSearchItem"
+      },
+      "AssetSearchPayload": {
+        "properties": {
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/AssetSearchItem"
+            },
+            "type": "array",
+            "title": "Assets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assets"
+        ],
+        "title": "AssetSearchPayload"
       },
       "AssetUploadResponse": {
         "properties": {
@@ -1999,6 +2191,31 @@
         ],
         "title": "DeleteOp"
       },
+      "DescribeStatusPayload": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "reason"
+        ],
+        "title": "DescribeStatusPayload"
+      },
       "GroupItem": {
         "properties": {
           "uid": {
@@ -2376,6 +2593,36 @@
           "order"
         ],
         "title": "ReorderSidebarEntriesRequest"
+      },
+      "ScanPayload": {
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued",
+          "enabled",
+          "reason"
+        ],
+        "title": "ScanPayload"
       },
       "SearchBlockHit": {
         "properties": {

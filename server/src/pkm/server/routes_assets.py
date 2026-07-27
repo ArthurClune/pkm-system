@@ -11,15 +11,16 @@ import uuid
 from pathlib import Path
 from typing import Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
+from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
-from pkm.server.response_models import AssetUploadResponse
+from pkm.server.response_models import AssetSearchPayload, AssetUploadResponse
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -49,6 +50,36 @@ INLINE_MIME = frozenset({
     "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
     "application/pdf",
 })
+
+
+@router.get("/api/assets/search", response_model=AssetSearchPayload)
+def search_assets(q: str = "", limit: int = 50,
+                  db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """LIKE search over description + filename (pkm-zc0c). Empty q lists
+    most-recent uploads — the seed of the file-browser list endpoint.
+    LIKE, not FTS: personal-scale table, and no offline-parity burden."""
+    limit = max(1, min(limit, 200))
+    needle = q.strip()
+    where, params = "", []
+    if needle:
+        esc = (needle.replace("\\", "\\\\")
+                     .replace("%", "\\%")
+                     .replace("_", "\\_"))
+        where = (r"WHERE (description LIKE ? ESCAPE '\'"
+                 r" OR filename LIKE ? ESCAPE '\') ")
+        params = [f"%{esc}%", f"%{esc}%"]
+    rows = db.execute(
+        "SELECT sha256, filename, mime, size, created_at, description,"
+        f" describe_error FROM assets {where}"
+        "ORDER BY created_at IS NULL, created_at DESC, sha256 LIMIT ?",
+        (*params, limit)).fetchall()
+    return {"assets": [{
+        "sha256": r["sha256"], "filename": r["filename"], "mime": r["mime"],
+        "size": r["size"], "created_at": r["created_at"],
+        "url": f"/assets/{r['sha256']}/{r['filename']}",
+        "description": r["description"],
+        "status": derive_status(r["description"], r["describe_error"]),
+    } for r in rows]}
 
 
 @router.get("/assets/{sha256}/{filename}")
@@ -106,7 +137,7 @@ async def _stream_to_temp(file: _ChunkReadable, tmp_path: Path,
 
 
 @router.post("/api/assets", response_model=AssetUploadResponse)
-async def upload_asset(file: UploadFile,
+async def upload_asset(request: Request, file: UploadFile,
                        db: sqlite3.Connection = Depends(get_db),
                        config: Config = Depends(get_config)) -> dict:
     declared_mime = file.content_type or "application/octet-stream"
@@ -138,5 +169,6 @@ async def upload_asset(file: UploadFile,
     row = db.execute(
         "SELECT filename, mime, size FROM assets WHERE sha256 = ?",
         (sha,)).fetchone()
+    request.app.state.describe.maybe_enqueue(sha, mime, size)
     return {"sha256": sha, "filename": row["filename"], "mime": row["mime"],
             "size": row["size"], "url": f"/assets/{sha}/{row['filename']}"}

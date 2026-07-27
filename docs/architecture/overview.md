@@ -14,8 +14,8 @@ in [`docs/design.md`](../design.md) and the specs under
 | Doc | Covers |
 |---|---|
 | this file | System context, tech stack, repo layout, cross-cutting patterns, key decisions, deployment |
-| [backend.md](backend.md) | FastAPI server: modules, database, write path, HTTP API reference, importer, backup, CLI/MCP |
-| [frontend.md](frontend.md) | React SPA: modules, editor, rendering pipeline, state, styling, testing |
+| [backend.md](backend.md) | FastAPI server: modules, database, write path, HTTP API reference, importer, backup, CLI/MCP, embedded assistant |
+| [frontend.md](frontend.md) | React SPA: modules, editor, rendering pipeline, state, assistant panel, styling, testing |
 | [sync-and-offline.md](sync-and-offline.md) | The sync protocol and offline architecture, end to end |
 
 ## System context
@@ -30,6 +30,7 @@ flowchart LR
     subgraph Mac["Mac (launchd services)"]
         TS["Tailscale Serve<br/>HTTPS :443"]
         S["FastAPI server :8974<br/>(loopback + Tailscale IP)"]
+        AI["Assistant harness<br/>(Claude Agent SDK subprocess,<br/>one per conversation)"]
         DB[("pkm.sqlite3<br/>(WAL, FTS5)")]
         AS["assets/<br/>(content-addressed)"]
         BK["Nightly backup job<br/>snapshots + git markdown export"]
@@ -37,6 +38,8 @@ flowchart LR
 
     A -- "HTTPS (tailnet)" --> TS --> S
     CLI -- "HTTP API + session cookie" --> S
+    S -. "spawns (SSE chat)" .-> AI
+    AI -- "pkm-mcp (stdio) → same HTTP API" --> S
     S --> DB
     S --> AS
     BK --> DB
@@ -46,6 +49,9 @@ flowchart LR
 One server process, one SQLite file, one assets directory. Every client —
 browser, CLI, MCP — speaks the same HTTP API with the same session-cookie
 auth, and every mutation goes through the single `POST /api/ops` write path.
+Even the embedded LLM assistant is just another client: the server spawns a
+harness subprocess per chat conversation, confined to the ten `pkm-mcp`
+tools, and those tools loop back into the same API.
 
 ## Core idea
 
@@ -66,7 +72,8 @@ block uids). Portability comes instead from a nightly plain-markdown export.
 
 ```
 server/   Python backend: FastAPI app, SQLite storage, Roam EDN importer,
-          markdown export, nightly backup, `pkm` CLI + MCP server
+          markdown export, nightly backup, `pkm` CLI + MCP server,
+          embedded assistant (`pkm/assistant/`)
 web/      TypeScript frontend: React + Vite SPA, sqlite-wasm offline replica,
           service worker, Vitest unit tests, Playwright e2e
 shared/   Parity fixtures pinning the Python and TS parsers/APIs to
@@ -84,6 +91,7 @@ docs/     design.md, this directory, per-feature specs and plans, SECURITY.md
 | Frontend | TypeScript, React, Vite, sqlite-wasm (OPFS) replica, Workbox service worker, KaTeX, Mermaid, pdf.js |
 | API contract | Pydantic models → OpenAPI → generated TS types (`pnpm gen-types`) — the block model cannot drift |
 | Agent access | `pkm` CLI + MCP stdio server over the same HTTP API |
+| Embedded assistant | Claude Agent SDK harness, server-side, confined to the `pkm-mcp` tools; SSE streaming chat in the SPA |
 | QA | pytest (95% branch coverage enforced), pyrefly, ruff; Vitest (enforced coverage), tsc, ESLint, Playwright e2e, FCIS checker, bundle-size budgets |
 | Ops | launchd services, Tailscale Serve (HTTPS), nightly backup: rotated SQLite snapshots + git-committed markdown export |
 
@@ -154,6 +162,12 @@ links to the specs:
   against other LAN devices. Never expose the server publicly — see
   [`docs/SECURITY.md`](../SECURITY.md) (which also lists the known
   hardening gaps, e.g. no login rate-limiting).
+- **The assistant is a client, not a backdoor.** The embedded LLM harness
+  runs server-side but reaches the graph only through the `pkm-mcp` tools
+  over the same HTTP API — reads auto-allowed, every write paused for
+  in-chat user confirmation. Threat model in
+  [`docs/SECURITY.md`](../SECURITY.md); details in
+  [backend.md](backend.md#embedded-assistant-pkmassistant).
 - **The replica is a cache; the queue is the user's intent.** Degraded beats
   data loss at every decision point — see
   [sync-and-offline.md](sync-and-offline.md).

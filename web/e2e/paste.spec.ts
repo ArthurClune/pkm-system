@@ -58,12 +58,17 @@ test("pasting an indented outline creates nested blocks", async ({ page }) => {
                             { hasText: "gamma" })).toBeVisible();
   await waitForServerText(page, title, "gamma");
 
-  // server structure: delta is a ROOT sibling, not nested
+  // server structure: beta nests under alpha, gamma nests under beta, and
+  // delta is a ROOT sibling, not nested under anything
   const res = await page.request.get(`/api/page/${encodeURIComponent(title)}`);
   const body = await res.json() as {
-    blocks: { text: string; children: { text: string }[] }[];
+    blocks: { text: string;
+              children: { text: string;
+                          children: { text: string }[] }[] }[];
   };
   expect(body.blocks.map((b) => b.text)).toEqual(["alpha", "delta"]);
+  expect(body.blocks[0].children[0].text).toBe("beta");
+  expect(body.blocks[0].children[0].children[0].text).toBe("gamma");
 });
 
 test("copy of a multi-block selection round-trips hierarchy", async ({ page }) => {

@@ -20,8 +20,9 @@ def test_tool_names_namespaced():
     assert set(read_tool_names()) == {
         "mcp__pkm__get_page", "mcp__pkm__get_block", "mcp__pkm__search",
         "mcp__pkm__query", "mcp__pkm__backlinks", "mcp__pkm__todos",
+        "mcp__pkm__search_assets",
     }
-    assert len(all_tool_names()) == 10
+    assert len(all_tool_names()) == 11
 
 
 def test_classify_tool():
@@ -30,6 +31,10 @@ def test_classify_tool():
     assert classify_tool("Bash") == "unknown"
     assert classify_tool("mcp__other__search") == "unknown"
     assert classify_tool("mcp__pkm__made_up") == "unknown"
+
+
+def test_search_assets_is_a_read_tool():
+    assert classify_tool(mcp_tool_name("search_assets")) == "read"
 
 
 def test_short_tool_name():

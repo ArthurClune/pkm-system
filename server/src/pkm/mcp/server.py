@@ -13,8 +13,8 @@ from mcp.server.fastmcp import FastMCP
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.cli.build import asset_block_text, plan_batch, plan_save, referenced_pages
-from pkm.cli.render import (render_backlinks, render_block, render_groups,
-                            render_page, render_search)
+from pkm.cli.render import (render_assets, render_backlinks, render_block,
+                            render_groups, render_page, render_search)
 from pkm.server.daily import title_for_date
 from pkm.server.ops_core import text_hash
 from pkm.todo import with_state
@@ -157,8 +157,16 @@ def upload_asset(path: str, page: str | None = None,
     return f"{asset['url']}\ncreated ^{ops[0]['uid']}"
 
 
+def search_assets(q: str, limit: int = 20) -> str:
+    """Find uploaded images/files by LLM-generated image description or
+    filename. Returns filename, status, a /assets/... URL embeddable in a
+    block as ![](url), and the description. Images are described
+    automatically after upload when the feature is enabled."""
+    return render_assets(_client().search_assets(q, limit=limit))
+
+
 for _fn in (get_page, get_block, search, query, backlinks, todos,
-            save_note, update_block, batch, upload_asset):
+            save_note, update_block, batch, upload_asset, search_assets):
     mcp.tool()(_fn)
 
 

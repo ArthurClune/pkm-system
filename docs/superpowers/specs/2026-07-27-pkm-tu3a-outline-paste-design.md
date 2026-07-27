@@ -38,12 +38,11 @@ Normalization and parsing are pure and live in a new Functional Core module.
    never create empty blocks).
 3. **Interception test:** a paste is an outline paste when it parses to
    more than one node (multiple roots, or one root with children).
-   Otherwise (single-line, blank-only, or a single content line with no
-   children — even with a trailing newline) the paste keeps the native
-   splice behaviour. File pastes keep the existing `onFiles` path, checked
-   first. A single content line (even with a trailing newline) keeps the
-   native splice — a tree-direct text update on the focused block would
-   fight the dirty-draft adoption model.
+   Anything else — single-line, blank-only, or a single content line even
+   with a trailing newline — keeps the native splice behaviour, because a
+   tree-direct text update on the focused block would fight the
+   dirty-draft adoption model. File pastes keep the existing `onFiles`
+   path, checked first.
 4. **Indent measurement:** each line's leading whitespace is measured as a
    column width with tabs expanded to 4 columns. Depth is assigned with an
    indent stack seeded by the first non-blank line's width (a uniformly
@@ -105,7 +104,7 @@ export interface PastedNode { text: string; children: PastedNode[] }
 /** Rules 1–6: normalized clipboard text → forest. */
 export function parseOutlineForest(text: string): PastedNode[]
 
-/** True when onPaste should intercept (multi-line, parse non-empty). */
+/** True when onPaste should intercept (parses to more than one node). */
 export function isOutlinePaste(text: string): boolean
 
 /** Forest + anchor → EditResult (update_text splice, create ops for every

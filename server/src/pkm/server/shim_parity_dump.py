@@ -31,6 +31,9 @@ SEED = {
         [3, "July 10th, 2026", 1000, 3000],
         [4, "Paper", 1000, None],
         [5, "Attention Is All You Need", 1000, 8000],
+        # empty daily (pkm-vvta): no blocks of its own, but uid_b9 [[links]]
+        # to it -- still surfaced on the journal scroll for that day.
+        [6, "July 9th, 2026", None, None],
     ],
     "blocks": [
         # [uid, page_id, parent_uid, order_idx, text, heading, collapsed, created, updated]
@@ -47,6 +50,8 @@ SEED = {
          None, 0, 1000, 2000],
         ["uid_b8", 5, None, 0, "Cites ((uid_b6)) which cites more", None, 0,
          1000, 2000],
+        ["uid_b9", 2, None, 1, "Remind me on [[July 9th, 2026]] to check this",
+         None, 0, 1000, 2000],
     ],
     "refs": [
         ["uid_b1", 2, "attribute"],
@@ -55,6 +60,7 @@ SEED = {
         ["uid_b3", 4, "link"],
         ["uid_b4", 2, "link"],
         ["uid_b5", 1, "link"],
+        ["uid_b9", 6, "link"],
     ],
     "sidebar": [
         [1, "Machine Learning", 0],
@@ -73,6 +79,7 @@ CASES = [
     ("unlinked_ai", "/api/unlinked?title=AI"),
     ("unlinked_ml", "/api/unlinked?title=Machine%20Learning&limit=5&offset=0"),
     ("journal_pinned", "/api/journal?before=2026-07-11&days=3"),
+    ("journal_referenced_empty_day", "/api/journal?before=2026-07-10&days=5"),
     ("titles_a", "/api/titles?q=a"),
     ("titles_ml", "/api/titles?q=Machine"),
     ("block_refs", "/api/block-refs?uids=uid_b8,uid_missing"),

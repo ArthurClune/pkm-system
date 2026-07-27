@@ -347,6 +347,14 @@ _NONEMPTY_DAILY_SQL = (
     " SELECT 1 FROM blocks b WHERE b.page_id = pages.id"
     " AND trim(b.text, char(9)||char(10)||char(13)||char(32)) <> '')")
 
+# A daily page with zero blocks still has something worth surfacing on the
+# scroll if another page [[links]] to it (pkm-vvta: "Remind me on [[July
+# 28th, 2026]]" should show under that day even before anyone writes to it
+# directly) -- so a daily title with an inbound ref counts as non-empty too.
+# Same SQL in the offline shim (spec section 7).
+_REFERENCED_DAILY_SQL = (
+    "SELECT DISTINCT p.title FROM pages p JOIN refs r ON r.target_page_id = p.id")
+
 
 @router.get("/api/journal", response_model=JournalPayload)
 def get_journal(request: Request, before: str | None = None, days: int = 7,
@@ -354,9 +362,12 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
     """Newest-first batch of non-empty daily pages (pkm-03x6). The head
     batch (no `before`) starts with today — auto-created so there is a
     page to compose into, even when empty — followed by the most recent
-    non-empty days; `before` pages strictly backwards from that date.
-    Empty days are omitted, and a batch shorter than `days` tells the
-    client the journal is exhausted."""
+    non-empty days; `before` pages strictly backwards from that date. A
+    day with no blocks but an inbound [[link]] from elsewhere counts as
+    non-empty too, so a reminder written on another page surfaces under
+    the day it points at (pkm-vvta) once that day would otherwise show.
+    Empty, unreferenced days are omitted, and a batch shorter than `days`
+    tells the client the journal is exhausted."""
     days = max(1, min(days, 31))
     cursor: date | None = None
     if before:
@@ -371,6 +382,10 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
         notify.nudge_threadpool(request, db)
     nonempty: set[date] = set()
     for row in db.execute(_NONEMPTY_DAILY_SQL).fetchall():
+        d = date_for_title(row["title"])
+        if d is not None:
+            nonempty.add(d)
+    for row in db.execute(_REFERENCED_DAILY_SQL).fetchall():
         d = date_for_title(row["title"])
         if d is not None:
             nonempty.add(d)

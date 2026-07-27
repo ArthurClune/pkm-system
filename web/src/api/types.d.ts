@@ -230,9 +230,12 @@ export interface paths {
          * @description Newest-first batch of non-empty daily pages (pkm-03x6). The head
          *     batch (no `before`) starts with today — auto-created so there is a
          *     page to compose into, even when empty — followed by the most recent
-         *     non-empty days; `before` pages strictly backwards from that date.
-         *     Empty days are omitted, and a batch shorter than `days` tells the
-         *     client the journal is exhausted.
+         *     non-empty days; `before` pages strictly backwards from that date. A
+         *     day with no blocks but an inbound [[link]] from elsewhere counts as
+         *     non-empty too, so a reminder written on another page surfaces under
+         *     the day it points at (pkm-vvta) once that day would otherwise show.
+         *     Empty, unreferenced days are omitted, and a batch shorter than `days`
+         *     tells the client the journal is exhausted.
          */
         get: operations["get_journal_api_journal_get"];
         put?: never;

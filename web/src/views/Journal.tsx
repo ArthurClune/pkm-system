@@ -5,6 +5,7 @@ import { ApiError, apiFetch } from "../api/client";
 import type { BlockRefText, JournalDay, JournalPayload,
                   PagePayload } from "../api/payloads";
 import { BlockRefProvider } from "../components/BlockRefProvider";
+import { JournalDayReferences } from "../components/JournalDayReferences";
 import { acquireOutlineSession,
          captureActiveOutlineReads,
          isOutlineSessionActive,
@@ -217,6 +218,7 @@ export function Journal() {
               {/* the first loaded day is today by construction */}
               <EditablePage title={day.title} initial={day.blocks}
                             composer={i === 0} />
+              <JournalDayReferences title={day.title} />
             </section>
           ))}
       </BlockRefProvider>

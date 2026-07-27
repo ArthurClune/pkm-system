@@ -80,8 +80,11 @@ it("renders the first batch newest-first and loads older days on intersect", asy
   intersect();
   expect(await screen.findByRole("link", { name: "July 3rd, 2026" })).toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "July 2nd, 2026" })).not.toBeInTheDocument();
-  // oldest already-loaded date is passed as the exclusive `before`
-  expect(fetchMock).toHaveBeenLastCalledWith(
+  // oldest already-loaded date is passed as the exclusive `before`. Not
+  // necessarily the LAST call: each rendered day also lazily fetches its
+  // own linked references (pkm-vvta), and that fetch can land after this
+  // one settles.
+  expect(fetchMock).toHaveBeenCalledWith(
     "/api/journal?days=5&before=2026-07-04", undefined);
 });
 
@@ -510,6 +513,44 @@ it("a repair-triggered day reload treats a 404 as an empty day (pkm-fy52)", asyn
   } finally {
     view.unmount();
   }
+});
+
+it("shows a day's linked references once they load, but not for a day " +
+   "with none (pkm-vvta)", async () => {
+  stubFetch([
+    ["/api/journal/cleanup", { deleted: [] }],
+    ["/api/journal?days=5", { days: [
+      day("2026-07-08", "July 8th, 2026"),
+      day("2026-07-07", "July 7th, 2026"),
+    ] }],
+    ["/api/page/July%208th%2C%202026", {
+      page: { id: 1, title: "July 8th, 2026", created_at: 1, updated_at: 1 },
+      blocks: [], block_ref_texts: {},
+      backlinks: {
+        groups: [{ page_id: 9, page_title: "Plans", items: [
+          { uid: "uid_p1", text: "Remind me on [[July 8th, 2026]]",
+            breadcrumbs: [] }] }],
+        total_pages: 1, offset: 0, limit: 20,
+      },
+    }],
+    ["/api/page/July%207th%2C%202026", {
+      page: { id: 2, title: "July 7th, 2026", created_at: 1, updated_at: 1 },
+      blocks: [], block_ref_texts: {},
+      backlinks: { groups: [], total_pages: 0, offset: 0, limit: 20 },
+    }],
+  ]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  await screen.findByRole("link", { name: "July 8th, 2026" });
+  await screen.findByRole("link", { name: "July 7th, 2026" });
+
+  const daySection = (title: string) => [...document.querySelectorAll(".journal-day")]
+    .find((el) => el.querySelector(".page-title")?.textContent === title);
+  expect(await screen.findByText(/linked references \(1\)/i))
+    .toBeInTheDocument();
+  expect(daySection("July 8th, 2026")?.querySelector(".backlinks"))
+    .not.toBeNull();
+  expect(daySection("July 7th, 2026")?.querySelector(".backlinks"))
+    .toBeNull();
 });
 
 it("fires the empty-daily cleanup once on mount", async () => {

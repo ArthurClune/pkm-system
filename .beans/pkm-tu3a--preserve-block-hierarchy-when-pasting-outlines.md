@@ -18,6 +18,33 @@ Related to pkm-0ovd, which adds atomic one-level indentation for existing multi-
 
 - [x] Brainstorm clipboard formats and indentation rules
 - [x] Design a pure clipboard forest parser and create-op planner
-- [ ] Implement with unit tests for nested and malformed indentation
-- [ ] Add integration and end-to-end paste coverage
-- [ ] Run full verification
+- [x] Implement with unit tests for nested and malformed indentation
+- [x] Add integration and end-to-end paste coverage
+- [x] Run full verification
+
+## Summary of Changes
+
+- New Functional Core module `web/src/outline/paste.ts`: `parseOutlineForest`
+  turns clipboard text into a forest with an indent stack (tabs/2-space/
+  4-space all work ordinally; over-indent jumps clamp to one level; blank
+  lines drop; `- `/`* `/`+ ` bullets strip only when every line has one);
+  `planOutlinePaste` anchors the forest at the caret — first root splices
+  into the target block at [selStart, selEnd), its children become the
+  target's first children (expanding a collapsed target), remaining roots
+  become following siblings, all as one op batch with focus on the last
+  created block.
+- `selectionText` (blockSelection.ts) now emits one tab per depth level
+  relative to the shallowest selected block, so multi-block copy → paste
+  round-trips hierarchy.
+- Shell wiring: `OutlineHandlers.onPasteOutline` dispatched from
+  `BlockInput.onPaste` (files first, single-line pastes stay native) and run
+  through `useOutline`'s `run()` pipeline — one optimistic, synced, undoable
+  batch.
+- Tests: 24 parser/planner unit cases, copy-indentation cases, component
+  paste-routing tests, `useOutline.paste` hook tests, and a new
+  `web/e2e/paste.spec.ts` (paste hierarchy + copy round-trip, asserted in
+  both DOM and server structure).
+- Design and plan: `docs/superpowers/specs/2026-07-27-pkm-tu3a-outline-paste-design.md`,
+  `docs/superpowers/plans/2026-07-27-pkm-tu3a-outline-paste.md`.
+- Verified: `web pnpm verify` green (40 e2e), server 754 passed / 95.76%
+  coverage, pyrefly and ruff clean.

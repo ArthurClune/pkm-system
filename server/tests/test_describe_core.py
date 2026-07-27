@@ -28,7 +28,8 @@ def test_enabled_reason():
     assert (enabled_reason("sk-x", False)
             == "disabled in config.json (image_descriptions=false)")
     # config off wins over missing key: the deliberate switch is the reason
-    assert "config" in enabled_reason(None, False)
+    reason = enabled_reason(None, False)
+    assert reason is not None and "config" in reason
 
 
 def test_request_payload_shape():

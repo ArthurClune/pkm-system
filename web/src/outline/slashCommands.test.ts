@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { extractRefs } from "../grammar/refs";
 import { toggleTodo } from "../grammar/todo";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { applySlashCommand, matchSlashCommands, resolveHeading,
@@ -81,29 +82,43 @@ describe("table", () => {
 });
 
 describe("query", () => {
-  test("query-and is offered and creates an exact parseable macro", () => {
+  test("query-and is offered and inserts an and-clause skeleton", () => {
     expect(matchSlashCommands("query-and").map((c) => c.name)).toEqual(["query-and", "query-and-not"]);
     expect(applySlashCommand("/query-and", 10,
       { kind: "command", start: 1, query: "query-and" }, "query-and"))
-      .toEqual({ text: "{{query: {and: [[A]] [[B]]}}}", cursor: 29 });
+      .toEqual({ text: "{{query: {and: A B}}}", cursor: 21 });
   });
 
-  test("query-or is offered and creates an exact parseable macro", () => {
+  test("query-or is offered and inserts an or-clause skeleton", () => {
     expect(matchSlashCommands("query-or")).toEqual([
       { name: "query-or", label: "query (or)" },
     ]);
     expect(applySlashCommand("/query-or", 9,
       { kind: "command", start: 1, query: "query-or" }, "query-or"))
-      .toEqual({ text: "{{query: {or: [[A]] [[B]]}}}", cursor: 28 });
+      .toEqual({ text: "{{query: {or: A B}}}", cursor: 20 });
   });
 
-  test("query-and-not is offered and creates an exact parseable macro", () => {
+  test("query-and-not is offered and inserts an and/not-clause skeleton", () => {
     expect(matchSlashCommands("query-and-not")).toEqual([
       { name: "query-and-not", label: "query (and not)" },
     ]);
     expect(applySlashCommand("/query-and-not", 14,
       { kind: "command", start: 1, query: "query-and-not" }, "query-and-not"))
-      .toEqual({ text: "{{query: {and: [[A]] {not: [[B]]}}}}", cursor: 36 });
+      .toEqual({ text: "{{query: {and: A {not: B}}}}", cursor: 28 });
+  });
+
+  // pkm-nl6h: the placeholder used to spell its operands as real [[A]] /
+  // [[B]] page links, so merely picking the command (no further typing)
+  // got them ref-indexed and their pages auto-created the moment the draft
+  // flushed. The placeholder operands must never themselves be scannable
+  // refs -- the user is expected to replace them with real [[Page]] links.
+  test("query placeholders never contain a real [[...]] page-ref (pkm-nl6h)", () => {
+    for (const command of ["query-and", "query-or", "query-and-not"]) {
+      const { text } = applySlashCommand(`/${command}`, command.length + 1,
+        { kind: "command", start: 1, query: command }, command);
+      expect(extractRefs(text).refs).toEqual([]);
+      expect(text).not.toContain("[[");
+    }
   });
 
   test("matching 'query' returns all three query commands", () => {

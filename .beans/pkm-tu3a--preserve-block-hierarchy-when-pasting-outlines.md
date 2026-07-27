@@ -48,3 +48,19 @@ Related to pkm-0ovd, which adds atomic one-level indentation for existing multi-
   `docs/superpowers/plans/2026-07-27-pkm-tu3a-outline-paste.md`.
 - Verified: `web pnpm verify` green (40 e2e), server 754 passed / 95.76%
   coverage, pyrefly and ruff clean.
+
+### Known round-trip edges (accepted)
+
+- Blocks that all begin with `- ` (or `* `/`+ `) lose the marker on paste —
+  bullet stripping treats a consistent markdown list as structural, not
+  content.
+- A block whose own text begins with tabs or spaces re-nests on paste — the
+  parser can't distinguish "this is indentation" from "this text happens to
+  start with whitespace."
+- A block containing a literal newline splits into multiple blocks on
+  paste — the parser has no way to represent an embedded newline within one
+  node.
+- A single content line (even with a trailing newline) is never
+  intercepted; it takes the native textarea splice rather than a
+  tree-direct update, so it can't fight `BlockInput`'s dirty-draft
+  adoption (pkm-tu3a final-review finding).

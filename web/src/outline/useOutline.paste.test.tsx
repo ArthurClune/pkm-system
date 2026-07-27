@@ -2,10 +2,11 @@
 // flushed, optimistic, synced, undoable batch per paste gesture.
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, type SyncFake } from "../test-helpers";
+import { resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
 vi.mock("../uid", () => {
@@ -33,6 +34,8 @@ function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
   return () => outline;
 }
 
+afterEach(() => resetHistory());
+
 it("onPasteOutline enqueues one batch and focuses the last pasted block", () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", [
@@ -55,6 +58,21 @@ it("onPasteOutline enqueues one batch and focuses the last pasted block", () => 
   expect(getOutline().blocks[1].children.map((b) => b.text)).toEqual(["kid"]);
   expect(getOutline().focus).toEqual({ uid: createKid.uid,
                                        cursor: "kid".length });
+});
+
+it("a paste is one undo entry: undo restores the pre-paste tree", () => {
+  const sync = makeSync();
+  const getOutline = setup(sync, "Page", [
+    block("a", "seed", { order_idx: 0 }),
+  ]);
+
+  act(() => getOutline().handlers.onPasteOutline("a", 4, 4, "!\nnext\n\tkid"));
+  expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed!", "next"]);
+
+  act(() => getOutline().handlers.onUndo());
+
+  expect(getOutline().blocks.map((b) => b.text)).toEqual(["seed"]);
+  expect(getOutline().blocks[0].children).toEqual([]);
 });
 
 it("a paste that plans nothing enqueues nothing", () => {

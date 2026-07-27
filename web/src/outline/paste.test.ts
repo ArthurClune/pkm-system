@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isOutlinePaste, parseOutlineForest, PastedNode, planOutlinePaste } from "./paste";
+import { isOutlinePaste, parseOutlineForest, planOutlinePaste } from "./paste";
+import type { PastedNode } from "./paste";
 import { block } from "../test-helpers";
 
 const node = (text: string, children: PastedNode[] = []): PastedNode =>
@@ -101,13 +102,14 @@ describe("parseOutlineForest", () => {
 });
 
 describe("isOutlinePaste", () => {
-  it("true for multi-line text (including a single line with trailing newline)", () => {
+  it("true when the parse yields structure: multiple nodes, or one node with children", () => {
     expect(isOutlinePaste("a\nb")).toBe(true);
-    expect(isOutlinePaste("a\n")).toBe(true);
     expect(isOutlinePaste("a\r\nb")).toBe(true);
+    expect(isOutlinePaste("a\n\tb")).toBe(true);
   });
 
-  it("false for single-line or blank-only text", () => {
+  it("false for a single content line, even with a trailing newline (no structure to intercept for)", () => {
+    expect(isOutlinePaste("a\n")).toBe(false);
     expect(isOutlinePaste("just one line")).toBe(false);
     expect(isOutlinePaste("")).toBe(false);
     expect(isOutlinePaste("\n \n")).toBe(false);

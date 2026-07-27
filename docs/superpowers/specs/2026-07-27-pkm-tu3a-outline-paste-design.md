@@ -36,10 +36,14 @@ Normalization and parsing are pure and live in a new Functional Core module.
 1. Normalize `\r\n` and `\r` to `\n`.
 2. Lines that are entirely whitespace are dropped (they separate content but
    never create empty blocks).
-3. **Interception test:** a paste is an outline paste when the normalized
-   text contains at least one `\n` and parses to at least one node.
-   Otherwise (single-line, or blank-only) the paste keeps the native splice
-   behaviour. File pastes keep the existing `onFiles` path, checked first.
+3. **Interception test:** a paste is an outline paste when it parses to
+   more than one node (multiple roots, or one root with children).
+   Otherwise (single-line, blank-only, or a single content line with no
+   children — even with a trailing newline) the paste keeps the native
+   splice behaviour. File pastes keep the existing `onFiles` path, checked
+   first. A single content line (even with a trailing newline) keeps the
+   native splice — a tree-direct text update on the focused block would
+   fight the dirty-draft adoption model.
 4. **Indent measurement:** each line's leading whitespace is measured as a
    column width with tabs expanded to 4 columns. Depth is assigned with an
    indent stack seeded by the first non-blank line's width (a uniformly
@@ -76,9 +80,10 @@ planner sees already contains the draft text the user was looking at.
 - **Remaining roots become siblings inserted immediately after the target
   block**, in clipboard order, each carrying its subtree.
 - **Focus** lands at the end of the text of the last block created in
-  document order; when the clipboard had a single root with no children
-  nothing is created, and focus is the target block with the caret after
-  the spliced text.
+  document order. (A single root with no children is no longer intercepted
+  at all — see rule 3 — so the planner is never invoked for that case in
+  practice; focus for any paste the shell does dispatch is always the last
+  created block.)
 - Missing target uid, empty parse, or read-only outline → no-op (no ops,
   native behaviour not restored retroactively; the shell only intercepts
   when the parse is non-empty and the outline is editable).

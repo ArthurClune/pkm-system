@@ -65,11 +65,15 @@ export function parseOutlineForest(text: string): PastedNode[] {
   return roots;
 }
 
-/** Whether onPaste should intercept: multi-line text that parses to at least
- * one node. Single-line and blank-only pastes keep the native splice. */
+/** Whether onPaste should intercept: the parse yields actual structure —
+ * more than one node, or a single node with children. A single content
+ * line (even with a trailing newline) keeps the native textarea splice: a
+ * tree-direct update_text on the focused block would fight BlockInput's
+ * dirty-draft adoption, and there'd be no created block to move focus to. */
 export function isOutlinePaste(text: string): boolean {
-  return text.replace(/\r\n?/g, "\n").includes("\n")
-    && parseOutlineForest(text).length > 0;
+  const forest = parseOutlineForest(text);
+  return forest.length > 1
+    || (forest.length === 1 && forest[0].children.length > 0);
 }
 
 /** Anchor a parsed clipboard forest at the paste location. The first root's

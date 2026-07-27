@@ -1306,6 +1306,17 @@ test("single-line paste keeps the native textarea behaviour", () => {
   expect(h.onPasteOutline).not.toHaveBeenCalled();
 });
 
+test("a single content line with a trailing newline also keeps the native "
+     + "textarea behaviour (no structure to intercept for)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const prevented = !fireEvent.paste(focusedTextarea(), {
+    clipboardData: { files: [], getData: () => "hello\n" },
+  });
+  expect(prevented).toBe(false);
+  expect(h.onPasteOutline).not.toHaveBeenCalled();
+});
+
 test("file paste still routes to onFiles, never onPasteOutline", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });

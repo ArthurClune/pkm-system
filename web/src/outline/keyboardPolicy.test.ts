@@ -185,7 +185,7 @@ describe("decideEditorKey read-only cutoff", () => {
       { key: "Backspace", selStart: 0, selEnd: 0 },
       { key: "k", metaKey: true },
       { key: "[" },
-      { key: "1", code: "Digit1", ctrlKey: true, altKey: true },
+      { key: "1", code: "Digit1", metaKey: true, altKey: true },
     ] as Partial<EditorKeyInput>[]) {
       expect(decideEditorKey(input({ ...over, readOnly: true })))
         .toEqual({ type: "none" });
@@ -199,22 +199,39 @@ describe("decideEditorKey read-only cutoff", () => {
 });
 
 describe("decideEditorKey heading chord", () => {
-  it("sets a heading level from Ctrl+Alt+Digit", () => {
+  it("sets a heading level from Cmd+Alt+Digit", () => {
     expect(decideEditorKey(input({
-      key: "2", code: "Digit2", ctrlKey: true, altKey: true,
+      key: "2", code: "Digit2", metaKey: true, altKey: true,
     }))).toEqual({ type: "set-heading", heading: 2 });
   });
 
-  it("clears the heading for Ctrl+Alt+0", () => {
+  it("clears the heading for Cmd+Alt+0", () => {
     expect(decideEditorKey(input({
-      key: "0", code: "Digit0", ctrlKey: true, altKey: true,
+      key: "0", code: "Digit0", metaKey: true, altKey: true,
     }))).toEqual({ type: "set-heading", heading: null });
   });
 
   it("resolves the digit from key when code is unavailable", () => {
     expect(decideEditorKey(input({
-      key: "3", code: "", ctrlKey: true, altKey: true,
+      key: "3", code: "", metaKey: true, altKey: true,
     }))).toEqual({ type: "set-heading", heading: 3 });
+  });
+
+  it("no longer fires on the old Ctrl+Alt+Digit chord", () => {
+    // pkm-bt9h: the chord moved to Cmd+Alt to match Google Docs; the old
+    // Ctrl+Alt chord now falls through like any other unrecognised combo.
+    expect(decideEditorKey(input({
+      key: "2", code: "Digit2", ctrlKey: true, altKey: true,
+    }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({
+      key: "0", code: "Digit0", ctrlKey: true, altKey: true,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("ignores the chord when Ctrl is also held alongside Cmd+Alt", () => {
+    expect(decideEditorKey(input({
+      key: "1", code: "Digit1", metaKey: true, altKey: true, ctrlKey: true,
+    }))).toEqual({ type: "none" });
   });
 });
 

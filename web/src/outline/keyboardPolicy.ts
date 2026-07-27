@@ -150,9 +150,15 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   if ((i.metaKey || i.ctrlKey) && !i.altKey && i.key.toLowerCase() === "z") {
     return i.shiftKey ? { type: "redo" } : { type: "undo" };
   }
+  // Cmd-Alt-1/2/3 set heading levels 1-3, Cmd-Alt-0 clears back to plain
+  // text, matching Google Docs' ⌥⌘1/2/3 and ⌥⌘0 (pkm-bt9h). Matched on
+  // `i.code` (Digit0-3) rather than `i.key`: on macOS, Option+digit produces
+  // special glyphs in `key` (e.g. Option-1 -> "¡"), so only the physical
+  // key code is reliable — `key` is kept only as a jsdom/test fallback when
+  // `code` is unavailable.
   const headingDigit = /^Digit([0-3])$/.exec(i.code)?.[1]
     ?? (/^[0-3]$/.test(i.key) ? i.key : null);
-  if (i.ctrlKey && i.altKey && !i.metaKey && !i.shiftKey && headingDigit !== null) {
+  if (i.metaKey && i.altKey && !i.ctrlKey && !i.shiftKey && headingDigit !== null) {
     return {
       type: "set-heading",
       heading: headingDigit === "0" ? null : Number(headingDigit),

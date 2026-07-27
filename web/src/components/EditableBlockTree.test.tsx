@@ -202,12 +202,12 @@ test("Option+Arrow stays with browser text handling", () => {
   expect(h.onArrow).not.toHaveBeenCalled();
 });
 
-test("Ctrl-Alt-0 through Ctrl-Alt-3 set plain text and heading levels", () => {
+test("Cmd-Alt-0 through Cmd-Alt-3 set plain text and heading levels", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });
   const ta = focusedTextarea();
   for (const key of ["0", "1", "2", "3"]) {
-    fireEvent.keyDown(ta, { key, ctrlKey: true, altKey: true });
+    fireEvent.keyDown(ta, { key, metaKey: true, altKey: true });
   }
   expect(h.onSetHeading).toHaveBeenNthCalledWith(1, "u1", null);
   expect(h.onSetHeading).toHaveBeenNthCalledWith(2, "u1", 1);
@@ -216,11 +216,20 @@ test("Ctrl-Alt-0 through Ctrl-Alt-3 set plain text and heading levels", () => {
   expect(h.onDraftChange).not.toHaveBeenCalled();
 });
 
+test("the old Ctrl-Alt heading chord no longer fires (pkm-bt9h)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  fireEvent.keyDown(focusedTextarea(), {
+    key: "2", ctrlKey: true, altKey: true,
+  });
+  expect(h.onSetHeading).not.toHaveBeenCalled();
+});
+
 test("heading shortcuts do not mutate a read-only outline", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 }, true);
   fireEvent.keyDown(focusedTextarea(), {
-    key: "2", ctrlKey: true, altKey: true,
+    key: "2", metaKey: true, altKey: true,
   });
   expect(h.onSetHeading).not.toHaveBeenCalled();
 });
@@ -229,7 +238,7 @@ test("heading shortcuts use the physical digit when Alt changes the key glyph", 
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });
   fireEvent.keyDown(focusedTextarea(), {
-    key: "™", code: "Digit2", ctrlKey: true, altKey: true,
+    key: "™", code: "Digit2", metaKey: true, altKey: true,
   });
   expect(h.onSetHeading).toHaveBeenCalledWith("u1", 2);
 });

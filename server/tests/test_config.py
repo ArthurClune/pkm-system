@@ -26,3 +26,16 @@ def test_bind_and_upload_explicit(tmp_path):
     }))
     assert c.bind_hosts == ("127.0.0.1", "100.104.1.2")
     assert c.max_upload_bytes == 1024
+
+
+def test_image_description_defaults(tmp_path):
+    cfg = load_config(write_config(tmp_path, {}))
+    assert cfg.image_descriptions is True
+    assert cfg.image_description_model == "gpt-4o-mini"
+
+
+def test_image_description_overrides(tmp_path):
+    cfg = load_config(write_config(tmp_path, {"image_descriptions": False,
+                                               "image_description_model": "gpt-5-mini"}))
+    assert cfg.image_descriptions is False
+    assert cfg.image_description_model == "gpt-5-mini"

@@ -126,7 +126,7 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
   const { rerender } = render(view(initial));
 
   const ta = focusBlock("first");
-  fireEvent.keyDown(ta, { key: "1", code: "Digit1", ctrlKey: true, altKey: true });
+  fireEvent.keyDown(ta, { key: "1", code: "Digit1", metaKey: true, altKey: true });
   await act(async () => undefined);
   fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
   expect(screen.getByText("first").closest("h1")).not.toBeNull();
@@ -139,14 +139,14 @@ test("stale initial rerender while its scoped write is unsettled keeps optimisti
   await act(async () => deliver());
 });
 
-test("Ctrl-Alt heading shortcuts update focused typography immediately", () => {
+test("Cmd-Alt heading shortcuts update focused typography immediately", () => {
   const sync = mount();
   let ta = focusBlock("first");
 
   for (const level of [1, 2, 3] as const) {
     fireEvent.keyDown(ta, {
       key: String(level), code: `Digit${level}`,
-      ctrlKey: true, altKey: true,
+      metaKey: true, altKey: true,
     });
     ta = screen.getByRole("textbox") as HTMLTextAreaElement;
     expect(ta).toHaveClass(`heading-${level}`);
@@ -154,7 +154,7 @@ test("Ctrl-Alt heading shortcuts update focused typography immediately", () => {
   }
 
   fireEvent.keyDown(ta, {
-    key: "0", code: "Digit0", ctrlKey: true, altKey: true,
+    key: "0", code: "Digit0", metaKey: true, altKey: true,
   });
   ta = screen.getByRole("textbox") as HTMLTextAreaElement;
   expect(ta).not.toHaveClass("heading-1", "heading-2", "heading-3");

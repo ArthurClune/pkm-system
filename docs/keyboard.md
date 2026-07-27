@@ -71,8 +71,8 @@ See "While blocks are selected" below for what you can do next.
 | Cmd+B / Cmd+I | Bold / italic (wraps or unwraps the selection) |
 | Cmd+K | Wrap the selection as a markdown link |
 | Cmd+Enter (or Ctrl+Enter) | Cycle plain → TODO → DONE |
-| Ctrl+Alt+1/2/3 | Heading level 1/2/3 |
-| Ctrl+Alt+0 | Back to plain text |
+| Cmd+Alt+1/2/3 | Heading level 1/2/3 |
+| Cmd+Alt+0 | Back to plain text |
 | Ctrl+O | Open the `[[page]]` the caret is inside |
 | `[`, `(`, `{`, `"` | Auto-pair; typing `[[` opens the page-link autocomplete |
 | Escape | Stop editing the block |

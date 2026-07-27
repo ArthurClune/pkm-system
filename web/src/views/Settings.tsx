@@ -1,10 +1,35 @@
 // pattern: Imperative Shell
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { apiFetch } from "../api/client";
+import type { DescribeStatusPayload } from "../api/payloads";
 
 interface SettingsSection {
   id: string;
   title: string;
   body: React.ReactNode;
+}
+
+function ImageDescriptionsStatus() {
+  const [status, setStatus] = useState<DescribeStatusPayload | "error" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<DescribeStatusPayload>("/api/assets/describe-status")
+      .then((s) => { if (!cancelled) setStatus(s); })
+      .catch(() => { if (!cancelled) setStatus("error"); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (status === null) return <p className="settings-note">Checking…</p>;
+  if (status === "error") return <p className="settings-note">Image descriptions: status unavailable.</p>;
+
+  return (
+    <p className="settings-note">
+      {status.enabled
+        ? "Image descriptions: enabled. Uploaded images are described by an LLM to make them searchable."
+        : `Image descriptions: disabled — ${status.reason}`}
+    </p>
+  );
 }
 
 // A plain list of sections, not one hand-built layout, so the next setting
@@ -33,6 +58,11 @@ const SECTIONS: SettingsSection[] = [
         </p>
       </>
     ),
+  },
+  {
+    id: "image-descriptions",
+    title: "Image descriptions",
+    body: <ImageDescriptionsStatus />,
   },
 ];
 

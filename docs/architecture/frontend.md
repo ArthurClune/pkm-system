@@ -36,6 +36,10 @@ main.tsx / App.tsx     Shell   Entry + top-level tree: SyncProvider > DndProvide
                                SidebarContext > (left nav, TopBar, routes, sidebar stack)
 api/                   client.ts (fetch wrapper + offline gateway), generated
                        openapi.json + types.d.ts, type-only re-exports (ops.ts, payloads.ts)
+assistant/             The embedded-assistant chat panel (Cmd/Ctrl+J).
+                       Core: sse.ts (incremental SSE frame parser).
+                       Shells: client.ts (fetch/stream over /api/assistant/*),
+                       useAssistant.ts (chat state), AssistantPanel.tsx
 views/                 Journal (daily notes, `/`), PageView (`/page/*`),
                        CurrentWork (`/current-work`); EditablePage = one editable
                        outline, reused by main pane and sidebar panels
@@ -72,8 +76,9 @@ Routes: `/` → Journal (infinite scroll of daily pages), `/page/*` → PageView
 `/current-work` → recently edited pages. The right-hand sidebar is a
 session-only **stack**: shift-clicking any page link or ref pushes a
 `SidebarPanel` onto it. The left nav holds pinned pages (server-persisted
-via `/api/sidebar`) and the theme toggle. Global keys: `Ctrl+Shift+D` jumps
-to today's daily note, `Cmd/Ctrl+/` toggles the sidebar.
+via `/api/sidebar`), an Assistant entry (above Settings) and the theme
+toggle. Global keys: `Ctrl+Shift+D` jumps to today's daily note,
+`Cmd/Ctrl+/` toggles the sidebar, `Cmd/Ctrl+J` toggles the assistant panel.
 
 Both the main pane and a sidebar panel can show *the same page at the same
 time* — a fact that drives the outline-session design below.
@@ -192,6 +197,29 @@ frontend contributor needs day-to-day:
 - The service worker (Workbox, configured in `vite.config.ts`) precaches the
   app shell + sqlite wasm + pdf.js worker + core KaTeX fonts, runtime-caches
   `/assets/` (CacheFirst, 400-entry LRU), and never caches `/api`.
+
+## The assistant panel
+
+`src/assistant/` is the UI for the server-side LLM assistant (the agent
+itself runs on the server — see
+[backend.md](backend.md#embedded-assistant-pkmassistant)): a floating chat
+panel toggled with `Cmd/Ctrl+J` (Esc closes) or the "Assistant" sidebar
+entry.
+
+- The conversation is created lazily on the first message; the model
+  dropdown (`sonnet` default / `opus` / `haiku`) locks once it exists.
+  "New chat" deletes the server-side conversation and resets. Conversations
+  are ephemeral — a reload loses them.
+- A turn streams over SSE: `client.ts::streamMessage` POSTs the message and
+  feeds the response body through `sse.ts` (a pure incremental frame
+  parser) into `useAssistant.ts`, which folds events into chat items —
+  `text_delta` appends to the running assistant bubble,
+  `tool_started`/`tool_finished` render tool-activity lines
+  ("searching …"), and `confirm_request` shows an Allow/Deny card with the
+  write's ops preview (the tool call is held server-side until answered).
+- `streamMessage` bypasses `apiFetch` (which consumes the body as JSON) but
+  replicates its 401 handling; the other calls use `apiFetch`. The
+  assistant is online-only — `/api/assistant/*` has no offline shim.
 
 ## API layer
 

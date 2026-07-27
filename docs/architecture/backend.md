@@ -19,6 +19,7 @@ protocol has its own doc: [sync-and-offline.md](sync-and-offline.md).
 | Storage | SQLite (WAL), FTS5 for search — no ORM, raw `sqlite3` |
 | HTTP client (CLI/MCP) | httpx2 |
 | MCP | `mcp` SDK (FastMCP, stdio) |
+| Assistant harness | `claude-agent-sdk` (bundles its own `claude` CLI binary) |
 | Tests / QA | pytest (95% branch coverage enforced), pyrefly (type check), ruff (lint) |
 
 ## Module map
@@ -47,6 +48,8 @@ pkm/
 ├── cli/                 `pkm` CLI (main.py Shell; build.py/render.py Core planners)
 ├── client/              Shared HTTP client (api.py Shell PkmClient, core.py Core)
 ├── mcp/                 `pkm-mcp` FastMCP stdio server over the same client
+├── assistant/           Embedded LLM assistant: SSE routes + Claude Agent SDK
+│                        harness confined to the pkm MCP tools (details below)
 └── test_data/           Synthetic fixture graph generator
 ```
 
@@ -244,6 +247,11 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/sync/snapshot` | Full graph bootstrap + `seq` + `generation` |
 | GET | `/api/sync/changes?since&limit` | Windowed incremental change feed |
 | WS | `/api/ws` | Push nudges: applied-op broadcasts + `seq` hints |
+| **Assistant** (SSE — see [Embedded assistant](#embedded-assistant-pkmassistant)) | | |
+| POST | `/api/assistant/conversations` | Create a conversation (`model`: `sonnet` default / `opus` / `haiku`); 409 over the 3-conversation cap |
+| POST | `/api/assistant/conversations/{id}/messages` | Send one user turn → SSE stream of `text_delta` / `tool_started` / `tool_finished` / `confirm_request` / `turn_done` / `error` events; 409 while a turn is in flight |
+| POST | `/api/assistant/conversations/{id}/confirm` | Answer a pending write confirmation (`tool_use_id`, `allow`) |
+| DELETE | `/api/assistant/conversations/{id}` | Close the conversation and shut down its harness |
 | **Assets** | | |
 | POST | `/api/assets` | Multipart upload → content-addressed storage |
 | GET | `/assets/{sha256}/{filename}` | Serve by digest (immutable cache) |
@@ -355,6 +363,55 @@ and broadcasts as the web client.
   `query`, `backlinks`, `todos`, `save_note`, `update_block`, `batch`,
   `upload_asset`) built from the same planners; reads return markdown
   annotated with `^uid` markers the write tools accept.
+
+## Embedded assistant (`pkm/assistant/`)
+
+The in-app LLM assistant (pkm-wn2s) is a **server-side agent harness**
+exposed over the app's first SSE endpoints (`/api/assistant/*`, table
+above, behind the same `require_auth`). The harness has no built-in tools —
+only the ten `pkm-mcp` verbs, which loop back into this same server over
+HTTP, so assistant writes get the same validation, conflict handling,
+journalling and broadcasts as any client. Design spec:
+[`docs/superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md`](../superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md);
+threat model: [`docs/SECURITY.md`](../SECURITY.md).
+
+| File | Pattern | Role |
+|---|---|---|
+| `events.py` | Core | The event union routes and the web UI speak (`TextDelta`, `ToolStarted`/`ToolFinished`, `ConfirmRequest`, `TurnDone`, `ErrorEvent`) + `encode_sse()`. Nothing engine-specific leaks upward |
+| `policy.py` | Core | The tool gate (six read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` default / `opus` / `haiku`), tool-activity summaries and write-op previews, and the system prompt |
+| `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend (or the test double) plugs into |
+| `service.py` | Shell | In-memory conversation registry: 3-conversation cap, lazy 15-minute idle reap, per-conversation lock (a second concurrent turn is a 409); `close_all()` runs on app-lifespan shutdown |
+| `claude_engine.py` | Shell | The Claude Agent SDK adapter — the only engine today |
+| `routes.py` | Shell | The four endpoints; an engine failure mid-stream is reported in-band as an `error` SSE event, not a broken response |
+
+Conversations are ephemeral (in-memory only, no history table). The engine
+is injected into `create_app(config, assistant_engine=...)`; production
+defaults to `ClaudeEngine`, tests and the e2e server inject a fake.
+
+How `claude_engine.py` confines the harness:
+
+- **One SDK subprocess per conversation**, `tools=[]` plus a single MCP
+  server entry running `python -m pkm.mcp.server` — the model can only call
+  the pkm verbs. `ENABLE_TOOL_SEARCH=false` is load-bearing with
+  `tools=[]`: the CLI otherwise defers MCP tools behind a ToolSearch tool,
+  making them unreachable (found in the live smoke test, 2026-07-27).
+- **Auth**: the engine mints a fresh session token (`auth_core.sign_session`)
+  into a 0600 temp config file per conversation, passed to the MCP
+  subprocess as `PKM_CLI_CONFIG` and deleted on close.
+- **Write confirmation**: the SDK's `can_use_tool` hook streams a
+  `ConfirmRequest` (with an ops preview from `policy.py`) to the browser
+  and blocks the tool call on a future until `POST …/confirm` resolves it.
+  A denial returns "the user declined" to the model instead of erroring
+  the turn.
+- **Deployment prerequisite**: the SDK bundles its own `claude` binary and
+  authenticates with the machine's logged-in Claude subscription — there is
+  deliberately no `ANTHROPIC_API_KEY` in the service environment. See
+  [`deploy/README.md`](../../deploy/README.md).
+
+Testing: no real LLM anywhere in CI. `tests/fake_engine.py` is a scripted
+`AgentEngine` double that drives the service/route tests (including a
+threaded HTTP confirm round-trip) and the Playwright e2e —
+`tests/e2e_serve.py` always wires it in.
 
 ## Generated artifacts and parity fixtures
 

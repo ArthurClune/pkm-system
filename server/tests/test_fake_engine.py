@@ -60,6 +60,34 @@ def test_confirm_flow_deny():
     assert ToolFinished(name="save_note") not in events
 
 
+def test_hang_scenario_parks_until_cancelled():
+    # backs the e2e Stop-button test (pkm-c98s item 3): "please hang" is the
+    # only scripted scenario that stays "busy" long enough to click Stop on.
+    async def scenario():
+        engine = FakeEngine()
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        events = []
+
+        async def consume():
+            async for ev in conv.send("please hang"):
+                events.append(ev)  # pragma: no cover - never runs
+
+        task = asyncio.create_task(consume())
+        for _ in range(3):
+            await asyncio.sleep(0)  # let it reach the blocking Event().wait()
+        assert not task.done()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return events, task.cancelled()
+
+    events, cancelled = asyncio.run(scenario())
+    assert events == []
+    assert cancelled is True
+
+
 def test_close_marks_closed():
     async def scenario():
         engine = FakeEngine()

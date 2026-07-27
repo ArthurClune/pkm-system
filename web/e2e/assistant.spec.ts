@@ -56,3 +56,43 @@ test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) 
   await page.getByRole("button", { name: "Assistant" }).click();
   await expect(page.getByRole("region", { name: "Assistant" })).toBeVisible();
 });
+
+test("Stop button cancels a hung turn and the conversation stays usable", async ({ page }) => {
+  // pkm-c98s item 3. FakeEngine's "please hang" scenario never yields or
+  // finishes, so only a genuine abort (AbortController -> fetch abort ->
+  // server-side cancellation) can end the turn.
+  await login(page);
+  await page.keyboard.press("Control+j");
+  const panel = page.getByRole("region", { name: "Assistant" });
+  await expect(panel).toBeVisible();
+
+  await askInput(panel).fill("please hang");
+  await askInput(panel).press("Enter");
+  const stopButton = panel.getByRole("button", { name: "Stop" });
+  await expect(stopButton).toBeVisible();
+  await stopButton.click();
+  await expect(panel.getByRole("button", { name: "Send" })).toBeVisible();
+  await expect(panel.getByPlaceholder(/ask about your notes/i)).toBeEnabled();
+
+  // the conversation is not wedged: a normal turn still works afterwards
+  await askInput(panel).fill("hello again");
+  await askInput(panel).press("Enter");
+  await expect(panel.getByText("echo: hello again")).toBeVisible();
+});
+
+test("pagehide closes the live conversation via sendBeacon", async ({ page }) => {
+  // pkm-c98s item 1
+  await login(page);
+  await page.keyboard.press("Control+j");
+  const panel = page.getByRole("region", { name: "Assistant" });
+  await askInput(panel).fill("hello");
+  await askInput(panel).press("Enter");
+  await expect(panel.getByText("echo: hello")).toBeVisible();
+
+  const beacon = page.waitForRequest(
+    (req) => req.method() === "POST" && /\/api\/assistant\/conversations\/[0-9a-f]+$/.test(req.url()),
+    { timeout: 5000 },
+  );
+  await page.goto("about:blank"); // fires `pagehide` on the outgoing document
+  await beacon;
+});

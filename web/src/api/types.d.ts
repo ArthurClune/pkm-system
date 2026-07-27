@@ -545,9 +545,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
         /** Delete Conversation */
-        delete: operations["delete_conversation_api_assistant_conversations__conversation_id__delete"];
+        post: operations["close_conversation_beacon"];
+        /** Delete Conversation */
+        delete: operations["delete_conversation"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2078,7 +2079,38 @@ export interface operations {
             };
         };
     };
-    delete_conversation_api_assistant_conversations__conversation_id__delete: {
+    close_conversation_beacon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantAck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_conversation: {
         parameters: {
             query?: never;
             header?: never;

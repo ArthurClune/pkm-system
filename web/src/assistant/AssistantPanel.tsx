@@ -8,6 +8,49 @@ import { useAssistant } from "./useAssistant";
 
 const MODELS = ["sonnet", "opus", "haiku"];
 
+// pkm-c98s item 6: the server only clips ops_preview at a generous 4000
+// chars (see policy.py); this is a purely visual collapse so the approval
+// card doesn't dominate the panel for a long batch, with a toggle to see
+// everything the server actually sent.
+const PREVIEW_COLLAPSE_THRESHOLD = 300;
+
+function ConfirmCard({
+  opsPreview,
+  onAllow,
+  onDeny,
+}: {
+  opsPreview: string;
+  onAllow: () => void;
+  onDeny: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = opsPreview.length > PREVIEW_COLLAPSE_THRESHOLD;
+  const shown = isLong && !expanded ? opsPreview.slice(0, PREVIEW_COLLAPSE_THRESHOLD) + "…" : opsPreview;
+  return (
+    <div className="assistant-confirm-card">
+      <div className="assistant-confirm-title">The assistant wants to write:</div>
+      <pre>{shown}</pre>
+      {isLong && (
+        <button
+          type="button"
+          className="assistant-preview-toggle"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Show less" : "Show full preview"}
+        </button>
+      )}
+      <div className="assistant-confirm-actions">
+        <button type="button" className="btn-secondary" onClick={onAllow}>
+          Allow
+        </button>
+        <button type="button" className="btn-danger" onClick={onDeny}>
+          Deny
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const assistant = useAssistant();
   const [draft, setDraft] = useState("");
@@ -76,18 +119,12 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
           ),
         )}
         {assistant.pendingConfirm && (
-          <div className="assistant-confirm-card">
-            <div className="assistant-confirm-title">The assistant wants to write:</div>
-            <pre>{assistant.pendingConfirm.opsPreview}</pre>
-            <div className="assistant-confirm-actions">
-              <button type="button" className="btn-secondary" onClick={() => void assistant.respondConfirm(true)}>
-                Allow
-              </button>
-              <button type="button" className="btn-danger" onClick={() => void assistant.respondConfirm(false)}>
-                Deny
-              </button>
-            </div>
-          </div>
+          <ConfirmCard
+            key={assistant.pendingConfirm.toolUseId}
+            opsPreview={assistant.pendingConfirm.opsPreview}
+            onAllow={() => void assistant.respondConfirm(true)}
+            onDeny={() => void assistant.respondConfirm(false)}
+          />
         )}
         {assistant.error && <div className="assistant-error">{assistant.error}</div>}
         {assistant.status === "busy" && <div className="assistant-tool-line">thinking…</div>}
@@ -105,14 +142,20 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             }
           }}
         />
-        <button
-          type="button"
-          className="btn-secondary"
-          disabled={assistant.status !== "idle"}
-          onClick={submit}
-        >
-          Send
-        </button>
+        {assistant.status === "busy" ? (
+          <button type="button" className="btn-secondary" onClick={() => assistant.stop()}>
+            Stop
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={assistant.status !== "idle"}
+            onClick={submit}
+          >
+            Send
+          </button>
+        )}
       </div>
     </section>
   );

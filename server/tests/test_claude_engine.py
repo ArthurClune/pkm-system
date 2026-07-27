@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import stat
 from pathlib import Path
@@ -44,6 +45,7 @@ class FakeSDKClient:
         self.options = options
         self.connected = False
         self.queries: list[str] = []
+        self.interrupts = 0
         self.messages: asyncio.Queue = asyncio.Queue()
         FakeSDKClient.instances.append(self)
 
@@ -59,6 +61,9 @@ class FakeSDKClient:
 
     async def query(self, text):
         self.queries.append(text)
+
+    async def interrupt(self):
+        self.interrupts += 1
 
     async def receive_response(self):
         while True:
@@ -209,6 +214,75 @@ def test_close_during_live_turn_unblocks_consumer(tmp_path):
     events = asyncio.run(scenario())
     assert events
     assert events[-1] == ErrorEvent(message="conversation closed")
+
+
+def test_send_interrupts_harness_when_consumer_drops_before_any_event(tmp_path):
+    # pkm-c98s item 2: an SSE consumer that disconnects mid-turn must not
+    # leave the CLI subprocess still executing the abandoned query. A
+    # generator that is cancelled while genuinely suspended mid-body (as
+    # Starlette cancels the streaming task on client disconnect) -- not one
+    # that is aclose()'d before it has ever been started -- is what actually
+    # exercises the send() generator's finally block.
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+
+        async def consume():
+            async for _ in conv.send("hi"):  # no messages fed: blocks forever
+                pass
+
+        task = asyncio.create_task(consume())
+        for _ in range(3):
+            await asyncio.sleep(0)  # let it reach the blocking queue.get()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await conv.close()
+        return client
+
+    client = asyncio.run(scenario())
+    assert client.interrupts == 1
+
+
+def test_send_interrupts_harness_when_consumer_drops_mid_confirm(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+
+        async def fake_model_turn():
+            await conv.can_use_tool("mcp__pkm__save_note", {"title": "Demo"}, None)
+
+        task = asyncio.create_task(fake_model_turn())
+        stream = conv.send("save it")
+        ev = await asyncio.wait_for(anext(stream), timeout=5)
+        assert isinstance(ev, ConfirmRequest)
+        await stream.aclose()  # consumer gone before the user ever answered
+        # the pending can_use_tool hook must not be left dangling forever
+        await asyncio.wait_for(task, timeout=5)
+        await conv.close()
+        return client
+
+    client = asyncio.run(scenario())
+    assert client.interrupts == 1
+
+
+def test_send_does_not_interrupt_on_normal_completion(tmp_path):
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        client.feed(make_result())
+        _ = [ev async for ev in conv.send("hi")]
+        await conv.close()
+        return client
+
+    client = asyncio.run(scenario())
+    assert client.interrupts == 0
 
 
 def test_send_streams_mapped_events(tmp_path):

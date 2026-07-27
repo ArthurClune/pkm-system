@@ -93,9 +93,30 @@ async def confirm_tool(
     return {"ok": True}
 
 
-@router.delete("/api/assistant/conversations/{conversation_id}", response_model=AssistantAck)
 async def delete_conversation(
     conversation_id: str, service: AssistantService = Depends(get_service)
 ) -> dict:
     await service.delete(conversation_id)
     return {"ok": True}
+
+
+# Registered under both DELETE (the RESTful shape) and POST (because
+# navigator.sendBeacon -- used by the web client on pagehide to clean up a
+# conversation the user is navigating away from -- can only send POST, with
+# no custom headers/body control). Two explicit registrations, each with
+# its own operation_id, avoid FastAPI's duplicate-operation-id warning that
+# a single multi-method route would otherwise emit.
+router.add_api_route(
+    "/api/assistant/conversations/{conversation_id}",
+    delete_conversation,
+    methods=["DELETE"],
+    response_model=AssistantAck,
+    operation_id="delete_conversation",
+)
+router.add_api_route(
+    "/api/assistant/conversations/{conversation_id}",
+    delete_conversation,
+    methods=["POST"],
+    response_model=AssistantAck,
+    operation_id="close_conversation_beacon",
+)

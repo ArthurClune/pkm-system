@@ -56,7 +56,7 @@ test("plain paste of multi-line text is never intercepted (pkm-fwa2)", async ({ 
   await openFreshPage(page, title);
 
   await page.getByText("Click to start writing…").click();
-  await input(page).fill("seed ");
+  await input(page).fill("seed");
   // No chord: the app must leave the event to the browser. A synthetic
   // (untrusted) paste never performs the native splice, so the assertion is
   // that nothing intercepted it and no blocks were created from it.

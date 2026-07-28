@@ -112,7 +112,8 @@ def render_backlinks(title: str, backlinks: dict) -> str:
 
 
 def render_assets(payload: dict) -> str:
-    """One asset per block: filename, url, status, then the description."""
+    """One asset per block: filename, url, status, description, then one
+    'in [[page]] ((uid))' line per referencing block."""
     assets = payload["assets"]
     if not assets:
         return "no assets found"
@@ -123,6 +124,8 @@ def render_assets(payload: dict) -> str:
                  f"  {a['url']}"]
         if a["description"]:
             lines.append(f"  {a['description']}")
+        for ref in a.get("refs") or []:
+            lines.append(f"  in [[{ref['page_title']}]] (({ref['uid']}))")
         parts.append("\n".join(lines))
     return "\n\n".join(parts)
 

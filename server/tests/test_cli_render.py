@@ -163,21 +163,37 @@ def test_render_assets():
         {"sha256": "ab" * 32, "filename": "graph.png", "mime": "image/png",
          "size": 1234, "created_at": 1753500000000,
          "url": "/assets/" + "ab" * 32 + "/graph.png",
-         "description": "a bar chart of revenue", "status": "described"},
+         "description": "a bar chart of revenue", "status": "described",
+         "refs": [{"uid": "u1", "page_title": "Holiday 2026"},
+                  {"uid": "u2", "page_title": "July 26th, 2026"}]},
         {"sha256": "cd" * 32, "filename": "raw.png", "mime": "image/png",
          "size": 99, "created_at": None,
          "url": "/assets/" + "cd" * 32 + "/raw.png",
-         "description": None, "status": "pending"},
+         "description": None, "status": "pending", "refs": []},
     ]}
     out = render_assets(payload)
     assert "graph.png" in out
     assert "a bar chart of revenue" in out
     assert "/assets/" + "ab" * 32 + "/graph.png" in out
     assert "pending" in out
+    assert "  in [[Holiday 2026]] ((u1))" in out
+    assert "  in [[July 26th, 2026]] ((u2))" in out
+    # unreferenced asset gets no "in [[" line (its ref lines would come
+    # after its URL line, i.e. after the LAST "raw.png" occurrence)
+    assert "in [[" not in out.split("raw.png")[-1]
 
 
 def test_render_assets_empty():
     assert render_assets({"assets": []}) == "no assets found"
+
+
+def test_render_assets_tolerates_missing_refs_key():
+    payload = {"assets": [
+        {"sha256": "ef" * 32, "filename": "old.png", "mime": "image/png",
+         "size": 1, "created_at": None,
+         "url": "/assets/" + "ef" * 32 + "/old.png",
+         "description": None, "status": "pending"}]}
+    assert "old.png" in render_assets(payload)
 
 
 def test_select_section_and_clip_depth():

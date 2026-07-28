@@ -23,6 +23,9 @@ import { Settings } from "./views/Settings";
 interface SidebarEntry {
   id: number; // monotonic: the same title can be stacked twice
   title: string;
+  // The block to scroll to and flash within this panel (pkm-gdi5), e.g. a
+  // shift-clicked block ref or assistant asset link.
+  uid?: string;
 }
 
 function NotFound() {
@@ -54,10 +57,10 @@ export function App() {
   const rightSidebarOpen = stack.length > 0 && !sidebarHidden;
 
   const sidebarApi = useMemo(() => ({
-    openInSidebar: (title: string) => {
+    openInSidebar: (title: string, uid?: string) => {
       const id = idRef.current;
       idRef.current += 1;
-      setStack((s) => [{ id, title }, ...s]); // newest on top
+      setStack((s) => [{ id, title, uid }, ...s]); // newest on top
       setSidebarHidden(false); // opening while hidden must not be a silent no-op
     },
   }), []);
@@ -178,6 +181,7 @@ export function App() {
                     <SidebarPanel
                       key={entry.id}
                       title={entry.title}
+                      uid={entry.uid}
                       onClose={() => setStack((s) => s.filter((e) => e.id !== entry.id))}
                     />
                   ))}

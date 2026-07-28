@@ -4,7 +4,13 @@
 // main pane, instead of the old one-shot read-only fetch. (EditablePage
 // itself handles the case where this title is already open elsewhere in
 // the tab, falling back to read-only there.)
-import { useEffect, useState } from "react";
+//
+// An optional uid (pkm-gdi5, a block ref or asset link opened with
+// shift-click) is scrolled to and flashed once the page has rendered --
+// scoped to this panel's OWN container via containerRef, never a
+// document-wide query: the same page can be open in the main window at
+// the same time, with its own element carrying that data-uid.
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api/client";
 import type { PagePayload } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
@@ -16,11 +22,12 @@ import {
 } from "../outline/outlineSessions";
 import { EditablePage } from "../views/EditablePage";
 
-export function EditableSidebarPanel({ title }: { title: string }) {
+export function EditableSidebarPanel({ title, uid }: { title: string; uid?: string }) {
   const [payloadState, setPayloadState] = useState<{
     title: string;
     payload: PagePayload;
   } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [errorState, setErrorState] = useState<{
     title: string;
     message: string;
@@ -99,11 +106,26 @@ export function EditableSidebarPanel({ title }: { title: string }) {
 
   const payload = payloadState?.title === title ? payloadState.payload : null;
   const error = errorState?.title === title ? errorState.message : null;
+
+  useEffect(() => {
+    if (!payload || !uid) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const el = container.querySelector(`[data-uid="${CSS.escape(uid)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center" });
+    el.classList.add("flash-target");
+    const t = setTimeout(() => el.classList.remove("flash-target"), 1600);
+    return () => clearTimeout(t);
+  }, [payload, uid]);
+
   if (error) return <p className="error">{error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;
   return (
-    <BlockRefContext.Provider value={payload.block_ref_texts}>
-      <EditablePage title={title} initial={payload.blocks} />
-    </BlockRefContext.Provider>
+    <div ref={containerRef}>
+      <BlockRefContext.Provider value={payload.block_ref_texts}>
+        <EditablePage title={title} initial={payload.blocks} />
+      </BlockRefContext.Provider>
+    </div>
   );
 }

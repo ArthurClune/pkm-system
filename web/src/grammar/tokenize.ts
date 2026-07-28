@@ -3,9 +3,11 @@
 // Reference/TODO/code recognition comes from the shared grammar scanner
 // (scan.ts, which follows server/src/pkm/refs.py semantics); this file owns
 // only the rendering-side grammar the scanner does not model: markdown
-// links and images, bare-URL autolinking, emphasis, {{query}} blocks,
-// {{pdf}} embed macros (Roam's PDF-embed spelling), $$ math, and line breaks. Ref
-// *extraction* lives in refs.ts on the same scanner.
+// links and images, bare-URL autolinking (including bare /assets/<sha256>/
+// filename URLs, e.g. mentioned by the assistant, pkm-gdi5), emphasis,
+// {{query}} blocks, {{pdf}} embed macros (Roam's PDF-embed spelling), $$
+// math, and line breaks. Ref *extraction* lives in refs.ts on the same
+// scanner.
 
 import { scanMarkdownLinkAt } from "./markdown";
 import { scanGrammar, type GrammarToken } from "./scan";
@@ -21,6 +23,7 @@ export type InlineSegment =
   | { kind: "block-ref"; uid: string }
   | { kind: "image"; alt: string; src: string }
   | { kind: "link"; text: string; href: string }
+  | { kind: "asset-link"; url: string; sha: string; filename: string }
   | { kind: "math"; tex: string; display: boolean }
   | { kind: EmphasisKind; children: InlineSegment[] };
 
@@ -37,6 +40,12 @@ const PDF_PREFIX = /^\{\{(?:\[\[)?pdf(?:\]\])?:\s*/;
 // KaTeX display mode. Checked against raw text before any other grammar, so
 // whole-block math is fully verbatim TeX.
 const BLOCK_MATH_RE = /^\$\$([\s\S]+)\$\$$/;
+
+// Bare (not already inside markdown [text](...) / ![alt](...) syntax, which
+// are consumed whole by scanMarkdownLinkAt before this rule ever sees them)
+// asset URL, e.g. a chat reply mentioning "/assets/<sha256>/name.jpeg" as
+// plain prose (pkm-gdi5). The 64 hex chars are the uploader's sha256.
+const ASSET_LINK_RE = /^\/assets\/([0-9a-f]{64})\/(\S+)/;
 
 const EMPHASIS: [string, EmphasisKind][] = [
   ["**", "bold"], ["__", "italic"], ["~~", "strike"], ["^^", "highlight"],
@@ -159,6 +168,20 @@ function tokenizeInline(
         if (!/^https?:\/\/$/.test(url)) {
           flushText();
           out.push({ kind: "link", text: url, href: url });
+          i += url.length;
+          continue;
+        }
+      }
+    }
+    if (ch === "/" && (i === from || /[\s([{]/.test(text[i - 1]))) {
+      const m = ASSET_LINK_RE.exec(text.slice(i, to));
+      if (m) {
+        // trailing punctuation is prose, not filename: "see .../pic.jpg."
+        const url = m[0].replace(/[.,;:!?'")\]}>]+$/, "");
+        const parts = /^\/assets\/([0-9a-f]{64})\/(.+)$/.exec(url);
+        if (parts) {
+          flushText();
+          out.push({ kind: "asset-link", url, sha: parts[1], filename: parts[2] });
           i += url.length;
           continue;
         }

@@ -7,7 +7,11 @@ import { createContext } from "react";
 import type { BlockRefText } from "./api/payloads";
 
 export interface SidebarApi {
-  openInSidebar: (title: string) => void;
+  /** uid, when given, is the block to scroll to and flash once the panel's
+   * page has rendered (pkm-gdi5) -- scoped to that panel's own container,
+   * never a document-wide lookup (the same page may be open in the main
+   * window at the same time). */
+  openInSidebar: (title: string, uid?: string) => void;
 }
 
 export const SidebarContext = createContext<SidebarApi>({

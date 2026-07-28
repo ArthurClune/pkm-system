@@ -1,5 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { ROUTER_FUTURE_FLAGS } from "../router";
+import { stubFetch } from "../test-helpers";
 import type { ChatItem, PendingConfirm } from "./useAssistant";
 
 const state = vi.hoisted(() => ({
@@ -126,5 +129,24 @@ describe("AssistantPanel", () => {
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText("save_note(title=Demo)")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /show full preview/i })).toBeNull();
+  });
+
+  test("a ((uid)) block ref in an assistant reply resolves and becomes clickable (pkm-gdi5)", async () => {
+    stubFetch([["/api/block-refs", {
+      block_ref_texts: { chart1: { text: "the compute chart block", page_title: "Charts" } },
+    }]]);
+    state.current.items = [
+      { kind: "assistant", text: "see ((chart1)) for details" },
+    ];
+    render(
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <AssistantPanel open onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("((chart1))")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("the compute chart block")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: "the compute chart block" })).toBeInTheDocument();
   });
 });

@@ -188,6 +188,15 @@ it("renders malformed percent-encoding in a pdf macro label as the raw filename"
   await waitFor(() => expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument());
 });
 
+it("dispatches asset-link segments to AssetLink (pkm-gdi5)", () => {
+  const sha = "492d80a8b6a72a7c4615c69a9a7def6fac0e019d452f9c88bb61ca8a671dbfd7";
+  const url = `/assets/${sha}/IMG_0868.jpeg`;
+  renderText(`see ${url} now`);
+  const link = screen.getByRole("link", { name: "IMG_0868.jpeg" });
+  expect(link).toHaveAttribute("title", url);
+  expect(link).toHaveAttribute("href", url);
+});
+
 it("dispatches math segments to MathSpan and renders KaTeX output", async () => {
   const { container } = render(
     <InlineSegments segments={[{ kind: "math", tex: "x^2", display: false }]} />,

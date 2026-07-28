@@ -221,6 +221,41 @@ test("shows the fetch error", async () => {
   expect(await screen.findByText(/request failed: 404/i)).toBeInTheDocument();
 });
 
+test("a uid prop scrolls to and flashes that block within the panel's own container (pkm-gdi5)", async () => {
+  const scrollIntoView = vi.fn();
+  window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  stubFetch([["/api/page/Paper", pagePayload("Paper", [
+    block("uid_s0", "some other block"),
+    block("uid_s1", "target block"),
+  ])]]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={makeSync()}>
+        <EditableSidebarPanel title="Paper" uid="uid_s1" />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  await screen.findByText("target block");
+  const row = container.querySelector('[data-uid="uid_s1"]');
+  expect(row).not.toBeNull();
+  expect(scrollIntoView).toHaveBeenCalled();
+  expect(scrollIntoView.mock.instances[0]).toBe(row);
+  expect(row!.classList.contains("flash-target")).toBe(true);
+});
+
+test("no uid prop: no scroll/flash side effect", async () => {
+  const scrollIntoView = vi.fn();
+  window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  stubFetch([["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "target block")])]]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={makeSync()}>
+        <EditableSidebarPanel title="Paper" />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  await screen.findByText("target block");
+  expect(scrollIntoView).not.toHaveBeenCalled();
+});
+
 test("releases a failed parent read when the panel unmounts", async () => {
   stubFetch([]);
   const view = render(

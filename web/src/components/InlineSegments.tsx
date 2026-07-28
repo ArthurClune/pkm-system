@@ -6,6 +6,7 @@
 // or navigate, so it's a shell rather than a pure rendering decision.
 import type { BlockSegment } from "../grammar/tokenize";
 import { AssetImage } from "./AssetImage";
+import { AssetLink } from "./AssetLink";
 import { BlockRef } from "./BlockRef";
 import { isBlueskyPostUrl } from "./bluesky";
 import { BlueskyEmbed } from "./BlueskyEmbed";
@@ -74,6 +75,8 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       return <BlockRef uid={seg.uid} depth={depth} />;
     case "image":
       return <AssetImage src={seg.src} alt={seg.alt} />;
+    case "asset-link":
+      return <AssetLink url={seg.url} sha={seg.sha} filename={seg.filename} />;
     case "pdf-embed":
       if (isPdfAssetHref(seg.href)) {
         return <PdfEmbed href={seg.href} label={pdfLabelFromHref(seg.href)} />;

@@ -43,10 +43,10 @@ it("encodes the target page title in the path", () => {
     .toHaveTextContent("/page/Machine%20Learning#ref_aa1");
 });
 
-it("shift-click opens the target page in the sidebar instead", () => {
+it("shift-click opens the target page in the sidebar instead, scrolled to this uid", () => {
   const openInSidebar = mount(RESOLVED);
   fireEvent.click(screen.getByText("target text"), { shiftKey: true });
-  expect(openInSidebar).toHaveBeenCalledWith("Paper");
+  expect(openInSidebar).toHaveBeenCalledWith("Paper", "ref_aa1");
   expect(screen.getByTestId("loc")).toHaveTextContent(/^\/$/);
 });
 

@@ -26,3 +26,4 @@ File browser for attachments, building on pkm-zc0c's description column and GET 
 - Strengthen `test_render_assets_tolerates_missing_refs_key` with `assert "in [[" not in out`.
 - Optional: end-to-end test that deleting a referencing block drops it from `refs` (pins the FTS delete trigger user-visibly).
 - Note: `/api/assets/search` computes refs per hit even for the `q=""` recency listing — if the browser's page size grows large, that's where an `include_refs` flag would go.
+- The search payload's `refs` field already answers linked-vs-orphan client-side for list views (`refs` non-empty = linked); the "link check = search blocks.text" bullet above predates pkm-t5pu and is superseded.

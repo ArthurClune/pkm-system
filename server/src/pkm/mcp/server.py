@@ -160,7 +160,9 @@ def upload_asset(path: str, page: str | None = None,
 def search_assets(q: str, limit: int = 20) -> str:
     """Find uploaded images/files by LLM-generated image description or
     filename. Returns filename, status, a /assets/... URL embeddable in a
-    block as ![](url), and the description. Images are described
+    block as ![](url), the description, and every block referencing the
+    asset as 'in [[page title]] ((uid))' — cite those directly instead of
+    searching for the asset's page with get_page. Images are described
     automatically after upload when the feature is enabled."""
     return render_assets(_client().search_assets(q, limit=limit))
 

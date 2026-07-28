@@ -639,6 +639,13 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** AssetRef */
+        AssetRef: {
+            /** Uid */
+            uid: string;
+            /** Page Title */
+            page_title: string;
+        };
         /** AssetSearchItem */
         AssetSearchItem: {
             /** Sha256 */
@@ -660,6 +667,8 @@ export interface components {
              * @enum {string}
              */
             status: "described" | "failed" | "pending";
+            /** Refs */
+            refs: components["schemas"]["AssetRef"][];
         };
         /** AssetSearchPayload */
         AssetSearchPayload: {

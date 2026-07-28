@@ -1479,6 +1479,24 @@
         ],
         "title": "AddSidebarEntryRequest"
       },
+      "AssetRef": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "page_title": {
+            "type": "string",
+            "title": "Page Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "page_title"
+        ],
+        "title": "AssetRef"
+      },
       "AssetSearchItem": {
         "properties": {
           "sha256": {
@@ -1531,6 +1549,13 @@
               "pending"
             ],
             "title": "Status"
+          },
+          "refs": {
+            "items": {
+              "$ref": "#/components/schemas/AssetRef"
+            },
+            "type": "array",
+            "title": "Refs"
           }
         },
         "type": "object",
@@ -1542,7 +1567,8 @@
           "created_at",
           "url",
           "description",
-          "status"
+          "status",
+          "refs"
         ],
         "title": "AssetSearchItem"
       },

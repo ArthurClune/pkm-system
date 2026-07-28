@@ -19,3 +19,10 @@ File browser for attachments, building on pkm-zc0c's description column and GET 
 - Orphan detection: list assets no longer linked in the db, with options to 1) delete or 2) copy link to clipboard for adding to a page
 - Retro-scan button wired to POST /api/assets/scan; show per-asset description status (described/failed/pending) from pkm-zc0c
 - Extend the list endpoint with date/type filters and pagination as needed
+
+## Carry-over from pkm-t5pu final review (2026-07-28)
+
+- Reuse `referencing_blocks(db, sha256)` in `server/src/pkm/server/routes_assets.py` for the delete-warning / orphan checks; while adding the second caller, tighten its return type to `list[dict[str, str]]`.
+- Strengthen `test_render_assets_tolerates_missing_refs_key` with `assert "in [[" not in out`.
+- Optional: end-to-end test that deleting a referencing block drops it from `refs` (pins the FTS delete trigger user-visibly).
+- Note: `/api/assets/search` computes refs per hit even for the `q=""` recency listing — if the browser's page size grows large, that's where an `include_refs` flag would go.

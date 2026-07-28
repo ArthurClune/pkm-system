@@ -25,6 +25,11 @@ def _ensure_schema_migrations(con: sqlite3.Connection) -> None:
         con.execute(
             "ALTER TABLE blocks ADD COLUMN view_type TEXT "
             "CHECK(view_type IN ('numbered','document'))")
+    asset_columns = {row[1] for row in con.execute("PRAGMA table_info(assets)")}
+    for col, decl in (("description", "TEXT"), ("described_at", "INTEGER"),
+                      ("describe_error", "TEXT")):
+        if col not in asset_columns:
+            con.execute(f"ALTER TABLE assets ADD COLUMN {col} {decl}")
 
 
 def init_db(path: Path) -> None:

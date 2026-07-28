@@ -128,6 +128,17 @@ def test_upload_asset(pkm_client, tmp_path):
     assert r["filename"] == "note.txt"
 
 
+def test_search_and_scan_assets(pkm_client, client):
+    content = b"\x89PNG\r\n\x1a\n" + b"cli"
+    up = client.post("/api/assets",
+                     files={"file": ("cli.png", content, "image/png")})
+    assert up.status_code == 200
+    found = pkm_client.search_assets("cli")
+    assert found["assets"][0]["filename"] == "cli.png"
+    scanned = pkm_client.scan_assets(force=True)
+    assert set(scanned) == {"queued", "enabled", "reason"}
+
+
 def test_unauthenticated_client_gets_login_hint(anon_client):
     bad = PkmClient(CliConfig(url="http://testserver", token="junk"),
                     http=anon_client)

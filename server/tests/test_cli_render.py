@@ -1,5 +1,5 @@
-from pkm.cli.render import (render_backlinks, render_block, render_groups,
-                            render_page, render_search)
+from pkm.cli.render import (render_assets, render_backlinks, render_block,
+                            render_groups, render_page, render_search)
 
 
 def _node(uid, text, children=(), heading=None):
@@ -156,6 +156,28 @@ def test_render_page_resolve_refs():
     out = render_page(payload, resolve_refs=True)
     assert '- see "target" ((u9))\n' in out
     assert "see ((u9))" in render_page(payload)  # default unchanged
+
+
+def test_render_assets():
+    payload = {"assets": [
+        {"sha256": "ab" * 32, "filename": "graph.png", "mime": "image/png",
+         "size": 1234, "created_at": 1753500000000,
+         "url": "/assets/" + "ab" * 32 + "/graph.png",
+         "description": "a bar chart of revenue", "status": "described"},
+        {"sha256": "cd" * 32, "filename": "raw.png", "mime": "image/png",
+         "size": 99, "created_at": None,
+         "url": "/assets/" + "cd" * 32 + "/raw.png",
+         "description": None, "status": "pending"},
+    ]}
+    out = render_assets(payload)
+    assert "graph.png" in out
+    assert "a bar chart of revenue" in out
+    assert "/assets/" + "ab" * 32 + "/graph.png" in out
+    assert "pending" in out
+
+
+def test_render_assets_empty():
+    assert render_assets({"assets": []}) == "no assets found"
 
 
 def test_select_section_and_clip_depth():

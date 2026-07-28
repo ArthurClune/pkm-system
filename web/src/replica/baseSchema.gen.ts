@@ -37,7 +37,13 @@ CREATE TABLE IF NOT EXISTS assets(
   filename    TEXT NOT NULL,
   mime        TEXT NOT NULL,
   size        INTEGER NOT NULL,
-  created_at  INTEGER
+  created_at  INTEGER,
+  -- pkm-zc0c: LLM-generated searchable description; all nullable.
+  -- status is derived: described (description set) / failed
+  -- (describe_error set) / pending (neither).
+  description    TEXT,
+  described_at   INTEGER,
+  describe_error TEXT
 );
 
 -- keyed by blocks' implicit rowid: never VACUUM without rebuilding FTS ('rebuild' command)

@@ -195,6 +195,29 @@ def test_get_section_on_uid_is_error(run):
     assert "page" in err
 
 
+def test_assets_search_finds_uploaded_file(run, pkm_client, tmp_path):
+    f = tmp_path / "cli.png"
+    f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"cli")
+    pkm_client.upload(f)
+    code, out, _ = run("assets", "search", "cli")
+    assert code == 0
+    assert "cli.png" in out
+    assert "pending" in out            # no describer on the test app
+
+
+def test_assets_search_no_results(run):
+    code, out, _ = run("assets", "search", "nothing-matches-this")
+    assert code == 0
+    assert out == "no assets found\n"
+
+
+def test_assets_scan_disabled_exits_nonzero(run):
+    code, out, err = run("assets", "scan")
+    assert code == 1
+    assert out == ""
+    assert "OPENAI_API_KEY" in err
+
+
 def test_get_section_on_uid_shaped_page_title(run, pkm_client):
     pkm_client.create_page("Databases")
     pkm_client.post_ops([{"op": "create", "uid": "sec_head_0001",

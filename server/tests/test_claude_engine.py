@@ -101,7 +101,7 @@ def test_create_conversation_options_and_config_file(tmp_path):
     assert opts.max_turns == 40
     assert opts.env == {"ENABLE_TOOL_SEARCH": "false"}
     assert set(opts.allowed_tools) == {
-        f"mcp__pkm__{t}" for t in ("get_page", "get_block", "search", "query", "backlinks", "todos")
+        f"mcp__pkm__{t}" for t in ("get_page", "get_block", "search", "query", "backlinks", "todos", "search_assets")
     }
     server_cfg = opts.mcp_servers["pkm"]
     cfg_path = Path(server_cfg["env"]["PKM_CLI_CONFIG"])

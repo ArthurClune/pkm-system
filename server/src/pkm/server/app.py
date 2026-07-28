@@ -2,6 +2,7 @@
 """FastAPI application factory."""
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
@@ -11,6 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from pkm.assistant.engine import AgentEngine
 from pkm.assistant.routes import router as assistant_router
 from pkm.assistant.service import AssistantService
+from pkm.describe.core import enabled_reason
+from pkm.describe.openai_client import OpenAIDescriber
+from pkm.describe.routes import router as describe_router
+from pkm.describe.service import DescribeService
 from pkm.server.auth import require_auth, router as auth_router
 from pkm.server.config import Config
 from pkm.server.db import init_db
@@ -25,9 +30,21 @@ from pkm.server.routes_sync import router as sync_router
 from pkm.server.ws import Hub, router as ws_router
 
 
+def _default_describe_service(config: Config) -> DescribeService:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    reason = enabled_reason(api_key, config.image_descriptions)
+    if reason is not None:
+        return DescribeService(config, None, reason)
+    assert api_key is not None
+    return DescribeService(
+        config, OpenAIDescriber(api_key, config.image_description_model), None)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    app.state.describe.start()
     yield
+    await app.state.describe.close()
     await app.state.assistant.close_all()
 
 
@@ -36,6 +53,7 @@ def create_app(
     *,
     api_port: int = 8974,
     assistant_engine: AgentEngine | None = None,
+    describe_service: DescribeService | None = None,
 ) -> FastAPI:
     # init_db() is idempotent and cheap (one WAL pragma + the fully
     # IF-NOT-EXISTS base schema, see schema.py), so calling it here makes
@@ -59,6 +77,8 @@ def create_app(
             session_secret_hex=config.session_secret,
         )
     app.state.assistant = AssistantService(assistant_engine)
+    app.state.describe = (describe_service if describe_service is not None
+                          else _default_describe_service(config))
     app.add_middleware(RequestLogMiddleware)
     app.include_router(auth_router)
 
@@ -75,6 +95,7 @@ def create_app(
     app.include_router(sidebar_router)
     app.include_router(sync_router)
     app.include_router(assets_router)
+    app.include_router(describe_router)
     app.include_router(export_router)
     app.include_router(ws_router)
     app.include_router(assistant_router)

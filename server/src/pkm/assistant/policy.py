@@ -8,7 +8,8 @@ from typing import Literal
 
 MCP_SERVER_NAME = "pkm"
 
-READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query", "backlinks", "todos")
+READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
+                               "backlinks", "todos", "search_assets")
 WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch", "upload_asset")
 
 MODELS: tuple[str, ...] = ("sonnet", "opus", "haiku")

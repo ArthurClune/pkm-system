@@ -36,3 +36,5 @@ export type TitlesPayload = Schemas["TitlesPayload"];
 
 export type SidebarNavEntry = Schemas["SidebarNavEntry"];
 export type SidebarNavPayload = Schemas["SidebarNavPayload"];
+
+export type DescribeStatusPayload = Schemas["DescribeStatusPayload"];

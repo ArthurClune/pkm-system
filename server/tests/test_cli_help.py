@@ -3,7 +3,7 @@ import pytest
 from pkm.cli.main import main
 
 VERBS = ["login", "get", "search", "refs", "query", "todos",
-         "save", "update", "upload", "batch"]
+         "save", "update", "upload", "batch", "assets"]
 
 
 @pytest.mark.parametrize("verb", VERBS)

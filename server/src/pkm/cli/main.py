@@ -20,9 +20,9 @@ from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.cli.build import (BuildError, asset_block_text, plan_batch,
                            plan_save, referenced_pages)
-from pkm.cli.render import (RenderError, clip_depth, render_backlinks,
-                            render_block, render_groups, render_page,
-                            render_search, select_section)
+from pkm.cli.render import (RenderError, clip_depth, render_assets,
+                            render_backlinks, render_block, render_groups,
+                            render_page, render_search, select_section)
 from pkm.server.daily import title_for_date
 from pkm.server.ops_core import UID_RE, text_hash
 from pkm.todo import with_state
@@ -230,6 +230,21 @@ example:
   EOF
 """
 
+_ASSETS_EPILOG = """\
+examples:
+  # find images by their LLM-generated description or filename
+  pkm assets search "bar chart revenue"
+
+  # queue undescribed images for description; --force retries failures
+  pkm assets scan
+  pkm assets scan --force
+
+search output: one asset per block — filename (mime, size, status), URL
+path usable in a block as ![](url), then the description when present.
+scan requires the server to have image descriptions enabled
+(OPENAI_API_KEY set); when disabled it prints the reason and exits 1.
+"""
+
 
 def _login_http(url: str) -> httpx2.Client:
     return httpx2.Client(base_url=url)  # seam: tests inject a TestClient
@@ -400,6 +415,20 @@ def cmd_batch(args: argparse.Namespace, client: PkmClient) -> int:
     return 0
 
 
+def cmd_assets(args: argparse.Namespace, client: PkmClient) -> int:
+    if args.assets_action == "search":
+        print(render_assets(client.search_assets(args.query,
+                                                 limit=args.limit)))
+        return 0
+    result = client.scan_assets(force=args.force)
+    if not result["enabled"]:
+        print(f"image descriptions are disabled: {result['reason']}",
+              file=sys.stderr)
+        return 1
+    print(f"queued {result['queued']} asset(s) for description")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pkm", description="CLI for the PKM server")
@@ -488,6 +517,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add("batch", "apply a JSON array of commands from stdin atomically",
          _BATCH_EPILOG)
 
+    p = _add("assets", "search asset descriptions / queue a describe scan",
+             _ASSETS_EPILOG)
+    sub_assets = p.add_subparsers(dest="assets_action", required=True)
+    sp = sub_assets.add_parser("search", help="search descriptions+filenames")
+    sp.add_argument("query")
+    sp.add_argument("--limit", type=int, default=50)
+    sub_assets.add_parser("scan", help="queue undescribed images") \
+        .add_argument("--force", action="store_true",
+                      help="also retry previously failed images")
+
     return parser
 
 
@@ -495,7 +534,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, PkmClient], int]] = {
     "get": cmd_get, "search": cmd_search, "refs": cmd_refs,
     "query": cmd_query, "todos": cmd_todos,
     "save": cmd_save, "update": cmd_update, "upload": cmd_upload,
-    "batch": cmd_batch,
+    "batch": cmd_batch, "assets": cmd_assets,
 }
 
 

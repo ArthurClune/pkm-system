@@ -18,6 +18,8 @@ class Config:
     web_dist: Path | None = None  # built SPA dir; None = API-only server
     bind_hosts: tuple[str, ...] = ("127.0.0.1",)
     max_upload_bytes: int = 150 * 1024 * 1024
+    image_descriptions: bool = True
+    image_description_model: str = "gpt-4o-mini"
 
 
 def load_config(path: Path) -> Config:
@@ -33,4 +35,7 @@ def load_config(path: Path) -> Config:
         web_dist=(base / raw["web_dist"]) if raw.get("web_dist") else None,
         bind_hosts=tuple(raw.get("bind_hosts", ["127.0.0.1"])),
         max_upload_bytes=int(raw.get("max_upload_bytes", 150 * 1024 * 1024)),
+        image_descriptions=bool(raw.get("image_descriptions", True)),
+        image_description_model=str(raw.get("image_description_model",
+                                            "gpt-4o-mini")),
     )

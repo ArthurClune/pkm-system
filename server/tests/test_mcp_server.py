@@ -14,7 +14,7 @@ def test_tools_are_registered(tools):
     names = {t.name for t in tools.mcp._tool_manager.list_tools()}
     assert names == {"get_page", "get_block", "search", "query", "backlinks",
                      "todos", "save_note", "update_block", "batch",
-                     "upload_asset"}
+                     "upload_asset", "search_assets"}
 
 
 def test_get_page_markdown_includes_uids(tools):
@@ -86,6 +86,16 @@ def test_upload_asset(tools, pkm_client, tmp_path):
 def test_upload_asset_missing_file(tools):
     with pytest.raises(ValueError, match="no such file"):
         tools.upload_asset("/nonexistent/x.png")
+
+
+def test_search_assets(tools, tmp_path):
+    f = tmp_path / "diagram.png"
+    f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)
+    tools.upload_asset(str(f), page="AI")
+    out = tools.search_assets("diagram")
+    assert "diagram.png" in out
+    assert "/assets/" in out
+    assert tools.search_assets("nothing-matches-this") == "no assets found"
 
 
 def test_get_page_resolve_refs(tools):

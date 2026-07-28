@@ -158,6 +158,32 @@ class AssetUploadResponse(BaseModel):
     url: str
 
 
+class AssetSearchItem(BaseModel):
+    sha256: str
+    filename: str
+    mime: str
+    size: int
+    created_at: int | None
+    url: str
+    description: str | None
+    status: Literal["described", "failed", "pending"]
+
+
+class AssetSearchPayload(BaseModel):
+    assets: list[AssetSearchItem]
+
+
+class DescribeStatusPayload(BaseModel):
+    enabled: bool
+    reason: str | None
+
+
+class ScanPayload(BaseModel):
+    queued: int
+    enabled: bool
+    reason: str | None
+
+
 class SyncRef(BaseModel):
     target_page_id: int
     kind: str

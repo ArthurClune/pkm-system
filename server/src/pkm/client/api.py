@@ -140,3 +140,11 @@ class PkmClient:
             return self._request(
                 "POST", "/api/assets",
                 files={"file": (path.name, fh, mime)})
+
+    def search_assets(self, q: str, limit: int = 50) -> dict:
+        return self._request("GET", "/api/assets/search",
+                             params={"q": q, "limit": limit})
+
+    def scan_assets(self, force: bool = False) -> dict:
+        params = {"force": "true"} if force else {}
+        return self._request("POST", "/api/assets/scan", params=params)

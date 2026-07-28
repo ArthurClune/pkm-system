@@ -420,6 +420,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/assets/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Assets
+         * @description LIKE search over description + filename (pkm-zc0c). Empty q lists
+         *     most-recent uploads — the seed of the file-browser list endpoint.
+         *     LIKE, not FTS: personal-scale table, and no offline-parity burden.
+         */
+        get: operations["search_assets_api_assets_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assets/{sha256}/{filename}": {
         parameters: {
             query?: never;
@@ -448,6 +470,40 @@ export interface paths {
         put?: never;
         /** Upload Asset */
         post: operations["upload_asset_api_assets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/describe-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Describe Status */
+        get: operations["describe_status_api_assets_describe_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scan */
+        post: operations["scan_api_assets_scan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -582,6 +638,33 @@ export interface components {
         AddSidebarEntryRequest: {
             /** Title */
             title: string;
+        };
+        /** AssetSearchItem */
+        AssetSearchItem: {
+            /** Sha256 */
+            sha256: string;
+            /** Filename */
+            filename: string;
+            /** Mime */
+            mime: string;
+            /** Size */
+            size: number;
+            /** Created At */
+            created_at: number | null;
+            /** Url */
+            url: string;
+            /** Description */
+            description: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "described" | "failed" | "pending";
+        };
+        /** AssetSearchPayload */
+        AssetSearchPayload: {
+            /** Assets */
+            assets: components["schemas"]["AssetSearchItem"][];
         };
         /** AssetUploadResponse */
         AssetUploadResponse: {
@@ -815,6 +898,13 @@ export interface components {
             /** Uid */
             uid: string;
         };
+        /** DescribeStatusPayload */
+        DescribeStatusPayload: {
+            /** Enabled */
+            enabled: boolean;
+            /** Reason */
+            reason: string | null;
+        };
         /** GroupItem */
         GroupItem: {
             /** Uid */
@@ -938,6 +1028,15 @@ export interface components {
         ReorderSidebarEntriesRequest: {
             /** Order */
             order: number[];
+        };
+        /** ScanPayload */
+        ScanPayload: {
+            /** Queued */
+            queued: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Reason */
+            reason: string | null;
         };
         /** SearchBlockHit */
         SearchBlockHit: {
@@ -1863,6 +1962,38 @@ export interface operations {
             };
         };
     };
+    search_assets_api_assets_search_get: {
+        parameters: {
+            query?: {
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetSearchPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_asset_assets__sha256___filename__get: {
         parameters: {
             query?: never;
@@ -1915,6 +2046,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssetUploadResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    describe_status_api_assets_describe_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DescribeStatusPayload"];
+                };
+            };
+        };
+    };
+    scan_api_assets_scan_post: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanPayload"];
                 };
             };
             /** @description Validation Error */

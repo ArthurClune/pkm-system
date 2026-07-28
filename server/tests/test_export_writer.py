@@ -24,7 +24,8 @@ def graph(tmp_path):
         ("u2u2u2", 1, "u1u1u1", 0, f"![pic](/assets/{sha}/pic.png)", None, 0, None, None),
         ("u3u3u3", 2, None, 0, "journal refs ((u1u1u1))", None, 0, None, None),
         ])
-    db.execute("INSERT INTO assets VALUES (?,?,?,?,?)",
+    db.execute("INSERT INTO assets(sha256, filename, mime, size, created_at)"
+               " VALUES (?,?,?,?,?)",
                (sha, "pic.png", "image/png", 3, None))
     db.commit()
     live_assets = tmp_path / "live-assets"
@@ -76,7 +77,8 @@ def test_export_survives_overlong_asset_filename(tmp_path):
     db.row_factory = sqlite3.Row
     db.executescript(DDL)
     sha = "cd" * 32
-    db.execute("INSERT INTO assets VALUES (?,?,?,?,?)",
+    db.execute("INSERT INTO assets(sha256, filename, mime, size, created_at)"
+              " VALUES (?,?,?,?,?)",
               (sha, "x" * 300 + ".png", "image/png", 3, None))
     db.commit()
     live_assets = tmp_path / "live-assets"
@@ -98,7 +100,9 @@ def test_export_does_not_clobber_assets_that_collide_after_truncation(tmp_path):
     db.row_factory = sqlite3.Row
     db.executescript(DDL)
     sha_a, sha_b = "aa" * 32, "bb" * 32
-    db.executemany("INSERT INTO assets VALUES (?,?,?,?,?)", [
+    db.executemany(
+        "INSERT INTO assets(sha256, filename, mime, size, created_at)"
+        " VALUES (?,?,?,?,?)", [
         (sha_a, "A" * 250 + ".png", "image/png", 3, None),
         (sha_b, "A" * 250 + "Z" * 50 + ".png", "image/png", 3, None),
     ])

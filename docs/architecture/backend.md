@@ -260,6 +260,9 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | **Assets** | | |
 | POST | `/api/assets` | Multipart upload → content-addressed storage |
 | GET | `/assets/{sha256}/{filename}` | Serve by digest (immutable cache) |
+| GET | `/api/assets/describe-status` | Whether image descriptions are enabled, and why not if disabled |
+| POST | `/api/assets/scan?force` | Enqueue undescribed (or, with `force`, previously-failed) eligible images |
+| GET | `/api/assets/search?q&limit` | `LIKE` search over asset description + filename |
 | **Export** | | |
 | GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
 | GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
@@ -417,6 +420,43 @@ Testing: no real LLM anywhere in CI. `tests/fake_engine.py` is a scripted
 `AgentEngine` double that drives the service/route tests (including a
 threaded HTTP confirm round-trip) and the Playwright e2e —
 `tests/e2e_serve.py` always wires it in.
+
+## Image descriptions (pkm-zc0c)
+
+Uploaded raster images (`image/png`, `image/jpeg`, `image/webp`, `image/gif`
+— HEIC and SVG are uploadable but not describable) are captioned by an LLM
+so their content becomes findable; eligibility is MIME-only, so all
+`image/gif` uploads are enqueued regardless of animation, and an animated
+gif that OpenAI's vision API rejects surfaces as a `describe_error`, not a
+skip. The caption is a plain-text transcription of visible text plus one or
+two descriptive sentences, stored in new `assets` columns (`description`,
+`described_at`, `describe_error`).
+
+- **`pkm/describe/`**: `core.py` (Core) — eligibility (`describe_action`),
+  the OpenAI request payload, response parsing, and status derivation
+  (`described` / `failed` / `pending`); `service.py` (Shell) —
+  `DescribeService`, an in-memory `asyncio.Queue` drained by one sequential
+  background worker per process (deliberately rate-limit-friendly, not
+  parallel); `openai_client.py` (Shell) — the `ImageDescriber` implementation,
+  a single `httpx2` POST per image against the OpenAI chat-completions
+  endpoint (no OpenAI SDK); `routes.py` (Shell) — the status/scan endpoints
+  (asset search lives in `routes_assets.py` alongside the other asset routes).
+- **Config**: `OPENAI_API_KEY` (env, not `config.json` — never committed) is
+  the on/off switch; `image_descriptions` (bool, default on) and
+  `image_description_model` (default `gpt-4o-mini`) are `config.json` keys.
+  Missing key or `image_descriptions: false` degrades every entry point to a
+  no-op (`DescribeService.enabled = False`) rather than failing uploads;
+  `GET /api/assets/describe-status` and the `/settings` page surface *why*
+  it's off.
+- **Queue is in-memory only** — a restart drops whatever was pending. There
+  is no persistence or replay on startup; `POST /api/assets/scan` re-enqueues
+  every asset with `description IS NULL` (add `force=true` to retry rows that
+  previously failed) and is the recovery path after a restart or an outage.
+- **v1 search seam**: descriptions are queryable only via
+  `GET /api/assets/search` (`LIKE` over `description` + `filename`, personal
+  scale, no offline-parity burden) — they are **not** indexed into
+  `blocks_fts`/`pages_fts` or reachable from `GET /api/search`. Wiring into
+  the main FTS index is explicitly deferred (see the epic's scope notes).
 
 ## Generated artifacts and parity fixtures
 

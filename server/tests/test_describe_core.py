@@ -21,10 +21,14 @@ def test_describe_action(mime, size, expected):
     assert describe_action(mime, size) == expected
 
 
+_NO_KEY_REASON = ("OPENAI_API_KEY is not set and no openai_key file in the "
+                  "data directory")
+
+
 def test_enabled_reason():
     assert enabled_reason("sk-x", True) is None
-    assert enabled_reason(None, True) == "OPENAI_API_KEY is not set"
-    assert enabled_reason("", True) == "OPENAI_API_KEY is not set"
+    assert enabled_reason(None, True) == _NO_KEY_REASON
+    assert enabled_reason("", True) == _NO_KEY_REASON
     assert (enabled_reason("sk-x", False)
             == "disabled in config.json (image_descriptions=false)")
     # config off wins over missing key: the deliberate switch is the reason

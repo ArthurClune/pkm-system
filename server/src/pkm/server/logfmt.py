@@ -16,10 +16,13 @@ def request_line(client: str | None, method: str, path: str,
 
 def uvicorn_log_config() -> dict:
     """uvicorn's default logging dictconfig, plus timestamps on every
-    formatter and a `pkm.access` logger (the request-duration middleware)
-    replacing uvicorn's own duration-less access log (disabled in run.py).
-    Streams match uvicorn's defaults: lifecycle/errors to stderr, access
-    lines to stdout, so launchd's two log files keep their roles."""
+    formatter and `pkm.access` (the request-duration middleware, replacing
+    uvicorn's own duration-less access log disabled in run.py) and
+    `pkm.describe` (the image-description service) loggers wired to the
+    same stdout handler, so their INFO lines don't silently drop via
+    root-logger propagation. Streams match uvicorn's defaults:
+    lifecycle/errors to stderr, access lines to stdout, so launchd's two
+    log files keep their roles."""
     return {
         "version": 1,
         "disable_existing_loggers": False,
@@ -50,5 +53,7 @@ def uvicorn_log_config() -> dict:
             "uvicorn.error": {"level": "INFO"},
             "pkm.access": {"handlers": ["access"], "level": "INFO",
                            "propagate": False},
+            "pkm.describe": {"handlers": ["access"], "level": "INFO",
+                             "propagate": False},
         },
     }

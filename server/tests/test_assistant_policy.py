@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from pkm.assistant.policy import (
@@ -99,3 +101,17 @@ def test_system_prompt_mentions_tools_and_confirm():
     assert "search" in SYSTEM_PROMPT
     assert "backlinks" in SYSTEM_PROMPT
     assert "confirm" in SYSTEM_PROMPT.lower()
+
+
+def test_system_prompt_tells_model_to_cite_clickable_links():
+    # pkm-hjcc: the web panel renders bare /assets/<sha>/<filename> URLs and
+    # ((uid)) block refs as clickable links (pkm-gdi5), but only if the model
+    # emits them in its FIRST answer -- the prompt must say so explicitly.
+    assert "/assets/" in SYSTEM_PROMPT
+    assert "((" in SYSTEM_PROMPT
+
+
+def test_system_prompt_has_no_tool_count_to_drift():
+    # The prompt once said "ten PKM verbs" while listing eleven tools; a
+    # count-free sentence can't drift when tools are added.
+    assert re.search(r"\b(ten|eleven|twelve)\b", SYSTEM_PROMPT.lower()) is None

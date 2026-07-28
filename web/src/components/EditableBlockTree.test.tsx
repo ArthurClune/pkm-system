@@ -1284,11 +1284,29 @@ test("an unfocused valid Roam table with a heading renders inside div.block-text
   expect(rendered.closest("h1, h2, h3")).toBeNull();
 });
 
-test("multi-line text paste dispatches onPasteOutline with the caret range", () => {
+// pkm-fwa2: plain paste is ALWAYS native; only the Shift-Cmd-V chord (armed
+// by its keydown, consumed by the paste event that follows) splits the
+// clipboard into an outline.
+const pressPasteChord = (ta: HTMLTextAreaElement, mods: object = {}) =>
+  fireEvent.keyDown(ta, { key: "v", metaKey: true, shiftKey: true, ...mods });
+
+test("multi-line paste WITHOUT the chord keeps the native textarea behaviour", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const prevented = !fireEvent.paste(focusedTextarea(), {
+    clipboardData: { files: [], getData: () => "a\n\tb" },
+  });
+  expect(prevented).toBe(false);
+  expect(h.onPasteOutline).not.toHaveBeenCalled();
+});
+
+test("Shift-Cmd-V arms the split: the next paste dispatches onPasteOutline "
+     + "with the caret range", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });
   const ta = focusedTextarea();
   ta.setSelectionRange(2, 5);
+  pressPasteChord(ta);
   const prevented = !fireEvent.paste(ta, {
     clipboardData: { files: [], getData: () => "a\n\tb" },
   });
@@ -1296,32 +1314,66 @@ test("multi-line text paste dispatches onPasteOutline with the caret range", () 
   expect(h.onPasteOutline).toHaveBeenCalledWith("u1", 2, 5, "a\n\tb");
 });
 
-test("single-line paste keeps the native textarea behaviour", () => {
+test("Ctrl-Shift-V (non-Mac) arms the split too", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });
-  const prevented = !fireEvent.paste(focusedTextarea(), {
-    clipboardData: { files: [], getData: () => "one line" },
+  const ta = focusedTextarea();
+  pressPasteChord(ta, { metaKey: false, ctrlKey: true });
+  fireEvent.paste(ta, {
+    clipboardData: { files: [], getData: () => "a\nb" },
+  });
+  expect(h.onPasteOutline).toHaveBeenCalled();
+});
+
+test("the arm is consumed by one paste: a second paste is native again", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  pressPasteChord(ta);
+  fireEvent.paste(ta, {
+    clipboardData: { files: [], getData: () => "a\nb" },
+  });
+  expect(h.onPasteOutline).toHaveBeenCalledTimes(1);
+  const prevented = !fireEvent.paste(ta, {
+    clipboardData: { files: [], getData: () => "a\nb" },
+  });
+  expect(prevented).toBe(false);
+  expect(h.onPasteOutline).toHaveBeenCalledTimes(1);
+});
+
+test("any other keydown clears a stale arm (chord pressed, no paste came)", () => {
+  const h = handlers();
+  mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  pressPasteChord(ta);
+  fireEvent.keyDown(ta, { key: "v", metaKey: true }); // plain Cmd-V keydown
+  const prevented = !fireEvent.paste(ta, {
+    clipboardData: { files: [], getData: () => "a\nb" },
   });
   expect(prevented).toBe(false);
   expect(h.onPasteOutline).not.toHaveBeenCalled();
 });
 
-test("a single content line with a trailing newline also keeps the native "
-     + "textarea behaviour (no structure to intercept for)", () => {
+test("an armed single-line paste stays native (no structure to split; a "
+     + "tree-direct update of the focused block would fight the draft)", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });
-  const prevented = !fireEvent.paste(focusedTextarea(), {
+  const ta = focusedTextarea();
+  pressPasteChord(ta);
+  const prevented = !fireEvent.paste(ta, {
     clipboardData: { files: [], getData: () => "hello\n" },
   });
   expect(prevented).toBe(false);
   expect(h.onPasteOutline).not.toHaveBeenCalled();
 });
 
-test("file paste still routes to onFiles, never onPasteOutline", () => {
+test("file paste still routes to onFiles, never onPasteOutline, even armed", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  pressPasteChord(ta);
   const file = new File(["x"], "x.png", { type: "image/png" });
-  fireEvent.paste(focusedTextarea(), {
+  fireEvent.paste(ta, {
     clipboardData: { files: [file], getData: () => "a\nb" },
   });
   expect(h.onFiles).toHaveBeenCalled();
@@ -1331,7 +1383,9 @@ test("file paste still routes to onFiles, never onPasteOutline", () => {
 test("read-only outlines do not intercept text pastes", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 }, true);
-  fireEvent.paste(focusedTextarea(), {
+  const ta = focusedTextarea();
+  pressPasteChord(ta);
+  fireEvent.paste(ta, {
     clipboardData: { files: [], getData: () => "a\nb" },
   });
   expect(h.onPasteOutline).not.toHaveBeenCalled();

@@ -1,5 +1,6 @@
-// pkm-tu3a: pasting an indented outline creates real hierarchy, and a
-// copied multi-block selection round-trips through paste.
+// pkm-tu3a/pkm-fwa2: Shift-Cmd-V pastes an indented outline as real
+// hierarchy (and a copied multi-block selection round-trips through it);
+// plain Cmd-V always stays native, whatever the clipboard looks like.
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
@@ -27,23 +28,53 @@ async function openFreshPage(page: Page, title: string) {
   await expect(page.locator("h1.page-title")).toHaveText(title);
 }
 
-async function pasteText(page: Page, text: string) {
-  await input(page).evaluate((el: HTMLTextAreaElement, clip: string) => {
-    const dt = new DataTransfer();
-    dt.setData("text/plain", clip);
-    el.dispatchEvent(new ClipboardEvent("paste", {
-      clipboardData: dt, bubbles: true, cancelable: true,
-    }));
-  }, text);
+/** Dispatch a synthetic paste. With `chord`, a Shift-Cmd-V keydown goes
+ * first — that's what arms the outline split (pkm-fwa2); a real chord press
+ * can't be used because Playwright's trusted keystroke would also trigger
+ * the browser's own paste from the real (unknown) CI clipboard. Returns
+ * whether the app intercepted the paste (called preventDefault). */
+async function pasteText(page: Page, text: string, chord = false) {
+  return await input(page).evaluate(
+    (el: HTMLTextAreaElement, arg: { clip: string; chord: boolean }) => {
+      if (arg.chord) {
+        el.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "v", metaKey: true, shiftKey: true,
+          bubbles: true, cancelable: true,
+        }));
+      }
+      const dt = new DataTransfer();
+      dt.setData("text/plain", arg.clip);
+      return !el.dispatchEvent(new ClipboardEvent("paste", {
+        clipboardData: dt, bubbles: true, cancelable: true,
+      }));
+    }, { clip: text, chord });
 }
 
-test("pasting an indented outline creates nested blocks", async ({ page }) => {
+test("plain paste of multi-line text is never intercepted (pkm-fwa2)", async ({ page }) => {
+  await login(page);
+  const title = `Paste Native ${Date.now()}`;
+  await openFreshPage(page, title);
+
+  await page.getByText("Click to start writing…").click();
+  await input(page).fill("seed ");
+  // No chord: the app must leave the event to the browser. A synthetic
+  // (untrusted) paste never performs the native splice, so the assertion is
+  // that nothing intercepted it and no blocks were created from it.
+  const intercepted = await pasteText(page, "alpha\n\tbeta\ndelta");
+  expect(intercepted).toBe(false);
+  await waitForServerText(page, title, "seed");
+  await input(page).press("Escape");
+  await expect(page.locator(".block-text")).toHaveCount(1);
+  await expect(page.locator(".block-text")).toHaveText(/seed/);
+});
+
+test("Shift-Cmd-V pastes an indented outline as nested blocks", async ({ page }) => {
   await login(page);
   const title = `Paste Target ${Date.now()}`;
   await openFreshPage(page, title);
 
   await page.getByText("Click to start writing…").click();
-  await pasteText(page, "alpha\n\tbeta\n\t\tgamma\ndelta");
+  await pasteText(page, "alpha\n\tbeta\n\t\tgamma\ndelta", true);
   // focus lands on the last-created block ("delta"); it renders as a live
   // textarea rather than a ".block-text" span until blurred, so blur it
   // before counting rendered text nodes.
@@ -77,7 +108,7 @@ test("copy of a multi-block selection round-trips hierarchy", async ({ page }) =
   await openFreshPage(page, src);
 
   await page.getByText("Click to start writing…").click();
-  await pasteText(page, "one\n\ttwo\n\t\tthree");
+  await pasteText(page, "one\n\ttwo\n\t\tthree", true);
   await waitForServerText(page, src, "three");
 
   // capture the clipboard: writeText is patched to window.__copied (pattern
@@ -120,7 +151,7 @@ test("copy of a multi-block selection round-trips hierarchy", async ({ page }) =
   const dst = `Paste Dst ${Date.now()}`;
   await openFreshPage(page, dst);
   await page.getByText("Click to start writing…").click();
-  await pasteText(page, copied!);
+  await pasteText(page, copied!, true);
   await waitForServerText(page, dst, "three");
   const res = await page.request.get(`/api/page/${encodeURIComponent(dst)}`);
   const body = await res.json() as {

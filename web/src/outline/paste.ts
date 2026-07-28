@@ -65,11 +65,31 @@ export function parseOutlineForest(text: string): PastedNode[] {
   return roots;
 }
 
-/** Whether onPaste should intercept: the parse yields actual structure —
- * more than one node, or a single node with children. A single content
- * line (even with a trailing newline) keeps the native textarea splice: a
- * tree-direct update_text on the focused block would fight BlockInput's
- * dirty-draft adoption, and there'd be no created block to move focus to. */
+export interface PasteChordKeys {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+}
+
+/** Shift-Cmd-V (Ctrl-Shift-V on non-Mac): the explicit "split this paste
+ * into an outline" chord (pkm-fwa2). Plain paste always stays native — the
+ * pkm-tu3a always-intercept policy was reverted after live use showed prose
+ * belongs in one block. A ClipboardEvent carries no modifier state, so the
+ * shell arms on this chord's keydown and consumes the arm on the next
+ * paste event. */
+export function isOutlinePasteChord(k: PasteChordKeys): boolean {
+  return (k.metaKey || k.ctrlKey) && k.shiftKey && !k.altKey
+    && k.key.toLowerCase() === "v";
+}
+
+/** Whether an ARMED paste should intercept: the parse yields actual
+ * structure — more than one node, or a single node with children. A single
+ * content line (even with a trailing newline) keeps the native textarea
+ * splice even under Shift-Cmd-V: a tree-direct update_text on the focused
+ * block would fight BlockInput's dirty-draft adoption, and there'd be no
+ * created block to move focus to. */
 export function isOutlinePaste(text: string): boolean {
   const forest = parseOutlineForest(text);
   return forest.length > 1

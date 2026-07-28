@@ -3,6 +3,19 @@
 Date: 2026-07-27
 Status: designed during an autonomous session; decisions recorded inline
 
+> **Amended 2026-07-28 (pkm-fwa2).** The always-intercept policy below was
+> reverted after one evening of live use: silently splitting multi-line
+> NON-indented text (prose, code, anything meant for one block) was not an
+> improvement. The re-landed behaviour keeps everything in this document
+> EXCEPT the trigger: plain Cmd-V is now always native, and the outline
+> split runs only on an explicit **Shift-Cmd-V** (Ctrl-Shift-V on non-Mac).
+> A `ClipboardEvent` carries no modifier state, so the chord's keydown arms
+> a shell-side flag (`outlinePasteArmedRef` in `EditableBlockTree.tsx`) that
+> the next paste event consumes; any other keydown clears it. The
+> single-content-line native fallback (rule 3) still applies even when
+> armed, for the same dirty-draft reason. Chord predicate:
+> `isOutlinePasteChord` in `paste.ts`.
+
 ## Goal
 
 Pasting multi-line text into a block turns each line into its own block, and

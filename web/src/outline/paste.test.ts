@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isOutlinePaste, parseOutlineForest, planOutlinePaste } from "./paste";
+import { isOutlinePaste, isOutlinePasteChord, parseOutlineForest,
+         planOutlinePaste } from "./paste";
 import type { PastedNode } from "./paste";
 import { block } from "../test-helpers";
 
@@ -113,6 +114,25 @@ describe("isOutlinePaste", () => {
     expect(isOutlinePaste("just one line")).toBe(false);
     expect(isOutlinePaste("")).toBe(false);
     expect(isOutlinePaste("\n \n")).toBe(false);
+  });
+});
+
+describe("isOutlinePasteChord", () => {
+  const chord = { key: "v", metaKey: true, ctrlKey: false, altKey: false,
+                  shiftKey: true };
+
+  it("matches Shift-Cmd-V and the non-Mac Ctrl-Shift-V variant", () => {
+    expect(isOutlinePasteChord(chord)).toBe(true);
+    expect(isOutlinePasteChord({ ...chord, key: "V" })).toBe(true);
+    expect(isOutlinePasteChord({ ...chord, metaKey: false, ctrlKey: true }))
+      .toBe(true);
+  });
+
+  it("rejects plain paste, missing modifiers, Alt, and other keys", () => {
+    expect(isOutlinePasteChord({ ...chord, shiftKey: false })).toBe(false);
+    expect(isOutlinePasteChord({ ...chord, metaKey: false })).toBe(false);
+    expect(isOutlinePasteChord({ ...chord, altKey: true })).toBe(false);
+    expect(isOutlinePasteChord({ ...chord, key: "c" })).toBe(false);
   });
 });
 

@@ -63,6 +63,7 @@ See "While blocks are selected" below for what you can do next.
 | Tab / Shift+Tab | Indent / outdent |
 | Shift+Cmd+↑ / Shift+Cmd+↓ | Move the block and its whole subtree up/down, keeping its depth, across parents where needed |
 | Backspace at the start of a block | Merge into the previous block |
+| Shift+Cmd+V (or Ctrl+Shift+V) | Paste multi-line text as an outline: each line becomes a block, indentation (tabs, 2 or 4 spaces) becomes real nesting. Plain Cmd+V always pastes into the current block |
 
 ### Formatting and editing
 
@@ -122,7 +123,7 @@ The selection owns the keyboard until it's cleared.
 | Ctrl+Cmd+↑/↓ or Shift+↑/↓ | Extend or shrink the selection one block at a time |
 | Shift+Cmd+↑ / Shift+Cmd+↓ | Move all selected blocks up/down as one group, keeping their structure |
 | Tab / Shift+Tab | Indent / outdent all selected blocks together |
-| Cmd+C (or Ctrl+C) | Copy the selected blocks' text |
+| Cmd+C (or Ctrl+C) | Copy the selected blocks' text, one line per block with nesting as tabs — Shift+Cmd+V pastes it back with the hierarchy intact |
 | Backspace or Delete | Delete the selected blocks (asks first when more than 5) |
 | ↑ / ↓ (no modifier) | Drop the selection and go back to editing |
 | Escape | Clear the selection |

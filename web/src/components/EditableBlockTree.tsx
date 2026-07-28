@@ -18,7 +18,7 @@ import { decideEditorKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
 import { findNode } from "../outline/tree";
-import { isOutlinePaste } from "../outline/paste";
+import { isOutlinePaste, isOutlinePasteChord } from "../outline/paste";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
 import { pagePath } from "../paths";
@@ -55,8 +55,9 @@ export interface OutlineHandlers {
   onSetViewType(uid: string, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
-  /** Multi-line text paste (pkm-tu3a): parse outline indentation into real
-   * blocks anchored at the caret. Single-line pastes stay native. */
+  /** Shift-Cmd-V outline paste (pkm-tu3a/pkm-fwa2): parse the clipboard's
+   * indentation into real blocks anchored at the caret. Plain Cmd-V and
+   * single-line clipboards stay native. */
   onPasteOutline(uid: string, selStart: number, selEnd: number,
                  text: string): void;
   /** Begin a multi-block selection from `uid` towards `dir` (Shift+Arrow at a
@@ -413,6 +414,12 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   // Caret offset to restore once an adoption's setDraft has committed (see
   // the layout effect below); null when no restore is pending.
   const pendingCaretRef = useRef<number | null>(null);
+  // Armed by a Shift-Cmd-V keydown, consumed by the paste event that follows
+  // (pkm-fwa2): a ClipboardEvent carries no modifier state, so this is how
+  // the paste handler knows the user asked for the outline split. Any other
+  // keydown clears it, so a stale arm (chord pressed but no paste delivered)
+  // can't hijack a later plain Cmd-V.
+  const outlinePasteArmedRef = useRef(false);
   // The "/" trigger is served from the static command list, not the titles
   // API, so only fetch titles for ref/tag contexts.
   const options = useTitleOptions(ac && ac.kind !== "command" ? ac.query : null);
@@ -575,6 +582,10 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   // returned semantic decision (preventDefault, blur, navigation, edits).
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
+    // Arm the outline split on Shift-Cmd-V, clear it on anything else. No
+    // preventDefault: the browser's own paste must still fire so onPaste
+    // below receives the clipboard.
+    outlinePasteArmedRef.current = isOutlinePasteChord(e);
     // Display-line measurement is real layout work, so it's only done for
     // the plain (unmodified) arrow that would actually consult it (pkm-2867)
     // — never for the Shift/Meta/Ctrl chords, which have their own logic,
@@ -688,6 +699,8 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   };
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const armed = outlinePasteArmedRef.current;
+    outlinePasteArmedRef.current = false; // one arm serves exactly one paste
     if (readOnly) return;
     const files = Array.from(e.clipboardData.files);
     if (files.length > 0) {
@@ -696,7 +709,9 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
       return;
     }
     const text = e.clipboardData.getData("text/plain");
-    if (!isOutlinePaste(text)) return; // native splice for single lines
+    // Plain paste is always native (pkm-fwa2); the split needs both the
+    // Shift-Cmd-V arm and a clipboard with actual structure to splice into.
+    if (!armed || !isOutlinePaste(text)) return;
     e.preventDefault();
     handlers.onPasteOutline(node.uid, e.currentTarget.selectionStart,
                             e.currentTarget.selectionEnd, text);

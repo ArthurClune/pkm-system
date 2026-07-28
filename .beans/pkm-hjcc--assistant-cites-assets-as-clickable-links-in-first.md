@@ -1,11 +1,11 @@
 ---
 # pkm-hjcc
 title: Assistant cites assets as clickable links in first pass
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-28T11:02:16Z
-updated_at: 2026-07-28T11:12:44Z
+updated_at: 2026-07-28T11:18:50Z
 ---
 
 SYSTEM_PROMPT tweak so first-pass answers cite assets by full /assets/<sha>/<filename> URL (rendered clickable by pkm-gdi5) and blocks as ((uid)); also de-drift the 'ten PKM verbs' count. Spec: docs/superpowers/specs/2026-07-28-assistant-first-pass-asset-links-design.md

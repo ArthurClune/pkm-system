@@ -93,16 +93,20 @@ LLM image descriptions (pkm-zc0c) are off until an OpenAI key is available.
 No plist edits needed — drop the key into a file and restart:
 
 ```bash
-echo -n "sk-..." > "$PKM_HOME/data/openai_key"
-chmod 600 "$PKM_HOME/data/openai_key"
+echo -n "sk-..." > "$PKM_HOME/openai_key"
+chmod 600 "$PKM_HOME/openai_key"
 launchctl kickstart -k "gui/$UID/com.$USER.pkm.server"
 ```
 
-The path is configurable via the `openai_api_key_file` key in `config.json`
-(resolved relative to `config.json`, like `db_file`); an `OPENAI_API_KEY` in
-the service environment overrides the file if both are present. Check
-`/settings` (or `GET /api/assets/describe-status`) after restarting to
-confirm it picked up the key.
+Note this lives at the `PKM_HOME` root, not under `data/` — the data dir
+holds servable/exportable content, and the key shouldn't sit where a
+future export/browse feature might sweep it up. The path is configurable
+via the `openai_api_key_file` key in `config.json` (resolved relative to
+`config.json`, like `db_file`); the file wins over an `OPENAI_API_KEY` in
+the service environment if both are present, so a pkm-specific key isn't
+shadowed by a general-purpose one. Check `/settings` (or
+`GET /api/assets/describe-status`) after restarting to confirm it picked
+up the key.
 
 ## Assistant prerequisites
 

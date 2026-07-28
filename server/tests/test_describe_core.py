@@ -21,8 +21,7 @@ def test_describe_action(mime, size, expected):
     assert describe_action(mime, size) == expected
 
 
-_NO_KEY_REASON = ("OPENAI_API_KEY is not set and no openai_key file in the "
-                  "data directory")
+_NO_KEY_REASON = "no openai_key file and OPENAI_API_KEY is not set"
 
 
 def test_enabled_reason():

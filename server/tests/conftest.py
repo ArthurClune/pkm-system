@@ -128,7 +128,7 @@ def describe_disabled_client(seeded_config) -> Iterator[TestClient]:
 
     service = DescribeService(
         seeded_config, None,
-        "OPENAI_API_KEY is not set and no openai_key file in the data directory")
+        "no openai_key file and OPENAI_API_KEY is not set")
     with TestClient(create_app(seeded_config, describe_service=service)) as c:
         r = c.post("/api/login", json={"password": TEST_PASSWORD})
         assert r.status_code == 200

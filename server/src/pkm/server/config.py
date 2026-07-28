@@ -21,10 +21,14 @@ class Config:
     image_descriptions: bool = True
     image_description_model: str = "gpt-4o-mini"
     # Where the OpenAI key lives on disk (mode 600, never committed) so the
-    # feature can be enabled without launchd plist surgery; OPENAI_API_KEY
-    # env var still takes precedence when set (see
+    # feature can be enabled without launchd plist surgery. Default is one
+    # level above the data dir (PKM_HOME root, resolved relative to
+    # config.json's parent): the data dir holds servable/exportable content
+    # (assets, DB), and the key shouldn't sit somewhere a future
+    # export/browse feature might sweep it up. The key file wins over the
+    # OPENAI_API_KEY env var when both are present (see
     # server/_default_describe_service).
-    openai_api_key_file: Path = Path("openai_key")
+    openai_api_key_file: Path = Path("../openai_key")
 
 
 def load_config(path: Path) -> Config:
@@ -43,5 +47,5 @@ def load_config(path: Path) -> Config:
         image_descriptions=bool(raw.get("image_descriptions", True)),
         image_description_model=str(raw.get("image_description_model",
                                             "gpt-4o-mini")),
-        openai_api_key_file=base / raw.get("openai_api_key_file", "openai_key"),
+        openai_api_key_file=base / raw.get("openai_api_key_file", "../openai_key"),
     )

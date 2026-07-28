@@ -44,10 +44,12 @@ def _read_key_file(path: Path) -> str | None:
 
 
 def _default_describe_service(config: Config) -> DescribeService:
-    # Precedence: OPENAI_API_KEY env var, then the data-dir key file (so
-    # prod can enable the feature by dropping a file, no plist edits).
-    api_key = (os.environ.get("OPENAI_API_KEY")
-              or _read_key_file(config.openai_api_key_file))
+    # Precedence: the key file first, then OPENAI_API_KEY env var. A user
+    # may have a general-purpose OPENAI_API_KEY in their environment but
+    # want a pkm-specific key on disk for its own cost attribution, so the
+    # file — the pkm-specific, deliberately-provisioned source — wins.
+    api_key = (_read_key_file(config.openai_api_key_file)
+              or os.environ.get("OPENAI_API_KEY") or None)
     reason = enabled_reason(api_key, config.image_descriptions)
     if reason is not None:
         return DescribeService(config, None, reason)

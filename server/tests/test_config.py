@@ -43,7 +43,9 @@ def test_image_description_overrides(tmp_path):
 
 def test_openai_api_key_file_default(tmp_path):
     cfg = load_config(write_config(tmp_path, {}))
-    assert cfg.openai_api_key_file == tmp_path / "openai_key"
+    # Default lives one level above the data dir (PKM_HOME root), never
+    # inside it: this is a pure path assertion, no file is created here.
+    assert cfg.openai_api_key_file == tmp_path / "../openai_key"
 
 
 def test_openai_api_key_file_override(tmp_path):

@@ -37,6 +37,16 @@ def test_uvicorn_log_config_routes_pkm_access_to_stdout():
     assert handler["stream"] == "ext://sys.stdout"
 
 
+def test_uvicorn_log_config_routes_pkm_describe_to_stdout():
+    config = uvicorn_log_config()
+    describe_logger = config["loggers"]["pkm.describe"]
+    assert describe_logger["level"] == "INFO"
+    assert describe_logger["propagate"] is False
+    [handler_name] = describe_logger["handlers"]
+    handler = config["handlers"][handler_name]
+    assert handler["stream"] == "ext://sys.stdout"
+
+
 @pytest.fixture()
 def logged_app() -> FastAPI:
     app = FastAPI()

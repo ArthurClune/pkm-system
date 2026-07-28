@@ -19,6 +19,7 @@ from pkm.filenames import safe_filename
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
+from pkm.server.fts import phrase_query
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 from pkm.server.response_models import AssetSearchPayload, AssetUploadResponse
 
@@ -52,6 +53,24 @@ INLINE_MIME = frozenset({
 })
 
 
+def referencing_blocks(db: sqlite3.Connection, sha256: str) -> list[dict]:
+    """All blocks whose text contains the asset's sha, with their page
+    titles. FTS5 unicode61 keeps a 64-hex sha as one token, so an
+    exact-phrase MATCH on the sha finds every block embedding the
+    /assets/<sha>/<filename> URL (same trick pkm-gdi5 uses client-side).
+    Uncapped: shared with pkm-jdu3's delete-warning/orphan checks, which
+    need the complete list."""
+    rows = db.execute(
+        """SELECT b.uid, p.title AS page_title
+             FROM blocks_fts f
+             JOIN blocks b ON b.rowid = f.rowid
+             JOIN pages p ON p.id = b.page_id
+            WHERE blocks_fts MATCH ?
+            ORDER BY p.title, b.uid""",
+        (phrase_query(sha256),)).fetchall()
+    return [{"uid": r["uid"], "page_title": r["page_title"]} for r in rows]
+
+
 @router.get("/api/assets/search", response_model=AssetSearchPayload)
 def search_assets(q: str = "", limit: int = 50,
                   db: sqlite3.Connection = Depends(get_db)) -> dict:
@@ -79,6 +98,7 @@ def search_assets(q: str = "", limit: int = 50,
         "url": f"/assets/{r['sha256']}/{r['filename']}",
         "description": r["description"],
         "status": derive_status(r["description"], r["describe_error"]),
+        "refs": referencing_blocks(db, r["sha256"]),
     } for r in rows]}
 
 

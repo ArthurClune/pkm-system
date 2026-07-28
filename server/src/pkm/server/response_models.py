@@ -158,6 +158,11 @@ class AssetUploadResponse(BaseModel):
     url: str
 
 
+class AssetRef(BaseModel):
+    uid: str
+    page_title: str
+
+
 class AssetSearchItem(BaseModel):
     sha256: str
     filename: str
@@ -167,6 +172,7 @@ class AssetSearchItem(BaseModel):
     url: str
     description: str | None
     status: Literal["described", "failed", "pending"]
+    refs: list[AssetRef]
 
 
 class AssetSearchPayload(BaseModel):

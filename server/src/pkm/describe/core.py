@@ -49,8 +49,7 @@ def enabled_reason(api_key: str | None, config_enabled: bool) -> str | None:
     if not config_enabled:
         return "disabled in config.json (image_descriptions=false)"
     if not api_key:
-        return ("OPENAI_API_KEY is not set and no openai_key file in the "
-                "data directory")
+        return "no openai_key file and OPENAI_API_KEY is not set"
     return None
 
 

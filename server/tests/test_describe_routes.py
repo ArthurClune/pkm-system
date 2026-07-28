@@ -6,8 +6,7 @@ from fake_describer import PNG
 
 from pkm.describe.openai_client import OpenAIDescriber
 
-_NO_KEY_REASON = ("OPENAI_API_KEY is not set and no openai_key file in the "
-                  "data directory")
+_NO_KEY_REASON = "no openai_key file and OPENAI_API_KEY is not set"
 
 
 def _upload(client, content=PNG, name="graph.png", mime="image/png"):
@@ -137,6 +136,19 @@ def test_default_service_enabled_with_key_file(seeded_config):
     service = _default_describe_service(seeded_config)
     assert service.enabled is True
     assert service.reason is None
+    assert isinstance(service._describer, OpenAIDescriber)
+    assert service._describer._headers["Authorization"] == "Bearer sk-file-test"
+
+
+def test_default_service_key_file_wins_over_env_var(seeded_config, monkeypatch):
+    """Precedence flip (pkm-04a2): a pkm-specific key file beats a general
+    ambient OPENAI_API_KEY, so cost-attribution keys aren't shadowed by
+    whatever's in the shell environment."""
+    from pkm.server.app import _default_describe_service
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-test")
+    seeded_config.openai_api_key_file.write_text("sk-file-test\n", encoding="utf-8")
+    service = _default_describe_service(seeded_config)
+    assert service.enabled is True
     assert isinstance(service._describer, OpenAIDescriber)
     assert service._describer._headers["Authorization"] == "Bearer sk-file-test"
 

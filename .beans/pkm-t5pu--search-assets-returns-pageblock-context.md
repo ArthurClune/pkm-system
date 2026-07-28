@@ -1,11 +1,11 @@
 ---
 # pkm-t5pu
 title: search_assets returns page/block context
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-28T10:37:46Z
-updated_at: 2026-07-28T18:19:53Z
+updated_at: 2026-07-28T18:37:07Z
 ---
 
 The assistant's search_assets MCP tool returns only asset metadata (sha256, filename, mime, size, url, description, status) — no page_title or block uid for blocks that reference the asset. The model therefore can only cite bare /assets/ URLs in replies (now clickable via pkm-gdi5) and cannot emit ((uid)) block refs or name the containing page.

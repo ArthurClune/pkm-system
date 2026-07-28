@@ -64,14 +64,3 @@ Related to pkm-0ovd, which adds atomic one-level indentation for existing multi-
   intercepted; it takes the native textarea splice rather than a
   tree-direct update, so it can't fight `BlockInput`'s dirty-draft
   adoption (pkm-tu3a final-review finding).
-
-## Reverted 2026-07-27
-
-Reverted on main the same evening it shipped (revert of merge adf8c80):
-after live use, Arthur found that splitting multi-line NON-indented text
-into multiple blocks is not clearly an improvement (e.g. pasting prose or
-text destined for a single block). The implementation remains in history
-(branch commits 3a4f344..040f34c, merge adf8c80) for reuse. Rework tracked
-in a follow-up bean: paste UX to be decided by experimentation — ideas
-include only intercepting indented/structured clipboards and a
-Shift-Cmd-V "paste into single block" escape hatch.

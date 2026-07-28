@@ -39,7 +39,7 @@ function done(blocks: BlockNode[], pageTitle: string, ops: BlockOp[],
 
 /** order_idx that inserts immediately after siblings[index]: the next
  * sibling's order_idx (insert before it), or last + 1. */
-function idxAfter(siblings: BlockNode[], index: number): number {
+export function idxAfter(siblings: BlockNode[], index: number): number {
   const next = siblings[index + 1];
   return next ? next.order_idx : siblings[index].order_idx + 1;
 }

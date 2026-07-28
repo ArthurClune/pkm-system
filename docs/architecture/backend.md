@@ -423,12 +423,14 @@ threaded HTTP confirm round-trip) and the Playwright e2e —
 
 ## Image descriptions (pkm-zc0c)
 
-Uploaded raster images (`image/png`, `image/jpeg`, `image/webp`,
-non-animated `image/gif` — HEIC and SVG are uploadable but not describable)
-are captioned by an LLM so their content becomes findable; the caption is a
-plain-text transcription of visible text plus one or two descriptive
-sentences, stored in new `assets` columns (`description`, `described_at`,
-`describe_error`).
+Uploaded raster images (`image/png`, `image/jpeg`, `image/webp`, `image/gif`
+— HEIC and SVG are uploadable but not describable) are captioned by an LLM
+so their content becomes findable; eligibility is MIME-only, so all
+`image/gif` uploads are enqueued regardless of animation, and an animated
+gif that OpenAI's vision API rejects surfaces as a `describe_error`, not a
+skip. The caption is a plain-text transcription of visible text plus one or
+two descriptive sentences, stored in new `assets` columns (`description`,
+`described_at`, `describe_error`).
 
 - **`pkm/describe/`**: `core.py` (Core) — eligibility (`describe_action`),
   the OpenAI request payload, response parsing, and status derivation

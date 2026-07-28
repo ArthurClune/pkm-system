@@ -15,14 +15,14 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 @router.get("/api/assets/describe-status", response_model=DescribeStatusPayload)
-def describe_status(request: Request) -> dict:
+async def describe_status(request: Request) -> dict:
     service = request.app.state.describe
     return {"enabled": service.enabled, "reason": service.reason}
 
 
 @router.post("/api/assets/scan", response_model=ScanPayload)
-def scan(request: Request, force: bool = False,
-         db: sqlite3.Connection = Depends(get_db)) -> dict:
+async def scan(request: Request, force: bool = False,
+               db: sqlite3.Connection = Depends(get_db)) -> dict:
     service = request.app.state.describe
     queued = service.scan(db, force=force)
     return {"queued": queued, "enabled": service.enabled,

@@ -8,9 +8,11 @@ from __future__ import annotations
 from typing import Any, Literal
 
 # The image subset of ALLOWED_UPLOAD_MIME that OpenAI vision accepts
-# (png/jpeg/webp/non-animated gif). HEIC and SVG are uploadable but not
-# describable, so they are skipped silently — "no description" is the
-# normal state for them, not a failure.
+# (png/jpeg/webp/gif). HEIC and SVG are uploadable but not describable, so
+# they are skipped silently — "no description" is the normal state for
+# them, not a failure. All image/gif uploads are enqueued regardless of
+# animation (this module can't detect it); an animated gif that OpenAI
+# rejects surfaces as describe_error, not a skip.
 ELIGIBLE_MIME = frozenset({
     "image/png", "image/jpeg", "image/webp", "image/gif",
 })

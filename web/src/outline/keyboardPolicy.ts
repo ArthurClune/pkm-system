@@ -65,7 +65,11 @@ const NONE: KeyDecision = { type: "none" };
 // Modifier convention: letter-chord editing shortcuts are Meta-only with
 // Ctrl/Alt/Shift excluded — Ctrl+letter is left to the emacs-style textarea
 // bindings macOS provides (Ctrl-K kill-line, Ctrl-B back-char, ...), and
-// Shift chords stay free for future shortcuts. Only shortcuts mirroring a
+// Shift chords stay free for future shortcuts. (Shift-Cmd-V is one such:
+// it deliberately falls through this policy as NONE — the shell observes
+// its keydown to arm the outline-paste split, but the browser's own paste
+// must still fire, so there is no decision to make here. See paste.ts.)
+// Only shortcuts mirroring a
 // system-wide convention (undo/redo, todo-cycle on Enter) accept Meta or
 // Ctrl so they also work on non-Mac keyboards.
 const META_WRAP_EDITS: Partial<Record<string,

@@ -253,7 +253,7 @@ class ClaudeEngine:
             max_turns=MAX_TURNS,
             # the CLI defers MCP tools behind ToolSearch by default, which
             # tools=[] would make unreachable -- disabling tool search loads
-            # the ten pkm tools eagerly; verified live 2026-07-27
+            # the pkm tools eagerly; verified live 2026-07-27
             env={"ENABLE_TOOL_SEARCH": "false"},
         )
         client = self._client_factory(options)

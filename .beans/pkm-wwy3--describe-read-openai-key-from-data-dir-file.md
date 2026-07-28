@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-07-28T06:35:33Z
-updated_at: 2026-07-28T06:42:23Z
+updated_at: 2026-07-28T06:49:08Z
 ---
 
 Follow-up to pkm-zc0c: _default_describe_service reads OPENAI_API_KEY env var only; prod launchd plist has no env block. Add optional config.json key openai_api_key_file (default 'openai_key', resolved relative to config.json like db_file); env var still takes precedence; missing both => disabled with clear reason. Update backend.md + deploy/README.md. Key file lives at PKM_HOME/data/openai_key (mode 600).
@@ -29,3 +29,7 @@ Follow-up to pkm-zc0c: _default_describe_service reads OPENAI_API_KEY env var on
 - [x] `deploy/README.md` gained an "Image descriptions (optional)" section
 - [x] `uv run pytest -q` (818 passed, coverage 95.88%), `uv run pyrefly
       check` (0 errors), `uv run ruff check` (clean)
+
+## Summary of Changes
+
+Merged to main at 14a5b09 (2026-07-28). Config gains optional openai_api_key_file (default 'openai_key', resolved next to config.json like db_file). _default_describe_service: OPENAI_API_KEY env var wins, else stripped key-file contents; missing/empty/unreadable/undecodable file degrades to disabled (OSError + UnicodeDecodeError both caught — review fix). enabled_reason message now names both sources. Docs: backend.md config bullet + deploy/README.md 'Image descriptions (optional)' note (no plist changes needed). 820 server tests, 95.88% cov, pyrefly/ruff clean. Prod key moved to ~/.config/pkm/data/openai_key (mode 600).

@@ -103,6 +103,24 @@ def test_default_service_disabled_without_key(seeded_config):
     assert service.reason == _NO_KEY_REASON
 
 
+def test_default_service_disabled_with_empty_key_file(seeded_config):
+    from pkm.server.app import _default_describe_service
+    seeded_config.openai_api_key_file.write_text("", encoding="utf-8")
+    service = _default_describe_service(seeded_config)
+    assert service.enabled is False
+    assert service.reason == _NO_KEY_REASON
+
+
+def test_default_service_disabled_with_undecodable_key_file(seeded_config):
+    """A key file that isn't valid UTF-8 must degrade to disabled, not raise
+    UnicodeDecodeError out of the app factory (pkm-wwy3 review fix)."""
+    from pkm.server.app import _default_describe_service
+    seeded_config.openai_api_key_file.write_bytes(b"\xff\xfe\x00")
+    service = _default_describe_service(seeded_config)
+    assert service.enabled is False
+    assert service.reason == _NO_KEY_REASON
+
+
 def test_default_service_enabled_with_key(seeded_config, monkeypatch):
     from pkm.server.app import _default_describe_service
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")

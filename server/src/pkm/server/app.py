@@ -33,11 +33,12 @@ from pkm.server.ws import Hub, router as ws_router
 
 def _read_key_file(path: Path) -> str | None:
     """Stripped file contents, or None for anything short of a readable,
-    non-empty file — a missing/unreadable key file must degrade to
-    "disabled", never crash the app factory."""
+    UTF-8, non-empty file — a missing/unreadable/undecodable key file must
+    degrade to "disabled", never crash the app factory. UnicodeDecodeError
+    is a ValueError subclass, not an OSError, so it needs its own arm."""
     try:
         key = path.read_text(encoding="utf-8").strip()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
     return key or None
 

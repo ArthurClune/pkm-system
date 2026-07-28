@@ -42,11 +42,15 @@ def describe_action(mime: str, size: int) -> Action:
 
 
 def enabled_reason(api_key: str | None, config_enabled: bool) -> str | None:
-    """None = feature enabled; otherwise why it is off (shown in /settings)."""
+    """None = feature enabled; otherwise why it is off (shown in /settings).
+    `api_key` is the already-resolved key (env var or key-file contents —
+    see server/_default_describe_service), so this stays pure/precedence-
+    agnostic about where it came from."""
     if not config_enabled:
         return "disabled in config.json (image_descriptions=false)"
     if not api_key:
-        return "OPENAI_API_KEY is not set"
+        return ("OPENAI_API_KEY is not set and no openai_key file in the "
+                "data directory")
     return None
 
 

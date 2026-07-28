@@ -87,6 +87,23 @@ derived from what's in `backups/` (`data/`).
 - `tailscale serve status` — confirms the HTTPS Serve forward to the local
   port is still configured after a Tailscale update or reboot.
 
+## Image descriptions (optional)
+
+LLM image descriptions (pkm-zc0c) are off until an OpenAI key is available.
+No plist edits needed — drop the key into a file and restart:
+
+```bash
+echo -n "sk-..." > "$PKM_HOME/data/openai_key"
+chmod 600 "$PKM_HOME/data/openai_key"
+launchctl kickstart -k "gui/$UID/com.$USER.pkm.server"
+```
+
+The path is configurable via the `openai_api_key_file` key in `config.json`
+(resolved relative to `config.json`, like `db_file`); an `OPENAI_API_KEY` in
+the service environment overrides the file if both are present. Check
+`/settings` (or `GET /api/assets/describe-status`) after restarting to
+confirm it picked up the key.
+
 ## Assistant prerequisites
 
 The embedded assistant (pkm-wn2s) spawns the `claude` CLI via the Claude

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -30,8 +31,22 @@ from pkm.server.routes_sync import router as sync_router
 from pkm.server.ws import Hub, router as ws_router
 
 
+def _read_key_file(path: Path) -> str | None:
+    """Stripped file contents, or None for anything short of a readable,
+    non-empty file — a missing/unreadable key file must degrade to
+    "disabled", never crash the app factory."""
+    try:
+        key = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return key or None
+
+
 def _default_describe_service(config: Config) -> DescribeService:
-    api_key = os.environ.get("OPENAI_API_KEY")
+    # Precedence: OPENAI_API_KEY env var, then the data-dir key file (so
+    # prod can enable the feature by dropping a file, no plist edits).
+    api_key = (os.environ.get("OPENAI_API_KEY")
+              or _read_key_file(config.openai_api_key_file))
     reason = enabled_reason(api_key, config.image_descriptions)
     if reason is not None:
         return DescribeService(config, None, reason)

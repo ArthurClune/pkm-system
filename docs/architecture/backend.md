@@ -441,11 +441,16 @@ two descriptive sentences, stored in new `assets` columns (`description`,
   a single `httpx2` POST per image against the OpenAI chat-completions
   endpoint (no OpenAI SDK); `routes.py` (Shell) — the status/scan endpoints
   (asset search lives in `routes_assets.py` alongside the other asset routes).
-- **Config**: `OPENAI_API_KEY` (env, not `config.json` — never committed) is
-  the on/off switch; `image_descriptions` (bool, default on) and
-  `image_description_model` (default `gpt-4o-mini`) are `config.json` keys.
-  Missing key or `image_descriptions: false` degrades every entry point to a
-  no-op (`DescribeService.enabled = False`) rather than failing uploads;
+- **Config**: the on/off switch is the OpenAI key, resolved with this
+  precedence: the `OPENAI_API_KEY` env var if set, else the contents of a key
+  file at `PKM_HOME/data/openai_key` (default; the path is configurable via
+  the `openai_api_key_file` config.json key, resolved relative to
+  `config.json` like `db_file`/`assets_dir`). The key file is never
+  committed and should be mode 600. `image_descriptions` (bool, default on)
+  and `image_description_model` (default `gpt-4o-mini`) are the other
+  `config.json` keys. Missing key (env and file both absent/empty) or
+  `image_descriptions: false` degrades every entry point to a no-op
+  (`DescribeService.enabled = False`) rather than failing uploads;
   `GET /api/assets/describe-status` and the `/settings` page surface *why*
   it's off.
 - **Queue is in-memory only** — a restart drops whatever was pending. There

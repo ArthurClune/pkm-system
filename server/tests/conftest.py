@@ -58,6 +58,7 @@ def seeded_config(tmp_path) -> Config:
         password_hash=hash_password(TEST_PASSWORD, TEST_SALT),
         session_secret="cd" * 32,
         cookie_secure=False,
+        openai_api_key_file=tmp_path / "openai_key",
     )
 
 
@@ -125,7 +126,9 @@ def describe_client(seeded_config) -> Iterator[TestClient]:
 def describe_disabled_client(seeded_config) -> Iterator[TestClient]:
     from pkm.describe.service import DescribeService
 
-    service = DescribeService(seeded_config, None, "OPENAI_API_KEY is not set")
+    service = DescribeService(
+        seeded_config, None,
+        "OPENAI_API_KEY is not set and no openai_key file in the data directory")
     with TestClient(create_app(seeded_config, describe_service=service)) as c:
         r = c.post("/api/login", json={"password": TEST_PASSWORD})
         assert r.status_code == 200

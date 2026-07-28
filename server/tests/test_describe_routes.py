@@ -4,6 +4,11 @@ import time
 
 from fake_describer import PNG
 
+from pkm.describe.openai_client import OpenAIDescriber
+
+_NO_KEY_REASON = ("OPENAI_API_KEY is not set and no openai_key file in the "
+                  "data directory")
+
 
 def _upload(client, content=PNG, name="graph.png", mime="image/png"):
     r = client.post("/api/assets", files={"file": (name, content, mime)})
@@ -32,7 +37,7 @@ def test_describe_status_enabled(describe_client):
 
 def test_describe_status_disabled(describe_disabled_client):
     r = describe_disabled_client.get("/api/assets/describe-status")
-    assert r.json() == {"enabled": False, "reason": "OPENAI_API_KEY is not set"}
+    assert r.json() == {"enabled": False, "reason": _NO_KEY_REASON}
 
 
 def test_upload_triggers_description(describe_client):
@@ -66,8 +71,7 @@ def test_scan_endpoint(describe_client):
 
 def test_scan_disabled(describe_disabled_client):
     r = describe_disabled_client.post("/api/assets/scan")
-    assert r.json() == {"queued": 0, "enabled": False,
-                        "reason": "OPENAI_API_KEY is not set"}
+    assert r.json() == {"queued": 0, "enabled": False, "reason": _NO_KEY_REASON}
 
 
 def test_search_by_filename_and_recency(describe_client):
@@ -96,7 +100,7 @@ def test_default_service_disabled_without_key(seeded_config):
     from pkm.server.app import _default_describe_service
     service = _default_describe_service(seeded_config)
     assert service.enabled is False
-    assert service.reason == "OPENAI_API_KEY is not set"
+    assert service.reason == _NO_KEY_REASON
 
 
 def test_default_service_enabled_with_key(seeded_config, monkeypatch):
@@ -105,3 +109,43 @@ def test_default_service_enabled_with_key(seeded_config, monkeypatch):
     service = _default_describe_service(seeded_config)
     assert service.enabled is True
     assert service.reason is None
+
+
+def test_default_service_enabled_with_key_file(seeded_config):
+    """No env var, but the configured key-file path has stripped content:
+    the feature comes up using the file's key (pkm-wwy3)."""
+    from pkm.server.app import _default_describe_service
+    seeded_config.openai_api_key_file.write_text("sk-file-test\n", encoding="utf-8")
+    service = _default_describe_service(seeded_config)
+    assert service.enabled is True
+    assert service.reason is None
+    assert isinstance(service._describer, OpenAIDescriber)
+    assert service._describer._headers["Authorization"] == "Bearer sk-file-test"
+
+
+def test_default_service_uses_config_json_key_file_override(tmp_path):
+    """config.json's openai_api_key_file (resolved relative to config.json,
+    like db_file/assets_dir) points at a custom relative path."""
+    import json
+
+    from pkm.server.app import _default_describe_service
+    from pkm.server.config import load_config
+
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps({
+        "db_file": "pkm.sqlite3", "assets_dir": "assets",
+        "password_salt": "ab", "password_hash": "cd",
+        "session_secret": "ef",
+        "openai_api_key_file": "secrets/my-key",
+    }), encoding="utf-8")
+    key_file = tmp_path / "secrets" / "my-key"
+    key_file.parent.mkdir()
+    key_file.write_text("sk-custom-test\n", encoding="utf-8")
+
+    config = load_config(cfg_path)
+    assert config.openai_api_key_file == key_file
+
+    service = _default_describe_service(config)
+    assert service.enabled is True
+    assert isinstance(service._describer, OpenAIDescriber)
+    assert service._describer._headers["Authorization"] == "Bearer sk-custom-test"

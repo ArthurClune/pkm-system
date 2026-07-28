@@ -39,3 +39,14 @@ def test_image_description_overrides(tmp_path):
                                                "image_description_model": "gpt-5-mini"}))
     assert cfg.image_descriptions is False
     assert cfg.image_description_model == "gpt-5-mini"
+
+
+def test_openai_api_key_file_default(tmp_path):
+    cfg = load_config(write_config(tmp_path, {}))
+    assert cfg.openai_api_key_file == tmp_path / "openai_key"
+
+
+def test_openai_api_key_file_override(tmp_path):
+    cfg = load_config(write_config(
+        tmp_path, {"openai_api_key_file": "secrets/my-key"}))
+    assert cfg.openai_api_key_file == tmp_path / "secrets" / "my-key"

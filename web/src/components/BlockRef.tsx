@@ -31,7 +31,7 @@ export function BlockRef({ uid, depth }: { uid: string; depth: number }) {
   // Navigate to the page holding the target block; PageView scrolls to the
   // uid in the hash. Shift-click opens in the sidebar (same as PageLink).
   const go = (e: { shiftKey: boolean }) => {
-    if (e.shiftKey) openInSidebar(resolved.page_title);
+    if (e.shiftKey) openInSidebar(resolved.page_title, uid);
     else navigate(`${pagePath(resolved.page_title)}#${uid}`);
   };
   return (

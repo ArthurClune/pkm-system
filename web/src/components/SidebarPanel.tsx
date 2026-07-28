@@ -2,8 +2,8 @@
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { PageLink } from "./PageLink";
 
-export function SidebarPanel({ title, onClose }:
-    { title: string; onClose: () => void }) {
+export function SidebarPanel({ title, uid, onClose }:
+    { title: string; uid?: string; onClose: () => void }) {
   return (
     <section className="sidebar-panel" aria-label={`sidebar: ${title}`}>
       <header className="sidebar-panel-header">
@@ -12,7 +12,7 @@ export function SidebarPanel({ title, onClose }:
           ×
         </button>
       </header>
-      <EditableSidebarPanel title={title} />
+      <EditableSidebarPanel title={title} uid={uid} />
     </section>
   );
 }

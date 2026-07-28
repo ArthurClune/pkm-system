@@ -268,6 +268,56 @@ describe("tokenizeBlock", () => {
     expect(tokenizeBlock("a $$  $$ b")).toEqual([{ kind: "text", text: "a $$  $$ b" }]);
   });
 
+  it("autolinks bare /assets/<sha256>/<filename> URLs as asset-link segments", () => {
+    const sha = "492d80a8b6a72a7c4615c69a9a7def6fac0e019d452f9c88bb61ca8a671dbfd7";
+    const url = `/assets/${sha}/IMG_0868.jpeg`;
+    expect(tokenizeBlock(url)).toEqual([
+      { kind: "asset-link", url, sha, filename: "IMG_0868.jpeg" },
+    ]);
+    expect(tokenizeBlock(`here it is ${url} nice`)).toEqual([
+      { kind: "text", text: "here it is " },
+      { kind: "asset-link", url, sha, filename: "IMG_0868.jpeg" },
+      { kind: "text", text: " nice" },
+    ]);
+  });
+
+  it("excludes trailing punctuation and wrappers from autolinked asset URLs", () => {
+    const sha = "ab".repeat(32);
+    const url = `/assets/${sha}/pic.jpeg`;
+    expect(tokenizeBlock(`see ${url}.`)).toEqual([
+      { kind: "text", text: "see " },
+      { kind: "asset-link", url, sha, filename: "pic.jpeg" },
+      { kind: "text", text: "." },
+    ]);
+    expect(tokenizeBlock(`(${url})`)).toEqual([
+      { kind: "text", text: "(" },
+      { kind: "asset-link", url, sha, filename: "pic.jpeg" },
+      { kind: "text", text: ")" },
+    ]);
+  });
+
+  it("does not autolink mid-word, short hashes, or asset URLs already inside markdown links/images", () => {
+    const sha = "cd".repeat(32);
+    expect(tokenizeBlock(`x/assets/${sha}/pic.jpeg`)).toEqual([
+      { kind: "text", text: `x/assets/${sha}/pic.jpeg` },
+    ]);
+    // not a 64-char hex sha: stays plain text
+    expect(tokenizeBlock("see /assets/short/pic.png here")).toEqual([
+      { kind: "text", text: "see /assets/short/pic.png here" },
+    ]);
+    expect(tokenizeBlock(`![shot](/assets/${sha}/pic.jpeg)`)).toEqual([
+      { kind: "image", alt: "shot", src: `/assets/${sha}/pic.jpeg` },
+    ]);
+    expect(tokenizeBlock(`[label](/assets/${sha}/pic.jpeg)`)).toEqual([
+      { kind: "link", text: "label", href: `/assets/${sha}/pic.jpeg` },
+    ]);
+    expect(tokenizeBlock(`run \`/assets/${sha}/pic.jpeg\` now`)).toEqual([
+      { kind: "text", text: "run " },
+      { kind: "inline-code", code: `/assets/${sha}/pic.jpeg` },
+      { kind: "text", text: " now" },
+    ]);
+  });
+
   it("code wins over math: $$ inside inline code and fences stays literal", () => {
     expect(tokenizeBlock("`$$x$$`")).toEqual([
       { kind: "inline-code", code: "$$x$$" },

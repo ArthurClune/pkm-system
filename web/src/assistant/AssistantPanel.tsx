@@ -2,6 +2,7 @@
 // Floating assistant chat panel (bottom-right overlay; not a route).
 
 import { useEffect, useRef, useState } from "react";
+import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { useAssistant } from "./useAssistant";
@@ -103,21 +104,25 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         </button>
       </header>
       <div className="assistant-messages" ref={listRef}>
-        {assistant.items.map((item, i) =>
-          item.kind === "tool" ? (
-            <div key={i} className="assistant-tool-line">
-              {item.done ? "✓" : "…"} {item.summary}
-            </div>
-          ) : (
-            <div key={i} className={`assistant-msg assistant-msg-${item.kind}`}>
-              {item.kind === "assistant" ? (
-                <InlineSegments segments={tokenizeBlock(item.text)} />
-              ) : (
-                item.text
-              )}
-            </div>
-          ),
-        )}
+        {/* seed={{}}: no page payload backs this panel, so every ((uid)) a
+          * reply mentions is unseeded and resolved live (pkm-gdi5). */}
+        <BlockRefProvider seed={{}}>
+          {assistant.items.map((item, i) =>
+            item.kind === "tool" ? (
+              <div key={i} className="assistant-tool-line">
+                {item.done ? "✓" : "…"} {item.summary}
+              </div>
+            ) : (
+              <div key={i} className={`assistant-msg assistant-msg-${item.kind}`}>
+                {item.kind === "assistant" ? (
+                  <InlineSegments segments={tokenizeBlock(item.text)} />
+                ) : (
+                  item.text
+                )}
+              </div>
+            ),
+          )}
+        </BlockRefProvider>
         {assistant.pendingConfirm && (
           <ConfirmCard
             key={assistant.pendingConfirm.toolUseId}

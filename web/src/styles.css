@@ -15,6 +15,12 @@
  * "light" and "dark" are referenced here, "system" behaves like no
  * attribute at all (falls through to the media query). */
 :root {
+  /* tells the browser which way to paint the bits CSS can't reach: native
+   * select/date widgets and their popups, scrollbars, spellcheck underlines.
+   * Without it Chrome paints all of those light even in dark mode, whatever
+   * background-color the author sets (pkm-mrru). Declared in all three theme
+   * rules below so it tracks the tokens. */
+  color-scheme: light;
   --color-bg: #f8f9fb;
   --color-bg-subtle: #f2f5f8;
   --color-bg-surface: #ffffff;
@@ -74,6 +80,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --color-bg: #14181c;
     --color-bg-subtle: #1c2126;
     --color-bg-surface: #20262c;
@@ -120,6 +127,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --color-bg: #14181c;
   --color-bg-subtle: #1c2126;
   --color-bg-surface: #20262c;
@@ -187,17 +195,33 @@ a:hover { text-decoration: underline; }
 ::selection { background: var(--color-selection-bg); }
 button { font: inherit; }
 /* the one secondary-button look (Show more, sidebar entry controls,
- * composer send, ...); owning classes keep only their layout (pkm-9kye) */
+ * composer send, ...); owning classes keep only their layout (pkm-9kye).
+ * The default padding is part of the token (pkm-mrru): without it a bare
+ * .btn-secondary fell back to the UA's cramped button metrics, so every new
+ * call site was silently wrong unless it remembered to add its own. Call
+ * sites that want tighter/looser metrics still override -- each such rule
+ * either sits later in this file or has higher specificity. */
 .btn-secondary { background: var(--color-bg-subtle);
   border: 1px solid var(--color-border-input); border-radius: var(--radius-control);
-  color: var(--color-text-secondary); cursor: pointer; }
+  color: var(--color-text-secondary); cursor: pointer; padding: 4px 12px; }
 .btn-secondary:hover:not(:disabled) { background: var(--color-selected-bg);
   color: var(--color-text); }
 .btn-secondary:disabled { opacity: 0.35; cursor: default; }
-/* destructive confirm-dialog action (Delete, etc.) */
+/* destructive action (confirm dialogs, Files' Delete, ...) */
 .btn-danger { background: var(--color-error); border: 1px solid var(--color-error);
-  border-radius: var(--radius-control); color: #fff; cursor: pointer; }
+  border-radius: var(--radius-control); color: #fff; cursor: pointer;
+  padding: 4px 12px; }
 .btn-danger:hover { opacity: 0.9; }
+/* the input counterpart of .btn-secondary (pkm-mrru): text/search/date inputs
+ * and selects. There is no base input/select rule -- a blanket one would hit
+ * checkboxes and the outline's own editors -- so form controls opt in by
+ * class, the way buttons do. */
+.input-control { font: inherit; padding: 4px 8px;
+  border: 1px solid var(--color-border-input); border-radius: var(--radius-control);
+  background: var(--color-bg); color: var(--color-text); }
+.input-control::placeholder { color: var(--color-text-secondary); }
+.input-control:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: 1px; }
 
 /* in-app confirm() replacement (pkm-pe79): window.confirm is suppressed by
  * iPadOS Safari in standalone/PWA mode, so destructive actions use this
@@ -541,7 +565,8 @@ mark.highlight { background: var(--color-highlight-bg); }
   color: var(--color-text-secondary); }
 
 .breadcrumbs { font-size: 12px; color: var(--color-text-muted); margin-bottom: 2px; }
-.show-more { margin-top: 8px; padding: 4px 12px; }
+/* padding comes from .btn-secondary (pkm-mrru); this class is layout only */
+.show-more { margin-top: 8px; }
 
 /* journal */
 .journal-day { margin-bottom: 40px; padding-bottom: 16px; border-bottom: 1px solid var(--color-border-subtle); }
@@ -759,6 +784,12 @@ mark.highlight { background: var(--color-highlight-bg); }
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
   margin: 12px 0; color: var(--color-text-muted);
 }
+/* whitespace-only text nodes aren't flex items, so the gap supplies the
+ * space between each label's text and its control */
+.files-filters label {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 0.9em;
+}
+.files-search { flex: 1 1 200px; max-width: 320px; }
 .files-toolbar {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
   margin: 12px 0;
@@ -801,5 +832,6 @@ mark.highlight { background: var(--color-highlight-bg); }
 .file-badge.status-failed { color: var(--color-error); }
 .file-badge.linked { color: var(--color-link); }
 .file-select { position: absolute; top: 12px; left: 12px; }
-.file-copy { align-self: flex-start; }
+/* compact inside the 160px-wide card; the rest of the look is .btn-secondary */
+.file-copy { align-self: flex-start; padding: 1px 8px; font-size: 0.8em; }
 .files-more { margin: 12px 0; }

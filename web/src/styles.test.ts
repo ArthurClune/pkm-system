@@ -146,6 +146,43 @@ describe("visual consistency (pkm-9kye)", () => {
   });
 });
 
+describe("form control tokens (pkm-mrru)", () => {
+  test("the button tokens carry their own geometry, so bare call sites look right", () => {
+    for (const selector of [".btn-secondary", ".btn-danger"]) {
+      expect(ruleFor(selector)).toContain("padding: 4px 12px;");
+    }
+  });
+
+  test("owning classes no longer restate the shared button padding", () => {
+    expect(ruleFor(".show-more")).not.toContain("padding:");
+  });
+
+  test("text inputs and selects share one .input-control style", () => {
+    const input = ruleFor(".input-control");
+    expect(input).toContain("font: inherit;");
+    expect(input).toContain("padding: 4px 8px;");
+    expect(input).toContain("border: 1px solid var(--color-border-input);");
+    expect(input).toContain("border-radius: var(--radius-control);");
+    expect(input).toContain("background: var(--color-bg);");
+    expect(input).toContain("color: var(--color-text);");
+  });
+
+  test("the input token has a visible keyboard focus ring", () => {
+    expect(ruleFor(".input-control:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+  });
+
+  // Without this, Chrome paints select/date widgets, their popups, and
+  // scrollbars in light mode however the author styles them (pkm-mrru).
+  test("each theme declares its colour scheme for native widgets", () => {
+    expect(ruleFor(":root")).toContain("color-scheme: light;");
+    expect(ruleFor(':root:not([data-theme="light"])'))
+      .toContain("color-scheme: dark;");
+    expect(ruleFor(':root[data-theme="dark"]'))
+      .toContain("color-scheme: dark;");
+  });
+});
+
 describe("typography hierarchy (pkm-b68q, pkm-ofec)", () => {
   test("displayed and focused headings share the same scale and weight", () => {
     for (const [selector, size] of [

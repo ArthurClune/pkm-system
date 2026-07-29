@@ -221,11 +221,13 @@ export function Files() {
     <article className="files-page">
       <h1 className="page-title">Files</h1>
       <div className="files-filters">
-        <input type="search" value={filters.q} placeholder="Search files"
+        <input type="search" className="input-control files-search"
+               value={filters.q} placeholder="Search files"
                aria-label="Search files"
                onChange={(e) => update({ q: e.target.value })} />
         <label>Type{" "}
-          <select value={filters.type} aria-label="Type"
+          <select className="input-control" value={filters.type}
+                  aria-label="Type"
                   onChange={(e) => update({
                     type: e.target.value as FileFilters["type"] })}>
             <option value="">All</option>
@@ -236,15 +238,18 @@ export function Files() {
           </select>
         </label>
         <label>From{" "}
-          <input type="date" value={filters.fromDate} aria-label="From"
+          <input type="date" className="input-control"
+                 value={filters.fromDate} aria-label="From"
                  onChange={(e) => update({ fromDate: e.target.value })} />
         </label>
         <label>To{" "}
-          <input type="date" value={filters.toDate} aria-label="To"
+          <input type="date" className="input-control"
+                 value={filters.toDate} aria-label="To"
                  onChange={(e) => update({ toDate: e.target.value })} />
         </label>
         <label>Linked{" "}
-          <select value={filters.linked} aria-label="Linked"
+          <select className="input-control" value={filters.linked}
+                  aria-label="Linked"
                   onChange={(e) => update({
                     linked: e.target.value as FileFilters["linked"] })}>
             <option value="all">All</option>

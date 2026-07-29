@@ -3,7 +3,7 @@
 // titles ("July 13th, 2026"). Local daily auto-create offline needs the
 // exact same format the server generates.
 
-const MONTHS = ["January", "February", "March", "April", "May", "June",
+export const MONTHS = ["January", "February", "March", "April", "May", "June",
                 "July", "August", "September", "October", "November",
                 "December"];
 

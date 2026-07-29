@@ -5,7 +5,7 @@ status: in-progress
 type: feature
 priority: normal
 created_at: 2026-07-27T20:29:27Z
-updated_at: 2026-07-29T13:35:44Z
+updated_at: 2026-07-29T13:42:36Z
 parent: pkm-zx19
 blocked_by:
     - pkm-zc0c
@@ -39,5 +39,5 @@ Design spec (2026-07-29): docs/superpowers/specs/2026-07-29-asset-file-browser-d
 - [x] Task 4: POST /api/assets/export.zip
 - [x] Task 5: Web functional core — types + filesCore.ts
 - [x] Task 6: The Files view, route, nav, styles
-- [ ] Task 7: End-to-end test
+- [x] Task 7: End-to-end test
 - [ ] Task 8: Final verification, bean close-out, integration

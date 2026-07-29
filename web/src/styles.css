@@ -209,7 +209,7 @@ button { font: inherit; }
   border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15);
   padding: 20px; max-width: 360px; width: 100%; }
 .confirm-dialog-title { font-weight: 600; margin: 0 0 8px; }
-.confirm-dialog-message { margin: 0 0 16px; color: var(--color-text); }
+.confirm-dialog-message { margin: 0 0 16px; color: var(--color-text); white-space: pre-line; }
 .confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .confirm-dialog-actions button { padding: 6px 14px; }
 

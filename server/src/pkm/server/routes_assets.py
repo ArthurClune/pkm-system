@@ -157,9 +157,9 @@ def delete_asset(request: Request, sha256: str,
     file. Commit-before-unlink: a crash leaves at worst an unreferenced
     file on disk, never a row pointing at a missing file. Asset URLs
     never contribute refs rows ([[link]]/#tag/attr:: only), so no refs
-    reindex is needed; refs rows of deleted blocks go via FK cascade,
-    and the explicit per-uid DELETE keeps the FTS delete trigger
-    firing."""
+    reindex is needed; refs rows of deleted blocks go via FK cascade
+    (the refs table has no FTS trigger — unlike blocks, where explicit
+    per-uid DELETE is required to keep the FTS delete trigger firing)."""
     if not _SHA_RE.match(sha256):
         raise HTTPException(status_code=404, detail="asset not found")
     row = db.execute("SELECT sha256 FROM assets WHERE sha256 = ?",
@@ -219,7 +219,7 @@ def export_assets(sha256s: list[str] = Form(default=[]),
         if not path.is_file():
             continue
         chosen.append((sha, row["filename"], path))
-    arcs = zip_arcnames([(sha, name) for sha, name, _ in chosen])
+    arcs = zip_arcnames([(sha, safe_filename(name)) for sha, name, _ in chosen])
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for (_, _, path), (_, arc) in zip(chosen, arcs):

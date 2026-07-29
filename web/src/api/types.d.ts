@@ -465,9 +465,9 @@ export interface paths {
          *     file. Commit-before-unlink: a crash leaves at worst an unreferenced
          *     file on disk, never a row pointing at a missing file. Asset URLs
          *     never contribute refs rows ([[link]]/#tag/attr:: only), so no refs
-         *     reindex is needed; refs rows of deleted blocks go via FK cascade,
-         *     and the explicit per-uid DELETE keeps the FTS delete trigger
-         *     firing.
+         *     reindex is needed; refs rows of deleted blocks go via FK cascade
+         *     (the refs table has no FTS trigger — unlike blocks, where explicit
+         *     per-uid DELETE is required to keep the FTS delete trigger firing).
          */
         delete: operations["delete_asset_api_assets__sha256__delete"];
         options?: never;

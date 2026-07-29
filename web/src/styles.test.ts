@@ -160,13 +160,14 @@ describe("form control tokens (pkm-mrru)", () => {
   });
 
   test("text inputs and selects share one .input-control style", () => {
+    // colours live in the grouped rule shared with .search-field-input
+    // (pkm-0wg9); this class keeps its own geometry
+    const shared = ruleFor(".input-control, .search-field-input");
+    expect(shared).toContain("font: inherit;");
+    expect(shared).toContain("color: var(--color-text);");
     const input = ruleFor(".input-control");
-    expect(input).toContain("font: inherit;");
-    expect(input).toContain("padding: 4px 8px;");
-    expect(input).toContain("border: 1px solid var(--color-border-input);");
-    expect(input).toContain("border-radius: var(--radius-control);");
-    expect(input).toContain("background: var(--color-bg);");
-    expect(input).toContain("color: var(--color-text);");
+    expect(input).toContain("padding: 5px 9px;");
+    expect(input).toContain("border-radius: var(--radius-field);");
   });
 
   test("the input token has a visible keyboard focus ring", () => {
@@ -229,6 +230,38 @@ describe("control polish (pkm-0wg9)", () => {
       .toContain("--color-error-fill: #a83a3a;");
     // --color-error keeps its own job: error text and the failed badge
     expect(ruleFor(".error")).toContain("color: var(--color-error);");
+  });
+
+  test("fields share one look, modelled on the Cmd-U search", () => {
+    // one grouped rule so the two searches cannot drift apart; each class then
+    // adds its own geometry
+    const field = ruleFor(".input-control, .search-field-input");
+    expect(field).toContain("background: var(--color-bg-subtle);");
+    expect(field).toContain("border: 1px solid var(--color-border-strong);");
+    expect(field).toContain("transition:");
+    const focus = ruleFor(".input-control:focus, .search-field-input:focus");
+    expect(focus).toContain("background: var(--color-bg-surface);");
+    expect(focus).toContain("border-color: var(--color-border-input);");
+    expect(ruleFor(".input-control"))
+      .toContain("border-radius: var(--radius-field);");
+  });
+
+  test("bespoke field rules keep layout only, not colours", () => {
+    for (const selector of [".nav-sidebar-add input",
+                            ".assistant-input textarea"]) {
+      const rule = ruleFor(selector);
+      expect(rule).not.toContain("background:");
+      expect(rule).not.toContain("border:");
+      expect(rule).not.toContain("border-radius:");
+    }
+    expect(ruleFor(".composer textarea")).not.toContain("border:");
+  });
+
+  // the outline editor is a writing surface, not a form field
+  test("the block editor gains no field chrome", () => {
+    const editor = ruleFor(".block-input");
+    expect(editor).not.toContain("background: var(--color-bg-subtle);");
+    expect(editor).not.toContain("border: 1px solid");
   });
 });
 

@@ -227,14 +227,26 @@ button { font: inherit; }
  * which clashes with the palette (pkm-0wg9) */
 .btn-secondary:focus-visible, .btn-danger:focus-visible {
   outline: 2px solid var(--color-link); outline-offset: 1px; }
-/* the input counterpart of .btn-secondary (pkm-mrru): text/search/date inputs
- * and selects. There is no base input/select rule -- a blanket one would hit
- * checkboxes and the outline's own editors -- so form controls opt in by
- * class, the way buttons do. */
-.input-control { font: inherit; padding: 4px 8px;
-  border: 1px solid var(--color-border-input); border-radius: var(--radius-control);
-  background: var(--color-bg); color: var(--color-text); }
-.input-control::placeholder { color: var(--color-text-secondary); }
+/* the input counterpart of .btn-secondary (pkm-mrru): text/search/date inputs,
+ * selects and textareas. There is no base input/select rule -- a blanket one
+ * would hit checkboxes and the outline's own editors -- so form controls opt in
+ * by class, the way buttons do. The look is modelled on the Cmd-U search so
+ * every field in the app is the same object (pkm-0wg9); .block-input is
+ * deliberately excluded, it is a writing surface not a field.
+ * .search-field-input shares the colours here and takes its pill geometry in
+ * the search-field block further down. */
+.input-control, .search-field-input { font: inherit; color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg-subtle);
+  transition: background 0.12s ease, border-color 0.12s ease; }
+.input-control::placeholder, .search-field-input::placeholder {
+  color: var(--color-text-secondary); }
+.input-control:focus, .search-field-input:focus {
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-input); }
+.input-control { padding: 5px 9px; border-radius: var(--radius-field); }
+/* the ring is .input-control's only: the top-bar search signals focus by
+ * widening and keeps outline: none */
 .input-control:focus-visible { outline: 2px solid var(--color-link);
   outline-offset: 1px; }
 
@@ -288,8 +300,7 @@ button { font: inherit; }
 .nav-sidebar-entry-controls button { width: 20px; height: 20px; line-height: 1;
   font-size: 12px; padding: 0; }
 .nav-sidebar-add { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.nav-sidebar-add input { font: inherit; padding: 4px 6px; border: 1px solid var(--color-border-input);
-  border-radius: var(--radius-control); background: var(--color-bg); color: var(--color-text); }
+.nav-sidebar-add input { padding: 4px 6px; }
 .nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px; }
 .content-area { flex: 1; min-width: 0; display: flex; flex-direction: column;
   /* card geometry shared by .top-bar and .main-pane; --pane-left leans the
@@ -724,9 +735,7 @@ mark.highlight { background: var(--color-highlight-bg); }
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     padding: 8px; background: var(--color-bg-surface); border-top: 1px solid var(--color-border); }
   .composer-input-wrap { position: relative; flex: 1; min-width: 0; }
-  .composer textarea { width: 100%; font: inherit; resize: none;
-    border: 1px solid var(--color-border-input); border-radius: var(--radius-control); padding: 6px 8px;
-    background: var(--color-bg-surface); color: var(--color-text); }
+  .composer textarea { width: 100%; resize: none; padding: 6px 8px; }
   .composer .ac-popup { top: auto; bottom: 100%; }
   .composer-file { max-width: 90px; }
   .composer-send { padding: 6px 14px; }
@@ -791,7 +800,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .assistant-confirm-actions { display: flex; gap: 8px; }
 .assistant-error { color: var(--color-error); font-size: 0.9em; }
 .assistant-input { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--color-border); }
-.assistant-input textarea { flex: 1; resize: none; border: 1px solid var(--color-border-input); border-radius: var(--radius-control); padding: 6px 8px; background: inherit; color: inherit; font: inherit; }
+.assistant-input textarea { flex: 1; resize: none; padding: 6px 8px; }
 /* .assistant-input is a flex row with the default align-items: stretch, so
  * Send would grow to the textarea's height and the pill would read as a tall
  * lozenge (pkm-0wg9) */

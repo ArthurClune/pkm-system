@@ -155,7 +155,8 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       )}
       {editing && (
         <form className="nav-sidebar-add" onSubmit={(e) => { void addEntry(e); }}>
-          <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
+          <input className="input-control" value={newTitle}
+                 onChange={(e) => setNewTitle(e.target.value)}
                  disabled={busy} placeholder="Add page…" aria-label="New sidebar entry title" />
           <button type="submit" className="btn-secondary" disabled={busy}>Add</button>
           {addError && <p className="error nav-sidebar-error">{addError}</p>}

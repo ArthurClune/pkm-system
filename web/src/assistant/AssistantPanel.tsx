@@ -136,6 +136,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
       </div>
       <div className="assistant-input">
         <textarea
+          className="input-control"
           placeholder="Ask about your notes…"
           value={draft}
           rows={2}

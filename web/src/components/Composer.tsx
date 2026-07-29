@@ -67,7 +67,8 @@ export function Composer({ onSend, readOnly }: {
   return (
     <div className="composer">
       <div className="composer-input-wrap">
-        <textarea ref={taRef} aria-label="Add to this page" rows={1}
+        <textarea ref={taRef} className="input-control"
+                  aria-label="Add to this page" rows={1}
                   placeholder="Add to this page…" value={draft}
                   disabled={readOnly}
                   onChange={onChange} onKeyDown={onKeyDown} />

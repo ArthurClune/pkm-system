@@ -989,7 +989,7 @@
     "/api/assets/search": {
       "get": {
         "summary": "Search Assets",
-        "description": "LIKE search over description + filename (pkm-zc0c). Empty q lists\nmost-recent uploads \u2014 the seed of the file-browser list endpoint.\nLIKE, not FTS: personal-scale table, and no offline-parity burden.",
+        "description": "LIKE search over description + filename (pkm-zc0c). Empty q lists\nmost-recent uploads. LIKE, not FTS: personal-scale table, and no\noffline-parity burden. pkm-jdu3 adds type/date/linked filters,\noffset pagination, and a total count. linked/orphan filtering needs\nrefs for every candidate, so that path scans the filtered set\n(personal scale keeps it cheap); linked=all computes refs only for\nthe returned page.",
         "operationId": "search_assets_api_assets_search_get",
         "parameters": [
           {
@@ -1011,6 +1011,80 @@
               "default": 50,
               "title": "Limit"
             }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "",
+                "image",
+                "pdf",
+                "document",
+                "other"
+              ],
+              "type": "string",
+              "default": "",
+              "title": "Type"
+            }
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ms"
+            }
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ms"
+            }
+          },
+          {
+            "name": "linked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "linked",
+                "orphan"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Linked"
+            }
           }
         ],
         "responses": {
@@ -1021,6 +1095,84 @@
                 "schema": {
                   "$ref": "#/components/schemas/AssetSearchPayload"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/assets/{sha256}": {
+      "delete": {
+        "summary": "Delete Asset",
+        "description": "Delete an asset: strip every reference token from block text\n(blocks left empty with no children are deleted outright \u2014 asset\ndeletion must never cascade away real content, so emptied parents\nare kept), drop the assets row, commit, then best-effort unlink the\nfile. Commit-before-unlink: a crash leaves at worst an unreferenced\nfile on disk, never a row pointing at a missing file. Asset URLs\nnever contribute refs rows ([[link]]/#tag/attr:: only), so no refs\nreindex is needed; refs rows of deleted blocks go via FK cascade\n(the refs table has no FTS trigger \u2014 unlike blocks, where explicit\nper-uid DELETE is required to keep the FTS delete trigger firing).",
+        "operationId": "delete_asset_api_assets__sha256__delete",
+        "parameters": [
+          {
+            "name": "sha256",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sha256"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Asset Api Assets  Sha256  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/assets/export.zip": {
+      "post": {
+        "summary": "Export Assets",
+        "description": "Zip the selected assets under their original filenames (name\ncollisions get a short sha prefix via zip_arcnames). Form-encoded so\nthe web app can drive it with a plain <form method=\"post\"> and let\nthe browser own the download. Unknown, malformed, duplicate, and\nmissing-on-disk shas are skipped, not errors: the zip honestly\ncontains what could be exported. In-RAM like /api/export.zip \u2014\nbounded by the user's selection.",
+        "operationId": "export_assets_api_assets_export_zip_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_export_assets_api_assets_export_zip_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -1550,6 +1702,17 @@
             ],
             "title": "Status"
           },
+          "describe_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Describe Error"
+          },
           "refs": {
             "items": {
               "$ref": "#/components/schemas/AssetRef"
@@ -1568,12 +1731,17 @@
           "url",
           "description",
           "status",
+          "describe_error",
           "refs"
         ],
         "title": "AssetSearchItem"
       },
       "AssetSearchPayload": {
         "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
           "assets": {
             "items": {
               "$ref": "#/components/schemas/AssetSearchItem"
@@ -1584,6 +1752,7 @@
         },
         "type": "object",
         "required": [
+          "total",
           "assets"
         ],
         "title": "AssetSearchPayload"
@@ -1914,6 +2083,20 @@
         ],
         "title": "BlockRefsPayload",
         "description": "GET /api/block-refs: on-demand ((uid)) resolution."
+      },
+      "Body_export_assets_api_assets_export_zip_post": {
+        "properties": {
+          "sha256s": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sha256S",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "Body_export_assets_api_assets_export_zip_post"
       },
       "Body_upload_asset_api_assets_post": {
         "properties": {

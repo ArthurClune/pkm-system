@@ -371,7 +371,7 @@ it("Settings nav link sits below the user-editable favourites but is styled prim
   // SidebarNav's "Edit" toggle (both <button>s) -- so this is exactly the
   // three primary destinations plus Settings, in DOM order.
   const links = within(nav as HTMLElement).getAllByRole("link").map((el) => el.textContent);
-  expect(links).toEqual(["Daily Notes", "Current Work", "TODO", "Settings"]);
+  expect(links).toEqual(["Daily Notes", "Current Work", "TODO", "Files", "Settings"]);
 
   const settingsLink = screen.getByRole("link", { name: "Settings" });
   expect(settingsLink).toHaveClass("primary");
@@ -382,4 +382,14 @@ it("Settings nav link navigates to /settings", async () => {
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
   fireEvent.click(screen.getByRole("link", { name: "Settings" }));
   expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+});
+
+it("renders the Files view at /files", async () => {
+  // the suite's global fetch stub 404s /api/assets/search, so the view
+  // lands in its error state, which still renders the heading.
+  stubFetch([]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/files"]}><App /></MemoryRouter>);
+  expect(
+    await screen.findByRole("heading", { name: "Files" }),
+  ).toBeInTheDocument();
 });

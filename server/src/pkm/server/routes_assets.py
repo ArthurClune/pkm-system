@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import logging
 import os
 import re
 import sqlite3
 import time
 import uuid
+import zipfile
+from datetime import date
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, Response
 
+from pkm.assets_core import strip_asset_tokens, type_where, zip_arcnames
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
+from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
@@ -24,6 +30,8 @@ from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 from pkm.server.response_models import AssetSearchPayload, AssetUploadResponse
 
 router = APIRouter(dependencies=[Depends(require_auth)])
+
+logger = logging.getLogger("pkm.assets")
 
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -53,7 +61,8 @@ INLINE_MIME = frozenset({
 })
 
 
-def referencing_blocks(db: sqlite3.Connection, sha256: str) -> list[dict]:
+def referencing_blocks(db: sqlite3.Connection,
+                       sha256: str) -> list[dict[str, str]]:
     """All blocks whose text contains the asset's sha, with their page
     titles. FTS5 unicode61 keeps a 64-hex sha as one token, so an
     exact-phrase MATCH on the sha finds every block embedding the
@@ -72,34 +81,154 @@ def referencing_blocks(db: sqlite3.Connection, sha256: str) -> list[dict]:
 
 
 @router.get("/api/assets/search", response_model=AssetSearchPayload)
-def search_assets(q: str = "", limit: int = 50,
+def search_assets(q: str = "", limit: int = 50, offset: int = 0,
+                  type_: Literal["", "image", "pdf", "document", "other"]
+                  = Query("", alias="type"),
+                  from_ms: int | None = None, to_ms: int | None = None,
+                  linked: Literal["all", "linked", "orphan"] = "all",
                   db: sqlite3.Connection = Depends(get_db)) -> dict:
     """LIKE search over description + filename (pkm-zc0c). Empty q lists
-    most-recent uploads — the seed of the file-browser list endpoint.
-    LIKE, not FTS: personal-scale table, and no offline-parity burden."""
+    most-recent uploads. LIKE, not FTS: personal-scale table, and no
+    offline-parity burden. pkm-jdu3 adds type/date/linked filters,
+    offset pagination, and a total count. linked/orphan filtering needs
+    refs for every candidate, so that path scans the filtered set
+    (personal scale keeps it cheap); linked=all computes refs only for
+    the returned page."""
     limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    where_parts: list[str] = []
+    params: list = []
     needle = q.strip()
-    where, params = "", []
     if needle:
         esc = (needle.replace("\\", "\\\\")
                      .replace("%", "\\%")
                      .replace("_", "\\_"))
-        where = (r"WHERE (description LIKE ? ESCAPE '\'"
-                 r" OR filename LIKE ? ESCAPE '\') ")
-        params = [f"%{esc}%", f"%{esc}%"]
-    rows = db.execute(
-        "SELECT sha256, filename, mime, size, created_at, description,"
-        f" describe_error FROM assets {where}"
-        "ORDER BY created_at IS NULL, created_at DESC, sha256 LIMIT ?",
-        (*params, limit)).fetchall()
-    return {"assets": [{
-        "sha256": r["sha256"], "filename": r["filename"], "mime": r["mime"],
-        "size": r["size"], "created_at": r["created_at"],
+        where_parts.append(r"(description LIKE ? ESCAPE '\'"
+                           r" OR filename LIKE ? ESCAPE '\')")
+        params += [f"%{esc}%", f"%{esc}%"]
+    if type_:
+        frag, type_params = type_where(type_)
+        where_parts.append(frag)
+        params += type_params
+    if from_ms is not None:
+        where_parts.append("created_at IS NOT NULL AND created_at >= ?")
+        params.append(from_ms)
+    if to_ms is not None:
+        where_parts.append("created_at IS NOT NULL AND created_at <= ?")
+        params.append(to_ms)
+    where = f"WHERE {' AND '.join(where_parts)} " if where_parts else ""
+    select = ("SELECT sha256, filename, mime, size, created_at,"
+              " description, describe_error FROM assets ")
+    order = "ORDER BY created_at IS NULL, created_at DESC, sha256 "
+    if linked == "all":
+        total = db.execute(f"SELECT count(*) FROM assets {where}",
+                           params).fetchone()[0]
+        rows = db.execute(select + where + order + "LIMIT ? OFFSET ?",
+                          (*params, limit, offset)).fetchall()
+        hits = [(r, referencing_blocks(db, r["sha256"])) for r in rows]
+    else:
+        rows = db.execute(select + where + order, params).fetchall()
+        pairs = [(r, referencing_blocks(db, r["sha256"])) for r in rows]
+        want_linked = linked == "linked"
+        wanted = [(r, refs) for r, refs in pairs
+                  if bool(refs) == want_linked]
+        total = len(wanted)
+        hits = wanted[offset:offset + limit]
+    return {"total": total, "assets": [{
+        "sha256": r["sha256"], "filename": r["filename"],
+        "mime": r["mime"], "size": r["size"],
+        "created_at": r["created_at"],
         "url": f"/assets/{r['sha256']}/{r['filename']}",
         "description": r["description"],
         "status": derive_status(r["description"], r["describe_error"]),
-        "refs": referencing_blocks(db, r["sha256"]),
-    } for r in rows]}
+        "describe_error": r["describe_error"],
+        "refs": refs,
+    } for r, refs in hits]}
+
+
+@router.delete("/api/assets/{sha256}")
+def delete_asset(request: Request, sha256: str,
+                 db: sqlite3.Connection = Depends(get_db),
+                 config: Config = Depends(get_config)) -> dict:
+    """Delete an asset: strip every reference token from block text
+    (blocks left empty with no children are deleted outright — asset
+    deletion must never cascade away real content, so emptied parents
+    are kept), drop the assets row, commit, then best-effort unlink the
+    file. Commit-before-unlink: a crash leaves at worst an unreferenced
+    file on disk, never a row pointing at a missing file. Asset URLs
+    never contribute refs rows ([[link]]/#tag/attr:: only), so no refs
+    reindex is needed; refs rows of deleted blocks go via FK cascade
+    (the refs table has no FTS trigger — unlike blocks, where explicit
+    per-uid DELETE is required to keep the FTS delete trigger firing)."""
+    if not _SHA_RE.match(sha256):
+        raise HTTPException(status_code=404, detail="asset not found")
+    row = db.execute("SELECT sha256 FROM assets WHERE sha256 = ?",
+                     (sha256,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="asset not found")
+    now_ms = int(time.time() * 1000)
+    refs_removed = 0
+    for ref in referencing_blocks(db, sha256):
+        block = db.execute("SELECT text FROM blocks WHERE uid = ?",
+                           (ref["uid"],)).fetchone()
+        if block is None:
+            continue
+        new_text = strip_asset_tokens(block["text"], sha256)
+        if new_text == block["text"]:
+            continue
+        refs_removed += 1
+        has_children = db.execute(
+            "SELECT 1 FROM blocks WHERE parent_uid = ? LIMIT 1",
+            (ref["uid"],)).fetchone() is not None
+        if not new_text and not has_children:
+            db.execute("DELETE FROM blocks WHERE uid = ?", (ref["uid"],))
+        else:
+            db.execute("UPDATE blocks SET text = ?, updated_at = ?"
+                       " WHERE uid = ?", (new_text, now_ms, ref["uid"]))
+    db.execute("DELETE FROM assets WHERE sha256 = ?", (sha256,))
+    db.commit()
+    path = config.assets_dir / sha256[:2] / sha256
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("could not remove asset file %s", path)
+    notify.nudge_threadpool(request, db)
+    return {"deleted": True, "refs_removed": refs_removed}
+
+
+@router.post("/api/assets/export.zip")
+def export_assets(sha256s: list[str] = Form(default=[]),
+                  db: sqlite3.Connection = Depends(get_db),
+                  config: Config = Depends(get_config)) -> Response:
+    """Zip the selected assets under their original filenames (name
+    collisions get a short sha prefix via zip_arcnames). Form-encoded so
+    the web app can drive it with a plain <form method="post"> and let
+    the browser own the download. Unknown, malformed, duplicate, and
+    missing-on-disk shas are skipped, not errors: the zip honestly
+    contains what could be exported. In-RAM like /api/export.zip —
+    bounded by the user's selection."""
+    chosen: list[tuple[str, str, Path]] = []
+    for sha in dict.fromkeys(sha256s):
+        if not _SHA_RE.match(sha):
+            continue
+        row = db.execute("SELECT filename FROM assets WHERE sha256 = ?",
+                         (sha,)).fetchone()
+        if row is None:
+            continue
+        path = config.assets_dir / sha[:2] / sha
+        if not path.is_file():
+            continue
+        chosen.append((sha, row["filename"], path))
+    arcs = zip_arcnames([(sha, safe_filename(name)) for sha, name, _ in chosen])
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for (_, _, path), (_, arc) in zip(chosen, arcs):
+            zf.write(path, arc)
+    filename = f"assets-{date.today().isoformat()}.zip"
+    return Response(
+        content=buf.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{filename}"'})
 
 
 @router.get("/assets/{sha256}/{filename}")

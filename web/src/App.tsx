@@ -15,6 +15,7 @@ import { pagePath } from "./paths";
 import { SyncProvider } from "./sync/SyncProvider";
 import { useSidebarCollapsed } from "./useSidebarCollapsed";
 import { CurrentWork } from "./views/CurrentWork";
+import { Files } from "./views/Files";
 import { Help } from "./views/Help";
 import { Journal } from "./views/Journal";
 import { PageView } from "./views/PageView";
@@ -157,6 +158,10 @@ export function App() {
                   * like Daily Notes/Current Work/TODO above (pkm-eztt). Only
                   * one setting exists today; more are coming, so this link --
                   * not those -- is where they'll live. */}
+                <NavLink to="/files" onClick={() => setNavOpen(false)}
+                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
+                  Files
+                </NavLink>
                 <NavLink to="/settings" onClick={() => setNavOpen(false)}
                          className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                   Settings
@@ -170,6 +175,7 @@ export function App() {
                     <Route path="/current-work" element={<CurrentWork />} />
                     <Route path="/page/*" element={<PageView />} />
                     <Route path="/help" element={<Help />} />
+                    <Route path="/files" element={<Files />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>

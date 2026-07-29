@@ -430,12 +430,71 @@ export interface paths {
         /**
          * Search Assets
          * @description LIKE search over description + filename (pkm-zc0c). Empty q lists
-         *     most-recent uploads — the seed of the file-browser list endpoint.
-         *     LIKE, not FTS: personal-scale table, and no offline-parity burden.
+         *     most-recent uploads. LIKE, not FTS: personal-scale table, and no
+         *     offline-parity burden. pkm-jdu3 adds type/date/linked filters,
+         *     offset pagination, and a total count. linked/orphan filtering needs
+         *     refs for every candidate, so that path scans the filtered set
+         *     (personal scale keeps it cheap); linked=all computes refs only for
+         *     the returned page.
          */
         get: operations["search_assets_api_assets_search_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/{sha256}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Asset
+         * @description Delete an asset: strip every reference token from block text
+         *     (blocks left empty with no children are deleted outright — asset
+         *     deletion must never cascade away real content, so emptied parents
+         *     are kept), drop the assets row, commit, then best-effort unlink the
+         *     file. Commit-before-unlink: a crash leaves at worst an unreferenced
+         *     file on disk, never a row pointing at a missing file. Asset URLs
+         *     never contribute refs rows ([[link]]/#tag/attr:: only), so no refs
+         *     reindex is needed; refs rows of deleted blocks go via FK cascade
+         *     (the refs table has no FTS trigger — unlike blocks, where explicit
+         *     per-uid DELETE is required to keep the FTS delete trigger firing).
+         */
+        delete: operations["delete_asset_api_assets__sha256__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/export.zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Assets
+         * @description Zip the selected assets under their original filenames (name
+         *     collisions get a short sha prefix via zip_arcnames). Form-encoded so
+         *     the web app can drive it with a plain <form method="post"> and let
+         *     the browser own the download. Unknown, malformed, duplicate, and
+         *     missing-on-disk shas are skipped, not errors: the zip honestly
+         *     contains what could be exported. In-RAM like /api/export.zip —
+         *     bounded by the user's selection.
+         */
+        post: operations["export_assets_api_assets_export_zip_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -667,11 +726,15 @@ export interface components {
              * @enum {string}
              */
             status: "described" | "failed" | "pending";
+            /** Describe Error */
+            describe_error: string | null;
             /** Refs */
             refs: components["schemas"]["AssetRef"][];
         };
         /** AssetSearchPayload */
         AssetSearchPayload: {
+            /** Total */
+            total: number;
             /** Assets */
             assets: components["schemas"]["AssetSearchItem"][];
         };
@@ -792,6 +855,14 @@ export interface components {
             block_ref_texts: {
                 [key: string]: components["schemas"]["BlockRefText"];
             };
+        };
+        /** Body_export_assets_api_assets_export_zip_post */
+        Body_export_assets_api_assets_export_zip_post: {
+            /**
+             * Sha256S
+             * @default []
+             */
+            sha256s: string[];
         };
         /** Body_upload_asset_api_assets_post */
         Body_upload_asset_api_assets_post: {
@@ -1976,6 +2047,11 @@ export interface operations {
             query?: {
                 q?: string;
                 limit?: number;
+                offset?: number;
+                type?: "" | "image" | "pdf" | "document" | "other";
+                from_ms?: number | null;
+                to_ms?: number | null;
+                linked?: "all" | "linked" | "orphan";
             };
             header?: never;
             path?: never;
@@ -1990,6 +2066,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssetSearchPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_asset_api_assets__sha256__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_assets_api_assets_export_zip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["Body_export_assets_api_assets_export_zip_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

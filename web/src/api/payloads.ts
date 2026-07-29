@@ -38,3 +38,8 @@ export type SidebarNavEntry = Schemas["SidebarNavEntry"];
 export type SidebarNavPayload = Schemas["SidebarNavPayload"];
 
 export type DescribeStatusPayload = Schemas["DescribeStatusPayload"];
+
+export type AssetRef = Schemas["AssetRef"];
+export type AssetSearchItem = Schemas["AssetSearchItem"];
+export type AssetSearchPayload = Schemas["AssetSearchPayload"];
+export type ScanPayload = Schemas["ScanPayload"];

@@ -216,6 +216,20 @@ describe("control polish (pkm-0wg9)", () => {
     expect(ruleFor(".assistant-input .btn-secondary"))
       .toContain("align-self: flex-end;");
   });
+
+  test("the danger button fills with a token tuned for fills, not text", () => {
+    const danger = ruleFor(".btn-danger");
+    expect(danger).toContain("background: var(--color-error-fill);");
+    expect(danger).toContain("border: 1px solid var(--color-error-fill);");
+    // light keeps today's red; dark gets a deep red instead of coral
+    expect(ruleFor(":root")).toContain("--color-error-fill: #c23030;");
+    expect(ruleFor(':root:not([data-theme="light"])'))
+      .toContain("--color-error-fill: #a83a3a;");
+    expect(ruleFor(':root[data-theme="dark"]'))
+      .toContain("--color-error-fill: #a83a3a;");
+    // --color-error keeps its own job: error text and the failed badge
+    expect(ruleFor(".error")).toContain("color: var(--color-error);");
+  });
 });
 
 describe("typography hierarchy (pkm-b68q, pkm-ofec)", () => {

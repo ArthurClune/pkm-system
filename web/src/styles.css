@@ -44,6 +44,10 @@
   --color-bullet: #d2e0ea;
   --color-bullet-ring: #c6d7e3;
   --color-error: #c23030;
+  /* solid-fill variant of --color-error. The dark --color-error is tuned for
+   * error *text* on a dark background; as a button fill behind white text it
+   * reads as bright coral, which the pill shape amplifies (pkm-0wg9). */
+  --color-error-fill: #c23030;
   --color-highlight-bg: #fcc1786d;
   --color-selection-bg: #fcc1786d;
   --color-selected-bg: #ebf1f5;
@@ -102,6 +106,7 @@
     --color-bullet: #39434d;
     --color-bullet-ring: #4a5866;
     --color-error: #ff6b6b;
+    --color-error-fill: #a83a3a;
     --color-highlight-bg: #ff913c48;
     --color-selection-bg: #ff913c55;
     --color-selected-bg: #29323b;
@@ -149,6 +154,7 @@
   --color-bullet: #39434d;
   --color-bullet-ring: #4a5866;
   --color-error: #ff6b6b;
+  --color-error-fill: #a83a3a;
   --color-highlight-bg: #ff913c48;
   --color-selection-bg: #ff913c55;
   --color-selected-bg: #29323b;
@@ -211,7 +217,8 @@ button { font: inherit; }
   border-color: var(--color-border-strong); color: var(--color-text); }
 .btn-secondary:disabled { opacity: 0.35; cursor: default; }
 /* destructive action (confirm dialogs, Files' Delete, ...) */
-.btn-danger { background: var(--color-error); border: 1px solid var(--color-error);
+.btn-danger { background: var(--color-error-fill);
+  border: 1px solid var(--color-error-fill);
   border-radius: var(--radius-pill); color: #fff; cursor: pointer;
   padding: 5px 14px;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease; }

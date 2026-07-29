@@ -43,6 +43,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   // calls new Date() itself).
   { name: "today", label: "link to today" },
   { name: "tomorrow", label: "link to tomorrow" },
+  // "date" has no text transform: picking it strips the trigger and opens
+  // the inline date picker (handled in BlockInput), which then splices the
+  // [[daily-note]] link at the recorded offset.
+  { name: "date", label: "link to a date…" },
 ];
 
 /** Commands that set a block's heading field (a SetHeadingOp) rather than

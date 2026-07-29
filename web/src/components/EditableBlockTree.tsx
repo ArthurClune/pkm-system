@@ -22,9 +22,11 @@ import { isOutlinePaste, isOutlinePasteChord } from "../outline/paste";
 import { applySlashCommand, matchSlashCommands,
          resolveHeading } from "../outline/slashCommands";
 import { pagePath } from "../paths";
+import { titleForDate } from "../replica/daily";
 import { AutocompletePopup, buildRows, useTitleOptions,
          type AcRow } from "./AutocompletePopup";
 import { BlockMenu } from "./BlockMenu";
+import { DatePickerPopup } from "./DatePickerPopup";
 import { InlineSegments } from "./InlineSegments";
 import { RoamTable } from "./roamTable";
 import { quoteContent } from "./blockPresentation";
@@ -391,6 +393,10 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   const [ac, setAc] = useState<AcContext | null>(null);
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
+  // Insertion offset for the /date picker; null = closed. The offset is
+  // where the stripped "/" trigger sat. Any draft edit closes the picker
+  // (onChange / applyKeyEdit below), so the offset can never go stale.
+  const [datePickerAt, setDatePickerAt] = useState<number | null>(null);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   // The caret offset to place on mount, captured once: this component is
   // remounted each time focus moves to a new block, so the mount-time
@@ -498,6 +504,7 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   };
 
   const applyKeyEdit = (r: TextSelection) => {
+    setDatePickerAt(null);
     dirtyRef.current = true;
     setDraft(r.text);
     setCaret(r.selStart);
@@ -549,6 +556,18 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
       onRequestUpload(node.uid, at);
       return;
     }
+    // "/date": strip the trigger like /upload, but open the inline
+    // focus-preserving picker instead of a native dialog — the textarea
+    // keeps focus (the picker is mouse-down-only), so the eventual
+    // insertion goes through the normal setText draft path.
+    if (row.command === "date") {
+      const at = ac.start - 1; // where the "/" was
+      setAc(null);
+      setAcSelected(0);
+      setText(draft.slice(0, at) + draft.slice(caret), at);
+      setDatePickerAt(at);
+      return;
+    }
     const applied = row.command
       ? applySlashCommand(draft, caret, ac, row.command, new Date())
       : applyCompletion(draft, caret, ac, row.title);
@@ -565,7 +584,16 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
     }
   };
 
+  const pickDate = (d: Date) => {
+    if (datePickerAt === null) return;
+    const at = Math.min(datePickerAt, draft.length);
+    setDatePickerAt(null);
+    const link = `[[${titleForDate(d)}]]`;
+    setText(draft.slice(0, at) + link + draft.slice(at), at + link.length);
+  };
+
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setDatePickerAt(null); // any typed edit invalidates the stored offset
     const value = e.target.value;
     const pos = e.target.selectionStart ?? value.length;
     dirtyRef.current = true;
@@ -597,6 +625,13 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
       ? measureCaretDisplayLine(el, el.selectionStart)?.first : undefined;
     const caretOnLastDisplayLine = plain && e.key === "ArrowDown"
       ? measureCaretDisplayLine(el, el.selectionEnd)?.last : undefined;
+    // The /date picker owns Escape while open; everything else falls
+    // through to the normal policy (typing closes the picker via onChange).
+    if (datePickerAt !== null && e.key === "Escape") {
+      e.preventDefault();
+      setDatePickerAt(null);
+      return;
+    }
     const decision = decideEditorKey({
       key: e.key, code: e.code,
       metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
@@ -744,6 +779,9 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
                 onCompositionEnd={onCompositionEnd} />
       {!readOnly && (
         <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
+      )}
+      {!readOnly && datePickerAt !== null && (
+        <DatePickerPopup initial={new Date()} onPick={pickDate} />
       )}
     </div>
   );

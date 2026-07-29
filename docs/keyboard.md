@@ -109,6 +109,7 @@ to filter the list — e.g. `/py` narrows to the Python code block and
 | `/query-or` | Insert a query placeholder for blocks tagged with either page |
 | `/query-and-not` | Insert a query placeholder for blocks tagged with the first page but not the second |
 | `/today`, `/tomorrow` | Insert a link to today's / tomorrow's daily note |
+| `/date` | Pick a date from a calendar and insert a link to its daily note |
 
 Replace the `A` and `B` placeholders with real `[[Page]]` links (type `[[`
 to search for a page) to run a query. The placeholders are plain text, not

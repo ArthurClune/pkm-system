@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import os
 import re
 import sqlite3
 import time
 import uuid
+import zipfile
+from datetime import date
 from pathlib import Path
 from typing import Literal, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, Response
 
-from pkm.assets_core import strip_asset_tokens, type_where
+from pkm.assets_core import strip_asset_tokens, type_where, zip_arcnames
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
 from pkm.server import notify
@@ -191,6 +194,41 @@ def delete_asset(request: Request, sha256: str,
         logger.warning("could not remove asset file %s", path)
     notify.nudge_threadpool(request, db)
     return {"deleted": True, "refs_removed": refs_removed}
+
+
+@router.post("/api/assets/export.zip")
+def export_assets(sha256s: list[str] = Form(default=[]),
+                  db: sqlite3.Connection = Depends(get_db),
+                  config: Config = Depends(get_config)) -> Response:
+    """Zip the selected assets under their original filenames (name
+    collisions get a short sha prefix via zip_arcnames). Form-encoded so
+    the web app can drive it with a plain <form method="post"> and let
+    the browser own the download. Unknown, malformed, duplicate, and
+    missing-on-disk shas are skipped, not errors: the zip honestly
+    contains what could be exported. In-RAM like /api/export.zip —
+    bounded by the user's selection."""
+    chosen: list[tuple[str, str, Path]] = []
+    for sha in dict.fromkeys(sha256s):
+        if not _SHA_RE.match(sha):
+            continue
+        row = db.execute("SELECT filename FROM assets WHERE sha256 = ?",
+                         (sha,)).fetchone()
+        if row is None:
+            continue
+        path = config.assets_dir / sha[:2] / sha
+        if not path.is_file():
+            continue
+        chosen.append((sha, row["filename"], path))
+    arcs = zip_arcnames([(sha, name) for sha, name, _ in chosen])
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for (_, _, path), (_, arc) in zip(chosen, arcs):
+            zf.write(path, arc)
+    filename = f"assets-{date.today().isoformat()}.zip"
+    return Response(
+        content=buf.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{filename}"'})
 
 
 @router.get("/assets/{sha256}/{filename}")

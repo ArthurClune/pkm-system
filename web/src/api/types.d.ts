@@ -475,6 +475,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/assets/export.zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Assets
+         * @description Zip the selected assets under their original filenames (name
+         *     collisions get a short sha prefix via zip_arcnames). Form-encoded so
+         *     the web app can drive it with a plain <form method="post"> and let
+         *     the browser own the download. Unknown, malformed, duplicate, and
+         *     missing-on-disk shas are skipped, not errors: the zip honestly
+         *     contains what could be exported. In-RAM like /api/export.zip —
+         *     bounded by the user's selection.
+         */
+        post: operations["export_assets_api_assets_export_zip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assets/{sha256}/{filename}": {
         parameters: {
             query?: never;
@@ -829,6 +855,14 @@ export interface components {
             block_ref_texts: {
                 [key: string]: components["schemas"]["BlockRefText"];
             };
+        };
+        /** Body_export_assets_api_assets_export_zip_post */
+        Body_export_assets_api_assets_export_zip_post: {
+            /**
+             * Sha256S
+             * @default []
+             */
+            sha256s: string[];
         };
         /** Body_upload_asset_api_assets_post */
         Body_upload_asset_api_assets_post: {
@@ -2065,6 +2099,39 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_assets_api_assets_export_zip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["Body_export_assets_api_assets_export_zip_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

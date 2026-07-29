@@ -641,6 +641,22 @@ mark.highlight { background: var(--color-highlight-bg); }
 .ac-row { padding: 4px 10px; cursor: pointer; }
 .ac-row.selected { background: var(--color-ac-selected-bg); }
 
+/* --- /date picker (pkm-rw6w) --- */
+.date-picker { position: absolute; top: 100%; left: 0; z-index: 50;
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); padding: 8px; width: 252px; }
+.date-picker-header { display: flex; align-items: center;
+  justify-content: space-between; padding: 0 2px 6px; font-weight: 600; }
+.date-picker-header button { background: none; border: none; cursor: pointer;
+  font: inherit; color: var(--color-text); padding: 2px 8px; }
+.date-picker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.date-picker-dow { text-align: center; font-size: 0.75rem; padding: 2px 0; }
+.date-picker-day { background: none; border: none; cursor: pointer; font: inherit;
+  color: var(--color-text); padding: 4px 0; text-align: center; border-radius: 4px; }
+.date-picker-day:hover { background: var(--color-ac-selected-bg); }
+.date-picker-day.outside { opacity: 0.45; }
+.date-picker-day.today { font-weight: 600; }
+
 /* --- block context menu (pkm-y6af) --- */
 .block-menu { position: fixed; z-index: 60;
   background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);

@@ -12,6 +12,7 @@
 // block. If the content is already a whole fence (any language, e.g. a
 // Python block), /text unwraps it first so the result isn't double-fenced.
 import { hasTodoMarker } from "../grammar/todo";
+import { titleForDate } from "../replica/daily";
 import type { AcContext } from "./autocomplete";
 
 export interface SlashCommand {
@@ -37,6 +38,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "query-and", label: "query (and)" },
   { name: "query-or", label: "query (or)" },
   { name: "query-and-not", label: "query (and not)" },
+  // Daily-note link shortcuts (pkm-rw6w). applySlashCommand takes the
+  // current date from the shell (clock reads are I/O, so the core never
+  // calls new Date() itself).
+  { name: "today", label: "link to today" },
+  { name: "tomorrow", label: "link to tomorrow" },
+  // "date" has no text transform: picking it strips the trigger and opens
+  // the inline date picker (handled in BlockInput), which then splices the
+  // [[daily-note]] link at the recorded offset.
+  { name: "date", label: "link to a date…" },
 ];
 
 /** Commands that set a block's heading field (a SetHeadingOp) rather than
@@ -110,13 +120,20 @@ function textBlock(content: string): { text: string; cursor: number } {
   return wrapFence(unwrapFence(content).text, "");
 }
 
+/** Insert a [[daily-note]] link for `d` at `at`, cursor after the link. */
+function dailyLink(content: string, at: number, d: Date): { text: string; cursor: number } {
+  const link = `[[${titleForDate(d)}]]`;
+  const text = content.slice(0, at) + link + content.slice(at);
+  return { text, cursor: at + link.length };
+}
+
 /** Remove the "/query" trigger and apply `command`'s transform to what's
  * left. Heading commands (h1/h2/h3/normal) have no text transform of their
  * own — they fall through to the default (trigger stripped, nothing else)
  * because the heading field itself is set separately via resolveHeading
  * and a SetHeadingOp. */
 export function applySlashCommand(
-  text: string, cursor: number, ctx: AcContext, command: string,
+  text: string, cursor: number, ctx: AcContext, command: string, now: Date,
 ): { text: string; cursor: number } {
   const content = text.slice(0, ctx.start - 1) + text.slice(cursor);
   switch (command) {
@@ -130,6 +147,10 @@ export function applySlashCommand(
       return wrapFence(content, command);
     case "query-and": case "query-or": case "query-and-not":
       return queryPlaceholder(command, content);
+    case "today": return dailyLink(content, ctx.start - 1, now);
+    case "tomorrow":
+      return dailyLink(content, ctx.start - 1,
+        new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
     default: return { text: content, cursor: content.length };
   }
 }

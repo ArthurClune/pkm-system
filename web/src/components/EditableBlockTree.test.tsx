@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
-import { expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { SidebarContext } from "../contexts";
+import { titleForDate } from "../replica/daily";
 import { block, stubFetch } from "../test-helpers";
 import type { OutlineHandlers } from "./EditableBlockTree";
 import { EditableBlockTree } from "./EditableBlockTree";
@@ -1389,4 +1390,68 @@ test("read-only outlines do not intercept text pastes", () => {
     clipboardData: { files: [], getData: () => "a\nb" },
   });
   expect(h.onPasteOutline).not.toHaveBeenCalled();
+});
+
+describe("/date picker (pkm-rw6w)", () => {
+  test("picking /date strips the trigger and opens the picker", () => {
+    const h = handlers();
+    mount(h, { uid: "u1", cursor: 0 });
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: "/date" } });
+    ta.setSelectionRange(5, 5);
+    expect(screen.getByRole("option", { name: "link to a date…" })).toBeInTheDocument();
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "");
+    expect(screen.getByRole("dialog", { name: "pick a date" })).toBeInTheDocument();
+  });
+
+  test("clicking a day inserts that date's daily-note link and closes the picker", () => {
+    const h = handlers();
+    mount(h, { uid: "u1", cursor: 0 });
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: "/date" } });
+    ta.setSelectionRange(5, 5);
+    fireEvent.keyDown(ta, { key: "Enter" });
+    fireEvent.mouseDown(screen.getByRole("button", { name: "15" }));
+    const now = new Date();
+    const expected =
+      `[[${titleForDate(new Date(now.getFullYear(), now.getMonth(), 15))}]]`;
+    expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", expected);
+    expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();
+  });
+
+  test("Escape closes the picker without inserting", () => {
+    const h = handlers();
+    mount(h, { uid: "u1", cursor: 0 });
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: "/date" } });
+    ta.setSelectionRange(5, 5);
+    fireEvent.keyDown(ta, { key: "Enter" });
+    const callsAfterOpen = vi.mocked(h.onDraftChange).mock.calls.length;
+    fireEvent.keyDown(ta, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();
+    expect(vi.mocked(h.onDraftChange).mock.calls.length).toBe(callsAfterOpen);
+  });
+
+  test("typing while the picker is open closes it", () => {
+    const h = handlers();
+    mount(h, { uid: "u1", cursor: 0 });
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: "/date" } });
+    ta.setSelectionRange(5, 5);
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(screen.getByRole("dialog", { name: "pick a date" })).toBeInTheDocument();
+    fireEvent.change(ta, { target: { value: "x" } });
+    expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();
+  });
+
+  test("readOnly tree never renders a picker", () => {
+    const h = handlers();
+    mount(h, { uid: "u1", cursor: 0 }, true);
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: "/date" } });
+    ta.setSelectionRange(5, 5);
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();
+  });
 });

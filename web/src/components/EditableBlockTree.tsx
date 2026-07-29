@@ -550,7 +550,7 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
       return;
     }
     const applied = row.command
-      ? applySlashCommand(draft, caret, ac, row.command)
+      ? applySlashCommand(draft, caret, ac, row.command, new Date())
       : applyCompletion(draft, caret, ac, row.title);
     setAc(null);
     setAcSelected(0);

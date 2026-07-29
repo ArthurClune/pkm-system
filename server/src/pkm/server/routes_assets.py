@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import sqlite3
@@ -14,9 +15,10 @@ from typing import Literal, Protocol
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
-from pkm.assets_core import type_where
+from pkm.assets_core import strip_asset_tokens, type_where
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
+from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
@@ -25,6 +27,8 @@ from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 from pkm.server.response_models import AssetSearchPayload, AssetUploadResponse
 
 router = APIRouter(dependencies=[Depends(require_auth)])
+
+logger = logging.getLogger("pkm.assets")
 
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -137,6 +141,56 @@ def search_assets(q: str = "", limit: int = 50, offset: int = 0,
         "describe_error": r["describe_error"],
         "refs": refs,
     } for r, refs in hits]}
+
+
+@router.delete("/api/assets/{sha256}")
+def delete_asset(request: Request, sha256: str,
+                 db: sqlite3.Connection = Depends(get_db),
+                 config: Config = Depends(get_config)) -> dict:
+    """Delete an asset: strip every reference token from block text
+    (blocks left empty with no children are deleted outright — asset
+    deletion must never cascade away real content, so emptied parents
+    are kept), drop the assets row, commit, then best-effort unlink the
+    file. Commit-before-unlink: a crash leaves at worst an unreferenced
+    file on disk, never a row pointing at a missing file. Asset URLs
+    never contribute refs rows ([[link]]/#tag/attr:: only), so no refs
+    reindex is needed; refs rows of deleted blocks go via FK cascade,
+    and the explicit per-uid DELETE keeps the FTS delete trigger
+    firing."""
+    if not _SHA_RE.match(sha256):
+        raise HTTPException(status_code=404, detail="asset not found")
+    row = db.execute("SELECT sha256 FROM assets WHERE sha256 = ?",
+                     (sha256,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="asset not found")
+    now_ms = int(time.time() * 1000)
+    refs_removed = 0
+    for ref in referencing_blocks(db, sha256):
+        block = db.execute("SELECT text FROM blocks WHERE uid = ?",
+                           (ref["uid"],)).fetchone()
+        if block is None:
+            continue
+        new_text = strip_asset_tokens(block["text"], sha256)
+        if new_text == block["text"]:
+            continue
+        refs_removed += 1
+        has_children = db.execute(
+            "SELECT 1 FROM blocks WHERE parent_uid = ? LIMIT 1",
+            (ref["uid"],)).fetchone() is not None
+        if not new_text and not has_children:
+            db.execute("DELETE FROM blocks WHERE uid = ?", (ref["uid"],))
+        else:
+            db.execute("UPDATE blocks SET text = ?, updated_at = ?"
+                       " WHERE uid = ?", (new_text, now_ms, ref["uid"]))
+    db.execute("DELETE FROM assets WHERE sha256 = ?", (sha256,))
+    db.commit()
+    path = config.assets_dir / sha256[:2] / sha256
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("could not remove asset file %s", path)
+    notify.nudge_threadpool(request, db)
+    return {"deleted": True, "refs_removed": refs_removed}
 
 
 @router.get("/assets/{sha256}/{filename}")

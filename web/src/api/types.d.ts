@@ -446,6 +446,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/assets/{sha256}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Asset
+         * @description Delete an asset: strip every reference token from block text
+         *     (blocks left empty with no children are deleted outright — asset
+         *     deletion must never cascade away real content, so emptied parents
+         *     are kept), drop the assets row, commit, then best-effort unlink the
+         *     file. Commit-before-unlink: a crash leaves at worst an unreferenced
+         *     file on disk, never a row pointing at a missing file. Asset URLs
+         *     never contribute refs rows ([[link]]/#tag/attr:: only), so no refs
+         *     reindex is needed; refs rows of deleted blocks go via FK cascade,
+         *     and the explicit per-uid DELETE keeps the FTS delete trigger
+         *     firing.
+         */
+        delete: operations["delete_asset_api_assets__sha256__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assets/{sha256}/{filename}": {
         parameters: {
             query?: never;
@@ -2003,6 +2032,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssetSearchPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_asset_api_assets__sha256__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

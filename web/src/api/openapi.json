@@ -1111,6 +1111,48 @@
         }
       }
     },
+    "/api/assets/{sha256}": {
+      "delete": {
+        "summary": "Delete Asset",
+        "description": "Delete an asset: strip every reference token from block text\n(blocks left empty with no children are deleted outright \u2014 asset\ndeletion must never cascade away real content, so emptied parents\nare kept), drop the assets row, commit, then best-effort unlink the\nfile. Commit-before-unlink: a crash leaves at worst an unreferenced\nfile on disk, never a row pointing at a missing file. Asset URLs\nnever contribute refs rows ([[link]]/#tag/attr:: only), so no refs\nreindex is needed; refs rows of deleted blocks go via FK cascade,\nand the explicit per-uid DELETE keeps the FTS delete trigger\nfiring.",
+        "operationId": "delete_asset_api_assets__sha256__delete",
+        "parameters": [
+          {
+            "name": "sha256",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sha256"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Asset Api Assets  Sha256  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/assets/{sha256}/{filename}": {
       "get": {
         "summary": "Get Asset",

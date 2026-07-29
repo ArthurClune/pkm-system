@@ -1,10 +1,11 @@
 ---
 # pkm-jdu3
 title: file browser UI for asset management
-status: todo
+status: in-progress
 type: feature
+priority: normal
 created_at: 2026-07-27T20:29:27Z
-updated_at: 2026-07-27T20:29:27Z
+updated_at: 2026-07-29T13:01:21Z
 parent: pkm-zx19
 blocked_by:
     - pkm-zc0c
@@ -29,3 +30,14 @@ Design spec (2026-07-29): docs/superpowers/specs/2026-07-29-asset-file-browser-d
 - Optional: end-to-end test that deleting a referencing block drops it from `refs` (pins the FTS delete trigger user-visibly).
 - Note: `/api/assets/search` computes refs per hit even for the `q=""` recency listing — if the browser's page size grows large, that's where an `include_refs` flag would go.
 - The search payload's `refs` field already answers linked-vs-orphan client-side for list views (`refs` non-empty = linked); the "link check = search blocks.text" bullet above predates pkm-t5pu and is superseded.
+
+## Implementation Tasks (plan: docs/superpowers/plans/2026-07-29-asset-file-browser.md)
+
+- [x] Task 1: Server functional core — assets_core.py
+- [ ] Task 2: Extend GET /api/assets/search — filters, pagination, total
+- [ ] Task 3: DELETE /api/assets/{sha256}
+- [ ] Task 4: POST /api/assets/export.zip
+- [ ] Task 5: Web functional core — types + filesCore.ts
+- [ ] Task 6: The Files view, route, nav, styles
+- [ ] Task 7: End-to-end test
+- [ ] Task 8: Final verification, bean close-out, integration

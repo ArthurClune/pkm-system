@@ -73,6 +73,15 @@ describe("Files", () => {
     expect(screen.getByText("2 of 2 files")).toBeInTheDocument();
   });
 
+  it("styles the filter widgets with the shared input token (pkm-mrru)",
+     async () => {
+    render(<Files />);
+    await screen.findByText(/no files match/i);
+    for (const name of ["Search files", "Type", "From", "To", "Linked"]) {
+      expect(screen.getByLabelText(name)).toHaveClass("input-control");
+    }
+  });
+
   it("passes filters to the search request", async () => {
     render(<Files />);
     await screen.findByText(/no files match/i);

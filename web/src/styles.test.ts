@@ -133,8 +133,9 @@ describe("visual consistency (pkm-9kye)", () => {
   test("secondary buttons share one style definition", () => {
     const btn = ruleFor(".btn-secondary");
     expect(btn).toContain("background: var(--color-bg-subtle);");
-    expect(btn).toContain("border: 1px solid var(--color-border-input);");
-    expect(btn).toContain("border-radius: var(--radius-control);");
+    // border lightened and the radius became a pill in pkm-0wg9
+    expect(btn).toContain("border: 1px solid var(--color-border);");
+    expect(btn).toContain("border-radius: var(--radius-pill);");
     expect(ruleFor(".show-more")).not.toContain("background:");
     expect(ruleFor(".composer-send")).not.toContain("background:");
   });
@@ -149,7 +150,8 @@ describe("visual consistency (pkm-9kye)", () => {
 describe("form control tokens (pkm-mrru)", () => {
   test("the button tokens carry their own geometry, so bare call sites look right", () => {
     for (const selector of [".btn-secondary", ".btn-danger"]) {
-      expect(ruleFor(selector)).toContain("padding: 4px 12px;");
+      // widened for the pill shape in pkm-0wg9
+      expect(ruleFor(selector)).toContain("padding: 5px 14px;");
     }
   });
 
@@ -180,6 +182,29 @@ describe("form control tokens (pkm-mrru)", () => {
       .toContain("color-scheme: dark;");
     expect(ruleFor(':root[data-theme="dark"]'))
       .toContain("color-scheme: dark;");
+  });
+});
+
+describe("control polish (pkm-0wg9)", () => {
+  test("actions and fields have their own radius tokens", () => {
+    const root = ruleFor(":root");
+    expect(root).toContain("--radius-pill: 999px;");
+    expect(root).toContain("--radius-field: 7px;");
+    // unchanged: inline code, block rows, badges and thumbs still use it
+    expect(root).toContain("--radius-control: 4px;");
+  });
+
+  test("buttons are pills with hover and focus feedback", () => {
+    const btn = ruleFor(".btn-secondary");
+    expect(btn).toContain("border-radius: var(--radius-pill);");
+    expect(btn).toContain("padding: 5px 14px;");
+    expect(btn).toContain("border: 1px solid var(--color-border);");
+    expect(btn).toContain("transition:");
+    expect(ruleFor(".btn-danger")).toContain("border-radius: var(--radius-pill);");
+    expect(ruleFor(".btn-secondary:hover:not(:disabled)"))
+      .toContain("border-color: var(--color-border-strong);");
+    expect(ruleFor(".btn-secondary:focus-visible, .btn-danger:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
   });
 });
 

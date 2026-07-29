@@ -13,6 +13,18 @@ function ruleFor(selector: string): string {
   return match[1];
 }
 
+// A class's declarations can live in more than one rule -- .search-field-input
+// carries the colours it shares with .input-control in one rule and its own
+// geometry in another. ruleFor returns only the first match, so collect every
+// rule whose selector text names this one.
+function rulesFor(selector: string): string {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const bodies = [...styles.matchAll(
+    new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`, "g"))].map((m) => m[1]);
+  if (bodies.length === 0) throw new Error(`Missing CSS rule for ${selector}`);
+  return bodies.join("\n");
+}
+
 describe("outline line spacing", () => {
   test("uses 1.4 line-height for block rows and numbered bullets", () => {
     expect(ruleFor(".block-row")).toContain("line-height: 1.4;");
@@ -67,8 +79,11 @@ describe("metadata chips (pkm-7t7o)", () => {
 });
 
 describe("top bar cohesion (pkm-absu)", () => {
+  // the pill moved to the shared .search-field-input class (pkm-0wg9) so the
+  // /files search is the same object, not a lookalike
   test("the search input is a rounded pill", () => {
-    expect(ruleFor(".top-bar-search-input")).toContain("border-radius: 999px;");
+    expect(rulesFor(".search-field-input"))
+      .toContain("border-radius: var(--radius-pill);");
   });
 
   test("the context label truncates and provides the bar's left/right split", () => {
@@ -210,7 +225,7 @@ describe("control polish (pkm-0wg9)", () => {
 
   test("compact pill call sites get enough horizontal room", () => {
     expect(ruleFor(".reference-link-button")).toContain("padding: 1px 10px;");
-    expect(styles).toContain(".composer-send { padding: 6px 14px; }");
+    expect(rulesFor(".composer-send")).toContain("padding: 6px 14px;");
   });
 
   test("the assistant send button does not stretch into a lozenge", () => {
@@ -262,6 +277,27 @@ describe("control polish (pkm-0wg9)", () => {
     const editor = ruleFor(".block-input");
     expect(editor).not.toContain("background: var(--color-bg-subtle);");
     expect(editor).not.toContain("border: 1px solid");
+  });
+
+  test("the search field look is shared, not duplicated per call site", () => {
+    expect(ruleFor(".search-field")).toContain("position: relative;");
+    expect(ruleFor(".search-field-icon")).toContain("position: absolute;");
+    const input = rulesFor(".search-field-input");
+    expect(input).toContain("border-radius: var(--radius-pill);");
+    expect(input).toContain("padding: 4px 12px 4px 30px;");
+    // both searches share the field colours
+    expect(styles).toContain(".input-control, .search-field-input {");
+  });
+
+  test("the top bar keeps only its own width behaviour", () => {
+    const topBar = ruleFor(".top-bar-search-input");
+    expect(topBar).toContain("width: 220px;");
+    expect(topBar).toContain("transition: width 0.15s");
+    expect(topBar).not.toContain("border-radius:");
+    expect(ruleFor(".top-bar-search-input:focus")).toContain("width: 320px;");
+    // pkm-absu: the hint chip hides via an adjacent-sibling selector, so the
+    // kbd must stay immediately after the input
+    expect(styles).toContain(".top-bar-search-input:focus + .top-bar-search-hint,");
   });
 });
 

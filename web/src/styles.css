@@ -366,17 +366,21 @@ button { font: inherit; }
 .top-bar-title { margin-right: auto; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; font-size: 14px;
   font-weight: 600; color: var(--color-text-secondary); padding: 0 4px; }
-.top-bar-search { position: relative; }
-.top-bar-search-icon { position: absolute; left: 9px; top: 50%;
+/* the search field, shared by the Cmd-U search and /files (pkm-0wg9): one
+ * object, so the two cannot drift apart. Colours come from the field group
+ * above; the icon sits inside the pill's left padding. */
+.search-field { position: relative; display: flex; }
+.search-field-icon { position: absolute; left: 9px; top: 50%;
   transform: translateY(-50%); display: flex; pointer-events: none;
   color: var(--color-text-secondary); }
-.top-bar-search-input { width: 220px; box-sizing: border-box; padding: 4px 44px 4px 30px;
-  border: 1px solid var(--color-border-strong); border-radius: 999px;
-  background: var(--color-bg-subtle); color: var(--color-text);
-  font-size: 14px; outline: none; transition: width 0.15s; }
-.top-bar-search-input::placeholder { color: var(--color-text-secondary); }
-.top-bar-search-input:focus { width: 320px; background: var(--color-bg-surface);
-  border-color: var(--color-border-input); }
+.search-field-input { width: 100%; box-sizing: border-box;
+  padding: 4px 12px 4px 30px; border-radius: var(--radius-pill);
+  font-size: 14px; outline: none; }
+/* top-bar-only: the width growth on focus, and room on the right for the ⌘U
+ * hint chip. Everything else is .search-field-input. */
+.top-bar-search-input { width: 220px; padding-right: 44px;
+  transition: width 0.15s, background 0.12s ease, border-color 0.12s ease; }
+.top-bar-search-input:focus { width: 320px; }
 /* shortcut hint chip inside the pill; only advertises the shortcut while
  * the search is idle */
 .top-bar-search-hint { position: absolute; right: 10px; top: 50%;

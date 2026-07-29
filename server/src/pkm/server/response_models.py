@@ -172,10 +172,12 @@ class AssetSearchItem(BaseModel):
     url: str
     description: str | None
     status: Literal["described", "failed", "pending"]
+    describe_error: str | None
     refs: list[AssetRef]
 
 
 class AssetSearchPayload(BaseModel):
+    total: int
     assets: list[AssetSearchItem]
 
 

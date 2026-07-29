@@ -193,7 +193,9 @@ def test_render_assets_tolerates_missing_refs_key():
          "size": 1, "created_at": None,
          "url": "/assets/" + "ef" * 32 + "/old.png",
          "description": None, "status": "pending"}]}
-    assert "old.png" in render_assets(payload)
+    out = render_assets(payload)
+    assert "old.png" in out
+    assert "in [[" not in out
 
 
 def test_select_section_and_clip_depth():

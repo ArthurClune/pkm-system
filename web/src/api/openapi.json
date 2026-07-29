@@ -989,7 +989,7 @@
     "/api/assets/search": {
       "get": {
         "summary": "Search Assets",
-        "description": "LIKE search over description + filename (pkm-zc0c). Empty q lists\nmost-recent uploads \u2014 the seed of the file-browser list endpoint.\nLIKE, not FTS: personal-scale table, and no offline-parity burden.",
+        "description": "LIKE search over description + filename (pkm-zc0c). Empty q lists\nmost-recent uploads. LIKE, not FTS: personal-scale table, and no\noffline-parity burden. pkm-jdu3 adds type/date/linked filters,\noffset pagination, and a total count. linked/orphan filtering needs\nrefs for every candidate, so that path scans the filtered set\n(personal scale keeps it cheap); linked=all computes refs only for\nthe returned page.",
         "operationId": "search_assets_api_assets_search_get",
         "parameters": [
           {
@@ -1010,6 +1010,80 @@
               "type": "integer",
               "default": 50,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "",
+                "image",
+                "pdf",
+                "document",
+                "other"
+              ],
+              "type": "string",
+              "default": "",
+              "title": "Type"
+            }
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ms"
+            }
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ms"
+            }
+          },
+          {
+            "name": "linked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "linked",
+                "orphan"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Linked"
             }
           }
         ],
@@ -1550,6 +1624,17 @@
             ],
             "title": "Status"
           },
+          "describe_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Describe Error"
+          },
           "refs": {
             "items": {
               "$ref": "#/components/schemas/AssetRef"
@@ -1568,12 +1653,17 @@
           "url",
           "description",
           "status",
+          "describe_error",
           "refs"
         ],
         "title": "AssetSearchItem"
       },
       "AssetSearchPayload": {
         "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
           "assets": {
             "items": {
               "$ref": "#/components/schemas/AssetSearchItem"
@@ -1584,6 +1674,7 @@
         },
         "type": "object",
         "required": [
+          "total",
           "assets"
         ],
         "title": "AssetSearchPayload"

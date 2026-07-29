@@ -9,11 +9,12 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
+from pkm.assets_core import type_where
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
 from pkm.server.auth import require_auth
@@ -53,7 +54,8 @@ INLINE_MIME = frozenset({
 })
 
 
-def referencing_blocks(db: sqlite3.Connection, sha256: str) -> list[dict]:
+def referencing_blocks(db: sqlite3.Connection,
+                       sha256: str) -> list[dict[str, str]]:
     """All blocks whose text contains the asset's sha, with their page
     titles. FTS5 unicode61 keeps a 64-hex sha as one token, so an
     exact-phrase MATCH on the sha finds every block embedding the
@@ -72,34 +74,69 @@ def referencing_blocks(db: sqlite3.Connection, sha256: str) -> list[dict]:
 
 
 @router.get("/api/assets/search", response_model=AssetSearchPayload)
-def search_assets(q: str = "", limit: int = 50,
+def search_assets(q: str = "", limit: int = 50, offset: int = 0,
+                  type_: Literal["", "image", "pdf", "document", "other"]
+                  = Query("", alias="type"),
+                  from_ms: int | None = None, to_ms: int | None = None,
+                  linked: Literal["all", "linked", "orphan"] = "all",
                   db: sqlite3.Connection = Depends(get_db)) -> dict:
     """LIKE search over description + filename (pkm-zc0c). Empty q lists
-    most-recent uploads — the seed of the file-browser list endpoint.
-    LIKE, not FTS: personal-scale table, and no offline-parity burden."""
+    most-recent uploads. LIKE, not FTS: personal-scale table, and no
+    offline-parity burden. pkm-jdu3 adds type/date/linked filters,
+    offset pagination, and a total count. linked/orphan filtering needs
+    refs for every candidate, so that path scans the filtered set
+    (personal scale keeps it cheap); linked=all computes refs only for
+    the returned page."""
     limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    where_parts: list[str] = []
+    params: list = []
     needle = q.strip()
-    where, params = "", []
     if needle:
         esc = (needle.replace("\\", "\\\\")
                      .replace("%", "\\%")
                      .replace("_", "\\_"))
-        where = (r"WHERE (description LIKE ? ESCAPE '\'"
-                 r" OR filename LIKE ? ESCAPE '\') ")
-        params = [f"%{esc}%", f"%{esc}%"]
-    rows = db.execute(
-        "SELECT sha256, filename, mime, size, created_at, description,"
-        f" describe_error FROM assets {where}"
-        "ORDER BY created_at IS NULL, created_at DESC, sha256 LIMIT ?",
-        (*params, limit)).fetchall()
-    return {"assets": [{
-        "sha256": r["sha256"], "filename": r["filename"], "mime": r["mime"],
-        "size": r["size"], "created_at": r["created_at"],
+        where_parts.append(r"(description LIKE ? ESCAPE '\'"
+                           r" OR filename LIKE ? ESCAPE '\')")
+        params += [f"%{esc}%", f"%{esc}%"]
+    if type_:
+        frag, type_params = type_where(type_)
+        where_parts.append(frag)
+        params += type_params
+    if from_ms is not None:
+        where_parts.append("created_at IS NOT NULL AND created_at >= ?")
+        params.append(from_ms)
+    if to_ms is not None:
+        where_parts.append("created_at IS NOT NULL AND created_at <= ?")
+        params.append(to_ms)
+    where = f"WHERE {' AND '.join(where_parts)} " if where_parts else ""
+    select = ("SELECT sha256, filename, mime, size, created_at,"
+              " description, describe_error FROM assets ")
+    order = "ORDER BY created_at IS NULL, created_at DESC, sha256 "
+    if linked == "all":
+        total = db.execute(f"SELECT count(*) FROM assets {where}",
+                           params).fetchone()[0]
+        rows = db.execute(select + where + order + "LIMIT ? OFFSET ?",
+                          (*params, limit, offset)).fetchall()
+        hits = [(r, referencing_blocks(db, r["sha256"])) for r in rows]
+    else:
+        rows = db.execute(select + where + order, params).fetchall()
+        pairs = [(r, referencing_blocks(db, r["sha256"])) for r in rows]
+        want_linked = linked == "linked"
+        wanted = [(r, refs) for r, refs in pairs
+                  if bool(refs) == want_linked]
+        total = len(wanted)
+        hits = wanted[offset:offset + limit]
+    return {"total": total, "assets": [{
+        "sha256": r["sha256"], "filename": r["filename"],
+        "mime": r["mime"], "size": r["size"],
+        "created_at": r["created_at"],
         "url": f"/assets/{r['sha256']}/{r['filename']}",
         "description": r["description"],
         "status": derive_status(r["description"], r["describe_error"]),
-        "refs": referencing_blocks(db, r["sha256"]),
-    } for r in rows]}
+        "describe_error": r["describe_error"],
+        "refs": refs,
+    } for r, refs in hits]}
 
 
 @router.get("/assets/{sha256}/{filename}")

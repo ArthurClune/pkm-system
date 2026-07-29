@@ -430,8 +430,12 @@ export interface paths {
         /**
          * Search Assets
          * @description LIKE search over description + filename (pkm-zc0c). Empty q lists
-         *     most-recent uploads — the seed of the file-browser list endpoint.
-         *     LIKE, not FTS: personal-scale table, and no offline-parity burden.
+         *     most-recent uploads. LIKE, not FTS: personal-scale table, and no
+         *     offline-parity burden. pkm-jdu3 adds type/date/linked filters,
+         *     offset pagination, and a total count. linked/orphan filtering needs
+         *     refs for every candidate, so that path scans the filtered set
+         *     (personal scale keeps it cheap); linked=all computes refs only for
+         *     the returned page.
          */
         get: operations["search_assets_api_assets_search_get"];
         put?: never;
@@ -667,11 +671,15 @@ export interface components {
              * @enum {string}
              */
             status: "described" | "failed" | "pending";
+            /** Describe Error */
+            describe_error: string | null;
             /** Refs */
             refs: components["schemas"]["AssetRef"][];
         };
         /** AssetSearchPayload */
         AssetSearchPayload: {
+            /** Total */
+            total: number;
             /** Assets */
             assets: components["schemas"]["AssetSearchItem"][];
         };
@@ -1976,6 +1984,11 @@ export interface operations {
             query?: {
                 q?: string;
                 limit?: number;
+                offset?: number;
+                type?: "" | "image" | "pdf" | "document" | "other";
+                from_ms?: number | null;
+                to_ms?: number | null;
+                linked?: "all" | "linked" | "orphan";
             };
             header?: never;
             path?: never;

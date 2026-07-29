@@ -5,6 +5,7 @@ import type {
   AssetSearchItem, AssetSearchPayload, ScanPayload,
 } from "../api/payloads";
 import { useConfirm } from "../components/ConfirmDialog";
+import { SearchIcon } from "../components/icons";
 import { useSync } from "../sync/SyncProvider";
 import {
   EMPTY_FILTERS, clipboardToken, deleteConfirm, formatSize,
@@ -221,10 +222,13 @@ export function Files() {
     <article className="files-page">
       <h1 className="page-title">Files</h1>
       <div className="files-filters">
-        <input type="search" className="input-control files-search"
-               value={filters.q} placeholder="Search files"
-               aria-label="Search files"
-               onChange={(e) => update({ q: e.target.value })} />
+        <div className="search-field files-search">
+          <span className="search-field-icon"><SearchIcon /></span>
+          <input type="search" className="search-field-input"
+                 value={filters.q} placeholder="Search files"
+                 aria-label="Search files"
+                 onChange={(e) => update({ q: e.target.value })} />
+        </div>
         <label>Type{" "}
           <select className="input-control" value={filters.type}
                   aria-label="Type"

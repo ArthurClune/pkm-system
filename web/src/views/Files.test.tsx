@@ -73,13 +73,17 @@ describe("Files", () => {
     expect(screen.getByText("2 of 2 files")).toBeInTheDocument();
   });
 
-  it("styles the filter widgets with the shared input token (pkm-mrru)",
+  it("styles the filter widgets with the shared tokens (pkm-mrru, pkm-0wg9)",
      async () => {
     render(<Files />);
     await screen.findByText(/no files match/i);
-    for (const name of ["Search files", "Type", "From", "To", "Linked"]) {
+    for (const name of ["Type", "From", "To", "Linked"]) {
       expect(screen.getByLabelText(name)).toHaveClass("input-control");
     }
+    // the search box is the same object as the Cmd-U search, icon and all
+    const search = screen.getByLabelText("Search files");
+    expect(search).toHaveClass("search-field-input");
+    expect(search.closest(".search-field")).not.toBeNull();
   });
 
   it("passes filters to the search request", async () => {

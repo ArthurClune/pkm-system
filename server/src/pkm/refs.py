@@ -22,6 +22,32 @@ _ATTRIBUTE = re.compile(r"([^\[\]{}:\n]+?)::")
 _HASHTAG = re.compile(r"(?:^|(?<=[\s(]))#([\w/.\-]+)")
 _BLOCK_REF = re.compile(r"\(\(([a-zA-Z0-9_-]{6,})\)\)")
 _EMBED = re.compile(r"\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]")
+# pkm-hjhy: control whitespace in a page title makes the page unreachable.
+# Both classes are plain character classes with a single quantifier -- no
+# nested/overlapping quantifiers, so neither can backtrack (see the
+# _ATTRIBUTE note above for what that costs when it goes wrong).
+_CONTROL_WS = re.compile(r"[\t\n\r\f\v]")
+_WS_RUN = re.compile(r"[ \t\n\r\f\v]+")
+
+
+def normalize_title(title: str) -> str:
+    """Collapse the whitespace in a page title that holds a control char.
+
+    A title containing a literal newline cannot be addressed through the
+    HTTP API at all: Starlette compiles `{title:path}` to `.*` without
+    re.DOTALL, so GET/DELETE/rename/export on /api/page/<title> all 404
+    (pkm-hjhy -- six real pages reached that state via multi-line
+    [[links]], four of them holding notes). Titles are therefore normalized
+    where they are born rather than at the routes that cannot reach them.
+
+    Deliberately narrow: a title with no control whitespace is returned
+    byte for byte, so runs of plain spaces in the existing graph ("Two
+    Spaces") are never collateral damage. Callers drop a title that
+    normalizes to empty -- `[[\\n]]` references no page.
+    """
+    if _CONTROL_WS.search(title) is None:
+        return title
+    return _WS_RUN.sub(" ", title).strip()
 
 
 @dataclass(frozen=True)
@@ -76,12 +102,19 @@ def extract(text: str) -> ParsedRefs:
     # _ATTRIBUTE only ever has to match once, at a fixed start position --
     # see the comment on _ATTRIBUTE for why folding this into the regex
     # itself is quadratic on pathological input.
+    # Every title goes through normalize_title, and one that normalizes to
+    # empty is not a reference at all (`[[]]` and `[[\n]]` used to mint a
+    # blank-titled page). Hashtag titles cannot hold whitespace, so the
+    # call is a no-op there -- applied anyway to keep the rule uniform.
     if m := _ATTRIBUTE.match(clean.lstrip()):
-        refs.append(Ref(m.group(1).strip(), "attribute"))
+        if title := normalize_title(m.group(1).strip()):
+            refs.append(Ref(title, "attribute"))
     for title, is_tag in _scan_brackets(clean):
-        refs.append(Ref(title, "tag" if is_tag else "link"))
+        if norm := normalize_title(title):
+            refs.append(Ref(norm, "tag" if is_tag else "link"))
     for m in _HASHTAG.finditer(clean):
-        refs.append(Ref(m.group(1), "tag"))
+        if title := normalize_title(m.group(1)):
+            refs.append(Ref(title, "tag"))
     seen: set[tuple[str, str]] = set()
     deduped = [r for r in refs
                if (r.title, r.kind) not in seen

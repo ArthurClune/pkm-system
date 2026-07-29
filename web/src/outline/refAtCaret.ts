@@ -4,7 +4,7 @@
 // that page. Spans come from the shared grammar scanner (grammar/scan.ts),
 // so refs inside code are opaque and never match.
 
-import { scanGrammar } from "../grammar/scan";
+import { normalizeRefTitle, scanGrammar } from "../grammar/scan";
 
 /** Title of the [[...]] span containing `caret` (inclusive of the brackets
  * themselves but not a tag's leading #), or null if the caret isn't inside
@@ -14,7 +14,9 @@ export function refTitleAtCaret(text: string, caret: number): string | null {
   for (const t of scanGrammar(text).tokens) {
     if (t.kind !== "page-ref") continue;
     const start = t.tag ? t.start + 1 : t.start; // caret on the # is outside
-    const title = text.slice(t.content.start, t.content.end);
+    // normalized so Ctrl-O navigates to the page the ref actually
+    // resolves to, not to an unaddressable multi-line title (pkm-hjhy)
+    const title = normalizeRefTitle(text.slice(t.content.start, t.content.end));
     if (title === "" || caret < start || caret > t.end) continue;
     const size = t.end - start;
     if (best === null || size < best.size) best = { size, title };

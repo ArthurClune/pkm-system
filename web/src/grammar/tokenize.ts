@@ -10,7 +10,7 @@
 // scanner.
 
 import { scanMarkdownLinkAt } from "./markdown";
-import { scanGrammar, type GrammarToken } from "./scan";
+import { normalizeRefTitle, scanGrammar, type GrammarToken } from "./scan";
 
 export type EmphasisKind = "bold" | "italic" | "strike" | "highlight";
 
@@ -89,9 +89,14 @@ function inlineSegment(text: string, tok: GrammarToken): InlineSegment | null {
     case "inline-code":
       return { kind: "inline-code", code: text.slice(tok.start + 1, tok.end - 1) };
     case "page-ref":
-      // raw slice, not tok.title: the rendered title keeps code verbatim
+      // raw slice, not tok.title: the rendered title keeps code verbatim.
+      // Still normalized (pkm-hjhy) — PageLink uses this one string for
+      // both the label and the href, so a raw multi-line title would
+      // render a link pointing at a page the API cannot address.
       return { kind: "page-ref",
-               title: text.slice(tok.content.start, tok.content.end), tag: tok.tag };
+               title: normalizeRefTitle(
+                 text.slice(tok.content.start, tok.content.end)),
+               tag: tok.tag };
     case "hashtag":
       return { kind: "page-ref", title: tok.title, tag: true };
     case "block-ref":

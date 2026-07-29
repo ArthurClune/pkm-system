@@ -36,6 +36,9 @@ export function extractRefs(text: string): ParsedRefs {
   }
   const seen = new Set<string>();
   const refs = [...attributes, ...pageRefs, ...hashtags].filter((r) => {
+    // a title that normalized away is not a reference: `[[]]` and `[[\n]]`
+    // used to mint a blank-titled page (pkm-hjhy, mirrors refs.py)
+    if (r.title === "") return false;
     const key = `${r.kind}\x00${r.title}`;
     if (seen.has(key)) return false;
     seen.add(key);

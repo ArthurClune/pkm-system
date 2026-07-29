@@ -381,6 +381,11 @@ button { font: inherit; }
 .top-bar-search-input { width: 220px; padding-right: 44px;
   transition: width 0.15s, background 0.12s ease, border-color 0.12s ease; }
 .top-bar-search-input:focus { width: 320px; }
+/* /files' search doesn't grow on focus, so it needs the ring the field family
+ * carries; the top bar opts back out -- it signals focus by widening */
+.search-field-input:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: 1px; }
+.top-bar-search-input:focus-visible { outline: none; }
 /* shortcut hint chip inside the pill; only advertises the shortcut while
  * the search is idle */
 .top-bar-search-hint { position: absolute; right: 10px; top: 50%;

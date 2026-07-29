@@ -42,11 +42,14 @@ light and dark.
    writing surface, not a form field — and a test guards that it gains no field
    chrome.
 
-Buttons also became pills (`padding: 5px 14px`, a hover border-colour shift and a
-themed `:focus-visible` outline in `var(--color-link)` instead of Chrome's blue),
-the three top-bar ghost icon buttons round to `--radius-pill` so their hover chip
-is circular, and `.assistant-input .btn-secondary { align-self: flex-end; }` stops
-Send stretching to the textarea's height as a tall lozenge.
+Buttons also became pills (`padding: 5px 14px`, a hover border-colour shift and,
+for `.btn-secondary`/`.btn-danger`, a themed `:focus-visible` outline in
+`var(--color-link)` instead of Chrome's blue). The three top-bar ghost icon
+buttons (`.top-bar-menu-button`, `.sidebar-toggle-button`, `.help-button`) round
+to `--radius-pill` so their hover chip is circular, but carry no
+`:focus-visible` rule of their own and still fall through to Chrome's default
+outline. `.assistant-input .btn-secondary { align-self: flex-end; }` stops Send
+stretching to the textarea's height as a tall lozenge.
 
 Verified against the running app in both light and dark at 1440px and 375px:
 the two searches are pixel-identical apart from the top bar's chip padding, the

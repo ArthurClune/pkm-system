@@ -277,6 +277,10 @@ describe("control polish (pkm-0wg9)", () => {
     const editor = ruleFor(".block-input");
     expect(editor).not.toContain("background: var(--color-bg-subtle);");
     expect(editor).not.toContain("border: 1px solid");
+    // positive form: the writing surface is explicitly chrome-less, not merely
+    // missing the field colours
+    expect(editor).toContain("background: transparent;");
+    expect(editor).toContain("border: none;");
   });
 
   test("the search field look is shared, not duplicated per call site", () => {
@@ -306,6 +310,15 @@ describe("control polish (pkm-0wg9)", () => {
     expect(ghost).toContain("border-radius: var(--radius-pill);");
     // pkm-absu: transparent border, not none, so hover doesn't shift layout
     expect(ghost).toContain("border: 1px solid transparent;");
+  });
+
+  // /files' search doesn't grow on focus the way the top bar does, so it keeps
+  // the field family's ring; the top bar explicitly opts out again
+  test("the non-growing search keeps a visible focus ring", () => {
+    expect(ruleFor(".search-field-input:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+    expect(ruleFor(".top-bar-search-input:focus-visible"))
+      .toContain("outline: none;");
   });
 });
 

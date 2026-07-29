@@ -29,6 +29,15 @@ function renderBar(openInSidebar: (title: string) => void = () => undefined) {
   return screen.getByPlaceholderText("Search…");
 }
 
+it("styles the search input with the shared field tokens (pkm-mrru, pkm-0wg9)", () => {
+  stubFetch([]);
+  renderBar();
+  // the top-bar search is the same object as /files' search, icon and all
+  const input = screen.getByLabelText("Search");
+  expect(input).toHaveClass("search-field-input");
+  expect(input.closest(".search-field")).not.toBeNull();
+});
+
 it("debounces input, lists pages before block snippets with real <mark>s", async () => {
   const fetchMock = stubFetch([["/api/search?q=paper", results]]);
   const input = renderBar();

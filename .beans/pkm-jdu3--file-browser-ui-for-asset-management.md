@@ -12,6 +12,8 @@ blocked_by:
 
 File browser for attachments, building on pkm-zc0c's description column and GET /api/assets/search seed endpoint.
 
+Design spec (2026-07-29): docs/superpowers/specs/2026-07-29-asset-file-browser-design.md
+
 - Search/filter by date, file type, and description text
 - Single and multi-select
 - Export selected to browser download

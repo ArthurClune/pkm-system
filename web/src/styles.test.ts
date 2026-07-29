@@ -299,6 +299,14 @@ describe("control polish (pkm-0wg9)", () => {
     // kbd must stay immediately after the input
     expect(styles).toContain(".top-bar-search-input:focus + .top-bar-search-hint,");
   });
+
+  test("ghost icon buttons get a round hover chip", () => {
+    const ghost = ruleFor(
+      ".top-bar-menu-button, .sidebar-toggle-button, .help-button");
+    expect(ghost).toContain("border-radius: var(--radius-pill);");
+    // pkm-absu: transparent border, not none, so hover doesn't shift layout
+    expect(ghost).toContain("border: 1px solid transparent;");
+  });
 });
 
 describe("typography hierarchy (pkm-b68q, pkm-ofec)", () => {

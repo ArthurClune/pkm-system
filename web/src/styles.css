@@ -358,7 +358,7 @@ button { font: inherit; }
  * (transparent border rather than none keeps hover from shifting layout) */
 .top-bar-menu-button, .sidebar-toggle-button, .help-button { display: flex; align-items: center;
   background: none; cursor: pointer; border: 1px solid transparent;
-  border-radius: var(--radius-control); padding: 5px 8px; color: var(--color-text-secondary); }
+  border-radius: var(--radius-pill); padding: 5px 8px; color: var(--color-text-secondary); }
 .top-bar-menu-button:hover, .sidebar-toggle-button:hover, .help-button:hover {
   background: var(--color-bg-subtle); color: var(--color-text); }
 /* context label (current page / view); also the spacer that splits the bar

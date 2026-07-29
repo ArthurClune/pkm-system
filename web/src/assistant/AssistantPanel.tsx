@@ -87,6 +87,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         <label className="assistant-model">
           model
           <select
+            className="input-control"
             value={assistant.model}
             disabled={assistant.modelLocked}
             onChange={(e) => assistant.setModel(e.target.value)}

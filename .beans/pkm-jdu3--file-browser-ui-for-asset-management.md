@@ -5,7 +5,7 @@ status: in-progress
 type: feature
 priority: normal
 created_at: 2026-07-27T20:29:27Z
-updated_at: 2026-07-29T13:01:21Z
+updated_at: 2026-07-29T13:07:29Z
 parent: pkm-zx19
 blocked_by:
     - pkm-zc0c
@@ -34,7 +34,7 @@ Design spec (2026-07-29): docs/superpowers/specs/2026-07-29-asset-file-browser-d
 ## Implementation Tasks (plan: docs/superpowers/plans/2026-07-29-asset-file-browser.md)
 
 - [x] Task 1: Server functional core — assets_core.py
-- [ ] Task 2: Extend GET /api/assets/search — filters, pagination, total
+- [x] Task 2: Extend GET /api/assets/search — filters, pagination, total
 - [ ] Task 3: DELETE /api/assets/{sha256}
 - [ ] Task 4: POST /api/assets/export.zip
 - [ ] Task 5: Web functional core — types + filesCore.ts

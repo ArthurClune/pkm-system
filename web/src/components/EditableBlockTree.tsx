@@ -394,8 +394,9 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   const [acSelected, setAcSelected] = useState(0);
   const [caret, setCaret] = useState(0);
   // Insertion offset for the /date picker; null = closed. The offset is
-  // where the stripped "/" trigger sat. Any draft edit closes the picker
-  // (onChange / applyKeyEdit below), so the offset can never go stale.
+  // where the stripped "/" trigger sat. Every path that replaces the draft
+  // closes the picker (onChange / applyKeyEdit / tryAdopt below), so the
+  // offset can't go stale; pickDate still clamps as a backstop.
   const [datePickerAt, setDatePickerAt] = useState<number | null>(null);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   // The caret offset to place on mount, captured once: this component is
@@ -468,6 +469,7 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
       pendingCaretRef.current =
         clampCaret(el.selectionStart ?? 0, node.text.length);
     }
+    setDatePickerAt(null); // the adopted text invalidates the stored offset
     setDraft(node.text);
   };
   useEffect(tryAdopt, [node.text]);

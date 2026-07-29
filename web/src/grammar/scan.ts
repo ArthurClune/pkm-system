@@ -37,6 +37,21 @@ export type GrammarToken =
        suffixEnd: number } & Span)
   | ({ kind: "inline-code" | "code-fence" } & Span);
 
+// pkm-hjhy: mirrors refs.py normalize_title. A page title holding control
+// whitespace is unreachable through the API (Starlette compiles
+// {title:path} to `.*` with no DOTALL, so /api/page/<title> 404s on a
+// newline), so a multi-line [[link]] resolves to the one-line title — for
+// extraction, for the rendered link's href, and for Ctrl-O navigation
+// alike. Deliberately narrow: a title with no control whitespace is
+// returned unchanged, so "Two  Spaces" keeps its double space.
+const CONTROL_WS_RE = /[\t\n\r\f\v]/;
+const WS_RUN_RE = /[ \t\n\r\f\v]+/g;
+
+export function normalizeRefTitle(title: string): string {
+  if (!CONTROL_WS_RE.test(title)) return title;
+  return title.replace(WS_RUN_RE, " ").trim();
+}
+
 const TODO_RE = /^\{\{(\[\[)?(TODO|DONE)(\]\])?\}\}/;
 const ATTRIBUTE_RE = /^\s*([^\[\]{}:\n]+?)::/;
 const BLOCK_REF_RE = /\(\(([a-zA-Z0-9_-]{6,})\)\)/y;
@@ -123,7 +138,9 @@ function pageRefTokens(clean: string, pairs: BracketPair[]): GrammarToken[] {
     tokens.push({
       kind: "page-ref", start, end: p.close,
       content: { start: p.open + 2, end: p.close - 2 },
-      title: clean.slice(p.open + 2, p.close - 2),
+      // the content span still covers the source text verbatim; only the
+      // resolved title is normalized (see normalizeRefTitle)
+      title: normalizeRefTitle(clean.slice(p.open + 2, p.close - 2)),
       tag, depth,
       parentStart: depth === 0 ? null : ancestors[ancestors.length - 1].start,
     });
@@ -203,7 +220,7 @@ export function scanGrammar(text: string): { tokens: readonly GrammarToken[] } {
   const attr = ATTRIBUTE_RE.exec(clean);
   if (attr) {
     const end = attr[0].length;
-    tokens.push({ kind: "attribute", title: attr[1].trim(),
+    tokens.push({ kind: "attribute", title: normalizeRefTitle(attr[1].trim()),
                   start: end - 2 - attr[1].length, end });
   }
 

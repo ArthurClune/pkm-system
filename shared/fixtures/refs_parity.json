@@ -253,12 +253,7 @@
     },
     {
       "text": "empty [[]] link",
-      "refs": [
-        {
-          "title": "",
-          "kind": "link"
-        }
-      ],
+      "refs": [],
       "block_refs": []
     },
     {
@@ -273,6 +268,41 @@
           "kind": "link"
         }
       ],
+      "block_refs": []
+    },
+    {
+      "text": "a [[Multi\nLine Title]] link",
+      "refs": [
+        {
+          "title": "Multi Line Title",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "#[[Multi\nLine Tag]]",
+      "refs": [
+        {
+          "title": "Multi Line Tag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[Padded  Title]] keeps its double space",
+      "refs": [
+        {
+          "title": "Padded  Title",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "[[\n]] references nothing",
+      "refs": [],
       "block_refs": []
     }
   ]

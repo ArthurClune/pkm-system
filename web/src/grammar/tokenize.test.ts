@@ -334,6 +334,26 @@ describe("tokenizeBlock", () => {
     ]);
   });
 
+  // pkm-hjhy: PageLink renders this title AND uses it for the href, so a
+  // multi-line link must render as a link to the one-line page rather than
+  // to a title the API cannot address.
+  it("normalizes a multi-line page-ref title", () => {
+    expect(tokenizeBlock("see [[Levels of AGI:\nthe Path]] now")).toEqual([
+      { kind: "text", text: "see " },
+      { kind: "page-ref", title: "Levels of AGI: the Path", tag: false },
+      { kind: "text", text: " now" },
+    ]);
+    expect(tokenizeBlock("#[[Generative\nModels]]")).toEqual([
+      { kind: "page-ref", title: "Generative Models", tag: true },
+    ]);
+  });
+
+  it("leaves a title with only plain spaces exactly as written", () => {
+    expect(tokenizeBlock("[[Two  Spaces]]")).toEqual([
+      { kind: "page-ref", title: "Two  Spaces", tag: false },
+    ]);
+  });
+
   it("math interior is verbatim TeX: no emphasis or refs parsed inside", () => {
     expect(tokenizeBlock("see $$a **b** c$$")).toEqual([
       { kind: "text", text: "see " },

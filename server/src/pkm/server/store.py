@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from pkm.refs import extract
+from pkm.refs import extract, normalize_title
 from pkm.rename import rewrite_title_refs
 
 
@@ -17,6 +17,14 @@ def fetch_page(db: sqlite3.Connection, title: str) -> sqlite3.Row | None:
 
 def get_or_create_page(db: sqlite3.Connection, title: str,
                        now_ms: int) -> sqlite3.Row:
+    """Normalizes the title first: this is the one choke point every
+    creation path funnels through (ref indexing, ops create/move
+    page_title, POST /api/pages, rename, the CLI, the importer), so a
+    title holding control whitespace -- unreachable through the API, see
+    refs.normalize_title -- cannot be minted by any of them. Normalizing
+    rather than rejecting is deliberate: an offline client replaying a
+    queued op must never meet a permanent 422, or its queue wedges."""
+    title = normalize_title(title)
     page = fetch_page(db, title)
     if page is not None:
         return page

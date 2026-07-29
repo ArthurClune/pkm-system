@@ -4,6 +4,7 @@
 // shapes the server returns. Unmatched routes report handled:false — the
 // caller surfaces a clear online-only error. Runs inside the worker.
 
+import { normalizeRefTitle } from "../../grammar/scan";
 import { titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
@@ -87,7 +88,10 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
                             Number(q.get("limit") ?? 20), exact));
   }
   if (method === "POST" && path === "/api/pages" && deps) {
-    const title = String((req.body as { title?: unknown })?.title ?? "").trim();
+    // normalized before the blank check, exactly as routes_pages.create_page
+    // does: a whitespace-only title must 422 rather than normalize to ""
+    const title = normalizeRefTitle(
+      String((req.body as { title?: unknown })?.title ?? "").trim());
     if (title.length === 0) return err(422, "title must not be blank");
     // local negative id now; the durable create_page op carries the title
     // to the server (get_or_create there — spec section 1)

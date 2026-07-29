@@ -66,6 +66,18 @@ describe("refTitleAtCaret", () => {
     expect(refTitleAtCaret("#[[World]]", 10)).toBe("World");
   });
 
+  test("a multi-line title resolves to the reachable one-line page", () => {
+    // pkm-hjhy: Ctrl-O must navigate to the page the ref resolves to, not
+    // to a title /api/page/<title> cannot match.
+    const text = "see [[Levels of AGI:\nthe Path]] now";
+    expect(refTitleAtCaret(text, 12)).toBe("Levels of AGI: the Path");
+    expect(refTitleAtCaret(text, 25)).toBe("Levels of AGI: the Path");
+  });
+
+  test("a whitespace-only title is treated as empty", () => {
+    expect(refTitleAtCaret("[[\n]]", 2)).toBeNull();
+  });
+
   test("refs inside code are opaque and never match", () => {
     // Canonical scanner rule: code is recorded before ref recognition, so
     // Ctrl-O inside `[[x]]` must not navigate.

@@ -64,6 +64,8 @@ describe("error statuses", () => {
     const deps = { newBatchId: () => "b1" };
     expectStatus(call("POST", "/api/pages", { title: "   " }, deps), 422);
     expectStatus(call("POST", "/api/pages", {}, deps), 422);
+    // pkm-hjhy: whitespace-only stays a 422 rather than normalizing to ""
+    expectStatus(call("POST", "/api/pages", { title: "\n\t" }, deps), 422);
   });
 });
 
@@ -279,5 +281,24 @@ describe("create page", () => {
     expect(rows[0].batch_id).toBe("batch-1");
     expect(JSON.parse(rows[0].ops_json)).toEqual(
       [{ op: "create_page", page_title: "Fresh Page" }]);
+  });
+
+  test("normalizes a multi-line title, like the server does (pkm-hjhy)", () => {
+    // The queued create_page op reaches a server that normalizes in
+    // get_or_create_page, so the local row and the op must both already
+    // carry the normalized title -- otherwise the two never agree, and the
+    // title would be unreachable through /api/page/<title> anyway.
+    const body = expectStatus(
+      call("POST", "/api/pages", { title: "Levels of AGI:\nthe Path" },
+           { newBatchId: () => "batch-nl" }), 200,
+    ) as { id: number; title: string };
+    expect(body.title).toBe("Levels of AGI: the Path");
+    expect(t.db.select<{ title: string }>(
+      "SELECT title FROM pages WHERE title LIKE 'Levels%'",
+    )).toEqual([{ title: "Levels of AGI: the Path" }]);
+    const rows = t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops");
+    expect(JSON.parse(rows[0].ops_json)).toEqual(
+      [{ op: "create_page", page_title: "Levels of AGI: the Path" }]);
   });
 });

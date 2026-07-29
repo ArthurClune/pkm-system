@@ -546,7 +546,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .backlink-item:hover, .query-item:hover { background: var(--color-selected-bg); }
 .unlinked-link-row { display: flex; align-items: flex-start; gap: 8px; }
 .unlinked-link-row .backlink-text { flex: 1; min-width: 0; }
-.reference-link-button { flex-shrink: 0; font-size: 12px; padding: 1px 8px; }
+.reference-link-button { flex-shrink: 0; font-size: 12px; padding: 1px 10px; }
 .unlinked-item-error { margin: 4px 0 0; }
 
 /* linked-refs filter (pkm-m4an) */
@@ -722,7 +722,7 @@ mark.highlight { background: var(--color-highlight-bg); }
     background: var(--color-bg-surface); color: var(--color-text); }
   .composer .ac-popup { top: auto; bottom: 100%; }
   .composer-file { max-width: 90px; }
-  .composer-send { padding: 6px 12px; }
+  .composer-send { padding: 6px 14px; }
   .main-pane { padding-bottom: 96px; }
 }
 
@@ -785,6 +785,10 @@ mark.highlight { background: var(--color-highlight-bg); }
 .assistant-error { color: var(--color-error); font-size: 0.9em; }
 .assistant-input { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--color-border); }
 .assistant-input textarea { flex: 1; resize: none; border: 1px solid var(--color-border-input); border-radius: var(--radius-control); padding: 6px 8px; background: inherit; color: inherit; font: inherit; }
+/* .assistant-input is a flex row with the default align-items: stretch, so
+ * Send would grow to the textarea's height and the pill would read as a tall
+ * lozenge (pkm-0wg9) */
+.assistant-input .btn-secondary { align-self: flex-end; }
 
 /* Files view (pkm-jdu3) */
 .files-page { max-width: 1100px; }

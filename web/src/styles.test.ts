@@ -206,6 +206,16 @@ describe("control polish (pkm-0wg9)", () => {
     expect(ruleFor(".btn-secondary:focus-visible, .btn-danger:focus-visible"))
       .toContain("outline: 2px solid var(--color-link);");
   });
+
+  test("compact pill call sites get enough horizontal room", () => {
+    expect(ruleFor(".reference-link-button")).toContain("padding: 1px 10px;");
+    expect(styles).toContain(".composer-send { padding: 6px 14px; }");
+  });
+
+  test("the assistant send button does not stretch into a lozenge", () => {
+    expect(ruleFor(".assistant-input .btn-secondary"))
+      .toContain("align-self: flex-end;");
+  });
 });
 
 describe("typography hierarchy (pkm-b68q, pkm-ofec)", () => {

@@ -26,6 +26,17 @@ describe("DatePickerPopup (pkm-rw6w)", () => {
     expect(onPick).toHaveBeenCalledWith(new Date(2026, 7, 20));
   });
 
+  test("exactly the initial date's own cell is highlighted as today (pkm-0xla)", () => {
+    const { container } = render(
+      <DatePickerPopup initial={new Date(2026, 6, 29)} onPick={vi.fn()} />);
+    // June 29 also sits in this grid as an outside cell with the same day
+    // number — only the real July 29 must carry the highlight.
+    const today = container.querySelectorAll(".date-picker-day.today");
+    expect(today).toHaveLength(1);
+    expect(today[0].textContent).toBe("29");
+    expect(today[0].className).not.toContain("outside");
+  });
+
   test("days outside the month are marked and still pickable", () => {
     const onPick = vi.fn();
     const { container } = render(

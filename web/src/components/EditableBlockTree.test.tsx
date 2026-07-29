@@ -1445,6 +1445,32 @@ describe("/date picker (pkm-rw6w)", () => {
     expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();
   });
 
+  test("a remote update adopted while the picker is open closes it (pkm-0xla)", () => {
+    const h = handlers();
+    const view = mount(h, { uid: "u1", cursor: 0 });
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: "/date" } });
+    ta.setSelectionRange(5, 5);
+    fireEvent.keyDown(ta, { key: "Enter" });
+    expect(screen.getByRole("dialog", { name: "pick a date" })).toBeInTheDocument();
+    // The stripped draft ("") lands on the tree — dirty clears — then a
+    // remote edit to the same block arrives and is adopted.
+    const flushed = [block("u1", "", { order_idx: 0 }), BLOCKS[1]];
+    view.rerender(
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <EditableBlockTree blocks={flushed} focus={{ uid: "u1", cursor: 0 }}
+                           handlers={h} readOnly={false} />
+      </MemoryRouter>);
+    const remote = [block("u1", "remote text", { order_idx: 0 }), BLOCKS[1]];
+    view.rerender(
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <EditableBlockTree blocks={remote} focus={{ uid: "u1", cursor: 0 }}
+                           handlers={h} readOnly={false} />
+      </MemoryRouter>);
+    expect(ta.value).toBe("remote text");
+    expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();
+  });
+
   test("readOnly tree never renders a picker", () => {
     const h = handlers();
     mount(h, { uid: "u1", cursor: 0 }, true);

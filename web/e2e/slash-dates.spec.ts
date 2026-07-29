@@ -24,6 +24,13 @@ test("/today inserts a link to today's daily note", async ({ page }) => {
   // "Month Dth, YYYY" format (journal-references.spec.ts idiom).
   const todayTitle = await page.locator(".journal-day .page-title a").first()
     .innerText();
+  // Give the client's background replica sync a beat to catch up with
+  // today's page before referencing it from elsewhere (journal-references.
+  // spec.ts precedent; pkm-c9hp: editing/referencing a page the local
+  // replica hasn't hydrated yet can trip a legacy-rejected repair that
+  // discards the in-flight edit -- SyncProvider.tsx's legacy-rejected
+  // handling is live, not dead code).
+  await page.waitForTimeout(1500);
 
   // Never write into today's journal (other specs assume it starts empty) --
   // a fresh, uniquely-named page is the established scratch idiom
@@ -44,6 +51,12 @@ test("/today inserts a link to today's daily note", async ({ page }) => {
 
 test("/date picker inserts the clicked date's link", async ({ page }) => {
   await login(page);
+  // Same fresh-page-references-a-daily-note shape as the /today test above:
+  // the picker defaults to the current month, so day 15 IS today's page
+  // whenever the suite happens to run on the 15th. Give replica sync the
+  // same catch-up beat unconditionally rather than special-casing that one
+  // date (journal-references.spec.ts precedent; pkm-c9hp).
+  await page.waitForTimeout(1500);
 
   const src = `slash dates date ${Date.now()}`;
   const createRes = await page.request.post("/api/pages", { data: { title: src } });

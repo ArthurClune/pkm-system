@@ -1,11 +1,11 @@
 ---
 # pkm-8m94
 title: CLI/MCP writes store headings as literal markdown
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-07-30T20:01:33Z
-updated_at: 2026-07-30T21:09:53Z
+updated_at: 2026-07-30T21:14:37Z
 ---
 
 Blocks written via the pkm CLI or MCP tools with '## Heading' text are stored verbatim with heading=NULL, so the page shows literal '## Heading' instead of a rendered heading.

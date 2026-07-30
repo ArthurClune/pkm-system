@@ -195,7 +195,11 @@ read from stdin, as one atomic write. Commands and their params:
       beginning "# ", "## " or "### " sets the heading level; text
       without hashes clears it. Unlike standalone `pkm update`, batch
       update carries NO hash guard: it always overwrites, and never
-      preserves a concurrent edit as a conflict sibling.
+      preserves a concurrent edit as a conflict sibling. It also costs
+      two ops (update_text, set_heading) against the server's 500-op
+      batch limit, so an update-heavy batch tops out at half the command
+      count you might expect -- the client does not split an oversized
+      batch, it just rejects it.
   move     {uid, page, parent?, index?}
       relocates a block to page/parent (uid and parent may use
       "{{alias}}"). Unlike create/todo/outline, move's "## Heading"
@@ -382,7 +386,8 @@ def cmd_update(args: argparse.Namespace, client: PkmClient) -> int:
     if sum(changes) != 1:
         print("exactly one of TEXT, -D, or -T is required", file=sys.stderr)
         return 1
-    current = client.get_block(args.uid)["block"]["text"]
+    block = client.get_block(args.uid)["block"]
+    current = block["text"]
     if args.done or args.todo:
         # Not plan_update: `current` is already bare (the heading level
         # lives in its own column), so splitting it would find no hashes
@@ -394,7 +399,7 @@ def cmd_update(args: argparse.Namespace, client: PkmClient) -> int:
         new_text = _read_text_arg(args.text)
         if args.text in (None, "-"):
             new_text = new_text.rstrip("\n")
-        ops = plan_update(args.uid, new_text, current)
+        ops = plan_update(args.uid, new_text, current, block["heading"])
     client.post_ops(ops, batch_id=uuid.uuid4().hex)
     print(f"updated ^{args.uid}")
     return 0

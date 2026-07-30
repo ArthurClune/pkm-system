@@ -298,3 +298,38 @@ def test_plan_update_clears_heading_for_plain_text():
 def test_plan_update_without_base_text_has_no_hash_guard():
     ops = plan_update("u3", "edited")
     assert ops[0] == {"op": "update_text", "uid": "u3", "text": "edited"}
+
+
+def test_plan_update_same_plain_text_emits_a_single_op():
+    # current_heading=None is a real, meaningful level (plain text), not
+    # "unknown" -- the guarded path must still skip set_heading when it
+    # matches the new level.
+    ops = plan_update("u3", "same text", "same text", current_heading=None)
+    assert ops == [{"op": "update_text", "uid": "u3", "text": "same text",
+                    "base_text_hash": text_hash("same text")}]
+
+
+def test_plan_update_same_heading_level_emits_a_single_op():
+    ops = plan_update("u3", "## Overview", "old text", current_heading=2)
+    assert ops == [{"op": "update_text", "uid": "u3", "text": "Overview",
+                    "base_text_hash": text_hash("old text")}]
+
+
+def test_plan_update_changing_level_still_sets_heading():
+    ops = plan_update("u3", "## Overview", "old text", current_heading=1)
+    assert ops[1] == {"op": "set_heading", "uid": "u3", "heading": 2}
+
+
+def test_plan_update_clearing_heading_still_sets_heading():
+    ops = plan_update("u3", "Overview", "old text", current_heading=2)
+    assert ops[1] == {"op": "set_heading", "uid": "u3", "heading": None}
+
+
+def test_plan_update_batch_path_omits_current_heading_stays_unconditional():
+    # No current_heading passed (the batch path) -- always both ops, even
+    # when the text has no heading change at all.
+    ops = plan_update("u3", "same text", "same text")
+    assert ops == [
+        {"op": "update_text", "uid": "u3", "text": "same text",
+         "base_text_hash": text_hash("same text")},
+        {"op": "set_heading", "uid": "u3", "heading": None}]

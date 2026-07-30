@@ -112,7 +112,8 @@ def update_block(uid: str, text: str | None = None,
                  mark: str | None = None) -> str:
     """Replace a block's text, or set its task marker (mark='TODO' or
     'DONE'). Provide exactly one of text/mark. A `text` beginning '# ',
-    '## ' or '### ' makes the block a heading at that level; text without
+    '## ' or '### ' makes the block a heading at that level (1-3); '#Tag'
+    (no space) and '#### ' or deeper stay literal text. Text without
     those hashes clears any heading it had. `mark` only changes the task
     marker and never the heading level. Concurrent-edit safe: the current
     text's hash rides along."""
@@ -121,7 +122,8 @@ def update_block(uid: str, text: str | None = None,
     if mark is not None and mark not in ("TODO", "DONE"):
         raise ValueError("mark must be 'TODO' or 'DONE'")
     client = _client()
-    current = client.get_block(uid)["block"]["text"]
+    block = client.get_block(uid)["block"]
+    current = block["text"]
     if mark is not None:
         # Not plan_update: `current` is already bare, so it would split to
         # no hashes and clear the block's heading.
@@ -130,7 +132,7 @@ def update_block(uid: str, text: str | None = None,
                 "base_text_hash": text_hash(current)}]
     else:
         assert text is not None
-        ops = plan_update(uid, text, current)
+        ops = plan_update(uid, text, current, block["heading"])
     client.post_ops(ops, batch_id=uuid.uuid4().hex)
     return f"updated ^{uid}"
 

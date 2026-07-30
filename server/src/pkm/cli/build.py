@@ -218,19 +218,42 @@ def plan_save(payload: dict, page_title: str, parent_spec: str | None,
     return _Planner(uids).creates(payload, page_title, parent_spec, items, todo)
 
 
-def plan_update(uid: str, text: str,
-                base_text: str | None = None) -> list[dict]:
-    """Ops for replacing a block's text: `update_text` plus the
-    `set_heading` that keeps the stored level in step with the text's
-    leading hashes -- no hashes means plain text, so a heading is cleared.
+class _NotGiven:
+    """Sentinel for `plan_update`'s `current_heading` default: `pkm
+    batch`'s `update` command has no fetched block to compare against, so
+    it never passes one. Distinguishes that from a real, meaningful
+    `current_heading=None` (the block is currently plain text)."""
+
+
+_NOT_GIVEN = _NotGiven()
+
+
+def plan_update(uid: str, text: str, base_text: str | None = None,
+                current_heading: int | None | _NotGiven = _NOT_GIVEN
+                ) -> list[dict]:
+    """Ops for replacing a block's text: `update_text` plus, when the
+    heading level is actually changing, the `set_heading` that keeps the
+    stored level in step with the text's leading hashes -- no hashes
+    means plain text, so a heading is cleared.
+
+    `current_heading` is the block's level before this update, as read by
+    the caller (`client.get_block(uid)["block"]["heading"]`). When it
+    equals the new level, `set_heading` is skipped and only `update_text`
+    is emitted. This is not just an optimization: a guarded `update_text`
+    on a block deleted out from under it is deliberately *rescued* by the
+    server -- the edit is preserved as a `[[conflict]]` sibling on today's
+    daily page (ops_core.py) -- but a trailing `set_heading` for the same
+    now-missing uid is not, since the block it targets no longer exists;
+    that turns the rescue into a rolled-back 400. Since the level is
+    unchanged for most updates, omitting the redundant op keeps that race
+    survivable. `pkm batch`'s `update` command leaves `current_heading` at
+    its `_NOT_GIVEN` default and so always emits `set_heading`, as
+    before -- it has no fetched block to compare against, and batch
+    updates carry no hash guard anyway, so there is no rescue to protect.
 
     `base_text`, when given, adds the `base_text_hash` concurrent-edit
     guard (the standalone `pkm update` / `update_block` path). `pkm batch`'s
     `update` command passes None: batch updates carry no guard by design.
-
-    `set_heading` is emitted unconditionally rather than compared against
-    the block's current level -- it is idempotent, and the batch path has
-    no fetched block to compare against.
 
     Callers must NOT route a task-marker change (`-D`/`-T`/`mark=`)
     through here: the text those read back from the API is already bare,
@@ -240,7 +263,10 @@ def plan_update(uid: str, text: str,
     update: dict = {"op": "update_text", "uid": uid, "text": body}
     if base_text is not None:
         update["base_text_hash"] = text_hash(base_text)
-    return [update, {"op": "set_heading", "uid": uid, "heading": level}]
+    ops = [update]
+    if isinstance(current_heading, _NotGiven) or current_heading != level:
+        ops.append({"op": "set_heading", "uid": uid, "heading": level})
+    return ops
 
 
 def asset_block_text(filename: str, mime: str, url: str) -> str:

@@ -147,7 +147,10 @@ export function App() {
                 </NavLink>
                 <ThemeToggle />
                 <SidebarNav onNavigate={() => setNavOpen(false)} />
-                <button type="button" className="nav-link primary"
+                {/* "nav-section-start": closes off the pinned pages above with
+                  * the same rule that opens them, so they read as the user's
+                  * own block rather than running on into these links (pkm-usb6) */}
+                <button type="button" className="nav-link primary nav-section-start"
                         onClick={() => {
                           setAssistantOpen(true);
                           setNavOpen(false);

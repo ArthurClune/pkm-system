@@ -439,6 +439,19 @@ describe("full-width layout margins (pkm-5nif)", () => {
   });
 });
 
+describe("left-nav section separator (pkm-usb6)", () => {
+  test("the pinned-page list and the link below it are fenced the same way", () => {
+    // The pinned list draws the upper rule; .nav-section-start draws the
+    // matching lower one, and must out-pad .nav-link's own 4px so its text
+    // clears the rule by the same 12px the first pinned entry does.
+    const entries = ruleFor(".nav-sidebar-entries");
+    expect(entries).toContain("border-top: 1px solid var(--color-border);");
+    const section = ruleFor(".nav-section-start");
+    expect(section).toContain("border-top: 1px solid var(--color-border);");
+    expect(section).toContain("padding-top: 12px;");
+  });
+});
+
 describe("unlinked reference Link action (pkm-965i)", () => {
   test("keeps text flexible and the compact action visible", () => {
     expect(ruleFor(".unlinked-link-row")).toContain("display: flex;");

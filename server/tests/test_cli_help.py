@@ -32,10 +32,24 @@ def test_get_help_documents_target_forms(capsys):
         assert needle in out
 
 
+# Needles unique to the heading-*writing* prose added for pkm-8m94 -- not
+# just "heading"/"###", which `batch --help` already contained via the
+# unrelated parent-spec heading-*matching* prose ("a different level, e.g.
+# '###', makes its own heading"). Each needle below only exists if the
+# heading-writing sentence for that verb/command is present.
+_HEADING_LEVEL_NEEDLES = {
+    "save": ['becomes a real heading block at'],
+    "update": ['makes the block a heading at'],
+    "batch": ['A text beginning "# ", "## " or "### " becomes a',
+              'sets the heading level; text',
+              'An item text beginning "# ",'],
+}
+
+
 @pytest.mark.parametrize("verb", ["save", "update", "batch"])
 def test_write_verb_help_documents_heading_levels(verb, capsys):
     with pytest.raises(SystemExit):
         main([verb, "--help"])
     out = capsys.readouterr().out
-    assert "heading" in out.lower(), f"{verb} --help omits heading levels"
-    assert "###" in out, f"{verb} --help omits the heading marker syntax"
+    for needle in _HEADING_LEVEL_NEEDLES[verb]:
+        assert needle in out, f"{verb} --help omits {needle!r}"

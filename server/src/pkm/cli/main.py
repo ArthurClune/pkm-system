@@ -207,7 +207,9 @@ read from stdin, as one atomic write. Commands and their params:
   outline  {page, parent?, items}
       creates a nested outline; items is a list of strings and
       nested lists, one nesting level per indent, e.g.
-      ["Groceries", ["Milk", "Eggs"]].
+      ["Groceries", ["Milk", "Eggs"]]. An item text beginning "# ",
+      "## " or "### " becomes a heading at that level (1-3), same as
+      create.
 
 parent (create/todo/outline) accepts, and move's destination accepts
 except where noted:

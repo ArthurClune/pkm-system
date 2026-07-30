@@ -1,11 +1,11 @@
 ---
 # pkm-9lwx
 title: Content anchors still show Chrome's default focus ring
-status: todo
+status: scrapped
 type: bug
 priority: normal
 created_at: 2026-07-30T14:07:37Z
-updated_at: 2026-07-30T14:07:37Z
+updated_at: 2026-07-30T14:21:03Z
 ---
 
 Found while verifying pkm-cq32 live. That bean themed the app's *controls* — the top-bar ghost buttons, the left nav, the block/page menus, the panel closes. Ordinary content anchors were deliberately left out of its scope, and they still get Chrome's `1px auto rgb(0, 95, 204)`:
@@ -25,3 +25,12 @@ Related: pkm-04hh (a broader page-title a11y bean) was scrapped 2026-07-30 in fa
 - [ ] Cover internal, external and page-title anchors
 - [ ] Guard in `web/src/styles.test.ts`
 - [ ] Verify by tabbing a page with links in both themes
+
+
+## Decision 2026-07-30: scrapped
+
+Demoed live before deciding (scratch server, deployed CSS, tabbing a page with an internal `[[link]]`, an external URL and a day-heading anchor). User: *"I'm not bothered by anything within text currently."*
+
+The ring on an in-prose link is only ever seen by tabbing through prose, which is not how notes get read, and the fix has real costs at the block line-height: a `2px` outline with `outline-offset: 1px` collides with the line above and below, and a link that wraps gets one ring per line box. Declined deliberately, not overlooked — recorded here so the next a11y review does not re-raise it as an easy win.
+
+What the demo *did* find is now pkm-scgu: `span.bullet` sits in the tab order (it carries `draggable`, and Chrome makes draggable elements focusable) and its default ring is drawn as a ring around the dot — visually identical to `.bullet.closed`, i.e. collapsed-with-hidden-children. That is a control and a state confusion, not a prose-styling question, so it was split out and fixed.

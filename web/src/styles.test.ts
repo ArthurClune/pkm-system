@@ -182,6 +182,21 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
     }
   });
 
+  // The bullet is a real menu button (role=button, tabIndex 0, Enter/Space/
+  // Shift+F10 -> block menu) and the only keyboard route to that menu, so it
+  // keeps its tab stop. It needs the themed ring for a second reason beyond
+  // the palette clash: .bullet.closed marks collapsed-with-hidden-children by
+  // colouring the bullet's own 4px border, and Chrome's default ring is also
+  // drawn tight around the dot, so a focused bullet read as collapsed
+  // (pkm-scgu). --color-link at an offset tells the two apart.
+  test("the block bullet gets the themed ring, not Chrome's collapsed-lookalike", () => {
+    const focus = ruleFor(".bullet:focus-visible");
+    expect(focus).toContain("outline: 2px solid var(--color-link);");
+    expect(focus).toContain("outline-offset:");
+    // the .closed ring lives on the border; the focus ring must sit outside it
+    expect(ruleFor(".bullet.closed")).toContain("border-color: var(--color-bullet-ring);");
+  });
+
   // deliberate exclusion, so a later audit doesn't "fix" it back: the date
   // picker is mouse-only by design (pkm-rw6w) -- its buttons preventDefault on
   // mousedown so they never take focus, and Tab inside a block indents instead

@@ -444,6 +444,12 @@ button { font: inherit; }
   border: 4px solid transparent; border-radius: 50%;
   background-color: var(--color-bullet); background-clip: content-box; }
 .bullet.closed { border-color: var(--color-bullet-ring); }
+/* The bullet is the block menu's button (pkm-y6af) and the only keyboard way
+ * in, so it stays a tab stop. Chrome's default ring hugged the dot exactly
+ * like .closed's ring above, making a focused block look collapsed; the themed
+ * ring differs in colour and sits outside the border it would be confused
+ * with (pkm-scgu). */
+.bullet:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .bullet.numbered { box-sizing: border-box; width: 21px; height: auto;
   margin: 0 8px 0 0; border: 0; border-radius: 0;
   background: none; color: var(--color-text-muted); font-size: 13px;

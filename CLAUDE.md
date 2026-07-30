@@ -23,6 +23,18 @@ Use superpowers skills for development:
 
 For ALL code changes, use worktrees and branches to enable parallel sessions.
 
+### Architecture docs
+
+`docs/architecture/` (overview, backend, frontend, sync-and-offline) describes the system as it *is*. Before finishing a feature, epic, or any change that alters the shape of the system, check whether it needs updating and update it in the same branch. Triggers, in rough order of how often they are missed:
+
+- A new HTTP route, or new query params/response fields on an existing one -> the API reference table in `backend.md`
+- A new module, view, or route in the SPA -> the module map and route list in `frontend.md`
+- A new design token, control class, or stylesheet invariant -> the styling sections in `frontend.md`
+- A non-obvious mechanism or invariant someone could break without noticing (why a retry exists, why an order matters, what must never be rejected) -> a short prose note wherever it belongs; this is the highest-value kind of update
+- **Counts and enumerations go stale silently** -- "the ten MCP tools", "a three-step radius scale", spec counts. If a change adds to a set the docs enumerate, grep for the old count.
+
+Verify claims against the code, not against the bean or the plan -- the code is what shipped. Docs-only commits need no test run (nothing reads these files); the commit message should say what was corrected versus what was added.
+
 ### Testing
 
 Run these from the repo root before considering backend/frontend work verified:

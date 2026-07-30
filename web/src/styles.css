@@ -284,6 +284,10 @@ button { font: inherit; }
 .nav-link { background: none; border: none; padding: 4px 0; text-align: left;
   color: var(--color-text-secondary); font-weight: 500; cursor: pointer; }
 .nav-link:hover { color: var(--color-accent); text-decoration: none; }
+/* the class covers both the <a> destinations and the <button> controls, so one
+ * rule themes the whole left nav (pkm-cq32) -- these are the first eight tab
+ * stops in the app, and every one of them showed Chrome's blue ring */
+.nav-link:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .nav-link.active { color: var(--color-accent); }
 /* primary destinations (Daily Notes, Current Work) stay highlighted on every
  * route; active-state colouring only differentiates the pinned pages */
@@ -367,6 +371,11 @@ button { font: inherit; }
   border-radius: var(--radius-pill); padding: 5px 8px; color: var(--color-text-secondary); }
 .top-bar-menu-button:hover, .sidebar-toggle-button:hover, .help-button:hover {
   background: var(--color-bg-subtle); color: var(--color-text); }
+/* themed keyboard focus (pkm-cq32): without this Chrome's default blue ring
+ * clashes with the palette, as .btn-secondary/.btn-danger already fixed
+ * (pkm-0wg9). The transparent border above stays untouched. */
+.top-bar-menu-button:focus-visible, .sidebar-toggle-button:focus-visible, .help-button:focus-visible {
+  outline: 2px solid var(--color-link); outline-offset: 1px; }
 /* context label (current page / view); also the spacer that splits the bar
  * into its left and right button groups (pkm-absu) */
 .top-bar-title { margin-right: auto; min-width: 0; overflow: hidden;
@@ -415,6 +424,8 @@ button { font: inherit; }
   background: none; border: none; padding: 6px 12px; cursor: pointer; color: var(--color-text);
   font-weight: normal; text-decoration: none; box-sizing: border-box; }
 .top-bar-menu button:hover, .top-bar-menu a:hover { background: var(--color-selected-bg); }
+.top-bar-menu button:focus-visible, .top-bar-menu a:focus-visible {
+  outline: 2px solid var(--color-link); outline-offset: 1px; }
 
 /* outline */
 /* line-height set here (not on .block-text) so the edit-mode textarea
@@ -427,6 +438,7 @@ button { font: inherit; }
   transition: transform 0.1s; }
 .chevron.closed { transform: rotate(0deg); }
 .chevron.hidden { visibility: hidden; }
+.chevron:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .bullet { box-sizing: content-box; width: 5px; height: 5px; flex-shrink: 0;
   align-self: flex-start; margin: 6px 8px 0 0;
   border: 4px solid transparent; border-radius: 50%;
@@ -655,10 +667,12 @@ mark.highlight { background: var(--color-highlight-bg); }
 .sidebar-panel-title { font-size: 17px; margin: 0 0 8px; }
 .panel-close { background: none; border: none; cursor: pointer;
   color: var(--color-text-muted); font-size: 16px; }
+.panel-close:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .hamburger { display: none; position: fixed;
   top: calc(var(--app-banner-height) + 10px); left: 10px; z-index: 30;
   background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-control);
   padding: 4px 8px; cursor: pointer; color: var(--color-text); }
+.hamburger:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 
 /* theme toggle */
 .theme-toggle { display: flex; align-items: center; gap: 4px; }
@@ -725,6 +739,10 @@ mark.highlight { background: var(--color-highlight-bg); }
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); padding: 8px; width: 252px; }
 .date-picker-header { display: flex; align-items: center;
   justify-content: space-between; padding: 0 2px 6px; font-weight: 600; }
+/* no :focus-visible ring on the picker's buttons, unlike every other bare
+ * button here (pkm-cq32): DatePickerPopup is mouse-only by design, its buttons
+ * preventDefault on mousedown so they never take focus, and Tab inside a block
+ * indents rather than moving focus — so the ring would be unreachable. */
 .date-picker-header button { background: none; border: none; cursor: pointer;
   font: inherit; color: var(--color-text); padding: 2px 8px; }
 .date-picker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
@@ -745,6 +763,7 @@ mark.highlight { background: var(--color-highlight-bg); }
   font: inherit; color: var(--color-text); }
 .block-menu-item:hover:not(:disabled) { background: var(--color-ac-selected-bg); }
 .block-menu-item:disabled { opacity: 0.5; cursor: default; }
+.block-menu-item:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .block-menu-group { padding: 7px 12px 2px; color: var(--color-text-muted);
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
   text-transform: uppercase; }
@@ -754,6 +773,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .empty-page { display: block; width: 100%; text-align: left; color: var(--color-text-muted);
   background: none; border: none; padding: 8px 0 24px; cursor: text;
   font: inherit; }
+.empty-page:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 
 /* --- plan 5: phone composer --- */
 .composer { display: none; }
@@ -816,6 +836,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .assistant-title { font-weight: 600; margin-right: auto; }
 .assistant-model { display: flex; align-items: center; gap: 4px; font-size: 0.85em; color: var(--color-text-secondary); }
 .assistant-close { background: none; border: none; font-size: 1.2em; cursor: pointer; color: var(--color-text-secondary); }
+.assistant-close:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .assistant-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .assistant-msg { white-space: pre-wrap; overflow-wrap: anywhere; }
 .assistant-msg-user { align-self: flex-end; background: var(--color-bg-subtle); border-radius: var(--radius-card); padding: 6px 10px; max-width: 85%; }
@@ -824,6 +845,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .assistant-confirm-title { font-weight: 600; margin-bottom: 6px; }
 .assistant-confirm-card pre { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85em; margin: 0 0 8px; }
 .assistant-preview-toggle { background: none; border: none; padding: 0; margin: 0 0 8px; color: var(--color-link); font-size: 0.85em; cursor: pointer; text-decoration: underline; }
+.assistant-preview-toggle:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .assistant-confirm-actions { display: flex; gap: 8px; }
 .assistant-error { color: var(--color-error); font-size: 0.9em; }
 .assistant-input { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--color-border); }

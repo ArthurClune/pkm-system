@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
-import { block, makeSync, stubFetch } from "../test-helpers";
+import { block, makeSync, stubFetch, type SyncFake } from "../test-helpers";
 import { registerOutline } from "../outline/activeOutlines";
 import { SyncContext } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
@@ -426,6 +426,84 @@ test("hiding the tab flushes the pending draft immediately", () => {
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "u1", text: "first draft" }],
   ]);
+});
+
+// pkm-hhbc (data loss): navigating away with Ctrl-O / Ctrl-Shift-O while the
+// caret still sits inside a [[ref]] token used to discard the whole block --
+// the draft is flush-held (pkm-xlah) and navigate() unmounts the tree without
+// React ever delivering a blur, so the held text was simply dropped.
+function heldRefDraft(sync: SyncFake) {
+  stubFetch([
+    ["/api/titles", { titles: [] }],
+    ["/api/pages", { id: 9, title: "Fresh Idea", created_at: 0, updated_at: 0 }],
+  ]);
+  mount(sync);
+  const ta = focusBlock("first");
+  // "see [[Fresh Idea]]" with the caret before the closers: exactly what
+  // bracket auto-pairing leaves behind mid-typing, so the draft is held.
+  fireEvent.change(ta, { target: {
+    value: "see [[Fresh Idea]]", selectionStart: 16, selectionEnd: 16,
+  } });
+  act(() => { vi.advanceTimersByTime(5000); });
+  expect(sync.sent).toEqual([]); // held: the debounce must not have flushed
+  return ta;
+}
+
+const HELD_TEXT_OP = { op: "update_text", uid: "u1", text: "see [[Fresh Idea]]" };
+
+test("Ctrl-O over a held [[ref]] flushes the block text before navigating (pkm-hhbc)", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  const ta = heldRefDraft(sync);
+  fireEvent.keyDown(ta, { key: "o", ctrlKey: true });
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
+});
+
+test("Ctrl-Shift-O over a held [[ref]] flushes the block text too (pkm-hhbc)", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  const ta = heldRefDraft(sync);
+  fireEvent.keyDown(ta, { key: "o", ctrlKey: true, shiftKey: true });
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
+});
+
+// pkm-mvdx: the other door onto the same loss. Navigation that never touches
+// the textarea -- App's global Ctrl-Shift-D daily-notes chord, browser
+// back/forward -- just unmounts the outline. There is no blur to flush the
+// held draft and (unlike an ordinary draft) no armed debounce either, so the
+// unmount has to commit it. The click below moves no focus in jsdom, which is
+// exactly the no-blur condition those navigations create.
+function NavAway() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate("/elsewhere")}>go</button>;
+}
+
+test("navigating away with no blur still flushes a held draft (pkm-mvdx)", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = makeSync();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+      <SyncContext.Provider value={sync}>
+        <Routes>
+          <Route path="/" element={<>
+            <EditablePage title="Page"
+                          initial={[block("u1", "first", { order_idx: 0 })]} />
+            <NavAway />
+          </>} />
+          <Route path="/elsewhere" element={<p>elsewhere</p>} />
+        </Routes>
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: {
+    value: "see [[Fresh Idea]]", selectionStart: 16, selectionEnd: 16,
+  } });
+  act(() => { vi.advanceTimersByTime(5000); });
+  expect(sync.sent).toEqual([]); // held: no debounce is armed to save it
+  fireEvent.click(screen.getByText("go"));
+  expect(screen.getByText("elsewhere")).toBeInTheDocument();
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
 test("draft for a remotely-deleted block is dropped, not flushed", () => {

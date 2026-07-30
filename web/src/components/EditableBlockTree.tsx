@@ -43,6 +43,10 @@ export interface OutlineHandlers {
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. Blur/structural commits flush held drafts regardless. */
   onDraftChange(uid: string, text: string, holdFlush?: boolean): void;
+  /** Commit the pending draft NOW, without touching focus (pkm-hhbc). The
+   * tree calls this before it navigates away under its own steam: unmounting
+   * delivers no blur, so a flush-held draft would otherwise be dropped. */
+  onFlushDraft(): void;
   onSplit(uid: string, cursor: number): void;
   onIndent(uid: string): void;
   onOutdent(uid: string): void;
@@ -530,7 +534,14 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   // create-then-go sequence SearchBar's "Create page" row uses. Best-effort:
   // if creation fails (e.g. offline), still navigate/open as before -- the
   // destination view surfaces its own error if the page truly isn't there.
+  //
+  // The held draft is flushed FIRST (pkm-hhbc, data loss): navigating unmounts
+  // this tree and React delivers no blur for a removed node, so the only
+  // other commit point never runs and the typed text -- including the ref we
+  // are navigating to -- was lost. Flushing before POST /api/pages also keeps
+  // the ref row a product of the normal ops path instead of racing it.
   const ensureRefPageThenOpen = async (title: string, sidebar: boolean) => {
+    handlers.onFlushDraft();
     try {
       await apiFetch("/api/pages", {
         method: "POST",

@@ -149,7 +149,9 @@ the block changed since then (another writer got there first), your
 new text is still applied, and the text you overwrote is preserved,
 unmodified, as a new sibling block placed right after the target and
 tagged "[[conflict]] ..." -- find it via `pkm search`/`pkm refs
-conflict` and merge by hand if needed.
+conflict` and merge by hand if needed. One exception: if the block was
+deleted underneath you AND your TEXT changes its heading level, the
+whole write fails loudly with "block not found" instead.
 
 A TEXT beginning "# ", "## " or "### " makes the block a heading at
 that level; TEXT without those hashes makes it plain text, clearing any

@@ -64,7 +64,10 @@ operand from operands that just don't intersect.
   always wins — it is never rejected. If the block changed underneath you,
   your new text still applies and the text you overwrote is preserved as a
   new `[[conflict]]`-tagged sibling block right after the target; find it
-  via `pkm search`/`pkm refs conflict` and merge by hand if needed.
+  via `pkm search`/`pkm refs conflict` and merge by hand if needed. One
+  exception: if the block was deleted underneath you *and* your text
+  changes its heading level, the write fails loudly with `block not
+  found` rather than landing.
 - `batch` reads a JSON array of `{command, params}` — `create`, `todo`,
   `update`, `move`, `delete`, `outline`. `create`/`todo`/`move` accept an
   `"index"` param to insert at a specific position. `"as": "name"` labels a

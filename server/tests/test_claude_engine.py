@@ -15,6 +15,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
+from pkm.assistant import claude_engine
 from pkm.assistant.claude_engine import ClaudeEngine, TurnMapper
 from pkm.assistant.events import ConfirmRequest, ErrorEvent, TextDelta, ToolFinished, ToolStarted, TurnDone
 from pkm.assistant.policy import SYSTEM_PROMPT
@@ -73,12 +74,34 @@ class FakeSDKClient:
                 return
 
 
-def make_engine(tmp_path) -> ClaudeEngine:
+class HangingInterruptClient(FakeSDKClient):
+    """interrupt() never returns.
+
+    That is what the real harness does when it is parked inside can_use_tool:
+    it cannot acknowledge an interrupt until the permission decision it is
+    awaiting arrives (pkm-mbcc defect 2). FakeSDKClient's instant interrupt()
+    hides the ordering bug entirely.
+    """
+
+    async def interrupt(self):
+        self.interrupts += 1
+        await asyncio.Event().wait()  # never set
+
+
+class BrokenInterruptClient(FakeSDKClient):
+    """interrupt() raises -- e.g. the subprocess is already gone."""
+
+    async def interrupt(self):
+        self.interrupts += 1
+        raise RuntimeError("harness already dead")
+
+
+def make_engine(tmp_path, factory=FakeSDKClient) -> ClaudeEngine:
     FakeSDKClient.instances.clear()
     return ClaudeEngine(
         base_url="http://127.0.0.1:8999",
         session_secret_hex=SECRET,
-        client_factory=FakeSDKClient,
+        client_factory=factory,
         config_dir=tmp_path,
     )
 
@@ -263,6 +286,94 @@ def test_send_interrupts_harness_when_consumer_drops_mid_confirm(tmp_path):
         await stream.aclose()  # consumer gone before the user ever answered
         # the pending can_use_tool hook must not be left dangling forever
         await asyncio.wait_for(task, timeout=5)
+        await conv.close()
+        return client
+
+    client = asyncio.run(scenario())
+    assert client.interrupts == 1
+
+
+def test_parked_confirm_is_declined_without_waiting_for_interrupt(tmp_path):
+    # pkm-mbcc defect 2: the decline loop used to run *after* awaiting
+    # interrupt(), which cannot return while the harness sits inside
+    # can_use_tool awaiting the very decision that loop supplies. The parked
+    # confirm was therefore never answered, and the harness stayed wedged
+    # until the process restarted.
+    engine = make_engine(tmp_path, factory=HangingInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        decisions = []
+
+        async def fake_model_turn():
+            decisions.append(
+                await conv.can_use_tool("mcp__pkm__save_note", {"title": "Demo"}, None)
+            )
+
+        waiting = asyncio.create_task(fake_model_turn())
+        stream = conv.send("save it")
+        ev = await asyncio.wait_for(anext(stream), timeout=5)
+        assert isinstance(ev, ConfirmRequest)
+        # the consumer disappears without ever answering the confirm
+        closing = asyncio.create_task(stream.aclose())
+        # the decision must land promptly, i.e. before/independently of the
+        # interrupt() that never returns
+        await asyncio.wait_for(waiting, timeout=1)
+        closing.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await closing
+        await conv.close()
+        return decisions[0]
+
+    decision = asyncio.run(scenario())
+    assert isinstance(decision, PermissionResultDeny)
+    assert "declined" in decision.message
+
+
+def test_disconnect_cleanup_survives_a_wedged_interrupt(tmp_path, monkeypatch):
+    # pkm-mbcc defect 2, second half: even with nothing pending, cleanup must
+    # not hang forever on a harness that never acknowledges the interrupt.
+    monkeypatch.setattr(claude_engine, "INTERRUPT_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path, factory=HangingInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+
+        async def consume():
+            async for _ in conv.send("hi"):  # no messages fed: blocks forever
+                pass
+
+        task = asyncio.create_task(consume())
+        for _ in range(3):
+            await asyncio.sleep(0)  # let it reach the blocking queue.get()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+        await conv.close()
+        return client
+
+    client = asyncio.run(scenario())
+    assert client.interrupts == 1
+
+
+def test_disconnect_cleanup_survives_an_interrupt_that_raises(tmp_path):
+    engine = make_engine(tmp_path, factory=BrokenInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+
+        async def consume():
+            async for _ in conv.send("hi"):
+                pass
+
+        task = asyncio.create_task(consume())
+        for _ in range(3):
+            await asyncio.sleep(0)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
         await conv.close()
         return client
 

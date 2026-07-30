@@ -1,11 +1,11 @@
 ---
 # pkm-mbcc
 title: A large batch write never reaches the user for confirmation
-status: todo
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-30T20:02:45Z
-updated_at: 2026-07-30T20:02:45Z
+updated_at: 2026-07-30T20:45:03Z
 ---
 
 Asking the assistant to restructure a large block produces **no permission
@@ -84,26 +84,37 @@ detection latency. Both need rewriting in the same branch as the fix.
 
 ## Plan
 
-- [ ] Failing test: a dropped consumer with a confirm pending declines that
+- [x] Failing test: a dropped consumer with a confirm pending declines that
       confirm promptly, even when `interrupt()` never returns (fake client whose
       `interrupt()` blocks forever)
-- [ ] Reorder the disconnect cleanup: resolve pending futures BEFORE awaiting
+- [x] Reorder the disconnect cleanup: resolve pending futures BEFORE awaiting
       `interrupt()`, and bound the `interrupt()` await so cleanup cannot block
       on a wedged harness
-- [ ] Failing test: an idle turn emits keepalive frames on the SSE stream
-- [ ] Add a periodic SSE comment frame (`:\n\n`) while a turn is in flight --
+- [x] Failing test: an idle turn emits keepalive frames on the SSE stream
+- [x] Add a periodic SSE comment frame (`:\n\n`) while a turn is in flight --
       keeps the connection alive through silent gaps AND makes a dead peer
       surface on the next write. Must not be parsed as an event by `sse.ts`
       (verify: `parseFrame` returns null for a comment frame)
-- [ ] Consider surfacing thinking/progress so a long turn isn't dead air to the
+- [x] Consider surfacing thinking/progress so a long turn isn't dead air to the
       user either (optional, decide explicitly rather than by omission)
-- [ ] If a pending-confirm timeout is added too, a timed-out confirm must reach
+      -> **decided: no.** The panel already renders a persistent "thinking…"
+      line for the whole of `status === "busy"` (`AssistantPanel.tsx`), so the
+      user is not looking at a blank panel; the defect was on the wire, not in
+      the UI. Streaming reasoning text would need a new event type, new UI
+      treatment and a call on whether raw reasoning belongs in a notes app --
+      a feature, not part of this fix. Recorded in `backend.md` so the omission
+      reads as a decision.
+- [x] If a pending-confirm timeout is added too, a timed-out confirm must reach
       the panel as an explicit message, not a silent deny
-- [ ] Rewrite the two `docs/SECURITY.md` paragraphs described above
-- [ ] Full server verification: `cd server && uv run pytest -q`, `uv run pyrefly
+      -> **no timeout added**, so this does not apply. A keepalive every 15s
+      now surfaces a dead peer within seconds, and cleanup declines the confirm
+      from there; a wall-clock timeout would only add a way to decline a write
+      the user is merely slow to approve.
+- [x] Rewrite the two `docs/SECURITY.md` paragraphs described above
+- [x] Full server verification: `cd server && uv run pytest -q`, `uv run pyrefly
       check`, `uv run ruff check`
-- [ ] Web verification if `sse.ts`/panel change: `cd web && pnpm verify`
-- [ ] Live check with the real harness (recipe below) -- the small-payload happy
+- [x] Web verification if `sse.ts`/panel change: `cd web && pnpm verify`
+- [x] Live check with the real harness (recipe below) -- the small-payload happy
       path passes regardless, so the check must involve a genuinely slow turn
 
 ## Where the evidence is
@@ -129,3 +140,45 @@ over HTTP rather than the browser -- create a conversation, stream
 thread when the `confirm_request` event arrives. Derive block uids from the page
 at runtime; hardcoded uids silently make the model give up without writing.
 Never test against port 8974 (prod launchd service).
+
+## Summary of Changes
+
+Both defects fixed, each with a test that fails without it.
+
+**Defect 2 (`claude_engine.py`).** `send()`'s disconnect cleanup now declines
+every pending confirm future *first*, then awaits `interrupt()` bounded by the
+new `INTERRUPT_TIMEOUT_S = 5.0` (a timeout logs a warning; an `interrupt()` that
+raises is logged too, and neither stops cleanup). The pre-existing regression
+test passed only because `FakeSDKClient.interrupt()` returns instantly; the two
+new tests use a `HangingInterruptClient` whose `interrupt()` never returns --
+one asserts the decline lands anyway, the other that cleanup still finishes.
+
+**Defect 1 (`routes.py`, `events.py`).** `_with_keepalive()` wraps the event
+stream and emits `events.SSE_COMMENT` (`": keepalive\n\n"`) every
+`KEEPALIVE_INTERVAL_S = 15.0` idle seconds. It holds the in-flight `anext()` in
+a task across timeouts via `asyncio.wait` (not `wait_for`, which would cancel
+it) and cancels that task if the consumer leaves. `sse.ts` already discarded
+any frame whose `event:` name isn't one of the six known types, so no web code
+changed -- only a test pinning that contract to the exact frame the server now
+sends.
+
+**Docs.** `docs/SECURITY.md`'s "Turn cancellation" bullet asserted the opposite
+of the truth and is rewritten: the ordering is now stated as load-bearing, with
+the incident as the cautionary tale, and the detection paragraph reframed around
+the keepalive rather than unbounded TCP timers. `backend.md` gains the ordering
+invariant (including the trap that the instant-`interrupt()` fake hides it) and
+the keepalive mechanism; `frontend.md` notes why `sse.ts` ignores comment frames.
+
+### Verification
+
+- `uv run pytest -q`: 922 passed, coverage 95.88% (every new line covered).
+  `uv run pyrefly check`: 0 errors. `uv run ruff check`: clean.
+- `cd web && pnpm verify`: typecheck + 1704 unit tests + 46 e2e specs, all pass.
+- **Live, real harness** (scratch server on 8979, `scenario A/B` driver over
+  httpx). A: a 48-block `save_note` produced **53.7s of near-total silence**
+  before the confirm prompt -- broken only by keepalives at exactly 15.0s,
+  15.0s, 15.0s. That is the incident reproduced, now survivable. B: dropping
+  the connection with the confirm parked put the declined `tool_result` into the
+  harness transcript **in the same second** (`20:43:40` both), followed by
+  `[Request interrupted by user]` -- versus 18 minutes and a server restart in
+  the original incident. The abandoned request logged 6486ms, not 623174ms.

@@ -284,6 +284,10 @@ button { font: inherit; }
 .nav-link { background: none; border: none; padding: 4px 0; text-align: left;
   color: var(--color-text-secondary); font-weight: 500; cursor: pointer; }
 .nav-link:hover { color: var(--color-accent); text-decoration: none; }
+/* the class covers both the <a> destinations and the <button> controls, so one
+ * rule themes the whole left nav (pkm-cq32) -- these are the first eight tab
+ * stops in the app, and every one of them showed Chrome's blue ring */
+.nav-link:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .nav-link.active { color: var(--color-accent); }
 /* primary destinations (Daily Notes, Current Work) stay highlighted on every
  * route; active-state colouring only differentiates the pinned pages */
@@ -735,15 +739,17 @@ mark.highlight { background: var(--color-highlight-bg); }
   box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); padding: 8px; width: 252px; }
 .date-picker-header { display: flex; align-items: center;
   justify-content: space-between; padding: 0 2px 6px; font-weight: 600; }
+/* no :focus-visible ring on the picker's buttons, unlike every other bare
+ * button here (pkm-cq32): DatePickerPopup is mouse-only by design, its buttons
+ * preventDefault on mousedown so they never take focus, and Tab inside a block
+ * indents rather than moving focus — so the ring would be unreachable. */
 .date-picker-header button { background: none; border: none; cursor: pointer;
   font: inherit; color: var(--color-text); padding: 2px 8px; }
-.date-picker-header button:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .date-picker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .date-picker-dow { text-align: center; font-size: 0.75rem; padding: 2px 0; }
 .date-picker-day { background: none; border: none; cursor: pointer; font: inherit;
   color: var(--color-text); padding: 4px 0; text-align: center; border-radius: 4px; }
 .date-picker-day:hover { background: var(--color-ac-selected-bg); }
-.date-picker-day:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .date-picker-day.outside { opacity: 0.45; }
 .date-picker-day.today { font-weight: 600; }
 

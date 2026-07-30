@@ -152,6 +152,14 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
       .toContain("border: 1px solid transparent;");
   });
 
+  // found by tabbing the live app: .nav-link is on both the <a> destinations
+  // and the <button> controls in the left nav, which are the app's first eight
+  // tab stops -- all of them were showing Chrome's default ring
+  test("the left nav links and controls get the ring", () => {
+    expect(ruleFor(".nav-link:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+  });
+
   test("the page-menu dropdown items get the ring too", () => {
     expect(ruleFor(".top-bar-menu button:focus-visible, .top-bar-menu a:focus-visible"))
       .toContain("outline: 2px solid var(--color-link);");
@@ -164,8 +172,6 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
       ".chevron",
       ".panel-close",
       ".hamburger",
-      ".date-picker-header button",
-      ".date-picker-day",
       ".block-menu-item",
       ".empty-page",
       ".assistant-close",
@@ -174,6 +180,15 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
       expect(ruleFor(`${selector}:focus-visible`))
         .toContain("outline: 2px solid var(--color-link);");
     }
+  });
+
+  // deliberate exclusion, so a later audit doesn't "fix" it back: the date
+  // picker is mouse-only by design (pkm-rw6w) -- its buttons preventDefault on
+  // mousedown so they never take focus, and Tab inside a block indents instead
+  // of moving focus, so a ring there could never be seen.
+  test("the mouse-only date picker is left without a ring", () => {
+    expect(styles).not.toContain(".date-picker-day:focus-visible");
+    expect(styles).not.toContain(".date-picker-header button:focus-visible");
   });
 });
 

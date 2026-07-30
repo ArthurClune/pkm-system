@@ -25,6 +25,36 @@ function rulesFor(selector: string): string {
   return bodies.join("\n");
 }
 
+// Rules inside an @media block are invisible to ruleFor/rulesFor: both stop at
+// the first "}", which is the end of the block's first nested rule. Slice the
+// query's blocks out by balancing braces, then match rules within that text.
+function mediaRulesFor(query: string, selector: string): string {
+  const marker = `@media ${query} {`;
+  const blocks: string[] = [];
+  for (let from = 0; ; ) {
+    const start = styles.indexOf(marker, from);
+    if (start === -1) break;
+    let depth = 1;
+    let end = start + marker.length;
+    while (end < styles.length && depth > 0) {
+      if (styles[end] === "{") depth++;
+      else if (styles[end] === "}") depth--;
+      end++;
+    }
+    blocks.push(styles.slice(start + marker.length, end - 1));
+    from = end;
+  }
+  if (blocks.length === 0) throw new Error(`Missing @media ${query}`);
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`, "g");
+  const bodies = blocks.flatMap(
+    (block) => [...block.matchAll(pattern)].map((m) => m[1]));
+  if (bodies.length === 0) {
+    throw new Error(`Missing CSS rule for ${selector} in @media ${query}`);
+  }
+  return bodies.join("\n");
+}
+
 describe("outline line spacing", () => {
   test("uses 1.4 line-height for block rows and numbered bullets", () => {
     expect(ruleFor(".block-row")).toContain("line-height: 1.4;");
@@ -352,10 +382,10 @@ describe("Roam tables (pkm-kbv5)", () => {
 });
 
 describe("uploaded image expansion (pkm-aze9)", () => {
+  // The trigger's width cap belongs to pkm-1vq4 below, not here.
   test("the uploaded-image trigger preserves layout and has visible keyboard focus", () => {
     const trigger = ruleFor(".asset-image-trigger");
     expect(trigger).toContain("display: block;");
-    expect(trigger).toContain("max-width: 100%;");
     expect(trigger).toContain("cursor: zoom-in;");
     expect(ruleFor(".asset-image-trigger:focus-visible"))
       .toContain("outline: 2px solid var(--color-link);");
@@ -369,6 +399,27 @@ describe("uploaded image expansion (pkm-aze9)", () => {
     expect(image).toContain("max-width: 100%;");
     expect(image).toContain("max-height: 100%;");
     expect(image).toContain("object-fit: contain;");
+  });
+});
+
+describe("embedded image size (pkm-1vq4)", () => {
+  test("an embedded image spans at most two-thirds of the text column", () => {
+    // Bare <img> (external URLs) and the /assets/ trigger button both need the
+    // cap: whichever one is the outermost box decides the rendered width.
+    expect(ruleFor(".asset-image")).toContain("max-width: 67%;");
+    expect(ruleFor(".asset-image-trigger")).toContain("max-width: 67%;");
+  });
+
+  test("a wrapped image fills its trigger so the cap is not applied twice", () => {
+    expect(ruleFor(".asset-image-trigger .asset-image"))
+      .toContain("max-width: 100%;");
+  });
+
+  test("phones keep embedded images full width", () => {
+    expect(mediaRulesFor("(max-width: 600px)", ".asset-image"))
+      .toContain("max-width: 100%;");
+    expect(mediaRulesFor("(max-width: 600px)", ".asset-image-trigger"))
+      .toContain("max-width: 100%;");
   });
 });
 

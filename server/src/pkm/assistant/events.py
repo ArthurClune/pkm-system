@@ -62,3 +62,9 @@ def event_name(event: AssistantEvent) -> str:
 def encode_sse(event: AssistantEvent) -> str:
     data = json.dumps(asdict(event), ensure_ascii=False)
     return f"event: {event_name(event)}\ndata: {data}\n\n"
+
+
+# An SSE comment frame: no event name, so a conforming client (and this
+# project's own parser, web/src/assistant/sse.ts) discards it. Written
+# periodically into an otherwise silent turn -- see routes.KEEPALIVE_INTERVAL_S.
+SSE_COMMENT = ": keepalive\n\n"

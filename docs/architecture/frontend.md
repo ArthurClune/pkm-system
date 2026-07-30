@@ -292,6 +292,9 @@ entry.
   `tool_started`/`tool_finished` render tool-activity lines
   ("searching …"), and `confirm_request` shows an Allow/Deny card with the
   write's ops preview (the tool call is held server-side until answered).
+  `sse.ts` drops any frame whose `event:` name is not one of the six known
+  types, which is what makes the server's keepalive comment frames (sent
+  every 15 idle seconds, pkm-mbcc) invisible here — keep it that way.
 - `streamMessage` bypasses `apiFetch` (which consumes the body as JSON) but
   replicates its 401 handling; the other calls use `apiFetch`. The
   assistant is online-only — `/api/assistant/*` has no offline shim.

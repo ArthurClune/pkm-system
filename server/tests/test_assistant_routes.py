@@ -1,6 +1,10 @@
+import asyncio
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+
+from pkm.assistant import routes
+from pkm.assistant.events import SSE_COMMENT, TextDelta
 
 
 def parse_sse(body: str) -> list[tuple[str, dict]]:
@@ -8,6 +12,8 @@ def parse_sse(body: str) -> list[tuple[str, dict]]:
     for chunk in body.split("\n\n"):
         if not chunk.strip():
             continue
+        if chunk.startswith(":"):
+            continue  # comment frame (keepalive); a client ignores these
         lines = chunk.split("\n")
         name = lines[0].removeprefix("event: ")
         data = json.loads(lines[1].removeprefix("data: "))
@@ -76,6 +82,85 @@ def test_message_stream_echo(assistant_client):
     events = parse_sse(body)
     assert events[0] == ("text_delta", {"text": "echo: hi"})
     assert events[-1][0] == "turn_done"
+
+
+def test_with_keepalive_emits_comment_frames_while_the_turn_is_silent():
+    # pkm-mbcc defect 1: a turn can be silent for a long time (a big block to
+    # reason about, a confirm parked on the user), and an idle SSE connection
+    # is what mobile backgrounding and NAT/proxy timeouts drop.
+    async def slow_stream():
+        await asyncio.sleep(0.12)
+        yield TextDelta(text="hi")
+
+    async def scenario():
+        return [frame async for frame in routes._with_keepalive(slow_stream(), 0.03)]
+
+    frames = asyncio.run(scenario())
+    assert frames[-1] == 'event: text_delta\ndata: {"text": "hi"}\n\n'
+    assert len(frames) >= 3  # at least two keepalives during the 0.12s gap
+    assert all(frame == SSE_COMMENT for frame in frames[:-1])
+
+
+def test_with_keepalive_cancels_the_in_flight_read_when_the_consumer_leaves():
+    # a dropped SSE consumer must not orphan the anext() task the keepalive
+    # loop is holding across its timeouts
+    cancelled = []
+
+    async def parked_stream():
+        try:
+            await asyncio.Event().wait()  # never set
+            yield TextDelta(text="unreachable")  # pragma: no cover
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+
+    async def scenario():
+        gen = routes._with_keepalive(parked_stream(), 0.01)
+        frames = []
+        async for frame in gen:
+            frames.append(frame)
+            if len(frames) == 2:
+                break
+        await gen.aclose()
+        await asyncio.sleep(0)  # let the cancellation be delivered
+        return frames
+
+    frames = asyncio.run(scenario())
+    assert frames == [SSE_COMMENT, SSE_COMMENT]
+    assert cancelled == [True]
+
+
+def test_keepalive_frames_reach_the_wire_and_are_invisible_to_a_client(
+    assistant_client, monkeypatch
+):
+    monkeypatch.setattr(routes, "KEEPALIVE_INTERVAL_S", 0.02)
+    cid = assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
+
+    def consume() -> str:
+        with assistant_client.stream(
+            "POST", f"/api/assistant/conversations/{cid}/messages", json={"text": "please write"}
+        ) as r:
+            return "".join(r.iter_text())
+
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(consume)
+        time.sleep(0.25)  # leave the confirm parked long enough to accumulate keepalives
+        deadline = time.time() + 5
+        while time.time() < deadline and not fut.done():
+            assistant_client.post(
+                f"/api/assistant/conversations/{cid}/confirm",
+                json={"tool_use_id": "fake-confirm-1", "allow": True},
+            )
+            if fut.done():
+                break
+            time.sleep(0.05)
+        body = fut.result(timeout=5)
+
+    assert SSE_COMMENT in body
+    # ...and the turn still reads exactly the same to a client that ignores them
+    events = parse_sse(body)
+    assert [n for n, _ in events][:2] == ["tool_started", "confirm_request"]
+    assert ("text_delta", {"text": "Saved."}) in events
 
 
 def test_message_unknown_conversation_404(assistant_client):

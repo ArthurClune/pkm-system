@@ -198,20 +198,32 @@ Threat model:
   cleans up immediately rather than waiting on the cap or idle timeout.
   Conversations do not survive a server restart.
 - **Turn cancellation.** Dropping the SSE connection mid-turn (browser
-  navigation, or the panel's Stop button aborting the fetch) calls the
-  harness's `interrupt()` rather than only detaching the server's local
-  reader, so an abandoned turn stops running instead of continuing to spend
-  turns/tokens unobserved up to `max_turns`. Any confirmation still awaiting
-  a decision is resolved as declined on the same path, so a `can_use_tool`
-  hook cannot outlive the stream that would have answered it.
+  navigation, or the panel's Stop button aborting the fetch) declines any
+  confirmation still awaiting a decision, and *then* calls the harness's
+  `interrupt()` rather than only detaching the server's local reader, so an
+  abandoned turn stops running instead of continuing to spend turns/tokens
+  unobserved up to `max_turns`.
 
-  This cleanup is only as prompt as the disconnect *detection*, which is not
-  bounded: a turn parked on a pending confirmation writes nothing to the SSE
-  stream, so a client that dies without a clean close (a sleeping device, a
-  dropped network) can leave the conversation `busy` — and therefore immune
-  to idle reaping, which skips busy entries — until the dead socket surfaces
-  on its own. Measured at over ten minutes on 2026-07-30. Tracked as
-  pkm-mbcc.
+  **That order matters and must not be swapped.** A harness parked inside
+  `can_use_tool` cannot acknowledge an interrupt until the decision it is
+  waiting for arrives, so awaiting `interrupt()` first made the decline
+  unreachable in precisely the case it exists for. On 2026-07-30 a large
+  `batch` write sat parked that way — no tool result, and nothing at all shown
+  in the panel — until the server process restarted (pkm-mbcc). The
+  `interrupt()` await is now also bounded (`INTERRUPT_TIMEOUT_S`), so a harness
+  wedged for any other reason cannot hold up cleanup either.
+
+  Cleanup is only as prompt as the disconnect *detection*, and a turn is
+  genuinely silent for long stretches: the model reasoning about a large block,
+  serialising a big tool call, or a confirmation parked on the user's decision.
+  While nothing is being written a client that died without a clean close (a
+  sleeping device, a dropped network) is invisible, and a small write into a
+  dead-but-unreset socket succeeds locally, so the server sees no error either
+  — over ten minutes of it was measured on 2026-07-30. A comment frame every
+  `KEEPALIVE_INTERVAL_S` (15s, `routes.py`) closes that gap from both sides: it
+  keeps the connection clear of NAT/proxy idle timeouts, and it forces a write
+  often enough that a genuinely dead peer surfaces quickly instead of leaving a
+  confirmation prompt to be written into a socket nobody is reading.
 
 ## Review evidence
 

@@ -33,6 +33,17 @@ describe("createSseParser", () => {
     expect(p.push(": comment\n\n")).toEqual([]);
   });
 
+  // pkm-mbcc: the server now interleaves a keepalive comment frame into a
+  // silent turn (events.py SSE_COMMENT). It must stay invisible here, and
+  // must not disturb a real frame arriving in the same chunk.
+  test("ignores the server's keepalive comment frame", () => {
+    const p = createSseParser();
+    expect(p.push(": keepalive\n\n")).toEqual([]);
+    expect(p.push(': keepalive\n\nevent: text_delta\ndata: {"text": "hi"}\n\n')).toEqual([
+      { type: "text_delta", text: "hi" },
+    ]);
+  });
+
   test("parses confirm_request", () => {
     const p = createSseParser();
     expect(

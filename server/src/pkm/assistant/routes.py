@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from pkm.assistant.events import ErrorEvent, encode_sse
+from pkm.assistant.events import SSE_COMMENT, AssistantEvent, ErrorEvent, encode_sse
 from pkm.assistant.service import (
     AssistantService,
     BusyError,
@@ -22,6 +23,42 @@ from pkm.server.response_models import AssistantAck, AssistantConversation
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+# pkm-mbcc defect 1: a turn is genuinely silent for long stretches -- the model
+# reasoning about a large block, serialising a big tool call, or a confirm
+# parked on the user's decision -- and an idle connection is exactly what
+# mobile backgrounding and NAT/proxy idle timeouts drop. The frames below both
+# keep the connection warm and force a periodic write, so a peer that has
+# silently gone away surfaces here (and the turn is then cleaned up) instead of
+# only when the next real event is written into a dead socket.
+KEEPALIVE_INTERVAL_S = 15.0
+
+
+async def _with_keepalive(
+    stream: AsyncIterator[AssistantEvent], interval: float
+) -> AsyncGenerator[str, None]:
+    """Encode `stream`, emitting a comment frame every `interval` idle seconds."""
+    iterator = stream.__aiter__()
+    pending: asyncio.Task[AssistantEvent] | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(anext(iterator))
+            # asyncio.wait (unlike wait_for) leaves the task running on
+            # timeout, so the in-flight anext survives every keepalive.
+            done, _ = await asyncio.wait({pending}, timeout=interval)
+            if not done:
+                yield SSE_COMMENT
+                continue
+            settled, pending = pending, None
+            try:
+                event = settled.result()
+            except StopAsyncIteration:
+                return
+            yield encode_sse(event)
+    finally:
+        if pending is not None:
+            pending.cancel()
 
 
 class CreateConversationRequest(BaseModel):
@@ -72,8 +109,8 @@ async def send_message(
 
     async def sse() -> AsyncIterator[str]:
         try:
-            async for event in stream:
-                yield encode_sse(event)
+            async for frame in _with_keepalive(stream, KEEPALIVE_INTERVAL_S):
+                yield frame
         except Exception as exc:  # engine failure mid-stream: report in-band
             yield encode_sse(ErrorEvent(message=str(exc)))
 

@@ -51,6 +51,11 @@ logger = logging.getLogger("pkm.assistant")
 
 MAX_TURNS = 40
 
+# A harness parked inside can_use_tool cannot acknowledge an interrupt until
+# the permission decision arrives, and it may be wedged for other reasons
+# too. Cleanup after a dropped consumer must never hang on it (pkm-mbcc).
+INTERRUPT_TIMEOUT_S = 5.0
+
 
 class TurnMapper:
     """Pure-ish mapping from SDK messages to AssistantEvents.
@@ -158,20 +163,34 @@ class ClaudeConversation:
                     break
         finally:
             if not finished:
-                # the SSE consumer dropped mid-turn (browser closed the tab,
+                # The SSE consumer dropped mid-turn (browser closed the tab,
                 # navigated away, or the fetch was aborted via the Stop
-                # button): cancelling our local pump task only stops us from
-                # reading further messages, it does NOT stop the CLI
-                # subprocess from continuing to execute the abandoned query.
-                # Tell the harness to actually stop.
-                with contextlib.suppress(Exception):
-                    await self._client.interrupt()
-                # a can_use_tool hook may still be awaiting a decision that
-                # will now never come from the UI; decline it so that
-                # coroutine doesn't hang forever.
+                # button).
+                #
+                # Decline any parked confirm FIRST. A can_use_tool hook may
+                # still be awaiting a decision that will now never come from
+                # the UI, and the harness cannot answer an interrupt while it
+                # sits in that hook -- so doing this after interrupt() left
+                # the decline unreachable in exactly the case it exists for
+                # (pkm-mbcc defect 2: a wedged harness, no tool_result, and a
+                # panel showing nothing at all, until the process restarted).
                 for fut in self._pending.values():
                     if not fut.done():
                         fut.set_result(False)
+                # Then stop the harness: cancelling our local pump task only
+                # stops us from reading further messages, it does NOT stop the
+                # CLI subprocess from continuing to execute the abandoned
+                # query. Bounded, because a harness wedged for any other
+                # reason must not hold up this cleanup either.
+                try:
+                    await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT_S)
+                except TimeoutError:
+                    logger.warning(
+                        "assistant interrupt not acknowledged in %ss; abandoning the turn",
+                        INTERRUPT_TIMEOUT_S,
+                    )
+                except Exception:
+                    logger.exception("assistant interrupt failed")
             # if the consumer went away mid-turn, don't block generator
             # close on a live harness turn
             if not pump.done():

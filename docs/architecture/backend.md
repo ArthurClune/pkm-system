@@ -420,7 +420,7 @@ threat model: [`docs/SECURITY.md`](../SECURITY.md).
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend (or the test double) plugs into |
 | `service.py` | Shell | In-memory conversation registry: 3-conversation cap, lazy 15-minute idle reap, per-conversation lock (a second concurrent turn is a 409); `close_all()` runs on app-lifespan shutdown |
 | `claude_engine.py` | Shell | The Claude Agent SDK adapter — the only engine today |
-| `routes.py` | Shell | The four endpoints; an engine failure mid-stream is reported in-band as an `error` SSE event, not a broken response |
+| `routes.py` | Shell | The four endpoints; an engine failure mid-stream is reported in-band as an `error` SSE event, not a broken response. `_with_keepalive()` interleaves a comment frame (`events.SSE_COMMENT`) every `KEEPALIVE_INTERVAL_S` idle seconds |
 
 Conversations are ephemeral (in-memory only, no history table). The engine
 is injected into `create_app(config, assistant_engine=...)`; production
@@ -441,6 +441,22 @@ How `claude_engine.py` confines the harness:
   and blocks the tool call on a future until `POST …/confirm` resolves it.
   A denial returns "the user declined" to the model instead of erroring
   the turn.
+- **Dropped-consumer cleanup, in this order**: decline every pending confirm
+  future, *then* await `interrupt()` (bounded by `INTERRUPT_TIMEOUT_S`). The
+  order is load-bearing and easy to get backwards — a harness sitting in
+  `can_use_tool` cannot acknowledge an interrupt until it gets its decision,
+  so interrupting first wedges the harness forever (pkm-mbcc). Note that
+  `FakeSDKClient.interrupt()` returns instantly, which hides this entirely;
+  the regression tests use a subclass whose `interrupt()` never returns.
+- **Silent turns are the norm, not the exception**: 80s of model reasoning
+  before the first token and 25s serialising a large tool call were both
+  measured on 2026-07-30, and a parked confirm writes nothing for as long as
+  the user takes. `routes._with_keepalive()` therefore keeps the SSE
+  connection warm with a comment frame, which also forces a periodic write so
+  a client that vanished without a clean close surfaces promptly instead of
+  the confirmation prompt being written into a dead socket. Thinking content
+  is deliberately *not* streamed (`TurnMapper.map` forwards only
+  `text_delta`); the panel's own "thinking…" line is the liveness signal.
 - **Deployment prerequisite**: the SDK bundles its own `claude` binary and
   authenticates with the machine's logged-in Claude subscription — there is
   deliberately no `ANTHROPIC_API_KEY` in the service environment. See

@@ -4,7 +4,8 @@ import pytest
 
 from pkm.cli.build import (BuildError, next_child_idx, parse_outline,
                            plan_batch, plan_save, referenced_pages,
-                           resolve_parent)
+                           resolve_parent, split_heading)
+from pkm.cli.render import render_page
 
 
 def _node(uid, text, children=(), heading=None):
@@ -208,3 +209,71 @@ def test_plan_batch_alias_as_uid_unknown_raises():
     with pytest.raises(BuildError, match="unknown alias"):
         plan_batch([{"command": "delete", "params": {"uid": "{{ghost}}"}}],
                    {}, uid_gen())
+
+
+def test_split_heading_levels():
+    assert split_heading("# One") == ("One", 1)
+    assert split_heading("## Two") == ("Two", 2)
+    assert split_heading("### Three") == ("Three", 3)
+
+
+@pytest.mark.parametrize("text", [
+    "#Tag",                  # no space after the hash: a tag, not a heading
+    "#[[Page]]",
+    "#### Four",             # blocks carry levels 1-3 only
+    "# ",                    # no body
+    "plain text",
+    "## Doc\n\nbody line",   # multi-line stays verbatim in one block
+])
+def test_split_heading_leaves_non_headings_alone(text):
+    assert split_heading(text) == (text, None)
+
+
+def test_plan_save_outline_sets_heading_levels():
+    ops = plan_save(PAYLOAD, "Machine Learning", None,
+                    "## Overview\n  detail\n### Deeper", todo=False,
+                    uids=uid_gen())
+    assert [(o["text"], o.get("heading")) for o in ops] == [
+        ("Overview", 2), ("detail", None), ("Deeper", 3)]
+
+
+def test_plan_save_todo_marker_rides_on_a_heading():
+    ops = plan_save(PAYLOAD, "Machine Learning", None, "## Do it",
+                    todo=True, uids=uid_gen())
+    assert ops[0]["text"] == "{{TODO}} Do it"
+    assert ops[0]["heading"] == 2
+
+
+def test_plan_batch_create_and_outline_set_headings():
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "# Top"}},
+        {"command": "outline",
+         "params": {"page": "Machine Learning",
+                    "items": ["## Section", ["body"]]}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
+    assert [(o["text"], o.get("heading")) for o in ops] == [
+        ("Top", 1), ("Section", 2), ("body", None)]
+
+
+def test_plan_batch_created_heading_resolves_as_a_later_parent():
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "## Notes"}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "## Notes",
+                    "text": "beneath"}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
+    assert len(ops) == 2                  # no duplicate "Notes" heading
+    assert ops[1]["parent_uid"] == ops[0]["uid"]
+
+
+def test_render_then_save_round_trips_a_heading():
+    line = next(ln for ln in render_page(PAYLOAD).splitlines()
+                if "Papers" in ln)
+    assert line == "- ## Papers"
+    ops = plan_save({"blocks": []}, "P", None, line.removeprefix("- "),
+                    todo=False, uids=uid_gen())
+    assert (ops[0]["text"], ops[0]["heading"]) == ("Papers", 2)

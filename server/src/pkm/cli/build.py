@@ -82,6 +82,21 @@ def resolve_parent(
     )
 
 
+def split_heading(text: str) -> tuple[str, int | None]:
+    """Split a leading markdown heading marker off `text`, returning
+    (body, level): '## Overview' -> ('Overview', 2).
+
+    Text that doesn't match comes back unchanged with None: '#Tag' (no
+    space after the hashes, so tag-only blocks survive), '#### x' (blocks
+    carry levels 1-3 only), '# ' (no body), and any multi-line text --
+    _HEADING_SPEC is neither MULTILINE nor DOTALL, so `$` cannot match
+    mid-string and a pasted markdown document stays verbatim in its
+    block. Same syntax as a `parent:` spec, same regex.
+    """
+    m = _HEADING_SPEC.match(text)
+    return (m.group(2), len(m.group(1))) if m else (text, None)
+
+
 def _create(uid: str, page: str, parent: str | None, idx: int, text: str,
             heading: int | None = None) -> dict:
     op = {"op": "create", "uid": uid, "page_title": page,
@@ -165,8 +180,9 @@ class _Planner:
         for depth, text in items:
             del stack[depth + 1:]
             target = stack[depth]
+            body, level = split_heading(text)
             if todo and depth == 0:
-                text = with_state(text, "TODO")
+                body = with_state(body, "TODO")
             uid = self.next_uid()
             if depth == 0 and first and index is not None:
                 idx = index
@@ -174,7 +190,15 @@ class _Planner:
                 idx = self.bump(payload, page, target,
                                 in_batch | frozenset(created))
             first = False
-            ops.append(_create(uid, page, target, idx, text))
+            ops.append(_create(uid, page, target, idx, body, level))
+            if level is not None:
+                # So a later `parent: "## Notes"` in the same batch nests
+                # under this block instead of creating a second heading.
+                # `resolve_parent` can't find it: it walks only the
+                # fetched page payload, which predates this batch. Keyed
+                # on the stored text (TODO prefix included, if any) so
+                # the memo agrees with what a later fetch would match.
+                self._headings.setdefault((page, level, body), uid)
             created.add(uid)
             if len(stack) == depth + 1:
                 stack.append(uid)
@@ -328,5 +352,6 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
 
 __all__ = [
     "BuildError", "parse_outline", "next_child_idx", "resolve_parent",
-    "plan_save", "asset_block_text", "referenced_pages", "plan_batch",
+    "split_heading", "plan_save", "asset_block_text", "referenced_pages",
+    "plan_batch",
 ]

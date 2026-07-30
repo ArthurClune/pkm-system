@@ -94,12 +94,32 @@ def tool_summary(short: str, tool_input: dict) -> str:
     return short
 
 
+def _batch_lines(commands: list) -> list[str]:
+    """One line per command, mirroring mcp.server.batch's
+    {"command": ..., "params": {...}} items."""
+    lines = [f"batch: {len(commands)} operation(s)"]
+    for i, op in enumerate(commands):
+        if isinstance(op, dict) and "command" in op:
+            params = op.get("params")
+            rendered = f"{op['command']}: {_clip_preview(params)}" if params else str(op["command"])
+        else:  # not the documented item shape: show it raw rather than drop it
+            rendered = _clip_preview(op)
+        lines.append(f"  {i + 1}. {rendered}")
+    return lines
+
+
 def ops_preview(short: str, tool_input: dict) -> str:
+    # `batch` gets a per-operation listing; everything else falls through to
+    # the generic dump of every argument. A batch payload we can't read as a
+    # list of commands falls through too (pkm-y3rr): this branch once looked
+    # for an `ops` key the tool never emitted -- its signature is
+    # batch(commands) -- and rendered "batch: 0 operation(s)" for every real
+    # write, so users were approving blind. Degrading to the verbose generic
+    # rendering is safe; claiming there is nothing to approve is not.
     if short == "batch":
-        ops = tool_input.get("ops") or []
-        lines = [f"batch: {len(ops)} operation(s)"]
-        lines += [f"  {i + 1}. {_clip_preview(op)}" for i, op in enumerate(ops)]
-        return "\n".join(lines)
+        commands = tool_input.get("commands")
+        if isinstance(commands, list) and commands:
+            return "\n".join(_batch_lines(commands))
     args = ", ".join(f"{k}={_clip_preview(v)}" for k, v in tool_input.items())
     return f"{short}({args})"
 

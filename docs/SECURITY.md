@@ -172,6 +172,17 @@ Threat model:
   bound, and the panel collapses long previews behind a "Show full preview"
   toggle that reveals everything the server sent (it cannot reveal more
   than the 4000-character bound itself).
+
+  The preview must never be able to render as *empty* — an approval card
+  that understates a write is worse than a verbose one. `batch` is the only
+  verb with a bespoke rendering (one line per `{"command", "params"}` item);
+  every other verb, and any `batch` payload that does not parse as a list of
+  commands, falls through to a generic dump of every argument. pkm-y3rr is
+  the cautionary tale: that branch read an `ops` key the tool never emitted
+  (its signature is `batch(commands)`), so every real batch approval showed
+  `batch: 0 operation(s)` and users approved blind. If you touch a tool's
+  parameter names, check `ops_preview` against the live payload, not against
+  its unit test — the test asserted the invented shape and passed.
 - **Subprocess auth.** Each conversation mints a fresh `pkm_session` token,
   written to a 0600 config file passed via `PKM_CLI_CONFIG` and pointing at
   the loopback listener; the file is deleted when the conversation closes.
@@ -190,7 +201,17 @@ Threat model:
   navigation, or the panel's Stop button aborting the fetch) calls the
   harness's `interrupt()` rather than only detaching the server's local
   reader, so an abandoned turn stops running instead of continuing to spend
-  turns/tokens unobserved up to `max_turns`.
+  turns/tokens unobserved up to `max_turns`. Any confirmation still awaiting
+  a decision is resolved as declined on the same path, so a `can_use_tool`
+  hook cannot outlive the stream that would have answered it.
+
+  This cleanup is only as prompt as the disconnect *detection*, which is not
+  bounded: a turn parked on a pending confirmation writes nothing to the SSE
+  stream, so a client that dies without a clean close (a sleeping device, a
+  dropped network) can leave the conversation `busy` — and therefore immune
+  to idle reaping, which skips busy entries — until the dead socket surfaces
+  on its own. Measured at over ten minutes on 2026-07-30. Tracked as
+  pkm-mbcc.
 
 ## Review evidence
 

@@ -3,8 +3,9 @@
 title: CLI/MCP writes store headings as literal markdown
 status: in-progress
 type: bug
+priority: normal
 created_at: 2026-07-30T20:01:33Z
-updated_at: 2026-07-30T20:01:33Z
+updated_at: 2026-07-30T20:08:23Z
 ---
 
 Blocks written via the pkm CLI or MCP tools with '## Heading' text are stored verbatim with heading=NULL, so the page shows literal '## Heading' instead of a rendered heading.
@@ -21,3 +22,12 @@ Reproduction (pure, no server):
     -> [{'op': 'create', 'text': '## Overview'}]   # no heading field
 
 Design: docs/superpowers/specs/2026-07-30-cli-mcp-heading-writes-design.md
+
+
+## Tasks
+
+- [ ] Task 1: `split_heading` + every create path (`_Planner.creates` item loop, `_headings` memo registration)
+- [ ] Task 2: `plan_update` + the three update paths (batch `update`, `cmd_update`, MCP `update_block`)
+- [ ] Task 3: contracts and docs (CLI epilogs + `--help` drift guard, MCP docstrings, pkm skill, README, `backend.md`)
+
+Plan: docs/superpowers/plans/2026-07-30-cli-mcp-heading-writes.md

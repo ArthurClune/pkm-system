@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-07-30T20:01:33Z
-updated_at: 2026-07-30T20:28:43Z
+updated_at: 2026-07-30T21:09:53Z
 ---
 
 Blocks written via the pkm CLI or MCP tools with '## Heading' text are stored verbatim with heading=NULL, so the page shows literal '## Heading' instead of a rendered heading.
@@ -48,3 +48,10 @@ Task 3 (contracts and docs): documented the Task 1/2 behaviour everywhere an LLM
 - `docs/architecture/backend.md`: added `plan_update` and `split_heading` to the planner list and a new prose bullet stating the heading-level invariant and its deliberate exclusions (`#Tag`, `#### `+, multi-line, task-marker paths).
 
 Verification: `uv run pytest -q` (939 passed, 95.97% coverage), `uv run pyrefly check` (0 errors), `uv run ruff check` (all checks passed), all from `server/`.
+
+
+## Follow-ups deferred (from the final whole-branch review)
+
+- `plan_mark(uid, current_text, mark)` in `cli/build.py` would remove the last op construction living in a shell: the `with_state` + hand-built `update_text` + `base_text_hash` block is duplicated verbatim between `cli/main.py`'s `cmd_update` and `mcp/server.py`'s `update_block`.
+- `render_groups`/`render_backlinks`/`render_search` (`cli/render.py`) print `item['text']` bare, so a heading copied out of `pkm todos` into `pkm update` demotes. The docs only claim the round trip for `pkm get`, so they are accurate, but the claim cannot be made unconditional until those three renderers print hashes too.
+- An empty heading block (`heading=2, text=""`) renders as `- ## ` and re-saves as literal `"## "` with no level, since `_HEADING_SPEC`'s `.+` needs a body. The only genuinely lossy round trip; affects no real block.

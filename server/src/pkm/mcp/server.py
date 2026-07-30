@@ -12,7 +12,8 @@ from mcp.server.fastmcp import FastMCP
 
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
-from pkm.cli.build import asset_block_text, plan_batch, plan_save, referenced_pages
+from pkm.cli.build import (asset_block_text, plan_batch, plan_save,
+                           plan_update, referenced_pages)
 from pkm.cli.render import (render_assets, render_backlinks, render_block,
                             render_groups, render_page, render_search)
 from pkm.server.daily import title_for_date
@@ -115,11 +116,16 @@ def update_block(uid: str, text: str | None = None,
         raise ValueError("mark must be 'TODO' or 'DONE'")
     client = _client()
     current = client.get_block(uid)["block"]["text"]
-    new_text = with_state(current, mark) if mark is not None else text
-    assert new_text is not None
-    client.post_ops([{"op": "update_text", "uid": uid, "text": new_text,
-                      "base_text_hash": text_hash(current)}],
-                    batch_id=uuid.uuid4().hex)
+    if mark is not None:
+        # Not plan_update: `current` is already bare, so it would split to
+        # no hashes and clear the block's heading.
+        ops = [{"op": "update_text", "uid": uid,
+                "text": with_state(current, mark),
+                "base_text_hash": text_hash(current)}]
+    else:
+        assert text is not None
+        ops = plan_update(uid, text, current)
+    client.post_ops(ops, batch_id=uuid.uuid4().hex)
     return f"updated ^{uid}"
 
 

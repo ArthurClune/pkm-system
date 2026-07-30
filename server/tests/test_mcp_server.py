@@ -101,3 +101,22 @@ def test_search_assets(tools, tmp_path):
 def test_get_page_resolve_refs(tools):
     out = tools.get_page("July 7th, 2026", resolve_refs=True)
     assert '"[[Attention Is All You Need]] is a [[Paper]]" ((uid_b3))' in out
+
+
+def test_save_note_heading_levels(tools, pkm_client):
+    tools.save_note("# Big", page="AI")
+    page = pkm_client.get_page("AI")
+    assert any(n["text"] == "Big" and n["heading"] == 1
+               for n in page["blocks"])
+
+
+def test_update_block_sets_heading_and_mark_preserves_it(tools, pkm_client):
+    tools.save_note("temp", page="AI")
+    uid = next(n["uid"] for n in pkm_client.get_page("AI")["blocks"]
+               if n["text"] == "temp")
+    tools.update_block(uid, text="### Section")
+    block = pkm_client.get_block(uid)["block"]
+    assert (block["text"], block["heading"]) == ("Section", 3)
+    tools.update_block(uid, mark="TODO")
+    block = pkm_client.get_block(uid)["block"]
+    assert (block["text"], block["heading"]) == ("{{TODO}} Section", 3)

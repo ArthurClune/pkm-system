@@ -19,7 +19,7 @@ from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.cli.build import (BuildError, asset_block_text, plan_batch,
-                           plan_save, referenced_pages)
+                           plan_save, plan_update, referenced_pages)
 from pkm.cli.render import (RenderError, clip_depth, render_assets,
                             render_backlinks, render_block, render_groups,
                             render_page, render_search, select_section)
@@ -366,18 +366,19 @@ def cmd_update(args: argparse.Namespace, client: PkmClient) -> int:
         print("exactly one of TEXT, -D, or -T is required", file=sys.stderr)
         return 1
     current = client.get_block(args.uid)["block"]["text"]
-    if args.done:
-        new_text = with_state(current, "DONE")
-    elif args.todo:
-        new_text = with_state(current, "TODO")
+    if args.done or args.todo:
+        # Not plan_update: `current` is already bare (the heading level
+        # lives in its own column), so splitting it would find no hashes
+        # and demote a real heading to plain text.
+        ops = [{"op": "update_text", "uid": args.uid,
+                "text": with_state(current, "DONE" if args.done else "TODO"),
+                "base_text_hash": text_hash(current)}]
     else:
         new_text = _read_text_arg(args.text)
         if args.text in (None, "-"):
             new_text = new_text.rstrip("\n")
-    client.post_ops([{"op": "update_text", "uid": args.uid,
-                      "text": new_text,
-                      "base_text_hash": text_hash(current)}],
-                    batch_id=uuid.uuid4().hex)
+        ops = plan_update(args.uid, new_text, current)
+    client.post_ops(ops, batch_id=uuid.uuid4().hex)
     print(f"updated ^{args.uid}")
     return 0
 

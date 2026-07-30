@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
+from pkm.server.ops_core import text_hash
 from pkm.todo import with_state
 
 _HEADING_SPEC = re.compile(r"^(#{1,3}) (.+)$")
@@ -217,6 +218,31 @@ def plan_save(payload: dict, page_title: str, parent_spec: str | None,
     return _Planner(uids).creates(payload, page_title, parent_spec, items, todo)
 
 
+def plan_update(uid: str, text: str,
+                base_text: str | None = None) -> list[dict]:
+    """Ops for replacing a block's text: `update_text` plus the
+    `set_heading` that keeps the stored level in step with the text's
+    leading hashes -- no hashes means plain text, so a heading is cleared.
+
+    `base_text`, when given, adds the `base_text_hash` concurrent-edit
+    guard (the standalone `pkm update` / `update_block` path). `pkm batch`'s
+    `update` command passes None: batch updates carry no guard by design.
+
+    `set_heading` is emitted unconditionally rather than compared against
+    the block's current level -- it is idempotent, and the batch path has
+    no fetched block to compare against.
+
+    Callers must NOT route a task-marker change (`-D`/`-T`/`mark=`)
+    through here: the text those read back from the API is already bare,
+    so it would split to no hashes and demote a real heading.
+    """
+    body, level = split_heading(text)
+    update: dict = {"op": "update_text", "uid": uid, "text": body}
+    if base_text is not None:
+        update["base_text_hash"] = text_hash(base_text)
+    return [update, {"op": "set_heading", "uid": uid, "heading": level}]
+
+
 def asset_block_text(filename: str, mime: str, url: str) -> str:
     """Render an uploaded asset as a block: image embed, `pdf` macro, or a
     plain link, keyed off the asset's mime type. Pure text shaping shared
@@ -323,8 +349,7 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
             created.update(o["uid"] for o in new)
         elif name == "update":
             uid = _alias_uid(params["uid"], aliases)
-            ops.append({"op": "update_text", "uid": uid,
-                        "text": params["text"]})
+            ops.extend(plan_update(uid, params["text"]))
         elif name == "move":
             title, payload = _page(params)
             uid = _alias_uid(params["uid"], aliases)
@@ -352,6 +377,6 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
 
 __all__ = [
     "BuildError", "parse_outline", "next_child_idx", "resolve_parent",
-    "split_heading", "plan_save", "asset_block_text", "referenced_pages",
-    "plan_batch",
+    "split_heading", "plan_save", "plan_update", "asset_block_text",
+    "referenced_pages", "plan_batch",
 ]

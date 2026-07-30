@@ -37,6 +37,8 @@ pkm/
 ├── rename.py            Core   rewrite_title_refs() for page rename/merge
 ├── todo.py              Core   {{TODO}}/{{DONE}} marker parsing (mirrors web/src/grammar/todo.ts)
 ├── filenames.py         Core   safe_filename() shared by upload + export
+├── assets_core.py       Core   Asset-browser helpers: reference-token stripping,
+│                               MIME categorisation (+ its SQL twin), zip arcnames
 ├── edn.py               Core   Minimal EDN parser for Roam exports
 ├── schema_dump.py       Shell  Generates web/src/replica/baseSchema.gen.ts
 ├── refs_parity_dump.py  Shell  Generates shared/fixtures/refs_parity.json
@@ -67,6 +69,7 @@ Inside `pkm/server/`:
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
 | `tree.py`, `backlinks.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py`, `response_models.py` | Core | Pure helpers: tree building, backlink shaping, daily-page titles, FTS queries, `{{[[query]]}}` evaluation, sync windowing, MIME sniffing, Pydantic response models |
 | `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
+| `request_log.py` / `logfmt.py` | Shell / Core | The `pkm.access` request log — one line per request, with durations (see [Logging](#logging-and-observability)) |
 | `run.py` / `setup.py` | Shell | `python -m pkm.server.run` entrypoint; `setup` writes `config.json` |
 | `openapi_dump.py` / `shim_parity_dump.py` | Shell | Generated-artifact writers (see [Generated artifacts](#generated-artifacts-and-parity-fixtures)) |
 
@@ -262,7 +265,9 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/assets/{sha256}/{filename}` | Serve by digest (immutable cache) |
 | GET | `/api/assets/describe-status` | Whether image descriptions are enabled, and why not if disabled |
 | POST | `/api/assets/scan?force` | Enqueue undescribed (or, with `force`, previously-failed) eligible images |
-| GET | `/api/assets/search?q&limit` | `LIKE` search over asset description + filename |
+| GET | `/api/assets/search?q&limit&offset&type&from_ms&to_ms&linked` | `LIKE` search over asset description + filename, filtered and paginated, with a `total` (backs the `/files` browser) |
+| DELETE | `/api/assets/{sha256}` | Delete an asset, stripping its reference tokens from block text |
+| POST | `/api/assets/export.zip` | Zip the selected assets (form-encoded `sha256s`, download) |
 | **Export** | | |
 | GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
 | GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
@@ -276,6 +281,28 @@ Uploads stream in 1 MiB chunks with a running size cap (413 over
 row keeps the display filename/MIME/size. Raster images and PDFs serve
 inline; everything else (including SVG, which can script) is forced to
 download with `nosniff`.
+
+The three management endpoints behind the `/files` browser (pkm-jdu3) share
+`assets_core.py` for their pure parts:
+
+- **Search** is `LIKE`, not FTS — a personal-scale table, and no
+  offline-parity burden. `linked`/`orphan` filtering needs refs for every
+  candidate, so that path scans the whole filtered set; `linked=all`
+  computes refs only for the returned page.
+- **Delete** strips every asset reference token out of block text and
+  removes the row, then unlinks the file **after** the commit: a crash
+  leaves at worst an unreferenced file on disk, never a row pointing at a
+  missing file. A block left empty *and* childless is deleted outright, but
+  an emptied parent is kept — asset deletion must never cascade away real
+  content. Asset URLs never produce `refs` rows (only `[[link]]`, `#tag`,
+  `attr::` do), so no refs reindex is needed.
+- **Selected-asset zip** is form-encoded on purpose, so the web app can
+  drive it with a plain `<form method="post">` and let the browser own the
+  download. Unknown, malformed, duplicate and missing-on-disk digests are
+  skipped rather than erroring — the zip honestly contains what could be
+  exported — and filename collisions get a short sha prefix
+  (`zip_arcnames`). Like `/api/export.zip` it builds in RAM, bounded here by
+  the user's selection.
 
 ## Importer (Roam EDN → fresh database)
 
@@ -367,17 +394,20 @@ and broadcasts as the web client.
   payloads to terminal markdown.
 - Writes go through `POST /api/ops` with a fresh `batch_id`; `pkm update`
   fetches current text first and rides the `base_text_hash` conflict path.
-- The MCP server exposes ten tools (`get_page`, `get_block`, `search`,
-  `query`, `backlinks`, `todos`, `save_note`, `update_block`, `batch`,
-  `upload_asset`) built from the same planners; reads return markdown
-  annotated with `^uid` markers the write tools accept.
+- The MCP server exposes eleven tools — seven reads (`get_page`,
+  `get_block`, `search`, `query`, `backlinks`, `todos`, `search_assets`) and
+  four writes (`save_note`, `update_block`, `batch`, `upload_asset`) — built
+  from the same planners; reads return markdown annotated with `^uid`
+  markers the write tools accept. `assistant/policy.py` splits them along
+  exactly that read/write line (see below), so adding a tool means deciding
+  which tuple it joins.
 
 ## Embedded assistant (`pkm/assistant/`)
 
 The in-app LLM assistant (pkm-wn2s) is a **server-side agent harness**
 exposed over the app's first SSE endpoints (`/api/assistant/*`, table
 above, behind the same `require_auth`). The harness has no built-in tools —
-only the ten `pkm-mcp` verbs, which loop back into this same server over
+only the eleven `pkm-mcp` verbs, which loop back into this same server over
 HTTP, so assistant writes get the same validation, conflict handling,
 journalling and broadcasts as any client. Design spec:
 [`docs/superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md`](../superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md);
@@ -510,6 +540,34 @@ than at routes that can never match the bad value. Two properties to preserve:
 - **Normalise, never 422.** A permanent rejection wedges an offline client's
   durable op queue — it retries that op forever and every later change queues
   behind it. Anything accepting a title from outside normalises, not validates.
+
+## Logging and observability
+
+There is no metrics stack; the logs are the whole observability story, so they
+are shaped to answer the one question that actually gets asked — *"the app was
+slow/hung yesterday, what was it doing?"* Stock uvicorn output could not
+(pkm-0fx3): no timestamps on any line, and no request durations anywhere.
+
+- **`uvicorn`'s own access log is disabled** in `run.py`, replaced by
+  `RequestLogMiddleware` (`server/request_log.py`). It emits one
+  `pkm.access` line *after the response body finishes*, so the duration
+  covers the whole request including body send:
+  `<client> "GET /api/page/Foo?bl_limit=20" 200 4ms`. Status is captured off
+  the `http.response.start` message and defaults to 500, so a request that
+  dies before responding still logs what the client saw. The line is
+  formatted by the pure `logfmt.request_line`.
+- **`logfmt.uvicorn_log_config()`** is uvicorn's default dictconfig plus
+  timestamps on every formatter, and it explicitly wires the `pkm.access` and
+  `pkm.describe` loggers to the stdout handler with `propagate: False`.
+  Without that wiring their INFO lines silently vanish (nothing configures
+  the root logger). **Any new `pkm.*` logger that should reach production logs
+  must be added here** — this is the trap pkm-4z9r was filed for.
+- Streams follow uvicorn's convention — lifecycle and errors to stderr,
+  access lines to stdout — so launchd's two log files keep their roles.
+
+When measuring a slow request, prefer these durations to client-side timing:
+the filter-hang investigation (pkm-0fx3) found ~4 ms server-side, which is
+what ruled the server out.
 
 ## Testing
 

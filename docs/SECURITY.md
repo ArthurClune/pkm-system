@@ -158,7 +158,7 @@ Claude Agent SDK harness uses the service user's Claude Code login.
 Threat model:
 
 - **Prompt injection.** Note content is untrusted input to the model. The
-  blast radius of a fully injected model is the ten PKM MCP tools — the
+  blast radius of a fully injected model is the eleven PKM MCP tools — the
   harness runs with all built-in tools disabled (no shell, filesystem, or
   web access) and `setting_sources=[]`, so filesystem settings/CLAUDE.md
   are ignored.

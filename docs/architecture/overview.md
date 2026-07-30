@@ -14,8 +14,8 @@ in [`docs/design.md`](../design.md) and the specs under
 | Doc | Covers |
 |---|---|
 | this file | System context, tech stack, repo layout, cross-cutting patterns, key decisions, deployment |
-| [backend.md](backend.md) | FastAPI server: modules, database, write path, HTTP API reference, importer, backup, CLI/MCP, embedded assistant |
-| [frontend.md](frontend.md) | React SPA: modules, editor, rendering pipeline, state, assistant panel, styling, testing |
+| [backend.md](backend.md) | FastAPI server: modules, database, write path, HTTP API reference, importer, backup, CLI/MCP, embedded assistant, logging |
+| [frontend.md](frontend.md) | React SPA: modules, editor, rendering pipeline, state, assistant panel, views, styling, testing |
 | [sync-and-offline.md](sync-and-offline.md) | The sync protocol and offline architecture, end to end |
 
 ## System context
@@ -50,7 +50,7 @@ One server process, one SQLite file, one assets directory. Every client —
 browser, CLI, MCP — speaks the same HTTP API with the same session-cookie
 auth, and every mutation goes through the single `POST /api/ops` write path.
 Even the embedded LLM assistant is just another client: the server spawns a
-harness subprocess per chat conversation, confined to the ten `pkm-mcp`
+harness subprocess per chat conversation, confined to the eleven `pkm-mcp`
 tools, and those tools loop back into the same API.
 
 ## Core idea
@@ -193,6 +193,9 @@ nightly at 03:30.
   upgrade (TestClient suites pass even when real WS upgrades fail).
 - Restore = stop service, copy a snapshot from `backups/sqlite/` over
   `data/pkm.sqlite3`, restart, smoke-test.
+- Every request logs a timestamped `pkm.access` line with its duration to
+  `logs/server.out.log` — the first place to look for "it was slow
+  yesterday" (see [backend.md](backend.md#logging-and-observability)).
 
 Full procedures: [`deploy/README.md`](../../deploy/README.md).
 

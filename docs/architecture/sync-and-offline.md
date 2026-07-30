@@ -166,6 +166,26 @@ cannot. Consequences (`web/src/replica/client.ts`, `recoveryGate.ts`,
   non-poisoned batches, drops the poisoned row, and resumes — failure stays
   visible with a Retry.
 
+**Opening the replica can transiently fail, and that is not a sync problem**
+(`replica/openRetry.ts`, pkm-c9hp). The SAHPool VFS takes an exclusive
+`SyncAccessHandle` per pooled file, and a given OPFS file backs only *one*
+open handle at a time. On a page reload — a user's F5, or Playwright
+navigating with a full document load — the fresh replica worker calls
+`installOpfsSAHPoolVfs` before the terminating worker has released its
+handles, and sqlite-wasm throws "Access Handles cannot be created if there is
+another open Access Handle". The fix is a bounded retry around the open, in a
+pure policy module.
+
+The same contention can hit an *enqueue*, and there `opQueue` treats it like
+quota exhaustion: "cannot persist locally right now" is not a server
+rejection, so the ops are posted straight to the server instead of firing
+`onDesync` — whose authoritative repair would wipe the active outline back to
+the edit-less server state and detach the editor mid-keystroke. Worth knowing
+because the pre-fix symptom was a **"Server rejected a change"** banner,
+which reads like a server-side rejection or a `resyncSeq` bug and cost a
+misdirected investigation: when that banner appears, check the storage layer
+first.
+
 Three distinct triggers cause a rebootstrap, all funnelled through the same
 recovery coordinator:
 
@@ -186,7 +206,10 @@ recovery coordinator:
   which.
 - **Online-only features** degrade explicitly rather than queueing: asset
   upload, sidebar edits, page deletion, and `{{[[query]]}}` blocks say
-  "online only" when offline.
+  "online only" when offline. The `/files` browser and the LLM assistant are
+  online-only wholesale — neither `/api/assets/*` nor `/api/assistant/*` has
+  an offline shim, and both are orthogonal to sync (the assistant reaches the
+  graph server-side, through the API, not through the replica).
 - **Service worker**: precaches the app shell (so a cold offline start
   boots) and keeps a bounded runtime cache of recently viewed assets;
   Mermaid's chunk family is deliberately precached so diagrams render

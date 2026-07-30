@@ -41,13 +41,16 @@ assistant/             The embedded-assistant chat panel (Cmd/Ctrl+J).
                        Shells: client.ts (fetch/stream over /api/assistant/*),
                        useAssistant.ts (chat state), AssistantPanel.tsx
 views/                 Journal (daily notes, `/`), PageView (`/page/*`),
-                       CurrentWork (`/current-work`); EditablePage = one editable
-                       outline, reused by main pane and sidebar panels
+                       CurrentWork (`/current-work`), Files (`/files`, + pure
+                       filesCore.ts), Settings (`/settings`), Help (`/help`);
+                       EditablePage = one editable outline, reused by main pane
+                       and sidebar panels
 outline/               The editor engine.
                        Cores: outlineState.ts (the reducer), keyboardPolicy.ts,
                        edits.ts, tree.ts (applyOps — mirrors server ops_apply),
                        keyEdits.ts, slashCommands.ts, autocomplete.ts,
-                       refAtCaret.ts, blockSelection.ts, history.ts
+                       refAtCaret.ts, blockSelection.ts, history.ts,
+                       paste.ts (outline paste), calendar.ts (/date month grid)
                        Shells: useOutline.ts (the hook), outlineSessions.ts
                        (per-title shared store), undoManager.ts
 grammar/               Roam-markdown parsing: scan.ts (the shared scanner,
@@ -57,7 +60,8 @@ components/            ~40 files: inline rendering (InlineSegments, MathSpan,
                        MermaidDiagram, PdfEmbed/PdfViewer, QueryBlock, BlockRef,
                        PageLink, AssetImage, CodeBlock, BlueskyEmbed, roamTable…)
                        + chrome (TopBar, SidebarNav/Panel, SearchBar,
-                       OfflineIndicator, Composer, BacklinksSection, BlockMenu…)
+                       OfflineIndicator, Composer, BacklinksSection,
+                       JournalDayReferences, BlockMenu, DatePickerPopup…)
 sync/                  SyncProvider.tsx (global context), socket.ts (WS),
                        opQueue.ts (+ pure queueState.ts), replicaSync.ts,
                        syncState.ts (pure editability/health FSM), assets.ts
@@ -65,6 +69,7 @@ replica/               The offline engine: worker.ts + workerHandlers.ts,
                        rpc.ts/client.ts (typed RPC), baseSchema.gen.ts
                        (generated from server DDL), clientSchema.ts,
                        queue.ts, apply.ts, reconcile.ts, recoveryGate.ts,
+                       openRetry.ts (OPFS open contention),
                        localApi/ (offline read shims), localOps.ts
 dnd/                   Drag-and-drop context + drop zones
 styles.css             All styling (plain CSS, design tokens)
@@ -73,12 +78,27 @@ styles.css             All styling (plain CSS, design tokens)
 ## Views and navigation
 
 Routes: `/` → Journal (infinite scroll of daily pages), `/page/*` → PageView,
-`/current-work` → recently edited pages. The right-hand sidebar is a
+`/current-work` → recently edited pages, `/files` → the asset browser,
+`/settings` → whole-database export and future settings, `/help` → the static
+keyboard-shortcut doc, `*` → NotFound. The right-hand sidebar is a
 session-only **stack**: shift-clicking any page link or ref pushes a
 `SidebarPanel` onto it. The left nav holds pinned pages (server-persisted
-via `/api/sidebar`), an Assistant entry (above Settings) and the theme
-toggle. Global keys: `Ctrl+Shift+D` jumps to today's daily note,
-`Cmd/Ctrl+/` toggles the sidebar, `Cmd/Ctrl+J` toggles the assistant panel.
+via `/api/sidebar`), then a rule-fenced block of app destinations —
+Assistant, Files, Settings — and the theme toggle. Global keys:
+`Ctrl+Shift+D` jumps to today's daily note, `Cmd/Ctrl+/` toggles the
+sidebar, `Cmd/Ctrl+J` toggles the assistant panel.
+
+`/files` (pkm-jdu3) is a plain table over `/api/assets/search` with
+filters (text, type, date range, linked/orphan), offset pagination and
+multi-select for delete and zip export. Its pure half (`views/filesCore.ts`)
+owns the query-string building, MIME categorisation, size formatting,
+confirm-text composition and the reference token a user can copy into a
+block; the shell owns fetching, selection state and the download. The zip
+export is submitted as a throwaway hidden `<form method="post">` rather than
+a fetch, so the browser owns the download rather than the SPA buffering it.
+Journal days additionally render their own linked references inline
+(`JournalDayReferences`, pkm-vvta), lazily per day and hidden when a day has
+none, reusing `BacklinksSection` rather than a second renderer.
 
 Both the main pane and a sidebar panel can show *the same page at the same
 time* — a fact that drives the outline-session design below.
@@ -147,6 +167,26 @@ Editing mechanics worth knowing before touching `outline/`:
   (multi-block aware), Alt-Arrow / Shift-Cmd-Arrow moves, Shift-Arrow
   multi-block selection, slash commands, and Cmd-Z / Shift-Cmd-Z undo/redo
   (`history.ts` + `undoManager.ts`).
+- **Paste is opt-in structural, and the modifier is captured on keydown.**
+  Plain Cmd-V is always left native — it inserts text into the textarea and
+  nothing else (pkm-fwa2). `Shift-Cmd-V` *arms* an outline paste: `paste.ts`
+  (Core) parses the clipboard into a forest by comparing indent widths
+  ordinally with a stack (2-space, 4-space and tab clipboards all work
+  unconfigured) and plans the whole splice as one op batch. The arm exists
+  because `ClipboardEvent` carries no modifier state, so the chord is
+  recorded in a ref on keydown — deliberately *without* `preventDefault`, or
+  the browser's own paste would never fire — and consumed by the next
+  `paste` event, which also requires the clipboard to actually have
+  structure. One arm serves exactly one paste. E2E tests must arm via a
+  synthetic keydown: pressing the real chord pastes whatever is on CI's
+  clipboard.
+- **Slash commands** cover block types (`/todo`, `/table`, code fences,
+  `/mermaid`), headings, queries, `/upload`, and date links — `/today` and
+  `/tomorrow` insert `[[Ordinal Date]]` links directly, while `/date` opens
+  `DatePickerPopup` over the month grid computed by the pure `calendar.ts`
+  (Monday-first, whole weeks, adjacent-month days marked). Labels are
+  lowercase by convention, and `slashCommandsDocumented.test.ts` fails if a
+  new command isn't documented in `docs/keyboard.md`.
 - **Remote edits vs local draft**: authoritative text lands on the tree even
   for the focused block, but the textarea keeps the local draft — per-block
   last-write-wins, consistent with the server's model.
@@ -245,14 +285,43 @@ artifacts).
 
 Plain CSS in a single `src/styles.css` — no framework, no CSS-in-JS. Design
 tokens are custom properties on `:root`: a color system
-(`--color-bg/-surface/-text*/-accent/-link/-tag/…`), a three-step radius
-scale (`--radius-control/-card/-panel`), and `--hljs-*` code tokens.
+(`--color-bg/-surface/-text*/-accent/-link/-tag/…`), a five-step radius
+scale, and `--hljs-*` code tokens. The radius steps are assigned by *role*,
+not by size, and the comments in `styles.css` are the contract:
+`--radius-pill` (999px — buttons, ghost icon buttons, search fields),
+`--radius-field` (7px — text inputs, selects, textareas), `--radius-control`
+(4px — inline code, block rows, badges, thumbs), `--radius-card` (6px —
+embedded content), `--radius-panel` (8px — floating menus, dropdowns, the
+main pane).
 Theming is three-way: light default, OS dark via
 `@media (prefers-color-scheme: dark)` (works with zero JS), and an explicit
 `data-theme` override stamped on `<html>` by `useTheme.ts` (system → light →
 dark cycle, persisted to localStorage). `color-scheme` is declared per theme:
 without it Chrome paints `select` and date widgets light whatever the CSS
 says.
+
+### Two control families
+
+Buttons and fields are styled by named class, and there is deliberately **no
+bare `input`/`select` element rule** (pkm-mrru, pkm-0wg9): a new control opts
+in by name rather than silently inheriting a look — or silently getting none.
+
+- **Buttons** are pills (`--radius-pill`): `.btn-secondary` (bordered,
+  `--color-bg-subtle`, hover to `--color-selected-bg`), `.btn-danger` (filled
+  `--color-error-fill`), and the quiet-until-hovered chrome trio
+  (`.top-bar-menu-button`, `.sidebar-toggle-button`, `.help-button`) whose
+  transparent border keeps hover from shifting layout. `.btn-secondary`
+  carries its own padding — before pkm-mrru it had none, so bare call sites
+  silently rendered at UA metrics. The left nav is the exception to look out
+  for: its `.nav-link` class covers both `<a>` and `<button>` (see below).
+- **Fields** are `.input-control` (text inputs, selects, textareas) and
+  `.search-field` / `.search-field-input` — the latter is the top-bar search
+  look, extracted so `/files`' search is literally the same field as `Cmd-U`
+  rather than a lookalike.
+
+`--color-error-fill` is a **fill-only** token, separate from the error text
+colour: reusing one red for both made dark-theme Delete buttons read as
+coral. Two colour tokens for two jobs.
 
 ### Focus and interactive affordances
 
@@ -342,8 +411,10 @@ Playwright e2e against that build.**
   enforced (statements 95 / branches 91 / functions 89 / lines 95), with
   workers and generated files excluded. The pure cores are the point of the
   FCIS split: they test with no React/DOM/fetch/worker/SQLite mocks.
-- **E2E** (Playwright, `web/e2e/`): editing, backlinks, math, rename, undo,
-  embeds, images, PDF, and two offline specs. The harness is strict: any
+- **E2E** (Playwright, `web/e2e/`): ~23 specs — editing, backlinks, math,
+  rename, undo, embeds, images, PDF, outline paste, slash dates, journal
+  references, the assistant, the `/files` browser, and two offline specs.
+  The harness is strict: any
   HTTP 5xx fails the run (`fixtures.ts`), and a server-side exception fails
   teardown. `e2e/server-state.ts::waitForServerText` polls the server's copy
   of a page — the reliable way to wait for a write before a reload. The

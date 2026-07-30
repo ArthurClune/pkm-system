@@ -362,11 +362,20 @@ describe("control polish (pkm-0wg9)", () => {
     for (const selector of [".nav-sidebar-add input",
                             ".assistant-input textarea"]) {
       const rule = ruleFor(selector);
-      expect(rule).not.toContain("background:");
       expect(rule).not.toContain("border:");
       expect(rule).not.toContain("border-radius:");
     }
+    expect(ruleFor(".assistant-input textarea")).not.toContain("background:");
     expect(ruleFor(".composer textarea")).not.toContain("border:");
+  });
+
+  // the one background exception (pkm-k1ak): .left-nav is itself
+  // --color-bg-subtle, so the shared resting fill leaves this field with only
+  // its border to distinguish it from the nav
+  test("the sidebar Add field lifts off the nav background", () => {
+    expect(ruleFor(".left-nav")).toContain("background: var(--color-bg-subtle);");
+    expect(ruleFor(".nav-sidebar-add input"))
+      .toContain("background: var(--color-bg-surface);");
   });
 
   // the outline editor is a writing surface, not a form field

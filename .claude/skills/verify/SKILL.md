@@ -61,7 +61,7 @@ they make discovery snapshots unnecessary for all routine checks.
 | Journal | block editor (while editing) | `textarea.block-input` |
 | Journal | rendered block | `div.block-text` |
 | Journal | day section / block row | `section.journal-day` / `div.block-row` |
-| Search | top-bar wrapper | `div.top-bar-search` |
+| Search | top-bar wrapper | `div.search-field` |
 | Search | input | `input.top-bar-search-input` |
 | Search | results list | `ul.search-results` |
 | Search | result row | `li.search-result` (+ `.selected` on the active row) |

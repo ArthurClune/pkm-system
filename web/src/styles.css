@@ -310,7 +310,11 @@ button { font: inherit; }
 .nav-sidebar-entry-controls button { width: 20px; height: 20px; line-height: 1;
   font-size: 12px; padding: 0; }
 .nav-sidebar-add { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.nav-sidebar-add input { padding: 4px 6px; }
+/* the shared .input-control fill is --color-bg-subtle, which is exactly
+ * .left-nav's background, so this is the one field that needs the surface
+ * colour at rest to read as a field at all (pkm-k1ak). Focus then can't shift
+ * the fill; the border-colour change and .input-control's focus ring carry it. */
+.nav-sidebar-add input { padding: 4px 6px; background: var(--color-bg-surface); }
 .nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px; }
 .content-area { flex: 1; min-width: 0; display: flex; flex-direction: column;
   /* card geometry shared by .top-bar and .main-pane; --pane-left leans the

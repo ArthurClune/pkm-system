@@ -154,11 +154,25 @@ flowchart LR
 Editing mechanics worth knowing before touching `outline/`:
 
 - **Draft vs key-edit paths.** Plain typing debounces into a draft
-  (`TEXT_DEBOUNCE_MS` = 500 ms); structural edits, blur, undo, and tab-hide
-  flush the draft first. Drafts are *flush-held* while the caret sits inside
-  a half-typed `[[ref` or `#tag` token, so autosave can't create a page from
-  a partial title. Anything that mutates text programmatically must ride
-  this draft/key-edit path, not poke the tree directly.
+  (`TEXT_DEBOUNCE_MS` = 500 ms); structural edits, blur, undo, tab-hide, and
+  in-editor navigation (`onFlushDraft`) flush the draft first. Drafts are
+  *flush-held* while the caret sits inside a half-typed `[[ref` or `#tag`
+  token, so autosave can't create a page from a partial title. Anything that
+  mutates text programmatically must ride this draft/key-edit path, not poke
+  the tree directly.
+- **A flush-held draft has no timer, so unmounting the tree can lose it.** An
+  ordinary debounced draft is safe across an unmount: nothing cancels the
+  pending `setTimeout`, so it still fires and flushes after the outline is
+  gone. A *held* draft has no armed timer at all — its only exits are the
+  explicit commit points above — and React delivers no blur for a node it
+  removes. Anything inside the editor that navigates away under its own steam
+  must therefore flush first; `Ctrl-O`/`Ctrl-Shift-O` over a `[[ref]]`
+  (`ensureRefPageThenOpen`) calls `handlers.onFlushDraft()` before both
+  `POST /api/pages` and the navigation, and that order matters — the flush is
+  what creates the ref's page row through the normal ops path (pkm-hhbc; it
+  silently emptied two real blocks in production before it was fixed).
+  Clicking a rendered ref is *not* affected: only the unfocused blocks render
+  links, so reaching one blurs the textarea first.
 - **Keyboard policy is a pure function.** `decideEditorKey` returns a
   semantic decision the shell executes — new shortcuts are added in the
   policy (and its table-driven `META_WRAP_EDITS` for Cmd-letter wraps), not

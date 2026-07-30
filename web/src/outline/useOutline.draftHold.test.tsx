@@ -78,6 +78,19 @@ it("blur still flushes a held draft (explicit commit point)", () => {
   ]);
 });
 
+// pkm-hhbc: navigating away (Ctrl-O over the very ref being typed) unmounts
+// the tree with no blur, so the tree asks for the flush explicitly.
+it("an explicit draft flush commits a held draft (navigation, pkm-hhbc)", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, one());
+  act(() => outline().handlers.onFocusBlock("a", 0));
+  act(() => outline().handlers.onDraftChange("a", "[[How LLM]]", true));
+  act(() => outline().handlers.onFlushDraft());
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "a", text: "[[How LLM]]" }],
+  ]);
+});
+
 it("a structural edit still flushes a held draft first", () => {
   const sync = makeSync();
   const outline = setup(sync, PAGE, one());

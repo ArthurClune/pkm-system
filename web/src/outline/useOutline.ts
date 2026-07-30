@@ -266,10 +266,16 @@ export function useOutline(
       }
       // held (pkm-xlah): the caret is mid [[ref / #tag token — autosaving now
       // would create a page from the half-typed title. The draft stays
-      // pending; blur, structural edits, undo, and tab-hide still flush it.
+      // pending; blur, structural edits, undo, tab-hide and navigation
+      // (onFlushDraft, below) still flush it.
       if (holdFlush) return;
       timerRef.current = setTimeout(flushNow, TEXT_DEBOUNCE_MS);
     },
+    // In-editor navigation (pkm-hhbc): the tree asks for the flush before it
+    // takes the user off this page, because its own unmount produces no blur.
+    // Focus is deliberately left alone — Ctrl-Shift-O only opens the sidebar,
+    // and the caret stays in the block the ref was typed in.
+    onFlushDraft: flushNow,
     onSplit: (uid, cursor) =>
       run((b) => splitBlock(b, pageTitle, uid, cursor, newUid())),
     onIndent: (uid) => run((b) => indentBlock(b, pageTitle, uid)),

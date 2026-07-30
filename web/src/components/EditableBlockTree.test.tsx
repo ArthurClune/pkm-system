@@ -11,6 +11,7 @@ import { EditableBlockTree } from "./EditableBlockTree";
 function handlers(): OutlineHandlers {
   return {
     onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftChange: vi.fn(),
+    onFlushDraft: vi.fn(),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveSubtreeUp: vi.fn(), onMoveSubtreeDown: vi.fn(),
     onBackspaceAtStart: vi.fn(),
@@ -636,6 +637,28 @@ test("Ctrl-O creates the target page before navigating if it doesn't exist yet (
       body: JSON.stringify({ title: "World" }),
     })));
   await waitFor(() => expect(screen.getByText("page view here")).toBeInTheDocument());
+});
+
+// pkm-hhbc (data loss): the draft that names the ref is flush-held while the
+// caret is inside the token, and navigating unmounts this tree without a blur.
+// The flush must therefore be asked for HERE, and before POST /api/pages, so
+// the ref row is created by the normal ops path rather than racing it.
+test("navigate-ref flushes the held draft before creating the page (pkm-hhbc)", async () => {
+  const fetchMock = stubFetch([
+    ["/api/pages", { id: 9, title: "World", created_at: 0, updated_at: 0 }],
+  ]);
+  const h = handlers();
+  mountWithPageRoute(h, { uid: "u1", cursor: 0 });
+  const ta = focusedTextarea();
+  ta.setSelectionRange(9, 9);
+  fireEvent.keyDown(ta, { key: "o", ctrlKey: true });
+  expect(h.onFlushDraft).toHaveBeenCalled();
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/pages",
+    expect.objectContaining({ method: "POST" })));
+  const pagesCall = fetchMock.mock.calls
+    .findIndex(([url]) => String(url).startsWith("/api/pages"));
+  expect(vi.mocked(h.onFlushDraft).mock.invocationCallOrder[0])
+    .toBeLessThan(fetchMock.mock.invocationCallOrder[pagesCall]);
 });
 
 test("Ctrl-Shift-O opens the reference in the sidebar instead of navigating (pkm-a1e4)", async () => {

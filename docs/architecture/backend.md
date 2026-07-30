@@ -495,6 +495,22 @@ Daily pages are special throughout: titles use Roam's ordinal format
 (`July 8th, 2026`, `daily.py`) for import compatibility, they are
 auto-created on read, and they cannot be renamed.
 
+**Page titles are normalised where they are born, and never rejected**
+(`refs.normalize_title`, pkm-hjhy). Starlette compiles `{title:path}` to `.*`
+without `re.DOTALL`, so a title containing a newline cannot be routed at all:
+six such pages existed, appeared in search, and 404'd on every URL naming them
+— unopenable and undeletable. Normalisation therefore sits at the creation
+paths (`refs.extract()`, so a `[[ref]]` spanning a line break cannot mint one,
+and `store.get_or_create_page()`, which every writer funnels through) rather
+than at routes that can never match the bad value. Two properties to preserve:
+
+- **Deliberately narrow.** Whitespace is collapsed only when the title holds a
+  *control* character; a title with plain spaces is returned byte for byte, so
+  existing pages like `Two  Spaces` are not collateral damage.
+- **Normalise, never 422.** A permanent rejection wedges an offline client's
+  durable op queue — it retries that op forever and every later change queues
+  behind it. Anything accepting a title from outside normalises, not validates.
+
 ## Testing
 
 - `cd server && uv run pytest -q` — ~70 test files, roughly one per module.

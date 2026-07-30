@@ -150,6 +150,17 @@ Editing mechanics worth knowing before touching `outline/`:
 - **Remote edits vs local draft**: authoritative text lands on the tree even
   for the focused block, but the textarea keeps the local draft — per-block
   last-write-wins, consistent with the server's model.
+- **The bullet is a button, and the block menu's only keyboard route.** The
+  `.bullet` span in `EditableBlockTree` carries `role="button"`,
+  `tabIndex={0}`, `aria-label="Open block menu"`, `aria-haspopup`,
+  `aria-expanded`, and an `onKeyDown` for Enter / Space / ContextMenu /
+  Shift-F10 alongside its click, contextmenu and drag handlers. Every
+  `onOpenMenu` call site is on that span and `keyboardPolicy` has no menu
+  shortcut, so removing its tab stop removes keyboard access to Copy block
+  reference and the view modes entirely. Its focus styling is constrained
+  too — see *Focus and interactive affordances* below. The read-only
+  `BlockTree` bullet is a plain `aria-hidden` span with no handlers: not
+  focusable, by design.
 - Phones get a bottom **Composer** (append-to-daily-note) instead of full
   outline editing.
 
@@ -239,7 +250,86 @@ scale (`--radius-control/-card/-panel`), and `--hljs-*` code tokens.
 Theming is three-way: light default, OS dark via
 `@media (prefers-color-scheme: dark)` (works with zero JS), and an explicit
 `data-theme` override stamped on `<html>` by `useTheme.ts` (system → light →
-dark cycle, persisted to localStorage).
+dark cycle, persisted to localStorage). `color-scheme` is declared per theme:
+without it Chrome paints `select` and date widgets light whatever the CSS
+says.
+
+### Focus and interactive affordances
+
+One ring, everywhere a control can be focused:
+
+```css
+:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+```
+
+Declared **per component, next to that component's own rule** rather than as
+one grouped selector list — locality beats brevity in a single 1000-line
+stylesheet, and the grouped-rule alternative also trips `ruleFor` (below).
+Resolved colours are `#c25a28` light / `#e8935a` dark. Every control uses
+`outline-offset: 1px`; the one deviation is `.asset-image-trigger` at 2px, to
+clear an embedded image's rounded corner.
+
+Three deliberate exceptions, all commented in `styles.css` so an audit
+doesn't "fix" them:
+
+- `.top-bar-search-input` sets `outline: none` — its wrapper carries the
+  affordance.
+- `DatePickerPopup`'s buttons get no ring: the popup is mouse-only by design
+  (every element `preventDefault`s on mousedown so the block textarea keeps
+  focus), and Tab inside a block indents, so a ring there is unreachable.
+  `styles.test.ts` asserts its *absence*.
+- `.bullet` uses the standard ring but for a second reason beyond the palette
+  clash: the bullet is a 5px dot inside a `4px solid transparent` border, and
+  `.bullet.closed` signals *collapsed with hidden children* by colouring that
+  border. Chrome's default ring hugs the dot the same way, so an unstyled
+  focused bullet reads as a collapsed block. Any future restyling here must
+  stay distinguishable from `.closed`.
+
+Two traps when working on this:
+
+- **Auditing the stylesheet alone is not enough.** `.nav-link` is applied to
+  both the `<a>` destinations and the `<button>` controls in the left nav, and
+  those are the app's first eight tab stops — a class-by-class read of
+  `styles.css` looking for `<button>` selectors misses it completely. Drive
+  the running app instead: `press Tab` in a loop and read
+  `document.activeElement.className` plus
+  `getComputedStyle(el).outlineColor`; computed style reflects
+  `:focus-visible`, and CDP's synthetic Tab does establish keyboard modality.
+- **Ordinary content anchors deliberately keep the UA ring.** `a.page-link`,
+  external links and the `.page-title > a` heading link were considered and
+  declined (pkm-9lwx): the ring is only ever seen by tabbing through prose,
+  while at the block line-height a 2px offset ring collides with the line
+  above and repeats per line box on a wrapped link.
+
+**Control boundary contrast is a known, measured deviation from WCAG 1.4.11**
+(pkm-xqir). `.btn-secondary`'s border is 1.30:1 against a panel surface in
+dark and 1.29:1 in light; 3:1 would need a control-border token near
+`#6e7a88` dark / `#959ea4` light, i.e. a visibly grey outline on every button
+and input in both themes. That was judged to cost more than it buys. The full
+ratio table is in the pkm-xqir bean — start from it rather than re-deriving.
+
+Two other stylesheet invariants that are easy to break silently:
+
+- **Embedded images cap at two-thirds of the text column** (`.asset-image` /
+  `.asset-image-trigger`, both `max-width: 67%`). An external URL renders as a
+  bare `<img>` while an uploaded `/assets/` image is wrapped in the expansion
+  trigger, so both boxes carry the cap and the outermost decides — which is
+  why the inner image resets to `max-width: 100%`. Without that reset the two
+  caps multiply to 4/9. The phone override back to full width
+  (`@media (max-width: 600px)`) must stay *after* those rules: a media query
+  adds no specificity, so source order is what wins.
+- **The left nav's rules get their space from flexbox, not padding.**
+  `.left-nav` has an 8px flex `gap`, so a separator like `.nav-section-start`
+  declares only `padding-top` below itself (12px = the free 8px above plus
+  `.nav-link`'s own 4px), keeping the text equidistant from the rule.
+
+`styles.test.ts` guards these as text-level drift assertions against the raw
+stylesheet. Its `ruleFor(selector)` builds an **unanchored** regex and returns
+the first match, so a selector appearing as the non-first member of a grouped
+rule silently returns the *group's* body: use `rulesFor` (joins every matching
+rule) for classes styled in more than one place, and `mediaRulesFor(query,
+selector)` for anything inside an `@media` block — `ruleFor` stops at the
+first `}`, which inside a media block is the end of its first nested rule.
 
 ## Testing and quality gates
 

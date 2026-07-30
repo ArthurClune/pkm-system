@@ -317,7 +317,12 @@ in by name rather than silently inheriting a look — or silently getting none.
 - **Fields** are `.input-control` (text inputs, selects, textareas) and
   `.search-field` / `.search-field-input` — the latter is the top-bar search
   look, extracted so `/files`' search is literally the same field as `Cmd-U`
-  rather than a lookalike.
+  rather than a lookalike. The resting fill is `--color-bg-subtle`, lifting to
+  `--color-bg-surface` on focus; per-call-site rules add geometry only. The one
+  colour exception is the left nav's `Add page…` input, which sits *on*
+  `--color-bg-subtle` (`.left-nav`'s own background) and so takes the surface
+  fill at rest — otherwise only its border would separate it from the nav. Its
+  focus is then carried by the border colour and the ring alone.
 
 `--color-error-fill` is a **fill-only** token, separate from the error text
 colour: reusing one red for both made dark-theme Delete buttons read as
@@ -341,8 +346,8 @@ clear an embedded image's rounded corner.
 Three deliberate exceptions, all commented in `styles.css` so an audit
 doesn't "fix" them:
 
-- `.top-bar-search-input` sets `outline: none` — its wrapper carries the
-  affordance.
+- `.top-bar-search-input` sets `outline: none` — its 220px→320px width growth
+  is the focus affordance.
 - `DatePickerPopup`'s buttons get no ring: the popup is mouse-only by design
   (every element `preventDefault`s on mousedown so the block textarea keeps
   focus), and Tab inside a block indents, so a ring there is unreachable.

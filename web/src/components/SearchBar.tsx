@@ -181,7 +181,7 @@ export function SearchBar() {
   };
 
   return (
-    <div className="search-field top-bar-search" ref={wrapRef}>
+    <div className="search-field" ref={wrapRef}>
       <span className="search-field-icon"><SearchIcon /></span>
       <input ref={inputRef} className="search-field-input top-bar-search-input"
              placeholder="Search…"

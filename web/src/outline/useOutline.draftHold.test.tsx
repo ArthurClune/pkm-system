@@ -18,14 +18,18 @@ function Harness({ pageTitle, initial, onReady }: {
   return null;
 }
 
-function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
+function mountOutline(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
   let outline!: Outline;
-  render(
+  const { unmount } = render(
     <SyncContext.Provider value={sync}>
       <Harness pageTitle={pageTitle} initial={initial}
                onReady={(o) => { outline = o; }} />
     </SyncContext.Provider>);
-  return () => outline;
+  return { outline: () => outline, unmount };
+}
+
+function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
+  return mountOutline(sync, pageTitle, initial).outline;
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -89,6 +93,28 @@ it("an explicit draft flush commits a held draft (navigation, pkm-hhbc)", () => 
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "a", text: "[[How LLM]]" }],
   ]);
+});
+
+// pkm-mvdx: an ordinary draft survives an unmount on its own — nothing
+// cancels the pending debounce, so it fires after the outline is gone. A HELD
+// draft has no timer at all, and React delivers no blur for a node it removes,
+// so unmounting is itself a commit point.
+it("unmounting flushes a held draft (navigation with no blur, pkm-mvdx)", () => {
+  const sync = makeSync();
+  const h = mountOutline(sync, PAGE, one());
+  act(() => h.outline().handlers.onFocusBlock("a", 0));
+  act(() => h.outline().handlers.onDraftChange("a", "[[How LLM]]", true));
+  act(() => h.unmount());
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "a", text: "[[How LLM]]" }],
+  ]);
+});
+
+it("unmounting an untouched outline sends nothing", () => {
+  const sync = makeSync();
+  const h = mountOutline(sync, PAGE, one());
+  act(() => h.unmount());
+  expect(sync.sent).toEqual([]);
 });
 
 it("a structural edit still flushes a held draft first", () => {

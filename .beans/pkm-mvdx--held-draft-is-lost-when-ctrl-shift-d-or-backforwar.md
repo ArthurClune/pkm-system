@@ -1,11 +1,11 @@
 ---
 # pkm-mvdx
 title: Held draft is lost when Ctrl-Shift-D or back/forward unmounts the outline
-status: todo
+status: completed
 type: bug
 priority: high
 created_at: 2026-07-30T19:09:03Z
-updated_at: 2026-07-30T19:09:03Z
+updated_at: 2026-07-30T19:26:55Z
 ---
 
 Sibling of pkm-hhbc, found while fixing it. Same root cause, different door.
@@ -45,7 +45,41 @@ falls back to `sync.enqueue` plus a setState on an unmounted component.
 
 ## Todo
 
-- [ ] Failing test: held draft + Ctrl-Shift-D keeps the block text
-- [ ] Failing test: held draft + history back keeps the block text
-- [ ] Fix, without weakening the pkm-xlah hold
-- [ ] docs/architecture/frontend.md: extend the pkm-hhbc note to all navigation
+- [x] Failing test: held draft + Ctrl-Shift-D keeps the block text
+- [x] Failing test: held draft + history back keeps the block text
+- [x] Fix, without weakening the pkm-xlah hold
+- [x] docs/architecture/frontend.md: extend the pkm-hhbc note to all navigation
+
+## Summary of Changes
+
+Fixed in the pkm-hhbc branch, at the user's request.
+
+One mechanism covers every door: `useOutline` now flushes on unmount. Both
+Ctrl-Shift-D and back/forward work by unmounting the outline, so neither needs
+its own hook, and `App.tsx` is untouched (`undoManager.flushAll` stayed
+private). The hold itself is unchanged.
+
+- Unmount-only by construction: the callback is read from a ref, with an
+  empty dep array, so a changing `flushNow` identity can never turn this into
+  a mid-edit flush.
+- Placed after the session effect, so by the time it runs the session handle
+  is released and `run()` takes its existing no-session branch: the ops still
+  reach the durable queue, and there is nothing left to render into.
+
+Tests (failing first):
+
+- `useOutline.draftHold.test.tsx` -- unmount with a held draft sends the
+  `update_text` batch; unmount of an untouched outline sends nothing.
+- `EditablePage.test.tsx` -- a real router transition away from the page, via
+  a click that moves no focus in jsdom (exactly the no-blur condition these
+  navigations create), flushes the held draft.
+
+### Why no App-level Ctrl-Shift-D test
+
+Probed it: rendering `<App/>` and firing the chord does navigate (the journal
+fetch fires), but the op queue posts no `/api/ops` in jsdom, so there is
+nothing to assert on. The chord's only new dependency is the unmount flush,
+which is covered directly above.
+
+Verified: `pnpm verify` green (typecheck, lint, fcis, 1703 unit tests,
+coverage 97.38%, bundle budgets, 46 E2E).

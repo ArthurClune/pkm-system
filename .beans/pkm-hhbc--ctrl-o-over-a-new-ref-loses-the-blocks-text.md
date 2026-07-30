@@ -107,4 +107,6 @@ Probed directly against `useOutline` (throwaway test, deleted):
 So a *held* draft is lost by any unmount-without-blur, not just Ctrl-O.
 `App.tsx`'s global `Ctrl-Shift-D` handler calls `navigate("/")` with no flush,
 and browser back/forward does the same. Same class, same severity, different
-door -- filed as a follow-up rather than widened into this bean.
+door -- filed as pkm-mvdx, then fixed in this same branch at the user's
+request (unmount-time flush in `useOutline`). Both defences are kept: the
+explicit flush here is what guarantees the ordering against POST /api/pages.

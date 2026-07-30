@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import { block, makeSync, stubFetch, type SyncFake } from "../test-helpers";
@@ -464,6 +464,45 @@ test("Ctrl-Shift-O over a held [[ref]] flushes the block text too (pkm-hhbc)", (
   const sync = makeSync();
   const ta = heldRefDraft(sync);
   fireEvent.keyDown(ta, { key: "o", ctrlKey: true, shiftKey: true });
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
+});
+
+// pkm-mvdx: the other door onto the same loss. Navigation that never touches
+// the textarea -- App's global Ctrl-Shift-D daily-notes chord, browser
+// back/forward -- just unmounts the outline. There is no blur to flush the
+// held draft and (unlike an ordinary draft) no armed debounce either, so the
+// unmount has to commit it. The click below moves no focus in jsdom, which is
+// exactly the no-blur condition those navigations create.
+function NavAway() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate("/elsewhere")}>go</button>;
+}
+
+test("navigating away with no blur still flushes a held draft (pkm-mvdx)", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = makeSync();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+      <SyncContext.Provider value={sync}>
+        <Routes>
+          <Route path="/" element={<>
+            <EditablePage title="Page"
+                          initial={[block("u1", "first", { order_idx: 0 })]} />
+            <NavAway />
+          </>} />
+          <Route path="/elsewhere" element={<p>elsewhere</p>} />
+        </Routes>
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: {
+    value: "see [[Fresh Idea]]", selectionStart: 16, selectionEnd: 16,
+  } });
+  act(() => { vi.advanceTimersByTime(5000); });
+  expect(sync.sent).toEqual([]); // held: no debounce is armed to save it
+  fireEvent.click(screen.getByText("go"));
+  expect(screen.getByText("elsewhere")).toBeInTheDocument();
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 

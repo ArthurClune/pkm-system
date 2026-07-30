@@ -160,19 +160,29 @@ Editing mechanics worth knowing before touching `outline/`:
   token, so autosave can't create a page from a partial title. Anything that
   mutates text programmatically must ride this draft/key-edit path, not poke
   the tree directly.
-- **A flush-held draft has no timer, so unmounting the tree can lose it.** An
+- **A flush-held draft has no timer, so navigation is a commit point.** An
   ordinary debounced draft is safe across an unmount: nothing cancels the
   pending `setTimeout`, so it still fires and flushes after the outline is
   gone. A *held* draft has no armed timer at all — its only exits are the
   explicit commit points above — and React delivers no blur for a node it
-  removes. Anything inside the editor that navigates away under its own steam
-  must therefore flush first; `Ctrl-O`/`Ctrl-Shift-O` over a `[[ref]]`
-  (`ensureRefPageThenOpen`) calls `handlers.onFlushDraft()` before both
-  `POST /api/pages` and the navigation, and that order matters — the flush is
-  what creates the ref's page row through the normal ops path (pkm-hhbc; it
-  silently emptied two real blocks in production before it was fixed).
+  removes. Two defences, both needed:
+  - `useOutline` flushes on unmount, which covers navigation the editor never
+    sees: App's global `Ctrl-Shift-D` chord, browser back/forward (pkm-mvdx).
+    It is deliberately unmount-only (the callback is held in a ref, not a
+    dep) and enqueues into the durable op queue after the outline's session
+    handle is already released — there is nothing left to render into, and
+    durability is the queue's job anyway.
+  - Anything *inside* the editor that navigates away under its own steam
+    flushes first, explicitly: `Ctrl-O`/`Ctrl-Shift-O` over a `[[ref]]`
+    (`ensureRefPageThenOpen`) calls `handlers.onFlushDraft()` before both
+    `POST /api/pages` and the navigation. That order matters — the flush is
+    what creates the ref's page row through the normal ops path, so the
+    unmount defence alone would leave it racing (pkm-hhbc; it silently
+    emptied two real blocks in production before it was fixed).
+
   Clicking a rendered ref is *not* affected: only the unfocused blocks render
-  links, so reaching one blurs the textarea first.
+  links, so reaching one blurs the textarea first. Tab hide/close/reload is
+  covered by the `visibilitychange` flush.
 - **Keyboard policy is a pure function.** `decideEditorKey` returns a
   semantic decision the shell executes — new shortcuts are added in the
   policy (and its table-driven `META_WRAP_EDITS` for Cmd-letter wraps), not

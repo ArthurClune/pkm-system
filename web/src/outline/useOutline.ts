@@ -208,8 +208,8 @@ export function useOutline(
     },
   }), [pageTitle, flushNow]);
 
-  // A hidden tab can be killed without blur ever firing (the one real
-  // data-loss window): flush the draft as soon as the tab hides.
+  // A hidden tab can be killed without blur ever firing: flush the draft as
+  // soon as the tab hides.
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === "hidden") flushNow();
@@ -218,6 +218,21 @@ export function useOutline(
     return () =>
       document.removeEventListener("visibilitychange", onVisibility);
   }, [flushNow]);
+
+  // Unmount is the last commit point (pkm-mvdx). An ordinary draft needs no
+  // help — nothing cancels its pending debounce, so the timer still fires and
+  // flushes after this outline is gone — but a flush-held draft (caret mid
+  // [[ref / #tag token, pkm-xlah) has no timer at all, and React delivers no
+  // blur for a node it removes. So any navigation that never touches the
+  // textarea (App's global Ctrl-Shift-D chord, browser back/forward) would
+  // otherwise drop the block's text. The ops are enqueued for delivery even
+  // though the session handle has already been released by the effect above
+  // — durability is the queue's job, and nothing is left to render into.
+  // Deliberately unmount-only: a ref, not a dep, so a changing flushNow
+  // identity can't turn this into a mid-edit flush.
+  const flushOnUnmount = useRef(flushNow);
+  flushOnUnmount.current = flushNow;
+  useEffect(() => () => flushOnUnmount.current(), []);
 
   // Unknown target content needs an authoritative tree. The session allocates
   // the read token before the loader dispatches and coalesces same-title reads.

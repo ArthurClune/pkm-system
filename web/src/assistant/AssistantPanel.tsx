@@ -87,6 +87,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         <label className="assistant-model">
           model
           <select
+            className="input-control"
             value={assistant.model}
             disabled={assistant.modelLocked}
             onChange={(e) => assistant.setModel(e.target.value)}
@@ -136,6 +137,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
       </div>
       <div className="assistant-input">
         <textarea
+          className="input-control"
           placeholder="Ask about your notes…"
           value={draft}
           rows={2}

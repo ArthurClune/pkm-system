@@ -13,6 +13,18 @@ function ruleFor(selector: string): string {
   return match[1];
 }
 
+// A class's declarations can live in more than one rule -- .search-field-input
+// carries the colours it shares with .input-control in one rule and its own
+// geometry in another. ruleFor returns only the first match, so collect every
+// rule whose selector text names this one.
+function rulesFor(selector: string): string {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const bodies = [...styles.matchAll(
+    new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`, "g"))].map((m) => m[1]);
+  if (bodies.length === 0) throw new Error(`Missing CSS rule for ${selector}`);
+  return bodies.join("\n");
+}
+
 describe("outline line spacing", () => {
   test("uses 1.4 line-height for block rows and numbered bullets", () => {
     expect(ruleFor(".block-row")).toContain("line-height: 1.4;");
@@ -67,8 +79,11 @@ describe("metadata chips (pkm-7t7o)", () => {
 });
 
 describe("top bar cohesion (pkm-absu)", () => {
+  // the pill moved to the shared .search-field-input class (pkm-0wg9) so the
+  // /files search is the same object, not a lookalike
   test("the search input is a rounded pill", () => {
-    expect(ruleFor(".top-bar-search-input")).toContain("border-radius: 999px;");
+    expect(rulesFor(".search-field-input"))
+      .toContain("border-radius: var(--radius-pill);");
   });
 
   test("the context label truncates and provides the bar's left/right split", () => {
@@ -133,8 +148,9 @@ describe("visual consistency (pkm-9kye)", () => {
   test("secondary buttons share one style definition", () => {
     const btn = ruleFor(".btn-secondary");
     expect(btn).toContain("background: var(--color-bg-subtle);");
-    expect(btn).toContain("border: 1px solid var(--color-border-input);");
-    expect(btn).toContain("border-radius: var(--radius-control);");
+    // border lightened and the radius became a pill in pkm-0wg9
+    expect(btn).toContain("border: 1px solid var(--color-border);");
+    expect(btn).toContain("border-radius: var(--radius-pill);");
     expect(ruleFor(".show-more")).not.toContain("background:");
     expect(ruleFor(".composer-send")).not.toContain("background:");
   });
@@ -149,7 +165,8 @@ describe("visual consistency (pkm-9kye)", () => {
 describe("form control tokens (pkm-mrru)", () => {
   test("the button tokens carry their own geometry, so bare call sites look right", () => {
     for (const selector of [".btn-secondary", ".btn-danger"]) {
-      expect(ruleFor(selector)).toContain("padding: 4px 12px;");
+      // widened for the pill shape in pkm-0wg9
+      expect(ruleFor(selector)).toContain("padding: 5px 14px;");
     }
   });
 
@@ -158,13 +175,14 @@ describe("form control tokens (pkm-mrru)", () => {
   });
 
   test("text inputs and selects share one .input-control style", () => {
+    // colours live in the grouped rule shared with .search-field-input
+    // (pkm-0wg9); this class keeps its own geometry
+    const shared = ruleFor(".input-control, .search-field-input");
+    expect(shared).toContain("font: inherit;");
+    expect(shared).toContain("color: var(--color-text);");
     const input = ruleFor(".input-control");
-    expect(input).toContain("font: inherit;");
-    expect(input).toContain("padding: 4px 8px;");
-    expect(input).toContain("border: 1px solid var(--color-border-input);");
-    expect(input).toContain("border-radius: var(--radius-control);");
-    expect(input).toContain("background: var(--color-bg);");
-    expect(input).toContain("color: var(--color-text);");
+    expect(input).toContain("padding: 5px 9px;");
+    expect(input).toContain("border-radius: var(--radius-field);");
   });
 
   test("the input token has a visible keyboard focus ring", () => {
@@ -180,6 +198,127 @@ describe("form control tokens (pkm-mrru)", () => {
       .toContain("color-scheme: dark;");
     expect(ruleFor(':root[data-theme="dark"]'))
       .toContain("color-scheme: dark;");
+  });
+});
+
+describe("control polish (pkm-0wg9)", () => {
+  test("actions and fields have their own radius tokens", () => {
+    const root = ruleFor(":root");
+    expect(root).toContain("--radius-pill: 999px;");
+    expect(root).toContain("--radius-field: 7px;");
+    // unchanged: inline code, block rows, badges and thumbs still use it
+    expect(root).toContain("--radius-control: 4px;");
+  });
+
+  test("buttons are pills with hover and focus feedback", () => {
+    const btn = ruleFor(".btn-secondary");
+    expect(btn).toContain("border-radius: var(--radius-pill);");
+    expect(btn).toContain("padding: 5px 14px;");
+    expect(btn).toContain("border: 1px solid var(--color-border);");
+    expect(btn).toContain("transition:");
+    expect(ruleFor(".btn-danger")).toContain("border-radius: var(--radius-pill);");
+    expect(ruleFor(".btn-secondary:hover:not(:disabled)"))
+      .toContain("border-color: var(--color-border-strong);");
+    expect(ruleFor(".btn-secondary:focus-visible, .btn-danger:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+  });
+
+  test("compact pill call sites get enough horizontal room", () => {
+    expect(ruleFor(".reference-link-button")).toContain("padding: 1px 10px;");
+    expect(rulesFor(".composer-send")).toContain("padding: 6px 14px;");
+  });
+
+  test("the assistant send button does not stretch into a lozenge", () => {
+    expect(ruleFor(".assistant-input .btn-secondary"))
+      .toContain("align-self: flex-end;");
+  });
+
+  test("the danger button fills with a token tuned for fills, not text", () => {
+    const danger = ruleFor(".btn-danger");
+    expect(danger).toContain("background: var(--color-error-fill);");
+    expect(danger).toContain("border: 1px solid var(--color-error-fill);");
+    // light keeps today's red; dark gets a deep red instead of coral
+    expect(ruleFor(":root")).toContain("--color-error-fill: #c23030;");
+    expect(ruleFor(':root:not([data-theme="light"])'))
+      .toContain("--color-error-fill: #a83a3a;");
+    expect(ruleFor(':root[data-theme="dark"]'))
+      .toContain("--color-error-fill: #a83a3a;");
+    // --color-error keeps its own job: error text and the failed badge
+    expect(ruleFor(".error")).toContain("color: var(--color-error);");
+  });
+
+  test("fields share one look, modelled on the Cmd-U search", () => {
+    // one grouped rule so the two searches cannot drift apart; each class then
+    // adds its own geometry
+    const field = ruleFor(".input-control, .search-field-input");
+    expect(field).toContain("background: var(--color-bg-subtle);");
+    expect(field).toContain("border: 1px solid var(--color-border-strong);");
+    expect(field).toContain("transition:");
+    const focus = ruleFor(".input-control:focus, .search-field-input:focus");
+    expect(focus).toContain("background: var(--color-bg-surface);");
+    expect(focus).toContain("border-color: var(--color-border-input);");
+    expect(ruleFor(".input-control"))
+      .toContain("border-radius: var(--radius-field);");
+  });
+
+  test("bespoke field rules keep layout only, not colours", () => {
+    for (const selector of [".nav-sidebar-add input",
+                            ".assistant-input textarea"]) {
+      const rule = ruleFor(selector);
+      expect(rule).not.toContain("background:");
+      expect(rule).not.toContain("border:");
+      expect(rule).not.toContain("border-radius:");
+    }
+    expect(ruleFor(".composer textarea")).not.toContain("border:");
+  });
+
+  // the outline editor is a writing surface, not a form field
+  test("the block editor gains no field chrome", () => {
+    const editor = ruleFor(".block-input");
+    expect(editor).not.toContain("background: var(--color-bg-subtle);");
+    expect(editor).not.toContain("border: 1px solid");
+    // positive form: the writing surface is explicitly chrome-less, not merely
+    // missing the field colours
+    expect(editor).toContain("background: transparent;");
+    expect(editor).toContain("border: none;");
+  });
+
+  test("the search field look is shared, not duplicated per call site", () => {
+    expect(ruleFor(".search-field")).toContain("position: relative;");
+    expect(ruleFor(".search-field-icon")).toContain("position: absolute;");
+    const input = rulesFor(".search-field-input");
+    expect(input).toContain("border-radius: var(--radius-pill);");
+    expect(input).toContain("padding: 4px 12px 4px 30px;");
+    // both searches share the field colours
+    expect(styles).toContain(".input-control, .search-field-input {");
+  });
+
+  test("the top bar keeps only its own width behaviour", () => {
+    const topBar = ruleFor(".top-bar-search-input");
+    expect(topBar).toContain("width: 220px;");
+    expect(topBar).toContain("transition: width 0.15s");
+    expect(topBar).not.toContain("border-radius:");
+    expect(ruleFor(".top-bar-search-input:focus")).toContain("width: 320px;");
+    // pkm-absu: the hint chip hides via an adjacent-sibling selector, so the
+    // kbd must stay immediately after the input
+    expect(styles).toContain(".top-bar-search-input:focus + .top-bar-search-hint,");
+  });
+
+  test("ghost icon buttons get a round hover chip", () => {
+    const ghost = ruleFor(
+      ".top-bar-menu-button, .sidebar-toggle-button, .help-button");
+    expect(ghost).toContain("border-radius: var(--radius-pill);");
+    // pkm-absu: transparent border, not none, so hover doesn't shift layout
+    expect(ghost).toContain("border: 1px solid transparent;");
+  });
+
+  // /files' search doesn't grow on focus the way the top bar does, so it keeps
+  // the field family's ring; the top bar explicitly opts out again
+  test("the non-growing search keeps a visible focus ring", () => {
+    expect(ruleFor(".search-field-input:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+    expect(ruleFor(".top-bar-search-input:focus-visible"))
+      .toContain("outline: none;");
   });
 });
 

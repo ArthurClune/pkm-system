@@ -181,9 +181,10 @@ export function SearchBar() {
   };
 
   return (
-    <div className="top-bar-search" ref={wrapRef}>
-      <span className="top-bar-search-icon"><SearchIcon /></span>
-      <input ref={inputRef} className="top-bar-search-input" placeholder="Search…"
+    <div className="search-field top-bar-search" ref={wrapRef}>
+      <span className="search-field-icon"><SearchIcon /></span>
+      <input ref={inputRef} className="search-field-input top-bar-search-input"
+             placeholder="Search…"
              aria-label="Search" value={query}
              onFocus={() => setOpen(true)}
              onChange={(e) => { setOpen(true); setQuery(e.target.value); }}

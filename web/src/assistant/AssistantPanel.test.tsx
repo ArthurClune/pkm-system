@@ -149,4 +149,9 @@ describe("AssistantPanel", () => {
     });
     expect(screen.getByRole("link", { name: "the compute chart block" })).toBeInTheDocument();
   });
+
+  test("the model select is styled as a field (pkm-0wg9)", () => {
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(screen.getByLabelText(/model/i)).toHaveClass("input-control");
+  });
 });

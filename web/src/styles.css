@@ -44,6 +44,10 @@
   --color-bullet: #d2e0ea;
   --color-bullet-ring: #c6d7e3;
   --color-error: #c23030;
+  /* solid-fill variant of --color-error. The dark --color-error is tuned for
+   * error *text* on a dark background; as a button fill behind white text it
+   * reads as bright coral, which the pill shape amplifies (pkm-0wg9). */
+  --color-error-fill: #c23030;
   --color-highlight-bg: #fcc1786d;
   --color-selection-bg: #fcc1786d;
   --color-selected-bg: #ebf1f5;
@@ -55,7 +59,9 @@
 
   /* one radius scale for the whole chrome (pkm-9kye); not re-declared by
    * the dark blocks since geometry doesn't change with theme */
-  --radius-control: 4px; /* buttons, inputs, inline code */
+  --radius-pill: 999px;  /* actions: buttons, ghost icon buttons, search fields */
+  --radius-field: 7px;   /* text inputs, selects, textareas */
+  --radius-control: 4px; /* inline code, block rows, badges, thumbs */
   --radius-card: 6px;    /* embedded content: code blocks, images, cards */
   --radius-panel: 8px;   /* floating menus, dropdowns, the main pane */
 
@@ -100,6 +106,7 @@
     --color-bullet: #39434d;
     --color-bullet-ring: #4a5866;
     --color-error: #ff6b6b;
+    --color-error-fill: #a83a3a;
     --color-highlight-bg: #ff913c48;
     --color-selection-bg: #ff913c55;
     --color-selected-bg: #29323b;
@@ -147,6 +154,7 @@
   --color-bullet: #39434d;
   --color-bullet-ring: #4a5866;
   --color-error: #ff6b6b;
+  --color-error-fill: #a83a3a;
   --color-highlight-bg: #ff913c48;
   --color-selection-bg: #ff913c55;
   --color-selected-bg: #29323b;
@@ -202,24 +210,43 @@ button { font: inherit; }
  * sites that want tighter/looser metrics still override -- each such rule
  * either sits later in this file or has higher specificity. */
 .btn-secondary { background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border-input); border-radius: var(--radius-control);
-  color: var(--color-text-secondary); cursor: pointer; padding: 4px 12px; }
+  border: 1px solid var(--color-border); border-radius: var(--radius-pill);
+  color: var(--color-text-secondary); cursor: pointer; padding: 5px 14px;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease; }
 .btn-secondary:hover:not(:disabled) { background: var(--color-selected-bg);
-  color: var(--color-text); }
+  border-color: var(--color-border-strong); color: var(--color-text); }
 .btn-secondary:disabled { opacity: 0.35; cursor: default; }
 /* destructive action (confirm dialogs, Files' Delete, ...) */
-.btn-danger { background: var(--color-error); border: 1px solid var(--color-error);
-  border-radius: var(--radius-control); color: #fff; cursor: pointer;
-  padding: 4px 12px; }
+.btn-danger { background: var(--color-error-fill);
+  border: 1px solid var(--color-error-fill);
+  border-radius: var(--radius-pill); color: #fff; cursor: pointer;
+  padding: 5px 14px;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease; }
 .btn-danger:hover { opacity: 0.9; }
-/* the input counterpart of .btn-secondary (pkm-mrru): text/search/date inputs
- * and selects. There is no base input/select rule -- a blanket one would hit
- * checkboxes and the outline's own editors -- so form controls opt in by
- * class, the way buttons do. */
-.input-control { font: inherit; padding: 4px 8px;
-  border: 1px solid var(--color-border-input); border-radius: var(--radius-control);
-  background: var(--color-bg); color: var(--color-text); }
-.input-control::placeholder { color: var(--color-text-secondary); }
+/* themed keyboard focus; without this Chrome paints its default blue ring,
+ * which clashes with the palette (pkm-0wg9) */
+.btn-secondary:focus-visible, .btn-danger:focus-visible {
+  outline: 2px solid var(--color-link); outline-offset: 1px; }
+/* the input counterpart of .btn-secondary (pkm-mrru): text/search/date inputs,
+ * selects and textareas. There is no base input/select rule -- a blanket one
+ * would hit checkboxes and the outline's own editors -- so form controls opt in
+ * by class, the way buttons do. The look is modelled on the Cmd-U search so
+ * every field in the app is the same object (pkm-0wg9); .block-input is
+ * deliberately excluded, it is a writing surface not a field.
+ * .search-field-input shares the colours here and takes its pill geometry in
+ * the search-field block further down. */
+.input-control, .search-field-input { font: inherit; color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg-subtle);
+  transition: background 0.12s ease, border-color 0.12s ease; }
+.input-control::placeholder, .search-field-input::placeholder {
+  color: var(--color-text-secondary); }
+.input-control:focus, .search-field-input:focus {
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-input); }
+.input-control { padding: 5px 9px; border-radius: var(--radius-field); }
+/* the ring is .input-control's only: the top-bar search signals focus by
+ * widening and keeps outline: none */
 .input-control:focus-visible { outline: 2px solid var(--color-link);
   outline-offset: 1px; }
 
@@ -273,8 +300,7 @@ button { font: inherit; }
 .nav-sidebar-entry-controls button { width: 20px; height: 20px; line-height: 1;
   font-size: 12px; padding: 0; }
 .nav-sidebar-add { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.nav-sidebar-add input { font: inherit; padding: 4px 6px; border: 1px solid var(--color-border-input);
-  border-radius: var(--radius-control); background: var(--color-bg); color: var(--color-text); }
+.nav-sidebar-add input { padding: 4px 6px; }
 .nav-sidebar-add button[type="submit"] { align-self: flex-start; padding: 3px 10px; }
 .content-area { flex: 1; min-width: 0; display: flex; flex-direction: column;
   /* card geometry shared by .top-bar and .main-pane; --pane-left leans the
@@ -332,7 +358,7 @@ button { font: inherit; }
  * (transparent border rather than none keeps hover from shifting layout) */
 .top-bar-menu-button, .sidebar-toggle-button, .help-button { display: flex; align-items: center;
   background: none; cursor: pointer; border: 1px solid transparent;
-  border-radius: var(--radius-control); padding: 5px 8px; color: var(--color-text-secondary); }
+  border-radius: var(--radius-pill); padding: 5px 8px; color: var(--color-text-secondary); }
 .top-bar-menu-button:hover, .sidebar-toggle-button:hover, .help-button:hover {
   background: var(--color-bg-subtle); color: var(--color-text); }
 /* context label (current page / view); also the spacer that splits the bar
@@ -340,17 +366,26 @@ button { font: inherit; }
 .top-bar-title { margin-right: auto; min-width: 0; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; font-size: 14px;
   font-weight: 600; color: var(--color-text-secondary); padding: 0 4px; }
-.top-bar-search { position: relative; }
-.top-bar-search-icon { position: absolute; left: 9px; top: 50%;
+/* the search field, shared by the Cmd-U search and /files (pkm-0wg9): one
+ * object, so the two cannot drift apart. Colours come from the field group
+ * above; the icon sits inside the pill's left padding. */
+.search-field { position: relative; display: flex; }
+.search-field-icon { position: absolute; left: 9px; top: 50%;
   transform: translateY(-50%); display: flex; pointer-events: none;
   color: var(--color-text-secondary); }
-.top-bar-search-input { width: 220px; box-sizing: border-box; padding: 4px 44px 4px 30px;
-  border: 1px solid var(--color-border-strong); border-radius: 999px;
-  background: var(--color-bg-subtle); color: var(--color-text);
-  font-size: 14px; outline: none; transition: width 0.15s; }
-.top-bar-search-input::placeholder { color: var(--color-text-secondary); }
-.top-bar-search-input:focus { width: 320px; background: var(--color-bg-surface);
-  border-color: var(--color-border-input); }
+.search-field-input { width: 100%; box-sizing: border-box;
+  padding: 4px 12px 4px 30px; border-radius: var(--radius-pill);
+  font-size: 14px; outline: none; }
+/* top-bar-only: the width growth on focus, and room on the right for the ⌘U
+ * hint chip. Everything else is .search-field-input. */
+.top-bar-search-input { width: 220px; padding-right: 44px;
+  transition: width 0.15s, background 0.12s ease, border-color 0.12s ease; }
+.top-bar-search-input:focus { width: 320px; }
+/* /files' search doesn't grow on focus, so it needs the ring the field family
+ * carries; the top bar opts back out -- it signals focus by widening */
+.search-field-input:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: 1px; }
+.top-bar-search-input:focus-visible { outline: none; }
 /* shortcut hint chip inside the pill; only advertises the shortcut while
  * the search is idle */
 .top-bar-search-hint { position: absolute; right: 10px; top: 50%;
@@ -538,7 +573,7 @@ mark.highlight { background: var(--color-highlight-bg); }
 .backlink-item:hover, .query-item:hover { background: var(--color-selected-bg); }
 .unlinked-link-row { display: flex; align-items: flex-start; gap: 8px; }
 .unlinked-link-row .backlink-text { flex: 1; min-width: 0; }
-.reference-link-button { flex-shrink: 0; font-size: 12px; padding: 1px 8px; }
+.reference-link-button { flex-shrink: 0; font-size: 12px; padding: 1px 10px; }
 .unlinked-item-error { margin: 4px 0 0; }
 
 /* linked-refs filter (pkm-m4an) */
@@ -709,12 +744,10 @@ mark.highlight { background: var(--color-highlight-bg); }
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     padding: 8px; background: var(--color-bg-surface); border-top: 1px solid var(--color-border); }
   .composer-input-wrap { position: relative; flex: 1; min-width: 0; }
-  .composer textarea { width: 100%; font: inherit; resize: none;
-    border: 1px solid var(--color-border-input); border-radius: var(--radius-control); padding: 6px 8px;
-    background: var(--color-bg-surface); color: var(--color-text); }
+  .composer textarea { width: 100%; resize: none; padding: 6px 8px; }
   .composer .ac-popup { top: auto; bottom: 100%; }
   .composer-file { max-width: 90px; }
-  .composer-send { padding: 6px 12px; }
+  .composer-send { padding: 6px 14px; }
   .main-pane { padding-bottom: 96px; }
 }
 
@@ -776,7 +809,11 @@ mark.highlight { background: var(--color-highlight-bg); }
 .assistant-confirm-actions { display: flex; gap: 8px; }
 .assistant-error { color: var(--color-error); font-size: 0.9em; }
 .assistant-input { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--color-border); }
-.assistant-input textarea { flex: 1; resize: none; border: 1px solid var(--color-border-input); border-radius: var(--radius-control); padding: 6px 8px; background: inherit; color: inherit; font: inherit; }
+.assistant-input textarea { flex: 1; resize: none; padding: 6px 8px; }
+/* .assistant-input is a flex row with the default align-items: stretch, so
+ * Send would grow to the textarea's height and the pill would read as a tall
+ * lozenge (pkm-0wg9) */
+.assistant-input .btn-secondary { align-self: flex-end; }
 
 /* Files view (pkm-jdu3) */
 .files-page { max-width: 1100px; }

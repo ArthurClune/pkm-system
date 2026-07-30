@@ -69,9 +69,27 @@ def test_ops_preview_save_note():
 
 
 def test_ops_preview_batch_lists_ops():
-    out = ops_preview("batch", {"ops": [{"op": "move", "uid": "abc123"}, {"op": "delete", "uid": "def456"}]})
+    # pkm-y3rr: the payload shape here must match mcp.server.batch's real
+    # signature -- `commands`, each {"command": ..., "params": {...}}. An
+    # earlier version of this test invented an `ops` key the tool cannot emit,
+    # so it passed while every real approval card rendered "0 operation(s)".
+    out = ops_preview("batch", {"commands": [
+        {"command": "move", "params": {"uid": "abc123", "page": "Demo"}},
+        {"command": "delete", "params": {"uid": "def456"}},
+    ]})
     assert "2 operation" in out
     assert "abc123" in out and "def456" in out
+    assert "move" in out and "delete" in out
+
+
+def test_ops_preview_batch_never_silently_empty():
+    # A batch whose argument shape we don't recognise (a renamed parameter,
+    # a future signature) must still show the user what they are approving:
+    # falling back to the verbose generic rendering is safe, claiming there is
+    # nothing to approve is not.
+    out = ops_preview("batch", {"operations": [{"command": "delete", "params": {"uid": "zzz999"}}]})
+    assert "0 operation" not in out
+    assert "zzz999" in out
 
 
 def test_ops_preview_does_not_clip_moderate_values():

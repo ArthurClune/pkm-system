@@ -288,6 +288,12 @@ button { font: inherit; }
 /* primary destinations (Daily Notes, Current Work) stay highlighted on every
  * route; active-state colouring only differentiates the pinned pages */
 .nav-link.primary { color: var(--color-accent); }
+/* Closes the pinned-pages block the way .nav-sidebar-entries opens it, so the
+ * user's own entries are fenced top and bottom rather than running straight on
+ * into the links below (pkm-usb6). The 8px above the rule comes free from
+ * .left-nav's flex gap; 12px = that same 8px plus the 4px .nav-link already
+ * pads, which keeps the text the same distance below the rule as above. */
+.nav-section-start { border-top: 1px solid var(--color-border); padding-top: 12px; }
 .nav-sidebar-entries { list-style: none; margin: 8px 0 0; padding: 8px 0 0;
   border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 2px; }
 .nav-sidebar-entries .nav-link { display: block; }

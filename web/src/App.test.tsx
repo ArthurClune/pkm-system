@@ -377,6 +377,14 @@ it("Settings nav link sits below the user-editable favourites but is styled prim
   expect(settingsLink).toHaveClass("primary");
 });
 
+it("Assistant link opens a new section below the pinned pages (pkm-usb6)", () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  // The pinned list draws its own upper rule; this class draws the lower one,
+  // so the user's entries are fenced on both sides.
+  expect(screen.getByRole("button", { name: "Assistant" })).toHaveClass("nav-section-start");
+});
+
 it("Settings nav link navigates to /settings", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);

@@ -53,6 +53,13 @@ operand from operands that just don't intersect.
 - `save` defaults to today's daily note; pages and `"## Heading"` parents
   are created if missing. Multi-line text (or `-` stdin) is an outline:
   2-space indent = nesting.
+- A line beginning `# `, `## `, or `### ` becomes a real heading block at
+  that level (1-3) — on `save`, on `batch` create/todo/outline, and on
+  `update`. The hashes are not stored as text. `#Tag` (no space) stays a
+  tag, and `#### ` or deeper stays literal, since blocks only carry levels
+  1-3. On `update`, text *without* leading hashes clears an existing
+  heading; `-D`/`-T` never touch the level. `pkm get` prints a heading as
+  `## text`, so fetch-then-update round trips are lossless.
 - `update` is guarded by a hash of the text the CLI fetched, but the write
   always wins — it is never rejected. If the block changed underneath you,
   your new text still applies and the text you overwrote is preserved as a

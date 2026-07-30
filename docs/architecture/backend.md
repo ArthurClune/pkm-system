@@ -389,9 +389,20 @@ and broadcasts as the web client.
 - `cli/build.py` (Core) holds the pure planners: `plan_save` (indented
   outline text → create ops), `plan_batch` (the `pkm batch` command language:
   `create`/`todo`/`update`/`move`/`delete`/`outline`, `as`-aliases,
-  matched-or-created `## Heading` parents), `asset_block_text` (MIME → image
-  embed / `{{[[pdf]]}}` macro / link). `cli/render.py` (Core) renders API
-  payloads to terminal markdown.
+  matched-or-created `## Heading` parents), `plan_update` (a text
+  replacement → `update_text` + `set_heading`), `split_heading` (strips
+  `#`/`##`/`###` off a line into a heading level 1-3),
+  `asset_block_text` (MIME → image embed / `{{[[pdf]]}}` macro / link).
+  `cli/render.py` (Core) renders API payloads to terminal markdown.
+- Text is the source of truth for a block's heading level on every CLI/MCP
+  write: `split_heading` runs in `_Planner.creates` (the one call site every
+  create path funnels through) and in `plan_update`, so `## X` is never
+  stored as literal text and `render.py`'s `## text` output reads back as a
+  heading. Deliberate exclusions: `#Tag` (no space), `#### ` and deeper
+  (blocks carry levels 1-3), and multi-line text, which stays verbatim in
+  one block. The `-D`/`-T`/`mark=` task-marker paths bypass `plan_update`
+  entirely — the text they read back is already bare, so splitting it would
+  demote a real heading.
 - Writes go through `POST /api/ops` with a fresh `batch_id`; `pkm update`
   fetches current text first and rides the `base_text_hash` conflict path.
 - The MCP server exposes eleven tools — seven reads (`get_page`,

@@ -127,6 +127,11 @@ top level. Without -p/--page, the target is today's daily note.
 
 --todo prefixes only the top-level item(s) with {{TODO}}.
 
+A line beginning "# ", "## " or "### " becomes a real heading block at
+that level (1-3); the hashes are not stored as text. "#Tag" (no space)
+is a tag, not a heading, and is stored as written -- as is "#### " and
+deeper, since blocks only carry levels 1-3.
+
 example:
   pkm save "Buy milk" --todo
   printf "Groceries\\n  Milk\\n  Eggs\\n" | pkm save - --parent "## Notes"
@@ -145,6 +150,12 @@ new text is still applied, and the text you overwrote is preserved,
 unmodified, as a new sibling block placed right after the target and
 tagged "[[conflict]] ..." -- find it via `pkm search`/`pkm refs
 conflict` and merge by hand if needed.
+
+A TEXT beginning "# ", "## " or "### " makes the block a heading at
+that level; TEXT without those hashes makes it plain text, clearing any
+heading it had. -D and -T only change the task marker and never touch
+the heading level. Since `pkm get` prints a heading AS "## text", a
+fetch-then-update round trip preserves the level on its own.
 
 example:
   pkm update abcd1234wxyz "Finalize the report"
@@ -174,13 +185,17 @@ read from stdin, as one atomic write. Commands and their params:
   create   {page, text, parent?, index?, as?}
       appends one block. "as": "name" lets later commands in the same
       batch reference the created block via a parent/uid param of
-      "{{name}}".
+      "{{name}}". A text beginning "# ", "## " or "### " becomes a
+      heading block at that level (1-3), hashes not stored; a heading
+      created this way also satisfies a later "## Heading" parent for
+      the same text rather than creating a second one.
   todo     same params as create; text is stored {{TODO}}-prefixed.
   update   {uid, text}
-      replaces a block's text (uid may be "{{alias}}"). Unlike
-      standalone `pkm update`, batch update carries NO hash guard: it
-      always overwrites, and never preserves a concurrent edit as a
-      conflict sibling.
+      replaces a block's text (uid may be "{{alias}}"). A text
+      beginning "# ", "## " or "### " sets the heading level; text
+      without hashes clears it. Unlike standalone `pkm update`, batch
+      update carries NO hash guard: it always overwrites, and never
+      preserves a concurrent edit as a conflict sibling.
   move     {uid, page, parent?, index?}
       relocates a block to page/parent (uid and parent may use
       "{{alias}}"). Unlike create/todo/outline, move's "## Heading"

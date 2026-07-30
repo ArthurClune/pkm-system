@@ -30,3 +30,12 @@ def test_get_help_documents_target_forms(capsys):
     out = capsys.readouterr().out
     for needle in ["today", "uid", "--section", "--depth", "--resolve-refs"]:
         assert needle in out
+
+
+@pytest.mark.parametrize("verb", ["save", "update", "batch"])
+def test_write_verb_help_documents_heading_levels(verb, capsys):
+    with pytest.raises(SystemExit):
+        main([verb, "--help"])
+    out = capsys.readouterr().out
+    assert "heading" in out.lower(), f"{verb} --help omits heading levels"
+    assert "###" in out, f"{verb} --help omits the heading marker syntax"

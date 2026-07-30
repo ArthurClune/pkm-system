@@ -150,3 +150,33 @@ def test_batch_unknown_command_exits_1(run):
         [{"command": "zap", "params": {}}]))
     assert code == 1
     assert "unknown command" in err
+
+
+def test_save_heading_text_becomes_a_real_heading(run, pkm_client):
+    code, _, _ = run("save", "-p", "AI", "## Overview\n  detail")
+    assert code == 0
+    page = pkm_client.get_page("AI")
+    overview = next(n for n in page["blocks"] if n["text"] == "Overview")
+    assert overview["heading"] == 2
+    assert overview["children"][0]["text"] == "detail"
+
+
+def test_update_to_a_heading_sets_the_level(run, pkm_client):
+    code, _, _ = run("update", "uid_b6", "## Rewritten")
+    assert code == 0
+    block = pkm_client.get_block("uid_b6")["block"]
+    assert (block["text"], block["heading"]) == ("Rewritten", 2)
+
+
+def test_update_to_plain_text_clears_the_level(run, pkm_client):
+    run("update", "uid_b6", "## Rewritten")
+    run("update", "uid_b6", "Rewritten again")
+    block = pkm_client.get_block("uid_b6")["block"]
+    assert (block["text"], block["heading"]) == ("Rewritten again", None)
+
+
+def test_update_done_flag_keeps_the_heading(run, pkm_client):
+    run("update", "uid_b6", "## Task x")
+    run("update", "uid_b6", "-D")
+    block = pkm_client.get_block("uid_b6")["block"]
+    assert (block["text"], block["heading"]) == ("{{DONE}} Task x", 2)

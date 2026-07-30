@@ -3,8 +3,10 @@ import itertools
 import pytest
 
 from pkm.cli.build import (BuildError, next_child_idx, parse_outline,
-                           plan_batch, plan_save, referenced_pages,
-                           resolve_parent)
+                           plan_batch, plan_save, plan_update,
+                           referenced_pages, resolve_parent, split_heading)
+from pkm.cli.render import render_page
+from pkm.server.ops_core import text_hash
 
 
 def _node(uid, text, children=(), heading=None):
@@ -133,9 +135,10 @@ def test_plan_batch_todo_update_move_delete():
     ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
     assert ops[0]["text"] == "{{TODO}} follow up"
     assert ops[1] == {"op": "update_text", "uid": "u3", "text": "edited"}
-    assert ops[2] == {"op": "move", "uid": "u1", "parent_uid": "u2",
+    assert ops[2] == {"op": "set_heading", "uid": "u3", "heading": None}
+    assert ops[3] == {"op": "move", "uid": "u1", "parent_uid": "u2",
                       "order_idx": 1, "page_title": None}
-    assert ops[3] == {"op": "delete", "uid": "u3"}
+    assert ops[4] == {"op": "delete", "uid": "u3"}
 
 
 def test_plan_batch_unknown_command_and_alias():
@@ -202,9 +205,131 @@ def test_plan_batch_alias_as_uid():
     ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
     assert ops[1]["op"] == "move" and ops[1]["uid"] == ops[0]["uid"]
     assert ops[2] == {"op": "update_text", "uid": ops[0]["uid"], "text": "y"}
+    assert ops[3] == {"op": "set_heading", "uid": ops[0]["uid"],
+                      "heading": None}
 
 
 def test_plan_batch_alias_as_uid_unknown_raises():
     with pytest.raises(BuildError, match="unknown alias"):
         plan_batch([{"command": "delete", "params": {"uid": "{{ghost}}"}}],
                    {}, uid_gen())
+
+
+def test_split_heading_levels():
+    assert split_heading("# One") == ("One", 1)
+    assert split_heading("## Two") == ("Two", 2)
+    assert split_heading("### Three") == ("Three", 3)
+
+
+@pytest.mark.parametrize("text", [
+    "#Tag",                  # no space after the hash: a tag, not a heading
+    "#[[Page]]",
+    "#### Four",             # blocks carry levels 1-3 only
+    "# ",                    # no body
+    "plain text",
+    "## Doc\n\nbody line",   # multi-line stays verbatim in one block
+])
+def test_split_heading_leaves_non_headings_alone(text):
+    assert split_heading(text) == (text, None)
+
+
+def test_plan_save_outline_sets_heading_levels():
+    ops = plan_save(PAYLOAD, "Machine Learning", None,
+                    "## Overview\n  detail\n### Deeper", todo=False,
+                    uids=uid_gen())
+    assert [(o["text"], o.get("heading")) for o in ops] == [
+        ("Overview", 2), ("detail", None), ("Deeper", 3)]
+
+
+def test_plan_save_todo_marker_rides_on_a_heading():
+    ops = plan_save(PAYLOAD, "Machine Learning", None, "## Do it",
+                    todo=True, uids=uid_gen())
+    assert ops[0]["text"] == "{{TODO}} Do it"
+    assert ops[0]["heading"] == 2
+
+
+def test_plan_batch_create_and_outline_set_headings():
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "# Top"}},
+        {"command": "outline",
+         "params": {"page": "Machine Learning",
+                    "items": ["## Section", ["body"]]}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
+    assert [(o["text"], o.get("heading")) for o in ops] == [
+        ("Top", 1), ("Section", 2), ("body", None)]
+
+
+def test_plan_batch_created_heading_resolves_as_a_later_parent():
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "## Notes"}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "parent": "## Notes",
+                    "text": "beneath"}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
+    assert len(ops) == 2                  # no duplicate "Notes" heading
+    assert ops[1]["parent_uid"] == ops[0]["uid"]
+
+
+def test_render_then_save_round_trips_a_heading():
+    line = next(ln for ln in render_page(PAYLOAD).splitlines()
+                if "Papers" in ln)
+    assert line == "- ## Papers"
+    ops = plan_save({"blocks": []}, "P", None, line.removeprefix("- "),
+                    todo=False, uids=uid_gen())
+    assert (ops[0]["text"], ops[0]["heading"]) == ("Papers", 2)
+
+
+def test_plan_update_sets_heading_from_text():
+    assert plan_update("u3", "## Overview", "old text") == [
+        {"op": "update_text", "uid": "u3", "text": "Overview",
+         "base_text_hash": text_hash("old text")},
+        {"op": "set_heading", "uid": "u3", "heading": 2}]
+
+
+def test_plan_update_clears_heading_for_plain_text():
+    ops = plan_update("u3", "Overview", "old text")
+    assert ops[1] == {"op": "set_heading", "uid": "u3", "heading": None}
+
+
+def test_plan_update_without_base_text_has_no_hash_guard():
+    ops = plan_update("u3", "edited")
+    assert ops[0] == {"op": "update_text", "uid": "u3", "text": "edited"}
+
+
+def test_plan_update_same_plain_text_emits_a_single_op():
+    # current_heading=None is a real, meaningful level (plain text), not
+    # "unknown" -- the guarded path must still skip set_heading when it
+    # matches the new level.
+    ops = plan_update("u3", "same text", "same text", current_heading=None)
+    assert ops == [{"op": "update_text", "uid": "u3", "text": "same text",
+                    "base_text_hash": text_hash("same text")}]
+
+
+def test_plan_update_same_heading_level_emits_a_single_op():
+    ops = plan_update("u3", "## Overview", "old text", current_heading=2)
+    assert ops == [{"op": "update_text", "uid": "u3", "text": "Overview",
+                    "base_text_hash": text_hash("old text")}]
+
+
+def test_plan_update_changing_level_still_sets_heading():
+    ops = plan_update("u3", "## Overview", "old text", current_heading=1)
+    assert ops[1] == {"op": "set_heading", "uid": "u3", "heading": 2}
+
+
+def test_plan_update_clearing_heading_still_sets_heading():
+    ops = plan_update("u3", "Overview", "old text", current_heading=2)
+    assert ops[1] == {"op": "set_heading", "uid": "u3", "heading": None}
+
+
+def test_plan_update_batch_path_omits_current_heading_stays_unconditional():
+    # No current_heading passed (the batch path) -- always both ops, even
+    # when the text has no heading change at all.
+    ops = plan_update("u3", "same text", "same text")
+    assert ops == [
+        {"op": "update_text", "uid": "u3", "text": "same text",
+         "base_text_hash": text_hash("same text")},
+        {"op": "set_heading", "uid": "u3", "heading": None}]

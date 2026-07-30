@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
+from pkm.server.ops_core import text_hash
 from pkm.todo import with_state
 
 _HEADING_SPEC = re.compile(r"^(#{1,3}) (.+)$")
@@ -80,6 +81,21 @@ def resolve_parent(
         f"unrecognized parent spec: {spec!r} "
         '(use "((uid))" or "## Heading")'
     )
+
+
+def split_heading(text: str) -> tuple[str, int | None]:
+    """Split a leading markdown heading marker off `text`, returning
+    (body, level): '## Overview' -> ('Overview', 2).
+
+    Text that doesn't match comes back unchanged with None: '#Tag' (no
+    space after the hashes, so tag-only blocks survive), '#### x' (blocks
+    carry levels 1-3 only), '# ' (no body), and any multi-line text --
+    _HEADING_SPEC is neither MULTILINE nor DOTALL, so `$` cannot match
+    mid-string and a pasted markdown document stays verbatim in its
+    block. Same syntax as a `parent:` spec, same regex.
+    """
+    m = _HEADING_SPEC.match(text)
+    return (m.group(2), len(m.group(1))) if m else (text, None)
 
 
 def _create(uid: str, page: str, parent: str | None, idx: int, text: str,
@@ -165,8 +181,9 @@ class _Planner:
         for depth, text in items:
             del stack[depth + 1:]
             target = stack[depth]
+            body, level = split_heading(text)
             if todo and depth == 0:
-                text = with_state(text, "TODO")
+                body = with_state(body, "TODO")
             uid = self.next_uid()
             if depth == 0 and first and index is not None:
                 idx = index
@@ -174,7 +191,15 @@ class _Planner:
                 idx = self.bump(payload, page, target,
                                 in_batch | frozenset(created))
             first = False
-            ops.append(_create(uid, page, target, idx, text))
+            ops.append(_create(uid, page, target, idx, body, level))
+            if level is not None:
+                # So a later `parent: "## Notes"` in the same batch nests
+                # under this block instead of creating a second heading.
+                # `resolve_parent` can't find it: it walks only the
+                # fetched page payload, which predates this batch. Keyed
+                # on the stored text (TODO prefix included, if any) so
+                # the memo agrees with what a later fetch would match.
+                self._headings.setdefault((page, level, body), uid)
             created.add(uid)
             if len(stack) == depth + 1:
                 stack.append(uid)
@@ -191,6 +216,57 @@ def plan_save(payload: dict, page_title: str, parent_spec: str | None,
     if not items:
         raise BuildError("nothing to save: text is empty")
     return _Planner(uids).creates(payload, page_title, parent_spec, items, todo)
+
+
+class _NotGiven:
+    """Sentinel for `plan_update`'s `current_heading` default: `pkm
+    batch`'s `update` command has no fetched block to compare against, so
+    it never passes one. Distinguishes that from a real, meaningful
+    `current_heading=None` (the block is currently plain text)."""
+
+
+_NOT_GIVEN = _NotGiven()
+
+
+def plan_update(uid: str, text: str, base_text: str | None = None,
+                current_heading: int | None | _NotGiven = _NOT_GIVEN
+                ) -> list[dict]:
+    """Ops for replacing a block's text: `update_text` plus, when the
+    heading level is actually changing, the `set_heading` that keeps the
+    stored level in step with the text's leading hashes -- no hashes
+    means plain text, so a heading is cleared.
+
+    `current_heading` is the block's level before this update, as read by
+    the caller (`client.get_block(uid)["block"]["heading"]`). When it
+    equals the new level, `set_heading` is skipped and only `update_text`
+    is emitted. This is not just an optimization: a guarded `update_text`
+    on a block deleted out from under it is deliberately *rescued* by the
+    server -- the edit is preserved as a `[[conflict]]` sibling on today's
+    daily page (ops_core.py) -- but a trailing `set_heading` for the same
+    now-missing uid is not, since the block it targets no longer exists;
+    that turns the rescue into a rolled-back 400. Since the level is
+    unchanged for most updates, omitting the redundant op keeps that race
+    survivable. `pkm batch`'s `update` command leaves `current_heading` at
+    its `_NOT_GIVEN` default and so always emits `set_heading`, as
+    before -- it has no fetched block to compare against, and batch
+    updates carry no hash guard anyway, so there is no rescue to protect.
+
+    `base_text`, when given, adds the `base_text_hash` concurrent-edit
+    guard (the standalone `pkm update` / `update_block` path). `pkm batch`'s
+    `update` command passes None: batch updates carry no guard by design.
+
+    Callers must NOT route a task-marker change (`-D`/`-T`/`mark=`)
+    through here: the text those read back from the API is already bare,
+    so it would split to no hashes and demote a real heading.
+    """
+    body, level = split_heading(text)
+    update: dict = {"op": "update_text", "uid": uid, "text": body}
+    if base_text is not None:
+        update["base_text_hash"] = text_hash(base_text)
+    ops = [update]
+    if isinstance(current_heading, _NotGiven) or current_heading != level:
+        ops.append({"op": "set_heading", "uid": uid, "heading": level})
+    return ops
 
 
 def asset_block_text(filename: str, mime: str, url: str) -> str:
@@ -299,8 +375,7 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
             created.update(o["uid"] for o in new)
         elif name == "update":
             uid = _alias_uid(params["uid"], aliases)
-            ops.append({"op": "update_text", "uid": uid,
-                        "text": params["text"]})
+            ops.extend(plan_update(uid, params["text"]))
         elif name == "move":
             title, payload = _page(params)
             uid = _alias_uid(params["uid"], aliases)
@@ -328,5 +403,6 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
 
 __all__ = [
     "BuildError", "parse_outline", "next_child_idx", "resolve_parent",
-    "plan_save", "asset_block_text", "referenced_pages", "plan_batch",
+    "split_heading", "plan_save", "plan_update", "asset_block_text",
+    "referenced_pages", "plan_batch",
 ]

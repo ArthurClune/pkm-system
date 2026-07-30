@@ -12,7 +12,8 @@ from mcp.server.fastmcp import FastMCP
 
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
-from pkm.cli.build import asset_block_text, plan_batch, plan_save, referenced_pages
+from pkm.cli.build import (asset_block_text, plan_batch, plan_save,
+                           plan_update, referenced_pages)
 from pkm.cli.render import (render_assets, render_backlinks, render_block,
                             render_groups, render_page, render_search)
 from pkm.server.daily import title_for_date
@@ -93,9 +94,12 @@ def todos(page: str | None = None) -> str:
 def save_note(text: str, page: str | None = None,
               parent: str | None = None, todo: bool = False) -> str:
     """Create block(s). Multi-line `text` becomes an outline (2-space
-    indent = nesting). `page` defaults to today's daily note and is
-    created if missing. `parent` is '## Heading' (created if missing) or
-    '((uid))'. todo=True prefixes top-level items with {{TODO}}."""
+    indent = nesting). A line beginning '# ', '## ' or '### ' becomes a
+    real heading at that level (1-3) with the hashes stripped; '#Tag' (no
+    space) and '#### ' or deeper stay literal text. `page` defaults to
+    today's daily note and is created if missing. `parent` is '## Heading'
+    (created if missing) or '((uid))'. todo=True prefixes top-level items
+    with {{TODO}}."""
     client = _client()
     title = page if page is not None else title_for_date(date.today())
     payload = _ensure_page(client, title)
@@ -107,19 +111,29 @@ def save_note(text: str, page: str | None = None,
 def update_block(uid: str, text: str | None = None,
                  mark: str | None = None) -> str:
     """Replace a block's text, or set its task marker (mark='TODO' or
-    'DONE'). Provide exactly one of text/mark. Concurrent-edit safe: the
-    current text's hash rides along."""
+    'DONE'). Provide exactly one of text/mark. A `text` beginning '# ',
+    '## ' or '### ' makes the block a heading at that level (1-3); '#Tag'
+    (no space) and '#### ' or deeper stay literal text. Text without
+    those hashes clears any heading it had. `mark` only changes the task
+    marker and never the heading level. Concurrent-edit safe: the current
+    text's hash rides along."""
     if (text is None) == (mark is None):
         raise ValueError("provide exactly one of text or mark")
     if mark is not None and mark not in ("TODO", "DONE"):
         raise ValueError("mark must be 'TODO' or 'DONE'")
     client = _client()
-    current = client.get_block(uid)["block"]["text"]
-    new_text = with_state(current, mark) if mark is not None else text
-    assert new_text is not None
-    client.post_ops([{"op": "update_text", "uid": uid, "text": new_text,
-                      "base_text_hash": text_hash(current)}],
-                    batch_id=uuid.uuid4().hex)
+    block = client.get_block(uid)["block"]
+    current = block["text"]
+    if mark is not None:
+        # Not plan_update: `current` is already bare, so it would split to
+        # no hashes and clear the block's heading.
+        ops = [{"op": "update_text", "uid": uid,
+                "text": with_state(current, mark),
+                "base_text_hash": text_hash(current)}]
+    else:
+        assert text is not None
+        ops = plan_update(uid, text, current, block["heading"])
+    client.post_ops(ops, batch_id=uuid.uuid4().hex)
     return f"updated ^{uid}"
 
 
@@ -131,7 +145,10 @@ def batch(commands: list[dict]) -> str:
     (page, parent?, items: nested string arrays). 'as' names a created
     block; later parents may reference it as '{{alias}}'. A '## Heading'
     parent is matched on the page or created once per batch: repeating
-    the same spec across commands reuses the heading already created."""
+    the same spec across commands reuses the heading already created.
+    A create/todo/outline text beginning '# ', '## ' or '### ' becomes a
+    heading at that level; an `update` text sets or clears the level the
+    same way."""
     client = _client()
     pages = {t: _ensure_page(client, t) for t in referenced_pages(commands)}
     ops = plan_batch(commands, pages, uids=_uids())

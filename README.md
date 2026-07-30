@@ -195,7 +195,10 @@ CLI quick reference (`uv run pkm <cmd> --help` for details — every verb's
     pkm batch < commands.json                # atomic multi-op transaction
 
 Notes: `pkm save` with no `-p` targets today's daily note (pages are created
-if missing); multi-line text is an outline (2-space indent = nesting);
+if missing); multi-line text is an outline (2-space indent = nesting). A
+line starting `# `/`## `/`### ` is stored as a heading block at that
+level (1-3) rather than as literal text — on `save`, `batch`, and
+`update` alike; `#Tag` and `#### ` and deeper stay literal.
 `--json` is available on the read verbs and printed minified (single line,
 no indent — cheaper for machine consumers); `pkm login --password-stdin`
 suits scripts. `search --exact` matches whole words only (no prefix

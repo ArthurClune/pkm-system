@@ -19,7 +19,7 @@ from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.cli.build import (BuildError, asset_block_text, plan_batch,
-                           plan_save, referenced_pages)
+                           plan_save, plan_update, referenced_pages)
 from pkm.cli.render import (RenderError, clip_depth, render_assets,
                             render_backlinks, render_block, render_groups,
                             render_page, render_search, select_section)
@@ -127,6 +127,11 @@ top level. Without -p/--page, the target is today's daily note.
 
 --todo prefixes only the top-level item(s) with {{TODO}}.
 
+A line beginning "# ", "## " or "### " becomes a real heading block at
+that level (1-3); the hashes are not stored as text. "#Tag" (no space)
+is a tag, not a heading, and is stored as written -- as is "#### " and
+deeper, since blocks only carry levels 1-3.
+
 example:
   pkm save "Buy milk" --todo
   printf "Groceries\\n  Milk\\n  Eggs\\n" | pkm save - --parent "## Notes"
@@ -144,7 +149,15 @@ the block changed since then (another writer got there first), your
 new text is still applied, and the text you overwrote is preserved,
 unmodified, as a new sibling block placed right after the target and
 tagged "[[conflict]] ..." -- find it via `pkm search`/`pkm refs
-conflict` and merge by hand if needed.
+conflict` and merge by hand if needed. One exception: if the block was
+deleted underneath you AND your TEXT changes its heading level, the
+whole write fails loudly with "block not found" instead.
+
+A TEXT beginning "# ", "## " or "### " makes the block a heading at
+that level; TEXT without those hashes makes it plain text, clearing any
+heading it had. -D and -T only change the task marker and never touch
+the heading level. Since `pkm get` prints a heading AS "## text", a
+fetch-then-update round trip preserves the level on its own.
 
 example:
   pkm update abcd1234wxyz "Finalize the report"
@@ -174,13 +187,21 @@ read from stdin, as one atomic write. Commands and their params:
   create   {page, text, parent?, index?, as?}
       appends one block. "as": "name" lets later commands in the same
       batch reference the created block via a parent/uid param of
-      "{{name}}".
+      "{{name}}". A text beginning "# ", "## " or "### " becomes a
+      heading block at that level (1-3), hashes not stored; a heading
+      created this way also satisfies a later "## Heading" parent for
+      the same text rather than creating a second one.
   todo     same params as create; text is stored {{TODO}}-prefixed.
   update   {uid, text}
-      replaces a block's text (uid may be "{{alias}}"). Unlike
-      standalone `pkm update`, batch update carries NO hash guard: it
-      always overwrites, and never preserves a concurrent edit as a
-      conflict sibling.
+      replaces a block's text (uid may be "{{alias}}"). A text
+      beginning "# ", "## " or "### " sets the heading level; text
+      without hashes clears it. Unlike standalone `pkm update`, batch
+      update carries NO hash guard: it always overwrites, and never
+      preserves a concurrent edit as a conflict sibling. It also costs
+      two ops (update_text, set_heading) against the server's 500-op
+      batch limit, so an update-heavy batch tops out at half the command
+      count you might expect -- the client does not split an oversized
+      batch, it just rejects it.
   move     {uid, page, parent?, index?}
       relocates a block to page/parent (uid and parent may use
       "{{alias}}"). Unlike create/todo/outline, move's "## Heading"
@@ -192,7 +213,9 @@ read from stdin, as one atomic write. Commands and their params:
   outline  {page, parent?, items}
       creates a nested outline; items is a list of strings and
       nested lists, one nesting level per indent, e.g.
-      ["Groceries", ["Milk", "Eggs"]].
+      ["Groceries", ["Milk", "Eggs"]]. An item text beginning "# ",
+      "## " or "### " becomes a heading at that level (1-3), same as
+      create.
 
 parent (create/todo/outline) accepts, and move's destination accepts
 except where noted:
@@ -365,19 +388,21 @@ def cmd_update(args: argparse.Namespace, client: PkmClient) -> int:
     if sum(changes) != 1:
         print("exactly one of TEXT, -D, or -T is required", file=sys.stderr)
         return 1
-    current = client.get_block(args.uid)["block"]["text"]
-    if args.done:
-        new_text = with_state(current, "DONE")
-    elif args.todo:
-        new_text = with_state(current, "TODO")
+    block = client.get_block(args.uid)["block"]
+    current = block["text"]
+    if args.done or args.todo:
+        # Not plan_update: `current` is already bare (the heading level
+        # lives in its own column), so splitting it would find no hashes
+        # and demote a real heading to plain text.
+        ops = [{"op": "update_text", "uid": args.uid,
+                "text": with_state(current, "DONE" if args.done else "TODO"),
+                "base_text_hash": text_hash(current)}]
     else:
         new_text = _read_text_arg(args.text)
         if args.text in (None, "-"):
             new_text = new_text.rstrip("\n")
-    client.post_ops([{"op": "update_text", "uid": args.uid,
-                      "text": new_text,
-                      "base_text_hash": text_hash(current)}],
-                    batch_id=uuid.uuid4().hex)
+        ops = plan_update(args.uid, new_text, current, block["heading"])
+    client.post_ops(ops, batch_id=uuid.uuid4().hex)
     print(f"updated ^{args.uid}")
     return 0
 

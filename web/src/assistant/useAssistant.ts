@@ -75,6 +75,14 @@ export function useAssistant() {
   const abortController = useRef<AbortController | null>(null);
   const stopRequested = useRef(false);
 
+  // Turn generations (pkm-6ts2). send() takes the next generation; newChat()
+  // bumps it to supersede whatever is running. Every state write that happens
+  // after an await is gated on still being the current generation, so a
+  // superseded turn's events and finalizers cannot touch the chat that
+  // replaced it.
+  const turnGen = useRef(0);
+  const activeTurn = useRef<Promise<void> | null>(null);
+
   // pkm-c98s item 1: a page reload orphans the conversation id client-side
   // without deleting it server-side. Idle reaping and oldest-idle eviction
   // (server-side) eventually clean it up, but a best-effort beacon on
@@ -130,25 +138,45 @@ export function useAssistant() {
   // conversation id and retries exactly once with a freshly created one,
   // instead of leaving the panel stuck talking to a dead id.
   const runTurn = useCallback(
-    async (text: string, allowRetry: boolean): Promise<void> => {
+    async (text: string, allowRetry: boolean, gen: number): Promise<void> => {
+      if (gen !== turnGen.current) return;
       if (conversationId.current === null) {
         const created = await createConversation(model);
+        if (gen !== turnGen.current) {
+          // newChat landed while the conversation was being created: adopting
+          // the id here would make the "new" chat continue the old one, so
+          // close it instead of leaking it until the server reaps it.
+          try {
+            await deleteConversation(created.id);
+          } catch {
+            // best effort; idle reaping cleans it up either way
+          }
+          return;
+        }
         conversationId.current = created.id;
       }
       setModelLocked(true);
       const controller = new AbortController();
       abortController.current = controller;
       try {
-        await streamWithBusyRetry(conversationId.current, text, applyEvent, controller.signal);
+        await streamWithBusyRetry(conversationId.current, text, (ev) => {
+          // a superseded turn keeps streaming until its abort lands; its
+          // events must never fold into the new transcript
+          if (gen !== turnGen.current) return;
+          applyEvent(ev);
+        }, controller.signal);
       } catch (err) {
-        if (allowRetry && err instanceof ApiError && err.status === 404) {
+        if (allowRetry && err instanceof ApiError && err.status === 404
+            && gen === turnGen.current) {
           conversationId.current = null;
-          await runTurn(text, false);
+          await runTurn(text, false, gen);
           return;
         }
         throw err;
       } finally {
-        abortController.current = null;
+        // identity check: a newer turn's controller must survive this cleanup,
+        // or stop() would silently abort nothing
+        if (abortController.current === controller) abortController.current = null;
       }
     },
     [applyEvent, model],
@@ -157,22 +185,36 @@ export function useAssistant() {
   const send = useCallback(
     async (text: string) => {
       if (!text.trim()) return;
+      turnGen.current += 1;
+      const gen = turnGen.current;
+      const current = () => gen === turnGen.current;
       setError(null);
       setStatus("busy");
       setItems((prev) => [...prev, { kind: "user", text }]);
       stopRequested.current = false;
-      try {
-        await runTurn(text, true);
-      } catch (err) {
-        // pkm-c98s item 3: a user-requested Stop aborts the fetch, which
-        // rejects with an AbortError -- that is success, not a failure to
-        // report.
-        if (!(stopRequested.current && isAbortError(err))) {
-          setError(friendlyMessage(err));
+      const run = (async () => {
+        try {
+          await runTurn(text, true, gen);
+        } catch (err) {
+          // pkm-c98s item 3: a user-requested Stop aborts the fetch, which
+          // rejects with an AbortError -- that is success, not a failure to
+          // report. A superseded turn's failure (pkm-6ts2) belongs to a chat
+          // that no longer exists, so it is not reported either.
+          if (current() && !(stopRequested.current && isAbortError(err))) {
+            setError(friendlyMessage(err));
+          }
+        } finally {
+          if (current()) {
+            setPendingConfirm(null);
+            setStatus("idle");
+          }
         }
+      })();
+      activeTurn.current = run;
+      try {
+        await run;
       } finally {
-        setPendingConfirm(null);
-        setStatus("idle");
+        if (activeTurn.current === run) activeTurn.current = null;
       }
     },
     [runTurn],
@@ -185,6 +227,7 @@ export function useAssistant() {
 
   const respondConfirm = useCallback(
     async (allow: boolean) => {
+      const gen = turnGen.current;
       const id = conversationId.current;
       const pending = pendingConfirm;
       if (id === null || pending === null) return;
@@ -193,6 +236,10 @@ export function useAssistant() {
       try {
         await confirmTool(id, pending.toolUseId, allow);
       } catch (err) {
+        // newChat superseded this decision: the conversation it belonged to is
+        // gone, and neither the reset below nor an error banner may land on the
+        // chat that replaced it (pkm-6ts2).
+        if (gen !== turnGen.current) return;
         if (err instanceof ApiError && err.status === 404) {
           // reaped while waiting on the user's decision: no live turn to
           // resume, so start clean rather than resurrect a dead card
@@ -210,13 +257,37 @@ export function useAssistant() {
   );
 
   const newChat = useCallback(async () => {
+    // Supersede first: from here on the running turn's events and finalizers
+    // are ignored, which is what makes clearing the state below safe to do
+    // immediately rather than after the abort round-trip (pkm-6ts2).
+    turnGen.current += 1;
     const id = conversationId.current;
+    const inflight = activeTurn.current;
+    const controller = abortController.current;
     conversationId.current = null;
+    abortController.current = null;
+    activeTurn.current = null;
     setItems([]);
     setError(null);
     setStatus("idle");
     setPendingConfirm(null);
     setModelLocked(false);
+    controller?.abort();
+    // Await the aborted turn so the server has observed the dropped connection
+    // (and that turn's finalizers have all run) before the DELETE. Only when a
+    // stream actually existed: a turn still inside createConversation has no
+    // connection to drop and no abort signal to cut it short, so waiting on it
+    // could hang for as long as that request does -- and it closes the
+    // conversation it created itself, via the generation check in runTurn.
+    // (`controller` truthy doesn't guarantee a *live* stream: mid-404-retry,
+    // runTurn can be back inside an unabortable createConversation with
+    // controller still set from the attempt that just failed. That's benign
+    // here -- `id` is null in that window too, so this function's own DELETE
+    // below is skipped either way, and the retry's own generation check
+    // closes whatever it creates.)
+    // send()'s own try/catch/finally guarantees `inflight` always fulfils, so
+    // no `.catch()` is needed here to keep this await from rejecting.
+    if (controller && inflight) await inflight;
     if (id !== null) {
       try {
         await deleteConversation(id);

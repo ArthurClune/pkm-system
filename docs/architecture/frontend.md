@@ -285,6 +285,14 @@ entry.
   dropdown (`sonnet` default / `opus` / `haiku`) locks once it exists.
   "New chat" deletes the server-side conversation and resets. Conversations
   are ephemeral — a reload loses them.
+  "New chat" is safe mid-turn: each turn carries a generation counter, and
+  `newChat` bumps it before clearing state, so the superseded turn's SSE
+  events and finalizers are dropped instead of refilling the fresh transcript,
+  resetting its status or re-raising its confirm card (pkm-6ts2). It then
+  aborts and awaits that turn before `DELETE`ing the conversation, and a
+  conversation whose creation resolved after the bump is closed rather than
+  adopted. Abort-controller cleanup is identity-checked, so a newer turn stays
+  stoppable.
 - A turn streams over SSE: `client.ts::streamMessage` POSTs the message and
   feeds the response body through `sse.ts` (a pure incremental frame
   parser) into `useAssistant.ts`, which folds events into chat items —

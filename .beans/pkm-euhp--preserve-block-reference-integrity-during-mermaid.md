@@ -110,3 +110,16 @@ confirmed after.
   ambiguity resolution explicitly preferred "skip the flatten-and-drop for
   that subtree" as the mechanism, so implemented that rather than a
   partial-preservation scheme.
+
+## Fix round 1 (task review)
+
+Review found the `- in_subtree` subtraction in both modules was untested
+(deleting it left every test green, but it would have blocked conversion
+of any diagram whose lines reference each other's uids). Added
+`test_internal_only_reference_does_not_block_flattening` (rows.py) and
+`test_migration_still_converts_subtree_with_only_internal_references`
+(migrate_mermaid_blocks.py), each verified to fail when the subtraction
+is temporarily removed, then restored. Also fixed a backend.md wording
+nit ("Mermaid conversion (below)" -> "(above)", the diagram precedes the
+paragraph). Commit `5eb1ecb`. 976 passed, pyrefly 0 errors, ruff clean.
+No implementation code changed this round.

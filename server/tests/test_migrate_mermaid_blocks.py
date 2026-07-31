@@ -23,12 +23,19 @@ BLOCKS = [
     ("uid_ref_line1", 1, "uid_ref_component", 0, "flowchart LR", None, 0, None, None),
     ("uid_ref_line2", 1, "uid_ref_component", 1, "x --> y", None, 0, None, None),
     ("uid_citer", 1, None, 4, "see ((uid_ref_line2)) for detail", None, 0, None, None),
+    # a third component whose lines reference each other -- purely internal
+    # to the subtree, must still convert normally
+    ("uid_int_component", 1, None, 5, "{{[[mermaid]]}}", None, 0, None, None),
+    ("uid_int_line1", 1, "uid_int_component", 0, "start[Start]", None, 0, None, None),
+    ("uid_int_line2", 1, "uid_int_component", 1,
+     "see ((uid_int_line1)) for the start node", None, 0, None, None),
 ]
 REFS = [
     ("uid_component", 2, "link"),  # from {{[[mermaid]]}}
     ("uid_mention", 2, "link"),    # from {{[[mermaid]]}}
     ("uid_plain", 2, "link"),      # from [[mermaid]] mention
     ("uid_ref_component", 2, "link"),
+    ("uid_int_component", 2, "link"),
 ]
 
 
@@ -87,8 +94,9 @@ def test_dry_run_reports_affected_uids_and_inbound_refs_for_preserved_descendant
     assert "uid_citer" in preserved_line
     assert "uid_ref_component" in preserved_line  # names which component it's under
     # the component whose descendant is referenced must not be listed among
-    # the blocks that would be converted -- only its unreferenced sibling is
+    # the blocks that would be converted -- only its unreferenced siblings are
     assert "  uid_component" in lines
+    assert "  uid_int_component" in lines
     assert "  uid_ref_component" not in lines
 
 
@@ -133,6 +141,25 @@ def test_migration_preserves_component_with_externally_referenced_descendant(tmp
     assert blocks["uid_ref_line2"]["parent_uid"] == "uid_ref_component"
     # the referencing block is of course untouched too
     assert blocks["uid_citer"]["text"] == "see ((uid_ref_line2)) for detail"
+
+
+def test_migration_still_converts_subtree_with_only_internal_references(tmp_path):
+    # Guards the `- in_subtree` subtraction in plan_migration(): without
+    # it, uid_int_line2's reference to its own sibling uid_int_line1 would
+    # look "external" and block this ordinary, self-contained diagram from
+    # ever converting -- a false-positive block on any diagram whose lines
+    # cross-reference each other's uids.
+    db_path = _make_db(tmp_path)
+
+    rc = main(["--db", str(db_path)])
+    assert rc == 0
+
+    blocks, _ = _rows(db_path)
+    assert blocks["uid_int_component"]["text"] == (
+        "```mermaid\nstart[Start]\nsee ((uid_int_line1)) for the start node\n```"
+    )
+    assert "uid_int_line1" not in blocks
+    assert "uid_int_line2" not in blocks
 
 
 def test_migration_is_idempotent(tmp_path, capsys):

@@ -149,6 +149,40 @@ def test_externally_referenced_descendant_prevents_flattening():
     assert ("uid-refline2", ("uid-citer",)) in rows.mermaid_preserved_refs
 
 
+MERMAID_INTERNAL_REF_EXPORT = Export(
+    pages=(
+        Page("Diagrams", None, None, (
+            _block("uid-mermaid3", "{{[[mermaid]]}}", children=(
+                _block("uid-iline1", "flowchart TB"),
+                # references a sibling *within the same subtree* -- this
+                # must NOT count as an external reference: the whole
+                # subtree (this block included) is dropped together, so
+                # nothing outside the flatten ever needed it to resolve
+                _block("uid-iline2", "see ((uid-iline1)) for the start node"),
+            )),
+        )),
+    ),
+    orphan_block_count=0,
+    skipped_entities=0,
+    attr_counts={},
+)
+
+
+def test_internal_only_reference_does_not_block_flattening():
+    # Guards the `- in_subtree` subtraction in rows.py's walk(): without
+    # it, a source uid inside the subtree itself would look "external"
+    # and this ordinary, self-contained mermaid diagram would never
+    # convert -- a false-positive block on every diagram whose lines
+    # cross-reference each other's uids.
+    rows = to_rows(MERMAID_INTERNAL_REF_EXPORT, lambda t: t)
+    by_uid = {r[0]: r for r in rows.blocks}
+    assert by_uid["uid-mermaid3"][4] == (
+        "```mermaid\nflowchart TB\nsee ((uid-iline1)) for the start node\n```"
+    )
+    assert "uid-iline1" not in by_uid and "uid-iline2" not in by_uid
+    assert rows.mermaid_preserved_refs == ()
+
+
 def test_no_recovery_page_when_no_orphans():
     rows = to_rows(EXPORT, lambda t: t)
     assert rows.recovery_page_title is None

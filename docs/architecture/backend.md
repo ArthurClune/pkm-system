@@ -325,7 +325,7 @@ flowchart TD
 
 Roam block uids, ordering and timestamps are preserved, so every existing
 `((block ref))` and daily-note link keeps resolving. Mermaid conversion
-(below) is the one place this could otherwise fail silently — flattening a
+(above) is the one place this could otherwise fail silently — flattening a
 component block's descendants into a single fenced block drops their rows
 — so both `rows.py` and the one-off `migrate_mermaid_blocks.py` migration
 check, before flattening, whether any descendant that would be dropped is

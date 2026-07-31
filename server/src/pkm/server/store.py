@@ -35,13 +35,22 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     rather than rejecting is deliberate: an offline client replaying a
     queued op must never meet a permanent 422, or its queue wedges.
 
-    A title that normalizes all the way down to "" is different: unlike a
-    normalized-but-nonempty title, an empty one can never be addressed (no
-    [[link]] resolves to it, no route can name it), so it would sit in the
-    pages table as permanently unreachable dead weight. This function
-    refuses to create it -- raising BlankTitleError rather than silently
-    minting the page -- and leaves the recovery policy to the caller."""
-    title = normalize_title(title)
+    A title that ends up "" is different: unlike a normalized-but-nonempty
+    title, an empty one can never be addressed (no [[link]] resolves to it,
+    no route can name it), so it would sit in the pages table as
+    permanently unreachable dead weight. This function refuses to create
+    it -- raising BlankTitleError rather than silently minting the page --
+    and leaves the recovery policy to the caller.
+
+    The extra `.strip()` below (beyond what normalize_title itself does)
+    matters: normalize_title is deliberately narrow and only acts on a
+    title holding a *control* whitespace char, so a title of plain spaces
+    alone ("   ") comes back untouched -- not blank by that function's own
+    contract, but still unreachable and still not a title anyone typed on
+    purpose. Stripping here, at the one shared choke point, is what makes
+    a spaces-only ops page_title behave the same as one caught by a route
+    that strips before calling in (POST /api/pages)."""
+    title = normalize_title(title).strip()
     if not title:
         raise BlankTitleError(title)
     page = fetch_page(db, title)

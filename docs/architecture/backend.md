@@ -584,9 +584,13 @@ than at routes that can never match the bad value. Two properties to preserve:
   durable op queue — it retries that op forever and every later change queues
   behind it. Anything accepting a title from outside normalises, not validates.
 
-One title is never mintable, though: one that normalises all the way down to
-`""` (a whitespace-only string passes ops' `page_title` `min_length=1` check
-untouched, then collapses to nothing). Unlike a normalised-but-nonempty title,
+One title is never mintable, though: one that ends up `""` after
+`get_or_create_page()` normalises and strips it (a whitespace-only string
+passes ops' `page_title` `min_length=1` check untouched, and — since
+`normalize_title` only acts on *control* whitespace, per the narrowness rule
+above — a plain-spaces-only string like `"   "` needs the extra `.strip()`
+inside `get_or_create_page` itself to collapse to nothing; `normalize_title`
+alone would return it byte for byte). Unlike a normalised-but-nonempty title,
 an empty one is permanently unreachable — no `[[link]]` resolves to it, no
 route can name it — so `get_or_create_page()` raises `BlankTitleError` instead
 of committing it (pkm-1rb5), and every caller picks its own recovery: the
@@ -595,6 +599,11 @@ can retry with a real title; `ops_apply.py`'s `_resolve_page()` instead
 substitutes the fixed fallback title `"Untitled"` so a `create`/`create_page`/
 cross-page `move` op with a blank `page_title` still lands the batch — the
 "never 422" rule holds for the ops path specifically, not for every route.
+If a real page is already titled `"Untitled"` (a user typed it on purpose),
+blank-title ops deposit onto that same page rather than a dedicated
+sentinel — an accepted trade-off: the fallback is deliberately an ordinary,
+addressable title going through the normal get_or_create path, not a
+reserved one, so it can collide with real user content.
 
 ## Logging and observability
 

@@ -201,7 +201,8 @@ def create_page(request: Request, body: CreatePageRequest,
     try:
         page = get_or_create_page(db, body.title.strip(), int(time.time() * 1000))
     except BlankTitleError:
-        raise HTTPException(status_code=422, detail="title must not be blank")
+        raise HTTPException(status_code=422,
+                            detail="title must not be blank") from None
     db.commit()
     notify.nudge_threadpool(request, db)
     return dict(page)

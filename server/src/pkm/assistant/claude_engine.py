@@ -253,30 +253,43 @@ class ClaudeEngine:
     async def create_conversation(self, system_prompt: str, model: str) -> ClaudeConversation:
         config_path = self._write_cli_config()
         conversation = ClaudeConversation(config_path)
-        options = ClaudeAgentOptions(
-            model=model,
-            system_prompt=system_prompt,
-            tools=[],
-            allowed_tools=read_tool_names(),
-            can_use_tool=conversation.can_use_tool,
-            mcp_servers={
-                "pkm": {
-                    "type": "stdio",
-                    "command": sys.executable,
-                    "args": ["-m", "pkm.mcp.server"],
-                    "env": {"PKM_CLI_CONFIG": str(config_path)},
-                }
-            },
-            setting_sources=[],
-            include_partial_messages=True,
-            max_turns=MAX_TURNS,
-            # the CLI defers MCP tools behind ToolSearch by default, which
-            # tools=[] would make unreachable -- disabling tool search loads
-            # the pkm tools eagerly; verified live 2026-07-27
-            env={"ENABLE_TOOL_SEARCH": "false"},
-        )
-        client = self._client_factory(options)
-        conversation.attach(client)
-        await client.connect()
+        try:
+            options = ClaudeAgentOptions(
+                model=model,
+                system_prompt=system_prompt,
+                tools=[],
+                allowed_tools=read_tool_names(),
+                can_use_tool=conversation.can_use_tool,
+                mcp_servers={
+                    "pkm": {
+                        "type": "stdio",
+                        "command": sys.executable,
+                        "args": ["-m", "pkm.mcp.server"],
+                        "env": {"PKM_CLI_CONFIG": str(config_path)},
+                    }
+                },
+                setting_sources=[],
+                include_partial_messages=True,
+                max_turns=MAX_TURNS,
+                # the CLI defers MCP tools behind ToolSearch by default, which
+                # tools=[] would make unreachable -- disabling tool search loads
+                # the pkm tools eagerly; verified live 2026-07-27
+                env={"ENABLE_TOOL_SEARCH": "false"},
+            )
+            client = self._client_factory(options)
+            conversation.attach(client)
+            await client.connect()
+        except BaseException:
+            # A factory failure, a failed connect handshake, or cancellation
+            # while awaiting connect (service.create()'s admission-lock
+            # wait_for(create_timeout) times out on a wedged harness,
+            # pkm-rovq) must not leave the 0600 credential file or a
+            # half-started client behind for the next create() to trip over.
+            # ClaudeConversation.close() already tolerates a client that
+            # never connected (or was never attached) and a disconnect()
+            # that itself raises, so reuse it instead of duplicating that
+            # handling here (pkm-4zq4).
+            await conversation.close()
+            raise
         logger.info("assistant harness started (model=%s)", model)
         return conversation

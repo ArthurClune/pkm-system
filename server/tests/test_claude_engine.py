@@ -4,6 +4,8 @@ import json
 import stat
 from pathlib import Path
 
+import pytest
+
 from claude_agent_sdk import (
     AssistantMessage,
     PermissionResultAllow,
@@ -47,6 +49,7 @@ class FakeSDKClient:
         self.connected = False
         self.queries: list[str] = []
         self.interrupts = 0
+        self.disconnect_calls = 0
         self.messages: asyncio.Queue = asyncio.Queue()
         FakeSDKClient.instances.append(self)
 
@@ -59,6 +62,7 @@ class FakeSDKClient:
 
     async def disconnect(self):
         self.connected = False
+        self.disconnect_calls += 1
 
     async def query(self, text):
         self.queries.append(text)
@@ -94,6 +98,26 @@ class BrokenInterruptClient(FakeSDKClient):
     async def interrupt(self):
         self.interrupts += 1
         raise RuntimeError("harness already dead")
+
+
+class FailingConnectClient(FakeSDKClient):
+    """connect() raises -- e.g. the CLI subprocess failed to spawn."""
+
+    async def connect(self):
+        raise RuntimeError("connect failed")
+
+
+class HangingConnectClient(FakeSDKClient):
+    """connect() never returns until cancelled -- simulates a wedged
+    handshake that the admission lock's wait_for(create_timeout) times out
+    on (pkm-rovq)."""
+
+    async def connect(self):
+        await asyncio.Event().wait()  # never set
+
+
+def failing_factory(options):
+    raise RuntimeError("factory boom")
 
 
 def make_engine(tmp_path, factory=FakeSDKClient) -> ClaudeEngine:
@@ -136,6 +160,54 @@ def test_create_conversation_options_and_config_file(tmp_path):
     asyncio.run(conv.close())
     assert not cfg_path.exists()  # config file removed on close
     assert client.connected is False
+
+
+def test_create_conversation_factory_failure_unlinks_config(tmp_path):
+    # pkm-4zq4: a client_factory failure must not leave the 0600 credential
+    # file behind -- there is no client to disconnect, but the config still
+    # needs cleanup.
+    engine = make_engine(tmp_path, factory=failing_factory)
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="factory boom"):
+            await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+
+    asyncio.run(scenario())
+    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+
+
+def test_create_conversation_connect_failure_unlinks_and_disconnects(tmp_path):
+    # pkm-4zq4: connect() failing after the client was created must still
+    # disconnect the partially-started client and unlink the config file.
+    engine = make_engine(tmp_path, factory=FailingConnectClient)
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="connect failed"):
+            await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        return FakeSDKClient.instances[0]
+
+    client = asyncio.run(scenario())
+    assert client.disconnect_calls == 1
+    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+
+
+def test_create_conversation_cancelled_during_connect_cleans_up(tmp_path):
+    # pkm-4zq4: this is what happens when service.create()'s
+    # asyncio.wait_for(create_conversation(...), CREATE_TIMEOUT_S) times out
+    # on a wedged handshake -- CancelledError is delivered into connect().
+    # Startup must still disconnect the client and unlink the config file
+    # rather than leaving both behind for every future admission to trip
+    # over.
+    engine = make_engine(tmp_path, factory=HangingConnectClient)
+
+    async def scenario():
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(engine.create_conversation(SYSTEM_PROMPT, "sonnet"), 0.05)
+        return FakeSDKClient.instances[0]
+
+    client = asyncio.run(scenario())
+    assert client.disconnect_calls == 1
+    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
 
 
 def test_can_use_tool_allows_reads_denies_unknown(tmp_path):

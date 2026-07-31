@@ -478,6 +478,18 @@ How `claude_engine.py` confines the harness:
 - **Auth**: the engine mints a fresh session token (`auth_core.sign_session`)
   into a 0600 temp config file per conversation, passed to the MCP
   subprocess as `PKM_CLI_CONFIG` and deleted on close.
+- **Transactional startup**: `create_conversation()` writes that config file,
+  then constructs the client and awaits `connect()` inside a
+  `try`/`except BaseException` that reuses `ClaudeConversation.close()` for
+  cleanup on any exit other than success (pkm-4zq4). This covers three
+  failure shapes the old code left unhandled: the `client_factory` itself
+  raising (no client to disconnect, only the config to unlink), `connect()`
+  raising after the client exists, and cancellation delivered into the
+  awaited `connect()` -- which is exactly what happens when
+  `service.create()`'s `wait_for(create_timeout)` times out on a wedged
+  handshake. `close()` already tolerates a client that never connected (or
+  was never attached) and a `disconnect()` call that itself raises, so
+  startup failure and normal teardown share one code path instead of two.
 - **Write confirmation**: the SDK's `can_use_tool` hook streams a
   `ConfirmRequest` (with an ops preview from `policy.py`) to the browser
   and blocks the tool call on a future until `POST …/confirm` resolves it.

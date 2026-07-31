@@ -399,6 +399,11 @@ and broadcasts as the web client.
   guard — deliberately never `set_heading`), `split_heading` (strips
   `#`/`##`/`###` off a line into a heading level 1-3),
   `asset_block_text` (MIME → image embed / `{{[[pdf]]}}` macro / link).
+  A `## Heading` parent spec matches on level and text together, first
+  in document order if more than one block matches; the in-batch memo
+  for headings created earlier in the same batch follows the same
+  rule, so a heading resolves to the same parent whether it came from
+  the fetched page or from earlier in the batch.
   `cli/render.py` (Core) renders API payloads to terminal markdown.
 - Text is the source of truth for a block's heading level on every CLI/MCP
   write: `split_heading` runs in `_Planner.creates` (the one call site every

@@ -79,11 +79,15 @@ def test_resolve_parent_requires_matching_level():
 
 
 def test_resolve_parent_duplicate_headings_picks_first_in_document_order():
-    # Two level-2 "Notes" headings on the same page: the first one in
-    # document order wins, matching the in-batch memoization's first-write
-    # rule (_Planner._headings.setdefault).
+    # Two level-2 "Notes" headings on the same page, but the first is
+    # nested as a child of an earlier top-level block and the second sits
+    # at page top level after that block -- pinning pre-order (depth
+    # first) document order, not top-level list order, as the tie-break.
+    # This matches the in-batch memoization's first-write rule
+    # (_Planner._headings.setdefault).
     payload = {**PAYLOAD, "blocks": [
-        _node("first", "Notes", heading=2),
+        _node("container", "Some section",
+              children=[_node("first", "Notes", heading=2)]),
         _node("second", "Notes", heading=2),
     ]}
     assert resolve_parent(payload, "## Notes") == ("first", None)
@@ -209,6 +213,20 @@ def test_plan_batch_reuses_repeated_missing_heading():
     assert len(heading_ops) == 1
     assert [o["parent_uid"] for o in content_ops] == [heading_ops[0]["uid"]] * 2
     assert [o["order_idx"] for o in content_ops] == [0, 1]
+
+
+def test_plan_batch_move_rejects_wrong_level_heading():
+    # A level-3 "Notes" heading on the page must not satisfy a move to
+    # "## Notes" (level 2) -- move never creates a missing heading, so
+    # this must fail during planning rather than silently landing under
+    # the wrong-level block.
+    payload = {**PAYLOAD, "blocks": [
+        *PAYLOAD["blocks"], _node("u9", "Notes", heading=3)]}
+    cmds = [{"command": "move",
+             "params": {"uid": "u1", "page": "Machine Learning",
+                        "parent": "## Notes"}}]
+    with pytest.raises(BuildError, match="move target heading does not exist"):
+        plan_batch(cmds, {"Machine Learning": payload}, uid_gen())
 
 
 def test_plan_batch_create_with_index():

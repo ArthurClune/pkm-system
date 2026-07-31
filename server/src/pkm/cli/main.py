@@ -125,10 +125,12 @@ nests one level deeper than its parent line. A line may not jump more
 than one level deeper than the line before it.
 
 --parent nests the new block(s) under an existing block, given as
-either "## Heading" (a heading with that exact text; created at page
-top level first if it doesn't already exist) or "((uid))" (an
-existing block's uid). Without --parent, blocks are appended at page
-top level. Without -p/--page, the target is today's daily note.
+either "## Heading" (a heading at that level with that exact text --
+if more than one matches, the first in document order; created at
+page top level first if no heading at that level and text exists) or
+"((uid))" (an existing block's uid). Without --parent, blocks are
+appended at page top level. Without -p/--page, the target is today's
+daily note.
 
 --todo prefixes only the top-level item(s) with {{TODO}}.
 
@@ -200,7 +202,7 @@ read from stdin, as one atomic write. Commands and their params:
       "{{name}}". A text beginning "# ", "## " or "### " becomes a
       heading block at that level (1-3), hashes not stored; a heading
       created this way also satisfies a later "## Heading" parent for
-      the same text rather than creating a second one.
+      the same level and text rather than creating a second one.
   todo     same params as create; text is stored {{TODO}}-prefixed.
   update   {uid, text}
       replaces a block's text (uid may be "{{alias}}"). A text
@@ -229,14 +231,17 @@ read from stdin, as one atomic write. Commands and their params:
 
 parent (create/todo/outline) accepts, and move's destination accepts
 except where noted:
-  "## Heading"   a heading with that exact text; create/todo/outline
-                 create it once at page top level if missing --
-                 repeating the same missing "## Heading" text (same
-                 page, same level) elsewhere in the batch reuses that
-                 one heading rather than creating it again (a repeat
-                 on a different page, or at a different level, e.g.
-                 "###", makes its own heading). move requires the
-                 heading to already exist; see above.
+  "## Heading"   a heading at that level with that exact text -- if
+                 more than one matches (on the page, or created
+                 earlier in this batch), the first in document order;
+                 create/todo/outline create it once at page top level
+                 if no heading at that level and text exists yet --
+                 repeating the same missing "## Heading" (same page,
+                 same level, same text) elsewhere in the batch reuses
+                 that one heading rather than creating it again (a
+                 different page, level, or text makes its own
+                 heading). move requires a matching heading to already
+                 exist; see above.
   "((uid))"      an existing block's uid
   "{{alias}}"    a block created earlier in this same batch via "as"
 

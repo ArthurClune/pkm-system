@@ -2,6 +2,10 @@ import hashlib
 import sqlite3
 from pathlib import Path
 
+import pytest
+
+import pkm.importer.run as run_module
+from pkm.importer.rows import RECOVERY_PAGE_TITLE
 from pkm.importer.run import main
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_export.edn"
@@ -25,8 +29,9 @@ def test_end_to_end_import(tmp_path):
     titles = {r[0] for r in con.execute("SELECT title FROM pages")}
     assert titles == {"Machine Learning", "July 8th, 2026", "Tags", "AI",
                       "Generative Models", "Attention Is All You Need",
-                      "query", "Paper"}
-    assert con.execute("SELECT count(*) FROM blocks").fetchone()[0] == 7
+                      "query", "Paper", RECOVERY_PAGE_TITLE}
+    # the fixture's one orphan block ("uid-orphan") is now preserved, not dropped
+    assert con.execute("SELECT count(*) FROM blocks").fetchone()[0] == 8
 
     # asset url rewritten to content-addressed path
     sha = hashlib.sha256(b"PNGDATA").hexdigest()
@@ -48,6 +53,25 @@ def test_end_to_end_import(tmp_path):
     assert "block refs ((...)): 1" in report
     assert ":block/refs (1)" in report
     assert "missing asset urls: none" in report
+    assert f"recovered to '{RECOVERY_PAGE_TITLE}'" in report
+    assert "not imported" not in report
+
+
+def test_orphan_block_is_preserved_not_silently_dropped(tmp_path):
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    row = con.execute(
+        "SELECT page_id, parent_uid, text FROM blocks WHERE uid='uid-orphan'").fetchone()
+    assert row is not None, "orphan block must still exist somewhere in the database"
+    page_id, parent_uid, text = row
+    assert text == "unreachable block"
+    assert parent_uid is None  # top-level on the recovery page, not nested under anything
+    recovery_page_id = con.execute(
+        "SELECT id FROM pages WHERE title=?", (RECOVERY_PAGE_TITLE,)).fetchone()[0]
+    assert page_id == recovery_page_id
 
 
 def test_rerun_replaces_database(tmp_path):
@@ -62,6 +86,28 @@ def test_rerun_replaces_database(tmp_path):
     con = sqlite3.connect(out / "pkm.sqlite3")
     assert con.execute("SELECT count(*) FROM pages WHERE title='Scribble'"
                        ).fetchone()[0] == 0
+
+
+def test_report_failure_leaves_existing_database_untouched(tmp_path, monkeypatch):
+    # The report must be fully written before the database is published: a
+    # failure while rendering/writing it (disk full, permissions, ...) must
+    # not leave a swapped-in database with no report, or a stale one.
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+    original_db = (out / "pkm.sqlite3").read_bytes()
+    original_report = (out / "import-report.txt").read_text()
+
+    def boom(report):
+        raise RuntimeError("simulated report failure")
+    monkeypatch.setattr(run_module, "render", boom)
+
+    with pytest.raises(RuntimeError, match="simulated report failure"):
+        main([str(FIXTURE), "--files", str(files), "--out", str(out)])
+
+    assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text() == original_report
+    assert not (out / "pkm.sqlite3.tmp").exists()
 
 
 def test_duplicate_content_assets_do_not_crash(tmp_path):

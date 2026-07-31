@@ -16,6 +16,13 @@ from pkm.importer.mermaid import convert_to_fence
 from pkm.importer.parse_export import Block, Export
 from pkm.refs import extract
 
+# Deterministic landing page for block subtrees the export left unreachable
+# from any page (see Export.orphan_blocks): rather than silently dropping
+# them, they're attached here with their uid/text/children intact so
+# ((uid)) references keep resolving. Suffixed with " (2)", " (3)", ... on
+# the rare chance a page already has this exact title.
+RECOVERY_PAGE_TITLE = "Import recovery: unreachable blocks"
+
 
 @dataclass(frozen=True)
 class Rows:
@@ -25,6 +32,7 @@ class Rows:
     implicit_page_count: int
     block_ref_count: int
     embed_count: int
+    recovery_page_title: str | None
 
 
 def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
@@ -65,7 +73,21 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         for i, child in enumerate(p.children):
             walk(child, pid, None, i)
 
+    implicit_page_count = len(pages) - explicit  # snapshot before the recovery page
+
+    recovery_page_title = None
+    if export.orphan_blocks:
+        recovery_page_title = RECOVERY_PAGE_TITLE
+        n = 2
+        while recovery_page_title in page_ids:  # rare title collision
+            recovery_page_title = f"{RECOVERY_PAGE_TITLE} ({n})"
+            n += 1
+        recovery_pid = page_id(recovery_page_title)
+        for i, orphan in enumerate(export.orphan_blocks):
+            walk(orphan, recovery_pid, None, i)
+
     return Rows(pages=pages, blocks=blocks, refs=refs,
-                implicit_page_count=len(pages) - explicit,
+                implicit_page_count=implicit_page_count,
                 block_ref_count=counts["block_ref"],
-                embed_count=counts["embed"])
+                embed_count=counts["embed"],
+                recovery_page_title=recovery_page_title)

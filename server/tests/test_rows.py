@@ -1,6 +1,6 @@
 from pkm.edn import parse_edn
 from pkm.importer.parse_export import Block, Export, Page, parse_export
-from pkm.importer.rows import to_rows
+from pkm.importer.rows import RECOVERY_PAGE_TITLE, to_rows
 
 
 def _block(uid, text, children=(), heading=None, open_=True, view_type=None):
@@ -112,3 +112,66 @@ def test_childless_mermaid_mention_is_left_alone():
     assert by_uid["uid-mention1"][4] == "{{[[mermaid]]}}"
     page_ids = {r[1]: r[0] for r in rows.pages}
     assert ("uid-mention1", page_ids["mermaid"], "link") in rows.refs
+
+
+def test_no_recovery_page_when_no_orphans():
+    rows = to_rows(EXPORT, lambda t: t)
+    assert rows.recovery_page_title is None
+    assert RECOVERY_PAGE_TITLE not in {r[1] for r in rows.pages}
+
+
+ORPHAN_EXPORT = Export(
+    pages=(
+        Page("Machine Learning", None, None, (
+            _block("uid-attr1", "Tags:: #AI"),
+        )),
+    ),
+    orphan_block_count=2,
+    orphan_blocks=(
+        _block("uid-orphan-root", "orphan root [[AI]]", children=(
+            _block("uid-orphan-child", "orphan child"),
+        )),
+    ),
+    skipped_entities=0,
+    attr_counts={},
+)
+
+
+def test_orphan_blocks_land_on_a_recovery_page_with_structure_intact():
+    rows = to_rows(ORPHAN_EXPORT, lambda t: t)
+    assert rows.recovery_page_title == RECOVERY_PAGE_TITLE
+    titles = {r[1] for r in rows.pages}
+    assert RECOVERY_PAGE_TITLE in titles
+
+    recovery_pid = next(r[0] for r in rows.pages if r[1] == RECOVERY_PAGE_TITLE)
+    by_uid = {r[0]: r for r in rows.blocks}
+    assert by_uid["uid-orphan-root"][1] == recovery_pid       # page_id
+    assert by_uid["uid-orphan-root"][2] is None                # top-level, no parent
+    assert by_uid["uid-orphan-child"][2] == "uid-orphan-root"  # nested structure kept
+    assert by_uid["uid-orphan-child"][1] == recovery_pid
+
+    # the orphan's own text still runs through ref extraction like any block
+    ai_pid = next(r[0] for r in rows.pages if r[1] == "AI")
+    assert ("uid-orphan-root", ai_pid, "link") in rows.refs
+
+
+def test_recovery_page_title_avoids_collision_with_an_existing_page():
+    collide = Export(
+        pages=(
+            Page(RECOVERY_PAGE_TITLE, None, None, (
+                _block("uid-real", "a page the user actually made"),
+            )),
+        ),
+        orphan_block_count=1,
+        orphan_blocks=(_block("uid-orphan-x", "orphan text"),),
+        skipped_entities=0,
+        attr_counts={},
+    )
+    rows = to_rows(collide, lambda t: t)
+    assert rows.recovery_page_title == f"{RECOVERY_PAGE_TITLE} (2)"
+    titles = [r[1] for r in rows.pages]
+    assert titles.count(RECOVERY_PAGE_TITLE) == 1
+    assert f"{RECOVERY_PAGE_TITLE} (2)" in titles
+    by_uid = {r[0]: r for r in rows.blocks}
+    recovery_pid = next(r[0] for r in rows.pages if r[1] == f"{RECOVERY_PAGE_TITLE} (2)")
+    assert by_uid["uid-orphan-x"][1] == recovery_pid

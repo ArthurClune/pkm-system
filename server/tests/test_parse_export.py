@@ -60,6 +60,59 @@ def test_rejects_non_datascript_value():
         parse_export({"not": "a db"})
 
 
+def test_single_orphan_block_is_recoverable():
+    # orphan_block_count alone used to be the only trace of a dropped
+    # block; orphan_blocks must carry the actual uid/text/children so the
+    # importer can recover it rather than discard it.
+    export = parse_export(parse_edn(EXPORT))
+    assert len(export.orphan_blocks) == 1
+    orphan = export.orphan_blocks[0]
+    assert orphan.uid == "uid-orphan"
+    assert orphan.text == "unreachable"
+    assert orphan.children == ()
+
+
+NESTED_ORPHAN_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Page" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-page-child" 1]
+  [2 :block/string "reachable" 1]
+  [2 :block/order 0 1]
+  [10 :block/uid "uid-orphan-root" 1]
+  [10 :block/string "orphan root" 1]
+  [10 :block/children 11 1]
+  [11 :block/uid "uid-orphan-child" 1]
+  [11 :block/string "orphan child" 1]
+  [11 :block/order 0 1]
+ ]}"""
+
+
+def test_orphan_subtree_structure_is_preserved():
+    # A chain of unreachable blocks must surface as ONE root orphan with
+    # its child nested inside -- not two independent top-level orphans,
+    # and not a flattened list that loses the parent/child relationship.
+    export = parse_export(parse_edn(NESTED_ORPHAN_EXPORT))
+    assert export.orphan_block_count == 2  # root + child
+    assert len(export.orphan_blocks) == 1
+    root = export.orphan_blocks[0]
+    assert root.uid == "uid-orphan-root"
+    assert root.text == "orphan root"
+    assert len(root.children) == 1
+    assert root.children[0].uid == "uid-orphan-child"
+    assert root.children[0].text == "orphan child"
+
+
+def test_no_orphans_is_an_empty_tuple():
+    raw = NESTED_ORPHAN_EXPORT.replace(
+        '[10 :block/uid "uid-orphan-root" 1]\n  [10 :block/string "orphan root" 1]\n'
+        '  [10 :block/children 11 1]\n  [11 :block/uid "uid-orphan-child" 1]\n'
+        '  [11 :block/string "orphan child" 1]\n  [11 :block/order 0 1]\n', '')
+    export = parse_export(parse_edn(raw))
+    assert export.orphan_blocks == ()
+    assert export.orphan_block_count == 0
+
+
 def test_unknown_children_view_type_is_ignored():
     raw = EXPORT.replace(":children/view-type :numbered",
                          ":children/view-type :kanban")

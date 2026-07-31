@@ -317,14 +317,30 @@ flowchart TD
     F["linked-files dir"] --> G["hash + index files (sha256)"]
     C --> D["rows.py — trees → SQL rows, implicit pages, refs (Core)"]
     G --> D
-    D -- "firebase URLs → /assets/… (assets.py)<br/>mermaid component blocks → fenced (mermaid.py)" --> D
+    D -- "firebase URLs → /assets/… (assets.py)<br/>mermaid component blocks → fenced (mermaid.py)<br/>orphan subtrees → recovery page" --> D
     D --> E["write pkm.sqlite3.tmp + copy assets"]
-    E --> H["atomic os.replace into place"]
-    H --> I["import-report.txt — nothing silently dropped"]
+    E --> R["render + write import-report.txt.tmp (Core render, Shell write)"]
+    R --> H["atomic os.replace: db, then report"]
 ```
 
 Roam block uids, ordering and timestamps are preserved, so every existing
 `((block ref))` and daily-note link keeps resolving.
+
+Blocks with a `:block/uid` and `:block/string` that Roam's export leaves
+unreachable from any page (`parse_export.py`'s `Export.orphan_blocks`) are
+not dropped: each unreachable subtree's root, with its internal
+uid/text/children structure intact, is attached under a deterministic
+`"Import recovery: unreachable blocks"` page (`rows.py`'s
+`RECOVERY_PAGE_TITLE`, suffixed `" (2)"` etc. on the rare chance a page
+already has that title) so every `((block ref))` into one still resolves.
+Only entities with no `:block/string` at all (`skipped_entities` — nothing
+of substance to recover) are still just counted, not reconstructed. The
+report is fully rendered and written to a `.tmp` file, and only then is the
+database swapped in, followed by the report itself — if any preflight step
+(row-building, populating the tmp db, copying assets, rendering the report)
+raises, both `.tmp` files are removed and the existing database and report
+are left exactly as they were; a report failure can no longer hide behind
+an already-published database.
 
 ## Export and backup
 

@@ -21,6 +21,10 @@ class ImportReport:
     assets_used: int
     missing_asset_urls: tuple[str, ...]
     attr_counts: dict[str, int]
+    # Set exactly when orphan_blocks > 0: the page they were recovered to
+    # (see pkm.importer.rows.RECOVERY_PAGE_TITLE), so the report says where
+    # they landed instead of implying they were dropped.
+    recovery_page_title: str | None = None
 
 
 def render(r: ImportReport) -> str:
@@ -31,7 +35,10 @@ def render(r: ImportReport) -> str:
         f"pages: {r.pages} ({r.implicit_pages} implicit)",
         f"blocks: {r.blocks}",
         f"refs: {r.refs}",
-        f"orphan blocks (unreachable, not imported): {r.orphan_blocks}",
+        (f"orphan blocks (unreachable from any page, recovered to "
+         f"'{r.recovery_page_title}'): {r.orphan_blocks}"
+         if r.orphan_blocks and r.recovery_page_title
+         else f"orphan blocks (unreachable, not imported): {r.orphan_blocks}"),
         f"skipped entities (no uid/string): {r.skipped_entities}",
         f"block refs ((...)): {r.block_ref_count}",
         f"embeds: {r.embed_count}",

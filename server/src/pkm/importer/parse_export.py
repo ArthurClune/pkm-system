@@ -41,6 +41,11 @@ class Export:
     orphan_block_count: int
     skipped_entities: int
     attr_counts: dict[str, int]
+    # Root blocks of every subtree unreachable from a page, each with its
+    # own internal structure intact (uid/text/children), so a caller can
+    # recover them instead of discarding them. orphan_block_count counts
+    # every block in these subtrees, not just the roots.
+    orphan_blocks: tuple[Block, ...] = ()
 
 
 def _view_type(value: Any) -> Literal["numbered", "document"] | None:
@@ -113,17 +118,26 @@ def parse_export(db: object) -> Export:
             children=_children(ent, frozenset({eid})),
         ))
 
-    reached: set[str] = set()
+    # `built` already holds exactly the blocks reached by walking down from
+    # a page (populated by the `build` calls above), keyed by entity id.
+    reached_eids = set(built.keys())
+    all_block_eids = {eid for eid, ent in entities.items() if is_block(ent)}
+    unreached_eids = all_block_eids - reached_eids
 
-    def walk(b: Block) -> None:
-        reached.add(b.uid)
-        for c in b.children:
-            walk(c)
-
-    for p in pages:
-        for b in p.children:
-            walk(b)
-    all_uids = {ent[":block/uid"] for ent in entities.values() if is_block(ent)}
+    # A block entity referenced by another entity's :block/children is not
+    # a root of its own subtree -- if that parent were reachable, the child
+    # would already be in `built` too, so an unreached child always means
+    # its parent (if any) is itself unreached. Roots are the unreached
+    # blocks nobody points to.
+    child_of_any = {c for ent in entities.values() for c in ent.get(":block/children", [])}
+    orphan_root_eids = sorted(
+        (eid for eid in unreached_eids if eid not in child_of_any),
+        key=lambda eid: entities[eid][":block/uid"],
+    )
+    orphan_blocks = tuple(
+        block for eid in orphan_root_eids
+        if (block := build(eid, frozenset())) is not None
+    )
 
     # Count skipped entities: those with uid but no string (excluding pages)
     skipped_entities = len({ent[":block/uid"] for ent in entities.values()
@@ -131,7 +145,8 @@ def parse_export(db: object) -> Export:
 
     return Export(
         pages=tuple(sorted(pages, key=lambda p: p.title)),
-        orphan_block_count=len(all_uids - reached),
+        orphan_block_count=len(unreached_eids),
         skipped_entities=skipped_entities,
         attr_counts=attr_counts,
+        orphan_blocks=orphan_blocks,
     )

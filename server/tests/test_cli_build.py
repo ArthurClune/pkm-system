@@ -3,7 +3,7 @@ import itertools
 import pytest
 
 from pkm.cli.build import (BuildError, next_child_idx, parse_outline,
-                           plan_batch, plan_save, plan_update,
+                           plan_batch, plan_mark, plan_save, plan_update,
                            referenced_pages, resolve_parent, split_heading)
 from pkm.cli.render import render_page
 from pkm.server.ops_core import text_hash
@@ -333,3 +333,28 @@ def test_plan_update_batch_path_omits_current_heading_stays_unconditional():
         {"op": "update_text", "uid": "u3", "text": "same text",
          "base_text_hash": text_hash("same text")},
         {"op": "set_heading", "uid": "u3", "heading": None}]
+
+
+def test_plan_mark_applies_marker_and_hash_guard_no_heading_op():
+    # A bare update_text with the task marker applied plus a base_text_hash
+    # guard -- and deliberately no set_heading, since `current_text` is
+    # already bare (the heading level lives in its own column).
+    ops = plan_mark("u3", "buy milk", "TODO")
+    assert ops == [
+        {"op": "update_text", "uid": "u3", "text": "{{TODO}} buy milk",
+         "base_text_hash": text_hash("buy milk")}]
+
+
+def test_plan_mark_done_toggles_existing_marker():
+    ops = plan_mark("u3", "{{TODO}} buy milk", "DONE")
+    assert ops == [
+        {"op": "update_text", "uid": "u3", "text": "{{DONE}} buy milk",
+         "base_text_hash": text_hash("{{TODO}} buy milk")}]
+
+
+def test_plan_mark_never_emits_set_heading():
+    # Even when current_text looks like it has hashes, plan_mark must not
+    # interpret them as a heading marker -- it never splits the text at all.
+    ops = plan_mark("u3", "## Overview", "TODO")
+    assert all(op["op"] != "set_heading" for op in ops)
+    assert ops[0]["text"] == "{{TODO}} ## Overview"

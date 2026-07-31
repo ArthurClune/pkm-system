@@ -59,7 +59,14 @@ operand from operands that just don't intersect.
   tag, and `#### ` or deeper stays literal, since blocks only carry levels
   1-3. On `update`, text *without* leading hashes clears an existing
   heading; `-D`/`-T` never touch the level. `pkm get` prints a heading as
-  `## text`, so fetch-then-update round trips are lossless.
+  `## text`, so a fetch (`pkm get`) → edit → `update` round trip is
+  lossless for any heading with a body. Two exceptions: an *empty* heading
+  block (level set, text `""`) prints as a bare `- ##` line, and
+  re-`update`ing that line stores literal `"## "` with no level — there is
+  no way to write a heading with empty text, so leave those alone rather
+  than "fixing" them by hand. And `pkm todos`/`pkm search`/`pkm refs`
+  output never prints heading markers at all (only `pkm get` does) — text
+  copied from those verbs into `update` loses a heading silently.
 - `update` is guarded by a hash of the text the CLI fetched, but the write
   always wins — it is never rejected. If the block changed underneath you,
   your new text still applies and the text you overwrote is preserved as a

@@ -61,3 +61,50 @@ tests:
 
 Verification: `uv run pytest -q` (958 passed, coverage 95.97%), `uv run
 pyrefly check` (0 errors), `uv run ruff check` (clean).
+
+## Fix round 1 (review findings)
+
+Task review found the admission lock now spanned two unbounded awaits:
+(a) `engine.create_conversation()` → `client.connect()` (spawns the Claude
+CLI subprocess) had no timeout, and (b) `_reap_idle()`/`_evict_oldest_idle()`
+closed the evicted/reaped conversation's harness (`pump_task`/`disconnect()`)
+*inside* the lock. Either one hanging (a wedged harness) would hold
+`_admission_lock` forever and wedge every future `POST
+/api/assistant/conversations` process-wide.
+
+Fix: (a) `engine.create_conversation()` is now awaited via
+`asyncio.wait_for(..., self._create_timeout)` (new constructor param
+`create_timeout`, default `CREATE_TIMEOUT_S = 60.0`); a timeout logs a
+warning and re-raises, and the lock is still released via `async with`'s
+own try/finally. (b) `_reap_idle()`/`_evict_oldest_idle()` are now
+synchronous methods that only pop entries from `_entries` (atomic under
+the lock) and return the handles to close; `create()` collects them in
+`to_close` and closes them in an outer `finally` that runs *after* the
+`async with self._admission_lock:` block has already exited — so a hung
+teardown only ever delays the request that triggered the eviction, never
+blocks other concurrent admissions.
+
+Two new tests in `server/tests/test_assistant_service.py`:
+- `test_hung_engine_connect_times_out_and_releases_the_lock` — a harness
+  that never connects times out (`create_timeout=0.05`) and a subsequent
+  `create()` still succeeds promptly.
+- `test_hung_teardown_of_an_evicted_conversation_does_not_block_the_next_admission`
+  — an evicted conversation whose `close()` hangs forever; a concurrent
+  `create()` that evicts a *different*, normal conversation still completes
+  promptly while the first request is still stuck closing the hung one.
+
+RED (against the pre-fix code, verified by temporarily restoring the
+just-committed version and running only the two new tests): both failed —
+the connect-timeout test with `TypeError: unexpected keyword argument
+'create_timeout'` (constructor didn't accept it yet), the teardown test
+with `TimeoutError` from the test's own `asyncio.wait_for(..., timeout=1.0)`
+around the third `create()` call, proving it was blocked behind the
+lock-held-during-hung-close bug. GREEN after the fix: `uv run pytest -q
+tests/test_assistant_service.py` → 17 passed (run 5x with no flakiness).
+
+Also updated `docs/architecture/backend.md`'s `service.py` row area with a
+new paragraph describing the admission lock's scope, the `create_timeout`
+bound, and why teardown happens after the lock is released (Finding 2).
+
+Full verification re-run: `uv run pytest -q` → 960 passed, coverage 95.97%;
+`uv run pyrefly check` → 0 errors; `uv run ruff check` → clean.

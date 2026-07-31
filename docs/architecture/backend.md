@@ -453,6 +453,21 @@ Conversations are ephemeral (in-memory only, no history table). The engine
 is injected into `create_app(config, assistant_engine=...)`; production
 defaults to `ClaudeEngine`, tests and the e2e server inject a fake.
 
+`create()`'s cap check, eviction, and `engine.create_conversation()` call
+all run under a single `asyncio.Lock` (pkm-rovq): without it, two
+concurrent creations could both observe free capacity before either
+registered, bypassing the cap or double-evicting. That lock spans a
+subprocess spawn (the harness connect handshake), so it is bounded by
+`create_timeout` (`CREATE_TIMEOUT_S`, 60s default) rather than left
+unbounded — a wedged harness fails that one request instead of wedging
+every future `create()`. Closing a reaped/evicted conversation's harness is
+deliberately *not* done under the lock: the entry is popped from the
+registry (atomic, so the cap is enforced correctly) and the actual
+`close()` runs after the lock is released, so a hung teardown can only ever
+block the request that triggered it, never other admissions. Sending a
+turn, confirming a tool call, and deleting a conversation are unaffected —
+only admission (`create()`) is serialized.
+
 How `claude_engine.py` confines the harness:
 
 - **One SDK subprocess per conversation**, `tools=[]` plus a single MCP

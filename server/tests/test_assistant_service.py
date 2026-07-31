@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 
 import pytest
@@ -23,8 +24,9 @@ class FakeClock:
 
 
 class _StubHandle:
-    def __init__(self) -> None:
+    def __init__(self, *, hang_close: bool = False) -> None:
         self.closed = False
+        self._hang_close = hang_close
 
     def send(self, text: str) -> AsyncIterator[AssistantEvent]:
         async def _gen() -> AsyncIterator[AssistantEvent]:
@@ -37,6 +39,8 @@ class _StubHandle:
         pass
 
     async def close(self) -> None:
+        if self._hang_close:
+            await asyncio.Event().wait()  # never set: simulates a wedged harness
         self.closed = True
 
 
@@ -49,12 +53,25 @@ class BarrierEngine:
     able to reach the engine while the first is still in flight.
     Every entry/exit of create_conversation() is recorded so tests can
     assert the engine is never invoked concurrently by two admissions.
+
+    `hang_close_first_call`, when set, makes only the handle returned by
+    the *first* create_conversation() call hang forever on close() --
+    modelling a single wedged harness among otherwise healthy ones, so
+    tests can prove that closing it (during reap/eviction) doesn't block
+    admission for anyone else.
     """
 
-    def __init__(self, *, hold: int = 1, fail_first: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        hold: int = 1,
+        fail_first: bool = False,
+        hang_close_first_call: bool = False,
+    ) -> None:
         self.gate = asyncio.Event()
         self._hold = hold
         self._fail_first = fail_first
+        self._hang_close_first_call = hang_close_first_call
         self.calls = 0
         self.in_progress = 0
         self.max_concurrent = 0
@@ -70,7 +87,7 @@ class BarrierEngine:
                 await self.gate.wait()
             if self._fail_first and call_index == 1:
                 raise RuntimeError("boom")
-            handle = _StubHandle()
+            handle = _StubHandle(hang_close=self._hang_close_first_call and call_index == 1)
             self.conversations.append(handle)
             return handle
         finally:
@@ -351,3 +368,67 @@ def test_cancelled_creation_releases_the_admission_lock():
     cid, _ = asyncio.run(scenario())
     assert cid
     assert len(service._entries) == 1
+
+
+# --- pkm-rovq review round 1: neither an unbounded engine.connect() nor an
+# unbounded teardown close() of a reaped/evicted conversation may hold the
+# admission lock indefinitely and wedge every future create(). ---
+
+
+def test_hung_engine_connect_times_out_and_releases_the_lock():
+    # engine.create_conversation() (the harness subprocess connect) is
+    # awaited under the admission lock with a bound: a wedged harness must
+    # raise instead of holding the lock -- and therefore every future
+    # create() -- forever.
+    engine = BarrierEngine(hold=1)  # gate never set: first call blocks forever
+    service = AssistantService(engine, max_conversations=1, create_timeout=0.05)
+
+    async def scenario():
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(service.create(None), timeout=1.0)
+        # the lock must already be free: a second create() succeeds promptly
+        return await asyncio.wait_for(service.create(None), timeout=1.0)
+
+    cid, _ = asyncio.run(scenario())
+    assert cid
+    assert len(service._entries) == 1
+
+
+def test_hung_teardown_of_an_evicted_conversation_does_not_block_the_next_admission():
+    # The old code closed a reaped/evicted conversation's harness *inside*
+    # the admission lock (via delete()). If that close() hangs (a wedged
+    # subprocess never acknowledging disconnect), every future create()
+    # would block on the lock forever. The fix pops the evicted entry from
+    # `_entries` (atomic, under the lock) but defers the actual close()
+    # until after the lock is released, so a hung teardown only ever
+    # affects the request that triggered it.
+    clock = FakeClock()
+    engine = BarrierEngine(hold=0, hang_close_first_call=True)
+    service = AssistantService(engine, max_conversations=2, clock=clock)
+
+    async def scenario():
+        cid1, _ = await service.create(None)  # this handle hangs on close()
+        clock.now += 1.0
+        cid_a, _ = await service.create(None)  # cap now full (2/2); no eviction yet
+        clock.now += 1.0
+        # Cap reached: this evicts cid1 (oldest idle), registers a new
+        # conversation, then gets stuck in its own teardown closing cid1's
+        # (hung) harness. It is expected to never resolve -- exactly the
+        # request that triggered the eviction inherits the hang.
+        task_evict = asyncio.create_task(service.create(None))
+        await _let_event_loop_run()
+        assert not task_evict.done()
+        # A fresh create() must not be stuck behind the same lock: it
+        # evicts cid_a (a normal, fast-closing handle) and completes
+        # promptly, proving the lock was released long before task_evict's
+        # hung close() of cid1 will ever finish.
+        cid_c, _ = await asyncio.wait_for(service.create(None), timeout=1.0)
+        task_evict.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task_evict
+        return cid1, cid_a, cid_c
+
+    cid1, cid_a, cid_c = asyncio.run(scenario())
+    assert len({cid1, cid_a, cid_c}) == 3
+    assert engine.conversations[0].closed is False  # cid1: cancelled mid-hang, never finished
+    assert engine.conversations[1].closed is True  # cid_a: closed promptly, no hang

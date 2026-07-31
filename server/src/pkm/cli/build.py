@@ -269,6 +269,19 @@ def plan_update(uid: str, text: str, base_text: str | None = None,
     return ops
 
 
+def plan_mark(uid: str, current_text: str, mark: str) -> list[dict]:
+    """Ops for a task-marker change (`pkm update -D`/`-T`, `update_block
+    mark=`): `update_text` with the marker applied to `current_text`, plus
+    the `base_text_hash` concurrent-edit guard. Deliberately never
+    `plan_update` and never emits `set_heading`: `current_text` is read
+    back from the API already bare (the heading level lives in its own
+    column), so splitting it would find no hashes and demote a real
+    heading to plain text."""
+    return [{"op": "update_text", "uid": uid,
+             "text": with_state(current_text, mark),
+             "base_text_hash": text_hash(current_text)}]
+
+
 def asset_block_text(filename: str, mime: str, url: str) -> str:
     """Render an uploaded asset as a block: image embed, `pdf` macro, or a
     plain link, keyed off the asset's mime type. Pure text shaping shared
@@ -403,6 +416,6 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
 
 __all__ = [
     "BuildError", "parse_outline", "next_child_idx", "resolve_parent",
-    "split_heading", "plan_save", "plan_update", "asset_block_text",
-    "referenced_pages", "plan_batch",
+    "split_heading", "plan_save", "plan_update", "plan_mark",
+    "asset_block_text", "referenced_pages", "plan_batch",
 ]

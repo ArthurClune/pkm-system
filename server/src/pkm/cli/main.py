@@ -19,13 +19,13 @@ from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.cli.build import (BuildError, asset_block_text, plan_batch,
-                           plan_save, plan_update, referenced_pages)
+                           plan_mark, plan_save, plan_update,
+                           referenced_pages)
 from pkm.cli.render import (RenderError, clip_depth, render_assets,
                             render_backlinks, render_block, render_groups,
                             render_page, render_search, select_section)
 from pkm.server.daily import title_for_date
-from pkm.server.ops_core import UID_RE, text_hash
-from pkm.todo import with_state
+from pkm.server.ops_core import UID_RE
 
 _RELATIVE = {"today": 0, "yesterday": -1, "tomorrow": 1}
 
@@ -391,12 +391,7 @@ def cmd_update(args: argparse.Namespace, client: PkmClient) -> int:
     block = client.get_block(args.uid)["block"]
     current = block["text"]
     if args.done or args.todo:
-        # Not plan_update: `current` is already bare (the heading level
-        # lives in its own column), so splitting it would find no hashes
-        # and demote a real heading to plain text.
-        ops = [{"op": "update_text", "uid": args.uid,
-                "text": with_state(current, "DONE" if args.done else "TODO"),
-                "base_text_hash": text_hash(current)}]
+        ops = plan_mark(args.uid, current, "DONE" if args.done else "TODO")
     else:
         new_text = _read_text_arg(args.text)
         if args.text in (None, "-"):

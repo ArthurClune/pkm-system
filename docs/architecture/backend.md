@@ -390,19 +390,35 @@ and broadcasts as the web client.
   outline text → create ops), `plan_batch` (the `pkm batch` command language:
   `create`/`todo`/`update`/`move`/`delete`/`outline`, `as`-aliases,
   matched-or-created `## Heading` parents), `plan_update` (a text
-  replacement → `update_text` + `set_heading`), `split_heading` (strips
+  replacement → `update_text` + `set_heading`), `plan_mark` (a task-marker
+  change → `update_text` with the marker applied, plus a `base_text_hash`
+  guard — deliberately never `set_heading`), `split_heading` (strips
   `#`/`##`/`###` off a line into a heading level 1-3),
   `asset_block_text` (MIME → image embed / `{{[[pdf]]}}` macro / link).
   `cli/render.py` (Core) renders API payloads to terminal markdown.
 - Text is the source of truth for a block's heading level on every CLI/MCP
   write: `split_heading` runs in `_Planner.creates` (the one call site every
   create path funnels through) and in `plan_update`, so `## X` is never
-  stored as literal text and `render.py`'s `## text` output reads back as a
-  heading. Deliberate exclusions: `#Tag` (no space), `#### ` and deeper
-  (blocks carry levels 1-3), and multi-line text, which stays verbatim in
-  one block. The `-D`/`-T`/`mark=` task-marker paths bypass `plan_update`
-  entirely — the text they read back is already bare, so splitting it would
-  demote a real heading.
+  stored as literal text and `render_page`/`render_block`'s `## text` output
+  reads back as a heading. Deliberate exclusions: `#Tag` (no space), `#### `
+  and deeper (blocks carry levels 1-3), and multi-line text, which stays
+  verbatim in one block. The `-D`/`-T`/`mark=` task-marker paths use
+  `plan_mark`, not `plan_update`, and never emit `set_heading`: the text
+  they read back is already bare, so splitting it would demote a real
+  heading.
+- The heading round trip is `pkm get`/`get_page`/`get_block` only.
+  `render_groups`, `render_backlinks`, and `render_search` (the renderers
+  behind `pkm todos`/`query`/`refs`/`search`) print `item['text']` bare,
+  because the response models behind them (`GroupItem`, `BacklinkItem`,
+  `SearchBlockHit`) never carry a `heading` field — `backlinks.py` and
+  `routes_search.py` select only `uid`/`text` (+ `breadcrumbs` for
+  backlinks). Copying a heading's text out of one of those verbs into
+  `pkm update`/`update_block` therefore demotes it silently. Making that
+  round-trip-safe would mean a new response field on three models, new
+  query columns in `backlinks.py`/`routes_search.py`, and an
+  openapi/gen-types regen — treated as out of proportion to the CLI-only
+  papercut it fixes (pkm-aks7), so it stays undone; the gap is documented
+  instead.
 - Writes go through `POST /api/ops` with a fresh `batch_id`; `pkm update`
   fetches current text first and rides the `base_text_hash` conflict path.
 - The MCP server exposes eleven tools — seven reads (`get_page`,

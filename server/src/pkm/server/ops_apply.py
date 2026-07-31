@@ -21,7 +21,14 @@ _DEPTH_CAP = 100
 
 
 def _new_uid() -> str:
-    return secrets.token_urlsafe(9)  # 12 chars of [A-Za-z0-9_-]: fits UID_RE
+    # 12 chars of [A-Za-z0-9_-]: fits UID_RE. Retry until the first char is
+    # alphanumeric so a conflict-sibling uid is never unaddressable via a
+    # bare CLI argument the same way a client-minted uid could be
+    # (pkm-y5yv).
+    while True:
+        uid = secrets.token_urlsafe(9)
+        if uid[0].isalnum():
+            return uid
 
 
 def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:

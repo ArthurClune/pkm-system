@@ -5,7 +5,7 @@ uids, and posts the result."""
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 from pkm.server.ops_core import text_hash
 from pkm.todo import with_state
@@ -61,6 +61,16 @@ def resolve_parent(
     (level, text) when `spec` names a "## Heading" that doesn't yet exist
     on the page -- the caller must create it at page top level first, then
     nest under it.
+
+    A "## Heading" spec matches only a block whose `heading` attribute
+    equals the requested level *and* whose text matches -- a plain block
+    (heading is `None`) with the same text, or a heading at a different
+    level, is not a match; the spec is treated as missing and the caller
+    creates it. When more than one block matches (level and text both),
+    the first in document order wins, same rule `_Planner._headings`
+    applies via `setdefault` for headings created earlier in the same
+    batch -- so a page fetched before vs. after that heading exists
+    resolves the same parent either way.
     """
     if spec is None:
         return None, None
@@ -74,7 +84,7 @@ def resolve_parent(
     if m:
         level, text = len(m.group(1)), m.group(2)
         for n in _walk(payload["blocks"]):
-            if n["text"] == text:
+            if n["heading"] == level and n["text"] == text:
                 return n["uid"], None
         return None, (level, text)
     raise BuildError(
@@ -293,6 +303,16 @@ def asset_block_text(filename: str, mime: str, url: str) -> str:
     return f"[{filename}]({url})"
 
 
+def create_page_ops(titles: Iterable[str]) -> list[dict]:
+    """`create_page` ops for pages that don't exist yet, meant to be
+    prepended to a planned batch's ops so a missing page's creation rides
+    inside the same atomic OpBatch as the blocks that reference it
+    (pkm-w80k) -- a batch that fails validation after this point leaves
+    neither the page nor its blocks behind, instead of the page having
+    already been committed via a separate request."""
+    return [{"op": "create_page", "page_title": t} for t in titles]
+
+
 def referenced_pages(commands: list[dict]) -> list[str]:
     """Page titles a batch's commands need fetched (in first-seen order),
     so the shell knows what to fetch/create before planning."""
@@ -417,5 +437,5 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
 __all__ = [
     "BuildError", "parse_outline", "next_child_idx", "resolve_parent",
     "split_heading", "plan_save", "plan_update", "plan_mark",
-    "asset_block_text", "referenced_pages", "plan_batch",
+    "asset_block_text", "referenced_pages", "plan_batch", "create_page_ops",
 ]

@@ -12,8 +12,9 @@ from mcp.server.fastmcp import FastMCP
 
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
-from pkm.cli.build import (asset_block_text, plan_batch, plan_mark,
-                           plan_save, plan_update, referenced_pages)
+from pkm.cli.build import (asset_block_text, create_page_ops, plan_batch,
+                           plan_mark, plan_save, plan_update,
+                           referenced_pages)
 from pkm.cli.render import (render_assets, render_backlinks, render_block,
                             render_groups, render_page, render_search)
 from pkm.server.daily import title_for_date
@@ -33,17 +34,6 @@ def _client() -> PkmClient:
 
 def _uids():
     return iter(client_api.new_uid, None)
-
-
-def _ensure_page(client: PkmClient, title: str) -> dict:
-    from pkm.client.core import ApiError
-    try:
-        return client.get_page(title)
-    except ApiError as e:
-        if e.status != 404:
-            raise
-        client.create_page(title)
-        return client.get_page(title)
 
 
 def get_page(title: str, resolve_refs: bool = False) -> str:
@@ -100,10 +90,11 @@ def save_note(text: str, page: str | None = None,
     with {{TODO}}."""
     client = _client()
     title = page if page is not None else title_for_date(date.today())
-    payload = _ensure_page(client, title)
-    ops = plan_save(payload, title, parent, text, todo, uids=_uids())
+    payload, missing = client.get_page_or_placeholder(title)
+    save_ops = plan_save(payload, title, parent, text, todo, uids=_uids())
+    ops = (create_page_ops([title]) if missing else []) + save_ops
     client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    return "\n".join(f"created ^{op['uid']}" for op in ops)
+    return "\n".join(f"created ^{op['uid']}" for op in save_ops)
 
 
 def update_block(uid: str, text: str | None = None,
@@ -144,8 +135,12 @@ def batch(commands: list[dict]) -> str:
     heading at that level; an `update` text sets or clears the level the
     same way."""
     client = _client()
-    pages = {t: _ensure_page(client, t) for t in referenced_pages(commands)}
-    ops = plan_batch(commands, pages, uids=_uids())
+    fetched = {t: client.get_page_or_placeholder(t)
+              for t in referenced_pages(commands)}
+    pages = {t: payload for t, (payload, _) in fetched.items()}
+    missing = [t for t, (_, is_missing) in fetched.items() if is_missing]
+    ops = (create_page_ops(missing)
+          + plan_batch(commands, pages, uids=_uids()))
     result = client.post_ops(ops, batch_id=uuid.uuid4().hex)
     return f"applied {result['applied']} ops"
 
@@ -161,11 +156,13 @@ def upload_asset(path: str, page: str | None = None,
     client = _client()
     asset = client.upload(p)
     title = page if page is not None else title_for_date(date.today())
-    payload = _ensure_page(client, title)
+    payload, missing = client.get_page_or_placeholder(title)
     text = asset_block_text(asset["filename"], asset["mime"], asset["url"])
-    ops = plan_save(payload, title, parent, text, todo=False, uids=_uids())
+    save_ops = plan_save(payload, title, parent, text, todo=False,
+                         uids=_uids())
+    ops = (create_page_ops([title]) if missing else []) + save_ops
     client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    return f"{asset['url']}\ncreated ^{ops[0]['uid']}"
+    return f"{asset['url']}\ncreated ^{save_ops[0]['uid']}"
 
 
 def search_assets(q: str, limit: int = 20) -> str:

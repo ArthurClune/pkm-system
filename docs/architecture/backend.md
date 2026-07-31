@@ -187,6 +187,10 @@ Key mechanics:
   manufacture conflicts). On mismatch the incoming edit wins but the losing
   text is preserved as a `[[conflict]]` sibling block; an edit to a
   since-deleted block is appended to today's daily page instead of vanishing.
+  The sibling's uid is minted by the server's own generator (`ops_apply.py`),
+  independently alphanumeric-first as of pkm-y5yv (see below) — the same
+  invariant every uid minter in this project now holds, so the CLI can
+  address it without `--`.
 - **Idempotency.** A retried batch (same `batch_id` + identical canonical
   request hash) replays the stored ack with no effects; same id with a
   different payload is a 409. This is what makes offline queue replay safe.
@@ -395,6 +399,11 @@ and broadcasts as the web client.
   guard — deliberately never `set_heading`), `split_heading` (strips
   `#`/`##`/`###` off a line into a heading level 1-3),
   `asset_block_text` (MIME → image embed / `{{[[pdf]]}}` macro / link).
+  A `## Heading` parent spec matches on level and text together, first
+  in document order if more than one block matches; the in-batch memo
+  for headings created earlier in the same batch follows the same
+  rule, so a heading resolves to the same parent whether it came from
+  the fetched page or from earlier in the batch.
   `cli/render.py` (Core) renders API payloads to terminal markdown.
 - Text is the source of truth for a block's heading level on every CLI/MCP
   write: `split_heading` runs in `_Planner.creates` (the one call site every
@@ -421,6 +430,32 @@ and broadcasts as the web client.
   instead.
 - Writes go through `POST /api/ops` with a fresh `batch_id`; `pkm update`
   fetches current text first and rides the `base_text_hash` conflict path.
+- Every uid minter in this project — `client/api.py::new_uid` (Python
+  CLI/MCP client), `server/ops_apply.py::_new_uid` (the conflict-sibling
+  uid, server-side), and `web/src/uid.ts::newUid` (the SPA, via
+  `uidCore.ts::isAlphanumericByte`) — resamples until the first character
+  is alphanumeric (pkm-y5yv). `UID_RE` (`ops_core.py`) itself is unchanged
+  and still *accepts* a leading `-`/`_`, so existing blocks whose uid
+  predates pkm-y5yv (a Roam import, or a block created by a pre-pkm-y5yv
+  web app build) can still have one. A bare uid CLI argument starting with
+  `-` is parsed by argparse as an unknown option; `pkm get` and `pkm
+  update` take a uid as a plain positional, so addressing one of those
+  older uids requires the standard argparse `--` end-of-options marker,
+  e.g. `pkm get -- -abc123`; any `-D`/`-T`/etc. flags must come before the
+  `--`, since everything after it is positional. Any future tightening of
+  `UID_RE` to reject a leading `-`/`_` must apply to newly-minted uids
+  only — existing blocks with one already in the database must stay
+  addressable by uid for updates/moves, which a naive regex change would
+  break (needs its own migration-aware bean).
+- A page a write targets that doesn't exist yet is never created via a
+  separate request: `PkmClient.get_page_or_placeholder` returns an empty
+  placeholder (`{"blocks": []}`) instead, and the shell (`cmd_save`/
+  `cmd_batch`/`cmd_upload` in the CLI, `save_note`/`batch`/`upload_asset` in
+  the MCP server) prepends a `create_page` op (`build.create_page_ops`) to
+  the same `OpBatch` the planned blocks ride in. That keeps the "one atomic
+  transaction" contract real: a batch that fails validation after this
+  point leaves neither the page nor its blocks behind, since the whole
+  batch (including the page's creation) rolls back together (pkm-w80k).
 - The MCP server exposes eleven tools — seven reads (`get_page`,
   `get_block`, `search`, `query`, `backlinks`, `todos`, `search_assets`) and
   four writes (`save_note`, `update_block`, `batch`, `upload_asset`) — built

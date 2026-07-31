@@ -43,6 +43,14 @@ A `query` with `total: 0` also returns `ref_counts` per operand; the
 rendered output prints "per-ref block counts: ..." so you can tell a typo'd
 operand from operands that just don't intersect.
 
+`pkm get`/`pkm update` take a uid as a plain positional. Uids minted by any
+of this project's uid generators (CLI client, server, or web app) as of
+pkm-y5yv always start with a letter or digit, but a leading "-" is still
+possible — from an import, or a block created by a web app version
+pre-dating pkm-y5yv — and argparse will otherwise read it as an unknown
+option. Use `--` to end option parsing, flags before it: `pkm get --
+-abc123wxyz9`, `pkm update -D -- -abc123wxyz9`.
+
 ## Write verbs
 
     pkm save [-p "Page"] [--parent "## H"|"((uid))"] [--todo] "text" | -

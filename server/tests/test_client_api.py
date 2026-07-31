@@ -12,6 +12,17 @@ def test_new_uid_matches_server_uid_re():
     uids = {new_uid() for _ in range(50)}
     assert len(uids) == 50
     assert all(UID_RE.fullmatch(u) for u in uids)
+    assert all(u[0].isalnum() for u in uids)
+
+
+def test_new_uid_retries_until_first_char_is_alphanumeric(monkeypatch):
+    # secrets.token_urlsafe can legally return a leading '-' or '_'; argparse
+    # then treats a bare-uid CLI argument as an option (pkm-y5yv). Drive the
+    # generator through two rejects before a good candidate.
+    candidates = iter(["-leadingdash1", "_leadingunderscore2", "goodstart123"])
+    monkeypatch.setattr(client_api.secrets, "token_urlsafe",
+                        lambda n: next(candidates))
+    assert new_uid() == "goodstart123"
 
 
 def test_config_path_env_override(monkeypatch, tmp_path):
@@ -137,6 +148,22 @@ def test_search_and_scan_assets(pkm_client, client):
     assert found["assets"][0]["filename"] == "cli.png"
     scanned = pkm_client.scan_assets(force=True)
     assert set(scanned) == {"queued", "enabled", "reason"}
+
+
+def test_get_page_or_placeholder_returns_existing_page(pkm_client):
+    payload, missing = pkm_client.get_page_or_placeholder("AI")
+    assert missing is False
+    assert payload["page"]["title"] == "AI"
+
+
+def test_get_page_or_placeholder_missing_page_is_not_created(pkm_client):
+    payload, missing = pkm_client.get_page_or_placeholder("Brand New Page")
+    assert missing is True
+    assert payload["blocks"] == []
+    # must not have created the page as a side effect (pkm-w80k)
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New Page")
+    assert e.value.status == 404
 
 
 def test_unauthenticated_client_gets_login_hint(anon_client):

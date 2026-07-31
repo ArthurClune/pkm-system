@@ -18,8 +18,8 @@ import httpx2
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
-from pkm.cli.build import (BuildError, asset_block_text, plan_batch,
-                           plan_mark, plan_save, plan_update,
+from pkm.cli.build import (BuildError, asset_block_text, create_page_ops,
+                           plan_batch, plan_mark, plan_save, plan_update,
                            referenced_pages)
 from pkm.cli.render import (RenderError, clip_depth, render_assets,
                             render_backlinks, render_block, render_groups,
@@ -49,6 +49,11 @@ target forms:
                                  e.g. pkm get abcd1234wxyz -- if no
                                  block matches, falls back to a page
                                  lookup on that same string
+
+a uid starting with "-" (from an import, or created before pkm-y5yv --
+no uid this CLI mints ever starts that way) looks like an option to
+argparse -- address it with the standard "--" end-of-options marker,
+e.g. pkm get -- -abc123wxyz9
 
 flags:
   --uids           annotate each block with a trailing ^uid marker
@@ -120,10 +125,12 @@ nests one level deeper than its parent line. A line may not jump more
 than one level deeper than the line before it.
 
 --parent nests the new block(s) under an existing block, given as
-either "## Heading" (a heading with that exact text; created at page
-top level first if it doesn't already exist) or "((uid))" (an
-existing block's uid). Without --parent, blocks are appended at page
-top level. Without -p/--page, the target is today's daily note.
+either "## Heading" (a heading at that level with that exact text --
+if more than one matches, the first in document order; created at
+page top level first if no heading at that level and text exists) or
+"((uid))" (an existing block's uid). Without --parent, blocks are
+appended at page top level. Without -p/--page, the target is today's
+daily note.
 
 --todo prefixes only the top-level item(s) with {{TODO}}.
 
@@ -159,6 +166,11 @@ heading it had. -D and -T only change the task marker and never touch
 the heading level. Since `pkm get` prints a heading AS "## text", a
 fetch-then-update round trip preserves the level on its own.
 
+A uid starting with "-" (from an import, or created before pkm-y5yv --
+no uid this CLI mints ever starts that way) looks like an option to
+argparse -- address it with "--", putting any -D/-T flag before it:
+pkm update -- -abc123wxyz9 "new text" or pkm update -D -- -abc123wxyz9
+
 example:
   pkm update abcd1234wxyz "Finalize the report"
   pkm update abcd1234wxyz -D
@@ -190,7 +202,7 @@ read from stdin, as one atomic write. Commands and their params:
       "{{name}}". A text beginning "# ", "## " or "### " becomes a
       heading block at that level (1-3), hashes not stored; a heading
       created this way also satisfies a later "## Heading" parent for
-      the same text rather than creating a second one.
+      the same level and text rather than creating a second one.
   todo     same params as create; text is stored {{TODO}}-prefixed.
   update   {uid, text}
       replaces a block's text (uid may be "{{alias}}"). A text
@@ -219,14 +231,17 @@ read from stdin, as one atomic write. Commands and their params:
 
 parent (create/todo/outline) accepts, and move's destination accepts
 except where noted:
-  "## Heading"   a heading with that exact text; create/todo/outline
-                 create it once at page top level if missing --
-                 repeating the same missing "## Heading" text (same
-                 page, same level) elsewhere in the batch reuses that
-                 one heading rather than creating it again (a repeat
-                 on a different page, or at a different level, e.g.
-                 "###", makes its own heading). move requires the
-                 heading to already exist; see above.
+  "## Heading"   a heading at that level with that exact text -- if
+                 more than one matches (on the page, or created
+                 earlier in this batch), the first in document order;
+                 create/todo/outline create it once at page top level
+                 if no heading at that level and text exists yet --
+                 repeating the same missing "## Heading" (same page,
+                 same level, same text) elsewhere in the batch reuses
+                 that one heading rather than creating it again (a
+                 different page, level, or text makes its own
+                 heading). move requires a matching heading to already
+                 exist; see above.
   "((uid))"      an existing block's uid
   "{{alias}}"    a block created earlier in this same batch via "as"
 
@@ -357,28 +372,19 @@ def _read_text_arg(text: str | None) -> str:
     return text
 
 
-def _ensure_page(client: PkmClient, title: str) -> dict:
-    try:
-        return client.get_page(title)
-    except ApiError as e:
-        if e.status != 404:
-            raise
-        client.create_page(title)
-        return client.get_page(title)
-
-
 def _default_page(page: str | None) -> str:
     return page if page is not None else title_for_date(date.today())
 
 
 def cmd_save(args: argparse.Namespace, client: PkmClient) -> int:
     title = _default_page(args.page)
-    payload = _ensure_page(client, title)
-    ops = plan_save(payload, title, args.parent,
-                    _read_text_arg(args.text), args.todo,
-                    uids=iter(client_api.new_uid, None))
+    payload, missing = client.get_page_or_placeholder(title)
+    save_ops = plan_save(payload, title, args.parent,
+                         _read_text_arg(args.text), args.todo,
+                         uids=iter(client_api.new_uid, None))
+    ops = (create_page_ops([title]) if missing else []) + save_ops
     client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    for op in ops:
+    for op in save_ops:
         print(f"created ^{op['uid']}")
     return 0
 
@@ -408,12 +414,13 @@ def cmd_upload(args: argparse.Namespace, client: PkmClient) -> int:
     if args.no_block:
         return 0
     title = _default_page(args.page)
-    payload = _ensure_page(client, title)
+    payload, missing = client.get_page_or_placeholder(title)
     text = asset_block_text(asset["filename"], asset["mime"], asset["url"])
-    ops = plan_save(payload, title, args.parent, text, todo=False,
-                    uids=iter(client_api.new_uid, None))
+    save_ops = plan_save(payload, title, args.parent, text, todo=False,
+                         uids=iter(client_api.new_uid, None))
+    ops = (create_page_ops([title]) if missing else []) + save_ops
     client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    print(f"created ^{ops[0]['uid']}")
+    print(f"created ^{save_ops[0]['uid']}")
     return 0
 
 
@@ -427,9 +434,13 @@ def cmd_batch(args: argparse.Namespace, client: PkmClient) -> int:
     if not isinstance(commands, list):
         print("batch input must be a JSON array", file=sys.stderr)
         return 1
-    pages = {title: _ensure_page(client, title)
-             for title in referenced_pages(commands)}
-    ops = plan_batch(commands, pages, uids=iter(client_api.new_uid, None))
+    fetched = {title: client.get_page_or_placeholder(title)
+              for title in referenced_pages(commands)}
+    pages = {title: payload for title, (payload, _) in fetched.items()}
+    missing = [title for title, (_, is_missing) in fetched.items()
+              if is_missing]
+    ops = (create_page_ops(missing)
+          + plan_batch(commands, pages, uids=iter(client_api.new_uid, None)))
     result = client.post_ops(ops, batch_id=uuid.uuid4().hex)
     print(f"applied {result['applied']} ops")
     return 0

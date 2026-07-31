@@ -39,6 +39,33 @@ def test_get_today_creates_and_renders_daily(run):
     assert out.startswith(f"# {title_for_date(date.today())}\n")
 
 
+def test_get_addresses_a_legacy_leading_dash_uid_via_double_dash(
+        run, pkm_client):
+    # Pre-pkm-y5yv uids (e.g. imported from Roam) can begin with '-'; a bare
+    # CLI argument like that is swallowed by argparse as an unknown option,
+    # so the documented workaround is `--` to end option parsing.
+    legacy_uid = "-legacy1a2b3c"
+    pkm_client.post_ops([
+        {"op": "create", "uid": legacy_uid, "page_title": "AI",
+         "parent_uid": None, "order_idx": 50, "text": "legacy dash block"},
+    ], batch_id="legacy-dash-get")
+    code, out, _ = run("get", "--", legacy_uid)
+    assert code == 0
+    assert "legacy dash block" in out
+
+
+def test_get_a_leading_dash_uid_without_double_dash_is_rejected_by_argparse(
+        run, pkm_client):
+    legacy_uid = "-legacy1a2b3c"
+    pkm_client.post_ops([
+        {"op": "create", "uid": legacy_uid, "page_title": "AI",
+         "parent_uid": None, "order_idx": 51, "text": "legacy dash block 2"},
+    ], batch_id="legacy-dash-get-noguard")
+    with pytest.raises(SystemExit) as e:
+        run("get", legacy_uid)
+    assert e.value.code == 2
+
+
 def test_get_block_by_uid(run):
     code, out, _ = run("get", "uid_b3")
     assert code == 0

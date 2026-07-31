@@ -4,6 +4,7 @@ import json
 import pytest
 
 from pkm.cli.main import main
+from pkm.client.core import ApiError
 from pkm.server.daily import title_for_date
 
 
@@ -139,6 +140,32 @@ def test_batch_atomic_create_with_alias(run, pkm_client):
     assert [c["text"] for c in mtg["children"]] == ["Attendees", "Actions"]
 
 
+def test_save_empty_text_on_new_page_leaves_no_page_behind(run, pkm_client):
+    # plan_save rejects empty text after the page would already have been
+    # fetched/created -- the page must not persist when the save as a
+    # whole fails (pkm-w80k: page creation rides the same atomic batch).
+    code, _, err = run("save", "-p", "Brand New Page", "")
+    assert code == 1
+    assert "empty" in err
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New Page")
+    assert e.value.status == 404
+
+
+def test_batch_failure_after_new_page_leaves_no_page_or_blocks(run, pkm_client):
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Brand New Page", "text": "hello"}},
+        {"command": "zap", "params": {}},
+    ]
+    code, _, err = run("batch", stdin=json.dumps(cmds))
+    assert code == 1
+    assert "unknown command" in err
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New Page")
+    assert e.value.status == 404
+
+
 def test_batch_bad_json_exits_1(run):
     code, _, err = run("batch", stdin="not json")
     assert code == 1
@@ -180,3 +207,33 @@ def test_update_done_flag_keeps_the_heading(run, pkm_client):
     run("update", "uid_b6", "-D")
     block = pkm_client.get_block("uid_b6")["block"]
     assert (block["text"], block["heading"]) == ("{{DONE}} Task x", 2)
+
+
+def test_update_addresses_a_legacy_leading_dash_uid_via_double_dash(
+        run, pkm_client):
+    # Same argparse hazard as `pkm get`: a uid starting with '-' must be
+    # addressed with `--` to end option parsing (pkm-y5yv).
+    legacy_uid = "-legacy1a2b3c"
+    pkm_client.post_ops([
+        {"op": "create", "uid": legacy_uid, "page_title": "AI",
+         "parent_uid": None, "order_idx": 52, "text": "legacy dash block"},
+    ], batch_id="legacy-dash-update")
+    code, out, _ = run("update", "--", legacy_uid, "rewritten legacy block")
+    assert code == 0
+    assert out == f"updated ^{legacy_uid}\n"
+    assert pkm_client.get_block(legacy_uid)["block"]["text"] == \
+        "rewritten legacy block"
+
+
+def test_update_done_flag_on_a_legacy_leading_dash_uid_puts_flags_before_the_guard(
+        run, pkm_client):
+    # -D/-T must come before `--` since everything after it is positional.
+    legacy_uid = "-legacy4d5e6f"
+    pkm_client.post_ops([
+        {"op": "create", "uid": legacy_uid, "page_title": "AI",
+         "parent_uid": None, "order_idx": 53, "text": "{{TODO}} legacy task"},
+    ], batch_id="legacy-dash-update-done")
+    code, _, _ = run("update", "-D", "--", legacy_uid)
+    assert code == 0
+    assert pkm_client.get_block(legacy_uid)["block"]["text"] == \
+        "{{DONE}} legacy task"

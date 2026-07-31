@@ -41,6 +41,11 @@ class Export:
     orphan_block_count: int
     skipped_entities: int
     attr_counts: dict[str, int]
+    # Root blocks of every subtree unreachable from a page, each with its
+    # own internal structure intact (uid/text/children), so a caller can
+    # recover them instead of discarding them. orphan_block_count counts
+    # every block in these subtrees, not just the roots.
+    orphan_blocks: tuple[Block, ...] = ()
 
 
 def _view_type(value: Any) -> Literal["numbered", "document"] | None:
@@ -113,17 +118,65 @@ def parse_export(db: object) -> Export:
             children=_children(ent, frozenset({eid})),
         ))
 
-    reached: set[str] = set()
+    # `built` already holds exactly the blocks reached by walking down from
+    # a page (populated by the `build` calls above), keyed by entity id.
+    reached_eids = set(built.keys())
+    all_block_eids = {eid for eid, ent in entities.items() if is_block(ent)}
+    unreached_eids = all_block_eids - reached_eids
 
-    def walk(b: Block) -> None:
-        reached.add(b.uid)
-        for c in b.children:
-            walk(c)
+    # A parent pointer only counts if it comes from a real (is_block)
+    # entity: a stringless entity (uid but no :block/string, one of
+    # skipped_entities below) fails is_block and so is never even visited
+    # by build() -- it returns None before recursing into :block/children
+    # at all -- which would hide that entity's own real, text-bearing
+    # children just as thoroughly as if nothing pointed to them.
+    parent_of: dict[int, int] = {
+        c: eid for eid, ent in entities.items() if is_block(ent)
+        for c in ent.get(":block/children", [])
+    }
 
-    for p in pages:
-        for b in p.children:
-            walk(b)
-    all_uids = {ent[":block/uid"] for ent in entities.values() if is_block(ent)}
+    def uid_of(eid: int) -> str:
+        return entities[eid][":block/uid"]
+
+    # Pass 1: an unreached block with no (valid) parent is a genuine root.
+    # build()'s ordinary top-down recursion from each one is duplicate-free
+    # by construction -- it only ever descends into :block/children, so it
+    # can never visit the same eid twice by a different path.
+    natural_roots = sorted((eid for eid in unreached_eids if eid not in parent_of),
+                           key=uid_of)
+    orphan_blocks_list = [
+        block for eid in natural_roots
+        if (block := build(eid, frozenset())) is not None
+    ]
+
+    # Pass 2: anything still unbuilt has a parent that is itself unreached
+    # (by pass 1's construction), which can only happen inside a cycle (A's
+    # only pointer is from B, B's only pointer is from A, ... with maybe
+    # ordinary subtrees hanging off any cycle member in the forward
+    # direction). Naively rooting at whichever leftover eid sorts first
+    # would often pick a hanging descendant rather than the cycle itself
+    # -- e.g. child C of cycle member A: rooting at C alone misses A and B
+    # entirely, and rooting at A afterwards would then attach the
+    # already-built C a second time, as A's own child, emitting it twice.
+    # Walking each leftover eid's parent chain until a node repeats always
+    # lands on an actual cycle member (every leftover eid has a parent, so
+    # the walk can't run off the end, and it's finite so it must repeat);
+    # build()'s existing ancestor-trail cycle guard then prunes the
+    # closing back-edge, and rooting there reaches the whole component --
+    # the cycle plus every subtree hanging off it -- in one pass.
+    remaining = sorted((eid for eid in unreached_eids if eid not in built), key=uid_of)
+    for start in remaining:
+        if start in built:
+            continue
+        seen: list[int] = []
+        cursor = start
+        while cursor not in seen:
+            seen.append(cursor)
+            cursor = parent_of[cursor]
+        if (block := build(cursor, frozenset())) is not None:
+            orphan_blocks_list.append(block)
+
+    orphan_blocks = tuple(orphan_blocks_list)
 
     # Count skipped entities: those with uid but no string (excluding pages)
     skipped_entities = len({ent[":block/uid"] for ent in entities.values()
@@ -131,7 +184,8 @@ def parse_export(db: object) -> Export:
 
     return Export(
         pages=tuple(sorted(pages, key=lambda p: p.title)),
-        orphan_block_count=len(all_uids - reached),
+        orphan_block_count=len(unreached_eids),
         skipped_entities=skipped_entities,
         attr_counts=attr_counts,
+        orphan_blocks=orphan_blocks,
     )

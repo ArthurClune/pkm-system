@@ -321,14 +321,51 @@ flowchart TD
     F["linked-files dir"] --> G["hash + index files (sha256)"]
     C --> D["rows.py — trees → SQL rows, implicit pages, refs (Core)"]
     G --> D
-    D -- "firebase URLs → /assets/… (assets.py)<br/>mermaid component blocks → fenced (mermaid.py)" --> D
+    D -- "firebase URLs → /assets/… (assets.py)<br/>mermaid component blocks → fenced (mermaid.py)<br/>orphan subtrees → recovery page" --> D
     D --> E["write pkm.sqlite3.tmp + copy assets"]
-    E --> H["atomic os.replace into place"]
-    H --> I["import-report.txt — nothing silently dropped"]
+    E --> R["render + write import-report.txt.tmp (Core render, Shell write)"]
+    R --> H["atomic os.replace: db, then report"]
 ```
 
 Roam block uids, ordering and timestamps are preserved, so every existing
-`((block ref))` and daily-note link keeps resolving.
+`((block ref))` and daily-note link keeps resolving. Mermaid conversion
+(above) is the one place this could otherwise fail silently — flattening a
+component block's descendants into a single fenced block drops their rows
+— so both `rows.py` and the one-off `migrate_mermaid_blocks.py` migration
+check, before flattening, whether any descendant that would be dropped is
+still targeted by an inbound `((uid))` from outside the subtree; if so,
+that whole subtree is left as ordinary nested blocks instead (uid/text/
+children intact) and the skip is reported (`Rows.mermaid_preserved_refs`,
+surfaced in the import report; `migrate_mermaid_blocks.py`'s `Plan.preserved`,
+printed by both `--dry-run` and a normal run before any deletion happens).
+
+Blocks with a `:block/uid` and `:block/string` that Roam's export leaves
+unreachable from any page (`parse_export.py`'s `Export.orphan_blocks`) are
+not dropped: each unreachable subtree's root, with its internal
+uid/text/children structure intact, is attached under a deterministic
+`"Import recovery: unreachable blocks"` page (`rows.py`'s
+`RECOVERY_PAGE_TITLE`, suffixed `" (2)"` etc. on the rare chance a page
+already has that title) so every `((block ref))` into one still resolves.
+A root is found in two passes: first, any unreached block with no *valid*
+parent (a parent entity that itself has `:block/string`, since one that
+doesn't fails `is_block` and is never visited at all — its real children
+would otherwise vanish right along with it) becomes a root directly, which
+also naturally recovers cyclic subtrees hanging off some other root's
+descendants; second, anything still unbuilt lives entirely inside a cycle
+with no such entry point (`A`'s only pointer is from `B`, `B`'s only
+pointer is from `A`, ...), so its parent chain is walked until a node
+repeats and that node is rooted instead — never an arbitrary member, since
+that could root a non-cycle branch first and later re-attach it a second
+time under its real parent (a real `blocks.uid` primary-key collision, not
+just a documentation nicety). Only entities with no `:block/string` at all
+(`skipped_entities` — no text to reconstruct even from a subtree) are still
+just counted, never appearing on the recovery page themselves. The
+report is fully rendered and written to a `.tmp` file, and only then is the
+database swapped in, followed by the report itself — if any preflight step
+(row-building, populating the tmp db, copying assets, rendering the report)
+raises, both `.tmp` files are removed and the existing database and report
+are left exactly as they were; a report failure can no longer hide behind
+an already-published database.
 
 ## Export and backup
 

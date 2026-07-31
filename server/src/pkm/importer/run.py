@@ -106,24 +106,39 @@ def main(argv: list[str] | None = None) -> int:
             shutil.copyfile(src, dest_tmp)
             os.replace(dest_tmp, dest)
 
-    os.replace(tmp, out / "pkm.sqlite3")
+    # All fallible preflight work (parsing, row-building, populating the
+    # tmp db, copying assets, rendering and writing the report) must
+    # complete before either atomic swap below. If any of it raises, the
+    # existing pkm.sqlite3 and import-report.txt are untouched -- a report
+    # failure must never hide behind an already-published database.
+    report_tmp = out / "import-report.txt.tmp"
+    try:
+        report = ImportReport(
+            pages=len(rows.pages),
+            implicit_pages=rows.implicit_page_count,
+            blocks=len(rows.blocks),
+            refs=len(rows.refs),
+            orphan_blocks=export.orphan_block_count,
+            skipped_entities=export.skipped_entities,
+            block_ref_count=rows.block_ref_count,
+            embed_count=rows.embed_count,
+            assets_total=len(unique_assets),
+            assets_used=len(used),
+            missing_asset_urls=tuple(sorted(missing)),
+            attr_counts=export.attr_counts,
+            recovery_page_title=rows.recovery_page_title,
+            mermaid_preserved_refs=rows.mermaid_preserved_refs,
+        )
+        text = render(report)
+        report_tmp.write_text(text, encoding="utf-8")
 
-    report = ImportReport(
-        pages=len(rows.pages),
-        implicit_pages=rows.implicit_page_count,
-        blocks=len(rows.blocks),
-        refs=len(rows.refs),
-        orphan_blocks=export.orphan_block_count,
-        skipped_entities=export.skipped_entities,
-        block_ref_count=rows.block_ref_count,
-        embed_count=rows.embed_count,
-        assets_total=len(unique_assets),
-        assets_used=len(used),
-        missing_asset_urls=tuple(sorted(missing)),
-        attr_counts=export.attr_counts,
-    )
-    text = render(report)
-    (out / "import-report.txt").write_text(text, encoding="utf-8")
+        os.replace(tmp, out / "pkm.sqlite3")
+        os.replace(report_tmp, out / "import-report.txt")
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        report_tmp.unlink(missing_ok=True)
+        raise
+
     print(text, end="")
     return 0
 

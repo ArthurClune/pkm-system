@@ -67,12 +67,18 @@ export function PageTitle({ title }: { title: string }) {
         {/* The affordance is a real button inside the heading (pkm-l4z8):
           * an onClick on the <h1> itself was unreachable from the keyboard.
           * The heading keeps its place in the document outline and the button
-          * inherits its type, so nothing moves visually. */}
+          * inherits its type, so nothing moves visually. aria-label is fixed
+          * text rather than the title itself: an arbitrary title can contain
+          * any word (an e2e page named "...Cancel..." or "Merge A g0t5"
+          * turned this button into a second match for getByRole("button",
+          * { name: "Cancel" }) / { name: "Merge" }) elsewhere on the page --
+          * a strict-mode violation or a wrong-element click, deterministic
+          * every time such a title is used, not a timing flake. */}
         <h1 className={`page-title${editable ? " page-title-editable" : ""}`}>
           {editable
             ? (
               <button type="button" className="page-title-edit"
-                      onClick={startEditing}>
+                      aria-label="Edit title" onClick={startEditing}>
                 {title}
               </button>
             )

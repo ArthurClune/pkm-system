@@ -573,4 +573,14 @@ describe("in-heading trigger buttons inherit their heading (pkm-l4z8)", () => {
     expect(rule).toContain("border: none;");
     expect(rule).toContain("background: none;");
   });
+
+  // Regression: an inline-block button sized to its chevron+text left a wide
+  // dead zone across the rest of the header row where the old <h2 onClick>
+  // used to respond -- clicking there silently did nothing (caught by
+  // link-reference.spec.ts, not by a unit test, since jsdom has no layout).
+  test("the section toggle spans the full header, matching the page-title edit button", () => {
+    const rule = rulesFor(".section-toggle");
+    expect(rule).toContain("display: block;");
+    expect(rule).toContain("width: 100%;");
+  });
 });

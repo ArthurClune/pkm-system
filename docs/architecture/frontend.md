@@ -439,7 +439,21 @@ Four traps when working on this:
   `letter-spacing: inherit` / `text-transform: inherit`, which `font` does not
   carry) and take the standard ring. The collapsible one owns `aria-expanded`
   and marks its chevron `aria-hidden`. `BacklinksSection`'s `.filter-toggle`
-  is the same in-heading pattern where a visible button *is* wanted.
+  is the same in-heading pattern where a visible button *is* wanted. Both
+  triggers need `display: block; width: 100%` — an inline-block button sizes
+  to its chevron-plus-label content, not the header's full width, so without
+  it a click anywhere else in the header row (the old `<h2 onClick>`'s whole
+  hit area) silently does nothing; `styles.test.ts` asserts both properties
+  on `.section-toggle` for this reason, matching `.page-title-edit`.
+  `.page-title-edit`'s accessible name is a fixed `aria-label="Edit title"`,
+  not the title text it displays: an arbitrary page title can contain any
+  word, and exposing it as the button's name made it a second, ambiguous
+  match for `getByRole("button", { name: … })` queries aimed at unrelated
+  dialog buttons elsewhere on the page (an e2e page titled `…Cancel…` or
+  `Merge A g0t5` collided with the confirm dialog's own "Cancel"/"Merge"
+  button — deterministic, not the machine-load flakes elsewhere in this
+  suite). Keep any future per-content accessible name off of small,
+  frequently-reused controls for the same reason.
 
 **Control boundary contrast is a known, measured deviation from WCAG 1.4.11**
 (pkm-xqir). `.btn-secondary`'s border is 1.30:1 against a panel surface in

@@ -25,6 +25,11 @@ class ImportReport:
     # (see pkm.importer.rows.RECOVERY_PAGE_TITLE), so the report says where
     # they landed instead of implying they were dropped.
     recovery_page_title: str | None = None
+    # (descendant_uid, external_source_uids) for every mermaid-subtree
+    # descendant kept as an ordinary nested block instead of being dropped
+    # by flattening (see pkm.importer.rows.to_rows), because a block
+    # outside the subtree still holds an inbound ((uid)) reference to it.
+    mermaid_preserved_refs: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 def render(r: ImportReport) -> str:
@@ -54,4 +59,11 @@ def render(r: ImportReport) -> str:
         lines += [f"  {u}" for u in sorted(r.missing_asset_urls)]
     else:
         lines.append("missing asset urls: none")
+    if r.mermaid_preserved_refs:
+        lines.append("mermaid subtrees preserved (referenced descendants): "
+                     f"{len(r.mermaid_preserved_refs)}")
+        lines += [f"  {uid} <- referenced by {', '.join(sources)}"
+                 for uid, sources in r.mermaid_preserved_refs]
+    else:
+        lines.append("mermaid subtrees preserved (referenced descendants): none")
     return "\n".join(lines) + "\n"

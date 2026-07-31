@@ -127,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             missing_asset_urls=tuple(sorted(missing)),
             attr_counts=export.attr_counts,
             recovery_page_title=rows.recovery_page_title,
+            mermaid_preserved_refs=rows.mermaid_preserved_refs,
         )
         text = render(report)
         report_tmp.write_text(text, encoding="utf-8")

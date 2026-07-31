@@ -39,6 +39,23 @@ def test_render_all_clear_sections():
     assert "ignored attributes: none" in text
 
 
+def test_render_lists_mermaid_preserved_refs():
+    r = ImportReport(pages=1, implicit_pages=0, blocks=3, refs=0,
+                     orphan_blocks=0, skipped_entities=0,
+                     block_ref_count=1, embed_count=0,
+                     assets_total=0, assets_used=0,
+                     missing_asset_urls=(), attr_counts={":node/title": 1},
+                     mermaid_preserved_refs=(("uid-line2", ("uid-citer",)),))
+    text = render(r)
+    assert "mermaid subtrees preserved (referenced descendants): 1" in text
+    assert "uid-line2" in text and "uid-citer" in text
+
+
+def test_render_mermaid_preserved_refs_none_by_default():
+    text = render(REPORT)
+    assert "mermaid subtrees preserved (referenced descendants): none" in text
+
+
 def test_render_names_the_recovery_page_when_orphans_were_preserved():
     # Orphan blocks are no longer dropped, so the report must say where
     # they landed instead of implying they were never imported.

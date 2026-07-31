@@ -114,6 +114,41 @@ def test_childless_mermaid_mention_is_left_alone():
     assert ("uid-mention1", page_ids["mermaid"], "link") in rows.refs
 
 
+def test_unreferenced_mermaid_subtree_reports_no_preserved_refs():
+    rows = to_rows(MERMAID_EXPORT, lambda t: t)
+    assert rows.mermaid_preserved_refs == ()
+
+
+MERMAID_REF_EXPORT = Export(
+    pages=(
+        Page("Diagrams", None, None, (
+            _block("uid-mermaid2", "{{[[mermaid]]}}", children=(
+                _block("uid-refline1", "flowchart TB"),
+                _block("uid-refline2", "a --> b"),
+            )),
+            _block("uid-citer", "see ((uid-refline2)) for detail"),
+        )),
+    ),
+    orphan_block_count=0,
+    skipped_entities=0,
+    attr_counts={},
+)
+
+
+def test_externally_referenced_descendant_prevents_flattening():
+    rows = to_rows(MERMAID_REF_EXPORT, lambda t: t)
+    by_uid = {r[0]: r for r in rows.blocks}
+    # the referenced descendant's own row must survive -- flattening
+    # would have dropped it, breaking the ((uid-refline2)) reference
+    assert by_uid["uid-refline2"][4] == "a --> b"
+    assert by_uid["uid-refline2"][2] == "uid-mermaid2"  # still nested normally
+    assert by_uid["uid-refline1"][2] == "uid-mermaid2"
+    # the would-be component block is left as an ordinary block, not fenced
+    assert by_uid["uid-mermaid2"][4] == "{{[[mermaid]]}}"
+    # reported so the affected uid and its referrer are visible
+    assert ("uid-refline2", ("uid-citer",)) in rows.mermaid_preserved_refs
+
+
 def test_no_recovery_page_when_no_orphans():
     rows = to_rows(EXPORT, lambda t: t)
     assert rows.recovery_page_title is None

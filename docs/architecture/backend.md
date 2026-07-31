@@ -324,7 +324,16 @@ flowchart TD
 ```
 
 Roam block uids, ordering and timestamps are preserved, so every existing
-`((block ref))` and daily-note link keeps resolving.
+`((block ref))` and daily-note link keeps resolving. Mermaid conversion
+(below) is the one place this could otherwise fail silently — flattening a
+component block's descendants into a single fenced block drops their rows
+— so both `rows.py` and the one-off `migrate_mermaid_blocks.py` migration
+check, before flattening, whether any descendant that would be dropped is
+still targeted by an inbound `((uid))` from outside the subtree; if so,
+that whole subtree is left as ordinary nested blocks instead (uid/text/
+children intact) and the skip is reported (`Rows.mermaid_preserved_refs`,
+surfaced in the import report; `migrate_mermaid_blocks.py`'s `Plan.preserved`,
+printed by both `--dry-run` and a normal run before any deletion happens).
 
 Blocks with a `:block/uid` and `:block/string` that Roam's export leaves
 unreachable from any page (`parse_export.py`'s `Export.orphan_blocks`) are

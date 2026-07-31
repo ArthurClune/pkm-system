@@ -18,11 +18,17 @@ BLOCKS = [
     # unrelated block referencing "mermaid" only in passing text
     ("uid_plain", 1, None, 2, "not a diagram, just says [[mermaid]] in text",
      None, 0, None, None),
+    # another component block, but a descendant of it is externally referenced
+    ("uid_ref_component", 1, None, 3, "{{[[mermaid]]}}", None, 0, None, None),
+    ("uid_ref_line1", 1, "uid_ref_component", 0, "flowchart LR", None, 0, None, None),
+    ("uid_ref_line2", 1, "uid_ref_component", 1, "x --> y", None, 0, None, None),
+    ("uid_citer", 1, None, 4, "see ((uid_ref_line2)) for detail", None, 0, None, None),
 ]
 REFS = [
     ("uid_component", 2, "link"),  # from {{[[mermaid]]}}
     ("uid_mention", 2, "link"),    # from {{[[mermaid]]}}
     ("uid_plain", 2, "link"),      # from [[mermaid]] mention
+    ("uid_ref_component", 2, "link"),
 ]
 
 
@@ -67,6 +73,25 @@ def test_dry_run_reports_but_does_not_write(tmp_path, capsys):
     assert after_refs == before_refs
 
 
+def test_dry_run_reports_affected_uids_and_inbound_refs_for_preserved_descendants(
+    tmp_path, capsys
+):
+    db_path = _make_db(tmp_path)
+
+    rc = main(["--db", str(db_path), "--dry-run"])
+    assert rc == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    # the referenced descendant and its inbound referrer are both named
+    preserved_line = next(line for line in lines if "uid_ref_line2" in line)
+    assert "uid_citer" in preserved_line
+    assert "uid_ref_component" in preserved_line  # names which component it's under
+    # the component whose descendant is referenced must not be listed among
+    # the blocks that would be converted -- only its unreferenced sibling is
+    assert "  uid_component" in lines
+    assert "  uid_ref_component" not in lines
+
+
 def test_migration_converts_component_block_and_removes_descendants(tmp_path):
     db_path = _make_db(tmp_path)
 
@@ -91,6 +116,25 @@ def test_migration_converts_component_block_and_removes_descendants(tmp_path):
     assert ("uid_plain", 2, "link") in refs
 
 
+def test_migration_preserves_component_with_externally_referenced_descendant(tmp_path):
+    db_path = _make_db(tmp_path)
+
+    rc = main(["--db", str(db_path)])
+    assert rc == 0
+
+    blocks, refs = _rows(db_path)
+    # left as an ordinary (still-trigger) block, not flattened into a fence
+    assert blocks["uid_ref_component"]["text"] == "{{[[mermaid]]}}"
+    assert ("uid_ref_component", 2, "link") in refs
+    # both descendants survive, structure intact -- the reference still resolves
+    assert blocks["uid_ref_line1"]["text"] == "flowchart LR"
+    assert blocks["uid_ref_line1"]["parent_uid"] == "uid_ref_component"
+    assert blocks["uid_ref_line2"]["text"] == "x --> y"
+    assert blocks["uid_ref_line2"]["parent_uid"] == "uid_ref_component"
+    # the referencing block is of course untouched too
+    assert blocks["uid_citer"]["text"] == "see ((uid_ref_line2)) for detail"
+
+
 def test_migration_is_idempotent(tmp_path, capsys):
     db_path = _make_db(tmp_path)
     assert main(["--db", str(db_path)]) == 0
@@ -111,17 +155,20 @@ def test_fts_reflects_migration(tmp_path):
     assert main(["--db", str(db_path)]) == 0
 
     con = sqlite3.connect(db_path)
-    # the source line is now inside the fenced parent block
+    # the source line is now inside the fenced parent block (searching
+    # "flowchart" alone would also hit uid_ref_line1's untouched, unrelated
+    # "flowchart LR" -- that block is correctly preserved, not a collision)
     hits = con.execute(
         "SELECT blocks.uid FROM blocks_fts JOIN blocks ON blocks.rowid = blocks_fts.rowid"
-        " WHERE blocks_fts MATCH 'flowchart'"
+        " WHERE blocks_fts MATCH 'TB'"
     ).fetchall()
     assert [h[0] for h in hits] == ["uid_component"]
 
-    # the deleted child blocks no longer show up in search at all
+    # the deleted child blocks no longer show up in search at all (searching
+    # "detail" alone would also hit uid_citer's unrelated "for detail" text)
     hits = con.execute(
         "SELECT blocks.uid FROM blocks_fts JOIN blocks ON blocks.rowid = blocks_fts.rowid"
-        " WHERE blocks_fts MATCH 'detail'"
+        " WHERE blocks_fts MATCH 'nested'"
     ).fetchall()
     assert [h[0] for h in hits] == ["uid_component"]
     con.close()

@@ -6,7 +6,10 @@ Roam mermaid component blocks ({{[[mermaid]]}} with diagram-source child
 blocks, see pkm.importer.mermaid) are converted to a single fenced block
 here, before ref-extraction runs: the fence text replaces the component
 block's own text, and its children are consumed (not walked/emitted as
-their own block rows)."""
+their own block rows) -- unless a descendant that would be dropped is
+still targeted by an inbound ((uid)) reference from a block outside the
+subtree, in which case the whole subtree is left as ordinary nested
+blocks instead, so no referenced uid ever disappears."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -33,6 +36,46 @@ class Rows:
     block_ref_count: int
     embed_count: int
     recovery_page_title: str | None
+    # (descendant_uid, external_source_uids) for every mermaid-subtree
+    # descendant that was kept as an ordinary nested block, instead of
+    # being dropped by flattening, because something outside its own
+    # subtree still holds an inbound ((uid)) reference to it.
+    mermaid_preserved_refs: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+
+def _collect_block_ref_sources(export: Export) -> dict[str, set[str]]:
+    """Map every ((uid)) target anywhere in the export to the set of
+    source block uids that reference it. Scanned once, up front, over
+    every block's original text (including orphan subtrees) so a
+    mermaid subtree's flatten-or-keep decision can check for references
+    from outside itself before anything is walked or dropped."""
+    sources: dict[str, set[str]] = {}
+
+    def scan(b: Block) -> None:
+        for target in extract(b.text).block_refs:
+            sources.setdefault(target, set()).add(b.uid)
+        for child in b.children:
+            scan(child)
+
+    for p in export.pages:
+        for child in p.children:
+            scan(child)
+    for orphan in export.orphan_blocks:
+        scan(orphan)
+    return sources
+
+
+def _descendant_uids(b: Block) -> set[str]:
+    uids: set[str] = set()
+
+    def collect(node: Block) -> None:
+        uids.add(node.uid)
+        for child in node.children:
+            collect(child)
+
+    for child in b.children:
+        collect(child)
+    return uids
 
 
 def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
@@ -41,6 +84,8 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
     refs: list[tuple] = []
     page_ids: dict[str, int] = {}
     counts = {"block_ref": 0, "embed": 0}
+    block_ref_sources = _collect_block_ref_sources(export)
+    preserved_refs: list[tuple[str, tuple[str, ...]]] = []
 
     def page_id(title: str, created: int | None = None,
                 updated: int | None = None) -> int:
@@ -55,6 +100,17 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
 
     def walk(b: Block, pid: int, parent_uid: str | None, order_idx: int) -> None:
         fence = convert_to_fence(b.text, b.children)
+        if fence is not None:
+            subtree = _descendant_uids(b)
+            in_subtree = subtree | {b.uid}
+            referenced = [
+                (descendant_uid, tuple(sorted(external)))
+                for descendant_uid in sorted(subtree)
+                if (external := block_ref_sources.get(descendant_uid, set()) - in_subtree)
+            ]
+            if referenced:  # flattening would drop a referenced uid -- keep nested
+                fence = None
+                preserved_refs.extend(referenced)
         text = transform_text(fence if fence is not None else b.text)
         parsed = extract(text)  # runs on final text, so a fence has no [[mermaid]] ref
         blocks.append((b.uid, pid, parent_uid, order_idx, text, b.heading,
@@ -90,4 +146,5 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
                 implicit_page_count=implicit_page_count,
                 block_ref_count=counts["block_ref"],
                 embed_count=counts["embed"],
-                recovery_page_title=recovery_page_title)
+                recovery_page_title=recovery_page_title,
+                mermaid_preserved_refs=tuple(preserved_refs))

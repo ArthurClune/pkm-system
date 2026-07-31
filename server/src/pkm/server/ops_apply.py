@@ -17,8 +17,6 @@ from pkm.server.ops_core import (BlockInfo, CreateOp, CreatePageOp, DeleteBlocks
                                  UpdateTextOp, plan_op)
 from pkm.server.store import get_or_create_page
 
-_DEPTH_CAP = 100
-
 
 def _new_uid() -> str:
     return secrets.token_urlsafe(9)  # 12 chars of [A-Za-z0-9_-]: fits UID_RE
@@ -34,26 +32,36 @@ def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
 
 
 def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[str, ...]:
+    """uid and every ancestor above it, root last. Each block has exactly one
+    parent, so this is a single path -- but a corrupted DB could already
+    contain a cycle, so recursion is guarded by a visited-path check (`path`)
+    rather than a depth cap: it stops the instant a uid reappears, however
+    deep the real hierarchy runs, instead of silently truncating it."""
     rows = db.execute(
-        f"""WITH RECURSIVE chain(uid, parent_uid, depth) AS (
-              SELECT uid, parent_uid, 0 FROM blocks WHERE uid = ?
+        """WITH RECURSIVE chain(uid, parent_uid, path) AS (
+              SELECT uid, parent_uid, ',' || uid || ',' FROM blocks
+               WHERE uid = ?
               UNION ALL
-              SELECT b.uid, b.parent_uid, c.depth + 1
+              SELECT b.uid, b.parent_uid, c.path || b.uid || ','
                 FROM chain c JOIN blocks b ON b.uid = c.parent_uid
-               WHERE c.depth < {_DEPTH_CAP}
+               WHERE instr(c.path, ',' || b.uid || ',') = 0
             ) SELECT uid FROM chain""", (uid,)).fetchall()
     return tuple(r["uid"] for r in rows)
 
 
 def _subtree_deepest_first(db: sqlite3.Connection,
                            uid: str) -> tuple[str, ...]:
+    """uid and every descendant, deepest first (children before parents, as
+    DeleteBlocks and SetPageId both require). Same visited-path guard as
+    _parent_chain: a proper tree can't revisit a uid, so the guard only ever
+    fires on already-corrupted data, and otherwise traverses to full depth."""
     rows = db.execute(
-        f"""WITH RECURSIVE sub(uid, depth) AS (
-              SELECT uid, 0 FROM blocks WHERE uid = ?
+        """WITH RECURSIVE sub(uid, path, depth) AS (
+              SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
               UNION ALL
-              SELECT b.uid, s.depth + 1
+              SELECT b.uid, s.path || b.uid || ',', s.depth + 1
                 FROM sub s JOIN blocks b ON b.parent_uid = s.uid
-               WHERE s.depth < {_DEPTH_CAP}
+               WHERE instr(s.path, ',' || b.uid || ',') = 0
             ) SELECT uid FROM sub ORDER BY depth DESC""", (uid,)).fetchall()
     return tuple(r["uid"] for r in rows)
 

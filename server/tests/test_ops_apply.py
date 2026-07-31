@@ -23,6 +23,20 @@ def _batch(*ops) -> OpBatch:
                    ops=list(ops))
 
 
+def _linear_chain(page_title: str, depth: int, prefix: str = "level"):
+    """CreateOps for a straight-line hierarchy of `depth` blocks, each
+    nested one under the previous: prefix0 (top-level) .. prefix{depth-1}
+    (deepest leaf)."""
+    ops = []
+    parent = None
+    for i in range(depth):
+        uid = f"{prefix}{i}"
+        ops.append({"op": "create", "uid": uid, "page_title": page_title,
+                    "parent_uid": parent, "order_idx": 0, "text": f"n{i}"})
+        parent = uid
+    return ops
+
+
 def test_create_inserts_shifts_and_derives_refs(db):
     apply_batch(db, _batch(
         {"op": "create", "uid": "newuid1", "page_title": "Machine Learning",
@@ -98,6 +112,57 @@ def test_move_cycle_against_db_chain(db):
             {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
              "order_idx": 0}), NOW)
     db.rollback()
+
+
+@pytest.mark.parametrize("depth", [100, 101, 102, 150])
+def test_move_root_under_own_descendant_always_raises_cycle(db, depth):
+    # A move that would nest a hierarchy under its own descendant must be
+    # rejected at every depth, not just within the old 100-level cap: ancestry
+    # traversal has to see the full chain to notice op.uid reappearing in it.
+    apply_batch(db, _batch(*_linear_chain("Machine Learning", depth)), NOW)
+    db.commit()
+    deepest = f"level{depth - 1}"
+    with pytest.raises(OpError, match="cycle"):
+        apply_batch(db, _batch(
+            {"op": "move", "uid": "level0", "parent_uid": deepest,
+             "order_idx": 0}), NOW)
+    db.rollback()
+
+
+@pytest.mark.parametrize("depth", [100, 101, 102, 150])
+def test_cross_page_move_updates_every_descendant(db, depth):
+    # SetPageId must cover the whole subtree: a descendant left behind on the
+    # source page after a cross-page move is silent corruption (its parent is
+    # now on a different page than it is).
+    apply_batch(db, _batch(*_linear_chain("Machine Learning", depth)), NOW)
+    db.commit()
+    apply_batch(db, _batch(
+        {"op": "move", "uid": "level0", "parent_uid": None, "order_idx": 0,
+         "page_title": "AI"}), NOW)
+    db.commit()
+    ai_page_id = db.execute(
+        "SELECT id FROM pages WHERE title='AI'").fetchone()[0]
+    uids = [f"level{i}" for i in range(depth)]
+    placeholders = ",".join("?" * depth)
+    rows = db.execute(
+        f"SELECT uid, page_id FROM blocks WHERE uid IN ({placeholders})",
+        uids).fetchall()
+    assert len(rows) == depth
+    stranded = [r["uid"] for r in rows if r["page_id"] != ai_page_id]
+    assert stranded == []
+
+
+@pytest.mark.parametrize("depth", [100, 101, 102, 150])
+def test_delete_removes_entire_deep_subtree(db, depth):
+    # Subtree enumeration for delete must not silently truncate: anything
+    # left behind past the old cap is an orphaned block nobody can reach.
+    apply_batch(db, _batch(*_linear_chain("Machine Learning", depth)), NOW)
+    db.commit()
+    apply_batch(db, _batch({"op": "delete", "uid": "level0"}), NOW)
+    db.commit()
+    remaining = db.execute(
+        "SELECT count(*) FROM blocks WHERE uid LIKE 'level%'").fetchone()[0]
+    assert remaining == 0
 
 
 def test_set_heading_updates_and_clears(db):

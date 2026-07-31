@@ -5,7 +5,7 @@ status: draft
 type: feature
 priority: normal
 created_at: 2026-07-30T20:51:31Z
-updated_at: 2026-07-30T20:51:31Z
+updated_at: 2026-07-31T14:58:00Z
 ---
 
 **Draft on purpose — the question of whether to do this at all is still open.**
@@ -33,6 +33,34 @@ that line as the only feedback:
 
 The user's read on shipping pkm-mbcc: *"a 54-second wait with no indication of
 what it's doing is still a thin experience"* — but a product call, not a bug.
+
+## New evidence: 2026-07-31 network-outage incident
+
+A Tailscale/VPN clash killed connectivity mid-conversation and exposed a harder
+variant of the same gap: **a dead network is indistinguishable from a thinking
+model.** From the SDK session transcript and access log (times BST):
+
+- 15:26:18 — `get_page` returned in 40ms; the model request went out and
+  nothing ever came back. The panel showed `thinking…` for ~109s of pure
+  dead air until the user interrupted manually.
+- 15:30:35 — "try again" hung the same way for ~7.5 minutes; interrupted again.
+- 15:38:08 — third attempt sat queued until ~15:41:40 when the network
+  returned, then completed normally.
+
+Nothing in the engine or UI surfaced an error at any point — the SDK's request
+has no first-token timeout, so the turn waits forever and only the user's
+patience ends it. For contrast, once connectivity was back the actual work was
+fast: each `batch` executed in 3–6s end-to-end (server-side `POST /api/ops`
+61ms); the honest per-batch cost is ~48–66s of token generation before the
+tool call appears, which is exactly the silent window this bean is about.
+
+This adds a requirement the display options below don't cover on their own:
+
+**D. First-token timeout / connection-error surfacing.** Server-side: if no
+stream event arrives within some window (say 60-90s), emit an error event
+("no response from model — network?") instead of waiting indefinitely. This is
+the only option that distinguishes "stuck" from "slow", which option A's
+elapsed timer deliberately does not. Composes with A/B; independent of C.
 
 ## Why the panel knows so little
 
@@ -83,6 +111,10 @@ A and B compose: elapsed time plus a phase label is probably the whole feature.
   simplifies everything.
 - Worth it for opus (which thinks much longer than the default sonnet), or only
   worth it if it's cheap?
+- What timeout window is right for D, given legitimate turns already reach
+  ~110s of silence before the first stream event? Too short and it fires on
+  honest thinking; a first *stream event* (not first text) deadline may allow
+  a much tighter window — verify what the SDK emits during pure reasoning.
 
 ## If B or C goes ahead: the enumeration tax
 

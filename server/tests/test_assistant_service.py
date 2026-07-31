@@ -12,6 +12,7 @@ from pkm.assistant.service import (
     BusyError,
     ConversationLimitError,
     UnknownConversationError,
+    _Entry,
 )
 
 
@@ -432,3 +433,40 @@ def test_hung_teardown_of_an_evicted_conversation_does_not_block_the_next_admiss
     assert len({cid1, cid_a, cid_c}) == 3
     assert engine.conversations[0].closed is False  # cid1: cancelled mid-hang, never finished
     assert engine.conversations[1].closed is True  # cid_a: closed promptly, no hang
+
+
+def test_close_loop_continues_past_a_cancelled_handle_and_reraises():
+    # pkm-4zq4 final-review fix wave: the outer-finally teardown loop caught
+    # only `except Exception` around each queued handle's close(). A
+    # CancelledError (BaseException) landing while parked in one handle's
+    # close() used to abort the loop entirely -- and every remaining
+    # to_close entry was already popped from _entries under the lock above,
+    # so nothing would ever close it: its subprocess and 0600 session-token
+    # config file (pkm-4zq4) leak until process exit. This resurrects the
+    # exact credential-leak class pkm-4zq4 closes, one layer up. The fix
+    # must keep closing the rest of the queue after a cancellation and only
+    # re-raise once every entry has been attempted.
+    clock = FakeClock()
+    engine = FakeEngine()
+    service = AssistantService(engine, max_conversations=5, idle_ttl=1.0, clock=clock)
+
+    hung = _StubHandle(hang_close=True)
+    normal = _StubHandle()
+    # Seed two already-idle entries directly so a single create() reaps both
+    # into to_close in one pass, in insertion order (hung first).
+    service._entries["stale-hung"] = _Entry(handle=hung, model="sonnet", last_used=0.0)
+    service._entries["stale-normal"] = _Entry(handle=normal, model="sonnet", last_used=0.0)
+
+    async def scenario():
+        task = asyncio.create_task(service.create(None))
+        for _ in range(10):
+            await asyncio.sleep(0)  # let the reap, the new engine call, and
+            # the finally-loop reach the hung handle's close() all happen
+        assert hung.closed is False and normal.closed is False  # not there yet
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+    assert normal.closed is True  # the second queued handle still got closed
+    assert hung.closed is False  # cancelled mid-await, never actually finished

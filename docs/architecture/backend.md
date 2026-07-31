@@ -471,7 +471,14 @@ reaped/evicted conversation's harness is
 deliberately *not* done under the lock: the entry is popped from the
 registry (atomic, so the cap is enforced correctly) and the actual
 `close()` runs after the lock is released, so a hung teardown can only ever
-block the request that triggered it, never other admissions. Sending a
+block the request that triggered it, never other admissions. That
+post-lock teardown loop is itself cancellation-safe: every queued handle
+was already popped from the registry, so nothing else will ever retry
+closing it, and a cancellation landing while parked in one handle's
+`close()` keeps closing the rest of the queue rather than abandoning it —
+the first cancellation is re-raised only once every handle has been
+attempted, delaying it rather than losing it (pkm-4zq4 final-review fix
+wave). Sending a
 turn, confirming a tool call, and deleting a conversation are unaffected —
 only admission (`create()`) is serialized.
 

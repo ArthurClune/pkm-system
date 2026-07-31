@@ -132,12 +132,36 @@ class AssistantService:
             # `async with` above exits, and therefore releases it, before
             # control reaches this outer `finally`), so a slow-to-close
             # harness delays only this request, never other admissions.
+            #
+            # Every entry here was already popped from `_entries` under the
+            # lock (by _reap_idle/_evict_oldest_idle above) -- nothing else
+            # will ever retry closing it. A cancellation landing while
+            # parked in one handle's close() must not therefore abort this
+            # loop: the remaining handles would leak their subprocess and
+            # 0600 session-token config file (pkm-4zq4) until process exit,
+            # the same class of leak pkm-4zq4 closes one layer down. Keep
+            # closing every queued handle regardless, and only re-raise the
+            # first cancellation once the whole queue has been attempted --
+            # each close() is itself SDK-bounded (~20s worst case), so the
+            # cancellation is delayed, not lost (pkm-4zq4 final-review fix
+            # wave).
+            first_cancel: asyncio.CancelledError | None = None
             for old_cid, old_handle in to_close:
                 try:
                     await old_handle.close()
                     logger.info("assistant conversation %s closed", old_cid)
+                except asyncio.CancelledError as exc:
+                    logger.warning(
+                        "assistant conversation %s close cancelled; still closing "
+                        "the rest of the queued conversations",
+                        old_cid,
+                    )
+                    if first_cancel is None:
+                        first_cancel = exc
                 except Exception:
                     logger.exception("assistant conversation %s close failed", old_cid)
+            if first_cancel is not None:
+                raise first_cancel
 
     def send(self, conversation_id: str, text: str) -> AsyncIterator[AssistantEvent]:
         entry = self._get(conversation_id)

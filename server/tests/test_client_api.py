@@ -14,6 +14,16 @@ def test_new_uid_matches_server_uid_re():
     assert all(UID_RE.fullmatch(u) for u in uids)
 
 
+def test_new_uid_retries_until_first_char_is_alphanumeric(monkeypatch):
+    # secrets.token_urlsafe can legally return a leading '-' or '_'; argparse
+    # then treats a bare-uid CLI argument as an option (pkm-y5yv). Drive the
+    # generator through two rejects before a good candidate.
+    candidates = iter(["-leadingdash1", "_leadingunderscore2", "goodstart123"])
+    monkeypatch.setattr(client_api.secrets, "token_urlsafe",
+                        lambda n: next(candidates))
+    assert new_uid() == "goodstart123"
+
+
 def test_config_path_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("PKM_CLI_CONFIG", str(tmp_path / "c.json"))
     assert client_api.config_path() == tmp_path / "c.json"

@@ -53,7 +53,13 @@ def save_config(cfg: CliConfig) -> None:
 
 
 def new_uid() -> str:
-    return secrets.token_urlsafe(9)  # 12 urlsafe chars, matches UID_RE
+    # 12 urlsafe chars, matches UID_RE. token_urlsafe's alphabet includes
+    # '-' and '_', which argparse would treat as an option prefix in a bare
+    # CLI argument (pkm-y5yv); retry until the first char is alphanumeric.
+    while True:
+        uid = secrets.token_urlsafe(9)
+        if uid[0].isalnum():
+            return uid
 
 
 def login(url: str, password: str,

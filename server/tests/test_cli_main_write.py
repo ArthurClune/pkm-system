@@ -207,3 +207,33 @@ def test_update_done_flag_keeps_the_heading(run, pkm_client):
     run("update", "uid_b6", "-D")
     block = pkm_client.get_block("uid_b6")["block"]
     assert (block["text"], block["heading"]) == ("{{DONE}} Task x", 2)
+
+
+def test_update_addresses_a_legacy_leading_dash_uid_via_double_dash(
+        run, pkm_client):
+    # Same argparse hazard as `pkm get`: a uid starting with '-' must be
+    # addressed with `--` to end option parsing (pkm-y5yv).
+    legacy_uid = "-legacy1a2b3c"
+    pkm_client.post_ops([
+        {"op": "create", "uid": legacy_uid, "page_title": "AI",
+         "parent_uid": None, "order_idx": 52, "text": "legacy dash block"},
+    ], batch_id="legacy-dash-update")
+    code, out, _ = run("update", "--", legacy_uid, "rewritten legacy block")
+    assert code == 0
+    assert out == f"updated ^{legacy_uid}\n"
+    assert pkm_client.get_block(legacy_uid)["block"]["text"] == \
+        "rewritten legacy block"
+
+
+def test_update_done_flag_on_a_legacy_leading_dash_uid_puts_flags_before_the_guard(
+        run, pkm_client):
+    # -D/-T must come before `--` since everything after it is positional.
+    legacy_uid = "-legacy4d5e6f"
+    pkm_client.post_ops([
+        {"op": "create", "uid": legacy_uid, "page_title": "AI",
+         "parent_uid": None, "order_idx": 53, "text": "{{TODO}} legacy task"},
+    ], batch_id="legacy-dash-update-done")
+    code, _, _ = run("update", "-D", "--", legacy_uid)
+    assert code == 0
+    assert pkm_client.get_block(legacy_uid)["block"]["text"] == \
+        "{{DONE}} legacy task"

@@ -1,8 +1,9 @@
 import pytest
 
+from pkm.server import ops_apply
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
-from pkm.server.ops_core import OpBatch, OpError
+from pkm.server.ops_core import OpBatch, OpError, text_hash
 
 NOW = 1_800_000_000_000
 
@@ -128,6 +129,25 @@ def test_set_view_type_updates_metadata_without_changing_block_state(db):
         " WHERE uid='uid_b2'").fetchone()
     assert tuple(row[:4]) == tuple(before)
     assert row["view_type"] == "numbered"
+
+
+def test_conflict_sibling_uid_retries_until_alphanumeric_first_char(
+        db, monkeypatch):
+    # The server mints a fresh uid for the conflict-copy sibling the same
+    # way the CLI mints uids for new blocks; a leading '-' or '_' would make
+    # that sibling unaddressable via a bare CLI argument (pkm-y5yv).
+    candidates = iter(["-leadingdash1", "goodstart123"])
+    monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
+                        lambda n: next(candidates))
+    apply_batch(db, _batch(
+        {"op": "update_text", "uid": "uid_b1", "text": "offline edit",
+         "base_text_hash": text_hash("some stale base")},
+    ), NOW)
+    db.commit()
+    row = db.execute(
+        "SELECT uid FROM blocks WHERE text = '[[conflict]] Tags:: #AI'"
+    ).fetchone()
+    assert row["uid"] == "goodstart123"
 
 
 def test_op_error_index_reports_failing_op(db):

@@ -187,6 +187,8 @@ Key mechanics:
   manufacture conflicts). On mismatch the incoming edit wins but the losing
   text is preserved as a `[[conflict]]` sibling block; an edit to a
   since-deleted block is appended to today's daily page instead of vanishing.
+  The sibling's uid is minted the same way client-side uids are (see below)
+  — always alphanumeric-first, so the CLI can address it without `--`.
 - **Idempotency.** A retried batch (same `batch_id` + identical canonical
   request hash) replays the stored ack with no effects; same id with a
   different payload is a 409. This is what makes offline queue replay safe.
@@ -421,6 +423,15 @@ and broadcasts as the web client.
   instead.
 - Writes go through `POST /api/ops` with a fresh `batch_id`; `pkm update`
   fetches current text first and rides the `base_text_hash` conflict path.
+- `client/api.py::new_uid` and `server/ops_apply.py::_new_uid` both retry
+  `secrets.token_urlsafe(9)` until the first character is alphanumeric
+  (pkm-y5yv): `UID_RE` (`ops_core.py`) still allows a leading `-`/`_` for
+  legacy (pre-pkm-y5yv/Roam-imported) uids, and a bare uid CLI argument
+  starting with `-` is parsed by argparse as an unknown option. `pkm get`
+  and `pkm update` take a uid as a plain positional, so addressing one of
+  those legacy uids requires the standard argparse `--` end-of-options
+  marker, e.g. `pkm get -- -abc123`; any `-D`/`-T`/etc. flags must come
+  before the `--`, since everything after it is positional.
 - A page a write targets that doesn't exist yet is never created via a
   separate request: `PkmClient.get_page_or_placeholder` returns an empty
   placeholder (`{"blocks": []}`) instead, and the shell (`cmd_save`/

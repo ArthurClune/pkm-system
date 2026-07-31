@@ -405,7 +405,7 @@ doesn't "fix" them:
   focused bullet reads as a collapsed block. Any future restyling here must
   stay distinguishable from `.closed`.
 
-Two traps when working on this:
+Three traps when working on this:
 
 - **Auditing the stylesheet alone is not enough.** `.nav-link` is applied to
   both the `<a>` destinations and the `<button>` controls in the left nav, and
@@ -420,6 +420,17 @@ Two traps when working on this:
   declined (pkm-9lwx): the ring is only ever seen by tabbing through prose,
   while at the block line-height a 2px offset ring collides with the line
   above and repeats per line box on a wrapped link.
+- **An off-screen drawer is still in the tab order.** The phone nav
+  (`@media (max-width: 600px)`) used `transform: translateX(-100%)` alone, so
+  the closed drawer's links and buttons stayed tabbable — as the *first* tab
+  stops on the page (pkm-rwwp). It now also sets `visibility: hidden`, with
+  `.left-nav.open` restoring `visible` and `visibility` in the transition so
+  the slide-out is still seen. Both declarations are scoped to that media
+  query: at wider widths the nav is permanent and `navOpen` means nothing.
+  The hamburger carries `aria-expanded` / `aria-controls="left-nav"`, and
+  closing the drawer moves focus back to it — guarded on the drawer's previous
+  state, since every `NavLink` calls `setNavOpen(false)` on every click and
+  the hamburger is `display: none` above the breakpoint.
 
 **Control boundary contrast is a known, measured deviation from WCAG 1.4.11**
 (pkm-xqir). `.btn-secondary`'s border is 1.30:1 against a panel surface in

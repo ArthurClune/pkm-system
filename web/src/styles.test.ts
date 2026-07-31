@@ -536,3 +536,18 @@ describe("unlinked reference Link action (pkm-965i)", () => {
     expect(ruleFor(".reference-link-button")).toContain("font-size: 12px;");
   });
 });
+
+describe("phone nav drawer is unreachable while closed (pkm-rwwp)", () => {
+  test("the closed drawer is visibility:hidden; .open restores it", () => {
+    // translateX alone leaves every nav link tabbable off-screen, and they are
+    // the page's first tab stops. visibility:hidden takes the whole subtree
+    // out of the focus order.
+    const closed = mediaRulesFor("(max-width: 600px)", ".left-nav");
+    expect(closed).toContain("visibility: hidden;");
+    // transitioned, so the slide-out is still seen: a visibility transition
+    // holds "visible" until the end when moving to hidden
+    expect(closed).toContain("transition: transform 0.15s, visibility 0.15s;");
+    expect(mediaRulesFor("(max-width: 600px)", ".left-nav.open"))
+      .toContain("visibility: visible;");
+  });
+});

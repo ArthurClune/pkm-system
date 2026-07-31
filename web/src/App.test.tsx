@@ -401,3 +401,56 @@ it("renders the Files view at /files", async () => {
     await screen.findByRole("heading", { name: "Files" }),
   ).toBeInTheDocument();
 });
+
+it("the hamburger exposes the drawer's expanded state and what it controls (pkm-rwwp)", () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>,
+  );
+  const hamburger = screen.getByRole("button", { name: "menu" });
+  const nav = container.querySelector(".left-nav") as HTMLElement;
+  expect(nav.id).toBe("left-nav");
+  expect(hamburger).toHaveAttribute("aria-controls", "left-nav");
+  expect(hamburger).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.click(hamburger);
+  expect(hamburger).toHaveAttribute("aria-expanded", "true");
+  expect(nav).toHaveClass("open");
+
+  fireEvent.click(hamburger);
+  expect(hamburger).toHaveAttribute("aria-expanded", "false");
+  expect(nav).not.toHaveClass("open");
+});
+
+it("closing the nav drawer returns focus to the hamburger (pkm-rwwp)", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  const hamburger = screen.getByRole("button", { name: "menu" });
+
+  // closed by the hamburger itself
+  fireEvent.click(hamburger);
+  fireEvent.click(hamburger);
+  expect(hamburger).toHaveFocus();
+
+  // and closed by picking a destination: focus must not be left on a link
+  // that visibility:hidden is about to take away
+  (document.activeElement as HTMLElement | null)?.blur();
+  fireEvent.click(hamburger);
+  fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Settings" }))
+    .toBeInTheDocument();
+  expect(hamburger).toHaveFocus();
+});
+
+it("a never-opened drawer does not steal focus on mount or navigation (pkm-rwwp)", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  const hamburger = screen.getByRole("button", { name: "menu" });
+  expect(hamburger).not.toHaveFocus();
+  // every NavLink calls setNavOpen(false) unconditionally; on desktop, where
+  // the drawer is permanent, that must not pull focus to a display:none button
+  fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+  expect(await screen.findByRole("heading", { level: 1, name: "Settings" }))
+    .toBeInTheDocument();
+  expect(hamburger).not.toHaveFocus();
+});

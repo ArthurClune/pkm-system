@@ -1063,6 +1063,45 @@ test("Backspace/Delete on a selection deletes the whole group (pkm-q89w)", () =>
   expect(h.onDeleteBlockSelection).toHaveBeenCalledTimes(2);
 });
 
+test("read-only Backspace/Delete cannot destroy a selection (pkm-rckh)", () => {
+  const h = handlers();
+  const { container } = mountSelected(h, { anchor: "u1", head: "u2" }, true);
+  const tree = container.querySelector(".block-tree") as HTMLDivElement;
+
+  // not handled: the event stays uncancelled, exactly like read-only
+  // Shift+Cmd+Arrow above
+  expect(fireEvent.keyDown(tree, { key: "Backspace" })).toBe(true);
+  expect(fireEvent.keyDown(tree, { key: "Delete" })).toBe(true);
+  expect(h.onDeleteBlockSelection).not.toHaveBeenCalled();
+  // creating and copying a selection stay read-only-safe (pkm-am54)
+  expect(fireEvent.keyDown(tree, {
+    key: "ArrowDown", ctrlKey: true, metaKey: true,
+  })).toBe(false);
+  expect(h.onExtendBlockSelection).toHaveBeenCalledWith("down");
+});
+
+test("a selection made while editable is safe once sync turns the outline read-only (pkm-rckh)", () => {
+  const h = handlers();
+  const selection = { anchor: "u1", head: "u2" };
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={BLOCKS} focus={null} selection={selection}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  const tree = view.container.querySelector(".block-tree") as HTMLDivElement;
+
+  // the socket drops / storage fills: the same live selection is now read-only
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={BLOCKS} focus={null} selection={selection}
+                         handlers={h} readOnly />
+    </MemoryRouter>);
+  fireEvent.keyDown(tree, { key: "Backspace" });
+  expect(h.onDeleteBlockSelection).not.toHaveBeenCalled();
+  fireEvent.keyDown(tree, { key: "Escape" });
+  expect(h.onClearBlockSelection).toHaveBeenCalledTimes(1); // still dismissible
+});
+
 // --- bullet context menu: Copy block reference (pkm-y6af) ---
 
 function bullet(container: HTMLElement, uid: string): Element {

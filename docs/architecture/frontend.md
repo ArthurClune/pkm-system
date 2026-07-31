@@ -191,6 +191,17 @@ Editing mechanics worth knowing before touching `outline/`:
   (multi-block aware), Alt-Arrow / Shift-Cmd-Arrow moves, Shift-Arrow
   multi-block selection, slash commands, and Cmd-Z / Shift-Cmd-Z undo/redo
   (`history.ts` + `undoManager.ts`).
+
+  A multi-block *selection* is keyed elsewhere: with no focused textarea the
+  tree container itself takes focus and `EditableBlockTree.onKeyDown` owns the
+  chain (extend / move / indent / copy / clear / delete). The split invariant
+  there is that **creating, extending and copying a selection are
+  read-only-safe, while every mutating branch is gated on `!readOnly`** — Tab,
+  Shift+Cmd+Arrow and Backspace/Delete (pkm-rckh; the delete gate was missing,
+  so a selection made while editable could still be destroyed after sync
+  turned the outline read-only). `useOutline`'s handlers do not re-check
+  editability, so the gate has to be here.
+
 - **Paste is opt-in structural, and the modifier is captured on keydown.**
   Plain Cmd-V is always left native — it inserts text into the textarea and
   nothing else (pkm-fwa2). `Shift-Cmd-V` *arms* an outline paste: `paste.ts`

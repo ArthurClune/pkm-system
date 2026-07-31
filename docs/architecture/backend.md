@@ -617,7 +617,33 @@ already titled `"Untitled"` (a user typed it on purpose), blank-title ops
 deposit onto that same page rather than a dedicated sentinel — an accepted
 trade-off: the fallback is deliberately an ordinary, addressable title going
 through the normal get_or_create path, not a reserved one, so it can collide
-with real user content.
+with real user content. The broadcast to remote clients (`ops_apply.py`'s
+`_broadcast_op()`) is enriched to carry that same resolved `"Untitled"`
+title rather than the raw blank one — a remote replica keys its refetch on
+the broadcast `page_title`, so relaying the original blank string verbatim
+would send it looking for (and minting its own local page under) a title
+the server never actually used.
+
+**Ref indexing (not just page creation) needs the same blankness check, but
+answers it differently.** `refs.extract()`'s own "drop a blank ref" filter
+(`if norm := normalize_title(title)`) reuses the narrow `normalize_title`,
+so it has the identical gap: a spaces-only bracket ref like `[[   ]]`
+survives it as `Ref(title="   ")`. Both places that resolve an extracted
+`Ref` onto a page (`ops_apply.py`'s `ReindexRefs` handling and
+`store.py`'s `rewrite_referencing_blocks`, used by rename/merge) go through
+`store.index_ref()`, which catches `BlankTitleError` and skips the ref
+entirely — no page created, no `refs` row inserted, no fallback. This is
+deliberately different from the ops `page_title` fallback: an op needs
+*some* page to land its content on, but a ref with a blank-normalizing
+title is not a reference at all (same reasoning as `extract()`'s own
+docstring), so indexing it onto `"Untitled"` would fabricate a phantom
+backlink. Before this fix, the two call sites called `get_or_create_page`
+directly, so a spaces-only ref in ordinary block text (typed via the
+editor's `[[` autopair, then just spaces) raised `BlankTitleError` with
+nothing above it to catch it — an uncaught HTTP 500 on the ops path
+(`routes_ops.py` catches only `OpError`) and on rename (which catches only
+`sqlite3.IntegrityError`), worse than either the pre-pkm-1rb5 silent
+blank-page creation or the 422 pkm-hjhy explicitly forbids on the ops path.
 
 ## Logging and observability
 

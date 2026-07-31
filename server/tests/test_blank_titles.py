@@ -34,6 +34,35 @@ the padded title, reachable only by a byte-exact URL. Blankness and
 canonicalization are separate concerns: `"   "` (nothing but padding) is
 blank and must fall back; `" EvilCorp"` (padding plus real content) is not
 blank and must keep matching itself exactly, the same as before pkm-1rb5.
+
+NOTE (final-review fix wave): two more findings, both in the blast radius
+of the BlankTitleError check landing in get_or_create_page.
+
+CRITICAL: refs.extract()'s own "drop a blank ref" check
+(`if norm := normalize_title(title)`) has the exact same narrowness gap as
+get_or_create_page did before round 1 -- it reuses normalize_title, which
+only touches *control* whitespace, so a spaces-only bracket ref like
+`[[   ]]` is NOT dropped: extract() yields `Ref(title="   ")`, "non-empty"
+by that check even though it is nothing but padding. That ref.title then
+reaches get_or_create_page unguarded at the two ref-indexing call sites
+(ops_apply.py's ReindexRefs handling, store.py's rewrite_referencing_blocks
+used by rename/merge) and raises BlankTitleError -- which neither
+routes_ops.py (catches only OpError) nor the rename route (catches only
+sqlite3.IntegrityError) handles, so it surfaces as an uncaught HTTP 500.
+For the ops path that is strictly worse than either pre-pkm-1rb5 behavior
+(silently minting a "   "-titled page) or the 422 pkm-hjhy explicitly
+banned from the ops path: a durable batch that will never succeed on
+retry, permanently wedging an offline client's queue. The fix skips the
+ref entirely at both call sites (no Untitled fallback here -- per
+extract()'s own docstring, a blank-normalizing title "is not a reference
+at all", so indexing it as one, even onto a fallback page, would be a
+phantom backlink).
+
+IMPORTANT: _broadcast_op relayed a blank-normalizing page_title verbatim
+even though the server actually resolved it to `"Untitled"` -- a remote
+replica keying its refetch on the broadcast `page_title` would look for
+(and mint) its own local page under the raw blank string instead of
+finding the real "Untitled" page, diverging until the next resync.
 """
 import sqlite3
 
@@ -105,10 +134,18 @@ def test_get_or_create_page_raises_on_spaces_only_title(tmp_path):
 
 def test_create_op_with_whitespace_only_page_title_does_not_wedge(
         client, seeded_config):
-    r = _post_ops(client, {"op": "create", "uid": "blankop01",
-                           "page_title": WHITESPACE_ONLY, "parent_uid": None,
-                           "order_idx": 0, "text": "body text"})
-    assert r.status_code == 200
+    with client.websocket_connect("/api/ws") as ws:
+        r = _post_ops(client, {"op": "create", "uid": "blankop01",
+                               "page_title": WHITESPACE_ONLY, "parent_uid": None,
+                               "order_idx": 0, "text": "body text"})
+        assert r.status_code == 200
+        # Final-review IMPORTANT: the broadcast must carry the RESOLVED
+        # title ("Untitled"), not the raw blank one -- a remote replica
+        # keys its refetch on this field.
+        assert ws.receive_json()["ops"] == [
+            {"op": "create", "uid": "blankop01", "page_title": FALLBACK_TITLE,
+             "parent_uid": None, "order_idx": 0, "text": "body text",
+             "heading": None, "view_type": None}]
     assert _blank_titles(seeded_config) == []
     body = client.get(f"/api/page/{FALLBACK_TITLE}").json()
     assert "body text" in [b["text"] for b in body["blocks"]]
@@ -116,8 +153,11 @@ def test_create_op_with_whitespace_only_page_title_does_not_wedge(
 
 def test_create_page_op_with_whitespace_only_title_does_not_wedge(
         client, seeded_config):
-    r = _post_ops(client, {"op": "create_page", "page_title": WHITESPACE_ONLY})
-    assert r.status_code == 200
+    with client.websocket_connect("/api/ws") as ws:
+        r = _post_ops(client, {"op": "create_page", "page_title": WHITESPACE_ONLY})
+        assert r.status_code == 200
+        assert ws.receive_json()["ops"] == [
+            {"op": "create_page", "page_title": FALLBACK_TITLE}]
     assert _blank_titles(seeded_config) == []
     assert client.get(f"/api/page/{FALLBACK_TITLE}").status_code == 200
 
@@ -154,9 +194,13 @@ def test_move_op_cross_page_whitespace_only_title_does_not_wedge(
     # uid_b4 starts top-level on page 3 ("July 7th, 2026"); moving it with a
     # blank-normalizing page_title must land it on the fallback page rather
     # than 400ing the batch or minting a blank page.
-    r = _post_ops(client, {"op": "move", "uid": "uid_b4", "parent_uid": None,
-                           "order_idx": 0, "page_title": WHITESPACE_ONLY})
-    assert r.status_code == 200
+    with client.websocket_connect("/api/ws") as ws:
+        r = _post_ops(client, {"op": "move", "uid": "uid_b4", "parent_uid": None,
+                               "order_idx": 0, "page_title": WHITESPACE_ONLY})
+        assert r.status_code == 200
+        assert ws.receive_json()["ops"] == [
+            {"op": "move", "uid": "uid_b4", "parent_uid": None,
+             "order_idx": 0, "page_title": FALLBACK_TITLE}]
     assert _blank_titles(seeded_config) == []
     body = client.get(f"/api/page/{FALLBACK_TITLE}").json()
     assert any("Machine Learning" in b["text"] for b in body["blocks"])
@@ -230,3 +274,48 @@ def test_create_page_op_reuses_a_pre_existing_padded_title(
     con.close()
     assert rows == [(original_id,)]      # reused, not duplicated
     assert stripped_rows == []           # no stray stripped-title page either
+
+
+def test_create_op_with_spaces_only_ref_in_text_does_not_500(
+        client, seeded_config):
+    """Final-review CRITICAL: refs.extract()'s own blank-ref check reuses
+    the narrow normalize_title, so a spaces-only bracket ref like
+    "[[   ]]" is NOT dropped there -- it reaches ReindexRefs's
+    get_or_create_page(ref.title="   ", ...) unguarded, which now raises
+    BlankTitleError. routes_ops only catches OpError, so this must not
+    surface as an uncaught 500; the ref must simply be skipped (extract()'s
+    own docstring: a title that normalizes to blank "is not a reference at
+    all")."""
+    r = _post_ops(client, {"op": "create", "uid": "spacesref1",
+                           "page_title": "Machine Learning", "parent_uid": None,
+                           "order_idx": 5, "text": "hello [[   ]] world"})
+    assert r.status_code == 200
+    assert _blank_titles(seeded_config) == []
+    con = sqlite3.connect(seeded_config.db_path)
+    ref_count = con.execute(
+        "SELECT count(*) FROM refs WHERE src_block_uid = ?",
+        ("spacesref1",)).fetchone()[0]
+    con.close()
+    assert ref_count == 0  # the spaces-only ref was skipped, not indexed
+
+
+def test_rename_page_with_referencing_spaces_only_ref_succeeds(
+        client, seeded_config):
+    """Final-review CRITICAL: rename_page_rows -> rewrite_referencing_blocks
+    hits the exact same unguarded get_or_create_page(ref.title) call, for
+    every block referencing the page being renamed, that ReindexRefs does.
+    uid_b4 already refs "Machine Learning" (page id 1, SEED_REFS); adding a
+    spaces-only "[[   ]]" ref to its text must not turn an ordinary rename
+    into a 500 -- the rename route only catches sqlite3.IntegrityError."""
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "UPDATE blocks SET text = ? WHERE uid = ?",
+        ("Studying [[Machine Learning]] today, see also [[   ]]", "uid_b4"))
+    con.commit()
+    con.close()
+
+    r = client.post("/api/page/Machine Learning/rename",
+                    json={"new_title": "ML Renamed", "allow_merge": False})
+    assert r.status_code == 200
+    assert r.json() == {"result": "renamed", "title": "ML Renamed"}
+    assert _blank_titles(seeded_config) == []

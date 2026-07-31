@@ -7,7 +7,7 @@ import secrets
 import sqlite3
 from datetime import date
 
-from pkm.refs import extract
+from pkm.refs import extract, is_blank_title
 from pkm.server.daily import title_for_date
 from pkm.server.ops_core import (BlockInfo, CreateOp, CreatePageOp, DeleteBlocks,
                                  DeleteOp, Effect, InsertBlock, MoveOp,
@@ -15,7 +15,7 @@ from pkm.server.ops_core import (BlockInfo, CreateOp, CreatePageOp, DeleteBlocks
                                  SetHeading, SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  UpdateTextOp, plan_op)
-from pkm.server.store import BlankTitleError, get_or_create_page
+from pkm.server.store import BlankTitleError, get_or_create_page, index_ref
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
@@ -168,9 +168,7 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
     elif isinstance(eff, ReindexRefs):
         db.execute("DELETE FROM refs WHERE src_block_uid = ?", (eff.uid,))
         for ref in extract(eff.text).refs:
-            page = get_or_create_page(db, ref.title, now_ms)
-            db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
-                       (eff.uid, page["id"], ref.kind))
+            index_ref(db, eff.uid, ref.title, ref.kind, now_ms)
     elif isinstance(eff, TouchPage):
         db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
                    (now_ms, eff.page_id))
@@ -190,15 +188,24 @@ def _page_title(db: sqlite3.Connection, page_id: int) -> str | None:
 
 def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:
     """The op as broadcast to remote clients. Identical to the request wire
-    form, except a parent-based cross-page move that omitted page_title is
-    enriched with the resolved target title: without it the source can't drop
-    the block (its parent isn't in the source tree) and the target's refetch
-    has no page_title to key on, leaving both views stale."""
+    form, except:
+    - a parent-based cross-page move that omitted page_title is enriched
+      with the resolved target title: without it the source can't drop the
+      block (its parent isn't in the source tree) and the target's refetch
+      has no page_title to key on, leaving both views stale.
+    - a create/create_page/move whose page_title normalized to blank was
+      actually resolved to UNTITLED_PAGE_TITLE server-side (_resolve_page);
+      broadcasting the raw blank string instead would send a remote
+      replica looking for (and mint its own local page under) a title the
+      server never actually used, diverging until the next resync."""
     d = op.model_dump()
     if (isinstance(op, MoveOp) and op.page_title is None
             and ctx.parent is not None and ctx.block is not None
             and ctx.parent.page_id != ctx.block.page_id):
         d["page_title"] = _page_title(db, ctx.parent.page_id)
+    elif (isinstance(op, (CreateOp, CreatePageOp, MoveOp))
+            and op.page_title is not None and is_blank_title(op.page_title)):
+        d["page_title"] = UNTITLED_PAGE_TITLE
     return d
 
 

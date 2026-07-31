@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from pkm.refs import extract, normalize_title
+from pkm.refs import extract, is_blank_title, normalize_title
 from pkm.rename import rewrite_title_refs
 
 
@@ -56,7 +56,7 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     stamp out a second, empty page under some canonicalized variant it
     never actually asked to look up."""
     title = normalize_title(title)
-    if not title.strip():
+    if is_blank_title(title):
         raise BlankTitleError(title)
     page = fetch_page(db, title)
     if page is not None:
@@ -70,6 +70,28 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     page = fetch_page(db, title)
     assert page is not None  # inserted above, or the race winner inserted it
     return page
+
+
+def index_ref(db: sqlite3.Connection, src_uid: str, ref_title: str,
+             ref_kind: str, now_ms: int) -> None:
+    """Resolve one extracted Ref onto a page and record it in `refs`.
+    refs.extract()'s own "drop a blank ref" check reuses normalize_title,
+    which is narrow (control whitespace only, see get_or_create_page's
+    docstring) -- so a spaces-only bracket ref like "[[   ]]" is NOT
+    dropped there, and ref_title can still be blank-once-stripped here.
+    get_or_create_page would raise BlankTitleError for that, which this
+    function catches and swallows: per extract()'s own docstring, a title
+    that normalizes to blank "is not a reference at all", so the fix is to
+    index nothing, the same as if extract() had dropped it -- not to
+    invent a fallback page (a phantom backlink onto some sentinel page
+    would be wrong, unlike the ops path's page_title fallback, where the
+    op itself needs *some* page to land on)."""
+    try:
+        page = get_or_create_page(db, ref_title, now_ms)
+    except BlankTitleError:
+        return
+    db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
+              (src_uid, page["id"], ref_kind))
 
 
 def delete_page_rows(db: sqlite3.Connection, page_id: int,
@@ -103,9 +125,7 @@ def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: int,
                 (new_text, now_ms, row["uid"]))
         db.execute("DELETE FROM refs WHERE src_block_uid = ?", (row["uid"],))
         for ref in extract(new_text).refs:
-            page = get_or_create_page(db, ref.title, now_ms)
-            db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
-                       (row["uid"], page["id"], ref.kind))
+            index_ref(db, row["uid"], ref.title, ref.kind, now_ms)
 
 
 def retitle_sidebar_entry(db: sqlite3.Connection, old_title: str,

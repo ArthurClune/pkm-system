@@ -584,6 +584,18 @@ than at routes that can never match the bad value. Two properties to preserve:
   durable op queue — it retries that op forever and every later change queues
   behind it. Anything accepting a title from outside normalises, not validates.
 
+One title is never mintable, though: one that normalises all the way down to
+`""` (a whitespace-only string passes ops' `page_title` `min_length=1` check
+untouched, then collapses to nothing). Unlike a normalised-but-nonempty title,
+an empty one is permanently unreachable — no `[[link]]` resolves to it, no
+route can name it — so `get_or_create_page()` raises `BlankTitleError` instead
+of committing it (pkm-1rb5), and every caller picks its own recovery: the
+interactive routes (`POST /api/pages`) turn it into a 422, since a live client
+can retry with a real title; `ops_apply.py`'s `_resolve_page()` instead
+substitutes the fixed fallback title `"Untitled"` so a `create`/`create_page`/
+cross-page `move` op with a blank `page_title` still lands the batch — the
+"never 422" rule holds for the ops path specifically, not for every route.
+
 ## Logging and observability
 
 There is no metrics stack; the logs are the whole observability story, so they

@@ -15,11 +15,31 @@ from pkm.server.ops_core import (BlockInfo, CreateOp, CreatePageOp, DeleteBlocks
                                  SetHeading, SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  UpdateTextOp, plan_op)
-from pkm.server.store import get_or_create_page
+from pkm.server.store import BlankTitleError, get_or_create_page
+
+# Fallback title for an op's page_title that normalizes to "" (e.g. a
+# whitespace-only string -- pydantic's min_length=1 lets that through). The
+# ops path must never reject a batch over this (pkm-hjhy: an offline client
+# replays queued batches, and a rejected one wedges its queue permanently),
+# so instead of raising BlankTitleError up to the caller it resolves to this
+# fixed, always-valid title -- get_or_create semantics, so repeated blank
+# titles all land on the same page rather than minting one each.
+UNTITLED_PAGE_TITLE = "Untitled"
 
 
 def _new_uid() -> str:
     return secrets.token_urlsafe(9)  # 12 chars of [A-Za-z0-9_-]: fits UID_RE
+
+
+def _resolve_page(db: sqlite3.Connection, title: str,
+                  now_ms: int) -> sqlite3.Row:
+    """get_or_create_page for op page_title fields: falls back to
+    UNTITLED_PAGE_TITLE rather than propagating BlankTitleError (see
+    module docstring above)."""
+    try:
+        return get_or_create_page(db, title, now_ms)
+    except BlankTitleError:
+        return get_or_create_page(db, UNTITLED_PAGE_TITLE, now_ms)
 
 
 def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
@@ -70,17 +90,17 @@ def _subtree_deepest_first(db: sqlite3.Connection,
 
 def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     if isinstance(op, CreatePageOp):
-        page = get_or_create_page(db, op.page_title, now_ms)
+        page = _resolve_page(db, op.page_title, now_ms)
         return OpContext(page_id=page["id"])
     block = _block_info(db, op.uid)
     if isinstance(op, CreateOp):
-        page = get_or_create_page(db, op.page_title, now_ms)
+        page = _resolve_page(db, op.page_title, now_ms)
         parent = _block_info(db, op.parent_uid) if op.parent_uid else None
         return OpContext(block=block, page_id=page["id"], parent=parent)
     if isinstance(op, MoveOp):
         parent = _block_info(db, op.parent_uid) if op.parent_uid else None
         chain = _parent_chain(db, op.parent_uid) if op.parent_uid else ()
-        page_id = (get_or_create_page(db, op.page_title, now_ms)["id"]
+        page_id = (_resolve_page(db, op.page_title, now_ms)["id"]
                    if op.page_title is not None else None)
         return OpContext(block=block, parent=parent, parent_chain=chain,
                          page_id=page_id,

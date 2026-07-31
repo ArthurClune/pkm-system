@@ -22,7 +22,7 @@ from pkm.server.ops_core import UID_RE as _UID_RE
 from pkm.server.response_models import (
     BlockPayload, BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
     JournalPayload, PageMeta, PagePayload)
-from pkm.server.store import (delete_page_rows, fetch_page,
+from pkm.server.store import (BlankTitleError, delete_page_rows, fetch_page,
                               get_or_create_page, merge_page_rows,
                               rename_page_rows)
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
@@ -194,12 +194,14 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
 def create_page(request: Request, body: CreatePageRequest,
                 db: sqlite3.Connection = Depends(get_db)) -> dict:
     """Idempotent: creating an existing page returns its row, not an error."""
-    # normalize before the blank check so a whitespace-only title ("\n\t")
-    # still 422s instead of normalizing to "" and creating a blank page.
-    title = normalize_title(body.title.strip())
-    if not title:
+    # get_or_create_page is the shared boundary that defines "blank" (a
+    # whitespace-only title normalizes to "" there); this route is
+    # interactive, so it turns that into an explicit 422 rather than the
+    # ops path's fallback-title recovery (ops_apply.py).
+    try:
+        page = get_or_create_page(db, body.title.strip(), int(time.time() * 1000))
+    except BlankTitleError:
         raise HTTPException(status_code=422, detail="title must not be blank")
-    page = get_or_create_page(db, title, int(time.time() * 1000))
     db.commit()
     notify.nudge_threadpool(request, db)
     return dict(page)

@@ -9,6 +9,16 @@ from pkm.refs import extract, normalize_title
 from pkm.rename import rewrite_title_refs
 
 
+class BlankTitleError(ValueError):
+    """Raised by get_or_create_page when the title normalizes to "" (e.g. a
+    whitespace-only string -- pydantic's `min_length=1` on ops page_title
+    fields lets that through untouched). This function never commits a
+    blank-titled page itself; every caller must pick an explicit policy:
+    reject before mutation (the plain HTTP routes do), or -- on the ops
+    path, where a rejection wedges an offline client's replay queue
+    (pkm-hjhy) -- substitute a fixed fallback title (see ops_apply.py)."""
+
+
 def fetch_page(db: sqlite3.Connection, title: str) -> sqlite3.Row | None:
     return db.execute(
         "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
@@ -23,8 +33,17 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     title holding control whitespace -- unreachable through the API, see
     refs.normalize_title -- cannot be minted by any of them. Normalizing
     rather than rejecting is deliberate: an offline client replaying a
-    queued op must never meet a permanent 422, or its queue wedges."""
+    queued op must never meet a permanent 422, or its queue wedges.
+
+    A title that normalizes all the way down to "" is different: unlike a
+    normalized-but-nonempty title, an empty one can never be addressed (no
+    [[link]] resolves to it, no route can name it), so it would sit in the
+    pages table as permanently unreachable dead weight. This function
+    refuses to create it -- raising BlankTitleError rather than silently
+    minting the page -- and leaves the recovery policy to the caller."""
     title = normalize_title(title)
+    if not title:
+        raise BlankTitleError(title)
     page = fetch_page(db, title)
     if page is not None:
         return page

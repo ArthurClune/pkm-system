@@ -9,12 +9,13 @@
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import { type Oo1DbLike, type ReplicaDb, wrapSqlite } from "./db";
 import { openWithRetry } from "./openRetry";
+import { ensureMinimumCapacity, type CapacityPool } from "./poolCapacity";
 import { serveRpc, toPortLike } from "./rpc";
 import { buildHandlers } from "./workerHandlers";
 
 const DB_FILE = "/pkm-replica.sqlite3";
 
-interface PoolUtil {
+interface PoolUtil extends CapacityPool {
   OpfsSAHPoolDb: new (filename: string) => Oo1DbLike & { close(): void };
 }
 
@@ -39,6 +40,11 @@ async function openDb(): Promise<ReplicaDb> {
   // desync that wipes the active outline.
   return openWithRetry(async () => {
     pool ??= await sqlite3!.installOpfsSAHPoolVfs({ name: "pkm-replica" });
+    // The same navigation race can also let the install SUCCEED with a pool
+    // too small to hold both the database and its rollback journal, which
+    // makes every write fail with SQLITE_CANTOPEN forever (pkm-ndcu). Grow it
+    // back before opening the database.
+    await ensureMinimumCapacity(pool);
     rawDb = new pool.OpfsSAHPoolDb(DB_FILE);
     return pragmas(wrapSqlite(rawDb));
   }, { sleep });

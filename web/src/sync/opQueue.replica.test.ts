@@ -289,6 +289,31 @@ test("an OPFS access-handle contention enqueue failure degrades to a direct post
   await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
 });
 
+test("an exhausted SAH pool enqueue failure degrades to a direct post", async () => {
+  // A pool that raced its way to a single slot holds the database file and
+  // nothing else, so SQLite cannot create the rollback journal a write
+  // transaction needs and every enqueue fails with SQLITE_CANTOPEN
+  // (pkm-ndcu). Like access-handle contention this is purely local: it must
+  // deliver online and must NOT fire onDesync, whose repair wipes the active
+  // outline and detaches the editor mid-keystroke.
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica({
+    enqueue: async () => {
+      throw new Error(
+        "SQLITE_CANTOPEN: sqlite3 result code 14: unable to open database file");
+    },
+  });
+  const desyncs: unknown[] = [];
+  const q = createOpQueue(replica, (e) => desyncs.push(e));
+  const ticket = q.enqueue([op("u1")]);
+  await q.settled();
+  await q.drain();
+  expect(desyncs).toEqual([]);
+  const body = bodies[0].body as { client_id: string; ops: unknown[] };
+  expect(body.ops).toEqual([op("u1")]);
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+});
+
 test("other replica enqueue failures report desync", async () => {
   fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({

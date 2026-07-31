@@ -453,6 +453,35 @@ Conversations are ephemeral (in-memory only, no history table). The engine
 is injected into `create_app(config, assistant_engine=...)`; production
 defaults to `ClaudeEngine`, tests and the e2e server inject a fake.
 
+`create()`'s cap check, eviction, and `engine.create_conversation()` call
+all run under a single `asyncio.Lock` (pkm-rovq): without it, two
+concurrent creations could both observe free capacity before either
+registered, bypassing the cap or double-evicting. That lock spans a
+subprocess spawn (the harness connect handshake), so it is bounded by
+`create_timeout` (`CREATE_TIMEOUT_S`, 60s default) rather than left
+unbounded — a wedged harness fails that one request instead of wedging
+every future `create()`. The true worst-case hold is `CREATE_TIMEOUT_S`
+*plus* cleanup, not `CREATE_TIMEOUT_S` alone: `asyncio.wait_for` does not
+return until the task it cancelled has finished unwinding, so
+`create_conversation()`'s own cancellation-triggered cleanup (disconnecting
+the partially-connected client, pkm-4zq4) runs to completion first, still
+under the lock. That cleanup rides on the SDK transport's own bounded close
+(~20s worst case), putting the real ceiling around 80s, not 60s. Closing a
+reaped/evicted conversation's harness is
+deliberately *not* done under the lock: the entry is popped from the
+registry (atomic, so the cap is enforced correctly) and the actual
+`close()` runs after the lock is released, so a hung teardown can only ever
+block the request that triggered it, never other admissions. That
+post-lock teardown loop is itself cancellation-safe: every queued handle
+was already popped from the registry, so nothing else will ever retry
+closing it, and a cancellation landing while parked in one handle's
+`close()` keeps closing the rest of the queue rather than abandoning it —
+the first cancellation is re-raised only once every handle has been
+attempted, delaying it rather than losing it (pkm-4zq4 final-review fix
+wave). Sending a
+turn, confirming a tool call, and deleting a conversation are unaffected —
+only admission (`create()`) is serialized.
+
 How `claude_engine.py` confines the harness:
 
 - **One SDK subprocess per conversation**, `tools=[]` plus a single MCP
@@ -463,6 +492,23 @@ How `claude_engine.py` confines the harness:
 - **Auth**: the engine mints a fresh session token (`auth_core.sign_session`)
   into a 0600 temp config file per conversation, passed to the MCP
   subprocess as `PKM_CLI_CONFIG` and deleted on close.
+- **Transactional startup**: `create_conversation()` writes that config file,
+  then constructs the client and awaits `connect()` inside a
+  `try`/`except BaseException` that reuses `ClaudeConversation.close()` for
+  cleanup on any exit other than success (pkm-4zq4). This covers three
+  failure shapes the old code left unhandled: the `client_factory` itself
+  raising (no client to disconnect, only the config to unlink), `connect()`
+  raising after the client exists, and cancellation delivered into the
+  awaited `connect()` -- which is exactly what happens when
+  `service.create()`'s `wait_for(create_timeout)` times out on a wedged
+  handshake. `close()` already tolerates a client that never connected (or
+  was never attached), a `disconnect()` call that itself raises, and a
+  *second* cancellation landing anywhere in its body (e.g. the request task
+  itself being cancelled on top of the `create_timeout` cancellation that
+  triggered cleanup) — the config-file unlink lives in a `finally`, not a
+  trailing statement a `CancelledError` could skip, precisely because
+  `except Exception` does not catch `BaseException` (pkm-4zq4 fix round 1).
+  So startup failure and normal teardown share one code path instead of two.
 - **Write confirmation**: the SDK's `can_use_tool` hook streams a
   `ConfirmRequest` (with an ops preview from `policy.py`) to the browser
   and blocks the tool call on a future until `POST …/confirm` resolves it.

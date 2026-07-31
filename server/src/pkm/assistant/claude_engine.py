@@ -213,19 +213,30 @@ class ClaudeConversation:
         for fut in self._pending.values():
             if not fut.done():
                 fut.set_result(False)
-        if self._pump_task is not None and not self._pump_task.done():
-            self._pump_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._pump_task
-            self._pump_task = None
-            # unblock any live send() consumer stuck on queue.get()
-            await self._queue.put(ErrorEvent(message="conversation closed"))
-        if self._client is not None:
-            try:
-                await self._client.disconnect()
-            except Exception:  # already dead is fine
-                logger.exception("assistant disconnect failed")
-        self._config_path.unlink(missing_ok=True)
+        try:
+            if self._pump_task is not None and not self._pump_task.done():
+                self._pump_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._pump_task
+                self._pump_task = None
+                # unblock any live send() consumer stuck on queue.get()
+                await self._queue.put(ErrorEvent(message="conversation closed"))
+            if self._client is not None:
+                try:
+                    await self._client.disconnect()
+                except Exception:  # already dead is fine
+                    logger.exception("assistant disconnect failed")
+        finally:
+            # A second cancellation landing anywhere above -- e.g. a
+            # create_timeout cancellation (service.py's admission-lock
+            # wait_for) followed by the enclosing request task itself being
+            # cancelled -- is BaseException, not Exception, so the `except
+            # Exception` guard on disconnect() does not catch it. The 0600
+            # session-token file must still be removed even then, so the
+            # unlink lives in this `finally` rather than as a trailing
+            # statement a second cancellation could skip (pkm-4zq4 fix
+            # round 1).
+            self._config_path.unlink(missing_ok=True)
 
 
 class ClaudeEngine:
@@ -253,30 +264,43 @@ class ClaudeEngine:
     async def create_conversation(self, system_prompt: str, model: str) -> ClaudeConversation:
         config_path = self._write_cli_config()
         conversation = ClaudeConversation(config_path)
-        options = ClaudeAgentOptions(
-            model=model,
-            system_prompt=system_prompt,
-            tools=[],
-            allowed_tools=read_tool_names(),
-            can_use_tool=conversation.can_use_tool,
-            mcp_servers={
-                "pkm": {
-                    "type": "stdio",
-                    "command": sys.executable,
-                    "args": ["-m", "pkm.mcp.server"],
-                    "env": {"PKM_CLI_CONFIG": str(config_path)},
-                }
-            },
-            setting_sources=[],
-            include_partial_messages=True,
-            max_turns=MAX_TURNS,
-            # the CLI defers MCP tools behind ToolSearch by default, which
-            # tools=[] would make unreachable -- disabling tool search loads
-            # the pkm tools eagerly; verified live 2026-07-27
-            env={"ENABLE_TOOL_SEARCH": "false"},
-        )
-        client = self._client_factory(options)
-        conversation.attach(client)
-        await client.connect()
+        try:
+            options = ClaudeAgentOptions(
+                model=model,
+                system_prompt=system_prompt,
+                tools=[],
+                allowed_tools=read_tool_names(),
+                can_use_tool=conversation.can_use_tool,
+                mcp_servers={
+                    "pkm": {
+                        "type": "stdio",
+                        "command": sys.executable,
+                        "args": ["-m", "pkm.mcp.server"],
+                        "env": {"PKM_CLI_CONFIG": str(config_path)},
+                    }
+                },
+                setting_sources=[],
+                include_partial_messages=True,
+                max_turns=MAX_TURNS,
+                # the CLI defers MCP tools behind ToolSearch by default, which
+                # tools=[] would make unreachable -- disabling tool search loads
+                # the pkm tools eagerly; verified live 2026-07-27
+                env={"ENABLE_TOOL_SEARCH": "false"},
+            )
+            client = self._client_factory(options)
+            conversation.attach(client)
+            await client.connect()
+        except BaseException:
+            # A factory failure, a failed connect handshake, or cancellation
+            # while awaiting connect (service.create()'s admission-lock
+            # wait_for(create_timeout) times out on a wedged harness,
+            # pkm-rovq) must not leave the 0600 credential file or a
+            # half-started client behind for the next create() to trip over.
+            # ClaudeConversation.close() already tolerates a client that
+            # never connected (or was never attached) and a disconnect()
+            # that itself raises, so reuse it instead of duplicating that
+            # handling here (pkm-4zq4).
+            await conversation.close()
+            raise
         logger.info("assistant harness started (model=%s)", model)
         return conversation

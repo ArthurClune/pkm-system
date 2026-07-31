@@ -4,6 +4,8 @@ import json
 import stat
 from pathlib import Path
 
+import pytest
+
 from claude_agent_sdk import (
     AssistantMessage,
     PermissionResultAllow,
@@ -47,6 +49,7 @@ class FakeSDKClient:
         self.connected = False
         self.queries: list[str] = []
         self.interrupts = 0
+        self.disconnect_calls = 0
         self.messages: asyncio.Queue = asyncio.Queue()
         FakeSDKClient.instances.append(self)
 
@@ -59,6 +62,7 @@ class FakeSDKClient:
 
     async def disconnect(self):
         self.connected = False
+        self.disconnect_calls += 1
 
     async def query(self, text):
         self.queries.append(text)
@@ -94,6 +98,41 @@ class BrokenInterruptClient(FakeSDKClient):
     async def interrupt(self):
         self.interrupts += 1
         raise RuntimeError("harness already dead")
+
+
+class FailingConnectClient(FakeSDKClient):
+    """connect() raises -- e.g. the CLI subprocess failed to spawn."""
+
+    async def connect(self):
+        raise RuntimeError("connect failed")
+
+
+class HangingConnectClient(FakeSDKClient):
+    """connect() never returns until cancelled -- simulates a wedged
+    handshake that the admission lock's wait_for(create_timeout) times out
+    on (pkm-rovq)."""
+
+    async def connect(self):
+        await asyncio.Event().wait()  # never set
+
+
+def failing_factory(options):
+    raise RuntimeError("factory boom")
+
+
+class HangingDisconnectClient(FakeSDKClient):
+    """connect() hangs until a first cancellation; disconnect() -- reached
+    only via the resulting cleanup path -- hangs until a second one.
+    Reproduces a wedged harness being cancelled twice: once by
+    wait_for(create_timeout), again by whatever cancels the enclosing task
+    (an aborted POST, lifespan shutdown)."""
+
+    async def connect(self):
+        await asyncio.Event().wait()  # never set; first cancellation lands here
+
+    async def disconnect(self):
+        self.disconnect_calls += 1
+        await asyncio.Event().wait()  # never set; second cancellation lands here
 
 
 def make_engine(tmp_path, factory=FakeSDKClient) -> ClaudeEngine:
@@ -136,6 +175,82 @@ def test_create_conversation_options_and_config_file(tmp_path):
     asyncio.run(conv.close())
     assert not cfg_path.exists()  # config file removed on close
     assert client.connected is False
+
+
+def test_create_conversation_factory_failure_unlinks_config(tmp_path):
+    # pkm-4zq4: a client_factory failure must not leave the 0600 credential
+    # file behind -- there is no client to disconnect, but the config still
+    # needs cleanup.
+    engine = make_engine(tmp_path, factory=failing_factory)
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="factory boom"):
+            await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+
+    asyncio.run(scenario())
+    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+
+
+def test_create_conversation_connect_failure_unlinks_and_disconnects(tmp_path):
+    # pkm-4zq4: connect() failing after the client was created must still
+    # disconnect the partially-started client and unlink the config file.
+    engine = make_engine(tmp_path, factory=FailingConnectClient)
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="connect failed"):
+            await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        return FakeSDKClient.instances[0]
+
+    client = asyncio.run(scenario())
+    assert client.disconnect_calls == 1
+    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+
+
+def test_create_conversation_cancelled_during_connect_cleans_up(tmp_path):
+    # pkm-4zq4: this is what happens when service.create()'s
+    # asyncio.wait_for(create_conversation(...), CREATE_TIMEOUT_S) times out
+    # on a wedged handshake -- CancelledError is delivered into connect().
+    # Startup must still disconnect the client and unlink the config file
+    # rather than leaving both behind for every future admission to trip
+    # over.
+    engine = make_engine(tmp_path, factory=HangingConnectClient)
+
+    async def scenario():
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(engine.create_conversation(SYSTEM_PROMPT, "sonnet"), 0.05)
+        return FakeSDKClient.instances[0]
+
+    client = asyncio.run(scenario())
+    assert client.disconnect_calls == 1
+    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+
+
+def test_close_cleanup_survives_a_second_cancellation_during_disconnect(tmp_path):
+    # pkm-4zq4 fix round 1, finding 1: close() awaited client.disconnect()
+    # guarded only by `except Exception`, then unlinked the config file as a
+    # separate, later statement. CancelledError is BaseException, not
+    # Exception -- a second cancellation delivered into that disconnect()
+    # await (e.g. uvicorn cancelling the aborted POST, on top of the
+    # create_timeout cancellation that got us into cleanup in the first
+    # place) skipped the unlink entirely, leaking the 0600 session-token
+    # file. No prior fake's disconnect() ever awaited anything, which is why
+    # the suite was green over this hole.
+    engine = make_engine(tmp_path, factory=HangingDisconnectClient)
+
+    async def scenario():
+        task = asyncio.create_task(engine.create_conversation(SYSTEM_PROMPT, "sonnet"))
+        for _ in range(5):
+            await asyncio.sleep(0)  # let it reach the blocking connect()
+        task.cancel()  # first cancellation: lands in connect()
+        for _ in range(10):
+            await asyncio.sleep(0)  # let the except-block's close() reach disconnect()
+        assert FakeSDKClient.instances[0].disconnect_calls == 1  # confirms it's there to interrupt
+        task.cancel()  # second cancellation: lands in disconnect()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(scenario())
+    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
 
 
 def test_can_use_tool_allows_reads_denies_unknown(tmp_path):

@@ -1,10 +1,11 @@
 ---
 # pkm-aks7
 title: CLI/MCP heading follow-ups from pkm-8m94
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-07-30T21:16:48Z
-updated_at: 2026-07-30T21:16:48Z
+updated_at: 2026-07-31T08:29:44Z
 ---
 
 Three non-urgent follow-ups deferred from pkm-8m94's final whole-branch review. None is a correctness bug; each is a rough edge the heading work exposed.

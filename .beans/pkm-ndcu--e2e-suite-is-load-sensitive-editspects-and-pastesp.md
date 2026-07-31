@@ -1,10 +1,11 @@
 ---
 # pkm-ndcu
 title: 'E2E suite is load-sensitive: edit.spec.ts and paste.spec.ts flake on a busy machine'
-status: todo
+status: in-progress
 type: bug
+priority: normal
 created_at: 2026-07-30T07:57:36Z
-updated_at: 2026-07-30T07:57:36Z
+updated_at: 2026-07-31T08:29:44Z
 ---
 
 `pnpm verify`'s Playwright suite is not reliably green on a loaded machine. Observed repeatedly during pkm-0wg9 (2026-07-29), always as an outline-editor timeout, at several different line numbers:

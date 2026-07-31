@@ -1,10 +1,11 @@
 ---
 # pkm-vhxg
 title: 'styles.test.ts: tie whole-file text assertions to the rule they mean'
-status: todo
+status: in-progress
 type: task
+priority: normal
 created_at: 2026-07-30T08:03:41Z
-updated_at: 2026-07-30T08:03:41Z
+updated_at: 2026-07-31T08:29:44Z
 ---
 
 Follow-on from pkm-0wg9. That bean added a `rulesFor(selector)` helper to `web/src/styles.test.ts` (it returns every rule body whose selector text names the given selector, joined) and converted one brittle whole-file assertion to use it. One genuine case was left behind.

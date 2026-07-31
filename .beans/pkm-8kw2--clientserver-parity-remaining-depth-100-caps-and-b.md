@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-07-31T16:50:33Z
-updated_at: 2026-07-31T16:50:33Z
+updated_at: 2026-07-31T19:07:30Z
 parent: pkm-ulae
 ---
 
@@ -20,3 +20,7 @@ Server-side traversal is now complete and cycle-safe (pkm-2fw1) and blank titles
 - [ ] Align localOps.ts subtree traversal with the server's cycle-safe complete traversal
 - [ ] Decide read-path ancestors cap (raise/remove/document)
 - [ ] Align TS extractRefs blank-ref handling with server extract() + BlankTitleError skip
+
+Additional item from ops-branch re-review (pre-existing): _broadcast_op relays a control-whitespace page_title verbatim while the server stores the normalized form ("Foo\nBar" stored as "Foo Bar" but broadcast raw) — same replica-divergence shape as the blank-title case fixed in pkm-1rb5. Broadcasting the resolved/normalized title would cover both.
+
+- [ ] Broadcast the normalized page_title (or otherwise reconcile replica title keying with server normalization)

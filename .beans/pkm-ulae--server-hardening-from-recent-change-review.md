@@ -5,7 +5,7 @@ status: in-progress
 type: epic
 priority: high
 created_at: 2026-07-31T15:45:04Z
-updated_at: 2026-07-31T15:55:45Z
+updated_at: 2026-07-31T19:07:30Z
 ---
 
 ## Context
@@ -351,3 +351,21 @@ Concurrent additions use read/check/compute/insert. Different titles can receive
 - [ ] Update `docs/architecture/sync-and-offline.md` for notification and sync hydration invariants
 - [ ] Recheck FCIS classifications for any modules split or moved
 - [ ] Split independent findings into child beans before implementation
+
+## High-priority sweep — completed 2026-07-31
+
+All nine high-priority findings fixed via child beans, each TDD'd, task-reviewed, and re-reviewed; four track branches merged to main with --no-ff (assistant 651fd7b, cli 78169c1, import 0cfda26, ops a535a36). Full verification on merged main: 1031 server tests passed (96.27% coverage), pyrefly 0 errors, ruff clean, web pnpm verify green incl. 46/46 e2e.
+
+- Finding 1 -> pkm-2fw1 (completed): cycle-safe recursive CTEs, corrupt-cycle termination test; real cap onset was depth 102
+- Finding 2 -> pkm-1rb5 (completed): BlankTitleError at store boundary; ops fall back to "Untitled" (hjhy no-422 invariant); blank [[   ]] refs skipped at index_ref; broadcast enriched
+- Finding 3 -> pkm-rovq (completed): admission lock, bounded create, teardown outside lock and cancellation-safe drain
+- Finding 4 -> pkm-4zq4 (completed): BaseException cleanup around startup; config unlink in finally survives double cancellation
+- Finding 5 -> pkm-w80k (completed): create_page rides in the OpBatch; _ensure_page removed from both shells
+- Finding 6 -> pkm-y5yv (completed): all three uid minters (client, server, web) alnum-first; documented -- for legacy uids
+- Finding 7 -> pkm-5ayg (completed): heading parents match level+text, first in document order, page before batch memo
+- Finding 8 -> pkm-j58o (completed): orphans recovered to a deterministic page (two-pass rooting incl. cycles); report written before DB swap
+- Finding 9 -> pkm-euhp (completed): externally referenced mermaid descendants never dropped; migration reports before deleting
+
+New follow-up beans filed during review: pkm-2ilw (padded-title migration), pkm-8kw2 (client parity: depth caps, blank-ref handling), pkm-dzgw (select_section level), pkm-x1ig (importer polish bundle).
+
+Medium/lower-priority findings (10-29) remain open in this epic.

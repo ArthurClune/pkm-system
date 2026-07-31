@@ -5,8 +5,18 @@ from __future__ import annotations
 
 import sqlite3
 
-from pkm.refs import extract, normalize_title
+from pkm.refs import extract, is_blank_title, normalize_title
 from pkm.rename import rewrite_title_refs
+
+
+class BlankTitleError(ValueError):
+    """Raised by get_or_create_page when the title normalizes to "" (e.g. a
+    whitespace-only string -- pydantic's `min_length=1` on ops page_title
+    fields lets that through untouched). This function never commits a
+    blank-titled page itself; every caller must pick an explicit policy:
+    reject before mutation (the plain HTTP routes do), or -- on the ops
+    path, where a rejection wedges an offline client's replay queue
+    (pkm-hjhy) -- substitute a fixed fallback title (see ops_apply.py)."""
 
 
 def fetch_page(db: sqlite3.Connection, title: str) -> sqlite3.Row | None:
@@ -23,8 +33,31 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     title holding control whitespace -- unreachable through the API, see
     refs.normalize_title -- cannot be minted by any of them. Normalizing
     rather than rejecting is deliberate: an offline client replaying a
-    queued op must never meet a permanent 422, or its queue wedges."""
+    queued op must never meet a permanent 422, or its queue wedges.
+
+    A title that is nothing but whitespace once normalized is different:
+    unlike a normalized-but-nonempty title, it can never be addressed (no
+    [[link]] resolves to it, no route can name it), so it would sit in the
+    pages table as permanently unreachable dead weight. This function
+    refuses to create it -- raising BlankTitleError rather than silently
+    minting the page -- and leaves the recovery policy to the caller.
+
+    Blankness and canonicalization are deliberately separate checks here
+    (pkm-1rb5 review round 2): normalize_title is narrow and only acts on
+    a title holding a *control* whitespace char, so a title of plain
+    spaces alone ("   ") comes back byte for byte -- not touched by
+    normalize_title, but still all-whitespace, so `.strip()` is used ONLY
+    to test for that, never to decide what gets stored or looked up. A
+    title that is merely *padded* (e.g. " EvilCorp", real content, just a
+    leading space -- production has pages exactly like this, minted back
+    when refs/ops never stripped) is not blank and must keep matching
+    itself byte for byte, the same as before this function existed: a
+    caller passing the padded title again must find the same row, not
+    stamp out a second, empty page under some canonicalized variant it
+    never actually asked to look up."""
     title = normalize_title(title)
+    if is_blank_title(title):
+        raise BlankTitleError(title)
     page = fetch_page(db, title)
     if page is not None:
         return page
@@ -37,6 +70,28 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     page = fetch_page(db, title)
     assert page is not None  # inserted above, or the race winner inserted it
     return page
+
+
+def index_ref(db: sqlite3.Connection, src_uid: str, ref_title: str,
+             ref_kind: str, now_ms: int) -> None:
+    """Resolve one extracted Ref onto a page and record it in `refs`.
+    refs.extract()'s own "drop a blank ref" check reuses normalize_title,
+    which is narrow (control whitespace only, see get_or_create_page's
+    docstring) -- so a spaces-only bracket ref like "[[   ]]" is NOT
+    dropped there, and ref_title can still be blank-once-stripped here.
+    get_or_create_page would raise BlankTitleError for that, which this
+    function catches and swallows: per extract()'s own docstring, a title
+    that normalizes to blank "is not a reference at all", so the fix is to
+    index nothing, the same as if extract() had dropped it -- not to
+    invent a fallback page (a phantom backlink onto some sentinel page
+    would be wrong, unlike the ops path's page_title fallback, where the
+    op itself needs *some* page to land on)."""
+    try:
+        page = get_or_create_page(db, ref_title, now_ms)
+    except BlankTitleError:
+        return
+    db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
+              (src_uid, page["id"], ref_kind))
 
 
 def delete_page_rows(db: sqlite3.Connection, page_id: int,
@@ -70,9 +125,7 @@ def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: int,
                 (new_text, now_ms, row["uid"]))
         db.execute("DELETE FROM refs WHERE src_block_uid = ?", (row["uid"],))
         for ref in extract(new_text).refs:
-            page = get_or_create_page(db, ref.title, now_ms)
-            db.execute("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
-                       (row["uid"], page["id"], ref.kind))
+            index_ref(db, row["uid"], ref.title, ref.kind, now_ms)
 
 
 def retitle_sidebar_entry(db: sqlite3.Connection, old_title: str,

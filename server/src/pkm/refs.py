@@ -50,6 +50,25 @@ def normalize_title(title: str) -> str:
     return _WS_RUN.sub(" ", title).strip()
 
 
+def is_blank_title(title: str) -> bool:
+    """True when `title` has nothing in it but whitespace once normalized --
+    the same test store.get_or_create_page uses to decide whether to raise
+    BlankTitleError. Exposed as a pure predicate so callers that need to
+    know this WITHOUT calling get_or_create_page (e.g. ops_apply's
+    broadcast-payload enrichment, which must tell whether a page_title fell
+    back to the "Untitled" sentinel without re-deriving the check by hand)
+    don't have to duplicate normalize-then-strip inline.
+
+    Deliberately NOT the same test extract()'s own "drop a blank ref" check
+    uses (`if norm := normalize_title(title)`) -- that one only catches a
+    title normalize_title collapses all the way to "" itself (control
+    whitespace only), so a plain-spaces-only ref title like "   " survives
+    it. This function additionally strips, so it also catches that case;
+    callers that need the two to agree (both ref-index call sites, pkm-1rb5
+    final review) call THIS function to decide whether to skip a ref."""
+    return not normalize_title(title).strip()
+
+
 @dataclass(frozen=True)
 class Ref:
     title: str

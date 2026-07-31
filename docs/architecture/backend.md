@@ -702,6 +702,67 @@ than at routes that can never match the bad value. Two properties to preserve:
   durable op queue — it retries that op forever and every later change queues
   behind it. Anything accepting a title from outside normalises, not validates.
 
+One title is never mintable, though: one that is nothing but whitespace once
+normalised (a whitespace-only string passes ops' `page_title` `min_length=1`
+check untouched, and — since `normalize_title` only acts on *control*
+whitespace, per the narrowness rule above — a plain-spaces-only string like
+`"   "` comes back byte for byte, not collapsed to `""` by `normalize_title`
+itself). `get_or_create_page()` tests for this with `.strip()`, but —
+important, pkm-1rb5 review round 2 — that `.strip()` is used **only** to
+decide blankness, never to canonicalise what gets stored or looked up. A
+title that is merely *padded* (e.g. `" EvilCorp"`: real content, just a
+leading space — production has pages exactly like this, minted back when
+refs/ops never stripped) is not blank, and keeps matching itself byte for
+byte exactly as it did before this function's blank check existed. An
+earlier version of this fix stripped the stored/looked-up title too, which
+silently split every such page in two: a ref or op naming the padded title
+again missed the exact-match row and minted a fresh, empty page under the
+stripped variant instead of reusing the real one. Canonicalising *existing*
+padded titles (merging `" EvilCorp"` into `"EvilCorp"`) is a separate,
+deliberately-deferred piece of work — it needs a data migration with merge
+handling, not a lookup-time change — and is out of scope here.
+
+Unlike a normalised-but-nonempty title, a blank one is permanently
+unreachable — no `[[link]]` resolves to it, no route can name it — so
+`get_or_create_page()` raises `BlankTitleError` instead of committing it
+(pkm-1rb5), and every caller picks its own recovery: the interactive routes
+(`POST /api/pages`) turn it into a 422, since a live client can retry with a
+real title; `ops_apply.py`'s `_resolve_page()` instead substitutes the fixed
+fallback title `"Untitled"` so a `create`/`create_page`/cross-page `move` op
+with a blank `page_title` still lands the batch — the "never 422" rule holds
+for the ops path specifically, not for every route. If a real page is
+already titled `"Untitled"` (a user typed it on purpose), blank-title ops
+deposit onto that same page rather than a dedicated sentinel — an accepted
+trade-off: the fallback is deliberately an ordinary, addressable title going
+through the normal get_or_create path, not a reserved one, so it can collide
+with real user content. The broadcast to remote clients (`ops_apply.py`'s
+`_broadcast_op()`) is enriched to carry that same resolved `"Untitled"`
+title rather than the raw blank one — a remote replica keys its refetch on
+the broadcast `page_title`, so relaying the original blank string verbatim
+would send it looking for (and minting its own local page under) a title
+the server never actually used.
+
+**Ref indexing (not just page creation) needs the same blankness check, but
+answers it differently.** `refs.extract()`'s own "drop a blank ref" filter
+(`if norm := normalize_title(title)`) reuses the narrow `normalize_title`,
+so it has the identical gap: a spaces-only bracket ref like `[[   ]]`
+survives it as `Ref(title="   ")`. Both places that resolve an extracted
+`Ref` onto a page (`ops_apply.py`'s `ReindexRefs` handling and
+`store.py`'s `rewrite_referencing_blocks`, used by rename/merge) go through
+`store.index_ref()`, which catches `BlankTitleError` and skips the ref
+entirely — no page created, no `refs` row inserted, no fallback. This is
+deliberately different from the ops `page_title` fallback: an op needs
+*some* page to land its content on, but a ref with a blank-normalizing
+title is not a reference at all (same reasoning as `extract()`'s own
+docstring), so indexing it onto `"Untitled"` would fabricate a phantom
+backlink. Before this fix, the two call sites called `get_or_create_page`
+directly, so a spaces-only ref in ordinary block text (typed via the
+editor's `[[` autopair, then just spaces) raised `BlankTitleError` with
+nothing above it to catch it — an uncaught HTTP 500 on the ops path
+(`routes_ops.py` catches only `OpError`) and on rename (which catches only
+`sqlite3.IntegrityError`), worse than either the pre-pkm-1rb5 silent
+blank-page creation or the 422 pkm-hjhy explicitly forbids on the ops path.
+
 ## Logging and observability
 
 There is no metrics stack; the logs are the whole observability story, so they

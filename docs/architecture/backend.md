@@ -460,7 +460,14 @@ registered, bypassing the cap or double-evicting. That lock spans a
 subprocess spawn (the harness connect handshake), so it is bounded by
 `create_timeout` (`CREATE_TIMEOUT_S`, 60s default) rather than left
 unbounded — a wedged harness fails that one request instead of wedging
-every future `create()`. Closing a reaped/evicted conversation's harness is
+every future `create()`. The true worst-case hold is `CREATE_TIMEOUT_S`
+*plus* cleanup, not `CREATE_TIMEOUT_S` alone: `asyncio.wait_for` does not
+return until the task it cancelled has finished unwinding, so
+`create_conversation()`'s own cancellation-triggered cleanup (disconnecting
+the partially-connected client, pkm-4zq4) runs to completion first, still
+under the lock. That cleanup rides on the SDK transport's own bounded close
+(~20s worst case), putting the real ceiling around 80s, not 60s. Closing a
+reaped/evicted conversation's harness is
 deliberately *not* done under the lock: the entry is popped from the
 registry (atomic, so the cap is enforced correctly) and the actual
 `close()` runs after the lock is released, so a hung teardown can only ever
@@ -488,8 +495,13 @@ How `claude_engine.py` confines the harness:
   awaited `connect()` -- which is exactly what happens when
   `service.create()`'s `wait_for(create_timeout)` times out on a wedged
   handshake. `close()` already tolerates a client that never connected (or
-  was never attached) and a `disconnect()` call that itself raises, so
-  startup failure and normal teardown share one code path instead of two.
+  was never attached), a `disconnect()` call that itself raises, and a
+  *second* cancellation landing anywhere in its body (e.g. the request task
+  itself being cancelled on top of the `create_timeout` cancellation that
+  triggered cleanup) — the config-file unlink lives in a `finally`, not a
+  trailing statement a `CancelledError` could skip, precisely because
+  `except Exception` does not catch `BaseException` (pkm-4zq4 fix round 1).
+  So startup failure and normal teardown share one code path instead of two.
 - **Write confirmation**: the SDK's `can_use_tool` hook streams a
   `ConfirmRequest` (with an ops preview from `policy.py`) to the browser
   and blocks the tool call on a future until `POST …/confirm` resolves it.

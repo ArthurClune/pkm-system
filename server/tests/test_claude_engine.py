@@ -120,6 +120,21 @@ def failing_factory(options):
     raise RuntimeError("factory boom")
 
 
+class HangingDisconnectClient(FakeSDKClient):
+    """connect() hangs until a first cancellation; disconnect() -- reached
+    only via the resulting cleanup path -- hangs until a second one.
+    Reproduces a wedged harness being cancelled twice: once by
+    wait_for(create_timeout), again by whatever cancels the enclosing task
+    (an aborted POST, lifespan shutdown)."""
+
+    async def connect(self):
+        await asyncio.Event().wait()  # never set; first cancellation lands here
+
+    async def disconnect(self):
+        self.disconnect_calls += 1
+        await asyncio.Event().wait()  # never set; second cancellation lands here
+
+
 def make_engine(tmp_path, factory=FakeSDKClient) -> ClaudeEngine:
     FakeSDKClient.instances.clear()
     return ClaudeEngine(
@@ -207,6 +222,34 @@ def test_create_conversation_cancelled_during_connect_cleans_up(tmp_path):
 
     client = asyncio.run(scenario())
     assert client.disconnect_calls == 1
+    assert list(tmp_path.glob("pkm-assistant-*.json")) == []
+
+
+def test_close_cleanup_survives_a_second_cancellation_during_disconnect(tmp_path):
+    # pkm-4zq4 fix round 1, finding 1: close() awaited client.disconnect()
+    # guarded only by `except Exception`, then unlinked the config file as a
+    # separate, later statement. CancelledError is BaseException, not
+    # Exception -- a second cancellation delivered into that disconnect()
+    # await (e.g. uvicorn cancelling the aborted POST, on top of the
+    # create_timeout cancellation that got us into cleanup in the first
+    # place) skipped the unlink entirely, leaking the 0600 session-token
+    # file. No prior fake's disconnect() ever awaited anything, which is why
+    # the suite was green over this hole.
+    engine = make_engine(tmp_path, factory=HangingDisconnectClient)
+
+    async def scenario():
+        task = asyncio.create_task(engine.create_conversation(SYSTEM_PROMPT, "sonnet"))
+        for _ in range(5):
+            await asyncio.sleep(0)  # let it reach the blocking connect()
+        task.cancel()  # first cancellation: lands in connect()
+        for _ in range(10):
+            await asyncio.sleep(0)  # let the except-block's close() reach disconnect()
+        assert FakeSDKClient.instances[0].disconnect_calls == 1  # confirms it's there to interrupt
+        task.cancel()  # second cancellation: lands in disconnect()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(scenario())
     assert list(tmp_path.glob("pkm-assistant-*.json")) == []
 
 

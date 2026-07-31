@@ -19,6 +19,16 @@ logger = logging.getLogger("pkm.assistant")
 # Bounds engine.create_conversation() (spawns the harness subprocess and
 # waits for it to connect) while the admission lock is held -- see the
 # comment on _admission_lock below. pkm-rovq review round 1.
+#
+# Not a hard ceiling on how long the lock is held: asyncio.wait_for does not
+# return until the task it cancelled has actually finished unwinding, so if
+# the handshake is still wedged at CREATE_TIMEOUT_S, create_conversation's
+# own cancellation-triggered cleanup (disconnecting the partially-connected
+# client, pkm-4zq4) runs to completion first, under the lock, before
+# TimeoutError reaches create() below. That cleanup rides on the SDK
+# transport's own bounded close (~20s worst case per claude_agent_sdk's
+# SubprocessCLITransport), so the true worst-case lock hold is
+# CREATE_TIMEOUT_S plus that -- roughly 80s, not 60s. pkm-4zq4 fix round 1.
 CREATE_TIMEOUT_S = 60.0
 
 
@@ -71,11 +81,15 @@ class AssistantService:
         # starts the Claude CLI harness and awaits its connect handshake.
         # That await is bounded by CREATE_TIMEOUT_S below so a wedged
         # harness can't hold the lock (and therefore every future create())
-        # hostage forever. The other unbounded await under the old code --
-        # closing a reaped/evicted conversation's harness -- is moved out
-        # of the locked section entirely below: eviction correctness only
-        # needs the `_entries` pop to be atomic with the cap check, not for
-        # the old harness's teardown to finish before admission proceeds.
+        # hostage forever -- though see CREATE_TIMEOUT_S's own comment:
+        # cancellation-triggered cleanup inside create_conversation
+        # (pkm-4zq4) still runs under this lock, so the true bound is
+        # CREATE_TIMEOUT_S plus that cleanup, not CREATE_TIMEOUT_S alone.
+        # The other unbounded await under the old code -- closing a
+        # reaped/evicted conversation's harness -- is moved out of the
+        # locked section entirely below: eviction correctness only needs the
+        # `_entries` pop to be atomic with the cap check, not for the old
+        # harness's teardown to finish before admission proceeds.
         self._admission_lock = asyncio.Lock()
 
     async def create(self, model: str | None) -> tuple[str, str]:

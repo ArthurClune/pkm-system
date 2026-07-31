@@ -61,3 +61,42 @@ existing config-file/auth bullet.
 
 No concerns. No behavior change on the success path (config file still lives
 for the conversation's lifetime, unlinked only in `close()`).
+
+## Fix round 1 (review findings)
+
+Review found two Important issues in the round-1 implementation above:
+
+**Finding 1 (fixed):** `ClaudeConversation.close()` awaited
+`client.disconnect()` guarded only by `except Exception`, then unlinked the
+config file as a separate, later statement. `CancelledError` is
+`BaseException`, not `Exception` — a second cancellation delivered into that
+`disconnect()` await (realistic: `wait_for(create_timeout)` cancels once,
+then whatever cancels the enclosing request task, e.g. an aborted POST or
+lifespan shutdown, cancels again) skipped the unlink, leaking the 0600
+session-token file, and also replaced the original exception that `raise` at
+the end of `create_conversation()`'s except block never got to run. Fixed by
+moving the whole disconnect/unlink body of `close()` into `try`/`finally`
+with the unlink in `finally`, so it runs regardless of what is raised above
+it. New regression test
+`test_close_cleanup_survives_a_second_cancellation_during_disconnect` (a
+`HangingDisconnectClient` fake whose `connect()` and `disconnect()` both
+hang until cancelled) reproduces the exact double-cancellation sequence and
+went RED (file leaked) then GREEN.
+
+**Finding 2 (documentation only, no code change per reviewer's own
+instruction):** `asyncio.wait_for` does not return until the task it
+cancelled finishes unwinding, so `create_conversation()`'s new
+cancellation-triggered cleanup (added in round 1) now runs to completion
+*under the admission lock*, before `service.create()`'s `except
+TimeoutError` is reached. The true worst-case lock hold is therefore
+`CREATE_TIMEOUT_S` plus that cleanup (~20s worst case, riding on the SDK
+transport's own bounded close), not `CREATE_TIMEOUT_S` alone. Updated the
+comments on `CREATE_TIMEOUT_S` and `_admission_lock` in
+`server/src/pkm/assistant/service.py`, and the corresponding paragraph in
+`docs/architecture/backend.md`, to state the true ~80s bound instead of the
+previously-implied 60s. Also corrected `backend.md`'s "tolerates a
+`disconnect()` that itself raises" line to include the finding-1 fix
+(survives a second cancellation via `finally`, not just `except Exception`).
+
+Full suite after both fixes: 964 tests passed, 96.01% coverage, `pyrefly
+check` clean, `ruff check` clean.

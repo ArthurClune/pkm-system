@@ -213,19 +213,30 @@ class ClaudeConversation:
         for fut in self._pending.values():
             if not fut.done():
                 fut.set_result(False)
-        if self._pump_task is not None and not self._pump_task.done():
-            self._pump_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._pump_task
-            self._pump_task = None
-            # unblock any live send() consumer stuck on queue.get()
-            await self._queue.put(ErrorEvent(message="conversation closed"))
-        if self._client is not None:
-            try:
-                await self._client.disconnect()
-            except Exception:  # already dead is fine
-                logger.exception("assistant disconnect failed")
-        self._config_path.unlink(missing_ok=True)
+        try:
+            if self._pump_task is not None and not self._pump_task.done():
+                self._pump_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._pump_task
+                self._pump_task = None
+                # unblock any live send() consumer stuck on queue.get()
+                await self._queue.put(ErrorEvent(message="conversation closed"))
+            if self._client is not None:
+                try:
+                    await self._client.disconnect()
+                except Exception:  # already dead is fine
+                    logger.exception("assistant disconnect failed")
+        finally:
+            # A second cancellation landing anywhere above -- e.g. a
+            # create_timeout cancellation (service.py's admission-lock
+            # wait_for) followed by the enclosing request task itself being
+            # cancelled -- is BaseException, not Exception, so the `except
+            # Exception` guard on disconnect() does not catch it. The 0600
+            # session-token file must still be removed even then, so the
+            # unlink lives in this `finally` rather than as a trailing
+            # statement a second cancellation could skip (pkm-4zq4 fix
+            # round 1).
+            self._config_path.unlink(missing_ok=True)
 
 
 class ClaudeEngine:

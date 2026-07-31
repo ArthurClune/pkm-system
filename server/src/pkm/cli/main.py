@@ -18,8 +18,8 @@ import httpx2
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
-from pkm.cli.build import (BuildError, asset_block_text, plan_batch,
-                           plan_mark, plan_save, plan_update,
+from pkm.cli.build import (BuildError, asset_block_text, create_page_ops,
+                           plan_batch, plan_mark, plan_save, plan_update,
                            referenced_pages)
 from pkm.cli.render import (RenderError, clip_depth, render_assets,
                             render_backlinks, render_block, render_groups,
@@ -357,28 +357,19 @@ def _read_text_arg(text: str | None) -> str:
     return text
 
 
-def _ensure_page(client: PkmClient, title: str) -> dict:
-    try:
-        return client.get_page(title)
-    except ApiError as e:
-        if e.status != 404:
-            raise
-        client.create_page(title)
-        return client.get_page(title)
-
-
 def _default_page(page: str | None) -> str:
     return page if page is not None else title_for_date(date.today())
 
 
 def cmd_save(args: argparse.Namespace, client: PkmClient) -> int:
     title = _default_page(args.page)
-    payload = _ensure_page(client, title)
-    ops = plan_save(payload, title, args.parent,
-                    _read_text_arg(args.text), args.todo,
-                    uids=iter(client_api.new_uid, None))
+    payload, missing = client.get_page_or_placeholder(title)
+    save_ops = plan_save(payload, title, args.parent,
+                         _read_text_arg(args.text), args.todo,
+                         uids=iter(client_api.new_uid, None))
+    ops = (create_page_ops([title]) if missing else []) + save_ops
     client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    for op in ops:
+    for op in save_ops:
         print(f"created ^{op['uid']}")
     return 0
 
@@ -408,12 +399,13 @@ def cmd_upload(args: argparse.Namespace, client: PkmClient) -> int:
     if args.no_block:
         return 0
     title = _default_page(args.page)
-    payload = _ensure_page(client, title)
+    payload, missing = client.get_page_or_placeholder(title)
     text = asset_block_text(asset["filename"], asset["mime"], asset["url"])
-    ops = plan_save(payload, title, args.parent, text, todo=False,
-                    uids=iter(client_api.new_uid, None))
+    save_ops = plan_save(payload, title, args.parent, text, todo=False,
+                         uids=iter(client_api.new_uid, None))
+    ops = (create_page_ops([title]) if missing else []) + save_ops
     client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    print(f"created ^{ops[0]['uid']}")
+    print(f"created ^{save_ops[0]['uid']}")
     return 0
 
 
@@ -427,9 +419,13 @@ def cmd_batch(args: argparse.Namespace, client: PkmClient) -> int:
     if not isinstance(commands, list):
         print("batch input must be a JSON array", file=sys.stderr)
         return 1
-    pages = {title: _ensure_page(client, title)
-             for title in referenced_pages(commands)}
-    ops = plan_batch(commands, pages, uids=iter(client_api.new_uid, None))
+    fetched = {title: client.get_page_or_placeholder(title)
+              for title in referenced_pages(commands)}
+    pages = {title: payload for title, (payload, _) in fetched.items()}
+    missing = [title for title, (_, is_missing) in fetched.items()
+              if is_missing]
+    ops = (create_page_ops(missing)
+          + plan_batch(commands, pages, uids=iter(client_api.new_uid, None)))
     result = client.post_ops(ops, batch_id=uuid.uuid4().hex)
     print(f"applied {result['applied']} ops")
     return 0

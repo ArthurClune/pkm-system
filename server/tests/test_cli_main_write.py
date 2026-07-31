@@ -4,6 +4,7 @@ import json
 import pytest
 
 from pkm.cli.main import main
+from pkm.client.core import ApiError
 from pkm.server.daily import title_for_date
 
 
@@ -137,6 +138,32 @@ def test_batch_atomic_create_with_alias(run, pkm_client):
     page = pkm_client.get_page("AI")
     mtg = next(n for n in page["blocks"] if n["text"] == "[[Meeting]] notes")
     assert [c["text"] for c in mtg["children"]] == ["Attendees", "Actions"]
+
+
+def test_save_empty_text_on_new_page_leaves_no_page_behind(run, pkm_client):
+    # plan_save rejects empty text after the page would already have been
+    # fetched/created -- the page must not persist when the save as a
+    # whole fails (pkm-w80k: page creation rides the same atomic batch).
+    code, _, err = run("save", "-p", "Brand New Page", "")
+    assert code == 1
+    assert "empty" in err
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New Page")
+    assert e.value.status == 404
+
+
+def test_batch_failure_after_new_page_leaves_no_page_or_blocks(run, pkm_client):
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Brand New Page", "text": "hello"}},
+        {"command": "zap", "params": {}},
+    ]
+    code, _, err = run("batch", stdin=json.dumps(cmds))
+    assert code == 1
+    assert "unknown command" in err
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New Page")
+    assert e.value.status == 404
 
 
 def test_batch_bad_json_exits_1(run):

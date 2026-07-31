@@ -139,6 +139,22 @@ def test_search_and_scan_assets(pkm_client, client):
     assert set(scanned) == {"queued", "enabled", "reason"}
 
 
+def test_get_page_or_placeholder_returns_existing_page(pkm_client):
+    payload, missing = pkm_client.get_page_or_placeholder("AI")
+    assert missing is False
+    assert payload["page"]["title"] == "AI"
+
+
+def test_get_page_or_placeholder_missing_page_is_not_created(pkm_client):
+    payload, missing = pkm_client.get_page_or_placeholder("Brand New Page")
+    assert missing is True
+    assert payload["blocks"] == []
+    # must not have created the page as a side effect (pkm-w80k)
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New Page")
+    assert e.value.status == 404
+
+
 def test_unauthenticated_client_gets_login_hint(anon_client):
     bad = PkmClient(CliConfig(url="http://testserver", token="junk"),
                     http=anon_client)

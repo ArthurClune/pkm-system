@@ -1,5 +1,7 @@
 import pytest
 
+from pkm.cli.build import BuildError
+from pkm.client.core import ApiError
 from pkm.mcp import server as mcp_server
 
 
@@ -74,6 +76,30 @@ def test_batch(tools, pkm_client):
         {"command": "create", "params": {"page": "AI", "text": "b2"}},
     ])
     assert out == "applied 2 ops"
+
+
+def test_save_note_empty_text_on_new_page_leaves_no_page_behind(tools, pkm_client):
+    # plan_save rejects empty text after the page would already have been
+    # fetched/created -- the page must not persist when the save as a
+    # whole fails (pkm-w80k: page creation rides the same atomic batch).
+    with pytest.raises(BuildError, match="empty"):
+        tools.save_note("", page="Brand New Page")
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New Page")
+    assert e.value.status == 404
+
+
+def test_batch_failure_after_new_page_leaves_no_page_or_blocks(tools, pkm_client):
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Brand New Page", "text": "hello"}},
+        {"command": "zap", "params": {}},
+    ]
+    with pytest.raises(BuildError, match="unknown command"):
+        tools.batch(cmds)
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New Page")
+    assert e.value.status == 404
 
 
 def test_upload_asset(tools, pkm_client, tmp_path):

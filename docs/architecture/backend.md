@@ -421,6 +421,15 @@ and broadcasts as the web client.
   instead.
 - Writes go through `POST /api/ops` with a fresh `batch_id`; `pkm update`
   fetches current text first and rides the `base_text_hash` conflict path.
+- A page a write targets that doesn't exist yet is never created via a
+  separate request: `PkmClient.get_page_or_placeholder` returns an empty
+  placeholder (`{"blocks": []}`) instead, and the shell (`cmd_save`/
+  `cmd_batch`/`cmd_upload` in the CLI, `save_note`/`batch`/`upload_asset` in
+  the MCP server) prepends a `create_page` op (`build.create_page_ops`) to
+  the same `OpBatch` the planned blocks ride in. That keeps the "one atomic
+  transaction" contract real: a batch that fails validation after this
+  point leaves neither the page nor its blocks behind, since the whole
+  batch (including the page's creation) rolls back together (pkm-w80k).
 - The MCP server exposes eleven tools — seven reads (`get_page`,
   `get_block`, `search`, `query`, `backlinks`, `todos`, `search_assets`) and
   four writes (`save_note`, `update_block`, `batch`, `upload_asset`) — built

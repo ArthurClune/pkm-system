@@ -104,6 +104,21 @@ class PkmClient:
             "GET", f"/api/page/{quote(title, safe='/')}",
             params={"bl_limit": bl_limit})
 
+    def get_page_or_placeholder(self, title: str) -> tuple[dict, bool]:
+        """Fetch `title`, or an empty placeholder (no blocks) if it
+        doesn't exist yet -- (payload, missing). Never creates the page
+        itself: a batch that references a missing title folds a
+        create_page op for it into the same OpBatch as whatever else the
+        batch does, so creation commits atomically with the rest instead
+        of persisting from a separate request even when the batch later
+        fails validation (pkm-w80k)."""
+        try:
+            return self.get_page(title), False
+        except ApiError as e:
+            if e.status != 404:
+                raise
+            return {"blocks": []}, True
+
     def get_block(self, uid: str) -> dict:
         return self._request("GET", f"/api/block/{quote(uid, safe='')}")
 

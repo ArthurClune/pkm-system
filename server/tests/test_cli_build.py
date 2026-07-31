@@ -2,9 +2,10 @@ import itertools
 
 import pytest
 
-from pkm.cli.build import (BuildError, next_child_idx, parse_outline,
-                           plan_batch, plan_mark, plan_save, plan_update,
-                           referenced_pages, resolve_parent, split_heading)
+from pkm.cli.build import (BuildError, create_page_ops, next_child_idx,
+                           parse_outline, plan_batch, plan_mark, plan_save,
+                           plan_update, referenced_pages, resolve_parent,
+                           split_heading)
 from pkm.cli.render import render_page
 from pkm.server.ops_core import text_hash
 
@@ -98,6 +99,16 @@ def test_plan_save_multiple_appends_increment_order():
     ops = plan_save(PAYLOAD, "Machine Learning", None, "a\nb",
                     todo=False, uids=uid_gen())
     assert [o["order_idx"] for o in ops] == [2, 3]
+
+
+def test_create_page_ops():
+    assert create_page_ops(["Brand New Page", "Another New Page"]) == [
+        {"op": "create_page", "page_title": "Brand New Page"},
+        {"op": "create_page", "page_title": "Another New Page"}]
+
+
+def test_create_page_ops_empty():
+    assert create_page_ops([]) == []
 
 
 def test_referenced_pages():

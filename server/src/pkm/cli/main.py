@@ -50,9 +50,10 @@ target forms:
                                  block matches, falls back to a page
                                  lookup on that same string
 
-a legacy uid starting with "-" (pre-existing/imported, never generated
-by this CLI) looks like an option to argparse -- address it with the
-standard "--" end-of-options marker, e.g. pkm get -- -abc123wxyz9
+a uid starting with "-" (from an import, or created before pkm-y5yv --
+no uid this CLI mints ever starts that way) looks like an option to
+argparse -- address it with the standard "--" end-of-options marker,
+e.g. pkm get -- -abc123wxyz9
 
 flags:
   --uids           annotate each block with a trailing ^uid marker
@@ -163,10 +164,10 @@ heading it had. -D and -T only change the task marker and never touch
 the heading level. Since `pkm get` prints a heading AS "## text", a
 fetch-then-update round trip preserves the level on its own.
 
-A legacy uid starting with "-" (pre-existing/imported, never generated
-by this CLI) looks like an option to argparse -- address it with "--",
-putting any -D/-T flag before it: pkm update -- -abc123wxyz9 "new text"
-or pkm update -D -- -abc123wxyz9
+A uid starting with "-" (from an import, or created before pkm-y5yv --
+no uid this CLI mints ever starts that way) looks like an option to
+argparse -- address it with "--", putting any -D/-T flag before it:
+pkm update -- -abc123wxyz9 "new text" or pkm update -D -- -abc123wxyz9
 
 example:
   pkm update abcd1234wxyz "Finalize the report"

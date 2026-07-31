@@ -12,6 +12,7 @@ def test_new_uid_matches_server_uid_re():
     uids = {new_uid() for _ in range(50)}
     assert len(uids) == 50
     assert all(UID_RE.fullmatch(u) for u in uids)
+    assert all(u[0].isalnum() for u in uids)
 
 
 def test_new_uid_retries_until_first_char_is_alphanumeric(monkeypatch):

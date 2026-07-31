@@ -30,11 +30,12 @@ secrets.token_urlsafe() can generate a UID beginning with -. The server accepts 
   character is alphanumeric. `UID_RE` is untouched, as directed.
 - Verified `pkm get`/`pkm update`'s bare-uid positional arguments already
   support the standard argparse `--` end-of-options marker with no parser
-  changes needed (confirmed empirically before writing any code) — so
-  legacy leading-dash uids (Roam-imported or pre-pkm-y5yv) stay addressable
-  via e.g. `pkm get -- -abc123wxyz9` / `pkm update -D -- -abc123wxyz9`
-  (flags must precede `--`, since everything after it is positional).
-  Documented this in both subcommands' epilogs, in
+  changes needed (confirmed empirically before writing any code) — so a
+  leading-dash uid predating pkm-y5yv (Roam-imported, or created by any
+  pre-pkm-y5yv minter, including the web app before fix round 1 below)
+  stays addressable via e.g. `pkm get -- -abc123wxyz9` / `pkm update -D
+  -- -abc123wxyz9` (flags must precede `--`, since everything after it is
+  positional). Documented this in both subcommands' epilogs, in
   `.claude/skills/pkm/SKILL.md`, and in `docs/architecture/backend.md`
   under "The write path" and "CLI and MCP server".
 - Tests (TDD, RED before GREEN — see report):
@@ -49,11 +50,44 @@ secrets.token_urlsafe() can generate a UID beginning with -. The server accepts 
   required). `uv run pyrefly check` → 0 errors. `uv run ruff check` → all
   checks passed.
 - Not done, per explicit scope resolution: no `UID_RE` tightening.
-  **Proposed for a follow-up bean:** now that every newly-minted uid
-  (client and server) is guaranteed alphanumeric-first, `UID_RE` could be
-  tightened to `^[a-zA-Z0-9][a-zA-Z0-9_-]{5,31}$` for anything created from
-  here on, while still accepting legacy leading-dash uids already in the
-  DB (the regex only gates *new* writes at `routes_pages.py:131,141`, not
-  reads, so this would not break existing data). Left undone here per the
-  controller's explicit instruction to leave `UID_RE` alone and only note
-  the idea.
+  **Proposed for a follow-up bean (needs its own migration-aware design,
+  not a same-bean change):** `UID_RE` could eventually be tightened to
+  reject a leading `-`/`_` for *newly minted* uids only. Any such change
+  must not touch how an existing uid is *read*/*addressed* — blocks
+  already in the database with a leading-dash uid (from imports, or from
+  any minter's pre-fix behavior) must remain updatable/movable by that
+  uid, since a rejected op wedges the offline queue in this codebase. A
+  same-bean tightening was explicitly out of scope here; left undone.
+
+## Fix round 1 (task review)
+
+Review found the web app's independent uid minter was never fixed, so the
+docs above overstated the invariant (framing leading-dash uids as
+import/legacy-only when the SPA could still mint one in ~1/32 of new
+blocks). Fixed:
+
+- `web/src/uidCore.ts` — added `isAlphanumericByte(byte)`, a pure predicate
+  (index < 62 in the 64-symbol alphabet, i.e. not `_`/`-`).
+- `web/src/uid.ts::newUid` — resamples only the first byte via
+  `crypto.getRandomValues` until it passes `isAlphanumericByte`, mirroring
+  the Python client/server rejection-sampling fix. TDD: RED first
+  (`uidCore.test.ts` two new tests calling the not-yet-existing predicate;
+  `uid.test.ts` a `crypto.getRandomValues` mock driving two rejects then
+  an accept, asserting `uid[0] === "a"` deterministically — failed against
+  the unfixed minter with `'-'`), then GREEN after the fix.
+- Also added a first-char assertion to the existing 200-sample property
+  test in `uid.test.ts`, and `all(u[0].isalnum() ...)` to
+  `test_new_uid_matches_server_uid_re` in `server/tests/test_client_api.py`
+  (cheap reviewer minor).
+- Corrected the three doc passages that framed leading-dash uids as
+  legacy/import-only: `.claude/skills/pkm/SKILL.md`,
+  `docs/architecture/backend.md` (both the "write path" and "CLI and MCP
+  server" passages), and the CLI's own `get`/`update` epilogs in
+  `server/src/pkm/cli/main.py` — all now say a leading-dash uid can come
+  from an import *or* a pre-pkm-y5yv build of any minter (CLI, server, or
+  web app), not just imports.
+- Verification: `cd web && pnpm typecheck` clean;
+  `cd web && pnpm test:unit` — all unit tests pass including coverage
+  gate; `cd server && uv run pytest -q tests/test_client_api.py` — all
+  pass. Full `pnpm verify` (adds Playwright E2E) run separately — see
+  report for command/output/any fallback notes.

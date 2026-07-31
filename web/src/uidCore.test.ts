@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { UID_ALPHABET, UID_BYTE_LENGTH, bytesToUid } from "./uidCore";
+import { UID_ALPHABET, UID_BYTE_LENGTH, bytesToUid, isAlphanumericByte } from "./uidCore";
 
 test("alphabet has exactly 64 symbols (so 64 divides 256 uniformly)", () => {
   expect(UID_ALPHABET.length).toBe(64);
@@ -27,4 +27,19 @@ test("is pure: same input always produces the same output", () => {
 
 test("UID_BYTE_LENGTH matches the shell's requested random-byte count", () => {
   expect(UID_BYTE_LENGTH).toBe(16);
+});
+
+test("isAlphanumericByte rejects the alphabet's last two symbols ('_' and '-')", () => {
+  expect(UID_ALPHABET[62]).toBe("_");
+  expect(UID_ALPHABET[63]).toBe("-");
+  expect(isAlphanumericByte(62)).toBe(false);
+  expect(isAlphanumericByte(63)).toBe(false);
+});
+
+test("isAlphanumericByte accepts the alphanumeric prefix, wrapping like bytesToUid's &63", () => {
+  expect(isAlphanumericByte(0)).toBe(true);
+  expect(isAlphanumericByte(61)).toBe(true);
+  expect(isAlphanumericByte(61 + 64)).toBe(true); // 125 & 63 === 61
+  expect(isAlphanumericByte(62 + 128)).toBe(false); // 190 & 63 === 62
+  expect(isAlphanumericByte(63 + 192)).toBe(false); // 255 & 63 === 63
 });

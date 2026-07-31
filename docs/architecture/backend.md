@@ -187,8 +187,10 @@ Key mechanics:
   manufacture conflicts). On mismatch the incoming edit wins but the losing
   text is preserved as a `[[conflict]]` sibling block; an edit to a
   since-deleted block is appended to today's daily page instead of vanishing.
-  The sibling's uid is minted the same way client-side uids are (see below)
-  — always alphanumeric-first, so the CLI can address it without `--`.
+  The sibling's uid is minted by the server's own generator (`ops_apply.py`),
+  independently alphanumeric-first as of pkm-y5yv (see below) — the same
+  invariant every uid minter in this project now holds, so the CLI can
+  address it without `--`.
 - **Idempotency.** A retried batch (same `batch_id` + identical canonical
   request hash) replays the stored ack with no effects; same id with a
   different payload is a 409. This is what makes offline queue replay safe.
@@ -423,15 +425,23 @@ and broadcasts as the web client.
   instead.
 - Writes go through `POST /api/ops` with a fresh `batch_id`; `pkm update`
   fetches current text first and rides the `base_text_hash` conflict path.
-- `client/api.py::new_uid` and `server/ops_apply.py::_new_uid` both retry
-  `secrets.token_urlsafe(9)` until the first character is alphanumeric
-  (pkm-y5yv): `UID_RE` (`ops_core.py`) still allows a leading `-`/`_` for
-  legacy (pre-pkm-y5yv/Roam-imported) uids, and a bare uid CLI argument
-  starting with `-` is parsed by argparse as an unknown option. `pkm get`
-  and `pkm update` take a uid as a plain positional, so addressing one of
-  those legacy uids requires the standard argparse `--` end-of-options
-  marker, e.g. `pkm get -- -abc123`; any `-D`/`-T`/etc. flags must come
-  before the `--`, since everything after it is positional.
+- Every uid minter in this project — `client/api.py::new_uid` (Python
+  CLI/MCP client), `server/ops_apply.py::_new_uid` (the conflict-sibling
+  uid, server-side), and `web/src/uid.ts::newUid` (the SPA, via
+  `uidCore.ts::isAlphanumericByte`) — resamples until the first character
+  is alphanumeric (pkm-y5yv). `UID_RE` (`ops_core.py`) itself is unchanged
+  and still *accepts* a leading `-`/`_`, so existing blocks whose uid
+  predates pkm-y5yv (a Roam import, or a block created by a pre-pkm-y5yv
+  web app build) can still have one. A bare uid CLI argument starting with
+  `-` is parsed by argparse as an unknown option; `pkm get` and `pkm
+  update` take a uid as a plain positional, so addressing one of those
+  older uids requires the standard argparse `--` end-of-options marker,
+  e.g. `pkm get -- -abc123`; any `-D`/`-T`/etc. flags must come before the
+  `--`, since everything after it is positional. Any future tightening of
+  `UID_RE` to reject a leading `-`/`_` must apply to newly-minted uids
+  only — existing blocks with one already in the database must stay
+  addressable by uid for updates/moves, which a naive regex change would
+  break (needs its own migration-aware bean).
 - A page a write targets that doesn't exist yet is never created via a
   separate request: `PkmClient.get_page_or_placeholder` returns an empty
   placeholder (`{"blocks": []}`) instead, and the shell (`cmd_save`/

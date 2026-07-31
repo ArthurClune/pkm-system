@@ -61,6 +61,16 @@ def resolve_parent(
     (level, text) when `spec` names a "## Heading" that doesn't yet exist
     on the page -- the caller must create it at page top level first, then
     nest under it.
+
+    A "## Heading" spec matches only a block whose `heading` attribute
+    equals the requested level *and* whose text matches -- a plain block
+    (heading is `None`) with the same text, or a heading at a different
+    level, is not a match; the spec is treated as missing and the caller
+    creates it. When more than one block matches (level and text both),
+    the first in document order wins, same rule `_Planner._headings`
+    applies via `setdefault` for headings created earlier in the same
+    batch -- so a page fetched before vs. after that heading exists
+    resolves the same parent either way.
     """
     if spec is None:
         return None, None
@@ -74,7 +84,7 @@ def resolve_parent(
     if m:
         level, text = len(m.group(1)), m.group(2)
         for n in _walk(payload["blocks"]):
-            if n["text"] == text:
+            if n["heading"] == level and n["text"] == text:
                 return n["uid"], None
         return None, (level, text)
     raise BuildError(

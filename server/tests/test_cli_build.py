@@ -63,6 +63,32 @@ def test_resolve_parent_unknown_uid_raises():
         resolve_parent(PAYLOAD, "((zzz999))")
 
 
+def test_resolve_parent_ignores_plain_block_with_matching_text():
+    # A plain (non-heading) block whose text happens to equal "Notes" must
+    # not be selected for a "## Notes" (level 2) parent spec -- the heading
+    # is missing, so the caller should create it, not nest under prose.
+    payload = {**PAYLOAD, "blocks": [_node("u9", "Notes")]}
+    assert resolve_parent(payload, "## Notes") == (None, (2, "Notes"))
+
+
+def test_resolve_parent_requires_matching_level():
+    # A level-3 heading with matching text must not satisfy a level-2 spec.
+    payload = {**PAYLOAD, "blocks": [_node("u9", "Notes", heading=3)]}
+    assert resolve_parent(payload, "## Notes") == (None, (2, "Notes"))
+    assert resolve_parent(payload, "### Notes") == ("u9", None)
+
+
+def test_resolve_parent_duplicate_headings_picks_first_in_document_order():
+    # Two level-2 "Notes" headings on the same page: the first one in
+    # document order wins, matching the in-batch memoization's first-write
+    # rule (_Planner._headings.setdefault).
+    payload = {**PAYLOAD, "blocks": [
+        _node("first", "Notes", heading=2),
+        _node("second", "Notes", heading=2),
+    ]}
+    assert resolve_parent(payload, "## Notes") == ("first", None)
+
+
 def test_plan_save_appends_at_end_of_page():
     ops = plan_save(PAYLOAD, "Machine Learning", None, "new note",
                     todo=False, uids=uid_gen())

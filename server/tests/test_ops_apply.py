@@ -1,7 +1,7 @@
 import pytest
 
 from pkm.server.db import open_db
-from pkm.server.ops_apply import apply_batch
+from pkm.server.ops_apply import _parent_chain, _subtree_deepest_first, apply_batch
 from pkm.server.ops_core import OpBatch, OpError
 
 NOW = 1_800_000_000_000
@@ -163,6 +163,32 @@ def test_delete_removes_entire_deep_subtree(db, depth):
     remaining = db.execute(
         "SELECT count(*) FROM blocks WHERE uid LIKE 'level%'").fetchone()[0]
     assert remaining == 0
+
+
+def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
+    # ops rejects any move that would CREATE a cycle, but a corrupted DB
+    # could already contain one (e.g. from before this fix, or manual
+    # tampering). The traversal guard must be what stops recursion in that
+    # case, not the depth cap this bug removed -- an unguarded recursive CTE
+    # over a real cycle never terminates on its own. Exercised directly on
+    # the two traversal functions so a regressed guard fails this test
+    # (finite-but-wrong, or a hang) rather than being masked by any caller.
+    apply_batch(db, _batch(*_linear_chain("Machine Learning", 5, prefix="cycle")),
+               NOW)
+    db.commit()
+    # Close the chain into a cycle by hand: ops_core's plan_op would refuse
+    # this via a MoveOp, so go straight to SQL to manufacture the corruption.
+    db.execute("UPDATE blocks SET parent_uid = 'cycle4' WHERE uid = 'cycle0'")
+    db.commit()
+    expected = {"cycle0", "cycle1", "cycle2", "cycle3", "cycle4"}
+
+    chain = _parent_chain(db, "cycle4")
+    assert set(chain) == expected
+    assert len(chain) == len(expected)          # no duplicate re-walks
+
+    subtree = _subtree_deepest_first(db, "cycle0")
+    assert set(subtree) == expected
+    assert len(subtree) == len(expected)
 
 
 def test_set_heading_updates_and_clears(db):

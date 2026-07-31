@@ -36,7 +36,9 @@ def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[str, ...]:
     parent, so this is a single path -- but a corrupted DB could already
     contain a cycle, so recursion is guarded by a visited-path check (`path`)
     rather than a depth cap: it stops the instant a uid reappears, however
-    deep the real hierarchy runs, instead of silently truncating it."""
+    deep the real hierarchy runs, instead of silently truncating it. The
+    comma-delimited path only works as a membership test because UID_RE
+    (ops_core.py) bars commas from ever appearing in a uid."""
     rows = db.execute(
         """WITH RECURSIVE chain(uid, parent_uid, path) AS (
               SELECT uid, parent_uid, ',' || uid || ',' FROM blocks

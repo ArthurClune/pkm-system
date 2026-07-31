@@ -136,7 +136,7 @@ describe("top bar cohesion (pkm-absu)", () => {
   });
 
   test("phone top bar clears the fixed hamburger button", () => {
-    expect(styles).toContain("padding: 8px 16px 8px 52px;");
+    expect(rulesFor(".top-bar")).toContain("padding: 8px 16px 8px 52px;");
   });
 });
 

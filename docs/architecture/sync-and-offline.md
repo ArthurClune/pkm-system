@@ -176,7 +176,23 @@ handles, and sqlite-wasm throws "Access Handles cannot be created if there is
 another open Access Handle". The fix is a bounded retry around the open, in a
 pure policy module.
 
-The same contention can hit an *enqueue*, and there `opQueue` treats it like
+The same race has a second, quieter outcome: the install can *succeed* with a
+pool too small to write (`replica/poolCapacity.ts`, pkm-ndcu). The SAHPool
+VFS is a fixed pool of pre-opened OPFS files and **every** file SQLite opens
+claims a slot — the database, its rollback journal, any temp file.
+`installOpfsSAHPoolVfs` sizes the pool from whatever it finds in its opaque
+directory and only falls back to the default capacity of 6 when it finds
+*nothing*, so a worker that enumerates that directory while a sibling worker
+is still creating the pool files can come up with a capacity of one. The
+database file then takes the only slot and every write transaction fails —
+for the life of that worker, since nothing grows the pool afterwards — with
+`SQLITE_CANTOPEN` (the VFS swallows its own "SAH pool is full" message).
+Reads keep working, so the damage is invisible until the first edit. The fix
+is to top the pool up to `MIN_POOL_CAPACITY` immediately after the install,
+before the database is opened; `addCapacity` creates fresh randomly-named
+files, so it never contends with handles the outgoing worker still holds.
+
+Both failures can hit an *enqueue*, and there `opQueue` treats them like
 quota exhaustion: "cannot persist locally right now" is not a server
 rejection, so the ops are posted straight to the server instead of firing
 `onDesync` — whose authoritative repair would wipe the active outline back to
@@ -184,7 +200,9 @@ the edit-less server state and detach the editor mid-keystroke. Worth knowing
 because the pre-fix symptom was a **"Server rejected a change"** banner,
 which reads like a server-side rejection or a `resyncSeq` bug and cost a
 misdirected investigation: when that banner appears, check the storage layer
-first.
+first. The classifier is a deny-nothing whitelist, so any *new* local-storage
+error shape reintroduces the wipe — extend it rather than adding another
+symptom fix.
 
 Three distinct triggers cause a rebootstrap, all funnelled through the same
 recovery coordinator:

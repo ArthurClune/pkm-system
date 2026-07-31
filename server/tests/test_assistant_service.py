@@ -1,9 +1,11 @@
 import asyncio
+from collections.abc import AsyncIterator
 
 import pytest
 
 from fake_engine import FakeEngine
-from pkm.assistant.events import ConfirmRequest, TextDelta, TurnDone
+from pkm.assistant.engine import ConversationHandle
+from pkm.assistant.events import AssistantEvent, ConfirmRequest, TextDelta, TurnDone
 from pkm.assistant.service import (
     AssistantService,
     BusyError,
@@ -18,6 +20,66 @@ class FakeClock:
 
     def __call__(self) -> float:
         return self.now
+
+
+class _StubHandle:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def send(self, text: str) -> AsyncIterator[AssistantEvent]:
+        async def _gen() -> AsyncIterator[AssistantEvent]:
+            return
+            yield  # pragma: no cover - never reached, satisfies AsyncIterator
+
+        return _gen()
+
+    def resolve_confirm(self, tool_use_id: str, allow: bool) -> None:
+        pass
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class BarrierEngine:
+    """Engine whose create_conversation() can be held open by the test.
+
+    The first `hold` calls block on `gate` (an asyncio.Event the test
+    controls) before returning/raising, so a test can pause a creation
+    mid-admission and observe whether a second concurrent create() is
+    able to reach the engine while the first is still in flight.
+    Every entry/exit of create_conversation() is recorded so tests can
+    assert the engine is never invoked concurrently by two admissions.
+    """
+
+    def __init__(self, *, hold: int = 1, fail_first: bool = False) -> None:
+        self.gate = asyncio.Event()
+        self._hold = hold
+        self._fail_first = fail_first
+        self.calls = 0
+        self.in_progress = 0
+        self.max_concurrent = 0
+        self.conversations: list[_StubHandle] = []
+
+    async def create_conversation(self, system_prompt: str, model: str) -> ConversationHandle:
+        self.calls += 1
+        call_index = self.calls
+        self.in_progress += 1
+        self.max_concurrent = max(self.max_concurrent, self.in_progress)
+        try:
+            if call_index <= self._hold:
+                await self.gate.wait()
+            if self._fail_first and call_index == 1:
+                raise RuntimeError("boom")
+            handle = _StubHandle()
+            self.conversations.append(handle)
+            return handle
+        finally:
+            self.in_progress -= 1
+
+
+async def _let_event_loop_run(times: int = 3) -> None:
+    for _ in range(times):
+        await asyncio.sleep(0)
 
 
 def test_create_resolves_model_and_uses_system_prompt():
@@ -191,3 +253,101 @@ def test_delete_closes_and_is_idempotent():
 
     asyncio.run(scenario())
     assert engine.conversations[0].closed is True
+
+
+# --- pkm-rovq: admission (cap check + eviction + creation) must be serialized ---
+
+
+def test_concurrent_creates_never_enter_engine_simultaneously():
+    # Without a lock, two concurrent create() calls both read the (unchanged)
+    # entries dict before either inserts, so both proceed to call the engine
+    # at once. This proves the engine is only ever entered by one admission
+    # at a time, i.e. admission is fully serialized end to end.
+    engine = BarrierEngine(hold=1)
+    service = AssistantService(engine, max_conversations=5)
+
+    async def scenario():
+        task1 = asyncio.create_task(service.create(None))
+        await _let_event_loop_run()  # task1 reaches the engine and blocks on the gate
+        task2 = asyncio.create_task(service.create(None))
+        await _let_event_loop_run()  # task2 must block on the admission lock, not the engine
+        assert engine.calls == 1  # task2 has not entered the engine yet
+        engine.gate.set()
+        cid1, _ = await task1
+        cid2, _ = await task2
+        return cid1, cid2
+
+    cid1, cid2 = asyncio.run(scenario())
+    assert cid1 != cid2
+    assert engine.max_concurrent == 1  # engine was never entered concurrently
+    assert engine.calls == 2
+    assert len(service._entries) == 2
+
+
+def test_cap_never_exceeded_across_a_pending_creation():
+    # pkm-rovq: with max_conversations=1 and no existing entries, two
+    # concurrent create() calls used to both observe "0 >= 1 is false" and
+    # both proceed, ending with 2 entries against a cap of 1. The lock must
+    # force the second call to re-check the cap only after the first
+    # creation has actually landed (or failed), so it evicts the first
+    # conversation instead of exceeding the cap.
+    engine = BarrierEngine(hold=1)
+    service = AssistantService(engine, max_conversations=1)
+
+    async def scenario():
+        task1 = asyncio.create_task(service.create(None))
+        await _let_event_loop_run()  # task1 is blocked inside the engine, holding the lock
+        task2 = asyncio.create_task(service.create(None))
+        await _let_event_loop_run()
+        # task2 cannot have observed free capacity yet: it is stuck behind
+        # the lock, and the engine has not been entered a second time.
+        assert engine.calls == 1
+        assert len(service._entries) == 0  # task1 hasn't inserted its entry yet either
+        engine.gate.set()
+        cid1, _ = await task1
+        cid2, _ = await task2
+        return cid1, cid2
+
+    cid1, cid2 = asyncio.run(scenario())
+    assert cid1 != cid2
+    assert engine.max_concurrent == 1
+    # cap of 1 was never exceeded: task2's admission evicted task1's
+    # (idle) conversation rather than creating a second one alongside it.
+    assert len(service._entries) == 1
+    assert cid1 not in service._entries
+    assert cid2 in service._entries
+    assert engine.conversations[0].closed is True
+
+
+def test_failed_creation_releases_the_admission_lock():
+    engine = BarrierEngine(hold=1, fail_first=True)
+    service = AssistantService(engine, max_conversations=1)
+    engine.gate.set()  # don't block; fail immediately once entered
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="boom"):
+            await service.create(None)
+        # a failed creation must not leave the lock held forever
+        return await asyncio.wait_for(service.create(None), timeout=1.0)
+
+    cid, _ = asyncio.run(scenario())
+    assert cid
+    assert len(service._entries) == 1
+
+
+def test_cancelled_creation_releases_the_admission_lock():
+    engine = BarrierEngine(hold=1)  # gate never set: first call blocks forever
+    service = AssistantService(engine, max_conversations=1)
+
+    async def scenario():
+        task1 = asyncio.create_task(service.create(None))
+        await _let_event_loop_run()  # task1 is now parked inside the engine call
+        task1.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task1
+        # a cancelled creation must not leave the lock held forever
+        return await asyncio.wait_for(service.create(None), timeout=1.0)
+
+    cid, _ = asyncio.run(scenario())
+    assert cid
+    assert len(service._entries) == 1

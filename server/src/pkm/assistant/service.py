@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import time
@@ -50,25 +51,35 @@ class AssistantService:
         self._idle_ttl = idle_ttl
         self._clock = clock
         self._entries: dict[str, _Entry] = {}
+        # Guards the whole admission path (reap + cap check + eviction +
+        # engine.create_conversation + registration) so two concurrent
+        # create() calls can't both observe free capacity and both proceed:
+        # without this, each would read the same (not-yet-updated) entries
+        # dict before either inserted, bypassing the cap or double-evicting.
+        # `async with` releases the lock via try/finally on every exit path,
+        # including exceptions from the engine and task cancellation, so a
+        # failed or cancelled creation never leaves admission stuck.
+        self._admission_lock = asyncio.Lock()
 
     async def create(self, model: str | None) -> tuple[str, str]:
         resolved = resolve_model(model)
-        await self._reap_idle()
-        if len(self._entries) >= self._max:
-            # A page reload orphans the client's conversation id without
-            # deleting it server-side; repeated reloads would otherwise
-            # exhaust the cap and 409 every create for up to idle_ttl.
-            # Evicting the least-recently-used IDLE (non-busy) conversation
-            # avoids that lockout; if every conversation is actively
-            # streaming, fall through to the cap error below.
-            await self._evict_oldest_idle()
-        if len(self._entries) >= self._max:
-            raise ConversationLimitError(f"at most {self._max} concurrent conversations")
-        handle = await self._engine.create_conversation(SYSTEM_PROMPT, resolved)
-        cid = secrets.token_hex(8)
-        self._entries[cid] = _Entry(handle=handle, model=resolved, last_used=self._clock())
-        logger.info("assistant conversation %s created (model=%s)", cid, resolved)
-        return cid, resolved
+        async with self._admission_lock:
+            await self._reap_idle()
+            if len(self._entries) >= self._max:
+                # A page reload orphans the client's conversation id without
+                # deleting it server-side; repeated reloads would otherwise
+                # exhaust the cap and 409 every create for up to idle_ttl.
+                # Evicting the least-recently-used IDLE (non-busy) conversation
+                # avoids that lockout; if every conversation is actively
+                # streaming, fall through to the cap error below.
+                await self._evict_oldest_idle()
+            if len(self._entries) >= self._max:
+                raise ConversationLimitError(f"at most {self._max} concurrent conversations")
+            handle = await self._engine.create_conversation(SYSTEM_PROMPT, resolved)
+            cid = secrets.token_hex(8)
+            self._entries[cid] = _Entry(handle=handle, model=resolved, last_used=self._clock())
+            logger.info("assistant conversation %s created (model=%s)", cid, resolved)
+            return cid, resolved
 
     def send(self, conversation_id: str, text: str) -> AsyncIterator[AssistantEvent]:
         entry = self._get(conversation_id)

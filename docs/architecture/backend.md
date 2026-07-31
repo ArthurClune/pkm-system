@@ -333,8 +333,20 @@ uid/text/children structure intact, is attached under a deterministic
 `"Import recovery: unreachable blocks"` page (`rows.py`'s
 `RECOVERY_PAGE_TITLE`, suffixed `" (2)"` etc. on the rare chance a page
 already has that title) so every `((block ref))` into one still resolves.
-Only entities with no `:block/string` at all (`skipped_entities` — nothing
-of substance to recover) are still just counted, not reconstructed. The
+A root is found in two passes: first, any unreached block with no *valid*
+parent (a parent entity that itself has `:block/string`, since one that
+doesn't fails `is_block` and is never visited at all — its real children
+would otherwise vanish right along with it) becomes a root directly, which
+also naturally recovers cyclic subtrees hanging off some other root's
+descendants; second, anything still unbuilt lives entirely inside a cycle
+with no such entry point (`A`'s only pointer is from `B`, `B`'s only
+pointer is from `A`, ...), so its parent chain is walked until a node
+repeats and that node is rooted instead — never an arbitrary member, since
+that could root a non-cycle branch first and later re-attach it a second
+time under its real parent (a real `blocks.uid` primary-key collision, not
+just a documentation nicety). Only entities with no `:block/string` at all
+(`skipped_entities` — no text to reconstruct even from a subtree) are still
+just counted, never appearing on the recovery page themselves. The
 report is fully rendered and written to a `.tmp` file, and only then is the
 database swapped in, followed by the report itself — if any preflight step
 (row-building, populating the tmp db, copying assets, rendering the report)

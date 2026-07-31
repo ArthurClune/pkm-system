@@ -74,6 +74,51 @@ def test_orphan_block_is_preserved_not_silently_dropped(tmp_path):
     assert page_id == recovery_page_id
 
 
+ORPHAN_CLASSES_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Page" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-page-child" 1]
+  [2 :block/string "reachable" 1]
+  [2 :block/order 0 1]
+  [20 :block/uid "uid-skipped-parent" 1]
+  [20 :block/children 21 1]
+  [21 :block/uid "uid-real-orphan-child" 1]
+  [21 :block/string "real orphan child text" 1]
+  [21 :block/order 0 1]
+  [30 :block/uid "uid-cycle-a" 1]
+  [30 :block/string "cycle A" 1]
+  [30 :block/children 31 1]
+  [31 :block/uid "uid-cycle-b" 1]
+  [31 :block/string "cycle B" 1]
+  [31 :block/children 30 1]
+ ]}"""
+
+
+def test_orphan_classes_survive_the_full_pipeline_without_integrity_error(tmp_path):
+    # A block whose parent has a uid but no :block/string, and a cyclic
+    # pair (A <-> B) with no external entry point, both used to be
+    # silently dropped by parse_export's root selection. Reproduced
+    # end-to-end (not just at the parse_export unit level) since the
+    # earlier, buggy root-selection could also double-embed a shared
+    # descendant across two roots and raise sqlite3.IntegrityError on the
+    # blocks.uid primary key -- rc == 0 here means neither happened.
+    export_file = tmp_path / "orphan-classes.edn"
+    export_file.write_text(ORPHAN_CLASSES_EXPORT, encoding="utf-8")
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+    assert rc == 0
+
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    recovered = {r[0] for r in con.execute(
+        "SELECT uid FROM blocks WHERE uid != 'uid-page-child'")}
+    assert recovered == {"uid-real-orphan-child", "uid-cycle-a", "uid-cycle-b"}
+
+    report = (out / "import-report.txt").read_text()
+    assert f"recovered to '{RECOVERY_PAGE_TITLE}'): 3" in report
+
+
 def test_rerun_replaces_database(tmp_path):
     files = _setup_files(tmp_path)
     out = tmp_path / "data"

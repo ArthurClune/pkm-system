@@ -124,20 +124,59 @@ def parse_export(db: object) -> Export:
     all_block_eids = {eid for eid, ent in entities.items() if is_block(ent)}
     unreached_eids = all_block_eids - reached_eids
 
-    # A block entity referenced by another entity's :block/children is not
-    # a root of its own subtree -- if that parent were reachable, the child
-    # would already be in `built` too, so an unreached child always means
-    # its parent (if any) is itself unreached. Roots are the unreached
-    # blocks nobody points to.
-    child_of_any = {c for ent in entities.values() for c in ent.get(":block/children", [])}
-    orphan_root_eids = sorted(
-        (eid for eid in unreached_eids if eid not in child_of_any),
-        key=lambda eid: entities[eid][":block/uid"],
-    )
-    orphan_blocks = tuple(
-        block for eid in orphan_root_eids
+    # A parent pointer only counts if it comes from a real (is_block)
+    # entity: a stringless entity (uid but no :block/string, one of
+    # skipped_entities below) fails is_block and so is never even visited
+    # by build() -- it returns None before recursing into :block/children
+    # at all -- which would hide that entity's own real, text-bearing
+    # children just as thoroughly as if nothing pointed to them.
+    parent_of: dict[int, int] = {
+        c: eid for eid, ent in entities.items() if is_block(ent)
+        for c in ent.get(":block/children", [])
+    }
+
+    def uid_of(eid: int) -> str:
+        return entities[eid][":block/uid"]
+
+    # Pass 1: an unreached block with no (valid) parent is a genuine root.
+    # build()'s ordinary top-down recursion from each one is duplicate-free
+    # by construction -- it only ever descends into :block/children, so it
+    # can never visit the same eid twice by a different path.
+    natural_roots = sorted((eid for eid in unreached_eids if eid not in parent_of),
+                           key=uid_of)
+    orphan_blocks_list = [
+        block for eid in natural_roots
         if (block := build(eid, frozenset())) is not None
-    )
+    ]
+
+    # Pass 2: anything still unbuilt has a parent that is itself unreached
+    # (by pass 1's construction), which can only happen inside a cycle (A's
+    # only pointer is from B, B's only pointer is from A, ... with maybe
+    # ordinary subtrees hanging off any cycle member in the forward
+    # direction). Naively rooting at whichever leftover eid sorts first
+    # would often pick a hanging descendant rather than the cycle itself
+    # -- e.g. child C of cycle member A: rooting at C alone misses A and B
+    # entirely, and rooting at A afterwards would then attach the
+    # already-built C a second time, as A's own child, emitting it twice.
+    # Walking each leftover eid's parent chain until a node repeats always
+    # lands on an actual cycle member (every leftover eid has a parent, so
+    # the walk can't run off the end, and it's finite so it must repeat);
+    # build()'s existing ancestor-trail cycle guard then prunes the
+    # closing back-edge, and rooting there reaches the whole component --
+    # the cycle plus every subtree hanging off it -- in one pass.
+    remaining = sorted((eid for eid in unreached_eids if eid not in built), key=uid_of)
+    for start in remaining:
+        if start in built:
+            continue
+        seen: list[int] = []
+        cursor = start
+        while cursor not in seen:
+            seen.append(cursor)
+            cursor = parent_of[cursor]
+        if (block := build(cursor, frozenset())) is not None:
+            orphan_blocks_list.append(block)
+
+    orphan_blocks = tuple(orphan_blocks_list)
 
     # Count skipped entities: those with uid but no string (excluding pages)
     skipped_entities = len({ent[":block/uid"] for ent in entities.values()

@@ -1,11 +1,11 @@
 ---
 # pkm-ulae
 title: Server hardening from recent-change review
-status: todo
+status: in-progress
 type: epic
 priority: high
 created_at: 2026-07-31T15:45:04Z
-updated_at: 2026-07-31T15:45:04Z
+updated_at: 2026-07-31T15:55:45Z
 ---
 
 ## Context

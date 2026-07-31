@@ -24,8 +24,10 @@ When `replica.enqueue()` fails because of quota, OPFS access-handle contention, 
 
 **Direction:** Add an ordered in-memory fallback lane governed by the existing connectivity, retry, and recovery policy. Freeze or clearly degrade editing when local durability is unavailable, and retain operations until delivery or an explicit discard decision.
 
-- [ ] Add regression tests for offline persistence failure and ordering behind older durable batches
-- [ ] Implement ordered fallback delivery without bypassing queue policy
+- [x] Add regression tests for offline persistence failure and ordering behind older durable batches
+- [x] Implement ordered fallback delivery without bypassing queue policy
+
+Done in pkm-49eh.
 
 ### 2. Prevent New chat from racing an active assistant turn
 
@@ -35,8 +37,10 @@ When `replica.enqueue()` fails because of quota, OPFS access-handle contention, 
 
 **Direction:** Give each turn a generation/token and ignore updates from superseded turns. Abort and await the active turn before resetting, and identity-check abort-controller cleanup. Alternatively, disable New chat until Stop has completed.
 
-- [ ] Add active-turn/new-chat race tests
-- [ ] Make turn cleanup generation- and controller-safe
+- [x] Add active-turn/new-chat race tests
+- [x] Make turn cleanup generation- and controller-safe
+
+Done in pkm-6ts2.
 
 ### 3. Block deletion of read-only multi-block selections
 
@@ -46,8 +50,10 @@ Movement and indentation check `readOnly`, but Backspace/Delete unconditionally 
 
 **Direction:** Gate selection deletion on `!readOnly` and test the editable-to-read-only transition.
 
-- [ ] Add a read-only transition regression test
-- [ ] Gate destructive selection handling
+- [x] Add a read-only transition regression test
+- [x] Gate destructive selection handling
+
+Done in pkm-rckh.
 
 ### 4. Remove closed mobile navigation from the keyboard focus order
 
@@ -57,8 +63,10 @@ The closed phone navigation is hidden only with `transform: translateX(-100%)`; 
 
 **Direction:** Apply `inert` or `visibility:hidden` while closed, restore visibility for `.open`, add expanded/control semantics, and manage focus restoration.
 
-- [ ] Add mobile keyboard-order and focus-restoration coverage
-- [ ] Make closed navigation inert and expose correct ARIA state
+- [x] Add mobile keyboard-order and focus-restoration coverage
+- [x] Make closed navigation inert and expose correct ARIA state
+
+Done in pkm-rwwp.
 
 ### 5. Make clickable headings keyboard-accessible
 
@@ -68,8 +76,10 @@ Page-title editing and Unlinked References expansion use `onClick` on non-focusa
 
 **Direction:** Prefer semantic buttons inside the heading structure, including `aria-expanded` for collapsible content, with themed `:focus-visible` styling.
 
-- [ ] Add keyboard interaction tests for title editing and Unlinked References
-- [ ] Replace mouse-only heading interactions with semantic controls
+- [x] Add keyboard interaction tests for title editing and Unlinked References
+- [x] Replace mouse-only heading interactions with semantic controls
+
+Done in pkm-l4z8.
 
 ## Medium-priority findings
 

@@ -67,18 +67,26 @@ export function PageTitle({ title }: { title: string }) {
         {/* The affordance is a real button inside the heading (pkm-l4z8):
           * an onClick on the <h1> itself was unreachable from the keyboard.
           * The heading keeps its place in the document outline and the button
-          * inherits its type, so nothing moves visually. aria-label is fixed
-          * text rather than the title itself: an arbitrary title can contain
-          * any word (an e2e page named "...Cancel..." or "Merge A g0t5"
-          * turned this button into a second match for getByRole("button",
-          * { name: "Cancel" }) / { name: "Merge" }) elsewhere on the page --
-          * a strict-mode violation or a wrong-element click, deterministic
-          * every time such a title is used, not a timing flake. */}
+          * inherits its type, so nothing moves visually. The button must stay
+          * named by its content (the title), not a fixed aria-label: accname
+          * computes an ancestor's name-from-content by walking children, and
+          * a child with its own explicit name (aria-label) contributes THAT
+          * name to the walk instead of its text -- so labelling this button
+          * "Edit title" silently renamed the enclosing <h1> to "Edit title"
+          * in every real browser (verified in Chromium; jsdom's accname
+          * implementation does not reproduce this, so no unit test can pin
+          * it down -- check with a real browser before changing this again).
+          * That both broke the page's primary heading for screen readers and
+          * failed WCAG 2.5.3 (visible label not in the accessible name). A
+          * title containing a word like "Cancel" or "Merge" colliding with
+          * an unrelated dialog's same-named button (pkm-6phf's c2d9718 first
+          * tried to fix that here) is instead handled by scoping the
+          * colliding queries to their dialog. */}
         <h1 className={`page-title${editable ? " page-title-editable" : ""}`}>
           {editable
             ? (
               <button type="button" className="page-title-edit"
-                      aria-label="Edit title" onClick={startEditing}>
+                      onClick={startEditing}>
                 {title}
               </button>
             )

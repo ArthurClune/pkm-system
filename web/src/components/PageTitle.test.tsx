@@ -24,8 +24,8 @@ function mount(title: string) {
     </MemoryRouter>);
 }
 
-function startEditing() {
-  fireEvent.click(screen.getByRole("button", { name: "Edit title" }));
+function startEditing(title: string) {
+  fireEvent.click(screen.getByRole("button", { name: title }));
   return screen.getByRole("textbox") as HTMLInputElement;
 }
 
@@ -40,14 +40,14 @@ it("renders the title as a heading", () => {
 
 it("click swaps to an input holding the current title", () => {
   mount("My Page");
-  const input = startEditing();
+  const input = startEditing("My Page");
   expect(input.value).toBe("My Page");
 });
 
 it("Enter commits a rename and navigates to the new page", async () => {
   apiFetchMock.mockResolvedValue({ result: "renamed", title: "New Name" });
   mount("My Page");
-  const input = startEditing();
+  const input = startEditing("My Page");
   fireEvent.change(input, { target: { value: "New Name" } });
   fireEvent.keyDown(input, { key: "Enter" });
   fireEvent.blur(input);
@@ -62,7 +62,7 @@ it("Enter commits a rename and navigates to the new page", async () => {
 
 it("Escape reverts without calling the API", () => {
   mount("My Page");
-  const input = startEditing();
+  const input = startEditing("My Page");
   fireEvent.change(input, { target: { value: "Changed" } });
   fireEvent.keyDown(input, { key: "Escape" });
   fireEvent.blur(input);
@@ -72,8 +72,8 @@ it("Escape reverts without calling the API", () => {
 
 it("unchanged or blank titles commit as a no-op", () => {
   mount("My Page");
-  fireEvent.blur(startEditing());
-  const input = startEditing();
+  fireEvent.blur(startEditing("My Page"));
+  const input = startEditing("My Page");
   fireEvent.change(input, { target: { value: "   " } });
   fireEvent.blur(input);
   expect(apiFetchMock).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ it("409 shows an in-app merge confirm dialog and retries with allow_merge", asyn
     .mockRejectedValueOnce(new ApiError(409, "/api/page/My%20Page/rename"))
     .mockResolvedValueOnce({ result: "merged", title: "Existing" });
   mount("My Page");
-  const input = startEditing();
+  const input = startEditing("My Page");
   fireEvent.change(input, { target: { value: "Existing" } });
   fireEvent.blur(input);
   await waitFor(() => expect(screen.getByRole("alertdialog")).toBeInTheDocument());
@@ -106,7 +106,7 @@ it("409 shows an in-app merge confirm dialog and retries with allow_merge", asyn
 it("declining the merge confirm leaves everything alone", async () => {
   apiFetchMock.mockRejectedValue(new ApiError(409, "x"));
   mount("My Page");
-  const input = startEditing();
+  const input = startEditing("My Page");
   fireEvent.change(input, { target: { value: "Existing" } });
   fireEvent.blur(input);
   await waitFor(() => expect(screen.getByRole("alertdialog")).toBeInTheDocument());
@@ -121,7 +121,7 @@ it("declining the merge confirm leaves everything alone", async () => {
 it("other errors revert and surface a message", async () => {
   apiFetchMock.mockRejectedValue(new ApiError(500, "x"));
   mount("My Page");
-  const input = startEditing();
+  const input = startEditing("My Page");
   fireEvent.change(input, { target: { value: "New Name" } });
   fireEvent.blur(input);
   await waitFor(() =>
@@ -132,7 +132,7 @@ it("other errors revert and surface a message", async () => {
 it("the editable title is a focusable button inside the heading (pkm-l4z8)", () => {
   mount("My Page");
   const heading = screen.getByRole("heading", { name: "My Page" });
-  const trigger = screen.getByRole("button", { name: "Edit title" });
+  const trigger = screen.getByRole("button", { name: "My Page" });
   // the heading keeps its place in the document outline; the control inside it
   // is a native <button>, so Enter/Space activate it (jsdom does not
   // synthesise that activation click, which is why this asserts the element
@@ -147,19 +147,7 @@ it("the editable title is a focusable button inside the heading (pkm-l4z8)", () 
 
 it("daily-note titles are not editable", () => {
   mount("July 17th, 2026");
-  expect(screen.queryByRole("button", { name: "Edit title" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "July 17th, 2026" })).toBeNull();
   fireEvent.click(screen.getByRole("heading", { name: "July 17th, 2026" }));
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-});
-
-// A title containing a word like "Cancel" or "Merge" must not create a
-// second match for a getByRole("button", { name }) query aimed at an
-// unrelated dialog button elsewhere on the page -- exactly the strict-mode
-// violation / wrong-element click an e2e page titled "...Cancel..." or
-// "Merge A g0t5" hit before the button's name was fixed text (pkm-l4z8).
-it("the edit button's name does not change with title content", () => {
-  mount("Merge A g0t5, please Cancel this");
-  expect(screen.getByRole("button", { name: "Edit title" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Merge" })).toBeNull();
 });

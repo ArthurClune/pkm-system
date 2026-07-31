@@ -445,15 +445,18 @@ Four traps when working on this:
   it a click anywhere else in the header row (the old `<h2 onClick>`'s whole
   hit area) silently does nothing; `styles.test.ts` asserts both properties
   on `.section-toggle` for this reason, matching `.page-title-edit`.
-  `.page-title-edit`'s accessible name is a fixed `aria-label="Edit title"`,
-  not the title text it displays: an arbitrary page title can contain any
-  word, and exposing it as the button's name made it a second, ambiguous
-  match for `getByRole("button", { name: … })` queries aimed at unrelated
-  dialog buttons elsewhere on the page (an e2e page titled `…Cancel…` or
-  `Merge A g0t5` collided with the confirm dialog's own "Cancel"/"Merge"
-  button — deterministic, not the machine-load flakes elsewhere in this
-  suite). Keep any future per-content accessible name off of small,
-  frequently-reused controls for the same reason.
+  `.page-title-edit` must stay named by its content (the title), never a
+  fixed `aria-label`: accname computes the enclosing `<h1>`'s name by
+  walking its children, and a child with its own explicit name contributes
+  *that* name to the walk instead of its text — a fixed `aria-label` on this
+  button silently renames the page's `<h1>` in every real browser (verified
+  in Chromium; jsdom's accname implementation does not reproduce this, so a
+  unit test cannot catch it). An arbitrary title can still contain a word
+  like "Cancel" or "Merge" that collides with an unrelated dialog's
+  same-named button in a test — deterministic, not the machine-load flakes
+  elsewhere in this suite — but that is fixed by scoping the colliding query
+  to its dialog (`getByRole("alertdialog").getByRole("button", …)`), not by
+  renaming the product control.
 
 **Control boundary contrast is a known, measured deviation from WCAG 1.4.11**
 (pkm-xqir). `.btn-secondary`'s border is 1.30:1 against a panel surface in

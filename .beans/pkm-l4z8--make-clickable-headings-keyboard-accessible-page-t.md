@@ -48,10 +48,40 @@ natively focusable and Enter/Space-activatable:
   bare-button ring list plus a describe block asserting the inherited
   typography.
 - `docs/architecture/frontend.md` § Focus and interactive affordances: added
-  a fourth trap ("Two traps" → now four) documenting the heading-onClick
+  a fourth trap ("Three traps" → now four) documenting the heading-onClick
   pattern and its fix.
 
 Verified: `pnpm test:unit` (115 files, 1746 tests) and `pnpm test:coverage`
 (thresholds met) both pass; `pnpm typecheck` clean. No other call site in the
 suite clicked the `PageTitle` heading directly, so no other test needed
 migration.
+
+### Follow-up (branch-end review, c2d9718 → later fix)
+
+Two defects surfaced after this bean closed, both fixed on the same branch:
+
+1. `.section-toggle` was missing `.page-title-edit`'s
+   `display: block; width: 100%`. An inline-block button sizes to its
+   chevron+label content, not the header's full width, so a click anywhere
+   else in the row — the old `<h2 onClick>`'s whole hit area — silently did
+   nothing. Caught by `link-reference.spec.ts` failing deterministically
+   (confirmed against `main`, not the machine's known load flake).
+2. An initial branch-end fix (c2d9718) gave `.page-title-edit` a fixed
+   `aria-label="Edit title"` to stop its accessible name (the raw title
+   text) colliding with unrelated dialog buttons in e2e tests whose
+   generated titles contained words like "Cancel"/"Merge". Whole-branch
+   review caught that this broke the `<h1>`'s own accessible name: accname
+   computes a heading's name-from-content by walking its children, and a
+   child with an explicit name (`aria-label`) contributes *that* name to the
+   walk instead of its text — so every editable page's `<h1>` was silently
+   renamed to "Edit title" in real browsers (verified in Chromium;
+   jsdom's accname implementation doesn't reproduce this, so the unit test
+   didn't catch it). **Final fix:** the button stays named by its content
+   (the title, as originally shipped here); the e2e queries that collided
+   are scoped to their dialog (`getByRole("alertdialog").getByRole("button",
+   ...)`) instead. `PageTitle.tsx` carries a comment recording why the
+   button must never get a fixed name again.
+
+Both properties (`.page-title-edit`'s existing
+`display: block; width: 100%` and the requirement on `.section-toggle`) are
+now asserted in `styles.test.ts`.

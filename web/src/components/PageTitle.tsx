@@ -57,15 +57,26 @@ export function PageTitle({ title }: { title: string }) {
   };
 
   if (!editing) {
+    const startEditing = () => {
+      cancelledRef.current = false;
+      setError(null);
+      setEditing(true);
+    };
     return (
       <>
-        <h1 className={`page-title${editable ? " page-title-editable" : ""}`}
-            onClick={editable ? () => {
-              cancelledRef.current = false;
-              setError(null);
-              setEditing(true);
-            } : undefined}>
-          {title}
+        {/* The affordance is a real button inside the heading (pkm-l4z8):
+          * an onClick on the <h1> itself was unreachable from the keyboard.
+          * The heading keeps its place in the document outline and the button
+          * inherits its type, so nothing moves visually. */}
+        <h1 className={`page-title${editable ? " page-title-editable" : ""}`}>
+          {editable
+            ? (
+              <button type="button" className="page-title-edit"
+                      onClick={startEditing}>
+                {title}
+              </button>
+            )
+            : title}
         </h1>
         {error !== null && <p className="error">{error}</p>}
         {dialog}

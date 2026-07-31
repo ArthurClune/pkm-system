@@ -355,6 +355,13 @@ button { font: inherit; }
   margin: 0 0 16px; }
 .page-title a { color: inherit; }
 .page-title-editable { cursor: text; }
+/* The title's edit affordance is a real button (pkm-l4z8); it inherits the
+ * heading's type so the page looks unchanged, and spans the line so the click
+ * target is the same one the <h1> used to offer. */
+.page-title-edit { font: inherit; color: inherit; letter-spacing: inherit;
+  background: none; border: none; padding: 0; margin: 0; display: block;
+  width: 100%; text-align: left; cursor: text; }
+.page-title-edit:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .page-title-input { display: block; width: 100%; padding: 0; border: none;
   outline: none; background: transparent; color: inherit;
   font-family: inherit; }
@@ -602,6 +609,13 @@ mark.highlight { background: var(--color-highlight-bg); }
 .section-header { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;
   color: var(--color-text-secondary); margin: 0 0 8px; }
 .section-header.collapsible { cursor: pointer; user-select: none; }
+/* Collapsible section headers toggle through a real button (pkm-l4z8), which
+ * must keep the header's uppercase letter-spaced type: font: inherit carries
+ * neither text-transform nor letter-spacing. */
+.section-toggle { font: inherit; color: inherit; letter-spacing: inherit;
+  text-transform: inherit; background: none; border: none; padding: 0;
+  text-align: left; cursor: pointer; }
+.section-toggle:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 .section-header .chevron { display: inline-block; transform: rotate(90deg); }
 .section-header .chevron.closed { transform: rotate(0deg); }
 .group-title { font-size: 15px; margin: 12px 0 4px; }

@@ -124,9 +124,15 @@ export function UnlinkedSection({ title, onLinked }: {
 
   return (
     <section className="unlinked">
-      <h2 className="section-header collapsible" onClick={toggle}>
-        <span className={"chevron" + (open ? "" : " closed")}>▸</span>
-        {" "}Unlinked references{visibleTotal !== null ? ` (${visibleTotal})` : ""}
+      {/* The toggle is a real button inside the heading (pkm-l4z8): an onClick
+        * on the <h2> was unreachable from the keyboard and announced no state. */}
+      <h2 className="section-header collapsible">
+        <button type="button" className="section-toggle" aria-expanded={open}
+                onClick={toggle}>
+          <span className={"chevron" + (open ? "" : " closed")}
+                aria-hidden="true">▸</span>
+          {" "}Unlinked references{visibleTotal !== null ? ` (${visibleTotal})` : ""}
+        </button>
       </h2>
       {open && (
         <>

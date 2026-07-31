@@ -405,7 +405,7 @@ doesn't "fix" them:
   focused bullet reads as a collapsed block. Any future restyling here must
   stay distinguishable from `.closed`.
 
-Three traps when working on this:
+Four traps when working on this:
 
 - **Auditing the stylesheet alone is not enough.** `.nav-link` is applied to
   both the `<a>` destinations and the `<button>` controls in the left nav, and
@@ -431,6 +431,15 @@ Three traps when working on this:
   closing the drawer moves focus back to it — guarded on the drawer's previous
   state, since every `NavLink` calls `setNavOpen(false)` on every click and
   the hamburger is `display: none` above the breakpoint.
+- **A heading with an `onClick` is a mouse-only control.** Page-title renaming
+  and the Unlinked references collapse were both `onClick` on a non-focusable
+  `<h1>`/`<h2>` (pkm-l4z8). Both now wrap their label in a real `<button>`
+  *inside* the heading — `.page-title-edit` and `.section-toggle`, chrome-free
+  classes that inherit the heading's type (`font: inherit` plus explicit
+  `letter-spacing: inherit` / `text-transform: inherit`, which `font` does not
+  carry) and take the standard ring. The collapsible one owns `aria-expanded`
+  and marks its chevron `aria-hidden`. `BacklinksSection`'s `.filter-toggle`
+  is the same in-heading pattern where a visible button *is* wanted.
 
 **Control boundary contrast is a known, measured deviation from WCAG 1.4.11**
 (pkm-xqir). `.btn-secondary`'s border is 1.30:1 against a panel surface in

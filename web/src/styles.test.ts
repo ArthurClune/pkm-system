@@ -176,6 +176,8 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
       ".empty-page",
       ".assistant-close",
       ".assistant-preview-toggle",
+      ".page-title-edit",
+      ".section-toggle",
     ]) {
       expect(ruleFor(`${selector}:focus-visible`))
         .toContain("outline: 2px solid var(--color-link);");
@@ -549,5 +551,26 @@ describe("phone nav drawer is unreachable while closed (pkm-rwwp)", () => {
     expect(closed).toContain("transition: transform 0.15s, visibility 0.15s;");
     expect(mediaRulesFor("(max-width: 600px)", ".left-nav.open"))
       .toContain("visibility: visible;");
+  });
+});
+
+describe("in-heading trigger buttons inherit their heading (pkm-l4z8)", () => {
+  test("the page-title edit button carries no button chrome", () => {
+    const rule = rulesFor(".page-title-edit");
+    expect(rule).toContain("font: inherit;");
+    // font: inherit does not carry letter-spacing, and .page-title sets it
+    expect(rule).toContain("letter-spacing: inherit;");
+    expect(rule).toContain("border: none;");
+    expect(rule).toContain("background: none;");
+    expect(rule).toContain("cursor: text;");
+  });
+
+  test("the collapsible section toggle keeps the header's uppercase type", () => {
+    const rule = rulesFor(".section-toggle");
+    expect(rule).toContain("font: inherit;");
+    expect(rule).toContain("text-transform: inherit;");
+    expect(rule).toContain("letter-spacing: inherit;");
+    expect(rule).toContain("border: none;");
+    expect(rule).toContain("background: none;");
   });
 });

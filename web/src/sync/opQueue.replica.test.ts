@@ -241,7 +241,7 @@ test("a slow drain POST does not delay persisting later edits", async () => {
   expect(replica.rows).toEqual([]); // both drained once the network freed up
 });
 
-test("quota-failed enqueue surfaces and degrades to a direct post", async () => {
+test("quota-failed enqueue surfaces and is retained for ordered delivery", async () => {
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({
     enqueue: async () => { throw new ReplicaError("disk full", true); },
@@ -253,20 +253,21 @@ test("quota-failed enqueue surfaces and degrades to a direct post", async () => 
   await q.settled();
   await q.drain();
   expect(quotas.length).toBe(1);
-  // best-effort legacy post so the edit still lands while online
+  // retained in memory, then delivered by the drain under queue policy
   const body = bodies[0].body as { client_id: string; batch_id?: string; ops: unknown[] };
   expect(body.client_id).toBe(clientId);
   expect(body.batch_id).toBeDefined();
   expect(body.ops).toEqual([op("u1")]);
 });
 
-test("an OPFS access-handle contention enqueue failure degrades to a direct post", async () => {
+test("an OPFS access-handle contention enqueue failure is retained, not desynced", async () => {
   // A page reload (or the e2e's per-navigation worker churn) can leave the
   // prior worker's OPFS SAH pool briefly locked, so replica.enqueue rejects
   // with the sqlite-wasm "createSyncAccessHandle" contention error. That is a
   // local-storage problem, never a server rejection: the edit must still be
-  // delivered online, and onDesync (which would wipe the active outline) must
-  // NOT fire (pkm-c9hp).
+  // delivered online — through the drain, so it cannot overtake older batches
+  // or ignore backoff — and onDesync (which would wipe the active outline)
+  // must NOT fire (pkm-c9hp).
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({
     enqueue: async () => {
@@ -289,12 +290,13 @@ test("an OPFS access-handle contention enqueue failure degrades to a direct post
   await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
 });
 
-test("an exhausted SAH pool enqueue failure degrades to a direct post", async () => {
+test("an exhausted SAH pool enqueue failure is retained, not desynced", async () => {
   // A pool that raced its way to a single slot holds the database file and
   // nothing else, so SQLite cannot create the rollback journal a write
   // transaction needs and every enqueue fails with SQLITE_CANTOPEN
   // (pkm-ndcu). Like access-handle contention this is purely local: it must
-  // deliver online and must NOT fire onDesync, whose repair wipes the active
+  // deliver online — through the drain, so it cannot overtake older batches or
+  // ignore backoff — and must NOT fire onDesync, whose repair wipes the active
   // outline and detaches the editor mid-keystroke.
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({
@@ -825,6 +827,445 @@ test("replica retry delays are 250ms, 1s, then 5s capped and success resets", as
   } finally {
     vi.useRealTimers();
   }
+});
+
+// --- pkm-49eh: an enqueue that cannot persist locally joins an ordered
+// in-memory lane instead of being POSTed directly from enqueue(). ---
+
+/** The exhausted-SAH-pool shape (pkm-ndcu): local storage is unavailable, and
+ * that is never a server rejection. */
+const CANTOPEN =
+  "SQLITE_CANTOPEN: sqlite3 result code 14: unable to open database file";
+
+test("an unpersistable enqueue is retained offline and delivered on reconnect",
+async () => {
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica({
+    enqueue: async () => { throw new Error(CANTOPEN); },
+  });
+  const desyncs: unknown[] = [];
+  const q = createOpQueue(replica, (e) => desyncs.push(e));
+  q.setOnline(false);
+
+  const ticket = q.enqueue([op("u1")]);
+  await expect(ticket.settled).resolves.toMatchObject({ status: "failed" });
+  await q.settled();
+  // offline: no direct post, and the op is retained rather than dropped
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "offline", pending: 1,
+  });
+  expect(bodies).toEqual([]);
+  expect(desyncs).toEqual([]);
+
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect((bodies[0].body as { ops: unknown[] }).ops).toEqual([op("u1")]);
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("a retained op stays behind the durable batches that preceded it",
+async () => {
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(false);
+
+  q.enqueue([op("first")]);          // durable row batch-1
+  await q.settled();
+  replica.enqueue = async () => { throw new Error(CANTOPEN); };
+  const second = q.enqueue([op("second")]); // retained in memory
+  await q.settled();
+  // settle the offline drain before reconnecting: drain() hands a caller any
+  // run already in flight, so a shared blocked run would mask the reconnect
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "offline", pending: 2,
+  });
+
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
+    .toEqual([[op("first")], [op("second")]]);
+  await expect(second.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("a durable batch persisted after a retained op cannot overtake it",
+async () => {
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  replica.enqueue = async () => { throw new Error(CANTOPEN); };
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(false);
+
+  const retained = q.enqueue([op("older")]);
+  await q.settled();
+  replica.enqueue = durableEnqueue;      // local storage recovers
+  q.enqueue([op("newer")]);
+  await q.settled();
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "offline", pending: 2,
+  });
+
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
+    .toEqual([[op("older")], [op("newer")]]);
+  await expect(retained.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("a retained op queued behind one durable batch keeps its place between them",
+async () => {
+  // The three-way interleave: only the count of durable batches persisted
+  // *since* the previous retained entry keeps the second entry behind the
+  // durable row while still ahead of nothing else.
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  const failEnqueue = async (): Promise<never> => {
+    throw new Error(CANTOPEN);
+  };
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(false);
+
+  replica.enqueue = failEnqueue;
+  const first = q.enqueue([op("retained-1")]);
+  await q.settled();
+  replica.enqueue = durableEnqueue;
+  q.enqueue([op("durable")]);
+  await q.settled();
+  replica.enqueue = failEnqueue;
+  const second = q.enqueue([op("retained-2")]);
+  await q.settled();
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "offline", pending: 3,
+  });
+
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops))
+    .toEqual([[op("retained-1")], [op("durable")], [op("retained-2")]]);
+  await expect(first.delivered).resolves.toEqual({ status: "delivered" });
+  await expect(second.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("a poisoned durable batch stops standing ahead of a retained op",
+async () => {
+  // A 4xx poisons the durable row and the recovery coordinator deletes it
+  // outside the queue, so no deleteBatch ever arrives to decrement the lane.
+  // The poison itself must, or once the repair resumes a batch enqueued
+  // *after* the retained op would be posted ahead of it.
+  const { bodies } = fetchSeq([
+    () => jsonResponse({ detail: "bad op" }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(false);
+
+  q.enqueue([op("rejected")]);              // durable row, drains first
+  await q.settled();
+  replica.enqueue = async () => { throw new Error(CANTOPEN); };
+  const retained = q.enqueue([op("retained")]);
+  await q.settled();
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "offline", pending: 2,
+  });
+
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering",
+  });
+
+  // the repair deletes the poisoned row, and newer work is enqueued before
+  // delivery resumes
+  replica.rows.length = 0;
+  replica.enqueue = durableEnqueue;
+  q.enqueue([op("newer")]);
+  await q.settled();
+  q.resume("recovery");
+
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops)).toEqual([
+    [op("rejected")], [op("retained")], [op("newer")],
+  ]);
+  await expect(retained.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("a rebase-flushed durable queue leaves no phantom ahead of a later retained op",
+async () => {
+  // A rebase flushes the durable queue behind the queue's back, so the batches
+  // counted ahead of a retained entry simply vanish. Observing an empty
+  // durable queue clears those counts — including the running count of batches
+  // persisted since the last entry, or the *next* entry appended would inherit
+  // a phantom and let a newer durable batch overtake it.
+  const { bodies } = fetchSeq([
+    () => jsonResponse({ detail: "busy" }, 503),
+    () => jsonResponse({ ok: true }),
+  ]);
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  const failEnqueue = async (): Promise<never> => {
+    throw new Error(CANTOPEN);
+  };
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(false);
+
+  q.enqueue([op("durable-1")]);
+  await q.settled();
+  replica.enqueue = failEnqueue;
+  const first = q.enqueue([op("retained-1")]);  // one durable batch ahead
+  await q.settled();
+  replica.enqueue = durableEnqueue;
+  q.enqueue([op("durable-2")]);                 // counted behind retained-1
+  await q.settled();
+  replica.rows.length = 0;                      // the rebase flush
+
+  // the drain observes the empty durable queue, then fails to deliver the
+  // retained entry, so the lane is still occupied afterwards
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "retryable", pending: 1,
+  });
+  q.setOnline(false);                           // no kicks while we set up
+
+  replica.enqueue = failEnqueue;
+  const second = q.enqueue([op("retained-2")]);
+  await q.settled();
+  replica.enqueue = durableEnqueue;
+  q.enqueue([op("durable-3")]);                 // newer than retained-2
+  await q.settled();
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "offline", pending: 3,
+  });
+
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops)).toEqual([
+    [op("retained-1")],   // the 503
+    [op("retained-1")],
+    [op("retained-2")],
+    [op("durable-3")],
+  ]);
+  await expect(first.delivered).resolves.toEqual({ status: "delivered" });
+  await expect(second.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("a 5xx keeps the retained op under the same batch id and the backoff retry delivers it",
+async () => {
+  vi.useFakeTimers();
+  try {
+    const { bodies } = fetchSeq([
+      () => jsonResponse({ detail: "busy" }, 503),
+      () => jsonResponse({ ok: true }),
+    ]);
+    const replica = memReplica({
+      enqueue: async () => { throw new Error(CANTOPEN); },
+    });
+    const q = createOpQueue(replica, () => undefined);
+    const ticket = q.enqueue([op("u1")]);
+    await q.settled();
+
+    await expect(q.drain()).resolves.toMatchObject({
+      status: "blocked", reason: "retryable", pending: 1,
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(q.drain()).resolves.toEqual({ status: "drained" });
+    await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+    // one id for both attempts: the server binds batch_id to sha256(ops)
+    const ids = bodies.map((b) => (b.body as { batch_id: string }).batch_id);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe(ids[1]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a transport failure on a retained op keeps it for the next drain", async () => {
+  // Not an ApiError at all (fetch itself rejects): retryable like a 5xx, and
+  // the op must survive to be posted again rather than being discarded.
+  let calls = 0;
+  const bodies: unknown[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (_url: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    calls += 1;
+    bodies.push(JSON.parse(String(init?.body)));
+    if (calls === 1) throw new TypeError("network down");
+    return jsonResponse({ ok: true });
+  }));
+  const replica = memReplica({
+    enqueue: async () => { throw new Error(CANTOPEN); },
+  });
+  const desyncs: unknown[] = [];
+  const q = createOpQueue(replica, (e) => desyncs.push(e));
+  const ticket = q.enqueue([op("u1")]);
+  await q.settled();
+
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "retryable", pending: 1,
+  });
+  expect(desyncs).toEqual([]);
+  q.setOnline(false);
+  q.setOnline(true); // reconnect kick, as after a real network drop
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+  expect(bodies).toHaveLength(2);
+});
+
+test("a 4xx discards only the rejected retained op and holds the rest behind repair",
+async () => {
+  const { bodies } = fetchSeq([
+    () => jsonResponse({ detail: "bad op" }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  const replica = memReplica({
+    enqueue: async () => { throw new Error(CANTOPEN); },
+  });
+  const desyncs: unknown[] = [];
+  const q = createOpQueue(replica, (e) => desyncs.push(e));
+  const bad = q.enqueue([op("bad")]);
+  const good = q.enqueue([op("good")]);
+  await q.settled();
+
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering", pending: 1,
+  });
+  await expect(bad.delivered).resolves.toMatchObject({ status: "failed" });
+  expect(desyncs).toHaveLength(1);
+  expect(bodies).toHaveLength(1); // the good op waits for the repair
+
+  q.resume("recovery");
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  await expect(good.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("a retained op still delivers when the durable count it queued behind was stale",
+async () => {
+  // countPending() can read a backlog a concurrent drain is already clearing.
+  // An over-count only delays the entry, and the clamp on an observed-empty
+  // durable queue is what guarantees it still goes out.
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica({
+    enqueue: async () => { throw new Error(CANTOPEN); },
+    pendingCount: async () => 3,   // no rows exist, but the count claims three
+  });
+  const q = createOpQueue(replica, () => undefined);
+  const ticket = q.enqueue([op("u1")]);
+  await q.settled();
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect(bodies).toHaveLength(1);
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("going offline mid-drain holds the rest of the lane at the barrier",
+async () => {
+  // Between retained entries the lane re-checks connectivity exactly like the
+  // durable pump: one delivered entry must not license posting the next.
+  const replica = memReplica({
+    enqueue: async () => { throw new Error(CANTOPEN); },
+  });
+  const q = createOpQueue(replica, () => undefined);
+  const { bodies } = fetchSeq([() => {
+    q.setOnline(false); // the socket drops while the first POST is in flight
+    return jsonResponse({ ok: true });
+  }, () => jsonResponse({ ok: true })]);
+  const first = q.enqueue([op("first")]);
+  const second = q.enqueue([op("second")]);
+  await q.settled();
+
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "offline", pending: 1,
+  });
+  await expect(first.delivered).resolves.toEqual({ status: "delivered" });
+  expect(bodies).toHaveLength(1);
+
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  await expect(second.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("an enqueue that has not started when dispose lands never reaches the replica",
+async () => {
+  fetchSeq([() => jsonResponse({ ok: true })]);
+  const enqueue = vi.fn(async () => { throw new Error(CANTOPEN); });
+  const q = createOpQueue(memReplica({ enqueue }), () => undefined);
+  const ticket = q.enqueue([op("u1")]);
+  q.dispose();          // before the persist chain's microtask even runs
+
+  await expect(ticket.settled).resolves.toMatchObject({ status: "failed" });
+  await expect(ticket.delivered).resolves.toMatchObject({ status: "failed" });
+  expect(enqueue).not.toHaveBeenCalled();
+});
+
+test("an enqueue that fails after dispose settles instead of hanging", async () => {
+  fetchSeq([() => jsonResponse({ ok: true })]);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  let entered!: () => void;
+  const started = new Promise<void>((r) => { entered = r; });
+  const replica = memReplica({
+    enqueue: async () => { entered(); await gate; throw new Error(CANTOPEN); },
+  });
+  const q = createOpQueue(replica, () => undefined);
+  const ticket = q.enqueue([op("u1")]);
+  await started;        // the write is genuinely in flight inside the replica
+  q.dispose();          // teardown races a write that is already in flight
+  release();
+  await expect(ticket.settled).resolves.toMatchObject({ status: "failed" });
+  // retaining it would leave `delivered` pending forever: dispose has already
+  // run, so nothing else would ever settle this entry
+  await expect(ticket.delivered).resolves.toMatchObject({ status: "failed" });
+});
+
+test("dispose while a retained op reads the durable count still settles it",
+async () => {
+  // countPending() is a worker RPC, so dispose() can land after its settle
+  // loop has already run: an entry appended in that window would leave
+  // `delivered` pending forever, and every holder of that promise leaking.
+  fetchSeq([() => jsonResponse({ ok: true })]);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  let entered!: () => void;
+  const counting = new Promise<void>((r) => { entered = r; });
+  const replica = memReplica({
+    enqueue: async () => { throw new Error(CANTOPEN); },
+    pendingCount: async () => { entered(); await gate; return 0; },
+  });
+  const q = createOpQueue(replica, () => undefined);
+  const ticket = q.enqueue([op("u1")]);
+  await counting;       // the enqueue is parked inside countPending()
+  q.dispose();
+  release();
+
+  await expect(ticket.settled).resolves.toMatchObject({ status: "failed" });
+  await expect(ticket.delivered).resolves.toMatchObject({ status: "failed" });
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "disposed", pending: 0,
+  });
+});
+
+test("retained ops count as pending and are failed exactly once by dispose",
+async () => {
+  fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica({
+    enqueue: async () => { throw new Error(CANTOPEN); },
+  });
+  const q = createOpQueue(replica, () => undefined);
+  const counts: number[] = [];
+  q.onPending((n) => counts.push(n));
+  q.setOnline(false);
+  const ticket = q.enqueue([op("u1")]);
+  await q.settled();
+  expect(counts.at(-1)).toBe(1); // the header must not report 0 pending
+
+  let outcomes = 0;
+  void ticket.delivered.then(() => { outcomes += 1; });
+  q.dispose();
+  await expect(ticket.delivered).resolves.toMatchObject({ status: "failed" });
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "disposed", pending: 1,
+  });
+  expect(outcomes).toBe(1);
 });
 
 test.each([

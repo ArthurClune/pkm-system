@@ -147,6 +147,23 @@ function postOps(ops: BlockOp[], batchId?: string): Promise<unknown> {
   });
 }
 
+/** An enqueue whose ops could not be persisted locally (quota, OPFS
+ * access-handle contention, exhausted SAH pool). Retained in FIFO order and
+ * delivered by drain() under the same connectivity/retry/recovery policy as
+ * durable rows — never POSTed from enqueue() (pkm-49eh). */
+interface FallbackEntry {
+  /** Minted once, at append time: a retry must re-POST a byte-identical
+   * payload under the same id, since the server binds batch_id to a
+   * sha256 of the ops. */
+  batchId: string;
+  ops: BlockOp[];
+  /** Durable batches persisted BEFORE this entry that must be delivered
+   * first; decremented as they drain, and cleared once the durable queue is
+   * observed empty. */
+  durableAhead: number;
+  resolve(outcome: DeliveryOutcome): void;
+}
+
 function createReplicaQueue(replica: Replica,
                             onDesync: (error: unknown) => void,
                             onDrain: (outcome: DrainOutcome) => void): OpQueue {
@@ -169,6 +186,28 @@ function createReplicaQueue(replica: Replica,
     position: number;
     resolve(outcome: DeliveryOutcome): void;
   }> = [];
+  const fallback: FallbackEntry[] = [];
+  // Durable batches persisted since the last fallback entry was appended:
+  // they sit BEHIND that entry and must not overtake it.
+  let durableSinceFallback = 0;
+
+  /** Durable rows plus retained in-memory entries: what the UI must show as
+   * "changes pending", and what a blocked drain reports. */
+  const totalPending = (): number => pendingCount + fallback.length;
+  const emitPending = (): void => { pending.emit(totalPending()); };
+
+  /** A durable batch reached a terminal state — delivered, or poisoned and so
+   * never deliverable — so it no longer stands ahead of the retained head.
+   * Poisoning must count too: the recovery coordinator deletes the poisoned row
+   * outside the queue, so no deleteBatch ever arrives for it, and a head left
+   * waiting on it would be overtaken by the next batch enqueued after it.
+   * Only reached while that head still has batches ahead of it, since the lane
+   * branch posts a head whose durableAhead is 0 before any batch is pulled. */
+  const durableBatchSettled = (): void => {
+    if (fallback.length > 0) {
+      fallback[0].durableAhead = Math.max(0, fallback[0].durableAhead - 1);
+    }
+  };
 
   const finishDelivery = (batchId: string, outcome: DeliveryOutcome): void => {
     const resolve = deliveries.get(batchId);
@@ -232,17 +271,23 @@ function createReplicaQueue(replica: Replica,
   const blocked = async (
     reason: "offline" | "retryable" | "recovering" | "disposed",
     error?: unknown,
-  ): Promise<DrainOutcome> => ({
-    status: "blocked",
-    reason,
-    pending: await countPending(),
-    ...(error === undefined ? {} : { error }),
-  });
+  ): Promise<DrainOutcome> => {
+    await countPending();
+    return {
+      status: "blocked",
+      reason,
+      pending: totalPending(),
+      ...(error === undefined ? {} : { error }),
+    };
+  };
 
   const failed = async (error: unknown): Promise<DrainOutcome> => {
-    const count = await countPending();
+    await countPending();
     const transition = dispatch({ type: "delivery-failed" });
-    return { status: "blocked", reason: transition.blockedReason!, pending: count, error };
+    return {
+      status: "blocked", reason: transition.blockedReason!,
+      pending: totalPending(), error,
+    };
   };
 
   const rememberPoisonMark = (event: PoisonEvent): void => {
@@ -275,7 +320,7 @@ function createReplicaQueue(replica: Replica,
     }
     if (result !== null) {
       pendingCount = result.pending;
-      pending.emit(pendingCount);
+      emitPending();
     }
     // The database is now the durable source of truth. Removing fallback
     // metadata before publication is crash-safe: startup discovers the
@@ -293,6 +338,35 @@ function createReplicaQueue(replica: Replica,
 
     for (;;) {
       drainAgain = false;
+      const head = fallback[0];
+      if (head !== undefined && head.durableAhead === 0) {
+        try {
+          await postOps(head.ops, head.batchId);
+        } catch (error: unknown) {
+          if (error instanceof ApiError && error.status >= 400
+              && error.status < 500) {
+            // No durable row exists to poison, so this mirrors the legacy
+            // queue's terminal 4xx: discard exactly the rejected entry — the
+            // only discard this queue makes on its own — hold later entries
+            // behind the recovery barrier, and let onDesync run the
+            // authoritative repair that resumes it.
+            dispatch({ type: "pause" });
+            fallback.shift();
+            head.resolve({ status: "failed", error });
+            emitPending();
+            try { onDesync(error); } catch { /* listener isolation */ }
+            return blocked("recovering", error);
+          }
+          return failed(error);
+        }
+        fallback.shift();
+        head.resolve({ status: "delivered" });
+        emitPending();
+        dispatch({ type: "batch-succeeded" });
+        const laneBlock = terminalReason(qstate);
+        if (laneBlock !== null) return blocked(laneBlock);
+        continue;
+      }
       let batch;
       try {
         batch = await replica.nextBatch();
@@ -302,6 +376,15 @@ function createReplicaQueue(replica: Replica,
       if (batch === null) {
         pendingCount = 0;
         finishAllDeliveries({ status: "delivered" });
+        // Nothing durable is left, so nothing can still be ahead of a
+        // retained entry: clear counts a stale read (or a queue flushed by a
+        // rebase) left behind rather than waiting on a predecessor that will
+        // never arrive. durableSinceFallback counts batches that are equally
+        // gone, so it must be cleared too or the next appended entry inherits
+        // a phantom predecessor.
+        for (const entry of fallback) entry.durableAhead = 0;
+        durableSinceFallback = 0;
+        if (fallback.length > 0) continue;
         if (drainAgain) continue;
         return { status: "drained" };
       }
@@ -325,6 +408,10 @@ function createReplicaQueue(replica: Replica,
           rememberPoisonMark(event);
           finishDelivery(batch.batch_id, { status: "failed", error });
           finishObservedUnidentified({ status: "failed", error });
+          // Terminal for this batch: it is never POSTed again (the barrier
+          // holds until the repair, and marking is retried, never delivery), so
+          // it stops standing ahead of a retained entry from here.
+          durableBatchSettled();
           try {
             await markRetainedPoison();
           } catch (rpcError: unknown) {
@@ -343,12 +430,13 @@ function createReplicaQueue(replica: Replica,
       pendingCount = result.pending;
       finishDelivery(batch.batch_id, { status: "delivered" });
       finishObservedUnidentified({ status: "delivered" });
+      durableBatchSettled();
       if (pendingCount === 0) {
         // Test replicas and older workers may not return enqueue batch ids;
         // an empty durable queue proves those in-memory tickets delivered.
         finishAllDeliveries({ status: "delivered" });
       }
-      pending.emit(pendingCount);
+      emitPending();
       dispatch({ type: "batch-succeeded" });
       const loopBlock = terminalReason(qstate);
       if (loopBlock !== null) return blocked(loopBlock);
@@ -426,6 +514,7 @@ function createReplicaQueue(replica: Replica,
         try {
           const result = await replica.enqueue(ops);
           pendingCount = result.pending;
+          if (fallback.length > 0) durableSinceFallback += 1;
           if (qstate.disposed) {
             resolveDelivery({
               status: "failed", error: new Error("op queue disposed"),
@@ -438,7 +527,7 @@ function createReplicaQueue(replica: Replica,
           } else {
             deliveries.set(result.batchId, resolveDelivery);
           }
-          pending.emit(pendingCount);
+          emitPending();
           resolve({ status: "persisted", pending: pendingCount });
           if (!qstate.disposed) kick();
         } catch (error: unknown) {
@@ -449,19 +538,51 @@ function createReplicaQueue(replica: Replica,
           // OPFS access-handle contention (a reload/second tab racing the
           // prior worker's SAH pool, pkm-c9hp) and an exhausted SAH pool with
           // no slot for SQLite's rollback journal (pkm-ndcu) all mean "cannot
-          // persist locally right now" — deliver the edit straight to the
-          // server so it still lands, rather than firing onDesync, whose
+          // persist locally right now" — never that the server refused the
+          // edit. Firing onDesync would be the wrong answer, because its
           // authoritative repair would wipe the active outline to the
-          // (edit-less) server state and detach the editor mid-keystroke.
+          // (edit-less) server state and detach the editor mid-keystroke, so
+          // the ops are retained for ordered delivery by drain() rather than
+          // posted from here.
           if (quotaExhausted || isSahPoolContention(error)
               || isPoolExhausted(error)) {
             if (quotaExhausted) quota.emit(error);
-            try {
-              await postOps(ops, newUid());
-              resolveDelivery({ status: "delivered" });
-            } catch (deliveryError: unknown) {
-              resolveDelivery({ status: "failed", error: deliveryError });
+            if (qstate.disposed) {
+              resolveDelivery({
+                status: "failed", error: new Error("op queue disposed"),
+              });
+              return;
             }
+            // Retain the ops in an ordered in-memory lane and let drain()
+            // deliver them: that keeps offline state, backoff and the
+            // recovery barrier in force, and keeps these ops behind the
+            // durable batches that preceded them (pkm-49eh). countPending()
+            // may read a count that a concurrent drain is about to shrink. An
+            // over-count delays this entry, and until the durable queue is
+            // next observed empty (which clears every count) a batch persisted
+            // after it can go out first; what a stale count can never do is
+            // lose the ops, which is the property that matters here.
+            const durableAhead = fallback.length === 0
+              ? await countPending() : durableSinceFallback;
+            // countPending() is a worker RPC, so dispose() can have run its
+            // settle loop while it was in flight: an entry appended now would
+            // leave `delivered` pending forever, and every holder of that
+            // promise leaking with it.
+            if (qstate.disposed) {
+              resolveDelivery({
+                status: "failed", error: new Error("op queue disposed"),
+              });
+              return;
+            }
+            fallback.push({
+              batchId: newUid(),
+              ops,
+              durableAhead,
+              resolve: resolveDelivery,
+            });
+            durableSinceFallback = 0;
+            emitPending();
+            kick();
           } else {
             resolveDelivery({ status: "failed", error });
             try { onDesync(error); } catch { /* listener isolation */ }
@@ -485,9 +606,14 @@ function createReplicaQueue(replica: Replica,
     dispose() {
       if (qstate.disposed) return;
       dispatch({ type: "dispose" });
-      finishAllDeliveries({
-        status: "failed", error: new Error("op queue disposed"),
-      });
+      const error = new Error("op queue disposed");
+      finishAllDeliveries({ status: "failed", error });
+      // Settle every retained entry, but keep the lane populated: exactly like
+      // the durable row a disposed queue still reports, these ops belong in the
+      // terminal pending diagnostic. No new drain can start (runDrain
+      // short-circuits on terminalReason), and if a POST already in flight
+      // succeeds it merely re-resolves a settled promise, which is a no-op.
+      for (const entry of fallback) entry.resolve({ status: "failed", error });
     },
     onPending: pending.add,
     onPoisonPending: poisonPending.add,

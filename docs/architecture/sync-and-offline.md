@@ -192,17 +192,33 @@ is to top the pool up to `MIN_POOL_CAPACITY` immediately after the install,
 before the database is opened; `addCapacity` creates fresh randomly-named
 files, so it never contends with handles the outgoing worker still holds.
 
-Both failures can hit an *enqueue*, and there `opQueue` treats them like
-quota exhaustion: "cannot persist locally right now" is not a server
-rejection, so the ops are posted straight to the server instead of firing
-`onDesync` — whose authoritative repair would wipe the active outline back to
-the edit-less server state and detach the editor mid-keystroke. Worth knowing
-because the pre-fix symptom was a **"Server rejected a change"** banner,
-which reads like a server-side rejection or a `resyncSeq` bug and cost a
-misdirected investigation: when that banner appears, check the storage layer
-first. The classifier is a deny-nothing whitelist, so any *new* local-storage
-error shape reintroduces the wipe — extend it rather than adding another
-symptom fix.
+Both failures can hit an *enqueue*, and there `opQueue` treats them like quota
+exhaustion: "cannot persist locally right now" is not a server rejection, so
+firing `onDesync` — whose authoritative repair would wipe the active outline
+back to the edit-less server state and detach the editor mid-keystroke — is
+the wrong answer. Instead the ops join an **ordered in-memory fallback lane**
+(pkm-49eh) and are delivered by the ordinary drain, so they stay under the
+same connectivity, backoff and recovery-barrier policy as durable rows. Each
+entry records how many durable batches were queued ahead of it and is posted
+only once each of those has reached a terminal state — delivered, or poisoned
+and therefore never deliverable — so a retained op does not overtake an older
+batch, and a batch persisted after it waits its turn. Two things can still
+delay an entry past a newer batch, and both self-correct: a `pendingCount`
+that was already stale when the entry was appended, and batches a rebase
+flushed away. The reconciliation for both is that observing an empty durable
+queue clears every count, which is also what stops the lane waiting forever on
+a predecessor that will never arrive. An entry's `batch_id` is minted once so a
+retry re-POSTs a byte-identical payload; it counts towards "N changes
+pending"; and it is retained until it is delivered, the server rejects it with
+a 4xx (the one discard the queue makes on its own, which raises the repair
+barrier and calls `onDesync`), or the queue is disposed. Before pkm-49eh these
+ops were POSTed inline from `enqueue()`, which offline meant they were neither
+persisted nor retryable. Worth knowing because the pre-fix symptom of the
+*classification* half was a **"Server rejected a change"** banner, which reads
+like a server-side rejection or a `resyncSeq` bug and cost a misdirected
+investigation: when that banner appears, check the storage layer first. The
+classifier is a deny-nothing whitelist, so any *new* local-storage error shape
+reintroduces the wipe — extend it rather than adding another symptom fix.
 
 Three distinct triggers cause a rebootstrap, all funnelled through the same
 recovery coordinator:

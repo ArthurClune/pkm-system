@@ -35,23 +35,28 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     rather than rejecting is deliberate: an offline client replaying a
     queued op must never meet a permanent 422, or its queue wedges.
 
-    A title that ends up "" is different: unlike a normalized-but-nonempty
-    title, an empty one can never be addressed (no [[link]] resolves to it,
-    no route can name it), so it would sit in the pages table as
-    permanently unreachable dead weight. This function refuses to create
-    it -- raising BlankTitleError rather than silently minting the page --
-    and leaves the recovery policy to the caller.
+    A title that is nothing but whitespace once normalized is different:
+    unlike a normalized-but-nonempty title, it can never be addressed (no
+    [[link]] resolves to it, no route can name it), so it would sit in the
+    pages table as permanently unreachable dead weight. This function
+    refuses to create it -- raising BlankTitleError rather than silently
+    minting the page -- and leaves the recovery policy to the caller.
 
-    The extra `.strip()` below (beyond what normalize_title itself does)
-    matters: normalize_title is deliberately narrow and only acts on a
-    title holding a *control* whitespace char, so a title of plain spaces
-    alone ("   ") comes back untouched -- not blank by that function's own
-    contract, but still unreachable and still not a title anyone typed on
-    purpose. Stripping here, at the one shared choke point, is what makes
-    a spaces-only ops page_title behave the same as one caught by a route
-    that strips before calling in (POST /api/pages)."""
-    title = normalize_title(title).strip()
-    if not title:
+    Blankness and canonicalization are deliberately separate checks here
+    (pkm-1rb5 review round 2): normalize_title is narrow and only acts on
+    a title holding a *control* whitespace char, so a title of plain
+    spaces alone ("   ") comes back byte for byte -- not touched by
+    normalize_title, but still all-whitespace, so `.strip()` is used ONLY
+    to test for that, never to decide what gets stored or looked up. A
+    title that is merely *padded* (e.g. " EvilCorp", real content, just a
+    leading space -- production has pages exactly like this, minted back
+    when refs/ops never stripped) is not blank and must keep matching
+    itself byte for byte, the same as before this function existed: a
+    caller passing the padded title again must find the same row, not
+    stamp out a second, empty page under some canonicalized variant it
+    never actually asked to look up."""
+    title = normalize_title(title)
+    if not title.strip():
         raise BlankTitleError(title)
     page = fetch_page(db, title)
     if page is not None:

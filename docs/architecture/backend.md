@@ -584,26 +584,40 @@ than at routes that can never match the bad value. Two properties to preserve:
   durable op queue — it retries that op forever and every later change queues
   behind it. Anything accepting a title from outside normalises, not validates.
 
-One title is never mintable, though: one that ends up `""` after
-`get_or_create_page()` normalises and strips it (a whitespace-only string
-passes ops' `page_title` `min_length=1` check untouched, and — since
-`normalize_title` only acts on *control* whitespace, per the narrowness rule
-above — a plain-spaces-only string like `"   "` needs the extra `.strip()`
-inside `get_or_create_page` itself to collapse to nothing; `normalize_title`
-alone would return it byte for byte). Unlike a normalised-but-nonempty title,
-an empty one is permanently unreachable — no `[[link]]` resolves to it, no
-route can name it — so `get_or_create_page()` raises `BlankTitleError` instead
-of committing it (pkm-1rb5), and every caller picks its own recovery: the
-interactive routes (`POST /api/pages`) turn it into a 422, since a live client
-can retry with a real title; `ops_apply.py`'s `_resolve_page()` instead
-substitutes the fixed fallback title `"Untitled"` so a `create`/`create_page`/
-cross-page `move` op with a blank `page_title` still lands the batch — the
-"never 422" rule holds for the ops path specifically, not for every route.
-If a real page is already titled `"Untitled"` (a user typed it on purpose),
-blank-title ops deposit onto that same page rather than a dedicated
-sentinel — an accepted trade-off: the fallback is deliberately an ordinary,
-addressable title going through the normal get_or_create path, not a
-reserved one, so it can collide with real user content.
+One title is never mintable, though: one that is nothing but whitespace once
+normalised (a whitespace-only string passes ops' `page_title` `min_length=1`
+check untouched, and — since `normalize_title` only acts on *control*
+whitespace, per the narrowness rule above — a plain-spaces-only string like
+`"   "` comes back byte for byte, not collapsed to `""` by `normalize_title`
+itself). `get_or_create_page()` tests for this with `.strip()`, but —
+important, pkm-1rb5 review round 2 — that `.strip()` is used **only** to
+decide blankness, never to canonicalise what gets stored or looked up. A
+title that is merely *padded* (e.g. `" EvilCorp"`: real content, just a
+leading space — production has pages exactly like this, minted back when
+refs/ops never stripped) is not blank, and keeps matching itself byte for
+byte exactly as it did before this function's blank check existed. An
+earlier version of this fix stripped the stored/looked-up title too, which
+silently split every such page in two: a ref or op naming the padded title
+again missed the exact-match row and minted a fresh, empty page under the
+stripped variant instead of reusing the real one. Canonicalising *existing*
+padded titles (merging `" EvilCorp"` into `"EvilCorp"`) is a separate,
+deliberately-deferred piece of work — it needs a data migration with merge
+handling, not a lookup-time change — and is out of scope here.
+
+Unlike a normalised-but-nonempty title, a blank one is permanently
+unreachable — no `[[link]]` resolves to it, no route can name it — so
+`get_or_create_page()` raises `BlankTitleError` instead of committing it
+(pkm-1rb5), and every caller picks its own recovery: the interactive routes
+(`POST /api/pages`) turn it into a 422, since a live client can retry with a
+real title; `ops_apply.py`'s `_resolve_page()` instead substitutes the fixed
+fallback title `"Untitled"` so a `create`/`create_page`/cross-page `move` op
+with a blank `page_title` still lands the batch — the "never 422" rule holds
+for the ops path specifically, not for every route. If a real page is
+already titled `"Untitled"` (a user typed it on purpose), blank-title ops
+deposit onto that same page rather than a dedicated sentinel — an accepted
+trade-off: the fallback is deliberately an ordinary, addressable title going
+through the normal get_or_create path, not a reserved one, so it can collide
+with real user content.
 
 ## Logging and observability
 

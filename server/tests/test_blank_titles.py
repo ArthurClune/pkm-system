@@ -21,6 +21,19 @@ strip leading/trailing whitespace before its emptiness check, or a
 spaces-only page_title sails through as a real (if invisible) page title.
 Tests below distinguish CONTROL_ONLY (from control whitespace) and
 SPACES_ONLY (from plain spaces) so each code path is actually exercised.
+
+NOTE (review round 2): round 1's fix over-corrected -- it applied `.strip()`
+to the title that gets STORED and LOOKED UP, not just to the blankness
+check. That silently changed canonicalization for every non-blank padded
+title (production has real pages like `" EvilCorp"` and one with a
+trailing space, created back when refs/ops never stripped). Post round-1,
+a ref or op naming one of those titles *exactly as stored* stripped first,
+missed the padded row (fetch_page is an exact match), and minted a fresh
+empty duplicate -- stranding the real page's content and backlinks under
+the padded title, reachable only by a byte-exact URL. Blankness and
+canonicalization are separate concerns: `"   "` (nothing but padding) is
+blank and must fall back; `" EvilCorp"` (padding plus real content) is not
+blank and must keep matching itself exactly, the same as before pkm-1rb5.
 """
 import sqlite3
 
@@ -162,3 +175,58 @@ def test_post_pages_route_rejects_spaces_only_title_too(client):
     path, which does not pre-strip."""
     r = client.post("/api/pages", json={"title": SPACES_ONLY})
     assert r.status_code == 422
+
+
+def test_padded_title_is_preserved_and_reused_exactly(tmp_path):
+    """Round-2 regression (review round 2): a title padded with plain
+    leading/trailing space but not blank -- real content sits under it --
+    must keep matching itself exactly, the same as before pkm-1rb5. The
+    row is inserted directly (not via get_or_create_page) to simulate the
+    pre-existing production page: it was minted back when refs/ops never
+    stripped, so its stored title carries the padding."""
+    db = _fresh_db(tmp_path)
+    padded = " EvilCorp"
+    db.execute(
+        "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
+        (padded, 100, 100))
+    original = fetch_page(db, padded)
+    assert original is not None
+
+    # Same padded title again -> the SAME page, not a fresh duplicate.
+    reused = get_or_create_page(db, padded, 200)
+    assert reused["id"] == original["id"]
+    assert reused["title"] == padded  # padding untouched in storage too
+
+    # A stripped variant is a genuinely different title (exact match only)
+    # -- it must NOT hijack the padded page's content.
+    stripped = get_or_create_page(db, "EvilCorp", 300)
+    assert stripped["id"] != original["id"]
+    db.close()
+
+
+def test_create_page_op_reuses_a_pre_existing_padded_title(
+        client, seeded_config):
+    """End-to-end version of the same regression through the ops API:
+    posting create_page with the exact pre-existing padded title must
+    reuse that page, not duplicate it."""
+    padded = " Legacy Padded Page"
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(title, created_at, updated_at) VALUES (?,?,?)",
+        (padded, 100, 100))
+    con.commit()
+    original_id = con.execute(
+        "SELECT id FROM pages WHERE title = ?", (padded,)).fetchone()[0]
+    con.close()
+
+    r = _post_ops(client, {"op": "create_page", "page_title": padded})
+    assert r.status_code == 200
+
+    con = sqlite3.connect(seeded_config.db_path)
+    rows = con.execute(
+        "SELECT id FROM pages WHERE title = ?", (padded,)).fetchall()
+    stripped_rows = con.execute(
+        "SELECT id FROM pages WHERE title = ?", (padded.strip(),)).fetchall()
+    con.close()
+    assert rows == [(original_id,)]      # reused, not duplicated
+    assert stripped_rows == []           # no stray stripped-title page either

@@ -30,6 +30,13 @@ function feed(events: AssistantEvent[]) {
   );
 }
 
+function deferredValue<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
 describe("useAssistant", () => {
   test("send creates conversation lazily and accumulates deltas", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
@@ -302,5 +309,270 @@ describe("useAssistant", () => {
       { kind: "tool", name: "search", summary: 'searching "foo"', done: true },
       { kind: "tool", name: "search", summary: 'searching "bar"', done: false },
     ]);
+  });
+
+  test("newChat aborts the live turn; its late events never reach the new chat", async () => {
+    // pkm-6ts2
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    mocks.deleteConversation.mockResolvedValue(undefined);
+    let emit!: (ev: AssistantEvent) => void;
+    let capturedSignal: AbortSignal | undefined;
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
+             signal?: AbortSignal) => {
+        emit = onEvent;
+        capturedSignal = signal;
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")));
+        });
+      },
+    );
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("hi");
+      await Promise.resolve();
+    });
+    act(() => emit({ type: "text_delta", text: "half a repl" }));
+    expect(latest.items).toEqual([
+      { kind: "user", text: "hi" },
+      { kind: "assistant", text: "half a repl" },
+    ]);
+    expect(latest.status).toBe("busy");
+
+    await act(() => latest.newChat());
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(mocks.deleteConversation).toHaveBeenCalledWith("c1");
+    expect(latest.items).toEqual([]);
+    expect(latest.status).toBe("idle");
+    expect(latest.error).toBeNull();
+    expect(latest.modelLocked).toBe(false);
+
+    // the superseded turn is still holding onEvent: nothing it emits now may
+    // land in the fresh transcript
+    act(() => {
+      emit({ type: "text_delta", text: "y from the dead turn" });
+      emit({ type: "confirm_request", tool_use_id: "t9", ops_preview: "x" });
+      emit({ type: "error", message: "stale boom" });
+    });
+    expect(latest.items).toEqual([]);
+    expect(latest.pendingConfirm).toBeNull();
+    expect(latest.error).toBeNull();
+    expect(latest.status).toBe("idle");
+  });
+
+  test("a superseded turn's abort is not reported as an error", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    mocks.deleteConversation.mockResolvedValue(undefined);
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, _onEvent: unknown,
+             signal?: AbortSignal) => {
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")));
+        });
+      },
+    );
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("hi");
+      await Promise.resolve();
+    });
+    // no latest.stop(): stopRequested stays false, so only the generation
+    // guard can keep this abort out of `error`
+    await act(() => latest.newChat());
+    expect(latest.error).toBeNull();
+    expect(latest.status).toBe("idle");
+  });
+
+  test("newChat keeps a newer turn's controller and stays stoppable", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    mocks.deleteConversation.mockResolvedValue(undefined);
+    const signals: AbortSignal[] = [];
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, _onEvent: unknown,
+             signal?: AbortSignal) => {
+        if (signal) signals.push(signal);
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")));
+        });
+      },
+    );
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("first");
+      await Promise.resolve();
+    });
+    await act(() => latest.newChat());
+    let secondDone!: Promise<void>;
+    await act(async () => {
+      secondDone = latest.send("second");
+      await Promise.resolve();
+    });
+    expect(latest.status).toBe("busy");
+    await act(async () => {
+      latest.stop();
+      await secondDone;
+    });
+    expect(signals).toHaveLength(2);
+    expect(signals[1].aborted).toBe(true);   // the newer turn really stopped
+    expect(latest.status).toBe("idle");
+    expect(latest.error).toBeNull();
+  });
+
+  test("a superseded turn's finally, settling only after the next turn has started, cannot clobber it", async () => {
+    // pkm-6ts2 review: newChat() awaits the superseded turn before it
+    // resolves, so a test that awaits newChat() before starting the next
+    // send() never actually overlaps the two turns -- by the time send()
+    // runs, turn one's finally has already executed and its writes are
+    // indistinguishable from a no-op. AssistantPanel calls
+    // `void assistant.newChat()` (fire-and-forget), so in real usage a
+    // second turn can start while newChat()'s internal await is still
+    // pending. This test recreates that overlap directly: it holds turn
+    // one's stream open past the point where turn two's controller is
+    // installed, only then lets turn one's (already-aborted) fetch reject.
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    mocks.deleteConversation.mockResolvedValue(undefined);
+    const turns: Array<{ signal?: AbortSignal; reject: (err: unknown) => void }> = [];
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, _onEvent: unknown, signal?: AbortSignal) => {
+        const held = deferredValue<void>();
+        turns.push({ signal, reject: held.reject });
+        await held.promise;
+      },
+    );
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("first");
+      await Promise.resolve();
+    });
+    expect(turns).toHaveLength(1);
+
+    // Fire-and-forget, exactly like the panel's click -- do not await it, so
+    // its internal `await inflight` is still pending when the next send() runs.
+    let resetDone!: Promise<void>;
+    act(() => { resetDone = latest.newChat(); });
+
+    // A second turn starts while newChat() is still awaiting turn one.
+    await act(async () => {
+      void latest.send("second");
+      await Promise.resolve();
+    });
+    expect(turns).toHaveLength(2);
+    expect(latest.status).toBe("busy");
+
+    // Only now does turn one's aborted fetch actually reject; its finally
+    // (runTurn's controller cleanup, send's error/finally) runs with
+    // generation two already current.
+    await act(async () => {
+      turns[0].reject(new DOMException("aborted", "AbortError"));
+      await resetDone;
+    });
+
+    // Turn one's finalizers must not have reset turn two's busy status...
+    expect(latest.status).toBe("busy");
+    expect(latest.error).toBeNull();
+    // ...nor discarded turn two's controller.
+    latest.stop();
+    expect(turns[1].signal?.aborted).toBe(true);
+  });
+
+  test("a conversation created by a superseded turn is closed, not adopted", async () => {
+    const created = deferredValue<{ id: string; model: string }>();
+    mocks.createConversation.mockReturnValue(created.promise);
+    mocks.deleteConversation.mockResolvedValue(undefined);
+    feed([{ type: "turn_done", usage: null }]);
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("hi");
+      await Promise.resolve();
+    });
+    // the turn is still inside createConversation: there is no stream to abort
+    // and no id to delete yet, and newChat must not block on it
+    await act(() => latest.newChat());
+    await act(async () => { created.resolve({ id: "c1", model: "sonnet" }); });
+    await vi.waitFor(() =>
+      expect(mocks.deleteConversation).toHaveBeenCalledWith("c1"));
+    expect(mocks.streamMessage).not.toHaveBeenCalled();
+
+    // the next send must create a fresh conversation, not reuse c1
+    mocks.createConversation.mockReset();
+    mocks.createConversation.mockResolvedValue({ id: "c2", model: "sonnet" });
+    await act(() => latest.send("again"));
+    expect(mocks.streamMessage.mock.calls[0][0]).toBe("c2");
+  });
+
+  test("newChat clears the transcript synchronously, as the panel's click does", async () => {
+    // AssistantPanel calls `void assistant.newChat()` (AssistantPanel.tsx:100),
+    // so an empty chat must appear on the click -- not after the abort has
+    // unwound and the DELETE has resolved.
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    const deletion = deferredValue<void>();
+    mocks.deleteConversation.mockReturnValue(deletion.promise);
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
+             signal?: AbortSignal) => {
+        onEvent({ type: "text_delta", text: "partial" });
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")));
+        });
+      },
+    );
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("hi");
+      await Promise.resolve();
+    });
+    expect(latest.items).toHaveLength(2);
+
+    let reset!: Promise<void>;
+    act(() => { reset = latest.newChat(); });
+    expect(latest.items).toEqual([]);       // before any await settles
+    expect(latest.status).toBe("idle");
+    expect(latest.modelLocked).toBe(false);
+
+    await act(async () => {
+      deletion.resolve();
+      await reset;
+    });
+    expect(mocks.deleteConversation).toHaveBeenCalledWith("c1");
+  });
+
+  test("respondConfirm from a superseded turn cannot clobber the new chat", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    mocks.deleteConversation.mockResolvedValue(undefined);
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void,
+             signal?: AbortSignal) => {
+        onEvent({ type: "confirm_request", tool_use_id: "t1", ops_preview: "save_note(...)" });
+        await new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")));
+        });
+      },
+    );
+    const confirmCall = deferredValue<void>();
+    mocks.confirmTool.mockReturnValue(confirmCall.promise);
+    render(<Harness />);
+    await act(async () => {
+      void latest.send("please write");
+      await Promise.resolve();
+    });
+    expect(latest.status).toBe("confirm");
+
+    let answering!: Promise<void>;
+    act(() => { answering = latest.respondConfirm(true); });
+    await act(() => latest.newChat());
+    await act(async () => {
+      confirmCall.reject(new ApiError(404, "/api/assistant/conversations/c1/confirm"));
+      await answering;
+    });
+    // the 404 branch resets conversationId and sets an explanatory error;
+    // neither may touch the chat that replaced it
+    expect(latest.error).toBeNull();
+    expect(latest.pendingConfirm).toBeNull();
+    expect(latest.status).toBe("idle");
   });
 });

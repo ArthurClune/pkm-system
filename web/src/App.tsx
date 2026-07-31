@@ -51,6 +51,8 @@ export function App() {
   const idRef = useRef(1);
   const appShellRef = useRef<HTMLDivElement>(null);
   const bannerStackRef = useRef<HTMLDivElement>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const navWasOpenRef = useRef(false);
   const navigate = useNavigate();
   // Governs both whether <aside class="sidebar"> renders (below) and how
   // much room the center pane claims (pkm-57mo): the two must agree, or the
@@ -90,6 +92,17 @@ export function App() {
     };
   }, []);
 
+  // Closing the phone drawer must not leave focus inside it: below 600px the
+  // closed nav is visibility:hidden, so a focused link there would strand the
+  // keyboard on an invisible element. Hand focus back to the control that
+  // opened it (pkm-rwwp). Guarded on the previous state, because every NavLink
+  // calls setNavOpen(false) unconditionally -- on desktop navOpen is already
+  // false and the hamburger is display:none.
+  useEffect(() => {
+    if (navWasOpenRef.current && !navOpen) hamburgerRef.current?.focus();
+    navWasOpenRef.current = navOpen;
+  }, [navOpen]);
+
   // Cmd/Ctrl-U (focus search) lives in SearchBar, next to the input it targets.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -126,10 +139,13 @@ export function App() {
               <UndoRedoKeys />
               <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
               <button className="hamburger" aria-label="menu"
+                      ref={hamburgerRef}
+                      aria-expanded={navOpen} aria-controls="left-nav"
                       onClick={() => setNavOpen((o) => !o)}>
                 <MenuIcon />
               </button>
-              <nav className={"left-nav" + (navOpen ? " open" : "") + (sidebarCollapsed ? " collapsed" : "")}>
+              <nav id="left-nav"
+                   className={"left-nav" + (navOpen ? " open" : "") + (sidebarCollapsed ? " collapsed" : "")}>
                 <div className="nav-title">pkm</div>
                 {/* "primary": always accent-coloured, unlike the pinned pages
                   * below which are muted until active (pkm-nn7o) */}

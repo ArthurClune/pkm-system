@@ -191,6 +191,17 @@ Editing mechanics worth knowing before touching `outline/`:
   (multi-block aware), Alt-Arrow / Shift-Cmd-Arrow moves, Shift-Arrow
   multi-block selection, slash commands, and Cmd-Z / Shift-Cmd-Z undo/redo
   (`history.ts` + `undoManager.ts`).
+
+  A multi-block *selection* is keyed elsewhere: with no focused textarea the
+  tree container itself takes focus and `EditableBlockTree.onKeyDown` owns the
+  chain (extend / move / indent / copy / clear / delete). The split invariant
+  there is that **creating, extending and copying a selection are
+  read-only-safe, while every mutating branch is gated on `!readOnly`** — Tab,
+  Shift+Cmd+Arrow and Backspace/Delete (pkm-rckh; the delete gate was missing,
+  so a selection made while editable could still be destroyed after sync
+  turned the outline read-only). `useOutline`'s handlers do not re-check
+  editability, so the gate has to be here.
+
 - **Paste is opt-in structural, and the modifier is captured on keydown.**
   Plain Cmd-V is always left native — it inserts text into the textarea and
   nothing else (pkm-fwa2). `Shift-Cmd-V` *arms* an outline paste: `paste.ts`
@@ -285,6 +296,14 @@ entry.
   dropdown (`sonnet` default / `opus` / `haiku`) locks once it exists.
   "New chat" deletes the server-side conversation and resets. Conversations
   are ephemeral — a reload loses them.
+  "New chat" is safe mid-turn: each turn carries a generation counter, and
+  `newChat` bumps it before clearing state, so the superseded turn's SSE
+  events and finalizers are dropped instead of refilling the fresh transcript,
+  resetting its status or re-raising its confirm card (pkm-6ts2). It then
+  aborts and awaits that turn before `DELETE`ing the conversation, and a
+  conversation whose creation resolved after the bump is closed rather than
+  adopted. Abort-controller cleanup is identity-checked, so a newer turn stays
+  stoppable.
 - A turn streams over SSE: `client.ts::streamMessage` POSTs the message and
   feeds the response body through `sse.ts` (a pure incremental frame
   parser) into `useAssistant.ts`, which folds events into chat items —
@@ -386,7 +405,7 @@ doesn't "fix" them:
   focused bullet reads as a collapsed block. Any future restyling here must
   stay distinguishable from `.closed`.
 
-Two traps when working on this:
+Four traps when working on this:
 
 - **Auditing the stylesheet alone is not enough.** `.nav-link` is applied to
   both the `<a>` destinations and the `<button>` controls in the left nav, and
@@ -401,6 +420,43 @@ Two traps when working on this:
   declined (pkm-9lwx): the ring is only ever seen by tabbing through prose,
   while at the block line-height a 2px offset ring collides with the line
   above and repeats per line box on a wrapped link.
+- **An off-screen drawer is still in the tab order.** The phone nav
+  (`@media (max-width: 600px)`) used `transform: translateX(-100%)` alone, so
+  the closed drawer's links and buttons stayed tabbable — as the *first* tab
+  stops on the page (pkm-rwwp). It now also sets `visibility: hidden`, with
+  `.left-nav.open` restoring `visible` and `visibility` in the transition so
+  the slide-out is still seen. Both declarations are scoped to that media
+  query: at wider widths the nav is permanent and `navOpen` means nothing.
+  The hamburger carries `aria-expanded` / `aria-controls="left-nav"`, and
+  closing the drawer moves focus back to it — guarded on the drawer's previous
+  state, since every `NavLink` calls `setNavOpen(false)` on every click and
+  the hamburger is `display: none` above the breakpoint.
+- **A heading with an `onClick` is a mouse-only control.** Page-title renaming
+  and the Unlinked references collapse were both `onClick` on a non-focusable
+  `<h1>`/`<h2>` (pkm-l4z8). Both now wrap their label in a real `<button>`
+  *inside* the heading — `.page-title-edit` and `.section-toggle`, chrome-free
+  classes that inherit the heading's type (`font: inherit` plus explicit
+  `letter-spacing: inherit` / `text-transform: inherit`, which `font` does not
+  carry) and take the standard ring. The collapsible one owns `aria-expanded`
+  and marks its chevron `aria-hidden`. `BacklinksSection`'s `.filter-toggle`
+  is the same in-heading pattern where a visible button *is* wanted. Both
+  triggers need `display: block; width: 100%` — an inline-block button sizes
+  to its chevron-plus-label content, not the header's full width, so without
+  it a click anywhere else in the header row (the old `<h2 onClick>`'s whole
+  hit area) silently does nothing; `styles.test.ts` asserts both properties
+  on `.section-toggle` for this reason, matching `.page-title-edit`.
+  `.page-title-edit` must stay named by its content (the title), never a
+  fixed `aria-label`: accname computes the enclosing `<h1>`'s name by
+  walking its children, and a child with its own explicit name contributes
+  *that* name to the walk instead of its text — a fixed `aria-label` on this
+  button silently renames the page's `<h1>` in every real browser (verified
+  in Chromium; jsdom's accname implementation does not reproduce this, so a
+  unit test cannot catch it). An arbitrary title can still contain a word
+  like "Cancel" or "Merge" that collides with an unrelated dialog's
+  same-named button in a test — deterministic, not the machine-load flakes
+  elsewhere in this suite — but that is fixed by scoping the colliding query
+  to its dialog (`getByRole("alertdialog").getByRole("button", …)`), not by
+  renaming the product control.
 
 **Control boundary contrast is a known, measured deviation from WCAG 1.4.11**
 (pkm-xqir). `.btn-secondary`'s border is 1.30:1 against a panel surface in

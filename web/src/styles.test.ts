@@ -176,6 +176,8 @@ describe("ghost icon button focus ring (pkm-cq32)", () => {
       ".empty-page",
       ".assistant-close",
       ".assistant-preview-toggle",
+      ".page-title-edit",
+      ".section-toggle",
     ]) {
       expect(ruleFor(`${selector}:focus-visible`))
         .toContain("outline: 2px solid var(--color-link);");
@@ -534,5 +536,51 @@ describe("unlinked reference Link action (pkm-965i)", () => {
     expect(ruleFor(".unlinked-link-row .backlink-text")).toContain("min-width: 0;");
     expect(ruleFor(".reference-link-button")).toContain("flex-shrink: 0;");
     expect(ruleFor(".reference-link-button")).toContain("font-size: 12px;");
+  });
+});
+
+describe("phone nav drawer is unreachable while closed (pkm-rwwp)", () => {
+  test("the closed drawer is visibility:hidden; .open restores it", () => {
+    // translateX alone leaves every nav link tabbable off-screen, and they are
+    // the page's first tab stops. visibility:hidden takes the whole subtree
+    // out of the focus order.
+    const closed = mediaRulesFor("(max-width: 600px)", ".left-nav");
+    expect(closed).toContain("visibility: hidden;");
+    // transitioned, so the slide-out is still seen: a visibility transition
+    // holds "visible" until the end when moving to hidden
+    expect(closed).toContain("transition: transform 0.15s, visibility 0.15s;");
+    expect(mediaRulesFor("(max-width: 600px)", ".left-nav.open"))
+      .toContain("visibility: visible;");
+  });
+});
+
+describe("in-heading trigger buttons inherit their heading (pkm-l4z8)", () => {
+  test("the page-title edit button carries no button chrome", () => {
+    const rule = rulesFor(".page-title-edit");
+    expect(rule).toContain("font: inherit;");
+    // font: inherit does not carry letter-spacing, and .page-title sets it
+    expect(rule).toContain("letter-spacing: inherit;");
+    expect(rule).toContain("border: none;");
+    expect(rule).toContain("background: none;");
+    expect(rule).toContain("cursor: text;");
+  });
+
+  test("the collapsible section toggle keeps the header's uppercase type", () => {
+    const rule = rulesFor(".section-toggle");
+    expect(rule).toContain("font: inherit;");
+    expect(rule).toContain("text-transform: inherit;");
+    expect(rule).toContain("letter-spacing: inherit;");
+    expect(rule).toContain("border: none;");
+    expect(rule).toContain("background: none;");
+  });
+
+  // Regression: an inline-block button sized to its chevron+text left a wide
+  // dead zone across the rest of the header row where the old <h2 onClick>
+  // used to respond -- clicking there silently did nothing (caught by
+  // link-reference.spec.ts, not by a unit test, since jsdom has no layout).
+  test("the section toggle spans the full header, matching the page-title edit button", () => {
+    const rule = rulesFor(".section-toggle");
+    expect(rule).toContain("display: block;");
+    expect(rule).toContain("width: 100%;");
   });
 });

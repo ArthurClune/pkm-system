@@ -25,7 +25,7 @@ function mount(title: string) {
 }
 
 function startEditing(title: string) {
-  fireEvent.click(screen.getByRole("heading", { name: title }));
+  fireEvent.click(screen.getByRole("button", { name: title }));
   return screen.getByRole("textbox") as HTMLInputElement;
 }
 
@@ -129,8 +129,25 @@ it("other errors revert and surface a message", async () => {
   expect(screen.getByRole("heading", { name: "My Page" })).toBeInTheDocument();
 });
 
+it("the editable title is a focusable button inside the heading (pkm-l4z8)", () => {
+  mount("My Page");
+  const heading = screen.getByRole("heading", { name: "My Page" });
+  const trigger = screen.getByRole("button", { name: "My Page" });
+  // the heading keeps its place in the document outline; the control inside it
+  // is a native <button>, so Enter/Space activate it (jsdom does not
+  // synthesise that activation click, which is why this asserts the element
+  // type and focusability rather than firing a keydown)
+  expect(heading).toContainElement(trigger);
+  expect(trigger.tagName).toBe("BUTTON");
+  trigger.focus();
+  expect(trigger).toHaveFocus();
+  fireEvent.click(trigger);
+  expect(screen.getByRole("textbox")).toHaveValue("My Page");
+});
+
 it("daily-note titles are not editable", () => {
   mount("July 17th, 2026");
+  expect(screen.queryByRole("button", { name: "July 17th, 2026" })).toBeNull();
   fireEvent.click(screen.getByRole("heading", { name: "July 17th, 2026" }));
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 });

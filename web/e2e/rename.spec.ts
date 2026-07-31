@@ -74,7 +74,10 @@ test("renaming onto an existing page merges after confirm", async ({ page }) => 
   await page.locator("input.page-title-input").press("Enter");
   // pkm-pe79: the merge confirm is an in-app dialog now (window.confirm is
   // suppressed by iPadOS Safari in standalone mode), not a native one.
-  await page.getByRole("button", { name: "Merge" }).click();
+  // Scoped to the dialog: an unscoped query can also match the page-title
+  // edit button, since that button is legitimately named by its content and
+  // this page is titled "Merge A g0t5" (pkm-6phf).
+  await page.getByRole("alertdialog").getByRole("button", { name: "Merge" }).click();
 
   // landed on the merged page, source content appended
   await expect(page).toHaveURL(/\/page\/Merge%20B%20g0t5/);

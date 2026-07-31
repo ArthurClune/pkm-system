@@ -176,8 +176,14 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
       e.preventDefault();
       handlers.onClearBlockSelection();
     } else if (e.key === "Backspace" || e.key === "Delete") {
-      e.preventDefault();
-      handlers.onDeleteBlockSelection();
+      // Selection CREATION and copying are deliberately read-only-safe
+      // (pkm-am54); destroying one is a mutation, so it is gated like the
+      // Tab and Shift+Cmd+Arrow branches above. A selection made while
+      // editable outlives the switch to read-only (pkm-rckh).
+      if (!readOnly) {
+        e.preventDefault();
+        handlers.onDeleteBlockSelection();
+      }
     } else if (!e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
                && verticalArrow) {
       e.preventDefault();

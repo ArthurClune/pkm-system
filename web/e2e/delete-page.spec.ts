@@ -48,7 +48,10 @@ test("cancelling the delete confirm leaves the page intact", async ({ page }) =>
   await createAndVisitPage(page, title);
 
   await openPageMenu(page);
-  await page.getByRole("button", { name: "Cancel" }).click();
+  // Scoped to the dialog: an unscoped query can also match the page-title
+  // edit button when the (randomly generated) title itself contains
+  // "Cancel", since that button is legitimately named by its content (pkm-6phf).
+  await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 
   // still on the page, and the server still has it

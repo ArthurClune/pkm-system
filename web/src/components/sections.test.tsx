@@ -846,3 +846,25 @@ it("filter panel reaches loaded state when the backlink total shrinks server-sid
   // stale M in the header is also corrected once the real total is known
   expect(screen.getByText(/linked references \(1\)/i)).toBeInTheDocument();
 });
+
+it("the unlinked header is a focusable button reporting its expanded state (pkm-l4z8)", async () => {
+  stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <UnlinkedSection title="ACME" />
+    </MemoryRouter>,
+  );
+  const toggle = screen.getByRole("button", { name: /unlinked references/i });
+  expect(screen.getByRole("heading", { level: 2 })).toContainElement(toggle);
+  expect(toggle.tagName).toBe("BUTTON");
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  toggle.focus();
+  expect(toggle).toHaveFocus();
+
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(await screen.findAllByRole("button", { name: "Link" })).toHaveLength(2);
+
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+});

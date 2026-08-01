@@ -3,13 +3,15 @@ import { expect, it } from "vitest";
 import { parseHelpMarkdown } from "../help/parseHelpMarkdown";
 import { Help, HelpBlocks } from "./Help";
 
+// The browser title is set by the centralized route-title effect
+// (useRouteTitle, pkm-77w2), not by this component -- see
+// useRouteTitle.test.tsx for that coverage.
 it("renders the real doc as the /help page, with a title and a known shortcut row", () => {
   render(<Help />);
 
   expect(screen.getByRole("heading", { level: 1, name: "Keyboard shortcuts" })).toBeInTheDocument();
   const shortcutCell = screen.getByText(/Go to Daily Notes/);
   expect(shortcutCell.closest("tr")).toHaveTextContent("Ctrl+Shift+D");
-  expect(document.title).toBe("Keyboard shortcuts — pkm");
 });
 
 it("no longer offers the whole-database export here -- it moved to Settings (pkm-7myl)", () => {

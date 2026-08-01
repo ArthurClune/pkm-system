@@ -736,6 +736,18 @@ mark.highlight { background: var(--color-highlight-bg); }
   .main-pane { width: auto; margin: 0; padding: 24px 16px 120px;
     border: none; border-radius: 0; box-shadow: none; }
   .sidebar { width: 100vw; }
+  /* search field (pkm-vszf): .search-field is the flex item that actually
+   * overflowed -- with no width of its own, a flex item's default min-width
+   * sizes to its content, so it never shrank below the focused input's fixed
+   * 320px (pkm-0wg9), pushing the field past 320/390px viewports. min-width:
+   * 0 lets the flex algorithm squeeze it into whatever room the title and
+   * buttons leave. Desktop's fixed widths on .top-bar-search-input are
+   * untouched; they just act as a cap the flex item can no longer be forced
+   * past. Losing that growth cue also loses its only focus signal here
+   * (.top-bar-search-input:focus-visible normally opts out, pkm-0wg9), so
+   * the themed ring the field family carries everywhere else comes back. */
+  .search-field { min-width: 0; }
+  .top-bar-search-input:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 }
 
 /* --- plan 5: carry-forwards --- */

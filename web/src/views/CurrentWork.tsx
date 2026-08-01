@@ -23,7 +23,6 @@ export function CurrentWork() {
 
   useEffect(() => { load(); }, [load]);
   useResync(load);
-  useEffect(() => { document.title = "Current Work — pkm"; }, []);
 
   if (error) return <p className="error">Could not load Current Work: {error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;

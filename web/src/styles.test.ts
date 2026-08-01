@@ -584,3 +584,33 @@ describe("in-heading trigger buttons inherit their heading (pkm-l4z8)", () => {
     expect(rule).toContain("width: 100%;");
   });
 });
+
+describe("focused search stays inside narrow phone viewports (pkm-vszf)", () => {
+  // Desktop's fixed 220px/320px growth (pkm-0wg9) is untouched -- only the
+  // phone breakpoint gets a shrinkable field. jsdom can't lay out flexbox, so
+  // the actual "stays on screen" claim is Playwright's job
+  // (e2e/search-viewport.spec.ts); this only pins the declarations down.
+  test("desktop keeps its fixed focused width", () => {
+    const topBar = ruleFor(".top-bar-search-input");
+    expect(topBar).toContain("width: 220px;");
+    expect(ruleFor(".top-bar-search-input:focus")).toContain("width: 320px;");
+  });
+
+  test("the phone breakpoint lets the search field shrink instead of overflowing", () => {
+    // .search-field is the flex item that actually overflowed: with no
+    // min-width override a flex item won't shrink below its content's
+    // (here, the 320px-wide focused input's) size, so min-width: 0 is what
+    // lets the flex algorithm actually squeeze it down to what's left.
+    expect(mediaRulesFor("(max-width: 600px)", ".search-field"))
+      .toContain("min-width: 0;");
+  });
+
+  test("the phone breakpoint restores a themed focus ring", () => {
+    // Desktop signals focus by growing the field; once growth is capped by
+    // available space that cue may be too subtle to read, so the ring the
+    // field family normally carries (and the top bar opts out of, pkm-0wg9)
+    // comes back at this breakpoint.
+    expect(mediaRulesFor("(max-width: 600px)", ".top-bar-search-input:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+  });
+});

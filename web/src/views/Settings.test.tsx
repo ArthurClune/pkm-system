@@ -16,11 +16,13 @@ beforeEach(() => {
   apiFetchMock.mockReturnValue(new Promise(() => {}));
 });
 
+// The browser title is set by the centralized route-title effect
+// (useRouteTitle, pkm-77w2), not by this component -- see
+// useRouteTitle.test.tsx for that coverage.
 it("renders a Settings title and a whole-database export download link (pkm-7myl)", () => {
   render(<Settings />);
 
   expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-  expect(document.title).toBe("Settings — pkm");
 
   const link = screen.getByRole("link", { name: /export.*markdown/i });
   expect(link).toHaveAttribute("href", "/api/export.zip");

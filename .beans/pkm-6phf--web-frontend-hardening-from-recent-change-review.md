@@ -5,7 +5,7 @@ status: in-progress
 type: epic
 priority: high
 created_at: 2026-07-31T15:32:12Z
-updated_at: 2026-08-01T13:21:31Z
+updated_at: 2026-08-01T17:52:42Z
 ---
 
 ## Context
@@ -91,9 +91,11 @@ Both modules independently coordinate request generations, `ReadToken`, `ParentR
 
 **Direction:** Extract one shell-level outline-loading controller/hook with an explicit missing-page policy. Keep main-pane/sidebar differences limited to presentation and scoped scrolling.
 
-- [ ] Specify shared loading lifecycle and daily-page behavior
-- [ ] Add parity tests for main-pane and sidebar daily pages
-- [ ] Replace the duplicate controllers
+- [x] Specify shared loading lifecycle and daily-page behavior
+- [x] Add parity tests for main-pane and sidebar daily pages
+- [x] Replace the duplicate controllers
+
+Done in pkm-63s1.
 
 ### 7. Guard Files pagination and select-all against stale filters
 
@@ -125,8 +127,10 @@ Both editors update caret and autocomplete context only from `onChange`. Mouse c
 
 **Direction:** Recompute on selection changes or derive completion context from the textarea's live selection when executing a pick. Prefer a shared autocomplete-controller hook.
 
-- [ ] Add selection-only caret movement tests in both editors
-- [ ] Implement shared/live autocomplete context handling
+- [x] Add selection-only caret movement tests in both editors
+- [x] Implement shared/live autocomplete context handling
+
+Done in pkm-noow.
 
 ### 10. Stop autocomplete from consuming modified shortcuts
 
@@ -136,8 +140,10 @@ The editor policy says autocomplete owns unmodified arrows/Enter/Tab/Escape, but
 
 **Direction:** Explicitly validate the allowed modifier set and reuse one keyboard policy in both editors.
 
-- [ ] Add modifier-combination tests
-- [ ] Enforce unmodified autocomplete commands through a shared policy
+- [x] Add modifier-combination tests
+- [x] Enforce unmodified autocomplete commands through a shared policy
+
+Done in pkm-clt1.
 
 ### 11. Make generated OpenAPI types enforce the API boundary
 
@@ -147,9 +153,11 @@ Callers choose `apiFetch<T>` independently of the URL and method, while offline 
 
 **Direction:** Build a path/method-aware client from generated OpenAPI `paths`. Give local response builders explicit generated return types, add a concrete rename response model server-side, regenerate the schema, and remove handwritten duplicates.
 
-- [ ] Design a path/method-aware API client without weakening local gateway support
-- [ ] Type local API response builders with generated models
-- [ ] Replace handwritten duplicate response types
+- [x] Design a path/method-aware API client without weakening local gateway support
+- [x] Type local API response builders with generated models
+- [x] Replace handwritten duplicate response types
+
+Done in pkm-60bf.
 
 ### 12. Simplify the oversized, directionally inverted editor boundary
 
@@ -159,9 +167,11 @@ The outline engine imports its roughly 30-callback command interface from a UI c
 
 **Direction:** Move the editor command/port type into `outline/`, consider a discriminated command dispatcher plus a small set of imperative capabilities, extract the input shell/controller, and move selection decisions into the shared keyboard policy.
 
-- [ ] Define the intended editor dependency direction and command boundary
-- [ ] Extract cohesive input/session responsibilities without creating speculative abstractions
-- [ ] Move remaining keyboard decisions into the functional core
+- [x] Define the intended editor dependency direction and command boundary
+- [x] Extract cohesive input/session responsibilities without creating speculative abstractions
+- [x] Move remaining keyboard decisions into the functional core
+
+Done in pkm-64bq.
 
 ### 13. Centralize route labels, browser titles, and actions
 

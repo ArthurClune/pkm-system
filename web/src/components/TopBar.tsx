@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
+import { PAGE_ROUTE_PREFIX, ROUTES, routeMetaFor } from "../routeMeta";
 import { useConfirm } from "./ConfirmDialog";
 import { HelpCircleIcon, MoreHorizontalIcon, PanelLeftIcon } from "./icons";
 import { SearchBar } from "./SearchBar";
@@ -19,15 +20,15 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   onToggleSidebar: () => void;
 }) {
   const { pathname } = useLocation();
-  const onPageRoute = pathname.startsWith("/page/");
+  const onPageRoute = pathname.startsWith(PAGE_ROUTE_PREFIX);
   const title = onPageRoute ? titleFromPathname(pathname) : null;
   // Context label so the bar reads as one surface, not two orphaned
   // controls (pkm-absu). Doubles as the flex spacer between the left
-  // and right button groups.
-  const barLabel = title
-    ?? (pathname === "/" ? "Daily Notes" : null)
-    ?? (pathname === "/current-work" ? "Current Work" : null)
-    ?? (pathname === "/help" ? "Help" : null);
+  // and right button groups. Static routes' labels come from the same
+  // table App.tsx's routing and the browser-title effect consume
+  // (routeMeta.ts, pkm-77w2), so a newly declared route can't end up
+  // labelled here but not there, or vice versa.
+  const barLabel = title ?? routeMetaFor(pathname)?.label ?? null;
   const { openInSidebar } = useContext(SidebarContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -80,7 +81,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
       <span className="top-bar-title">{barLabel}</span>
       <SearchBar />
       <button type="button" className="help-button" aria-label="help"
-              title="Keyboard shortcuts" onClick={() => navigate("/help")}>
+              title="Keyboard shortcuts" onClick={() => navigate(ROUTES.help)}>
         <HelpCircleIcon />
       </button>
       {title !== null && (

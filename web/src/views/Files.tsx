@@ -13,6 +13,21 @@ import {
 } from "./filesCore";
 import type { FileFilters } from "./filesCore";
 
+// Stale-response guard: any Files list operation (reload, loadMore,
+// selectAll) may take time to resolve. reload() bumps the generation on
+// every filter change or explicit refresh; loadMore/selectAll capture the
+// generation before they start and check it before committing a result, so
+// a response that lands after a newer generation started is discarded
+// instead of mixing result sets, overwriting totals, or selecting files
+// outside the now-visible filter.
+function bumpGeneration(gen: { current: number }): number {
+  return ++gen.current;
+}
+
+function isStale(gen: { current: number }, at: number): boolean {
+  return gen.current !== at;
+}
+
 function submitExportForm(sha256s: string[]) {
   const form = document.createElement("form");
   form.method = "post";
@@ -95,8 +110,6 @@ export function Files() {
   // Stale-response guard: only the latest reload may set state.
   const generation = useRef(0);
 
-  useEffect(() => { document.title = "Files — pkm"; }, []);
-
   const fetchPage = useCallback(
     (f: FileFilters, offset: number) =>
       apiFetch<AssetSearchPayload>(
@@ -104,18 +117,18 @@ export function Files() {
     []);
 
   const reload = useCallback((f: FileFilters) => {
-    const gen = ++generation.current;
+    const gen = bumpGeneration(generation);
     setState("loading");
     fetchPage(f, 0)
       .then((p) => {
-        if (generation.current !== gen) return;
+        if (isStale(generation, gen)) return;
         setItems(p.assets);
         setTotal(p.total);
         setSelected(new Set());
         setState("ready");
       })
       .catch(() => {
-        if (generation.current === gen) setState("error");
+        if (!isStale(generation, gen)) setState("error");
       });
   }, [fetchPage]);
 
@@ -129,29 +142,38 @@ export function Files() {
     setFilters((f) => ({ ...f, ...patch }));
 
   const loadMore = async () => {
+    const gen = generation.current;
     try {
       const p = await fetchPage(filters, items.length);
+      if (isStale(generation, gen)) return;
       setItems((cur) => [...cur, ...p.assets]);
       setTotal(p.total);
     } catch {
-      setNotice("Could not load more files.");
+      if (!isStale(generation, gen)) setNotice("Could not load more files.");
     }
   };
 
   const selectAll = async () => {
+    const gen = generation.current;
     setBusy(true);
     try {
       let all = items;
       while (all.length < total) {
         const p = await fetchPage(filters, all.length);
+        if (isStale(generation, gen)) return;
         if (p.assets.length === 0) break;
         all = [...all, ...p.assets];
       }
+      if (isStale(generation, gen)) return;
       setItems(all);
       setSelected(new Set(all.map((i) => i.sha256)));
     } catch {
-      setNotice("Could not load the full selection.");
+      if (!isStale(generation, gen)) {
+        setNotice("Could not load the full selection.");
+      }
     } finally {
+      // busy is a UI lock on this operation, not fetched data — release it
+      // even when the result itself was discarded as stale.
       setBusy(false);
     }
   };

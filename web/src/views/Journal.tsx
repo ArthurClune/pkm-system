@@ -161,7 +161,6 @@ export function Journal() {
     };
   }, [releaseAllReads]);
   useEffect(() => { void loadMore(); }, [loadMore]);
-  useEffect(() => { document.title = "Daily Notes — pkm"; }, []);
 
   // Fire-and-forget: prune empty daily pages from the past week (pkm-c3kz).
   // Failures are silent; the next Journal load retries. This effect runs

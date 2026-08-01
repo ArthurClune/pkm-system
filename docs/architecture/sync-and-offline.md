@@ -89,6 +89,42 @@ Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
 rebuilt) or a changed `generation` token. Both mean "this is a different
 database; your cursor is meaningless".
 
+## Post-commit nudges
+
+Every route whose commit touches a changes-journaled table (`blocks`,
+`pages`, or `sidebar_entries` — the three with triggers in `schema.py`
+`SERVER_DDL`) must send a WS `{type:"seq", seq}` nudge immediately after
+that commit, so connected replicas know to pull the new window (nudges are
+a latency optimization, never a correctness dependency — see "An online
+edit, end to end" above). `notify.py` provides `commit_and_nudge` (async
+routes) and `commit_and_nudge_threadpool` (sync-def routes, hopping back to
+the event loop via `anyio.from_thread.run`) that pair the two calls so a
+route has one line to remember instead of two. Routes whose commit and
+nudge can't be adjacent — `delete_asset` commits before best-effort
+unlinking the file, and `POST /api/ops` broadcasts the applied-op echo
+between the commit and the seq nudge — call `db.commit()` and
+`nudge`/`nudge_threadpool` separately instead. Most routes nudge
+unconditionally after every commit (harmless even when nothing changed);
+`cleanup_journal` is the one exception, guarding the nudge on `deleted`
+being non-empty, because it runs on every journal page load and a no-op
+run (the common case) never advances `changes.seq`.
+
+Nothing enforces this automatically: a new route that writes to a
+journaled table without calling one of these helpers is a silent gap, the
+kind that let `/api/journal/cleanup` (bean pkm-getl) delete pages and
+advance `changes.seq` for years without ever nudging — replicas kept
+showing deleted daily pages until an unrelated mutation happened to nudge
+them. `server/tests/test_journal_advancing_contract.py` enumerates every
+journal-advancing route and asserts each one emits a seq nudge; a route
+that starts writing to `blocks`/`pages`/`sidebar_entries` needs a case
+added there, or it ships with the same silent gap.
+
+Asset routes (`assets` table) are the one common exception: `assets` has
+no changes-journal trigger, so those commits don't need a nudge at all —
+`delete_asset` sends one anyway (harmless: the seq value is just
+unchanged) because its commit also touches `blocks` in the referencing-block
+case; `upload_asset`'s commit touches only `assets` and sends none.
+
 ## Offline editing and reconnect
 
 While disconnected, reads and search are served from the replica through the

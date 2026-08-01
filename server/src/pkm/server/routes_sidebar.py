@@ -45,8 +45,7 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
     cur = db.execute(
         "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
         (title, order_idx))
-    db.commit()
-    notify.nudge_threadpool(request, db)
+    notify.commit_and_nudge_threadpool(request, db)
     return {"id": cur.lastrowid, "title": title}
 
 
@@ -57,8 +56,7 @@ def delete_sidebar_entry(request: Request, entry_id: int,
     if cur.rowcount == 0:
         db.rollback()
         raise HTTPException(status_code=404, detail="entry not found")
-    db.commit()
-    notify.nudge_threadpool(request, db)
+    notify.commit_and_nudge_threadpool(request, db)
     return {"ok": True}
 
 
@@ -74,6 +72,5 @@ def reorder_sidebar_entries(request: Request, body: ReorderSidebarEntriesRequest
     db.executemany(
         "UPDATE sidebar_entries SET order_idx = ? WHERE id = ?",
         [(idx, entry_id) for idx, entry_id in enumerate(body.order)])
-    db.commit()
-    notify.nudge_threadpool(request, db)
+    notify.commit_and_nudge_threadpool(request, db)
     return {"ok": True}

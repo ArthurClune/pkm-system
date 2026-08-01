@@ -37,6 +37,17 @@ def test_search_query_backlinks_todos(tools):
     assert "(0 total)" in tools.todos()
 
 
+def test_backlinks_returns_every_group_beyond_the_single_page_cap(
+        tools, seed_backlinks):
+    # Same pagination cap as the CLI's `pkm refs` (pkm-3cyg): the MCP tool
+    # must not silently drop groups past the route's 100-group limit.
+    seed_backlinks(101)
+    out = tools.backlinks("Machine Learning")
+    assert out.startswith("# Backlinks: Machine Learning (102 pages)")
+    assert "## BL Source 000" in out
+    assert "## BL Source 100" in out
+
+
 def test_search_exact_and_query_expand(tools):
     assert tools.search("machi", exact=True) == "no results\n"
     assert "uid_b4" in tools.query("{and: [[AI]]}", expand=True)

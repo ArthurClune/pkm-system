@@ -70,8 +70,7 @@ def query(expr: str, expand: bool = False) -> str:
 
 def backlinks(title: str) -> str:
     """Pages and blocks that reference [[title]], grouped by source page."""
-    payload = _client().get_page(title)
-    return render_backlinks(title, payload["backlinks"])
+    return render_backlinks(title, _client().get_backlinks(title))
 
 
 def todos(page: str | None = None) -> str:

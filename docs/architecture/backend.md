@@ -505,6 +505,14 @@ and broadcasts as the web client.
   un-normalized `title` for `page_title`: that's fine, since the server
   normalizes it again at the same `get_or_create_page` choke point and
   lands on the identical row either way.
+- `PkmClient.get_backlinks` (used by the CLI's `refs` command and the MCP
+  `backlinks` tool) loops `GET /api/page`'s `bl_offset`/`bl_limit`
+  pagination until every group is fetched, rather than rendering just the
+  first page: the route caps a single response at 100 groups, but the
+  CLI/MCP wording promises the complete backlink list, and Arthur's
+  standing rule is no silent truncation of user-visible output (pkm-3cyg).
+  `get_page` itself (used for a page's own content) is unchanged and still
+  returns only one page of backlinks alongside the blocks.
 - The MCP server exposes eleven tools — seven reads (`get_page`,
   `get_block`, `search`, `query`, `backlinks`, `todos`, `search_assets`) and
   four writes (`save_note`, `update_block`, `batch`, `upload_asset`) — built

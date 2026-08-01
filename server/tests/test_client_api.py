@@ -182,6 +182,25 @@ def test_get_page_or_placeholder_finds_a_page_whose_title_holds_control_whitespa
     assert payload["page"]["title"] == "Ctrl Title"
 
 
+def test_get_backlinks_fetches_every_group_beyond_the_single_page_cap(
+        pkm_client, seed_backlinks):
+    # routes_pages.py caps a single /api/page response to 100 backlink
+    # groups; 101 extra sources (plus the seeded "July 7th, 2026") pushes
+    # total_pages past that cap, so a single get_page() call alone would
+    # silently drop one group (pkm-3cyg -- no silent truncation).
+    seed_backlinks(101)
+    result = pkm_client.get_backlinks("Machine Learning")
+    assert result["total_pages"] == 102
+    assert len(result["groups"]) == 102
+    titles = {g["page_title"] for g in result["groups"]}
+    assert {"BL Source 000", "BL Source 100", "July 7th, 2026"} <= titles
+
+
+def test_get_backlinks_no_backlinks_makes_one_request(pkm_client):
+    result = pkm_client.get_backlinks("July 7th, 2026")
+    assert result == {"groups": [], "total_pages": 0, "offset": 0, "limit": 0}
+
+
 def test_unauthenticated_client_gets_login_hint(anon_client):
     bad = PkmClient(CliConfig(url="http://testserver", token="junk"),
                     http=anon_client)

@@ -348,9 +348,8 @@ def cmd_search(args: argparse.Namespace, client: PkmClient) -> int:
 
 
 def cmd_refs(args: argparse.Namespace, client: PkmClient) -> int:
-    payload = client.get_page(args.title)
-    _emit(payload["backlinks"],
-          render_backlinks(args.title, payload["backlinks"]), args.json)
+    backlinks = client.get_backlinks(args.title)
+    _emit(backlinks, render_backlinks(args.title, backlinks), args.json)
     return 0
 
 

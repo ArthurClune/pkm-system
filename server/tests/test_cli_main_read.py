@@ -126,6 +126,19 @@ def test_refs(run):
     assert "July 7th, 2026" in out
 
 
+def test_refs_returns_every_group_beyond_the_single_page_cap(
+        run, seed_backlinks):
+    # The route caps a single response to 100 backlink groups; `pkm refs`
+    # wording promises every linking block, so 101 extra sources (plus the
+    # seeded one) must all show up, not just the first 100 (pkm-3cyg).
+    seed_backlinks(101)
+    code, out, _ = run("refs", "Machine Learning")
+    assert code == 0
+    assert out.startswith("# Backlinks: Machine Learning (102 pages)")
+    assert "## BL Source 000" in out
+    assert "## BL Source 100" in out
+
+
 def test_query(run):
     code, out, _ = run("query", "{and: [[Paper]]}")
     assert code == 0

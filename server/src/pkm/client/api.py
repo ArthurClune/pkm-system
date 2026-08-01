@@ -106,10 +106,36 @@ class PkmClient:
                            friendly_error(r.status_code, _detail(r)))
         return r.json()
 
-    def get_page(self, title: str, bl_limit: int = 100) -> dict:
+    def get_page(self, title: str, bl_limit: int = 100,
+                bl_offset: int = 0) -> dict:
         return self._request(
             "GET", f"/api/page/{quote(title, safe='/')}",
-            params={"bl_limit": bl_limit})
+            params={"bl_limit": bl_limit, "bl_offset": bl_offset})
+
+    def get_backlinks(self, title: str, page_size: int = 100) -> dict:
+        """Every backlink group for `title`, looping /api/page's
+        pagination (capped server-side at 100 groups per request,
+        routes_pages.py) until none remain. The CLI/MCP wording promises
+        the complete backlink list, so returning only the first page
+        here would silently truncate it (pkm-3cyg -- no silent
+        truncation)."""
+        offset = 0
+        groups: list[dict] = []
+        total = 0
+        while True:
+            payload = self.get_page(title, bl_limit=page_size,
+                                    bl_offset=offset)
+            backlinks = payload["backlinks"]
+            total = backlinks["total_pages"]
+            new_groups = backlinks["groups"]
+            if not new_groups:
+                break
+            groups.extend(new_groups)
+            offset += len(new_groups)
+            if len(groups) >= total:
+                break
+        return {"groups": groups, "total_pages": total, "offset": 0,
+                "limit": len(groups)}
 
     def get_page_or_placeholder(self, title: str) -> tuple[dict, bool]:
         """Fetch `title`, or an empty placeholder (no blocks) if it

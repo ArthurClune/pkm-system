@@ -98,8 +98,11 @@ async function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
  * URL and the method -- prefer `typedClient.ts`'s apiGet/apiPost/apiPut/
  * apiDelete, which derive `T` (and the body, and the parameters) from the
  * generated schema and then call this (pkm-60bf). Reach for apiFetch
- * directly only where the schema cannot express the request, e.g. the
- * multipart asset upload. */
+ * directly only where the schema cannot express the request: the typed
+ * client is JSON-only, so POST /api/assets (multipart/form-data) belongs
+ * here. The schema's other non-JSON write, POST /api/assets/export.zip
+ * (x-www-form-urlencoded), does not go through either one -- it is a real
+ * hidden <form> submit in views/Files.tsx. */
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (gateway?.offline()) {
     return localFetch<T>(path, init);

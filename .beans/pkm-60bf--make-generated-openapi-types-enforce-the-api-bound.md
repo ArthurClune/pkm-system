@@ -53,6 +53,18 @@ generated payload type instead of `unknown` (three of them declared
 `tree.ts`'s handwritten `BlockNodeOut` and `BlockRefTexts` are gone in favour
 of the generated `BlockNode` and `PagePayload["block_ref_texts"]`.
 
+A declared return type is only worth anything if the payload is *built* in
+checked code. `ReplicaDb.select<T>` asserts its type argument
+(`selectObjects(...) as T[]`), so five builders that passed a generated model
+straight to it looked annotated while checking nothing: `PageMeta`,
+`CurrentWorkPage`, `SidebarNavEntry`, `SearchPageHit`, `SearchBlockHit`. Each
+now names a local row type and maps into a checked object literal
+(`rows.map((row): PageMeta => ({ … }))`). Verified by renaming a field in each
+of the five generated models and confirming all five map sites fail to
+compile — before the change, the `PageMeta` rename produced no shim error at
+all. Still unchecked, by nature: the row type against the real SQL, which is
+what `shim_parity.json` covers.
+
 **Duplicates removed.** `PageTitle.tsx`'s `RenameResult` and
 `assistant/client.ts`'s `{id: string; model: string}`; both converted to the
 typed client, along with the assistant's delete/confirm calls.
@@ -64,9 +76,18 @@ unknown route, missing/unknown/mistyped parameters, wrong body field) and
 *exactly* its generated payload). An expected-error directive that stops
 erroring is itself an error, so the probes cannot rot.
 
-**Deliberately left as follow-up:** ~23 remaining `apiFetch<T>` read call
-sites in `components/`, `views/`, `outline/` and `sync/` (listed in the task
-report). They are mechanical, and converting them all here would have
-collided with the other lanes editing those same files. `sync/assets.ts`
-stays on `apiFetch` by design: its body is `FormData`, which the JSON-only
-typed client cannot express.
+**Deliberately left as follow-up:** 32 remaining `apiFetch` call sites in
+`components/`, `views/`, `outline/` and `sync/`, plus one place that passes
+`apiFetch` itself as a value (`sync/SyncProvider.tsx:238` → `replicaSync`'s
+`fetchJson` injection seam). The full list is in the task report; regenerate
+it with
+
+    grep -rnE "apiFetch[<(]" web/src | grep -v "\.test\." | grep -v "web/src/api/"
+
+They are mechanical, and converting them all here would have collided with
+the other lanes editing those same files. `sync/assets.ts:14` must NOT be
+converted: the typed client is JSON-only, and that upload is
+multipart/form-data. The schema's other non-JSON write,
+`POST /api/assets/export.zip` (x-www-form-urlencoded), is not in the list at
+all — `views/Files.tsx:16` submits it as a real hidden `<form>` so the
+browser handles the download, and it never touched `apiFetch`.

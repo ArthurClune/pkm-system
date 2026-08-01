@@ -28,12 +28,21 @@ export type PathFor<M extends HttpMethod> = {
 
 type Op<M extends HttpMethod, P extends PathFor<M>> = NonNullable<paths[P][M]>;
 
+/** `never` for a route whose 200 is not JSON. `GET /login` (text/html) is
+ * the only one in the schema today, and nothing calls it through here. */
 type ResponseOf<O> =
   O extends { responses: { 200: { content: { "application/json": infer R } } } }
     ? R : never;
 
-/** `never` for a route with no JSON request body: an absent body is written
- * `requestBody?: never`, which does not satisfy the required-property test. */
+/** `never` for a route with no JSON request body, in two different ways: an
+ * absent body is written `requestBody?: never`, which does not satisfy the
+ * required-property test; and a body in another media type simply has no
+ * "application/json" key to infer from. The latter covers the schema's two
+ * non-JSON writes, which therefore get a useless `{ body?: undefined }` here
+ * and must not be routed through this module: `POST /api/assets`
+ * (multipart/form-data, uploaded via apiFetch with a FormData body) and
+ * `POST /api/assets/export.zip` (x-www-form-urlencoded, submitted as a real
+ * hidden <form> in views/Files.tsx so the browser handles the download). */
 type BodyOf<O> =
   O extends { requestBody: { content: { "application/json": infer B } } }
     ? B : never;

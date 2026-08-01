@@ -14,11 +14,26 @@ import { phraseQuery } from "./fts";
 import { BLOCK_COLS, type BlockRow, blockRefTexts, buildTree,
          fetchAncestors } from "./tree";
 
+// db.select<T> ASSERTS its type argument (`selectObjects(...) as T[]`), so
+// handing it a generated model would check nothing. Every query that feeds a
+// response therefore names a local row type and maps into a checked object
+// literal: that map is what turns a renamed or added server-side field into
+// a compile error here.
+interface PageRow {
+  id: number;
+  title: string;
+  created_at: number | null;
+  updated_at: number | null;
+}
+
 const fetchPage = (db: ReplicaDb, title: string): PageMeta | null => {
-  const rows = db.select<PageMeta>(
+  const rows = db.select<PageRow>(
     "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
     [title]);
-  return rows.length > 0 ? rows[0] : null;
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  return { id: row.id, title: row.title, created_at: row.created_at,
+           updated_at: row.updated_at };
 };
 
 interface BacklinkRow {
@@ -148,14 +163,17 @@ export function currentWorkPayload(db: ReplicaDb,
       return {
         id: section.id,
         title: section.title,
-        pages: db.select<CurrentWorkPage>(
+        // the WHERE clause is what makes updated_at non-null here
+        pages: db.select<{ id: number; title: string; updated_at: number }>(
           `SELECT id, title, updated_at FROM pages
              WHERE updated_at IS NOT NULL
                AND updated_at ${lowerOperator} ?
                AND updated_at <= ?
              ORDER BY updated_at DESC, title`,
           [newerThan, olderThan],
-        ),
+        ).map((row): CurrentWorkPage => ({
+          id: row.id, title: row.title, updated_at: row.updated_at,
+        })),
       };
     }),
   };

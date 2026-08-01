@@ -110,8 +110,11 @@ export function blockRefsPayload(db: ReplicaDb,
 }
 
 export function sidebarPayload(db: ReplicaDb): SidebarNavPayload {
-  return { entries: db.select<SidebarNavEntry>(
-    "SELECT id, title FROM sidebar_entries ORDER BY order_idx") };
+  // mapped, not asserted -- see the note on PageRow in pages.ts
+  const rows = db.select<{ id: number; title: string }>(
+    "SELECT id, title FROM sidebar_entries ORDER BY order_idx");
+  return { entries: rows.map((row): SidebarNavEntry => ({
+    id: row.id, title: row.title })) };
 }
 
 export function titlesPayload(db: ReplicaDb, qStr: string,

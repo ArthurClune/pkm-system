@@ -170,12 +170,23 @@ The header shows "Offline — N changes pending".
 
 Every shim response builder declares a **generated** return type (`PagePayload`,
 `JournalPayload`, `SearchPayload`, …) rather than `unknown` (pkm-60bf), so a
-server-side field rename that the shim does not follow fails `pnpm typecheck`
+server-side field rename the shim does not follow fails `pnpm typecheck`
 instead of surfacing as a wrong-shaped payload the first time a user goes
 offline. `shim_parity.json` pins recorded *values* for a handful of requests;
 the return types pin the *shape* of every builder, including branches no
 fixture exercises. `localApi/payloadTypes.test.ts` guards the declarations
 themselves against being widened back.
+
+Being precise about what that does and does not cover, because the difference
+is easy to lose: `ReplicaDb.select<T>` **asserts** its type argument
+(`selectObjects(...) as T[]`) — it cannot check a database row against a type.
+So a builder that passed a generated model straight to `select<T>` would look
+annotated while checking nothing. Every query that feeds a response therefore
+names a *local row* type and maps into a checked object literal
+(`rows.map((row): PageMeta => ({ … }))`); that map, plus the payload envelope
+the builder returns, is what the compiler actually verifies. What remains
+unchecked is the row type against the real SQL — a renamed *column* is still a
+runtime failure, which is what `shim_parity.json` is for.
 
 ```mermaid
 sequenceDiagram

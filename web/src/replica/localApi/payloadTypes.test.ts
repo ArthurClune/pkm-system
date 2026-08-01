@@ -9,6 +9,14 @@
 // shim_parity.json (parity.test.ts) checks recorded VALUES for a handful of
 // requests; these probes check the static SHAPE of every builder, including
 // branches no fixture exercises.
+//
+// What these probes do NOT cover: the return type only bites if the payload
+// is BUILT in checked code. `ReplicaDb.select<T>` asserts its type argument,
+// so a builder that fetched rows as `select<PageMeta>` and returned them
+// would satisfy its probe while checking nothing. The builders map rows into
+// checked object literals for exactly that reason -- see the note on PageRow
+// in pages.ts. Verified by renaming a field in each of the five generated
+// row models and confirming all five map sites fail to compile.
 import { expect, it } from "vitest";
 import type { BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
               JournalPayload, PageMeta, PagePayload, SearchPayload,

@@ -1,5 +1,7 @@
 // pattern: Imperative Shell
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act, fireEvent, render, screen, waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetSearchItem, AssetSearchPayload } from "../api/payloads";
 import { makeSync } from "../test-helpers";
@@ -24,6 +26,12 @@ const item = (over: Partial<AssetSearchItem>): AssetSearchItem => ({
 const payload = (assets: AssetSearchItem[],
                  total = assets.length): AssetSearchPayload =>
   ({ total, assets });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -114,6 +122,71 @@ describe("Files", () => {
     await screen.findByText("51 selected");
     expect(mockFetch).toHaveBeenLastCalledWith(
       expect.stringContaining("offset=50"));
+  });
+
+  it("discards a stale loadMore response when filters change first (pkm-3622)",
+     async () => {
+    const firstPage = Array.from({ length: 50 }, (_, i) =>
+      item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
+    const stale = deferred<AssetSearchPayload>();
+    const filtered = payload(
+      [item({ sha256: "cd".repeat(32), filename: "notes.pdf" })], 1);
+    mockFetch
+      .mockResolvedValueOnce(payload(firstPage, 60))   // initial reload
+      .mockResolvedValueOnce(stale.promise)             // loadMore (offset=50)
+      .mockResolvedValueOnce(filtered);                 // filter-change reload
+    render(<Files />);
+    expect(await screen.findByText("50 of 60 files")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
+      expect.stringContaining("offset=50")));
+
+    fireEvent.change(screen.getByLabelText("Type"),
+                     { target: { value: "pdf" } });
+    expect(await screen.findByText("1 of 1 files")).toBeInTheDocument();
+    expect(screen.getByText("notes.pdf")).toBeInTheDocument();
+
+    // The stale loadMore response resolves after the filter change has
+    // already landed; it must be discarded, not merged in or overwrite total.
+    stale.resolve(payload(firstPage.slice(0, 5), 999));
+    await act(async () => { await stale.promise; await Promise.resolve(); });
+    expect(screen.getByText("1 of 1 files")).toBeInTheDocument();
+    expect(screen.queryByText("f0.png")).not.toBeInTheDocument();
+  });
+
+  it("discards a stale selectAll response when filters change first " +
+     "(pkm-3622)", async () => {
+    const firstPage = Array.from({ length: 50 }, (_, i) =>
+      item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
+    const stale = deferred<AssetSearchPayload>();
+    const filtered = payload(
+      [item({ sha256: "cd".repeat(32), filename: "notes.pdf" })], 1);
+    mockFetch
+      .mockResolvedValueOnce(payload(firstPage, 51))   // initial reload
+      .mockResolvedValueOnce(stale.promise)             // selectAll (offset=50)
+      .mockResolvedValueOnce(filtered);                 // filter-change reload
+    render(<Files />);
+    expect(await screen.findByText("50 of 51 files")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
+      expect.stringContaining("offset=50")));
+
+    fireEvent.change(screen.getByLabelText("Type"),
+                     { target: { value: "pdf" } });
+    expect(await screen.findByText("1 of 1 files")).toBeInTheDocument();
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
+
+    // The stale selectAll page resolves after the filter change; it must not
+    // select files outside the now-visible filter.
+    stale.resolve(payload(
+      [item({ sha256: "ee".repeat(32), filename: "last.png" })], 51));
+    await act(async () => { await stale.promise; await Promise.resolve(); });
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
+    expect(screen.getByText("notes.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select all" }))
+      .not.toBeDisabled();
   });
 
   it("deletes selected files after a calm confirm and reports", async () => {

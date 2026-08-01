@@ -4,6 +4,10 @@
 there, web/src/api/types.d.ts. The routes still return plain dicts of the same
 shape; these models are the contract, not a payload redesign.
 
+They are also what `PkmClient` validates every response with, so a payload
+that drifts from this file fails on the client with a named field rather
+than as a KeyError inside a renderer (pkm-0wr8).
+
 Keep every field required (no defaults): the routes always populate them, and
 optionality here would surface as `?:` in the generated TypeScript."""
 from __future__ import annotations
@@ -12,7 +16,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-ViewType = Literal["numbered", "document"]
+from pkm.contracts.ops import ViewType
 
 
 class PageMeta(BaseModel):
@@ -156,6 +160,7 @@ class AssetUploadResponse(BaseModel):
     mime: str
     size: int
     url: str
+    existing: bool
 
 
 class AssetRef(BaseModel):
@@ -263,3 +268,27 @@ class AssistantConversation(BaseModel):
 
 class AssistantAck(BaseModel):
     ok: bool = True
+
+
+# -- Write acks ----------------------------------------------------------
+#
+# The two below are NOT declared as `response_model=` on their routes, and
+# should not be: no generated client reads them (the web app ignores both
+# bodies), so attaching them would add components to the published OpenAPI
+# schema for nothing. They exist because the CLI/MCP client does read them
+# -- `applied` is printed as "applied N ops" -- and reading them through a
+# model is what makes the read type-checked. tests/test_client_contracts.py
+# asserts each one still matches what its live route returns, which is the
+# thing a `response_model` would otherwise have enforced.
+
+class OpsAck(BaseModel):
+    """POST /api/ops (routes_ops.py)."""
+    ok: bool
+    ts: int
+    applied: int
+
+
+class AssetDeleteAck(BaseModel):
+    """DELETE /api/assets/{sha256} (routes_assets.py)."""
+    deleted: bool
+    refs_removed: int

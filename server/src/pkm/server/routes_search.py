@@ -6,14 +6,14 @@ import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from pkm.contracts.responses import (
+    GroupsPayload, QueryPayload, SearchPayload, TitlesPayload)
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
 from pkm.server.query import (
     QUERY_SOURCE_FILTER, QueryNode, page_operands, parse_query, plan_sql,
     QueryParseError)
-from pkm.server.response_models import (
-    GroupsPayload, QueryPayload, SearchPayload, TitlesPayload)
 from pkm.todo import is_todo
 
 router = APIRouter(dependencies=[Depends(require_auth)])

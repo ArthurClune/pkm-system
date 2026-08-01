@@ -90,6 +90,32 @@ def pkm_client(anon_client):
 
 
 @pytest.fixture()
+def seed_backlinks(seeded_config):
+    """Factory: insert `count` extra pages, each with one block
+    referencing "Machine Learning" (page_id 1) via [[...]]. Lets
+    backlink-pagination tests (pkm-3cyg) exceed the route's
+    single-request group cap (100, routes_pages.py) without hand-rolling
+    the DB inserts in every test file."""
+    def _seed(count: int, start_id: int = 100) -> None:
+        con = open_db(seeded_config.db_path)
+        pages = [(start_id + i, f"BL Source {i:03d}", None, None)
+                 for i in range(count)]
+        blocks = [(f"uid_bl_{i:03d}", start_id + i, None, 0,
+                   "[[Machine Learning]] mention", None, 0, None, None)
+                  for i in range(count)]
+        refs = [(f"uid_bl_{i:03d}", 1, "link") for i in range(count)]
+        con.executemany("INSERT INTO pages VALUES (?,?,?,?)", pages)
+        con.executemany(
+            "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+            " heading, collapsed, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?)", blocks)
+        con.executemany("INSERT INTO refs VALUES (?,?,?)", refs)
+        con.commit()
+        con.close()
+    return _seed
+
+
+@pytest.fixture()
 def fake_engine() -> FakeEngine:
     return FakeEngine()
 

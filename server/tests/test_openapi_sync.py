@@ -84,7 +84,7 @@ def test_read_routes_declare_response_models(tmp_path):
     bad = _undeclared_response_model_routes(schema, EXEMPT_READ_ROUTES)
     assert not bad, (
         f"Route(s) {bad} must declare response_model=<Payload> (see "
-        f"pkm.server.response_models) or be added to EXEMPT_READ_ROUTES if "
+        f"pkm.contracts.responses) or be added to EXEMPT_READ_ROUTES if "
         f"genuinely not a JSON API payload; {REGEN}")
 
 

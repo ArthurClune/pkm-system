@@ -1,13 +1,25 @@
 # pattern: Functional Core
-"""Plan CLI/MCP writes as /api/ops op dicts. Pure: page payloads and a uid
-iterator come in, op dicts come out. The shell fetches pages, generates
-uids, and posts the result."""
+"""Plan CLI/MCP writes as /api/ops ops. Pure: a page's blocks and a uid
+iterator come in, `pkm.contracts.ops` models come out. The shell fetches
+pages, generates uids, and posts the result.
+
+Both ends are contract models rather than dicts (pkm-0wr8): the blocks
+planned against are `BlockNode`s exactly as the server serialized them,
+and each planned op is validated the moment it is built, so a planner
+that emits a wrong-shaped op fails here rather than as a 422 from the
+server after the page was already fetched."""
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from typing import Annotated, Literal, Union
 
-from pkm.server.ops_core import text_hash
+from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
+                      ValidationError, model_validator)
+
+from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, DeleteOp,
+                               MoveOp, SetHeadingOp, UpdateTextOp, text_hash)
+from pkm.contracts.responses import BlockNode
 from pkm.todo import with_state
 
 _HEADING_SPEC = re.compile(r"^(#{1,3}) (.+)$")
@@ -35,27 +47,28 @@ def parse_outline(text: str) -> list[tuple[int, str]]:
     return items
 
 
-def _walk(nodes: list[dict]) -> Iterator[dict]:
+def _walk(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
     for n in nodes:
         yield n
-        yield from _walk(n["children"])
+        yield from _walk(n.children)
 
 
-def next_child_idx(blocks: list[dict], parent_uid: str | None) -> int:
-    """Append position under `parent_uid` in a `build_tree`-shaped `blocks`
-    list; `None` means top level of the page."""
+def next_child_idx(blocks: Sequence[BlockNode],
+                   parent_uid: str | None) -> int:
+    """Append position under `parent_uid` in a page's `blocks` tree;
+    `None` means top level of the page."""
     if parent_uid is None:
         return len(blocks)
     for n in _walk(blocks):
-        if n["uid"] == parent_uid:
-            return len(n["children"])
+        if n.uid == parent_uid:
+            return len(n.children)
     raise BuildError(f"parent block not on page: {parent_uid}")
 
 
 def resolve_parent(
-    payload: dict, spec: str | None
+    blocks: Sequence[BlockNode], spec: str | None
 ) -> tuple[str | None, tuple[int, str] | None]:
-    """Resolve a parent spec against a fetched page payload.
+    """Resolve a parent spec against a fetched page's blocks.
 
     Returns (parent_uid, heading_to_create). `heading_to_create` is
     (level, text) when `spec` names a "## Heading" that doesn't yet exist
@@ -77,15 +90,15 @@ def resolve_parent(
     m = _UID_SPEC.match(spec)
     if m:
         uid = m.group(1)
-        if not any(n["uid"] == uid for n in _walk(payload["blocks"])):
+        if not any(n.uid == uid for n in _walk(blocks)):
             raise BuildError(f"block not on page: {uid}")
         return uid, None
     m = _HEADING_SPEC.match(spec)
     if m:
         level, text = len(m.group(1)), m.group(2)
-        for n in _walk(payload["blocks"]):
-            if n["heading"] == level and n["text"] == text:
-                return n["uid"], None
+        for n in _walk(blocks):
+            if n.heading == level and n.text == text:
+                return n.uid, None
         return None, (level, text)
     raise BuildError(
         f"unrecognized parent spec: {spec!r} "
@@ -109,21 +122,18 @@ def split_heading(text: str) -> tuple[str, int | None]:
 
 
 def _create(uid: str, page: str, parent: str | None, idx: int, text: str,
-            heading: int | None = None) -> dict:
-    op = {"op": "create", "uid": uid, "page_title": page,
-          "parent_uid": parent, "order_idx": idx, "text": text}
-    if heading is not None:
-        op["heading"] = heading
-    return op
+            heading: int | None = None) -> CreateOp:
+    return CreateOp(op="create", uid=uid, page_title=page, parent_uid=parent,
+                    order_idx=idx, text=text, heading=heading)
 
 
 class _Planner:
     """Tracks the next append order_idx per (page, parent) across ops so
     consecutive creates land in consecutive positions. `in_batch` is the
     set of uids created earlier in the same batch: they are not on the
-    fetched page payload, so their first child starts at order_idx 0
+    fetched page, so their first child starts at order_idx 0
     instead of consulting `next_child_idx` (which would raise, since the
-    block doesn't exist in the payload). Also memoizes missing '## Heading'
+    block isn't among the page's blocks). Also memoizes missing '## Heading'
     parents by (page, level, text): a repeated spec across separate
     `creates` calls (i.e. separate batch commands) reuses the heading
     already planned instead of creating a duplicate."""
@@ -136,25 +146,27 @@ class _Planner:
     def next_uid(self) -> str:
         return next(self._uids)
 
-    def bump(self, payload: dict, page: str, parent: str | None,
+    def bump(self, blocks: Sequence[BlockNode], page: str,
+             parent: str | None,
              in_batch: frozenset[str] = frozenset()) -> int:
         key = (page, parent)
         if key not in self._next_idx:
             if parent is not None and parent in in_batch:
                 self._next_idx[key] = 0
             else:
-                self._next_idx[key] = next_child_idx(payload["blocks"], parent)
+                self._next_idx[key] = next_child_idx(blocks, parent)
         idx = self._next_idx[key]
         self._next_idx[key] = idx + 1
         return idx
 
-    def creates(self, payload: dict, page: str, parent_spec: str | None,
+    def creates(self, blocks: Sequence[BlockNode], page: str,
+                parent_spec: str | None,
                 items: list[tuple[int, str]], todo: bool,
                 in_batch: frozenset[str] = frozenset(),
-                index: int | None = None) -> list[dict]:
+                index: int | None = None) -> list[CreateOp]:
         """Plan creates for `items` (depth, text) pairs under `parent_spec`.
         Resolves the parent spec first (handling in-batch alias uids, which
-        `resolve_parent` can't see since they aren't in the payload), then
+        `resolve_parent` can't see since they aren't on the page), then
         walks the outline maintaining a depth->uid stack so nested items
         attach to the most recently created ancestor at the right depth.
 
@@ -163,7 +175,7 @@ class _Planner:
         single-item `create`/`todo` batch commands pass it (never `outline`,
         never `plan_save`). Mixing an indexed create with plain appends
         under the same parent in one batch may interleave, since appends
-        keep counting from the payload's original length rather than
+        keep counting from the page's original child count rather than
         accounting for the index; see `pkm batch --help`.
         """
         m = _UID_SPEC.match(parent_spec) if parent_spec else None
@@ -171,8 +183,8 @@ class _Planner:
             parent: str | None = m.group(1)
             missing_heading = None
         else:
-            parent, missing_heading = resolve_parent(payload, parent_spec)
-        ops: list[dict] = []
+            parent, missing_heading = resolve_parent(blocks, parent_spec)
+        ops: list[CreateOp] = []
         created: set[str] = set()
         if missing_heading is not None:
             level, text = missing_heading
@@ -182,7 +194,7 @@ class _Planner:
             else:
                 parent = self.next_uid()
                 ops.append(_create(parent, page, None,
-                                   self.bump(payload, page, None, in_batch),
+                                   self.bump(blocks, page, None, in_batch),
                                    text, level))
                 self._headings[heading_key] = parent
             created.add(parent)
@@ -198,7 +210,7 @@ class _Planner:
             if depth == 0 and first and index is not None:
                 idx = index
             else:
-                idx = self.bump(payload, page, target,
+                idx = self.bump(blocks, page, target,
                                 in_batch | frozenset(created))
             first = False
             ops.append(_create(uid, page, target, idx, body, level))
@@ -206,7 +218,7 @@ class _Planner:
                 # So a later `parent: "## Notes"` in the same batch nests
                 # under this block instead of creating a second heading.
                 # `resolve_parent` can't find it: it walks only the
-                # fetched page payload, which predates this batch. Keyed
+                # fetched page's blocks, which predate this batch. Keyed
                 # on the stored text (TODO prefix included, if any) so
                 # the memo agrees with what a later fetch would match.
                 self._headings.setdefault((page, level, body), uid)
@@ -218,14 +230,15 @@ class _Planner:
         return ops
 
 
-def plan_save(payload: dict, page_title: str, parent_spec: str | None,
-              text: str, todo: bool, uids: Iterator[str]) -> list[dict]:
+def plan_save(blocks: Sequence[BlockNode], page_title: str,
+              parent_spec: str | None, text: str, todo: bool,
+              uids: Iterator[str]) -> list[CreateOp]:
     """Plan the create ops for `pkm save`: an outline of `text` nested
     under `parent_spec` (page top level if None)."""
     items = parse_outline(text)
     if not items:
         raise BuildError("nothing to save: text is empty")
-    return _Planner(uids).creates(payload, page_title, parent_spec, items, todo)
+    return _Planner(uids).creates(blocks, page_title, parent_spec, items, todo)
 
 
 class _NotGiven:
@@ -240,14 +253,14 @@ _NOT_GIVEN = _NotGiven()
 
 def plan_update(uid: str, text: str, base_text: str | None = None,
                 current_heading: int | None | _NotGiven = _NOT_GIVEN
-                ) -> list[dict]:
+                ) -> list[BlockOp]:
     """Ops for replacing a block's text: `update_text` plus, when the
     heading level is actually changing, the `set_heading` that keeps the
     stored level in step with the text's leading hashes -- no hashes
     means plain text, so a heading is cleared.
 
     `current_heading` is the block's level before this update, as read by
-    the caller (`client.get_block(uid)["block"]["heading"]`). When it
+    the caller (`client.get_block(uid).block.heading`). When it
     equals the new level, `set_heading` is skipped and only `update_text`
     is emitted. This is not just an optimization: a guarded `update_text`
     on a block deleted out from under it is deliberately *rescued* by the
@@ -270,16 +283,15 @@ def plan_update(uid: str, text: str, base_text: str | None = None,
     so it would split to no hashes and demote a real heading.
     """
     body, level = split_heading(text)
-    update: dict = {"op": "update_text", "uid": uid, "text": body}
-    if base_text is not None:
-        update["base_text_hash"] = text_hash(base_text)
-    ops = [update]
+    ops: list[BlockOp] = [UpdateTextOp(
+        op="update_text", uid=uid, text=body,
+        base_text_hash=None if base_text is None else text_hash(base_text))]
     if isinstance(current_heading, _NotGiven) or current_heading != level:
-        ops.append({"op": "set_heading", "uid": uid, "heading": level})
+        ops.append(SetHeadingOp(op="set_heading", uid=uid, heading=level))
     return ops
 
 
-def plan_mark(uid: str, current_text: str, mark: str) -> list[dict]:
+def plan_mark(uid: str, current_text: str, mark: str) -> list[UpdateTextOp]:
     """Ops for a task-marker change (`pkm update -D`/`-T`, `update_block
     mark=`): `update_text` with the marker applied to `current_text`, plus
     the `base_text_hash` concurrent-edit guard. Deliberately never
@@ -287,9 +299,9 @@ def plan_mark(uid: str, current_text: str, mark: str) -> list[dict]:
     back from the API already bare (the heading level lives in its own
     column), so splitting it would find no hashes and demote a real
     heading to plain text."""
-    return [{"op": "update_text", "uid": uid,
-             "text": with_state(current_text, mark),
-             "base_text_hash": text_hash(current_text)}]
+    return [UpdateTextOp(op="update_text", uid=uid,
+                        text=with_state(current_text, mark),
+                        base_text_hash=text_hash(current_text))]
 
 
 def asset_block_text(filename: str, mime: str, url: str) -> str:
@@ -303,38 +315,30 @@ def asset_block_text(filename: str, mime: str, url: str) -> str:
     return f"[{filename}]({url})"
 
 
-def create_page_ops(titles: Iterable[str]) -> list[dict]:
+def create_page_ops(titles: Iterable[str]) -> list[CreatePageOp]:
     """`create_page` ops for pages that don't exist yet, meant to be
     prepended to a planned batch's ops so a missing page's creation rides
     inside the same atomic OpBatch as the blocks that reference it
     (pkm-w80k) -- a batch that fails validation after this point leaves
     neither the page nor its blocks behind, instead of the page having
     already been committed via a separate request."""
-    return [{"op": "create_page", "page_title": t} for t in titles]
+    return [CreatePageOp(op="create_page", page_title=t) for t in titles]
 
 
-def referenced_pages(commands: list[dict]) -> list[str]:
-    """Page titles a batch's commands need fetched (in first-seen order),
-    so the shell knows what to fetch/create before planning."""
-    seen: list[str] = []
-    for cmd in commands:
-        page = cmd.get("params", {}).get("page")
-        if page and page not in seen:
-            seen.append(page)
-    return seen
+
 
 
 def _nested_items(items: list, depth: int = 0) -> list[tuple[int, str]]:
+    """Flatten a validated `outline` item list (`NestedItem`: a leaf string,
+    or a list one level deeper) into (depth, text) pairs, depth-first. Shape
+    is guaranteed by `OutlineParams.items` before this ever runs, so unlike
+    the pre-schema version this never rejects a malformed item itself."""
     out: list[tuple[int, str]] = []
     for item in items:
         if isinstance(item, str):
             out.append((depth, item))
-        elif isinstance(item, list):
-            out.extend(_nested_items(item, depth + 1))
         else:
-            raise BuildError(
-                f"outline items must be strings or lists, got {type(item).__name__}"
-            )
+            out.extend(_nested_items(item, depth + 1))
     return out
 
 
@@ -358,79 +362,270 @@ def _alias_uid(value: str, aliases: dict[str, str]) -> str:
     return value
 
 
-def plan_batch(commands: list[dict], pages: dict[str, dict],
-               uids: Iterator[str]) -> list[dict]:
+# -- Batch command schema -----------------------------------------------
+#
+# One discriminated model per `command` value, all rejecting unknown keys
+# so a typo'd param is a validation error rather than a silent no-op. This
+# is the FULL structural contract for a batch item: object shape, field
+# presence/types, index range. What it deliberately does NOT check --
+# whether a `page` was fetched, whether an `{{alias}}` was defined earlier
+# in the batch, whether a "## Heading" move target exists -- is inherently
+# stateful (depends on fetched pages / on-batch ordering) and stays in
+# each command's planner below, raising the same `BuildError` it always
+# has.
+
+# Recursive alias for `outline`'s nested item lists: a leaf string, or a
+# list of items one level deeper, e.g. ["Groceries", ["Milk", "Eggs"]].
+type NestedItem = str | list[NestedItem]
+
+
+class _Strict(BaseModel):
+    """Base for every command/params model: unknown keys are a validation
+    error, not a silent no-op."""
+    model_config = ConfigDict(extra="forbid")
+
+
+class CreateParams(_Strict):
+    """Shared by `create` and `todo` -- identical shape, `todo` only
+    changes how the planner stores the text."""
+    page: str = Field(min_length=1)
+    text: str
+    parent: str | None = None
+    index: int | None = Field(default=None, ge=0)
+    as_: str | None = Field(default=None, alias="as")
+
+
+class OutlineParams(_Strict):
+    page: str = Field(min_length=1)
+    parent: str | None = None
+    items: list[NestedItem] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _require_a_leaf_item(self) -> OutlineParams:
+        # `Field(min_length=1)` only bounds the top-level list -- items=[[]]
+        # (or any all-empty nesting) satisfies it but flattens to zero leaf
+        # strings via `_nested_items`, which would otherwise plan zero ops
+        # for what looks like a non-empty outline command.
+        if not _nested_items(self.items):
+            raise ValueError("items: must contain at least one item")
+        return self
+
+
+class UpdateParams(_Strict):
+    uid: str = Field(min_length=1)
+    text: str
+
+
+class MoveParams(_Strict):
+    uid: str = Field(min_length=1)
+    page: str = Field(min_length=1)
+    parent: str | None = None
+    index: int | None = Field(default=None, ge=0)
+
+
+class DeleteParams(_Strict):
+    uid: str = Field(min_length=1)
+
+
+class CreateCommand(_Strict):
+    command: Literal["create"]
+    params: CreateParams
+
+
+class TodoCommand(_Strict):
+    command: Literal["todo"]
+    params: CreateParams
+
+
+class OutlineCommand(_Strict):
+    command: Literal["outline"]
+    params: OutlineParams
+
+
+class UpdateCommand(_Strict):
+    command: Literal["update"]
+    params: UpdateParams
+
+
+class MoveCommand(_Strict):
+    command: Literal["move"]
+    params: MoveParams
+
+
+class DeleteCommand(_Strict):
+    command: Literal["delete"]
+    params: DeleteParams
+
+
+BatchCommand = Annotated[
+    Union[CreateCommand, TodoCommand, OutlineCommand, UpdateCommand,
+         MoveCommand, DeleteCommand],
+    Field(discriminator="command")]
+
+_BATCH_COMMAND_ADAPTER: TypeAdapter[BatchCommand] = TypeAdapter(BatchCommand)
+
+
+def _format_command_error(index: int, exc: ValidationError) -> str:
+    """Render the first of `exc`'s errors as one `batch[i]: problem` line
+    -- a malformed batch fails with a clear per-item error naming the
+    index and problem, not a pydantic error dump. The three discriminator-
+    level error kinds (`model_attributes_type` for a non-object item,
+    `union_tag_not_found`/`union_tag_invalid` for a missing/unrecognized
+    `command`) have no useful `loc`, so they get bespoke messages; anything
+    else is a `params`-shape problem, reported as its field path (with the
+    discriminator's matched tag dropped from `loc` -- it's redundant with
+    the message) plus pydantic's own `msg`."""
+    first = exc.errors()[0]
+    kind = first["type"]
+    if kind == "model_attributes_type":
+        return f"batch[{index}]: expected an object"
+    if kind == "union_tag_not_found":
+        return f"batch[{index}]: missing 'command'"
+    if kind == "union_tag_invalid":
+        return f"batch[{index}]: unknown command: {first['ctx']['tag']!r}"
+    path = ".".join(str(p) for p in first["loc"][1:])
+    return f"batch[{index}]: {path}: {first['msg']}" if path \
+        else f"batch[{index}]: {first['msg']}"
+
+
+def _parse_command(raw: object, index: int) -> BatchCommand:
+    try:
+        return _BATCH_COMMAND_ADAPTER.validate_python(raw)
+    except ValidationError as exc:
+        raise BuildError(_format_command_error(index, exc)) from None
+
+
+def validate_batch(commands: object) -> list[BatchCommand]:
+    """Validate a full batch envelope against the command schema before any
+    page discovery or I/O -- the CLI/MCP shells call this first, right
+    after decoding the request body, so a malformed batch never triggers a
+    page fetch or asset upload. `plan_batch` runs the same per-item parse
+    as its own first step (see `_parse_command`), so a batch fails with an
+    identical message whether caught here or by calling `plan_batch`
+    directly -- one stable error contract regardless of which caller
+    validates first."""
+    if not isinstance(commands, list):
+        raise BuildError("batch input must be a JSON array")
+    return [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
+
+
+def referenced_pages(commands: Sequence[BatchCommand]) -> list[str]:
+    """Page titles a batch's commands need fetched (in first-seen order),
+    so the shell knows what to fetch/create before planning. Reads the
+    validated commands rather than the raw JSON: `update` and `delete`
+    address a block by uid and name no page, and those are exactly the
+    two params models without a `page` field."""
+    seen: list[str] = []
+    for cmd in commands:
+        params = cmd.params
+        if isinstance(params, CreateParams | OutlineParams | MoveParams) \
+                and params.page not in seen:
+            seen.append(params.page)
+    return seen
+
+
+PageBlocks = Mapping[str, Sequence[BlockNode]]
+
+
+def _fetch_blocks(title: str, pages: PageBlocks) -> Sequence[BlockNode]:
+    if title not in pages:
+        raise BuildError(f"page not fetched: {title}")
+    return pages[title]
+
+
+def _batch_create(cmd: CreateCommand | TodoCommand, pages: PageBlocks,
+                  planner: _Planner, aliases: dict[str, str],
+                  created: set[str]) -> list[CreateOp]:
+    p = cmd.params
+    blocks = _fetch_blocks(p.page, pages)
+    spec = _resolve_alias(p.parent, aliases)
+    new = planner.creates(blocks, p.page, spec, [(0, p.text)],
+                          todo=(cmd.command == "todo"),
+                          in_batch=frozenset(created), index=p.index)
+    if p.as_:
+        aliases[p.as_] = new[-1].uid
+    return new
+
+
+def _batch_outline(cmd: OutlineCommand, pages: PageBlocks,
+                   planner: _Planner, aliases: dict[str, str],
+                   created: set[str]) -> list[CreateOp]:
+    p = cmd.params
+    blocks = _fetch_blocks(p.page, pages)
+    items = _nested_items(p.items)
+    spec = _resolve_alias(p.parent, aliases)
+    return planner.creates(blocks, p.page, spec, items, todo=False,
+                           in_batch=frozenset(created))
+
+
+def _batch_update(cmd: UpdateCommand,
+                  aliases: dict[str, str]) -> list[BlockOp]:
+    p = cmd.params
+    uid = _alias_uid(p.uid, aliases)
+    return plan_update(uid, p.text)
+
+
+def _batch_move(cmd: MoveCommand, pages: PageBlocks, planner: _Planner,
+                aliases: dict[str, str], created: set[str]) -> list[MoveOp]:
+    p = cmd.params
+    blocks = _fetch_blocks(p.page, pages)
+    uid = _alias_uid(p.uid, aliases)
+    spec = _resolve_alias(p.parent, aliases)
+    m = _UID_SPEC.match(spec) if spec else None
+    if m and m.group(1) in created:
+        parent: str | None = m.group(1)
+    else:
+        parent, missing = resolve_parent(blocks, spec)
+        if missing is not None:
+            raise BuildError("move target heading does not exist")
+    idx = p.index
+    if idx is None:
+        idx = planner.bump(blocks, p.page, parent, frozenset(created))
+    return [MoveOp(op="move", uid=uid, parent_uid=parent, order_idx=idx,
+                   page_title=None if parent else p.page)]
+
+
+def _batch_delete(cmd: DeleteCommand,
+                  aliases: dict[str, str]) -> list[DeleteOp]:
+    return [DeleteOp(op="delete", uid=_alias_uid(cmd.params.uid, aliases))]
+
+
+def plan_batch(commands: Sequence[object], pages: PageBlocks,
+               uids: Iterator[str]) -> list[BlockOp]:
     """Translate a batch of `{command, params}` items into one op list.
+
+    The first step parses every item against the command schema (see
+    `validate_batch`), so a malformed item -- non-object, unknown/missing
+    `command`, missing/wrong-typed/extra params -- raises `BuildError`
+    naming its index here too, not just when the shell validates upfront.
 
     `create`/`todo` accept an `as` alias so later commands in the same
     batch can reference the block just created via `parent: "{{alias}}"`.
     Those in-batch uids are tracked in `created` and threaded through as
     `_Planner.creates`'s `in_batch` set, since they don't exist on the
-    fetched page payloads that `resolve_parent`/`next_child_idx` consult.
+    fetched pages that `resolve_parent`/`next_child_idx` consult.
     """
+    parsed = [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
     planner = _Planner(uids)
     aliases: dict[str, str] = {}
     created: set[str] = set()
-    ops: list[dict] = []
+    ops: list[BlockOp] = []
 
-    def _page(params: dict) -> tuple[str, dict]:
-        title = params.get("page")
-        if not title:
-            raise BuildError("command needs a 'page' param")
-        if title not in pages:
-            raise BuildError(f"page not fetched: {title}")
-        return title, pages[title]
-
-    for cmd in commands:
-        name, params = cmd.get("command"), cmd.get("params", {})
-        if name in ("create", "todo"):
-            title, payload = _page(params)
-            spec = _resolve_alias(params.get("parent"), aliases)
-            new = planner.creates(payload, title, spec,
-                                  [(0, params["text"])],
-                                  todo=(name == "todo"),
-                                  in_batch=frozenset(created),
-                                  index=params.get("index"))
+    for cmd in parsed:
+        if isinstance(cmd, CreateCommand | TodoCommand):
+            new = _batch_create(cmd, pages, planner, aliases, created)
             ops.extend(new)
-            created.update(o["uid"] for o in new)
-            if params.get("as"):
-                aliases[params["as"]] = new[-1]["uid"]
-        elif name == "outline":
-            title, payload = _page(params)
-            items = _nested_items(params.get("items", []))
-            if not items:
-                raise BuildError("outline needs non-empty 'items'")
-            new = planner.creates(payload, title,
-                                  _resolve_alias(params.get("parent"), aliases),
-                                  items, todo=False,
-                                  in_batch=frozenset(created))
+            created.update(o.uid for o in new)
+        elif isinstance(cmd, OutlineCommand):
+            new = _batch_outline(cmd, pages, planner, aliases, created)
             ops.extend(new)
-            created.update(o["uid"] for o in new)
-        elif name == "update":
-            uid = _alias_uid(params["uid"], aliases)
-            ops.extend(plan_update(uid, params["text"]))
-        elif name == "move":
-            title, payload = _page(params)
-            uid = _alias_uid(params["uid"], aliases)
-            spec = _resolve_alias(params.get("parent"), aliases)
-            m = _UID_SPEC.match(spec) if spec else None
-            if m and m.group(1) in created:
-                parent: str | None = m.group(1)
-            else:
-                parent, missing = resolve_parent(payload, spec)
-                if missing is not None:
-                    raise BuildError("move target heading does not exist")
-            idx = params.get("index")
-            if idx is None:
-                idx = planner.bump(payload, title, parent, frozenset(created))
-            ops.append({"op": "move", "uid": uid,
-                        "parent_uid": parent, "order_idx": idx,
-                        "page_title": None if parent else title})
-        elif name == "delete":
-            uid = _alias_uid(params["uid"], aliases)
-            ops.append({"op": "delete", "uid": uid})
+            created.update(o.uid for o in new)
+        elif isinstance(cmd, UpdateCommand):
+            ops.extend(_batch_update(cmd, aliases))
+        elif isinstance(cmd, MoveCommand):
+            ops.extend(_batch_move(cmd, pages, planner, aliases, created))
         else:
-            raise BuildError(f"unknown command: {name!r}")
+            ops.extend(_batch_delete(cmd, aliases))
     return ops
 
 
@@ -438,4 +633,5 @@ __all__ = [
     "BuildError", "parse_outline", "next_child_idx", "resolve_parent",
     "split_heading", "plan_save", "plan_update", "plan_mark",
     "asset_block_text", "referenced_pages", "plan_batch", "create_page_ops",
+    "validate_batch",
 ]

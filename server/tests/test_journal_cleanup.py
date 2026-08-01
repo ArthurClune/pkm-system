@@ -2,7 +2,7 @@ import sqlite3
 from collections.abc import Sequence
 from datetime import date, timedelta
 
-from pkm.server.daily import title_for_date
+from pkm.contracts.daily import title_for_date
 
 
 def _insert_page(db_path, page_id: int, title: str,

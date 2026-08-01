@@ -1,9 +1,10 @@
 import pytest
 
+from pkm.contracts.ops import OpBatch, text_hash
 from pkm.server import ops_apply
 from pkm.server.db import open_db
 from pkm.server.ops_apply import _parent_chain, _subtree_deepest_first, apply_batch
-from pkm.server.ops_core import OpBatch, OpError, text_hash
+from pkm.server.ops_core import OpError
 
 NOW = 1_800_000_000_000
 

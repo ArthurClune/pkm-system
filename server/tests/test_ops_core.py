@@ -1,14 +1,14 @@
 import pytest
 from pydantic import ValidationError
 
-from pkm.server.ops_core import (BlockInfo, CreateOp, DeleteBlocks,
-                                 DeleteOp, InsertBlock, MoveOp, OpBatch,
+from pkm.contracts.ops import (CreateOp, DeleteOp, MoveOp, OpBatch,
+                               SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
+                               UpdateTextOp, text_hash)
+from pkm.server.ops_core import (BlockInfo, DeleteBlocks, InsertBlock,
                                  OpContext, OpError, ReindexRefs,
-                                 SetCollapsed, SetCollapsedOp, SetHeading,
-                                 SetHeadingOp, SetPageId, SetParent,
-                                 SetViewType, SetViewTypeOp,
-                                 ShiftSiblings, TouchPage, UpdateText,
-                                 UpdateTextOp, plan_op, text_hash)
+                                 SetCollapsed, SetHeading, SetPageId,
+                                 SetParent, SetViewType, ShiftSiblings,
+                                 TouchPage, UpdateText, plan_op)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 

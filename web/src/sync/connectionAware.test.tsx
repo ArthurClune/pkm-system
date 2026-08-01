@@ -89,7 +89,7 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
   uploadAssetMock.mockReturnValue(new Promise((resolve) => {
     finishUpload = () => resolve({
       sha256: "abc", filename: "pic.png", mime: "image/png",
-      size: 1, url: "/assets/abc/pic.png",
+      size: 1, url: "/assets/abc/pic.png", existing: false,
     });
   }));
   const getOutline = renderOutline([block("u1", "", { order_idx: 0 })]);

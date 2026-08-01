@@ -8,24 +8,24 @@ import argparse
 import getpass
 import json
 import sys
-import uuid
 from collections.abc import Callable
 from datetime import date, timedelta
 from pathlib import Path
 
 import httpx2
+from pydantic import BaseModel
 
-from pkm.client import api as client_api
-from pkm.client.api import PkmClient
-from pkm.client.core import ApiError, CliConfig, ConfigError
-from pkm.cli.build import (BuildError, asset_block_text, create_page_ops,
-                           plan_batch, plan_mark, plan_save, plan_update,
-                           referenced_pages)
+from pkm.cli.build import BuildError
 from pkm.cli.render import (RenderError, clip_depth, render_assets,
                             render_backlinks, render_block, render_groups,
                             render_page, render_search, select_section)
-from pkm.server.daily import title_for_date
-from pkm.server.ops_core import UID_RE
+from pkm.client import api as client_api
+from pkm.client.api import PkmClient
+from pkm.client.core import ApiError, CliConfig, ConfigError
+from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
+                                  upload_and_link)
+from pkm.contracts.daily import title_for_date
+from pkm.contracts.ops import UID_RE
 
 _RELATIVE = {"today": 0, "yesterday": -1, "tomorrow": 1}
 
@@ -288,10 +288,11 @@ def _login_http(url: str) -> httpx2.Client:
     return httpx2.Client(base_url=url)  # seam: tests inject a TestClient
 
 
-def _emit(data: dict, rendered: str, as_json: bool) -> None:
-    # minified: agent loops resend tool output every turn (pkm-roph)
-    print(json.dumps(data, separators=(",", ":")) if as_json else rendered,
-          end="")
+def _emit(data: BaseModel, rendered: str, as_json: bool) -> None:
+    # minified: agent loops resend tool output every turn (pkm-roph).
+    # Dumping the contract model, not the raw body, is what makes --json
+    # and the rendered output two views of the same validated payload.
+    print(data.model_dump_json() if as_json else rendered, end="")
     if as_json:
         print()
 
@@ -315,27 +316,28 @@ def cmd_get(args: argparse.Namespace, client: PkmClient) -> int:
                                 + timedelta(days=_RELATIVE[target]))
     elif UID_RE.fullmatch(target):
         try:
-            payload = client.get_block(target)
+            block_payload = client.get_block(target)
             if args.section:
                 print("--section only applies to pages", file=sys.stderr)
                 return 1
             if args.depth:
-                block = clip_depth([payload["block"]], args.depth)[0]
-                payload = {**payload, "block": block}
-            _emit(payload, render_block(payload, args.uids,
-                                        resolve_refs=args.resolve_refs),
-                 args.json)
+                clipped = clip_depth([block_payload.block], args.depth)[0]
+                block_payload = block_payload.model_copy(
+                    update={"block": clipped})
+            _emit(block_payload,
+                  render_block(block_payload, args.uids,
+                               resolve_refs=args.resolve_refs), args.json)
             return 0
         except ApiError as e:
             if e.status != 404:
                 raise
     payload = client.get_page(target)
-    blocks = payload["blocks"]
+    blocks = payload.blocks
     if args.section:
         blocks = select_section(blocks, args.section)
     if args.depth:
         blocks = clip_depth(blocks, args.depth)
-    payload = {**payload, "blocks": blocks}
+    payload = payload.model_copy(update={"blocks": blocks})
     _emit(payload, render_page(payload, args.uids,
                                resolve_refs=args.resolve_refs), args.json)
     return 0
@@ -348,9 +350,8 @@ def cmd_search(args: argparse.Namespace, client: PkmClient) -> int:
 
 
 def cmd_refs(args: argparse.Namespace, client: PkmClient) -> int:
-    payload = client.get_page(args.title)
-    _emit(payload["backlinks"],
-          render_backlinks(args.title, payload["backlinks"]), args.json)
+    backlinks = client.get_backlinks(args.title)
+    _emit(backlinks, render_backlinks(args.title, backlinks), args.json)
     return 0
 
 
@@ -372,20 +373,11 @@ def _read_text_arg(text: str | None) -> str:
     return text
 
 
-def _default_page(page: str | None) -> str:
-    return page if page is not None else title_for_date(date.today())
-
-
 def cmd_save(args: argparse.Namespace, client: PkmClient) -> int:
-    title = _default_page(args.page)
-    payload, missing = client.get_page_or_placeholder(title)
-    save_ops = plan_save(payload, title, args.parent,
-                         _read_text_arg(args.text), args.todo,
-                         uids=iter(client_api.new_uid, None))
-    ops = (create_page_ops([title]) if missing else []) + save_ops
-    client.post_ops(ops, batch_id=uuid.uuid4().hex)
+    save_ops = save_blocks(client, _read_text_arg(args.text), page=args.page,
+                           parent=args.parent, todo=args.todo)
     for op in save_ops:
-        print(f"created ^{op['uid']}")
+        print(f"created ^{op.uid}")
     return 0
 
 
@@ -394,33 +386,25 @@ def cmd_update(args: argparse.Namespace, client: PkmClient) -> int:
     if sum(changes) != 1:
         print("exactly one of TEXT, -D, or -T is required", file=sys.stderr)
         return 1
-    block = client.get_block(args.uid)["block"]
-    current = block["text"]
     if args.done or args.todo:
-        ops = plan_mark(args.uid, current, "DONE" if args.done else "TODO")
+        edit_block(client, args.uid, mark="DONE" if args.done else "TODO")
     else:
         new_text = _read_text_arg(args.text)
         if args.text in (None, "-"):
             new_text = new_text.rstrip("\n")
-        ops = plan_update(args.uid, new_text, current, block["heading"])
-    client.post_ops(ops, batch_id=uuid.uuid4().hex)
+        edit_block(client, args.uid, text=new_text)
     print(f"updated ^{args.uid}")
     return 0
 
 
 def cmd_upload(args: argparse.Namespace, client: PkmClient) -> int:
-    asset = client.upload(Path(args.file))
-    print(asset["url"])
     if args.no_block:
+        print(client.upload(Path(args.file)).url)
         return 0
-    title = _default_page(args.page)
-    payload, missing = client.get_page_or_placeholder(title)
-    text = asset_block_text(asset["filename"], asset["mime"], asset["url"])
-    save_ops = plan_save(payload, title, args.parent, text, todo=False,
-                         uids=iter(client_api.new_uid, None))
-    ops = (create_page_ops([title]) if missing else []) + save_ops
-    client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    print(f"created ^{save_ops[0]['uid']}")
+    linked = upload_and_link(client, Path(args.file), page=args.page,
+                             parent=args.parent)
+    print(linked.url)
+    print(f"created ^{linked.uid}")
     return 0
 
 
@@ -431,18 +415,9 @@ def cmd_batch(args: argparse.Namespace, client: PkmClient) -> int:
     except ValueError as e:
         print(f"stdin is not valid JSON: {e}", file=sys.stderr)
         return 1
-    if not isinstance(commands, list):
-        print("batch input must be a JSON array", file=sys.stderr)
-        return 1
-    fetched = {title: client.get_page_or_placeholder(title)
-              for title in referenced_pages(commands)}
-    pages = {title: payload for title, (payload, _) in fetched.items()}
-    missing = [title for title, (_, is_missing) in fetched.items()
-              if is_missing]
-    ops = (create_page_ops(missing)
-          + plan_batch(commands, pages, uids=iter(client_api.new_uid, None)))
-    result = client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    print(f"applied {result['applied']} ops")
+    # BuildError from validation/planning propagates to main()'s handler
+    # below, same as every other planning error.
+    print(f"applied {apply_batch(client, commands)} ops")
     return 0
 
 
@@ -452,11 +427,11 @@ def cmd_assets(args: argparse.Namespace, client: PkmClient) -> int:
                                                  limit=args.limit)))
         return 0
     result = client.scan_assets(force=args.force)
-    if not result["enabled"]:
-        print(f"image descriptions are disabled: {result['reason']}",
+    if not result.enabled:
+        print(f"image descriptions are disabled: {result.reason}",
               file=sys.stderr)
         return 1
-    print(f"queued {result['queued']} asset(s) for description")
+    print(f"queued {result.queued} asset(s) for description")
     return 0
 
 

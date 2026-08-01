@@ -1,23 +1,21 @@
 # pattern: Imperative Shell
 """`pkm-mcp`: MCP stdio server exposing the PKM to MCP clients (Claude
-Desktop, claude.ai). Thin wrappers over PkmClient + the CLI's pure
-planners/renderers; tool docstrings are the LLM-facing contracts."""
+Desktop, claude.ai). Thin wrappers over PkmClient, the shared write
+workflows in `pkm.client.workflows`, and the pure renderers; the only
+thing this file owns is how a result is phrased for an LLM, and the tool
+docstrings, which are the LLM-facing contracts."""
 from __future__ import annotations
 
-import uuid
-from datetime import date
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from pkm.client import api as client_api
-from pkm.client.api import PkmClient
-from pkm.cli.build import (asset_block_text, create_page_ops, plan_batch,
-                           plan_mark, plan_save, plan_update,
-                           referenced_pages)
 from pkm.cli.render import (render_assets, render_backlinks, render_block,
                             render_groups, render_page, render_search)
-from pkm.server.daily import title_for_date
+from pkm.client import api as client_api
+from pkm.client.api import PkmClient
+from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
+                                  upload_and_link)
 
 mcp = FastMCP("pkm")
 
@@ -30,10 +28,6 @@ def _client() -> PkmClient:
     if _cached_client is None:
         _cached_client = _client_factory()
     return _cached_client
-
-
-def _uids():
-    return iter(client_api.new_uid, None)
 
 
 def get_page(title: str, resolve_refs: bool = False) -> str:
@@ -70,8 +64,7 @@ def query(expr: str, expand: bool = False) -> str:
 
 def backlinks(title: str) -> str:
     """Pages and blocks that reference [[title]], grouped by source page."""
-    payload = _client().get_page(title)
-    return render_backlinks(title, payload["backlinks"])
+    return render_backlinks(title, _client().get_backlinks(title))
 
 
 def todos(page: str | None = None) -> str:
@@ -88,13 +81,9 @@ def save_note(text: str, page: str | None = None,
     today's daily note and is created if missing. `parent` is '## Heading'
     (created if missing) or '((uid))'. todo=True prefixes top-level items
     with {{TODO}}."""
-    client = _client()
-    title = page if page is not None else title_for_date(date.today())
-    payload, missing = client.get_page_or_placeholder(title)
-    save_ops = plan_save(payload, title, parent, text, todo, uids=_uids())
-    ops = (create_page_ops([title]) if missing else []) + save_ops
-    client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    return "\n".join(f"created ^{op['uid']}" for op in save_ops)
+    save_ops = save_blocks(_client(), text, page=page, parent=parent,
+                           todo=todo)
+    return "\n".join(f"created ^{op.uid}" for op in save_ops)
 
 
 def update_block(uid: str, text: str | None = None,
@@ -106,19 +95,7 @@ def update_block(uid: str, text: str | None = None,
     those hashes clears any heading it had. `mark` only changes the task
     marker and never the heading level. Concurrent-edit safe: the current
     text's hash rides along."""
-    if (text is None) == (mark is None):
-        raise ValueError("provide exactly one of text or mark")
-    if mark is not None and mark not in ("TODO", "DONE"):
-        raise ValueError("mark must be 'TODO' or 'DONE'")
-    client = _client()
-    block = client.get_block(uid)["block"]
-    current = block["text"]
-    if mark is not None:
-        ops = plan_mark(uid, current, mark)
-    else:
-        assert text is not None
-        ops = plan_update(uid, text, current, block["heading"])
-    client.post_ops(ops, batch_id=uuid.uuid4().hex)
+    edit_block(_client(), uid, text=text, mark=mark)
     return f"updated ^{uid}"
 
 
@@ -134,15 +111,7 @@ def batch(commands: list[dict]) -> str:
     A create/todo/outline text beginning '# ', '## ' or '### ' becomes a
     heading at that level; an `update` text sets or clears the level the
     same way."""
-    client = _client()
-    fetched = {t: client.get_page_or_placeholder(t)
-              for t in referenced_pages(commands)}
-    pages = {t: payload for t, (payload, _) in fetched.items()}
-    missing = [t for t, (_, is_missing) in fetched.items() if is_missing]
-    ops = (create_page_ops(missing)
-          + plan_batch(commands, pages, uids=_uids()))
-    result = client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    return f"applied {result['applied']} ops"
+    return f"applied {apply_batch(_client(), commands)} ops"
 
 
 def upload_asset(path: str, page: str | None = None,
@@ -153,16 +122,8 @@ def upload_asset(path: str, page: str | None = None,
     p = Path(path)
     if not p.is_file():
         raise ValueError(f"no such file: {path}")
-    client = _client()
-    asset = client.upload(p)
-    title = page if page is not None else title_for_date(date.today())
-    payload, missing = client.get_page_or_placeholder(title)
-    text = asset_block_text(asset["filename"], asset["mime"], asset["url"])
-    save_ops = plan_save(payload, title, parent, text, todo=False,
-                         uids=_uids())
-    ops = (create_page_ops([title]) if missing else []) + save_ops
-    client.post_ops(ops, batch_id=uuid.uuid4().hex)
-    return f"{asset['url']}\ncreated ^{save_ops[0]['uid']}"
+    linked = upload_and_link(_client(), p, page=page, parent=parent)
+    return f"{linked.url}\ncreated ^{linked.uid}"
 
 
 def search_assets(q: str, limit: int = 20) -> str:

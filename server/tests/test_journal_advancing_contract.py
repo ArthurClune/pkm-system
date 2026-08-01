@@ -34,7 +34,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pkm.server.config import Config
-from pkm.server.daily import title_for_date
+from pkm.contracts.daily import title_for_date
 
 # conftest seeds this fixed daily title (page id 3); routes below must
 # avoid colliding with it (pages.title is UNIQUE).

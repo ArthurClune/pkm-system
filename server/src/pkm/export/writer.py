@@ -64,9 +64,9 @@ import tempfile
 from pathlib import Path
 
 from pkm.assets_core import asset_needs_repair, sha256_hex
+from pkm.contracts.daily import date_for_title
 from pkm.export.markdown import page_filename, render_page
 from pkm.filenames import safe_filename
-from pkm.server.daily import date_for_title
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
 logger = logging.getLogger("pkm.export")

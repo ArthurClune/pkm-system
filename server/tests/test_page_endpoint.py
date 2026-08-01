@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from pkm.server.daily import title_for_date
+from pkm.contracts.daily import title_for_date
 
 
 def test_get_past_daily_404s_and_creates_nothing(client):

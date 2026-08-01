@@ -7,9 +7,9 @@ import sqlite3
 
 from fastapi import APIRouter, Depends, Request
 
+from pkm.contracts.responses import DescribeStatusPayload, ScanPayload
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
-from pkm.server.response_models import DescribeStatusPayload, ScanPayload
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 

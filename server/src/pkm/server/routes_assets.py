@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse
 
 from pkm.assets_core import (
     export_limit_violation, strip_asset_tokens, type_where, zip_arcnames)
+from pkm.contracts.responses import AssetSearchPayload, AssetUploadResponse
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
 from pkm.server import notify
@@ -29,7 +30,6 @@ from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
 from pkm.server.fts import phrase_query
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
-from pkm.server.response_models import AssetSearchPayload, AssetUploadResponse
 from pkm.server.tempfile_response import CleanupFileResponse
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -346,6 +346,15 @@ async def upload_asset(request: Request, file: UploadFile,
         if not moved:
             tmp_path.unlink(missing_ok=True)
     filename = safe_filename(Path(file.filename or "upload").name)
+    # Recorded before the INSERT OR IGNORE, which would otherwise erase the
+    # distinction: callers that upload-then-link (CLI/MCP, pkm-c17m) need to
+    # know whether this call is the sole owner of a brand-new row -- and so
+    # safe to delete if the link that follows fails -- or whether the sha
+    # was already stored (and possibly already referenced by other blocks),
+    # in which case deleting it on a later failure would destroy something
+    # this call never created.
+    existing = db.execute(
+        "SELECT 1 FROM assets WHERE sha256 = ?", (sha,)).fetchone() is not None
     db.execute("INSERT OR IGNORE INTO assets(sha256, filename, mime, size,"
                " created_at) VALUES (?,?,?,?,?)",
                (sha, filename, mime, size, int(time.time() * 1000)))
@@ -355,4 +364,5 @@ async def upload_asset(request: Request, file: UploadFile,
         (sha,)).fetchone()
     request.app.state.describe.maybe_enqueue(sha, mime, size)
     return {"sha256": sha, "filename": row["filename"], "mime": row["mime"],
-            "size": row["size"], "url": f"/assets/{sha}/{row['filename']}"}
+            "size": row["size"], "url": f"/assets/{sha}/{row['filename']}",
+            "existing": existing}

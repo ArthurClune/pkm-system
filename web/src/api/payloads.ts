@@ -1,5 +1,6 @@
 // Ergonomic names for the read-API response shapes. These are now generated
-// from the server's Pydantic response models (see server response_models.py),
+// from the server's Pydantic response models (see server
+// src/pkm/contracts/responses.py),
 // flow through openapi.json into types.d.ts, and are guarded against drift by
 // server/tests/test_openapi_sync.py. This module only re-exports the generated
 // schemas under their short names — do not hand-edit the shapes here.

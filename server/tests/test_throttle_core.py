@@ -1,6 +1,6 @@
 from pkm.server.throttle_core import (
-    AttemptState, after_failure, after_success, backoff_ms, is_throttled,
-    prune_expired,
+    AttemptState, after_failure, after_success, backoff_ms, evict_oldest,
+    is_throttled, prune_expired,
 )
 
 
@@ -46,3 +46,15 @@ def test_prune_expired_drops_only_lapsed_sources():
     }
     pruned = prune_expired(attempts, now_ms=1_000)
     assert pruned == {"still-blocked": attempts["still-blocked"]}
+
+
+def test_evict_oldest_drops_the_first_inserted_source():
+    attempts = {
+        "first": AttemptState(failures=1, blocked_until_ms=5_000),
+        "second": AttemptState(failures=2, blocked_until_ms=6_000),
+    }
+    assert evict_oldest(attempts) == {"second": attempts["second"]}
+
+
+def test_evict_oldest_on_empty_store_is_a_no_op():
+    assert evict_oldest({}) == {}

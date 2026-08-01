@@ -220,6 +220,17 @@ Deliberately modest, layered under Tailscale (see `docs/SECURITY.md`):
   gets — including one with the *correct* password — so the only signal
   that distinguishes them is the timing difference between a fast
   reject and a real scrypt computation, which the design accepts.
+  Acquiring that semaphore slot (`scrypt_slot()`) is bounded by a
+  timeout (`SCRYPT_ACQUIRE_TIMEOUT_S`, 2s), not an unbounded wait —
+  `login()` is a sync route, so it runs on the same shared worker-thread
+  pool as every other sync route, and blocking indefinitely on a full
+  semaphore would let enough concurrent connections to `/api/login`
+  (which cost nothing while queued) starve that pool and freeze the
+  whole app, not just login. A timed-out acquire fails into the same
+  uniform 401. Per-source backoff cannot defend against this on its
+  own, since it only engages after a failure is recorded — which
+  requires having gotten a slot and run a password check first; the
+  timeout is what actually bounds it.
 - Every feature router is declared with
   `dependencies=[Depends(require_auth)]`; public surface is only `GET
   /login`, `POST /api/login`, `GET /healthz`, and the static SPA shell.

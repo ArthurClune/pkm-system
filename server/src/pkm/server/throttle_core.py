@@ -53,7 +53,20 @@ def after_success() -> AttemptState:
 
 def prune_expired(attempts: dict[str, AttemptState],
                   now_ms: int) -> dict[str, AttemptState]:
-    """Drop sources whose backoff has already lapsed, bounding the store's
-    size under sustained attempts from many distinct sources. A source
-    still inside its backoff window is kept regardless of failure count."""
+    """Drop sources whose backoff has already lapsed. This alone is only a
+    best-effort trim -- it does nothing if every tracked source is still
+    inside its backoff window -- so the caller must pair it with
+    `evict_oldest` for an actual hard cap on the store's size."""
     return {src: st for src, st in attempts.items() if st.blocked_until_ms > now_ms}
+
+
+def evict_oldest(attempts: dict[str, AttemptState]) -> dict[str, AttemptState]:
+    """Drop the least-recently-touched source (first in dict insertion/
+    update order). Unlike `prune_expired`, this always frees one slot
+    regardless of whether any source has lapsed, so a caller that falls
+    back to this when `prune_expired` didn't make room gets a real,
+    unconditional ceiling on the store's size."""
+    if not attempts:
+        return attempts
+    oldest = next(iter(attempts))
+    return {src: st for src, st in attempts.items() if src != oldest}

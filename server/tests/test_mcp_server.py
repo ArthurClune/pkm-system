@@ -127,6 +127,51 @@ def test_batch_failure_after_new_page_leaves_no_page_or_blocks(tools, pkm_client
     assert e.value.status == 404
 
 
+def test_batch_non_object_item_raises(tools):
+    with pytest.raises(BuildError, match=r"batch\[0\]"):
+        tools.batch(["not a dict"])
+
+
+def test_batch_missing_field_raises(tools):
+    with pytest.raises(BuildError, match=r"batch\[0\].*page"):
+        tools.batch([{"command": "create", "params": {"text": "x"}}])
+
+
+def test_batch_wrong_typed_field_raises(tools):
+    with pytest.raises(BuildError, match=r"batch\[0\].*text"):
+        tools.batch([{"command": "create",
+                     "params": {"page": "AI", "text": 123}}])
+
+
+def test_batch_negative_index_raises(tools):
+    with pytest.raises(BuildError, match=r"batch\[0\].*index"):
+        tools.batch([{"command": "create",
+                     "params": {"page": "AI", "text": "x", "index": -1}}])
+
+
+def test_batch_unknown_alias_raises(tools):
+    with pytest.raises(BuildError, match="unknown alias"):
+        tools.batch([{"command": "create",
+                     "params": {"page": "AI", "text": "x",
+                                "parent": "{{nope}}"}}])
+
+
+def test_batch_schema_failure_leaves_no_page_or_blocks(tools, pkm_client):
+    # A schema-invalid second command must fail the whole batch before the
+    # first command's brand-new page is fetched/created at all (pkm-4w23:
+    # validation runs before any page discovery or I/O).
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Brand New MCP Batch Page", "text": "hello"}},
+        {"command": "create", "params": {"page": "AI", "text": 123}},
+    ]
+    with pytest.raises(BuildError, match=r"batch\[1\].*text"):
+        tools.batch(cmds)
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New MCP Batch Page")
+    assert e.value.status == 404
+
+
 def test_upload_asset(tools, pkm_client, tmp_path):
     f = tmp_path / "pic.png"
     f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)

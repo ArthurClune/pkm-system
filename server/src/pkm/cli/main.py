@@ -20,7 +20,7 @@ from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.cli.build import (BuildError, asset_block_text, create_page_ops,
                            plan_batch, plan_mark, plan_save, plan_update,
-                           referenced_pages, resolve_parent)
+                           referenced_pages, resolve_parent, validate_batch)
 from pkm.cli.render import (RenderError, clip_depth, render_assets,
                             render_backlinks, render_block, render_groups,
                             render_page, render_search, select_section)
@@ -443,9 +443,10 @@ def cmd_batch(args: argparse.Namespace, client: PkmClient) -> int:
     except ValueError as e:
         print(f"stdin is not valid JSON: {e}", file=sys.stderr)
         return 1
-    if not isinstance(commands, list):
-        print("batch input must be a JSON array", file=sys.stderr)
-        return 1
+    # Validate the FULL envelope before any page fetch/creation (pkm-4w23):
+    # a malformed batch must never trigger I/O. BuildError propagates to
+    # main()'s handler below, same as every other planning error.
+    validate_batch(commands)
     fetched = {title: client.get_page_or_placeholder(title)
               for title in referenced_pages(commands)}
     pages = {title: payload for title, (payload, _) in fetched.items()}

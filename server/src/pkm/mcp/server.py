@@ -15,7 +15,7 @@ from pkm.client.api import PkmClient
 from pkm.client.core import ApiError
 from pkm.cli.build import (asset_block_text, create_page_ops, plan_batch,
                            plan_mark, plan_save, plan_update,
-                           referenced_pages, resolve_parent)
+                           referenced_pages, resolve_parent, validate_batch)
 from pkm.cli.render import (render_assets, render_backlinks, render_block,
                             render_groups, render_page, render_search)
 from pkm.server.daily import title_for_date
@@ -134,6 +134,9 @@ def batch(commands: list[dict]) -> str:
     A create/todo/outline text beginning '# ', '## ' or '### ' becomes a
     heading at that level; an `update` text sets or clears the level the
     same way."""
+    # Validate the FULL envelope before any page fetch/creation (pkm-4w23):
+    # a malformed batch must never trigger I/O.
+    validate_batch(commands)
     client = _client()
     fetched = {t: client.get_page_or_placeholder(t)
               for t in referenced_pages(commands)}

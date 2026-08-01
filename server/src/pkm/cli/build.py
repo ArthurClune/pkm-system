@@ -5,7 +5,10 @@ uids, and posts the result."""
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
+from typing import Annotated, Literal, Union
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from pkm.server.ops_core import text_hash
 from pkm.todo import with_state
@@ -325,16 +328,16 @@ def referenced_pages(commands: list[dict]) -> list[str]:
 
 
 def _nested_items(items: list, depth: int = 0) -> list[tuple[int, str]]:
+    """Flatten a validated `outline` item list (`NestedItem`: a leaf string,
+    or a list one level deeper) into (depth, text) pairs, depth-first. Shape
+    is guaranteed by `OutlineParams.items` before this ever runs, so unlike
+    the pre-schema version this never rejects a malformed item itself."""
     out: list[tuple[int, str]] = []
     for item in items:
         if isinstance(item, str):
             out.append((depth, item))
-        elif isinstance(item, list):
-            out.extend(_nested_items(item, depth + 1))
         else:
-            raise BuildError(
-                f"outline items must be strings or lists, got {type(item).__name__}"
-            )
+            out.extend(_nested_items(item, depth + 1))
     return out
 
 
@@ -358,9 +361,212 @@ def _alias_uid(value: str, aliases: dict[str, str]) -> str:
     return value
 
 
-def plan_batch(commands: list[dict], pages: dict[str, dict],
+# -- Batch command schema -----------------------------------------------
+#
+# One discriminated model per `command` value, all rejecting unknown keys
+# so a typo'd param is a validation error rather than a silent no-op. This
+# is the FULL structural contract for a batch item: object shape, field
+# presence/types, index range. What it deliberately does NOT check --
+# whether a `page` was fetched, whether an `{{alias}}` was defined earlier
+# in the batch, whether a "## Heading" move target exists -- is inherently
+# stateful (depends on fetched pages / on-batch ordering) and stays in
+# each command's planner below, raising the same `BuildError` it always
+# has.
+
+# Recursive alias for `outline`'s nested item lists: a leaf string, or a
+# list of items one level deeper, e.g. ["Groceries", ["Milk", "Eggs"]].
+type NestedItem = str | list[NestedItem]
+
+
+class _Strict(BaseModel):
+    """Base for every command/params model: unknown keys are a validation
+    error, not a silent no-op."""
+    model_config = ConfigDict(extra="forbid")
+
+
+class CreateParams(_Strict):
+    """Shared by `create` and `todo` -- identical shape, `todo` only
+    changes how the planner stores the text."""
+    page: str = Field(min_length=1)
+    text: str
+    parent: str | None = None
+    index: int | None = Field(default=None, ge=0)
+    as_: str | None = Field(default=None, alias="as")
+
+
+class OutlineParams(_Strict):
+    page: str = Field(min_length=1)
+    parent: str | None = None
+    items: list[NestedItem] = Field(min_length=1)
+
+
+class UpdateParams(_Strict):
+    uid: str = Field(min_length=1)
+    text: str
+
+
+class MoveParams(_Strict):
+    uid: str = Field(min_length=1)
+    page: str = Field(min_length=1)
+    parent: str | None = None
+    index: int | None = Field(default=None, ge=0)
+
+
+class DeleteParams(_Strict):
+    uid: str = Field(min_length=1)
+
+
+class CreateCommand(_Strict):
+    command: Literal["create"]
+    params: CreateParams
+
+
+class TodoCommand(_Strict):
+    command: Literal["todo"]
+    params: CreateParams
+
+
+class OutlineCommand(_Strict):
+    command: Literal["outline"]
+    params: OutlineParams
+
+
+class UpdateCommand(_Strict):
+    command: Literal["update"]
+    params: UpdateParams
+
+
+class MoveCommand(_Strict):
+    command: Literal["move"]
+    params: MoveParams
+
+
+class DeleteCommand(_Strict):
+    command: Literal["delete"]
+    params: DeleteParams
+
+
+BatchCommand = Annotated[
+    Union[CreateCommand, TodoCommand, OutlineCommand, UpdateCommand,
+         MoveCommand, DeleteCommand],
+    Field(discriminator="command")]
+
+_BATCH_COMMAND_ADAPTER: TypeAdapter[BatchCommand] = TypeAdapter(BatchCommand)
+
+
+def _format_command_error(index: int, exc: ValidationError) -> str:
+    """Render the first of `exc`'s errors as one `batch[i]: problem` line
+    -- a malformed batch fails with a clear per-item error naming the
+    index and problem, not a pydantic error dump. The three discriminator-
+    level error kinds (`model_attributes_type` for a non-object item,
+    `union_tag_not_found`/`union_tag_invalid` for a missing/unrecognized
+    `command`) have no useful `loc`, so they get bespoke messages; anything
+    else is a `params`-shape problem, reported as its field path (with the
+    discriminator's matched tag dropped from `loc` -- it's redundant with
+    the message) plus pydantic's own `msg`."""
+    first = exc.errors()[0]
+    kind = first["type"]
+    if kind == "model_attributes_type":
+        return f"batch[{index}]: expected an object"
+    if kind == "union_tag_not_found":
+        return f"batch[{index}]: missing 'command'"
+    if kind == "union_tag_invalid":
+        return f"batch[{index}]: unknown command: {first['ctx']['tag']!r}"
+    path = ".".join(str(p) for p in first["loc"][1:])
+    return f"batch[{index}]: {path}: {first['msg']}" if path \
+        else f"batch[{index}]: {first['msg']}"
+
+
+def _parse_command(raw: object, index: int) -> BatchCommand:
+    try:
+        return _BATCH_COMMAND_ADAPTER.validate_python(raw)
+    except ValidationError as exc:
+        raise BuildError(_format_command_error(index, exc)) from None
+
+
+def validate_batch(commands: object) -> list[BatchCommand]:
+    """Validate a full batch envelope against the command schema before any
+    page discovery or I/O -- the CLI/MCP shells call this first, right
+    after decoding the request body, so a malformed batch never triggers a
+    page fetch or asset upload. `plan_batch` runs the same per-item parse
+    as its own first step (see `_parse_command`), so a batch fails with an
+    identical message whether caught here or by calling `plan_batch`
+    directly -- one stable error contract regardless of which caller
+    validates first."""
+    if not isinstance(commands, list):
+        raise BuildError("batch input must be a JSON array")
+    return [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
+
+
+def _fetch_page(title: str, pages: dict[str, dict]) -> dict:
+    if title not in pages:
+        raise BuildError(f"page not fetched: {title}")
+    return pages[title]
+
+
+def _batch_create(cmd: CreateCommand | TodoCommand, pages: dict[str, dict],
+                  planner: _Planner, aliases: dict[str, str],
+                  created: set[str]) -> list[dict]:
+    p = cmd.params
+    payload = _fetch_page(p.page, pages)
+    spec = _resolve_alias(p.parent, aliases)
+    new = planner.creates(payload, p.page, spec, [(0, p.text)],
+                          todo=(cmd.command == "todo"),
+                          in_batch=frozenset(created), index=p.index)
+    if p.as_:
+        aliases[p.as_] = new[-1]["uid"]
+    return new
+
+
+def _batch_outline(cmd: OutlineCommand, pages: dict[str, dict],
+                   planner: _Planner, aliases: dict[str, str],
+                   created: set[str]) -> list[dict]:
+    p = cmd.params
+    payload = _fetch_page(p.page, pages)
+    items = _nested_items(p.items)
+    spec = _resolve_alias(p.parent, aliases)
+    return planner.creates(payload, p.page, spec, items, todo=False,
+                           in_batch=frozenset(created))
+
+
+def _batch_update(cmd: UpdateCommand, aliases: dict[str, str]) -> list[dict]:
+    p = cmd.params
+    uid = _alias_uid(p.uid, aliases)
+    return plan_update(uid, p.text)
+
+
+def _batch_move(cmd: MoveCommand, pages: dict[str, dict], planner: _Planner,
+                aliases: dict[str, str], created: set[str]) -> list[dict]:
+    p = cmd.params
+    payload = _fetch_page(p.page, pages)
+    uid = _alias_uid(p.uid, aliases)
+    spec = _resolve_alias(p.parent, aliases)
+    m = _UID_SPEC.match(spec) if spec else None
+    if m and m.group(1) in created:
+        parent: str | None = m.group(1)
+    else:
+        parent, missing = resolve_parent(payload, spec)
+        if missing is not None:
+            raise BuildError("move target heading does not exist")
+    idx = p.index
+    if idx is None:
+        idx = planner.bump(payload, p.page, parent, frozenset(created))
+    return [{"op": "move", "uid": uid, "parent_uid": parent,
+             "order_idx": idx, "page_title": None if parent else p.page}]
+
+
+def _batch_delete(cmd: DeleteCommand, aliases: dict[str, str]) -> list[dict]:
+    return [{"op": "delete", "uid": _alias_uid(cmd.params.uid, aliases)}]
+
+
+def plan_batch(commands: Sequence[object], pages: dict[str, dict],
                uids: Iterator[str]) -> list[dict]:
     """Translate a batch of `{command, params}` items into one op list.
+
+    The first step parses every item against the command schema (see
+    `validate_batch`), so a malformed item -- non-object, unknown/missing
+    `command`, missing/wrong-typed/extra params -- raises `BuildError`
+    naming its index here too, not just when the shell validates upfront.
 
     `create`/`todo` accept an `as` alias so later commands in the same
     batch can reference the block just created via `parent: "{{alias}}"`.
@@ -368,69 +574,27 @@ def plan_batch(commands: list[dict], pages: dict[str, dict],
     `_Planner.creates`'s `in_batch` set, since they don't exist on the
     fetched page payloads that `resolve_parent`/`next_child_idx` consult.
     """
+    parsed = [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
     planner = _Planner(uids)
     aliases: dict[str, str] = {}
     created: set[str] = set()
     ops: list[dict] = []
 
-    def _page(params: dict) -> tuple[str, dict]:
-        title = params.get("page")
-        if not title:
-            raise BuildError("command needs a 'page' param")
-        if title not in pages:
-            raise BuildError(f"page not fetched: {title}")
-        return title, pages[title]
-
-    for cmd in commands:
-        name, params = cmd.get("command"), cmd.get("params", {})
-        if name in ("create", "todo"):
-            title, payload = _page(params)
-            spec = _resolve_alias(params.get("parent"), aliases)
-            new = planner.creates(payload, title, spec,
-                                  [(0, params["text"])],
-                                  todo=(name == "todo"),
-                                  in_batch=frozenset(created),
-                                  index=params.get("index"))
+    for cmd in parsed:
+        if isinstance(cmd, CreateCommand | TodoCommand):
+            new = _batch_create(cmd, pages, planner, aliases, created)
             ops.extend(new)
             created.update(o["uid"] for o in new)
-            if params.get("as"):
-                aliases[params["as"]] = new[-1]["uid"]
-        elif name == "outline":
-            title, payload = _page(params)
-            items = _nested_items(params.get("items", []))
-            if not items:
-                raise BuildError("outline needs non-empty 'items'")
-            new = planner.creates(payload, title,
-                                  _resolve_alias(params.get("parent"), aliases),
-                                  items, todo=False,
-                                  in_batch=frozenset(created))
+        elif isinstance(cmd, OutlineCommand):
+            new = _batch_outline(cmd, pages, planner, aliases, created)
             ops.extend(new)
             created.update(o["uid"] for o in new)
-        elif name == "update":
-            uid = _alias_uid(params["uid"], aliases)
-            ops.extend(plan_update(uid, params["text"]))
-        elif name == "move":
-            title, payload = _page(params)
-            uid = _alias_uid(params["uid"], aliases)
-            spec = _resolve_alias(params.get("parent"), aliases)
-            m = _UID_SPEC.match(spec) if spec else None
-            if m and m.group(1) in created:
-                parent: str | None = m.group(1)
-            else:
-                parent, missing = resolve_parent(payload, spec)
-                if missing is not None:
-                    raise BuildError("move target heading does not exist")
-            idx = params.get("index")
-            if idx is None:
-                idx = planner.bump(payload, title, parent, frozenset(created))
-            ops.append({"op": "move", "uid": uid,
-                        "parent_uid": parent, "order_idx": idx,
-                        "page_title": None if parent else title})
-        elif name == "delete":
-            uid = _alias_uid(params["uid"], aliases)
-            ops.append({"op": "delete", "uid": uid})
+        elif isinstance(cmd, UpdateCommand):
+            ops.extend(_batch_update(cmd, aliases))
+        elif isinstance(cmd, MoveCommand):
+            ops.extend(_batch_move(cmd, pages, planner, aliases, created))
         else:
-            raise BuildError(f"unknown command: {name!r}")
+            ops.extend(_batch_delete(cmd, aliases))
     return ops
 
 
@@ -438,4 +602,5 @@ __all__ = [
     "BuildError", "parse_outline", "next_child_idx", "resolve_parent",
     "split_heading", "plan_save", "plan_update", "plan_mark",
     "asset_block_text", "referenced_pages", "plan_batch", "create_page_ops",
+    "validate_batch",
 ]

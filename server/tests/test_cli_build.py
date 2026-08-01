@@ -5,7 +5,7 @@ import pytest
 from pkm.cli.build import (BuildError, create_page_ops, next_child_idx,
                            parse_outline, plan_batch, plan_mark, plan_save,
                            plan_update, referenced_pages, resolve_parent,
-                           split_heading)
+                           split_heading, validate_batch)
 from pkm.cli.render import render_page
 from pkm.server.ops_core import text_hash
 
@@ -268,6 +268,116 @@ def test_plan_batch_alias_as_uid_unknown_raises():
     with pytest.raises(BuildError, match="unknown alias"):
         plan_batch([{"command": "delete", "params": {"uid": "{{ghost}}"}}],
                    {}, uid_gen())
+
+
+# -- validate_batch: schema validation of the raw envelope, before any page
+# discovery or I/O. plan_batch runs the same per-item parse internally (see
+# tests below), so a malformed batch fails identically whether caught here
+# or by calling plan_batch directly -- one stable error contract.
+
+def test_validate_batch_rejects_non_list():
+    with pytest.raises(BuildError, match="JSON array"):
+        validate_batch("not a list")
+
+
+def test_validate_batch_rejects_non_object_item():
+    with pytest.raises(BuildError, match=r"batch\[0\].*object"):
+        validate_batch(["not a dict"])
+
+
+def test_validate_batch_rejects_missing_command():
+    with pytest.raises(BuildError, match=r"batch\[0\].*command"):
+        validate_batch([{"params": {}}])
+
+
+def test_validate_batch_rejects_unknown_command():
+    with pytest.raises(BuildError, match=r"batch\[0\]: unknown command: 'zap'"):
+        validate_batch([{"command": "zap", "params": {}}])
+
+
+def test_validate_batch_rejects_non_object_params():
+    with pytest.raises(BuildError, match=r"batch\[0\].*params"):
+        validate_batch([{"command": "create", "params": "oops"}])
+
+
+def test_validate_batch_rejects_missing_field():
+    with pytest.raises(BuildError, match=r"batch\[0\].*page"):
+        validate_batch([{"command": "create", "params": {"text": "x"}}])
+
+
+def test_validate_batch_rejects_wrong_typed_field():
+    with pytest.raises(BuildError, match=r"batch\[0\].*text"):
+        validate_batch([{"command": "create",
+                         "params": {"page": "A", "text": 123}}])
+
+
+def test_validate_batch_rejects_negative_index():
+    with pytest.raises(BuildError, match=r"batch\[0\].*index"):
+        validate_batch([{"command": "create",
+                         "params": {"page": "A", "text": "x", "index": -1}}])
+
+
+def test_validate_batch_rejects_unparseable_index():
+    with pytest.raises(BuildError, match=r"batch\[0\].*index"):
+        validate_batch([{"command": "create",
+                         "params": {"page": "A", "text": "x",
+                                    "index": "abc"}}])
+
+
+def test_validate_batch_rejects_bad_nested_outline_item():
+    with pytest.raises(BuildError, match=r"batch\[0\]"):
+        validate_batch([{"command": "outline",
+                         "params": {"page": "A", "items": ["x", 5]}}])
+
+
+def test_validate_batch_rejects_empty_outline_items():
+    with pytest.raises(BuildError, match=r"batch\[0\].*items"):
+        validate_batch([{"command": "outline",
+                         "params": {"page": "A", "items": []}}])
+
+
+def test_validate_batch_rejects_unknown_param_key():
+    # A typo'd/extra key must be caught, not silently ignored.
+    with pytest.raises(BuildError, match=r"batch\[0\]"):
+        validate_batch([{"command": "create",
+                         "params": {"page": "A", "txt": "x"}}])
+
+
+def test_validate_batch_reports_the_offending_index():
+    cmds = [{"command": "create", "params": {"page": "A", "text": "ok"}},
+            {"command": "create", "params": {"page": "A", "text": 123}}]
+    with pytest.raises(BuildError, match=r"batch\[1\]"):
+        validate_batch(cmds)
+
+
+def test_validate_batch_returns_parsed_commands_for_a_valid_batch():
+    cmds = [{"command": "create", "params": {"page": "A", "text": "x"}},
+            {"command": "delete", "params": {"uid": "u1"}}]
+    parsed = validate_batch(cmds)
+    assert [c.command for c in parsed] == ["create", "delete"]
+
+
+# -- plan_batch now runs the same schema parse as its first step, so the
+# malformed-input cases above must also raise BuildError (never
+# AttributeError/KeyError) when plan_batch is called directly.
+
+def test_plan_batch_rejects_non_object_item():
+    with pytest.raises(BuildError, match=r"batch\[0\]"):
+        plan_batch(["not a dict"], {}, uid_gen())
+
+
+def test_plan_batch_rejects_missing_field():
+    with pytest.raises(BuildError, match=r"batch\[0\].*page"):
+        plan_batch([{"command": "create", "params": {"text": "x"}}],
+                   {}, uid_gen())
+
+
+def test_plan_batch_rejects_negative_index():
+    with pytest.raises(BuildError, match=r"batch\[0\].*index"):
+        plan_batch([{"command": "create",
+                    "params": {"page": "Machine Learning", "text": "x",
+                               "index": -1}}],
+                   {"Machine Learning": PAYLOAD}, uid_gen())
 
 
 def test_split_heading_levels():

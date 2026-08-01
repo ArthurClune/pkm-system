@@ -243,6 +243,59 @@ def test_batch_unknown_command_exits_1(run):
     assert "unknown command" in err
 
 
+def test_batch_non_object_item_exits_1(run):
+    code, _, err = run("batch", stdin=json.dumps(["not a dict"]))
+    assert code == 1
+    assert "batch[0]" in err
+
+
+def test_batch_missing_field_exits_1(run):
+    code, _, err = run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"text": "x"}}]))
+    assert code == 1
+    assert "page" in err
+
+
+def test_batch_wrong_typed_field_exits_1(run):
+    code, _, err = run("batch", stdin=json.dumps(
+        [{"command": "create", "params": {"page": "AI", "text": 123}}]))
+    assert code == 1
+    assert "text" in err
+
+
+def test_batch_negative_index_exits_1(run):
+    code, _, err = run("batch", stdin=json.dumps(
+        [{"command": "create",
+         "params": {"page": "AI", "text": "x", "index": -1}}]))
+    assert code == 1
+    assert "index" in err
+
+
+def test_batch_unknown_alias_exits_1(run):
+    code, _, err = run("batch", stdin=json.dumps(
+        [{"command": "create",
+         "params": {"page": "AI", "text": "x", "parent": "{{nope}}"}}]))
+    assert code == 1
+    assert "unknown alias" in err
+
+
+def test_batch_schema_failure_leaves_no_page_or_blocks(run, pkm_client):
+    # A schema-invalid second command must fail the whole batch before the
+    # first command's brand-new page is fetched/created at all (pkm-4w23:
+    # validation runs before any page discovery or I/O).
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Brand New Batch Page", "text": "hello"}},
+        {"command": "create", "params": {"page": "AI", "text": 123}},
+    ]
+    code, _, err = run("batch", stdin=json.dumps(cmds))
+    assert code == 1
+    assert "text" in err
+    with pytest.raises(ApiError) as e:
+        pkm_client.get_page("Brand New Batch Page")
+    assert e.value.status == 404
+
+
 def test_save_heading_text_becomes_a_real_heading(run, pkm_client):
     code, _, _ = run("save", "-p", "AI", "## Overview\n  detail")
     assert code == 0

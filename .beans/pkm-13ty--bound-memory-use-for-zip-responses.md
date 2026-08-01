@@ -38,13 +38,19 @@ hard count/byte cap enforced before the archive is built.
   are within bounds.
 - **`server/src/pkm/server/tempfile_response.py`** (new, Imperative Shell):
   `CleanupFileResponse`, a `FileResponse` subclass whose `cleanup`
-  coroutine runs unconditionally — success, a send-time exception (client
-  disconnect mid-download), or a missing file — wrapped in `try/finally`.
-  Stock Starlette `FileResponse.background` is only awaited *after* a send
-  loop that returns without raising, so it alone cannot guarantee cleanup
-  on an interrupted transfer; verified this gap directly by reading
-  `starlette.responses.FileResponse.__call__` (installed 1.3.1) before
-  writing the fix.
+  coroutine runs unconditionally — success, a missing/unreadable file, or
+  a send-time exception — wrapped in `try/finally`. Stock Starlette
+  `FileResponse.background` is only awaited *after* a send loop that
+  returns without raising, but under this project's actual ASGI server
+  (uvicorn 0.49.0, verified directly against its `h11_impl.py`/
+  `httptools_impl.py` source) an ordinary client disconnect does *not*
+  hit that gap: uvicorn's `send()` silently no-ops on a dropped
+  connection rather than raising, so the send loop still completes and
+  stock `background` still fires. What `CleanupFileResponse` genuinely
+  guarantees beyond that: cleanup on a stat-time missing/unreadable file
+  (`FileResponse.__call__` raises before reaching its `background` line),
+  and defense-in-depth for an ASGI server other than uvicorn whose
+  `send()` does raise on a dropped connection.
 - **`server/src/pkm/server/routes_assets.py`**: `export_assets` now (a)
   sums `size` from the `assets` table for every selected, on-disk asset
   *before* building anything, refusing with 413 via

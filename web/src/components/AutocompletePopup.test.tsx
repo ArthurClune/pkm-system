@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
 import { block, stubFetch } from "../test-helpers";
-import type { OutlineHandlers } from "./EditableBlockTree";
+import type { OutlineHandlers } from "../outline/handlers";
 import { EditableBlockTree } from "./EditableBlockTree";
 
 // state updates land during timer advances: keep React quiet with act()

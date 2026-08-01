@@ -7,7 +7,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
 import { ApiError, apiFetch } from "../api/client";
 import type { PagePayload, BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
-import type { OutlineHandlers } from "../components/EditableBlockTree";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
 import { encodeTitle } from "../paths";
@@ -20,6 +19,7 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveSubtreeUp, outdentBlock, outdentSelection, setCollapsed,
          setHeading, splitBlock, setViewType, type EditResult,
          type FocusTarget } from "./edits";
+import type { OutlineHandlers } from "./handlers";
 import { invertOps } from "./history";
 import { planOutlinePaste } from "./paste";
 import { applyOps, findNode, insertSubtree, removeSubtree,

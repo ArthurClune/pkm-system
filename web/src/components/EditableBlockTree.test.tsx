@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { titleForDate } from "../replica/daily";
 import { block, stubFetch } from "../test-helpers";
-import type { OutlineHandlers } from "./EditableBlockTree";
+import type { OutlineHandlers } from "../outline/handlers";
 import { EditableBlockTree } from "./EditableBlockTree";
 
 function handlers(): OutlineHandlers {

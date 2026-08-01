@@ -13,12 +13,15 @@ every write that broadcasts).
 A client that fails to keep its queue draining (QUEUE_SIZE behind) or
 whose send doesn't complete within SEND_TIMEOUT is disconnected outright
 rather than buffered or waited on further -- proportionate for this
-single-user server's handful of replicas. It reconnects and resyncs from
-its cursor, which is the correctness mechanism regardless of nudge
-delivery (see notify.py). There is no separate cap on total connection
-count: the queue bound and per-send timeout already bound the cost of any
-one broadcast() call and of any one client, which is what actually
-matters at this scale.
+single-user server's handful of replicas. Disconnecting also closes the
+socket (`_safe_close`): the connection may still be alive at the
+transport level even though the Hub has given up on it, and closing is
+what makes the web client's `onclose` handler fire so it actually
+reconnects and resyncs from its cursor, which is the correctness
+mechanism regardless of nudge delivery (see notify.py). There is no
+separate cap on total connection count: the queue bound and per-send
+timeout already bound the cost of any one broadcast() call and of any
+one client, which is what actually matters at this scale.
 """
 from __future__ import annotations
 
@@ -63,14 +66,27 @@ class Hub:
     def disconnect(self, ws: WebSocket) -> None:
         client = self._clients.pop(ws, None)
         if client is not None and client.drain_task is not None:
+            # The task's own except-block calls disconnect() on itself
+            # (see _drain) before returning; cancelling an already-
+            # finishing task here is a harmless no-op in that case.
             client.drain_task.cancel()
 
     async def broadcast(self, message: dict) -> None:
+        # No await in this loop -- required so two overlapping
+        # broadcast() calls always enqueue in call order for a given
+        # client, which is what gives per-client FIFO ordering without a
+        # lock (pkm-nn57).
         for client in list(self._clients.values()):
             try:
                 client.queue.put_nowait(message)
             except asyncio.QueueFull:
                 self.disconnect(client.ws)
+                # Fire-and-forget: a Hub-initiated drop must actually
+                # close the socket, or the client never sees `onclose`
+                # and won't reconnect (pkm-nn57 final review) -- but
+                # this loop can't await it without breaking the FIFO
+                # ordering guarantee above.
+                asyncio.create_task(_safe_close(client.ws))
 
     async def _drain(self, client: _Client) -> None:
         """Sends one client's queued frames strictly in order, for the
@@ -84,9 +100,26 @@ class Hub:
                                            timeout=SEND_TIMEOUT)
                 except Exception:
                     self.disconnect(client.ws)
+                    # A dropped-for-timeout/error connection is often
+                    # still alive at the transport level -- close it so
+                    # the client's `onclose` fires and it reconnects,
+                    # instead of silently wedging until tab reload.
+                    await _safe_close(client.ws)
                     return
         except asyncio.CancelledError:
             pass
+
+
+async def _safe_close(ws: WebSocket) -> None:
+    """Best-effort close for a Hub-initiated drop. Errors are expected
+    and swallowed -- the socket may already be half-closed, and this is
+    sometimes awaited as a fire-and-forget task, where an unhandled
+    exception would otherwise surface as "Task exception was never
+    retrieved"."""
+    try:
+        await ws.close()
+    except Exception:
+        pass
 
 
 @router.websocket("/api/ws")

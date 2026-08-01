@@ -9,6 +9,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 class _GoodWS:
     def __init__(self):
         self.sent = []
+        self.closed = False
 
     async def accept(self):
         pass
@@ -16,21 +17,36 @@ class _GoodWS:
     async def send_json(self, message):
         self.sent.append(message)
 
+    async def close(self):
+        self.closed = True
+
 
 class _RaisingWS:
+    def __init__(self):
+        self.closed = False
+
     async def accept(self):
         pass
 
     async def send_json(self, message):
         raise RuntimeError("client gone")
 
+    async def close(self):
+        self.closed = True
+
 
 class _StallingWS:
+    def __init__(self):
+        self.closed = False
+
     async def accept(self):
         pass
 
     async def send_json(self, message):
         await asyncio.sleep(60)
+
+    async def close(self):
+        self.closed = True
 
 
 class _SlowThenFastWS:
@@ -147,8 +163,15 @@ def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
         # synchronously inside broadcast() -- wait for it to land.
         await _until(lambda: good.sent == [{"ok": 1}])
         await _until(lambda: set(hub._conns) == {good})
+        # Hub-initiated drops (send failure/timeout) must close the
+        # socket, or a real client would never see `onclose` fire and
+        # reconnect (pkm-nn57 final review).
+        await _until(lambda: raising.closed and stalling.closed)
         assert good.sent == [{"ok": 1}]
         assert set(hub._conns) == {good}
+        assert raising.closed
+        assert stalling.closed
+        assert not good.closed
 
     asyncio.run(_run())
 
@@ -201,8 +224,11 @@ def test_broadcast_preserves_per_client_order_when_first_send_is_slow():
 
 def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
     """A client that isn't draining fast enough (queue full) is dropped
-    outright rather than buffered without bound -- it reconnects and
-    resyncs from its cursor, same as any other dropped connection."""
+    outright rather than buffered without bound -- and its socket is
+    actually closed, so a real client sees `onclose` fire and reconnects
+    and resyncs from its cursor, same as any other dropped connection
+    (pkm-nn57 final review: a Hub-initiated drop that never closes the
+    socket leaves a healthy-but-slow client wedged until tab reload)."""
     from pkm.server import ws as ws_module
     monkeypatch.setattr(ws_module, "QUEUE_SIZE", 2)
 
@@ -215,8 +241,26 @@ def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
         for i in range(5):
             await hub.broadcast({"seq": i})
         assert cast(WebSocket, client) not in hub._conns
+        # The close is fired via asyncio.create_task (broadcast()'s
+        # enqueue loop can't await it), so give it a turn to run.
+        await _until(lambda: client.closed)
+        assert client.closed
 
     asyncio.run(_run())
+
+
+def test_safe_close_swallows_close_errors():
+    """_safe_close is used for Hub-initiated drops on connections that
+    may already be half-closed; a raising close() must not propagate --
+    it's sometimes awaited as a fire-and-forget task, where an unhandled
+    exception would surface as "Task exception was never retrieved"."""
+    from pkm.server.ws import _safe_close
+
+    class _AlreadyClosedWS:
+        async def close(self):
+            raise RuntimeError("already closed")
+
+    asyncio.run(_safe_close(cast(WebSocket, _AlreadyClosedWS())))  # no raise
 
 
 def _frames_until_seq(ws, tries=5):

@@ -6,10 +6,10 @@ cleanup route (routes_pages.py cleanup_journal) shipped without one and
 replicas kept deleted pages until an unrelated mutation nudged them.
 
 This list is the enforcement mechanism: nothing makes a new route emit its
-nudge automatically (see notify.py's commit_and_nudge/_threadpool helpers
-for the closest thing -- pairing commit+nudge in one call so there's one
-line to remember instead of two), so a route that starts writing to a
-journaled table without adding a case here is a silent contract violation.
+nudge automatically (see notify.py's commit_and_nudge_threadpool for the
+closest thing -- pairing commit+nudge in one call so there's one line to
+remember instead of two), so a route that starts writing to a journaled
+table without adding a case here is a silent contract violation.
 If you add or change a journal-advancing route, add or update its entry.
 
 Asset routes are USUALLY the exception: they write to `assets`, which has

@@ -96,10 +96,11 @@ Every route whose commit touches a changes-journaled table (`blocks`,
 `SERVER_DDL`) must send a WS `{type:"seq", seq}` nudge immediately after
 that commit, so connected replicas know to pull the new window (nudges are
 a latency optimization, never a correctness dependency — see "An online
-edit, end to end" above). `notify.py` provides `commit_and_nudge` (async
-routes) and `commit_and_nudge_threadpool` (sync-def routes, hopping back to
-the event loop via `anyio.from_thread.run`) that pair the two calls so a
-route has one line to remember instead of two. Routes whose commit and
+edit, end to end" above). `notify.py` provides `commit_and_nudge_threadpool`
+for sync-def routes (hopping back to the event loop via
+`anyio.from_thread.run`) so a route has one line to remember instead of
+two; async routes call `db.commit()` then `await nudge(request, db)`
+directly. Routes whose commit and
 nudge can't be adjacent — `delete_asset` commits before best-effort
 unlinking the file, and `POST /api/ops` broadcasts the applied-op echo
 between the commit and the seq nudge — call `db.commit()` and
@@ -146,10 +147,15 @@ delivery to any one client stays strictly in the order `broadcast()` was
 called, because a single-consumer FIFO queue can't reorder its own
 items. A client is disconnected outright — never buffered without bound
 or waited on further — if its queue fills up (it isn't draining fast
-enough) or a send doesn't complete within `SEND_TIMEOUT`; it reconnects
-and resyncs from its cursor, which is the correctness mechanism here
-regardless of nudge delivery (see above). This is proportionate for a
-single-user server with a handful of connected replicas, not a design
+enough) or a send doesn't complete within `SEND_TIMEOUT`. Disconnecting
+also closes the socket (best-effort, errors swallowed): the connection
+can still be alive at the transport level even though the Hub has given
+up on it, and without an actual close the web client's `onclose` handler
+never fires, so it would otherwise sit wedged until a tab reload instead
+of reconnecting and resyncing from its cursor — which is the correctness
+mechanism here regardless of nudge delivery (see above). This is
+proportionate for a single-user server with a handful of connected
+replicas, not a design
 meant to scale to many concurrent connections — there is deliberately no
 separate cap on total connection count, since the per-client queue bound
 and send timeout already bound the cost that matters at this scale.

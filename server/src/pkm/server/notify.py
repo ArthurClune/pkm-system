@@ -38,17 +38,13 @@ def nudge_threadpool(request: Request, db: sqlite3.Connection) -> None:
     anyio.from_thread.run(request.app.state.hub.broadcast, frame)
 
 
-async def commit_and_nudge(request: Request, db: sqlite3.Connection) -> None:
-    """The commit half of the invariant paired with the nudge half, for
-    async routes. Prefer this over a bare `db.commit()` on any route whose
-    writes touch a changes-journaled table (blocks/pages/sidebar_entries,
-    schema.py SERVER_DDL) -- a bare commit is exactly the shape that let
-    pkm-getl's journal cleanup slip through with no nudge."""
-    db.commit()
-    await nudge(request, db)
-
-
 def commit_and_nudge_threadpool(request: Request, db: sqlite3.Connection) -> None:
-    """commit_and_nudge's counterpart for sync-def routes."""
+    """Pairs commit + nudge for sync-def routes, whose writes touch a
+    changes-journaled table (blocks/pages/sidebar_entries, schema.py
+    SERVER_DDL) -- a bare `db.commit()` is exactly the shape that let
+    pkm-getl's journal cleanup slip through with no nudge. Async routes
+    have no equivalent helper (YAGNI -- delete on pkm-nn57 final review,
+    no call sites): call `db.commit()` then `await nudge(request, db)`
+    directly."""
     db.commit()
     nudge_threadpool(request, db)

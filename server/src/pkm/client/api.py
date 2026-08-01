@@ -15,6 +15,7 @@ import httpx2
 
 from pkm.client.core import (ApiError, CliConfig, ConfigError, cookie_header,
                              friendly_error, parse_config, serialize_config)
+from pkm.refs import normalize_title
 from pkm.server.ops_core import OpBatch
 
 CLIENT_ID = "pkm-cli"
@@ -117,9 +118,22 @@ class PkmClient:
         create_page op for it into the same OpBatch as whatever else the
         batch does, so creation commits atomically with the rest instead
         of persisting from a separate request even when the batch later
-        fails validation (pkm-w80k)."""
+        fails validation (pkm-w80k).
+
+        Looks up `normalize_title(title)`, not `title` verbatim: every page
+        creation path (store.get_or_create_page) normalizes a title's
+        control whitespace before storing it (pkm-hjhy), so a page born
+        from "Foo\\tBar" is only ever addressable as "Foo Bar". A caller
+        that still holds the pre-normalization spelling -- e.g. a second
+        `pkm save`/`save_note` to the same page -- would otherwise get a
+        false "missing" here and plan its next write against an empty
+        placeholder instead of the page's real, already-saved blocks
+        (pkm-5k8p). The op(s) this caller goes on to build still carry the
+        caller's original `title` string for `page_title`: that is fine,
+        since the server normalizes it again at the same choke point and
+        lands on this identical row either way."""
         try:
-            return self.get_page(title), False
+            return self.get_page(normalize_title(title)), False
         except ApiError as e:
             if e.status != 404:
                 raise

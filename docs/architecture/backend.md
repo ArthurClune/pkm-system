@@ -493,6 +493,18 @@ and broadcasts as the web client.
   transaction" contract real: a batch that fails validation after this
   point leaves neither the page nor its blocks behind, since the whole
   batch (including the page's creation) rolls back together (pkm-w80k).
+  `get_page_or_placeholder` looks up `refs.normalize_title(title)`, not
+  `title` verbatim (pkm-5k8p): a page whose title held control whitespace
+  is only ever stored, and addressable, under its normalized spelling
+  (pkm-hjhy above), so a caller still holding the pre-normalization string
+  — a second save to the same page, say — would otherwise get a false
+  "missing" and plan its next write against an empty placeholder instead
+  of the page's real blocks, prepending fresh content and re-creating any
+  `## Heading` parent the first write already made. The `create_page`/
+  `create` ops built from that call still carry the caller's original,
+  un-normalized `title` for `page_title`: that's fine, since the server
+  normalizes it again at the same `get_or_create_page` choke point and
+  lands on the identical row either way.
 - The MCP server exposes eleven tools — seven reads (`get_page`,
   `get_block`, `search`, `query`, `backlinks`, `todos`, `search_assets`) and
   four writes (`save_note`, `update_block`, `batch`, `upload_asset`) — built

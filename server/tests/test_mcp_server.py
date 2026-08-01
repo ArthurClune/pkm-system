@@ -54,6 +54,20 @@ def test_save_note_todo_and_outline(tools, pkm_client):
     assert pkm_client.todos(page="AI")["total"] == 1
 
 
+def test_save_note_twice_to_a_control_whitespace_titled_page_appends_and_reuses_the_heading(
+        tools, pkm_client):
+    """Mirrors the CLI regression (pkm-5k8p): a title with control
+    whitespace normalizes at creation (pkm-hjhy), so a second save_note
+    call using the same raw spelling must see the page's real blocks
+    instead of a false-empty placeholder."""
+    tools.save_note("first", page="Ctrl\tTitle", parent="## Notes")
+    tools.save_note("second", page="Ctrl\tTitle", parent="## Notes")
+    page = pkm_client.get_page("Ctrl Title")
+    headings = [n for n in page["blocks"] if n["text"] == "Notes"]
+    assert len(headings) == 1
+    assert [c["text"] for c in headings[0]["children"]] == ["first", "second"]
+
+
 def test_update_block_text_and_mark(tools, pkm_client):
     tools.save_note("temp", page="AI")
     uid = next(n["uid"] for n in pkm_client.get_page("AI")["blocks"]

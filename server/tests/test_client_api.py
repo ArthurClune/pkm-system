@@ -166,6 +166,22 @@ def test_get_page_or_placeholder_missing_page_is_not_created(pkm_client):
     assert e.value.status == 404
 
 
+def test_get_page_or_placeholder_finds_a_page_whose_title_holds_control_whitespace(
+        pkm_client):
+    """store.get_or_create_page normalizes a title's control whitespace at
+    creation (pkm-hjhy) -- a page created as "Ctrl\tTitle" is stored, and
+    only addressable, as "Ctrl Title". A caller that still holds the raw
+    pre-normalization spelling (e.g. a second `pkm save` to the same page)
+    must resolve to that SAME existing page, not a false "missing" that
+    hides its real blocks behind an empty placeholder (pkm-5k8p)."""
+    pkm_client.post_ops(
+        [{"op": "create_page", "page_title": "Ctrl\tTitle"}],
+        batch_id="ctrl-ws-create-0001")
+    payload, missing = pkm_client.get_page_or_placeholder("Ctrl\tTitle")
+    assert missing is False
+    assert payload["page"]["title"] == "Ctrl Title"
+
+
 def test_unauthenticated_client_gets_login_hint(anon_client):
     bad = PkmClient(CliConfig(url="http://testserver", token="junk"),
                     http=anon_client)

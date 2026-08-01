@@ -71,6 +71,24 @@ def test_save_under_new_heading(run, pkm_client):
     assert heading["children"][0]["text"] == "beneath"
 
 
+def test_save_twice_to_a_control_whitespace_titled_page_appends_and_reuses_the_heading(
+        run, pkm_client):
+    """A page title holding control whitespace (e.g. a stray tab) is
+    normalized at creation (pkm-hjhy) -- "Ctrl\tTitle" is only ever stored,
+    and addressable, as "Ctrl Title". A second `pkm save` to the SAME raw
+    (pre-normalization) title must see the page's real, already-saved
+    blocks -- not a false-empty placeholder that would reset the append
+    position to the top of the page and mint a second "## Notes" heading
+    the first save already created (pkm-5k8p)."""
+    run("save", "-p", "Ctrl\tTitle", "--parent", "## Notes", "first")
+    code, _, _ = run("save", "-p", "Ctrl\tTitle", "--parent", "## Notes", "second")
+    assert code == 0
+    page = pkm_client.get_page("Ctrl Title")
+    headings = [n for n in page["blocks"] if n["text"] == "Notes"]
+    assert len(headings) == 1
+    assert [c["text"] for c in headings[0]["children"]] == ["first", "second"]
+
+
 def test_update_text(run, pkm_client):
     code, out, _ = run("update", "uid_b6", "rewritten")
     assert code == 0

@@ -98,7 +98,7 @@ type Args<O> = Record<never, never> extends Options<O>
  * response types come straight from the schema, never from a cast. */
 interface RawOptions {
   path?: Record<string, string | number | boolean>;
-  query?: Record<string, string | number | boolean | undefined>;
+  query?: Record<string, string | number | boolean | undefined | null>;
   body?: unknown;
   init?: RequestExtras["init"];
 }
@@ -118,9 +118,16 @@ function buildUrl(template: string, options: RawOptions | undefined): string {
   // encodeURIComponent's "%20". Both the server (Starlette) and the offline
   // shim (`new URL(...).searchParams`) decode the two identically, so a
   // converted call site keeps its meaning even though its URL bytes change.
+  // `null` is dropped alongside `undefined`, not stringified. Five query
+  // params are generated as `| null` (before, now_ms, page, from_ms, to_ms)
+  // because FastAPI declares them `X | None = None`, so a nullable cursor
+  // can legitimately be passed straight through. Serializing one would send
+  // the literal string "null", which those routes parse as a VALUE -- a 400
+  // on /api/journal's date parse, a 422 on the int ones. Omitting the
+  // parameter is the only encoding of "no value" the server understands.
   const query = new URLSearchParams();
   for (const [name, value] of Object.entries(options?.query ?? {})) {
-    if (value !== undefined) query.append(name, String(value));
+    if (value !== undefined && value !== null) query.append(name, String(value));
   }
   const qs = query.toString();
   return qs.length > 0 ? `${url}?${qs}` : url;

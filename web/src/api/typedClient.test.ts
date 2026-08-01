@@ -126,6 +126,18 @@ it("form-encodes query values, which the shim and the server both decode", async
   expect(shimmed.searchParams.get("q")).toBe("hello world");
 });
 
+it("omits a null query value rather than sending the string \"null\"", async () => {
+  // Five query params are generated as `| null` (before, now_ms, page,
+  // from_ms, to_ms), so a `string | null` cursor typechecks here. FastAPI
+  // declares them `str | None = None`, which means a literal "?before=null"
+  // arrives as the STRING "null" -- not None -- and then 400s on the date
+  // parse. Absent is the only encoding of "no value" the server understands.
+  const fetchMock = stubFetch({ days: [], block_ref_texts: {} });
+  const cursor: string | null = null;
+  await apiGet("/api/journal", { query: { before: cursor, days: 5 } });
+  expect(fetchMock.mock.calls[0][0]).toBe("/api/journal?days=5");
+});
+
 it("omits the query string entirely when nothing is supplied", async () => {
   const fetchMock = stubFetch();
   await apiGet("/api/current-work");

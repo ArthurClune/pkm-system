@@ -91,3 +91,17 @@ multipart/form-data. The schema's other non-JSON write,
 `POST /api/assets/export.zip` (x-www-form-urlencoded), is not in the list at
 all — `views/Files.tsx:16` submits it as a real hidden `<form>` so the
 browser handles the download, and it never touched `apiFetch`.
+
+One ordering note for whoever does the sweep: `buildUrl` originally dropped
+only `undefined` query values, so a nullable cursor would have serialized as
+the literal `?before=null`. Five params are generated `| null` (`before` on
+`/api/journal`, `now_ms` on `/api/current-work`, `page` on `/api/todos`,
+`from_ms`/`to_ms` on `/api/assets/search`) and FastAPI declares them
+`X | None = None`, so `"null"` arrives as a *value*, not as absent — a 400 on
+the journal date parse, a 422 on the int ones. No caller passes `null` today
+(`Journal.tsx`'s cursor is `string | undefined`, and `filesCore.searchParams`
+omits its date params), so this was latent rather than live; but the
+generated types invite it, the shim already models the same cursor as
+`string | null` (`journalPayload`), and the conversions are exactly where a
+nullable value would first reach `buildUrl`. Fixed before the sweep rather
+than after the first 400.

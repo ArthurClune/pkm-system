@@ -5,7 +5,7 @@ status: in-progress
 type: epic
 priority: high
 created_at: 2026-07-31T15:32:12Z
-updated_at: 2026-08-01T17:52:42Z
+updated_at: 2026-08-01T18:06:03Z
 ---
 
 ## Context
@@ -105,8 +105,10 @@ Done in pkm-63s1.
 
 **Direction:** Guard every list operation with the same generation/query key or cancellation mechanism.
 
-- [ ] Add in-flight pagination/select-all filter-change tests
-- [ ] Centralize request-generation handling for all Files list operations
+- [x] Add in-flight pagination/select-all filter-change tests
+- [x] Centralize request-generation handling for all Files list operations
+
+Done in pkm-3622.
 
 ### 8. Reset and generation-guard PdfViewer when `href` changes
 
@@ -116,8 +118,10 @@ Done in pkm-63s1.
 
 **Direction:** Reset viewer state in an effect keyed by `href`, and generation-guard both document load and page metadata callbacks.
 
-- [ ] Add rerender and old-document completion race tests
-- [ ] Reset and guard per-document state
+- [x] Add rerender and old-document completion race tests
+- [x] Reset and guard per-document state
+
+Done in pkm-qs7y.
 
 ### 9. Share autocomplete state handling and track the live caret
 
@@ -181,8 +185,10 @@ Route declarations, top-bar labels, browser titles, and page-action recognition 
 
 **Direction:** Define route metadata once and consume it from routing, TopBar, and one route-aware title effect, retaining dynamic page-title resolution for `/page/*`.
 
-- [ ] Add route metadata consistency coverage
-- [ ] Consolidate static route labels/titles/actions
+- [x] Add route metadata consistency coverage
+- [x] Consolidate static route labels/titles/actions
+
+Done in pkm-77w2.
 
 ### 14. Keep focused search inside narrow phone viewports
 
@@ -192,8 +198,10 @@ Focus forces a fixed `320px` search width. With the other top-bar controls prese
 
 **Direction:** At the phone breakpoint, cap expansion to available space, allow the field to shrink, and retain a visible themed focus ring.
 
-- [ ] Add 320px and 390px page-route geometry tests
-- [ ] Make focused width responsive
+- [x] Add 320px and 390px page-route geometry tests
+- [x] Make focused width responsive
+
+Done in pkm-vszf.
 
 ## Lower-priority cleanup
 
@@ -226,7 +234,7 @@ Only `.settings-section p.settings-note` is defined, but Files applies `settings
 
 ## Verification and documentation
 
-- [ ] Use test-driven development for each behavior change
-- [ ] Run `cd web && pnpm verify`
-- [ ] Review and update `docs/architecture/frontend.md` for route metadata, API typing, editor boundaries, loading-controller, control-class, or stylesheet invariant changes
-- [ ] Split independent work into child beans where implementation should proceed separately
+- [x] Use test-driven development for each behavior change (mediums; TDD evidence in each child bean branch)
+- [x] Run `cd web && pnpm verify` (green on every lane pre-merge and on merged main: 48 e2e, 1782-range unit suite)
+- [x] Review and update `docs/architecture/frontend.md` for route metadata, API typing, editor boundaries, loading-controller, control-class, or stylesheet invariant changes (done per lane; backend.md and sync-and-offline.md also updated for pkm-60bf)
+- [x] Split independent work into child beans where implementation should proceed separately (nine child beans, findings 6-14)

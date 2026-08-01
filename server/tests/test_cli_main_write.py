@@ -279,6 +279,15 @@ def test_batch_unknown_alias_exits_1(run):
     assert "unknown alias" in err
 
 
+def test_batch_nested_but_empty_outline_items_exits_1(run):
+    # items=[[]] flattens to zero leaf strings -- must fail loudly, not
+    # silently apply a zero-op batch.
+    code, _, err = run("batch", stdin=json.dumps(
+        [{"command": "outline", "params": {"page": "AI", "items": [[]]}}]))
+    assert code == 1
+    assert "items" in err
+
+
 def test_batch_schema_failure_leaves_no_page_or_blocks(run, pkm_client):
     # A schema-invalid second command must fail the whole batch before the
     # first command's brand-new page is fetched/created at all (pkm-4w23:

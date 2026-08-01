@@ -156,6 +156,14 @@ def test_batch_unknown_alias_raises(tools):
                                 "parent": "{{nope}}"}}])
 
 
+def test_batch_nested_but_empty_outline_items_raises(tools):
+    # items=[[]] flattens to zero leaf strings -- must fail loudly, not
+    # silently apply a zero-op batch.
+    with pytest.raises(BuildError, match=r"batch\[0\].*items"):
+        tools.batch([{"command": "outline",
+                     "params": {"page": "AI", "items": [[]]}}])
+
+
 def test_batch_schema_failure_leaves_no_page_or_blocks(tools, pkm_client):
     # A schema-invalid second command must fail the whole batch before the
     # first command's brand-new page is fetched/created at all (pkm-4w23:

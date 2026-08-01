@@ -8,7 +8,8 @@ import re
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
+                      ValidationError, model_validator)
 
 from pkm.server.ops_core import text_hash
 from pkm.todo import with_state
@@ -398,6 +399,16 @@ class OutlineParams(_Strict):
     page: str = Field(min_length=1)
     parent: str | None = None
     items: list[NestedItem] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _require_a_leaf_item(self) -> OutlineParams:
+        # `Field(min_length=1)` only bounds the top-level list -- items=[[]]
+        # (or any all-empty nesting) satisfies it but flattens to zero leaf
+        # strings via `_nested_items`, which would otherwise plan zero ops
+        # for what looks like a non-empty outline command.
+        if not _nested_items(self.items):
+            raise ValueError("items: must contain at least one item")
+        return self
 
 
 class UpdateParams(_Strict):

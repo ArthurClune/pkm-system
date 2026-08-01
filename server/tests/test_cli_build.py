@@ -336,6 +336,21 @@ def test_validate_batch_rejects_empty_outline_items():
                          "params": {"page": "A", "items": []}}])
 
 
+def test_validate_batch_rejects_nested_but_empty_outline_items():
+    # items=[[]] passes a top-level min_length=1 check but flattens to zero
+    # leaf strings -- must be rejected the same as items=[], not silently
+    # produce a no-op batch.
+    with pytest.raises(BuildError, match=r"batch\[0\].*items"):
+        validate_batch([{"command": "outline",
+                         "params": {"page": "A", "items": [[]]}}])
+
+
+def test_validate_batch_rejects_all_empty_nested_outline_items():
+    with pytest.raises(BuildError, match=r"batch\[0\].*items"):
+        validate_batch([{"command": "outline",
+                         "params": {"page": "A", "items": [[], [[]]]}}])
+
+
 def test_validate_batch_rejects_unknown_param_key():
     # A typo'd/extra key must be caught, not silently ignored.
     with pytest.raises(BuildError, match=r"batch\[0\]"):

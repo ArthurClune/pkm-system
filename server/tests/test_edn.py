@@ -49,3 +49,48 @@ def test_errors():
         parse_edn("#")
     with pytest.raises(EdnError):
         parse_edn('{[1] "v"}')
+
+
+def test_unknown_string_escape_raises():
+    with pytest.raises(EdnError):
+        parse_edn('"\\z"')
+    with pytest.raises(EdnError):
+        parse_edn('"\\/"')
+
+
+def test_truncated_unicode_escape_raises():
+    with pytest.raises(EdnError):
+        parse_edn('"\\u12"')  # only 2 hex digits before closing quote
+    with pytest.raises(EdnError):
+        parse_edn('"\\u"')  # no hex digits at all
+    with pytest.raises(EdnError):
+        parse_edn('"\\u12zz"')  # non-hex characters in the escape
+
+
+def test_lone_surrogate_escapes_raise():
+    with pytest.raises(EdnError):
+        parse_edn('"\\ud83d"')  # lone high surrogate, nothing follows
+    with pytest.raises(EdnError):
+        parse_edn('"\\ud83dX"')  # high surrogate not followed by \\u escape
+    with pytest.raises(EdnError):
+        parse_edn('"\\udc00"')  # lone low surrogate
+
+
+def test_surrogate_pair_combines_to_supplementary_codepoint():
+    assert parse_edn('"\\ud83d\\ude00"') == "\U0001F600"
+
+
+def test_discard_forms_at_collection_close():
+    assert parse_edn("[1 2 #_3]") == [1, 2]
+    assert parse_edn("(1 2 #_3)") == [1, 2]
+    assert parse_edn("#{1 2 #_3}") == [1, 2]
+    assert parse_edn("{:a 1 #_ :junk}") == {":a": 1}
+
+
+def test_nested_discard_forms():
+    assert parse_edn("[#_ #_ 1 2 3]") == [3]
+
+
+def test_unsupported_char_literal_raises():
+    with pytest.raises(EdnError):
+        parse_edn("\\notachar")

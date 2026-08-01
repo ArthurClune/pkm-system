@@ -37,6 +37,7 @@ router = APIRouter()
 
 SEND_TIMEOUT = 1.0  # a stalled client is dropped, not waited on
 QUEUE_SIZE = 8  # a client this far behind is dropped, not buffered forever
+CLOSE_TIMEOUT = 2.0  # generous: best-effort, and only ever delays a drop
 
 
 class _Client:
@@ -63,20 +64,24 @@ class Hub:
         client.drain_task = asyncio.create_task(self._drain(client))
         self._clients[ws] = client
 
+    def _forget(self, ws: WebSocket) -> _Client | None:
+        """Remove ws from the registry only -- no cancellation. Once
+        popped, no concurrent broadcast() can see this client any more
+        (its loop iterates a snapshot of self._clients), which is what
+        makes it safe to close the socket afterwards without racing a
+        broadcast() that might otherwise try to drop the same client
+        mid-close (pkm-nn57 third-round review)."""
+        return self._clients.pop(ws, None)
+
     def disconnect(self, ws: WebSocket) -> None:
-        client = self._clients.pop(ws, None)
+        """For external callers only -- ws_endpoint's finally block and
+        broadcast()'s QueueFull branch, both of which are cancelling a
+        DIFFERENT task than the one currently running. _drain's own
+        except branch must NOT call this (see its comment): it forgets
+        the client itself and returns without ever cancelling its own
+        task."""
+        client = self._forget(ws)
         if client is not None and client.drain_task is not None:
-            # _drain's except-block calls this on itself (self-cancel)
-            # AFTER its own await _safe_close(...) has already completed,
-            # with nothing left to await before it returns -- so the
-            # pending cancellation has no further suspension point to
-            # land on and is a genuine no-op. Do not reorder: a
-            # self-cancel followed by an await lets the cancellation
-            # interrupt that very await (CPython's Task.__step applies a
-            # pending self-cancel to the next future the coroutine
-            # yields, not "the next loop turn"), which silently cut the
-            # close short before the ASGI close message went out
-            # (pkm-nn57 second-round review).
             client.drain_task.cancel()
 
     async def broadcast(self, message: dict) -> None:
@@ -93,7 +98,12 @@ class Hub:
                 # close the socket, or the client never sees `onclose`
                 # and won't reconnect (pkm-nn57 final review) -- but
                 # this loop can't await it without breaking the FIFO
-                # ordering guarantee above.
+                # ordering guarantee above. This is always a different
+                # task from client.drain_task (that task, if it's mid
+                # send, is off doing its own thing; if it's mid-close,
+                # _forget already removed the client above so this
+                # except branch can no longer even be reached for it --
+                # see _drain).
                 asyncio.create_task(_safe_close(client.ws))
 
     async def _drain(self, client: _Client) -> None:
@@ -107,35 +117,42 @@ class Hub:
                     await asyncio.wait_for(client.ws.send_json(message),
                                            timeout=SEND_TIMEOUT)
                 except Exception:
-                    # Close BEFORE self.disconnect(): disconnect()
-                    # cancels this very task (self-cancel), and a
-                    # pending self-cancel interrupts whatever this
-                    # coroutine awaits next -- if that were the close,
-                    # the cancellation would land inside
-                    # WebSocket.close()'s own internal await and cut it
-                    # short before the ASGI close message is sent,
-                    # silently reproducing the "drop never closes the
-                    # socket" bug this fix exists to prevent (pkm-nn57
-                    # second-round review). A dropped-for-timeout/error
-                    # connection is often still alive at the transport
-                    # level -- close it so the client's `onclose` fires
-                    # and it reconnects, instead of silently wedging
-                    # until tab reload.
+                    # Forget (registry-only) BEFORE closing, and never
+                    # call self.disconnect() here: this coroutine IS the
+                    # drain task, so self.disconnect() would cancel
+                    # itself, and a pending self-cancel interrupts
+                    # whatever this coroutine awaits next -- landing
+                    # inside WebSocket.close()'s own internal await and
+                    # cutting it short (pkm-nn57 second-round review).
+                    # Forgetting first ALSO closes a second, cross-task
+                    # version of the same race: while the close below is
+                    # in flight, this client is still technically
+                    # registered unless removed now, so a concurrent
+                    # broadcast() could hit QueueFull for it and call
+                    # disconnect() -> cancel() on this very task from
+                    # the outside, non-deterministically reproducing the
+                    # identical cut-short-close bug (pkm-nn57
+                    # third-round review). Once forgotten, no broadcast()
+                    # can see this client to drop it, so this task's own
+                    # eventual return is the only thing that can end it.
+                    self._forget(client.ws)
                     await _safe_close(client.ws)
-                    self.disconnect(client.ws)
                     return
         except asyncio.CancelledError:
             pass
 
 
 async def _safe_close(ws: WebSocket) -> None:
-    """Best-effort close for a Hub-initiated drop. Errors are expected
-    and swallowed -- the socket may already be half-closed, and this is
-    sometimes awaited as a fire-and-forget task, where an unhandled
-    exception would otherwise surface as "Task exception was never
-    retrieved"."""
+    """Best-effort, timeout-bounded close for a Hub-initiated drop.
+    Errors (including a CLOSE_TIMEOUT-triggered TimeoutError) are
+    expected and swallowed -- the socket may already be half-closed, or
+    its transport wedged, and this is sometimes awaited as a
+    fire-and-forget task, where an unhandled exception would otherwise
+    surface as "Task exception was never retrieved". A wedged transport
+    must not hang the caller (broadcast()'s overflow path doesn't await
+    this at all; _drain's does, and would otherwise never return)."""
     try:
-        await ws.close()
+        await asyncio.wait_for(ws.close(), timeout=CLOSE_TIMEOUT)
     except Exception:
         pass
 

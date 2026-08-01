@@ -78,6 +78,37 @@ class _SlowThenFastWS:
         self.sent.append(message)
 
 
+class _EventGatedCloseWS:
+    """send_json always fails (so _drain enters its except branch and
+    starts closing); close() blocks on an asyncio.Event until released,
+    letting a test hold a close in flight to probe for a concurrent
+    broadcast() cancelling it out from under _drain. Counts close()
+    invocations: if the in-flight close gets cancelled, broadcast()'s
+    QueueFull branch fires its OWN fire-and-forget close afterwards
+    (correctly -- that path is unaffected by this bug), which can
+    complete and set `closed = True` on its own, masking a cancelled
+    first attempt. Asserting close_calls == 1 is what actually catches
+    that -- `closed` alone does not."""
+
+    def __init__(self):
+        self.closed = False
+        self.close_calls = 0
+        self.close_started = asyncio.Event()
+        self.release_close = asyncio.Event()
+
+    async def accept(self):
+        pass
+
+    async def send_json(self, message):
+        raise RuntimeError("client gone")
+
+    async def close(self):
+        self.close_calls += 1
+        self.close_started.set()
+        await self.release_close.wait()
+        self.closed = True
+
+
 async def _until(predicate, timeout=2.0):
     deadline = time.monotonic() + timeout
     while not predicate():
@@ -255,6 +286,46 @@ def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
         # enqueue loop can't await it), so give it a turn to run.
         await _until(lambda: client.closed)
         assert client.closed
+
+    asyncio.run(_run())
+
+
+def test_drain_close_survives_concurrent_broadcast_overflow(monkeypatch):
+    """pkm-nn57 third-round review: while _drain's except branch has a
+    close in flight for a failed client, a concurrent broadcast() that
+    hits QueueFull for that SAME client must not be able to cancel the
+    in-flight close out from under it. _drain forgets the client from
+    the registry before starting the close, so a concurrent broadcast()
+    can no longer see it to drop it -- closing the cross-task version of
+    the self-cancel race the second round fixed only within one task."""
+    from pkm.server import ws as ws_module
+    monkeypatch.setattr(ws_module, "QUEUE_SIZE", 1)
+
+    async def _run():
+        hub = ws_module.Hub()
+        client = _EventGatedCloseWS()
+        await hub.connect(cast(WebSocket, client))
+        # One message is enough to make the drain task dequeue it, fail
+        # on send_json, and start closing.
+        await hub.broadcast({"seq": 0})
+        await client.close_started.wait()
+        # The close is now in flight (blocked on release_close). Fire
+        # several overlapping broadcasts targeting the same client --
+        # with QUEUE_SIZE=1 this reliably hits QueueFull for it, which
+        # is exactly the concurrent path that used to reach back in and
+        # cancel the drain task mid-close.
+        for i in range(5):
+            await hub.broadcast({"seq": i})
+        client.release_close.set()
+        await _until(lambda: client.closed)
+        assert client.closed
+        # The real assertion: exactly one close(), the one _drain itself
+        # started. If the overflow path could still see and drop this
+        # client, it would fire its OWN fire-and-forget close on top --
+        # which can complete and set `closed = True` on its own even if
+        # the first, in-flight close got cancelled part way through, so
+        # `closed` alone wouldn't catch a regression here.
+        assert client.close_calls == 1
 
     asyncio.run(_run())
 

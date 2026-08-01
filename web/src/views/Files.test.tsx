@@ -43,13 +43,13 @@ describe("Files", () => {
   it("shows the offline note without fetching when disconnected", () => {
     mockSync.mockReturnValue(makeSync("reconnecting"));
     render(<Files />);
-    expect(screen.getByText(/needs a connection/i)).toBeInTheDocument();
+    expect(screen.getByText(/needs a connection/i)).toHaveClass("settings-note");
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("shows an empty state", async () => {
     render(<Files />);
-    expect(await screen.findByText(/no files match/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no files match/i)).toHaveClass("settings-note");
   });
 
   it("shows an error state when the fetch fails", async () => {
@@ -202,6 +202,28 @@ describe("Files", () => {
     expect(await screen.findByText("Deleted 1 file.")).toBeInTheDocument();
     expect(mockFetch).toHaveBeenCalledWith(
       `/api/assets/${"ab".repeat(32)}`, { method: "DELETE" });
+  });
+
+  it("disables the danger action while deletion is pending", async () => {
+    const pending = deferred<{ deleted: boolean; refs_removed: number }>();
+    mockFetch
+      .mockResolvedValueOnce(payload([item({})]))
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce(payload([]));
+    render(<Files />);
+    fireEvent.click(await screen.findByLabelText("Select pic.png"));
+
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    expect(deleteButton).toHaveClass("btn-danger");
+    fireEvent.click(deleteButton);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete file" }));
+
+    await waitFor(() => expect(deleteButton).toBeDisabled());
+    await act(async () => {
+      pending.resolve({ deleted: true, refs_removed: 0 });
+      await pending.promise;
+    });
+    expect(await screen.findByText("Deleted 1 file.")).toBeInTheDocument();
   });
 
   it("goes loud when a linked file is selected and survives failures",

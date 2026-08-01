@@ -39,12 +39,13 @@ digest can't disambiguate, so an incrementing numeric suffix
 (`-2`, `-3`, ...) is appended as the final fallback. Existing
 case-insensitive first-collision behaviour is unchanged.
 
-Added three tests to `server/tests/test_assets_core.py`:
+Added tests to `server/tests/test_assets_core.py`:
 - `test_zip_arcnames_generated_looking_name_still_gets_disambiguated`
 - `test_zip_arcnames_shared_sha_prefix_still_gets_disambiguated`
-- `test_zip_arcnames_identical_sha_and_name_still_gets_disambiguated`
+- `test_zip_arcnames_one_duplicate_resolves_by_prefix_extension`
+- `test_zip_arcnames_mass_duplicates_fall_back_to_numeric_suffix`
 
-All three reproduced the bug (duplicate arcnames) against the old
+All reproduced the bug (duplicate arcnames) against the old
 implementation (RED) and pass against the fix (GREEN), asserting
 every returned arcname is unique modulo case.
 
@@ -53,6 +54,39 @@ Shell callers unchanged: `routes_export.py` doesn't call
 `list[tuple[str, str]] -> list[tuple[str, str]]` signature, so no
 route/contract changes and no OpenAPI/gen-types regen needed.
 
-Verification: `uv run pytest -q` (1052 passed, 96.26% coverage),
+Verification: `uv run pytest -q` (1053 passed, 96.31% coverage),
 `uv run pyrefly check` (0 errors), `uv run ruff check` (all checks
 passed) — all from `server/`.
+
+## Fix Round 1 (review finding)
+
+Review flagged that `test_zip_arcnames_identical_sha_and_name_still_gets_disambiguated`
+claimed to exercise the numeric-suffix fallback (`assets_core.py:116-119`)
+but didn't: with only two colliding duplicates of the same
+`(sha, name)` pair, the collision resolves at `prefix_len=9` (a
+longer, distinct string) well before the 64-char sha is exhausted.
+`--cov-report=term-missing` confirmed lines 118-119 were never hit.
+
+Fix: split into two honestly-named tests.
+`test_zip_arcnames_one_duplicate_resolves_by_prefix_extension` keeps
+the original 2-duplicate case but asserts the actual prefix-extension
+outcome instead of claiming numeric fallback.
+`test_zip_arcnames_mass_duplicates_fall_back_to_numeric_suffix` uses
+60 duplicates of the same `(sha, name)` pair -- a 64-char hex sha only
+offers 57 distinct prefix lengths (8..64 inclusive), so exhausting
+those genuinely forces the numeric suffix for the remaining 3 -- and
+asserts exactly 3 arcnames carry a `(<sha>-N)` suffix.
+
+Covering command: `cd server && uv run pytest -q tests/test_assets_core.py --cov=src/pkm/assets_core --cov-report=term-missing`
+Before fix: `src/pkm/assets_core.py  ... 96%  118-119` (missed).
+After fix: `src/pkm/assets_core.py  ... 100%` (no missing lines).
+
+Also fixed a pyrefly `bad-assignment` error the new test introduced
+(`list[tuple[LiteralString, str]]` not assignable to
+`list[tuple[str, str]]` when building the entries list via
+concatenation) by building the list with `.extend(...)` on an
+explicitly-typed variable instead.
+
+Full re-verification: `uv run pytest -q` (1053 passed, 96.31%
+coverage), `uv run pyrefly check` (0 errors), `uv run ruff check`
+(all checks passed) — all from `server/`.

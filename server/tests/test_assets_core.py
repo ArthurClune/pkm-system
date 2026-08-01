@@ -145,11 +145,11 @@ def test_zip_arcnames_shared_sha_prefix_still_gets_disambiguated():
     _assert_all_unique_case_insensitive(arcs)
 
 
-def test_zip_arcnames_identical_sha_and_name_still_gets_disambiguated():
+def test_zip_arcnames_one_duplicate_resolves_by_prefix_extension():
     # Degenerate case: the same (sha, filename) pair appears twice.
-    # Even extending the sha prefix to its full length can't
-    # distinguish two identical strings, so a final incrementing
-    # suffix must kick in.
+    # A single duplicate is resolved by extending the sha prefix by one
+    # character (8 -> 9), which is already a distinct string -- the
+    # numeric-suffix fallback isn't needed yet at this scale.
     sha_b = "bb" * 32
     entries: list[tuple[str, str]] = [
         ("aa" * 32, "report.pdf"),
@@ -158,6 +158,23 @@ def test_zip_arcnames_identical_sha_and_name_still_gets_disambiguated():
     ]
     arcs = zip_arcnames(entries)
     _assert_all_unique_case_insensitive(arcs)
+    assert arcs[2][1] == f"report ({sha_b[:9]}).pdf"
+
+
+def test_zip_arcnames_mass_duplicates_fall_back_to_numeric_suffix():
+    # A 64-char hex sha only offers 57 distinct prefix lengths (8..64
+    # inclusive). Once every one of those candidates for a single
+    # repeated (sha, filename) pair is taken, extending the prefix
+    # further can't produce a new string, so the numeric suffix
+    # (" (<sha>-2)", " (<sha>-3)", ...) must take over. 60 duplicates
+    # exhausts all 57 prefix lengths and forces 3 of them into the
+    # numeric fallback.
+    sha_b = "bb" * 32
+    entries: list[tuple[str, str]] = [("aa" * 32, "report.pdf")]
+    entries.extend((sha_b, "report.pdf") for _ in range(60))
+    arcs = zip_arcnames(entries)
+    _assert_all_unique_case_insensitive(arcs)
+    assert sum(1 for _, arc in arcs if f"({sha_b}-" in arc) == 3
 
 
 # --- sha256_hex / asset_needs_repair (pkm-x3l7) ---

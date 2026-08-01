@@ -36,3 +36,15 @@ def nudge_threadpool(request: Request, db: sqlite3.Connection) -> None:
     anyio worker thread, so from_thread.run reaches the event loop."""
     frame = seq_frame(db)
     anyio.from_thread.run(request.app.state.hub.broadcast, frame)
+
+
+def commit_and_nudge_threadpool(request: Request, db: sqlite3.Connection) -> None:
+    """Pairs commit + nudge for sync-def routes, whose writes touch a
+    changes-journaled table (blocks/pages/sidebar_entries, schema.py
+    SERVER_DDL) -- a bare `db.commit()` is exactly the shape that let
+    pkm-getl's journal cleanup slip through with no nudge. Async routes
+    have no equivalent helper (YAGNI -- delete on pkm-nn57 final review,
+    no call sites): call `db.commit()` then `await nudge(request, db)`
+    directly."""
+    db.commit()
+    nudge_threadpool(request, db)

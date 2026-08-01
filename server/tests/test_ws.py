@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import cast
 
 import pytest
@@ -8,19 +9,112 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 class _GoodWS:
     def __init__(self):
         self.sent = []
+        self.closed = False
+
+    async def accept(self):
+        pass
 
     async def send_json(self, message):
         self.sent.append(message)
 
+    async def close(self):
+        self.closed = True
+
 
 class _RaisingWS:
+    def __init__(self):
+        self.closed = False
+
+    async def accept(self):
+        pass
+
     async def send_json(self, message):
         raise RuntimeError("client gone")
 
+    async def close(self):
+        # A real internal suspension point, like Starlette's actual
+        # WebSocket.close() (close() -> send() -> await self._send(...)).
+        # Without this, close() completes within a single scheduler step
+        # and structurally cannot be interrupted by a pending
+        # self-cancellation -- which would make a test using this fake
+        # blind to the exact ordering bug pkm-nn57's second-round review
+        # found (disconnect()-before-close() lets the drain task's
+        # self-cancel land inside this await and cut the close short).
+        await asyncio.sleep(0)
+        self.closed = True
+
 
 class _StallingWS:
+    def __init__(self):
+        self.closed = False
+
+    async def accept(self):
+        pass
+
     async def send_json(self, message):
         await asyncio.sleep(60)
+
+    async def close(self):
+        await asyncio.sleep(0)  # see _RaisingWS.close for why
+        self.closed = True
+
+
+class _SlowThenFastWS:
+    """Its first send is slow; later sends are instant. Used to prove a
+    later broadcast() can't jump ahead of an earlier one still in flight
+    to the same client."""
+
+    def __init__(self, first_delay: float):
+        self.sent = []
+        self._first_delay = first_delay
+
+    async def accept(self):
+        pass
+
+    async def send_json(self, message):
+        if self._first_delay:
+            delay, self._first_delay = self._first_delay, 0
+            await asyncio.sleep(delay)
+        self.sent.append(message)
+
+
+class _EventGatedCloseWS:
+    """send_json always fails (so _drain enters its except branch and
+    starts closing); close() blocks on an asyncio.Event until released,
+    letting a test hold a close in flight to probe for a concurrent
+    broadcast() cancelling it out from under _drain. Counts close()
+    invocations: if the in-flight close gets cancelled, broadcast()'s
+    QueueFull branch fires its OWN fire-and-forget close afterwards
+    (correctly -- that path is unaffected by this bug), which can
+    complete and set `closed = True` on its own, masking a cancelled
+    first attempt. Asserting close_calls == 1 is what actually catches
+    that -- `closed` alone does not."""
+
+    def __init__(self):
+        self.closed = False
+        self.close_calls = 0
+        self.close_started = asyncio.Event()
+        self.release_close = asyncio.Event()
+
+    async def accept(self):
+        pass
+
+    async def send_json(self, message):
+        raise RuntimeError("client gone")
+
+    async def close(self):
+        self.close_calls += 1
+        self.close_started.set()
+        await self.release_close.wait()
+        self.closed = True
+
+
+async def _until(predicate, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            raise AssertionError("condition not met in time")
+        await asyncio.sleep(0.01)
 
 
 def test_ws_requires_auth(anon_client):
@@ -99,13 +193,155 @@ def test_failed_batch_broadcasts_nothing(client):
 def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
     from pkm.server import ws as ws_module
     monkeypatch.setattr(ws_module, "SEND_TIMEOUT", 0.05)
-    hub = ws_module.Hub()
-    good, raising, stalling = _GoodWS(), _RaisingWS(), _StallingWS()
-    for conn in (raising, stalling, good):
-        hub._conns.add(cast(WebSocket, conn))
-    asyncio.run(hub.broadcast({"ok": 1}))
-    assert good.sent == [{"ok": 1}]
-    assert hub._conns == {good}
+
+    async def _run():
+        hub = ws_module.Hub()
+        good, raising, stalling = _GoodWS(), _RaisingWS(), _StallingWS()
+        for conn in (raising, stalling, good):
+            await hub.connect(cast(WebSocket, conn))
+        await hub.broadcast({"ok": 1})
+        # delivery now happens on each client's own drain task, not
+        # synchronously inside broadcast() -- wait for it to land.
+        await _until(lambda: good.sent == [{"ok": 1}])
+        await _until(lambda: set(hub._conns) == {good})
+        # Hub-initiated drops (send failure/timeout) must close the
+        # socket, or a real client would never see `onclose` fire and
+        # reconnect (pkm-nn57 final review).
+        await _until(lambda: raising.closed and stalling.closed)
+        assert good.sent == [{"ok": 1}]
+        assert set(hub._conns) == {good}
+        assert raising.closed
+        assert stalling.closed
+        assert not good.closed
+
+    asyncio.run(_run())
+
+
+def test_broadcast_does_not_block_on_stalled_clients(monkeypatch):
+    """pkm-nn57: the old Hub.broadcast() awaited each client sequentially
+    with a SEND_TIMEOUT-bounded wait, so N stalled clients added
+    N * SEND_TIMEOUT of latency to every write that broadcasts. It must
+    now hand frames off (e.g. to a per-client queue) and return without
+    waiting on any client's send, so the cost is independent of how many
+    clients are stalled."""
+    from pkm.server import ws as ws_module
+    monkeypatch.setattr(ws_module, "SEND_TIMEOUT", 0.2)
+
+    async def _run():
+        hub = ws_module.Hub()
+        stalling = [_StallingWS() for _ in range(10)]
+        for conn in stalling:
+            await hub.connect(cast(WebSocket, conn))
+        start = time.monotonic()
+        await hub.broadcast({"ok": 1})
+        elapsed = time.monotonic() - start
+        # sequentially-with-timeout would cost 10 * 0.2s = 2s; a
+        # non-blocking hand-off should return in well under one timeout.
+        assert elapsed < 0.2, (
+            f"broadcast() blocked for {elapsed:.3f}s on stalled clients")
+
+    asyncio.run(_run())
+
+
+def test_broadcast_preserves_per_client_order_when_first_send_is_slow():
+    """A client's still-in-flight first frame must not let a later
+    broadcast() call's frame arrive first -- clients must never observe
+    seq nudges out of order (pkm-nn57)."""
+    from pkm.server import ws as ws_module
+
+    async def _run():
+        hub = ws_module.Hub()
+        client = _SlowThenFastWS(first_delay=0.1)
+        await hub.connect(cast(WebSocket, client))
+        # fired concurrently, not awaited one after another, so a naive
+        # unordered concurrent fan-out could let seq 2 win the race
+        await asyncio.gather(hub.broadcast({"seq": 1}),
+                             hub.broadcast({"seq": 2}))
+        await _until(lambda: len(client.sent) == 2)
+        assert client.sent == [{"seq": 1}, {"seq": 2}]
+
+    asyncio.run(_run())
+
+
+def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
+    """A client that isn't draining fast enough (queue full) is dropped
+    outright rather than buffered without bound -- and its socket is
+    actually closed, so a real client sees `onclose` fire and reconnects
+    and resyncs from its cursor, same as any other dropped connection
+    (pkm-nn57 final review: a Hub-initiated drop that never closes the
+    socket leaves a healthy-but-slow client wedged until tab reload)."""
+    from pkm.server import ws as ws_module
+    monkeypatch.setattr(ws_module, "QUEUE_SIZE", 2)
+
+    async def _run():
+        hub = ws_module.Hub()
+        client = _StallingWS()
+        await hub.connect(cast(WebSocket, client))
+        # No awaits occur between these calls, so the client's drain
+        # task never gets a turn to dequeue -- the queue genuinely fills.
+        for i in range(5):
+            await hub.broadcast({"seq": i})
+        assert cast(WebSocket, client) not in hub._conns
+        # The close is fired via asyncio.create_task (broadcast()'s
+        # enqueue loop can't await it), so give it a turn to run.
+        await _until(lambda: client.closed)
+        assert client.closed
+
+    asyncio.run(_run())
+
+
+def test_drain_close_survives_concurrent_broadcast_overflow(monkeypatch):
+    """pkm-nn57 third-round review: while _drain's except branch has a
+    close in flight for a failed client, a concurrent broadcast() that
+    hits QueueFull for that SAME client must not be able to cancel the
+    in-flight close out from under it. _drain forgets the client from
+    the registry before starting the close, so a concurrent broadcast()
+    can no longer see it to drop it -- closing the cross-task version of
+    the self-cancel race the second round fixed only within one task."""
+    from pkm.server import ws as ws_module
+    monkeypatch.setattr(ws_module, "QUEUE_SIZE", 1)
+
+    async def _run():
+        hub = ws_module.Hub()
+        client = _EventGatedCloseWS()
+        await hub.connect(cast(WebSocket, client))
+        # One message is enough to make the drain task dequeue it, fail
+        # on send_json, and start closing.
+        await hub.broadcast({"seq": 0})
+        await client.close_started.wait()
+        # The close is now in flight (blocked on release_close). Fire
+        # several overlapping broadcasts targeting the same client --
+        # with QUEUE_SIZE=1 this reliably hits QueueFull for it, which
+        # is exactly the concurrent path that used to reach back in and
+        # cancel the drain task mid-close.
+        for i in range(5):
+            await hub.broadcast({"seq": i})
+        client.release_close.set()
+        await _until(lambda: client.closed)
+        assert client.closed
+        # The real assertion: exactly one close(), the one _drain itself
+        # started. If the overflow path could still see and drop this
+        # client, it would fire its OWN fire-and-forget close on top --
+        # which can complete and set `closed = True` on its own even if
+        # the first, in-flight close got cancelled part way through, so
+        # `closed` alone wouldn't catch a regression here.
+        assert client.close_calls == 1
+
+    asyncio.run(_run())
+
+
+def test_safe_close_swallows_close_errors():
+    """_safe_close is used for Hub-initiated drops on connections that
+    may already be half-closed; a raising close() must not propagate --
+    it's sometimes awaited as a fire-and-forget task, where an unhandled
+    exception would surface as "Task exception was never retrieved"."""
+    from pkm.server.ws import _safe_close
+
+    class _AlreadyClosedWS:
+        async def close(self):
+            raise RuntimeError("already closed")
+
+    asyncio.run(_safe_close(cast(WebSocket, _AlreadyClosedWS())))  # no raise
 
 
 def _frames_until_seq(ws, tries=5):

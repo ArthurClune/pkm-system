@@ -136,3 +136,44 @@ def test_second_call_is_a_noop(client, seeded_config):
 
 def test_cleanup_requires_auth(anon_client):
     assert anon_client.post("/api/journal/cleanup").status_code == 401
+
+
+def test_cleanup_deletion_emits_seq_nudge(client, seeded_config):
+    """pkm-getl: cleanup commits deletions and advances changes.seq but
+    connected replicas were never nudged, so they kept showing deleted
+    daily pages until some unrelated mutation nudged them."""
+    title = _daily_title(_in_window_days_ago())
+    _insert_page(seeded_config.db_path, 96, title)
+
+    with client.websocket_connect("/api/ws") as ws:
+        r = client.post("/api/journal/cleanup")
+        assert r.status_code == 200
+        assert r.json() == {"deleted": [title]}
+        frames = []
+        for _ in range(5):
+            frames.append(ws.receive_json())
+            if frames[-1].get("type") == "seq":
+                break
+        else:
+            raise AssertionError(f"no seq nudge in {frames}")
+        assert frames[-1]["seq"] > 0
+
+
+def test_cleanup_noop_emits_no_seq_nudge(client, seeded_config):
+    """A cleanup call that deletes nothing doesn't advance changes.seq, so
+    it shouldn't broadcast a nudge either -- distinguishes this fix from a
+    blanket "always nudge" that would mask the deleted-rows condition."""
+    with client.websocket_connect("/api/ws") as ws:
+        r = client.post("/api/journal/cleanup")
+        assert r.json() == {"deleted": []}
+        # No frame should arrive; send a distinguishable follow-up mutation
+        # and confirm ITS nudge is the first frame received.
+        client.post("/api/sidebar", json={"title": "Post-Noop-Cleanup"})
+        frames = []
+        for _ in range(5):
+            frames.append(ws.receive_json())
+            if frames[-1].get("type") == "seq":
+                break
+        else:
+            raise AssertionError(f"no seq nudge in {frames}")
+        assert frames == [{"type": "seq", "seq": frames[-1]["seq"]}]

@@ -174,8 +174,7 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
         if date_for_title(title) != date.today():
             raise HTTPException(status_code=404, detail="page not found")
         page = get_or_create_page(db, title, int(time.time() * 1000))
-        db.commit()
-        notify.nudge_threadpool(request, db)
+        notify.commit_and_nudge_threadpool(request, db)
     blocks = db.execute(
         f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
         (page["id"],)).fetchall()
@@ -203,8 +202,7 @@ def create_page(request: Request, body: CreatePageRequest,
     except BlankTitleError:
         raise HTTPException(status_code=422,
                             detail="title must not be blank") from None
-    db.commit()
-    notify.nudge_threadpool(request, db)
+    notify.commit_and_nudge_threadpool(request, db)
     return dict(page)
 
 
@@ -218,8 +216,7 @@ def delete_page(request: Request, title: str,
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
     delete_page_rows(db, page["id"], title)
-    db.commit()
-    notify.nudge_threadpool(request, db)
+    notify.commit_and_nudge_threadpool(request, db)
     return {"ok": True}
 
 
@@ -265,7 +262,7 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
             merge_page_rows(db, page["id"], target["id"], title, new_title,
                             now_ms)
             result = "merged"
-        db.commit()
+        notify.commit_and_nudge_threadpool(request, db)
     except sqlite3.IntegrityError:
         # Our fetch_page(new_title) check above can go stale: another
         # request creates new_title between that check and this
@@ -278,7 +275,6 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
         db.rollback()
         raise HTTPException(status_code=409,
                             detail=f"page {new_title!r} already exists")
-    notify.nudge_threadpool(request, db)
     return {"result": result, "title": new_title}
 
 
@@ -387,8 +383,7 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
     today = date.today()
     if cursor is None and fetch_page(db, title_for_date(today)) is None:
         get_or_create_page(db, title_for_date(today), int(time.time() * 1000))
-        db.commit()
-        notify.nudge_threadpool(request, db)
+        notify.commit_and_nudge_threadpool(request, db)
     nonempty: set[date] = set()
     for row in db.execute(_NONEMPTY_DAILY_SQL).fetchall():
         d = date_for_title(row["title"])
@@ -424,7 +419,8 @@ def _block_is_referenced(db: sqlite3.Connection, uid: str,
 
 
 @router.post("/api/journal/cleanup")
-def cleanup_journal(db: sqlite3.Connection = Depends(get_db)) -> dict:
+def cleanup_journal(request: Request,
+                    db: sqlite3.Connection = Depends(get_db)) -> dict:
     """Deletes completely-empty daily pages from the 7 days before today
     (today is spared: the journal auto-creates it for composing). Stateless:
     every call re-checks the whole window, so a page emptied later by block
@@ -448,4 +444,11 @@ def cleanup_journal(db: sqlite3.Connection = Depends(get_db)) -> dict:
         delete_page_rows(db, page["id"], title)
         deleted.append(title)
     db.commit()
+    # Guarded (unlike most routes' unconditional nudge): this route is
+    # called on every journal load (docstring above), so a no-op run is the
+    # common case, and only a non-empty `deleted` actually advanced
+    # changes.seq (notify.py's invariant) -- nudging every empty run would
+    # broadcast a no-op frame to every connected replica on each load.
+    if deleted:
+        notify.nudge_threadpool(request, db)
     return {"deleted": deleted}

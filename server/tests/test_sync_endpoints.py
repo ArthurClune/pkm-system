@@ -144,6 +144,18 @@ def test_limit_is_clamped_to_at_least_one(client):
     assert feed["next_since"] > 0
 
 
+def test_feed_hydrates_sidebar_entries(client):
+    """pkm-ldqx: sidebar hydration moved to a chunked set query -- exercise
+    it through the feed with an actual entry, not just the journal row."""
+    start = _drain(client)["latest_seq"]
+    r = client.post("/api/sidebar", json={"title": "Crypto"})
+    assert r.status_code == 200
+    sidebar_id = r.json()["id"]
+    feed = _drain(client, since=start)
+    assert {s["id"]: s["title"] for s in feed["sidebar"]} == {
+        sidebar_id: "Crypto"}
+
+
 def test_cross_page_subtree_move_journals_every_subtree_row(client):
     """Spec section 7: a cross-page move rewrites the whole subtree's
     page_id, and the journal must carry every affected descendant so

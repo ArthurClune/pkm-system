@@ -89,6 +89,77 @@ Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
 rebuilt) or a changed `generation` token. Both mean "this is a different
 database; your cursor is meaningless".
 
+## Post-commit nudges
+
+Every route whose commit touches a changes-journaled table (`blocks`,
+`pages`, or `sidebar_entries` — the three with triggers in `schema.py`
+`SERVER_DDL`) must send a WS `{type:"seq", seq}` nudge immediately after
+that commit, so connected replicas know to pull the new window (nudges are
+a latency optimization, never a correctness dependency — see "An online
+edit, end to end" above). `notify.py` provides `commit_and_nudge_threadpool`
+for sync-def routes (hopping back to the event loop via
+`anyio.from_thread.run`) so a route has one line to remember instead of
+two; async routes call `db.commit()` then `await nudge(request, db)`
+directly. Routes whose commit and
+nudge can't be adjacent — `delete_asset` commits before best-effort
+unlinking the file, and `POST /api/ops` broadcasts the applied-op echo
+between the commit and the seq nudge — call `db.commit()` and
+`nudge`/`nudge_threadpool` separately instead. Most routes nudge
+unconditionally after every commit (harmless even when nothing changed);
+`cleanup_journal` is the one exception, guarding the nudge on `deleted`
+being non-empty, because it runs on every journal page load and a no-op
+run (the common case) never advances `changes.seq`.
+
+Nothing enforces this automatically: a new route that writes to a
+journaled table without calling one of these helpers is a silent gap, the
+kind that let `/api/journal/cleanup` (bean pkm-getl) delete pages and
+advance `changes.seq` for years without ever nudging — replicas kept
+showing deleted daily pages until an unrelated mutation happened to nudge
+them. `server/tests/test_journal_advancing_contract.py` enumerates every
+journal-advancing route and asserts each one emits a seq nudge; a route
+that starts writing to `blocks`/`pages`/`sidebar_entries` needs a case
+added there, or it ships with the same silent gap.
+
+Asset routes are a partial, not blanket, exception: `assets` itself has no
+changes-journal trigger, so `upload_asset` (writes only `assets`) correctly
+sends no nudge. `delete_asset` is different — when the deleted asset has
+referencing blocks, it strips the reference token from each one and either
+`UPDATE`s or `DELETE`s the block (`routes_assets.py` ~184-188), which *is*
+a `blocks` write and does advance `changes.seq`. In that branch the nudge
+is load-bearing, exactly like every other journal-advancing route, not
+incidental surplus — `delete_asset` is listed in
+`test_journal_advancing_contract.py` with a referencing-block scenario for
+this reason. Only the orphan-delete branch (no referencing blocks, so the
+commit touches `assets` alone) sends a nudge that changes nothing.
+
+### Hub fan-out: concurrent, per-client ordered (pkm-nn57)
+
+`Hub.broadcast()` (`ws.py`) hands each frame to a small bounded
+per-client queue (`QUEUE_SIZE`) and returns without waiting on any
+client's network send. Each connection has its own "drain" task that is
+the sole consumer of that client's queue, sending one frame at a time
+with a `SEND_TIMEOUT`-bounded `send_json`. This gives two properties at
+once: fan-out across clients is fully concurrent (a stalled client no
+longer adds its timeout to every other client's delivery, or to the
+write path that called `broadcast()` — previously a sequential
+await-with-timeout loop meant N stalled clients cost N seconds), while
+delivery to any one client stays strictly in the order `broadcast()` was
+called, because a single-consumer FIFO queue can't reorder its own
+items. A client is disconnected outright — never buffered without bound
+or waited on further — if its queue fills up (it isn't draining fast
+enough) or a send doesn't complete within `SEND_TIMEOUT`. Disconnecting
+also closes the socket (best-effort, errors swallowed): the connection
+can still be alive at the transport level even though the Hub has given
+up on it, and without an actual close the web client's `onclose` handler
+never fires, so it would otherwise sit wedged until a tab reload instead
+of reconnecting and resyncing from its cursor — which is the correctness
+mechanism here regardless of nudge delivery (see above). This is
+proportionate for a single-user server with a handful of connected
+replicas, not a design
+meant to scale to many concurrent connections — there is deliberately no
+separate cap on total connection count, since the per-client queue bound
+and send timeout already bound the cost that matters at this scale.
+
 ## Offline editing and reconnect
 
 While disconnected, reads and search are served from the replica through the

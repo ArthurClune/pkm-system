@@ -3,8 +3,9 @@
 title: 'Block last-changed: exclude collapse toggles from updated_at, backfill NULL created_at'
 status: todo
 type: task
+priority: normal
 created_at: 2026-08-01T18:37:40Z
-updated_at: 2026-08-01T18:37:40Z
+updated_at: 2026-08-01T18:49:50Z
 ---
 
 Goal: make blocks.updated_at a trustworthy "last changed" for every block, and fill the created_at gaps.
@@ -22,6 +23,8 @@ Block-level timestamps already exist and are genuine: blocks.created_at/updated_
 ## Checklist
 
 - [ ] Server: set_collapsed effect no longer bumps updated_at (ops_apply.py) — tests first
+- [ ] Server: SetCollapsedOp no longer emits TouchPage (ops_core.py) — page updated_at untouched by collapse
+- [ ] Client: mirror the page-touch exclusion in localOps.ts (set_collapsed currently bumps pages.updated_at there too — verify)
 - [ ] Client: mirror in web/src/replica/localOps.ts set_collapsed; keep localApi parity tests honest
 - [ ] Backfill as guarded idempotent startup migration in server/db.py: UPDATE blocks SET created_at = ... WHERE created_at IS NULL (fires changes triggers, so replicas pick it up via normal sync)
 - [ ] docs/architecture: prose note on updated_at semantics — what bumps it and that collapse deliberately does not

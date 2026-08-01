@@ -1,15 +1,25 @@
 # pattern: Imperative Shell
-"""A FileResponse whose cleanup always runs, even when sending is
-interrupted (a client disconnect mid-download, or the file going missing
-before the first byte is sent).
+"""A FileResponse whose cleanup always runs, even if the response never
+gets as far as a completed send.
 
 Stock Starlette `FileResponse.background` is only awaited *after*
-`__call__`'s send loop returns without raising -- it is not wrapped in a
-`finally`. A route that streams a large temp-file-backed archive and
-relies on `background` to remove that temp file would leak it on every
-cancelled/interrupted download. `CleanupFileResponse` wraps the same send
-in `try/finally` so routes (see `routes_export.py`, `routes_assets.py`)
-can hand it a temp-directory teardown that is guaranteed to run."""
+`__call__` returns without raising -- it is not wrapped in a `finally`.
+That gap does NOT cover an ordinary client disconnect under this
+project's actual ASGI server: uvicorn's `send()` (h11_impl.py/
+httptools_impl.py, checked against the installed 0.49.0) silently
+no-ops once the connection is marked disconnected rather than raising,
+so `_handle_simple`'s send loop still runs to completion and stock
+`background` still fires on a real disconnect. What genuinely reaches
+`CleanupFileResponse`'s `finally` instead: `os.stat`-time failures
+(`FileResponse.__call__` raises `RuntimeError` for a missing/non-regular
+file *before* reaching its own `background` line) and a differently-
+behaved ASGI server whose `send()` raises instead of no-oping on a
+dropped connection -- worth defending against since it isn't guaranteed
+by the ASGI spec, only by this one server's implementation choice.
+`CleanupFileResponse` wraps the whole call in `try/finally` so routes
+(see `routes_export.py`, `routes_assets.py`) can hand it a
+temp-directory teardown that is guaranteed to run regardless of which of
+those paths is taken."""
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable

@@ -1,8 +1,18 @@
 """CleanupFileResponse (pkm-13ty): a FileResponse whose cleanup callback
-must run even when sending is interrupted, unlike stock FileResponse's
-`background` task, which stock Starlette only awaits after `_handle_simple`'s
-send loop returns *without* raising -- so a client disconnect mid-download
-would otherwise leak the backing temp file/directory forever."""
+must run even when the response never reaches a completed send, unlike
+stock FileResponse's `background` task, which Starlette only awaits
+after `__call__` returns *without* raising.
+
+Under this project's actual ASGI server (uvicorn 0.49.0), an ordinary
+client disconnect does NOT hit that gap: uvicorn's `send()` silently
+no-ops once the connection is marked disconnected rather than raising,
+so the send loop still runs to completion and stock `background` still
+fires. What genuinely needs `CleanupFileResponse`: a missing/unreadable
+file (`FileResponse.__call__` raises `RuntimeError` from its own
+`os.stat` before reaching the `background` line) and, as
+defense-in-depth, an ASGI server that -- unlike uvicorn -- surfaces a
+dropped connection as a `send()` exception rather than a no-op (nothing
+in the ASGI spec guarantees uvicorn's no-op behavior)."""
 import pytest
 
 from pkm.server.tempfile_response import CleanupFileResponse
@@ -44,9 +54,11 @@ async def test_cleanup_runs_after_a_successful_send(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_cleanup_runs_even_if_send_raises_mid_transfer(tmp_path):
-    # Simulates a client disconnecting partway through the download: the
-    # ASGI send() raises once the peer has gone away.
+async def test_cleanup_runs_if_send_itself_raises_mid_transfer(tmp_path):
+    # Not a model of uvicorn (its send() no-ops on a dropped connection
+    # rather than raising -- see the module docstring). This covers
+    # defense-in-depth for an ASGI server that *does* surface a broken
+    # connection as a send() exception instead.
     path = tmp_path / "a.zip"
     path.write_bytes(b"zip-bytes")
     cleanup = _Cleanup()
@@ -56,11 +68,11 @@ async def test_cleanup_runs_even_if_send_raises_mid_transfer(tmp_path):
         nonlocal call_count
         call_count += 1
         if message["type"] == "http.response.body":
-            raise OSError("client disconnected")
+            raise OSError("send() raised instead of no-opping")
 
     resp = CleanupFileResponse(path, media_type="application/zip",
                                filename="a.zip", cleanup=cleanup)
-    with pytest.raises(OSError, match="client disconnected"):
+    with pytest.raises(OSError, match="send\\(\\) raised instead of no-opping"):
         await resp(_scope(), _noop_receive, send)
 
     assert cleanup.calls == 1

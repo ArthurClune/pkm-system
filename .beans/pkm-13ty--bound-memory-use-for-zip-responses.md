@@ -85,3 +85,24 @@ check` → all checks passed. `cd web && pnpm typecheck` and `pnpm
 test:unit` → clean (1750 tests passed); full `pnpm verify` (Playwright
 e2e) not run since no web source file changed, only generated
 `openapi.json`/`types.d.ts`.
+
+### Fix Round 1 (review finding)
+
+Review flagged that the stated rationale for `CleanupFileResponse` was
+wrong for this project's actual ASGI server: uvicorn's `send()`
+(verified directly against the installed 0.49.0's `h11_impl.py`)
+silently no-ops on a dropped connection rather than raising, so a real
+client disconnect does *not* skip stock `FileResponse.background` —
+that gap only matters for a missing/unreadable file at send time, or
+defense-in-depth against a non-uvicorn ASGI server whose `send()` does
+raise on disconnect. Fixed the rationale in
+`server/src/pkm/server/tempfile_response.py`'s docstring,
+`docs/architecture/backend.md`'s Assets section and module table, and
+this report's own claims; renamed the synthetic
+`test_cleanup_runs_even_if_send_raises_mid_transfer` test to
+`test_cleanup_runs_if_send_itself_raises_mid_transfer` with a comment
+stating it's not a model of uvicorn's actual behavior. No production
+code changed (the reviewer's instruction: don't touch the response
+class itself). Re-ran `tests/test_tempfile_response.py` (3 passed) and
+the full suite (1069 passed, 96.34% coverage; pyrefly 0 errors; ruff
+clean).

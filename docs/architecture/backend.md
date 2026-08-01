@@ -69,7 +69,7 @@ Inside `pkm/server/`:
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
 | `tree.py`, `backlinks.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py`, `response_models.py` | Core | Pure helpers: tree building, backlink shaping, daily-page titles, FTS queries, `{{[[query]]}}` evaluation, sync windowing, MIME sniffing, Pydantic response models |
 | `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
-| `tempfile_response.py` | Shell | `CleanupFileResponse`: a `FileResponse` whose cleanup callback runs even on a client disconnect or send-time error, not only after a completed transfer (used by the zip export routes) |
+| `tempfile_response.py` | Shell | `CleanupFileResponse`: a `FileResponse` whose cleanup callback runs even on a missing/unreadable file or a send-time error, not only after a completed transfer (used by the zip export routes; see [Assets](#assets) for why this isn't about an ordinary client disconnect under uvicorn) |
 | `request_log.py` / `logfmt.py` | Shell / Core | The `pkm.access` request log — one line per request, with durations (see [Logging](#logging-and-observability)) |
 | `run.py` / `setup.py` | Shell | `python -m pkm.server.run` entrypoint; `setup` writes `config.json` |
 | `openapi_dump.py` / `shim_parity_dump.py` | Shell | Generated-artifact writers (see [Generated artifacts](#generated-artifacts-and-parity-fixtures)) |
@@ -314,11 +314,16 @@ The three management endpoints behind the `/files` browser (pkm-jdu3) share
   silently truncated zip. Both this route and the whole-graph
   `/api/export.zip` build their archive in a temp directory and stream it
   back via a `FileResponse` subclass (`CleanupFileResponse`) instead of
-  buffering the whole zip in memory; the temp directory is removed once the
-  response completes, errors, or is interrupted by a client disconnect —
-  stock `FileResponse`'s own `background` task only runs after a send loop
-  that returns without raising, so it alone can't be trusted to clean up an
-  interrupted download.
+  buffering the whole zip in memory; the temp directory is removed
+  regardless of how the response ends. This isn't about an ordinary
+  client disconnect — under uvicorn, `send()` silently no-ops once a
+  connection drops rather than raising, so the transfer loop still runs
+  to completion and stock `FileResponse`'s own `background` task (only
+  awaited after a send loop that returns without raising) still fires.
+  What it genuinely guards is a missing/unreadable file at send time
+  (`FileResponse.__call__` raises before reaching its `background` line)
+  and, as defense-in-depth, an ASGI server other than uvicorn whose
+  `send()` does raise on a dropped connection.
 
 ## Importer (Roam EDN → fresh database)
 

@@ -5,7 +5,7 @@ status: in-progress
 type: epic
 priority: high
 created_at: 2026-07-31T15:45:04Z
-updated_at: 2026-08-01T07:52:07Z
+updated_at: 2026-08-01T13:27:30Z
 ---
 
 ## Context
@@ -379,3 +379,31 @@ Child beans (finding → bean), grouped into five parallel track branches:
 - **exports track**: 16 → pkm-n8eq, 17 → pkm-x3l7, 18 → pkm-9mdl, 26 → pkm-13ty
 - **climcp track** (sequential): 22 → pkm-5k8p, 23 → pkm-3cyg, 24 → pkm-c17m, 21 → pkm-4w23, 20 → pkm-0wr8
 - **misc track**: 19 → pkm-r72f, 25 → pkm-5g3d
+
+## Medium sweep — completed 2026-08-01
+
+All seventeen medium-priority findings (10-26) fixed via child beans, each TDD'd, task-reviewed, and re-reviewed; five track branches merged to main with --no-ff (misc 76c0b8e, services f2d862e, sync eb1325f, exports b97045f, climcp 1442499). Full verification on merged main: 1193 server tests passed (96.74% coverage), pyrefly 0 errors, ruff clean, web pnpm verify green incl. 46/46 e2e. openapi.json + web types regenerated from merged code.
+
+- Finding 10 -> pkm-getl (completed): post-commit nudge after journal cleanup; commit+nudge centralized; 11-route contract test incl. delete_asset's conditional branch
+- Finding 11 -> pkm-nn57 (completed): per-client bounded queues + drain tasks; structural FIFO; dropped clients get a bounded socket close (3 fix rounds hardened self-/cross-task cancel races)
+- Finding 12 -> pkm-ldqx (completed): chunked IN-clause hydration, byte-identical wire format, trace-hook query-count test
+- Finding 13 -> pkm-lk7t (completed): scrypt slots w/ 2s timeout into uniform 401, hard-capped source table; docs note tailscale-serve source collapse
+- Finding 14 -> pkm-rwwc (completed): unacknowledged interrupt is terminal; busy->pop with no await window
+- Finding 15 -> pkm-1wv1 (completed): queued/in-flight SHA dedupe with finally cleanup; force-retry preserved
+- Finding 16 -> pkm-n8eq (completed): stage-then-swap export publish, next-run self-heal, failure never git-committed
+- Finding 17 -> pkm-x3l7 (completed): size+SHA verification before hardlink/skip in writer+importer; missing-source repairs surfaced
+- Finding 18 -> pkm-9mdl (completed): arcname uniqueness through full-sha extension + numeric fallback, case-insensitive
+- Finding 19 -> pkm-r72f (completed): EDN strict escapes/surrogates/discards; final review caught int(x,16) laxness
+- Finding 20 -> pkm-0wr8 (completed): pkm.contracts package; response_models.py deleted; client validates every response; zero client/cli/mcp->server imports (AST-enforced)
+- Finding 21 -> pkm-4w23 (completed): discriminated batch models validated before I/O; flatten-aware outline emptiness; stable batch[i] error contract
+- Finding 22 -> pkm-5k8p (completed): original finding obsolete (pkm-w80k); successor gap fixed — client lookups normalize control-whitespace titles
+- Finding 23 -> pkm-3cyg (completed): get_backlinks pages to completion, reorder-safe, loud on non-convergence
+- Finding 24 -> pkm-c17m (completed): validate-before-upload, success output after link, compensation gated on existing flag
+- Finding 25 -> pkm-5g3d (completed): parent pkm logger policy + enumeration drift test; describe now logs to stderr (deploy-visible)
+- Finding 26 -> pkm-13ty (completed): temp-file-backed ZIP responses, 500-file/1GiB selected-asset limits, loud 413
+
+New follow-up beans filed during the sweep: pkm-5h2k (importer CLI EDN error UX — strict parser makes it likelier to fire), pkm-amq2 (export writer polish: repair telemetry, staging-dir sweep, one-shot warning note). Candidate future bean from climcp final review: read-path title normalization (pkm get/refs 404 on control-whitespace spellings that save now handles).
+
+Deploy notes: pkm.describe log lines move stdout->stderr under the parent-logger policy (launchd log files swap roles for those lines); login gains throttling (global scrypt bound is the real defense behind tailscale serve).
+
+Lower-priority findings (27-29) remain open in this epic.

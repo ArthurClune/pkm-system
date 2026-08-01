@@ -11,8 +11,9 @@ import { measureCaretDisplayLine } from "../outline/caretDisplayLine";
 import { clampCaret, type FocusTarget } from "../outline/edits";
 import { BlockEditContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
-import { applyCompletion, detectAutocomplete, holdsDraftFlush,
+import { applyCompletion, holdsDraftFlush,
          type AcContext } from "../outline/autocomplete";
+import { useAutocomplete } from "../outline/useAutocomplete";
 import { type TextSelection } from "../outline/keyEdits";
 import { decideEditorKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
@@ -400,9 +401,11 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
     node.heading === 2 ? " heading-2" :
     node.heading === 3 ? " heading-3" : "";
   const [draft, setDraft] = useState(node.text);
-  const [ac, setAc] = useState<AcContext | null>(null);
-  const [acSelected, setAcSelected] = useState(0);
-  const [caret, setCaret] = useState(0);
+  // Shared with the phone Composer (pkm-noow): the completion context and the
+  // caret a pick splices at are re-derived from the live textarea selection,
+  // so a click or a selection-only caret move (neither fires an input event)
+  // can't leave a completion pointing at where the caret used to be.
+  const ac = useAutocomplete();
   // Insertion offset for the /date picker; null = closed. The offset is
   // where the stripped "/" trigger sat. Every path that replaces the draft
   // closes the picker (onChange / applyKeyEdit / tryAdopt below), so the
@@ -439,10 +442,11 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   const outlinePasteArmedRef = useRef(false);
   // The "/" trigger is served from the static command list, not the titles
   // API, so only fetch titles for ref/tag contexts.
-  const options = useTitleOptions(ac && ac.kind !== "command" ? ac.query : null);
-  const acRows: AcRow[] = !ac ? [] : ac.kind === "command"
-    ? matchSlashCommands(ac.query).map((c) => ({ title: c.label, isNew: false, command: c.name }))
-    : buildRows(options, ac.query);
+  const options = useTitleOptions(
+    ac.ctx && ac.ctx.kind !== "command" ? ac.ctx.query : null);
+  const acRows: AcRow[] = !ac.ctx ? [] : ac.ctx.kind === "command"
+    ? matchSlashCommands(ac.ctx.query).map((c) => ({ title: c.label, isNew: false, command: c.name }))
+    : buildRows(options, ac.ctx.query);
 
   // Take focus + place the cursor once on mount (this component exists only
   // while its block is the focused one).
@@ -519,10 +523,7 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
     setDatePickerAt(null);
     dirtyRef.current = true;
     setDraft(r.text);
-    setCaret(r.selStart);
-    setAcSelected(0);
-    const ctx = detectAutocomplete(r.text, r.selStart);
-    setAc(ctx);
+    const ctx = ac.onEdit(r.text, r.selStart);
     notifyDraft(r.text, ctx);
     requestAnimationFrame(() => {
       ref.current?.setSelectionRange(r.selStart, r.selEnd);
@@ -562,16 +563,17 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
   };
 
   const pick = (row: AcRow) => {
-    if (!ac) return;
+    const target = ac.resolve(ref.current);
+    if (!target) return; // caret has moved off the token; resolve closed it
+    const { ctx, caret, text } = target;
     // "/upload": strip the trigger, then open the tree-owned file picker.
     // handlers.onFiles splices the uploaded asset's markdown in once the user
     // has chosen files; the input outlives this component (pkm-gbsb) because
     // choosing a file blurs (and so unmounts) BlockInput.
     if (row.command === "upload") {
-      const at = ac.start - 1; // where the "/" was
-      setAc(null);
-      setAcSelected(0);
-      setText(draft.slice(0, at) + draft.slice(caret), at);
+      const at = ctx.start - 1; // where the "/" was
+      ac.close();
+      setText(text.slice(0, at) + text.slice(caret), at);
       onRequestUpload(node.uid, at);
       return;
     }
@@ -580,18 +582,16 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
     // keeps focus (the picker is mouse-down-only), so the eventual
     // insertion goes through the normal setText draft path.
     if (row.command === "date") {
-      const at = ac.start - 1; // where the "/" was
-      setAc(null);
-      setAcSelected(0);
-      setText(draft.slice(0, at) + draft.slice(caret), at);
+      const at = ctx.start - 1; // where the "/" was
+      ac.close();
+      setText(text.slice(0, at) + text.slice(caret), at);
       setDatePickerAt(at);
       return;
     }
     const applied = row.command
-      ? applySlashCommand(draft, caret, ac, row.command, new Date())
-      : applyCompletion(draft, caret, ac, row.title);
-    setAc(null);
-    setAcSelected(0);
+      ? applySlashCommand(text, caret, ctx, row.command, new Date())
+      : applyCompletion(text, caret, ctx, row.title);
+    ac.close();
     setText(applied.text, applied.cursor);
     // Heading commands (/h1 /h2 /h3 /normal) aren't text transforms: the
     // trigger is stripped above like any other command, but the heading
@@ -617,10 +617,7 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
     const pos = e.target.selectionStart ?? value.length;
     dirtyRef.current = true;
     setDraft(value);
-    setCaret(pos);
-    setAcSelected(0);
-    const ctx = detectAutocomplete(value, pos);
-    setAc(ctx);
+    const ctx = ac.onEdit(value, pos);
     notifyDraft(value, ctx);
   };
 
@@ -651,12 +648,17 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
       setDatePickerAt(null);
       return;
     }
+    // A popup the caret has moved away from must not claim the key: Enter
+    // stays a split, Tab stays an indent (pkm-noow). resolve() drops the
+    // stale context, so the policy is told the popup is closed.
+    const acLive = ac.resolve(el) !== null;
     const decision = decideEditorKey({
       key: e.key, code: e.code,
       metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
       shiftKey: e.shiftKey,
       selStart: el.selectionStart, selEnd: el.selectionEnd,
-      draft, readOnly, acRowsLength: acRows.length, acSelected,
+      draft, readOnly,
+      acRowsLength: acLive ? acRows.length : 0, acSelected: ac.selected,
       caretOnFirstDisplayLine, caretOnLastDisplayLine,
     });
     switch (decision.type) {
@@ -667,15 +669,15 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
         return;
       case "ac-move":
         e.preventDefault();
-        setAcSelected(decision.selected);
+        ac.setSelected(decision.selected);
         return;
       case "ac-pick":
         e.preventDefault();
-        pick(acRows[acSelected]);
+        pick(acRows[ac.selected]);
         return;
       case "ac-close":
         e.preventDefault();
-        setAc(null);
+        ac.close();
         return;
       case "navigate-ref":
         e.preventDefault();
@@ -792,12 +794,13 @@ function BlockInput({ node, cursor, handlers, readOnly, onRequestUpload }: {
       <textarea ref={ref} className={`block-input${headingClass}`} rows={1}
                 value={draft} readOnly={readOnly}
                 onChange={onChange} onKeyDown={onKeyDown}
+                onClick={(e) => ac.resolve(e.currentTarget)}
                 onBlur={() => handlers.onBlurBlock(node.uid)}
                 onPaste={onPaste} onDrop={onDrop}
                 onCompositionStart={onCompositionStart}
                 onCompositionEnd={onCompositionEnd} />
       {!readOnly && (
-        <AutocompletePopup rows={acRows} selected={acSelected} onPick={pick} />
+        <AutocompletePopup rows={acRows} selected={ac.selected} onPick={pick} />
       )}
       {!readOnly && datePickerAt !== null && (
         <DatePickerPopup initial={new Date()} onPick={pickDate} />

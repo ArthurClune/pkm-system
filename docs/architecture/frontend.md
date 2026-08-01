@@ -52,7 +52,8 @@ outline/               The editor engine.
                        refAtCaret.ts, blockSelection.ts, history.ts,
                        paste.ts (outline paste), calendar.ts (/date month grid)
                        Shells: useOutline.ts (the hook), outlineSessions.ts
-                       (per-title shared store), undoManager.ts
+                       (per-title shared store), undoManager.ts,
+                       useAutocomplete.ts (the popup's shared state)
 grammar/               Roam-markdown parsing: scan.ts (the shared scanner,
                        mirrors server refs.py), tokenize.ts (render tokens),
                        refs.ts, todo.ts, snippet.ts
@@ -202,6 +203,23 @@ Editing mechanics worth knowing before touching `outline/`:
   turned the outline read-only). `useOutline`'s handlers do not re-check
   editability, so the gate has to be here.
 
+- **The autocomplete popup is shared state, and its caret is read live.**
+  `outline/useAutocomplete.ts` holds the open completion context and the
+  highlighted row for both the outline editor's `BlockInput` and the phone
+  `Composer`; the pure detection and staleness rule are in
+  `outline/autocomplete.ts`, and which keys the popup may claim is
+  `keyboardPolicy.autocompleteKeyAction` (unmodified Arrow/Enter/Tab/Escape
+  only, so Cmd/Ctrl/Shift/Alt chords stay with the platform and the editor).
+  The invariant worth protecting: **no action ever uses a remembered caret.**
+  Context is detected on input, but clicks and selection-only caret moves
+  fire no input event, so every action path (keydown, click, mouse pick) goes
+  through `resolve(textarea)`, which re-derives the context from the live
+  selection, closes the popup when it no longer matches, and returns the
+  caret to splice at. A stale popup therefore claims nothing — Enter stays a
+  split, Tab stays an indent (pkm-noow, which could otherwise complete at the
+  offset the caret had left). `resolve` must not be called from `keyup`:
+  both editors place the caret after a key-edit in a `requestAnimationFrame`,
+  and keyup always lands inside that window, where every context looks stale.
 - **Paste is opt-in structural, and the modifier is captured on keydown.**
   Plain Cmd-V is always left native — it inserts text into the textarea and
   nothing else (pkm-fwa2). `Shift-Cmd-V` *arms* an outline paste: `paste.ts`

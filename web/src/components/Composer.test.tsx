@@ -96,6 +96,52 @@ test("modified Arrow/Enter/Tab/Escape do not move, pick, or close the popup", as
   expect(screen.getByRole("option", { name: "Alpine" })).toHaveAttribute("aria-selected", "false");
 });
 
+test("a selection-only caret move drops the stale completion (pkm-noow)", async () => {
+  // Clicking (or arrowing) elsewhere in the textarea moves selectionStart
+  // without firing an input event, so the context captured by the last
+  // onChange still points at "[[Al". jsdom does not move the caret for a
+  // native arrow key, so the move is made the way the browser makes it —
+  // by setting the selection before the next keydown is dispatched.
+  stubFetch([["/api/titles", { titles: ["Alpha"] }]]);
+  const onSend = vi.fn();
+  render(<Composer onSend={onSend} readOnly={false} />);
+  const ta = typeRefQuery("Al");
+  await screen.findByRole("option", { name: "Alpha" });
+
+  ta.setSelectionRange(3, 3); // "See| [[Al"
+  // Enter must stay a newline: not swallowed, and nothing spliced.
+  expect(fireEvent.keyDown(ta, { key: "Enter" })).toBe(true);
+  expect(ta).toHaveValue("See [[Al");
+  expect(screen.queryByRole("listbox")).toBeNull();
+
+  // Same for a mouse pick that arrives after the caret has moved: with the
+  // popup gone there is no row to click, and the draft is untouched.
+  expect(onSend).not.toHaveBeenCalled();
+});
+
+test("clicking away from the token closes the popup (pkm-noow)", async () => {
+  stubFetch([["/api/titles", { titles: ["Alpha"] }]]);
+  render(<Composer onSend={vi.fn()} readOnly={false} />);
+  const ta = typeRefQuery("Al");
+  await screen.findByRole("option", { name: "Alpha" });
+
+  ta.setSelectionRange(3, 3); // the browser moves the caret, then clicks
+  fireEvent.click(ta);
+  expect(screen.queryByRole("listbox")).toBeNull();
+});
+
+test("a stale completion is not applied by a mouse pick (pkm-noow)", async () => {
+  stubFetch([["/api/titles", { titles: ["Alpha"] }]]);
+  render(<Composer onSend={vi.fn()} readOnly={false} />);
+  const ta = typeRefQuery("Al");
+  const option = await screen.findByRole("option", { name: "Alpha" });
+
+  ta.setSelectionRange(3, 3); // caret moved out of the [[ token
+  fireEvent.mouseDown(option);
+  expect(ta).toHaveValue("See [[Al");
+  expect(screen.queryByRole("listbox")).toBeNull();
+});
+
 test("Tab applies autocomplete and Escape cancels it", async () => {
   const onSend = vi.fn();
   stubFetch([["/api/titles", { titles: ["Alpha"] }]]);

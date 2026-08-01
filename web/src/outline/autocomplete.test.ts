@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { applyCompletion, detectAutocomplete,
-         holdsDraftFlush } from "./autocomplete";
+import { applyCompletion, detectAutocomplete, holdsDraftFlush,
+         liveAcContext } from "./autocomplete";
 
 describe("detectAutocomplete", () => {
   test("open [[ before the cursor", () => {
@@ -87,6 +87,34 @@ describe("holdsDraftFlush", () => {
     expect(holdsDraftFlush(detectAutocomplete("see [[Done]] after", 18)))
       .toBe(false);
     expect(holdsDraftFlush(null)).toBe(false);
+  });
+});
+
+describe("liveAcContext", () => {
+  const stored = { kind: "ref", start: 6, query: "Ma" } as const;
+
+  test("keeps the context while the live caret still describes it", () => {
+    expect(liveAcContext(stored, "see [[Ma", 8)).toEqual(stored);
+  });
+
+  test("drops it once the caret has left the token", () => {
+    // clicked back into "see" — no input event, so `stored` is unchanged
+    expect(liveAcContext(stored, "see [[Ma", 3)).toBeNull();
+  });
+
+  test("drops it when the caret moved inside the token, shortening the query", () => {
+    // the popup on screen lists matches for "Ma"; splicing at "M" would
+    // leave the "a" stranded after the completed title
+    expect(liveAcContext(stored, "see [[Ma", 7)).toBeNull();
+  });
+
+  test("drops it when the live caret sits in a different kind of token", () => {
+    expect(liveAcContext({ kind: "tag", start: 3, query: "ta" }, "a /ta", 5))
+      .toBeNull();
+  });
+
+  test("a closed popup stays closed", () => {
+    expect(liveAcContext(null, "see [[Ma", 8)).toBeNull();
   });
 });
 

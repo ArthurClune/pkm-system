@@ -48,6 +48,24 @@ export function detectAutocomplete(text: string,
   return null;
 }
 
+/** The completion context to act on, re-derived from the text and caret read
+ * live off the textarea at the moment of a keypress or pick. `stored` is what
+ * the last input event detected; a click or a selection-only caret move fires
+ * no input event, so it can describe a token the caret has since left —
+ * acting on it would splice the completion at the old offset, or swallow an
+ * Enter the user meant as a newline (pkm-noow). Null when nothing is open, or
+ * when the live caret no longer implies exactly the stored context: a
+ * narrowed query is stale too, because the rows on screen were fetched for
+ * the longer one and completing would strand its tail. */
+export function liveAcContext(stored: AcContext | null, text: string,
+                              caret: number): AcContext | null {
+  if (stored === null) return null;
+  const live = detectAutocomplete(text, caret);
+  if (live === null) return null;
+  return live.kind === stored.kind && live.start === stored.start
+      && live.query === stored.query ? live : null;
+}
+
 /** Whether the debounced draft autosave should be deferred: the caret is
  * mid-token in a page-creating context ([[ ref or #tag), so committing now
  * would materialise the half-typed title as a page — the server creates a

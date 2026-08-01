@@ -453,6 +453,80 @@ test("a non-matching slash query shows no rows and Enter falls through to split"
   expect(h.onSplit).toHaveBeenCalledWith("u1", 4);
 });
 
+describe("a caret moved without an input event (pkm-noow)", () => {
+  // A click or a selection-only key moves selectionStart with no input
+  // event, so the context captured by the last onChange can describe a token
+  // the caret has left. jsdom does not move the caret for a native key, so
+  // these tests move the selection the way the browser does: before the next
+  // event is dispatched.
+  test("Enter splits at the live caret instead of applying the slash command", () => {
+    const h = handlers();
+    mount(h, { uid: "u1", cursor: 0 });
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: "hello /py" } });
+    ta.setSelectionRange(9, 9);
+    expect(screen.getByRole("option", { name: "python code block" }))
+      .toBeInTheDocument();
+
+    ta.setSelectionRange(2, 2); // clicked back into "hello"
+    fireEvent.keyDown(ta, { key: "Enter" });
+
+    expect(h.onSplit).toHaveBeenCalledWith("u1", 2);
+    expect(h.onDraftChange)
+      .not.toHaveBeenCalledWith("u1", expect.stringContaining("```"));
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  test("Tab indents instead of completing a stale [[ reference", () => {
+    stubFetch([["/api/titles", { titles: [] }]]);
+    const h = handlers();
+    mount(h, { uid: "u1", cursor: 0 });
+    const ta = focusedTextarea();
+    fireEvent.change(ta, {
+      target: { value: "see [[Al", selectionStart: 8, selectionEnd: 8 },
+    });
+    expect(screen.getByRole("option", { name: /New page: Al/ }))
+      .toBeInTheDocument();
+
+    ta.setSelectionRange(3, 3);
+    fireEvent.keyDown(ta, { key: "Tab" });
+
+    expect(h.onIndent).toHaveBeenCalledWith("u1");
+    expect(ta).toHaveValue("see [[Al");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  test("clicking away from the token closes the popup", () => {
+    const h = handlers();
+    mount(h, { uid: "u1", cursor: 0 });
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: "hello /py" } });
+    ta.setSelectionRange(9, 9);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+
+    ta.setSelectionRange(2, 2); // the browser moves the caret, then clicks
+    fireEvent.click(ta);
+
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  test("clicking a row of a stale popup applies nothing", () => {
+    const h = handlers();
+    mount(h, { uid: "u1", cursor: 0 });
+    const ta = focusedTextarea();
+    fireEvent.change(ta, { target: { value: "hello /py" } });
+    ta.setSelectionRange(9, 9);
+    const row = screen.getByRole("option", { name: "python code block" });
+
+    ta.setSelectionRange(2, 2);
+    fireEvent.mouseDown(row);
+
+    expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "hello /py");
+    expect(ta).toHaveValue("hello /py");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+});
+
 test("typing /h1 shows the heading rows; Enter strips the trigger and dispatches onSetHeading", () => {
   const h = handlers();
   mount(h, { uid: "u1", cursor: 0 });

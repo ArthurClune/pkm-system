@@ -37,14 +37,21 @@ def add_sidebar_entry(request: Request, body: AddSidebarEntryRequest,
     title = body.title.strip()
     if not title:
         raise HTTPException(status_code=422, detail="title must not be blank")
+    db.execute("BEGIN IMMEDIATE")
     existing = db.execute(
         "SELECT title, order_idx FROM sidebar_entries").fetchall()
     if any(r["title"] == title for r in existing):
+        db.rollback()
         raise HTTPException(status_code=409, detail="entry already exists")
     order_idx = next_order_idx([r["order_idx"] for r in existing])
-    cur = db.execute(
-        "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
-        (title, order_idx))
+    try:
+        cur = db.execute(
+            "INSERT INTO sidebar_entries(title, order_idx) VALUES (?, ?)",
+            (title, order_idx))
+    except sqlite3.IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="entry already exists") from None
     notify.commit_and_nudge_threadpool(request, db)
     return {"id": cur.lastrowid, "title": title}
 

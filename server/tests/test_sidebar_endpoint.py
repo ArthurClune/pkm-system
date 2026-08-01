@@ -1,4 +1,8 @@
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+from pkm.server import routes_sidebar
 
 
 def _seed_entries(db_path, rows):
@@ -51,6 +55,65 @@ def test_add_entry_rejects_duplicate_title(client, seeded_config):
     _seed_entries(seeded_config.db_path, [("AWS", 0)])
     r = client.post("/api/sidebar", json={"title": "AWS"})
     assert r.status_code == 409
+
+
+def _post_concurrently(client, monkeypatch, titles):
+    real_next = routes_sidebar.next_order_idx
+    second_arrived = threading.Event()
+    call_lock = threading.Lock()
+    calls = 0
+
+    def rendezvous(values):
+        nonlocal calls
+        with call_lock:
+            calls += 1
+            call = calls
+        if call == 1:
+            second_arrived.wait(timeout=0.25)
+        else:
+            second_arrived.set()
+        return real_next(values)
+
+    monkeypatch.setattr(routes_sidebar, "next_order_idx", rendezvous)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(
+            client.post, "/api/sidebar", json={"title": title})
+            for title in titles]
+    return [future.result() for future in futures]
+
+
+def test_concurrent_different_titles_get_distinct_append_indexes(
+        client, seeded_config, monkeypatch):
+    _seed_entries(seeded_config.db_path, [("AWS", 0)])
+    responses = _post_concurrently(
+        client, monkeypatch, ["Crypto", "Databases"])
+    assert [r.status_code for r in responses] == [200, 200]
+
+    con = sqlite3.connect(seeded_config.db_path)
+    rows = con.execute(
+        "SELECT title, order_idx FROM sidebar_entries"
+        " WHERE title IN ('Crypto', 'Databases') ORDER BY order_idx"
+    ).fetchall()
+    con.close()
+    assert [row[1] for row in rows] == [1, 2]
+    assert {row[0] for row in rows} == {"Crypto", "Databases"}
+
+
+
+def test_concurrent_same_title_returns_one_conflict(
+        client, seeded_config, monkeypatch):
+    responses = _post_concurrently(
+        client, monkeypatch, ["Crypto", "Crypto"])
+    assert sorted(r.status_code for r in responses) == [200, 409]
+    conflict = next(r for r in responses if r.status_code == 409)
+    assert conflict.json() == {"detail": "entry already exists"}
+
+    con = sqlite3.connect(seeded_config.db_path)
+    count = con.execute(
+        "SELECT count(*) FROM sidebar_entries WHERE title = 'Crypto'"
+    ).fetchone()[0]
+    con.close()
+    assert count == 1
 
 
 def test_add_entry_rejects_blank_title(client):

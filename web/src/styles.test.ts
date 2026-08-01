@@ -300,6 +300,28 @@ describe("form control tokens (pkm-mrru)", () => {
   });
 });
 
+describe("shared Files styling (pkm-6phf findings 16-17)", () => {
+  test("settings-note styling is available outside Settings sections", () => {
+    expect(styles).toContain("\np.settings-note {");
+    expect(styles).not.toContain(".settings-section p.settings-note");
+
+    const note = ruleFor("p.settings-note");
+    expect(note).toContain("font-size: 13px;");
+    expect(note).toContain("color: var(--color-text-muted);");
+    expect(note).toContain("margin-top: 6px;");
+  });
+
+  test("disabled danger buttons match secondary disabled feedback", () => {
+    expect(ruleFor(".btn-danger:hover:not(:disabled)"))
+      .toContain("opacity: 0.9;");
+    expect(styles).not.toContain(".btn-danger:hover {");
+
+    const disabled = ruleFor(".btn-danger:disabled");
+    expect(disabled).toContain("opacity: 0.35;");
+    expect(disabled).toContain("cursor: default;");
+  });
+});
+
 describe("control polish (pkm-0wg9)", () => {
   test("actions and fields have their own radius tokens", () => {
     const root = ruleFor(":root");

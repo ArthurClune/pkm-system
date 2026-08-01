@@ -402,6 +402,21 @@ it("renders the Files view at /files", async () => {
   ).toBeInTheDocument();
 });
 
+// pkm-77w2: this exercises useRouteTitle() as actually mounted inside App
+// (App.tsx:59), not via a synthetic probe -- useRouteTitle.test.tsx covers
+// the hook in isolation, but only a real <App/> render proves the wiring
+// itself wasn't dropped.
+it("sets the browser title from the centralized route table as App navigates between static routes (pkm-77w2)", async () => {
+  stubFetch([["/api/journal", { days: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  await screen.findByPlaceholderText("Search…");
+  expect(document.title).toBe("Daily Notes — pkm");
+
+  fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+  await screen.findByRole("heading", { level: 1, name: "Settings" });
+  expect(document.title).toBe("Settings — pkm");
+});
+
 it("the hamburger exposes the drawer's expanded state and what it controls (pkm-rwwp)", () => {
   stubFetch([["/api/journal", { days: [] }]]);
   const { container } = render(

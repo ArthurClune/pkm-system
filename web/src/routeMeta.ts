@@ -21,6 +21,11 @@ export const ROUTES = {
   notFound: "*",
 } as const;
 
+/** One of the paths in ROUTES -- not an arbitrary string. Used to keep
+ * DYNAMIC_ROUTES (and anything else enumerating declared routes) unable to
+ * name a path ROUTES doesn't declare. */
+type RoutePath = (typeof ROUTES)[keyof typeof ROUTES];
+
 export interface RouteMeta {
   /** Top-bar label (TopBar.tsx). */
   label: string;
@@ -43,8 +48,10 @@ export const ROUTE_META: Readonly<Record<string, RouteMeta>> = {
   [ROUTES.settings]: { label: "Settings", title: "Settings — pkm" },
 };
 
-/** Routes intentionally excluded from ROUTE_META (see above). */
-export const DYNAMIC_ROUTES: readonly string[] = [ROUTES.page, ROUTES.notFound];
+/** Routes intentionally excluded from ROUTE_META (see above). Typed as
+ * RoutePath[] rather than string[] so a typo or a path ROUTES doesn't
+ * declare is a compile error, not just a runtime test failure. */
+export const DYNAMIC_ROUTES: readonly RoutePath[] = [ROUTES.page, ROUTES.notFound];
 
 export function routeMetaFor(pathname: string): RouteMeta | undefined {
   return ROUTE_META[pathname];

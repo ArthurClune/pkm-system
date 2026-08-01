@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator
 
 import pytest
@@ -323,6 +324,37 @@ def test_healthy_conversation_is_reused_after_a_dropped_turn():
     assert "ok" in service._entries
     # the entry is usable again, not stuck busy or removed
     assert service._entries["ok"].busy is False
+
+
+def test_concurrent_delete_during_unacknowledged_interrupt_is_not_logged_as_retired(
+        caplog):
+    # A pagehide-beacon delete() can race the same cid's interrupt-cleanup
+    # in _stream's finally: delete() pops and closes it first, so the
+    # cleanup's own pop finds nothing (removed=False) and must not close
+    # the handle again -- and must not claim it "retired" a conversation
+    # that a different code path already tore down.
+    engine = FakeEngine()
+    service = AssistantService(engine)
+    handle = _StubHandle(unhealthy_after_interrupt=True)
+    service._entries["broken"] = _Entry(handle=handle, model="sonnet", last_used=service._clock())
+
+    async def scenario():
+        stream = service.send("broken", "hi")
+        task = asyncio.create_task(_drain(stream))
+        for _ in range(3):
+            await asyncio.sleep(0)  # let it reach the blocking send()
+        await service.delete("broken")  # races the interrupt-cleanup below
+        task.cancel()  # simulates the SSE consumer dropping mid-turn
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
+        asyncio.run(scenario())
+
+    assert handle.closed is True  # closed exactly once, by delete()
+    assert "broken" not in service._entries
+    assert not any("retired after an unacknowledged interrupt" in r.message
+                  for r in caplog.records)
 
 
 def test_delete_closes_and_is_idempotent():

@@ -1,6 +1,6 @@
 from pkm.server.throttle_core import (
-    AttemptState, after_failure, after_success, backoff_ms, evict_oldest,
-    is_throttled, prune_expired,
+    AttemptState, after_failure, backoff_ms, evict_oldest, is_throttled,
+    prune_expired,
 )
 
 
@@ -33,10 +33,6 @@ def test_repeated_failures_increase_wait_from_last_failure():
     assert state.blocked_until_ms == 3_000
     assert is_throttled(state, now_ms=2_999)
     assert not is_throttled(state, now_ms=3_000)
-
-
-def test_success_clears_history():
-    assert after_success() == AttemptState()
 
 
 def test_prune_expired_drops_only_lapsed_sources():

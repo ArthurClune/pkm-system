@@ -47,10 +47,6 @@ def after_failure(state: AttemptState, now_ms: int) -> AttemptState:
                         blocked_until_ms=now_ms + backoff_ms(failures))
 
 
-def after_success() -> AttemptState:
-    return AttemptState()
-
-
 def prune_expired(attempts: dict[str, AttemptState],
                   now_ms: int) -> dict[str, AttemptState]:
     """Drop sources whose backoff has already lapsed. This alone is only a

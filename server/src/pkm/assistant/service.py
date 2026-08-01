@@ -199,11 +199,17 @@ class AssistantService:
                 # is not free to call twice just because it happens to
                 # tolerate it.
                 removed = self._entries.pop(cid, None) is not None
-                logger.warning(
-                    "assistant conversation %s retired after an unacknowledged interrupt", cid
-                )
                 if removed:
+                    logger.warning(
+                        "assistant conversation %s retired after an unacknowledged interrupt", cid
+                    )
                     await entry.handle.close()
+                else:
+                    logger.debug(
+                        "assistant conversation %s already removed by a concurrent "
+                        "delete() before the unacknowledged-interrupt retirement "
+                        "could run", cid
+                    )
 
     def confirm(self, conversation_id: str, tool_use_id: str, allow: bool) -> None:
         self._get(conversation_id).handle.resolve_confirm(tool_use_id, allow)

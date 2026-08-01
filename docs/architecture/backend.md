@@ -231,6 +231,14 @@ Deliberately modest, layered under Tailscale (see `docs/SECURITY.md`):
   own, since it only engages after a failure is recorded — which
   requires having gotten a slot and run a password check first; the
   timeout is what actually bounds it.
+  Prod sits behind `tailscale serve`, so `request.client.host` is the
+  proxy's address for every request — all clients collapse into one
+  throttle bucket there. The per-source backoff is therefore effectively
+  *global* in prod: one wrong password from anyone throttles everyone,
+  including a subsequent correct-password login, for that backoff
+  window. The global semaphore plus its 2s acquire timeout — not
+  per-source isolation — is the actual load-bearing defense against a
+  concurrency flood in the real deployment.
 - Every feature router is declared with
   `dependencies=[Depends(require_auth)]`; public surface is only `GET
   /login`, `POST /api/login`, `GET /healthz`, and the static SPA shell.

@@ -5,7 +5,7 @@ status: completed
 type: epic
 priority: high
 created_at: 2026-07-31T15:32:12Z
-updated_at: 2026-08-01T19:43:48Z
+updated_at: 2026-08-01T19:44:36Z
 ---
 
 ## Context
@@ -240,10 +240,10 @@ Done in pkm-xh61.
 
 ## Verification and documentation
 
-- [x] Use test-driven development for each behavior change (mediums; TDD evidence in each child bean branch)
+- [x] Use test-driven development for each behavior change in the relevant child bean branches, including the low-priority Files styling behavior; do not claim TDD for pure dead-code deletion
 - [x] Run `cd web && pnpm verify` (green on integrated `pkm-6phf-low`: 1,808 coverage-gated unit tests and 48 E2E tests; merged focused suites: 279 tests)
 - [x] Review and update `docs/architecture/frontend.md` for route metadata, API typing, editor boundaries, loading-controller, control-class, or stylesheet invariant changes (done per lane; backend.md and sync-and-offline.md also updated for pkm-60bf)
-- [x] Split independent work into child beans where implementation should proceed separately (nine child beans, findings 6-14)
+- [x] Split independent work into child beans where implementation should proceed separately (eleven child beans, findings 6-17)
 
 ## Summary of Changes
 

@@ -98,6 +98,10 @@ function buildUrl(template: string, options: RawOptions | undefined): string {
     // "$&"/"$`" inside a page title as backreferences.
     url = url.replace(`{${name}}`, () => encodeTitle(String(value)));
   }
+  // URLSearchParams writes a space as "+" where the hand-built URLs used
+  // encodeURIComponent's "%20". Both the server (Starlette) and the offline
+  // shim (`new URL(...).searchParams`) decode the two identically, so a
+  // converted call site keeps its meaning even though its URL bytes change.
   const query = new URLSearchParams();
   for (const [name, value] of Object.entries(options?.query ?? {})) {
     if (value !== undefined) query.append(name, String(value));

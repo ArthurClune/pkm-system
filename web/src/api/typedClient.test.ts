@@ -113,6 +113,14 @@ it("appends supplied query parameters and drops undefined ones", async () => {
   expect(fetchMock.mock.calls[0][0]).toBe("/api/page/T?bl_limit=5");
 });
 
+it("form-encodes query values, which the shim and the server both decode", async () => {
+  const fetchMock = stubFetch({ pages: [], blocks: [] });
+  await apiGet("/api/search", { query: { q: "hello world" } });
+  expect(fetchMock.mock.calls[0][0]).toBe("/api/search?q=hello+world");
+  const shimmed = new URL(String(fetchMock.mock.calls[0][0]), "http://x");
+  expect(shimmed.searchParams.get("q")).toBe("hello world");
+});
+
 it("omits the query string entirely when nothing is supplied", async () => {
   const fetchMock = stubFetch();
   await apiGet("/api/current-work");

@@ -407,7 +407,10 @@ Three deliberate exceptions, all commented in `styles.css` so an audit
 doesn't "fix" them:
 
 - `.top-bar-search-input` sets `outline: none` — its 220px→320px width growth
-  is the focus affordance.
+  is the focus affordance. That growth is desktop-only: below the 600px phone
+  breakpoint the field must shrink instead of overflow (`.search-field`'s
+  `min-width: 0`, pkm-vszf), so growth stops being a usable focus cue and the
+  `@media (max-width: 600px)` block re-enables the ring there.
 - `DatePickerPopup`'s buttons get no ring: the popup is mouse-only by design
   (every element `preventDefault`s on mousedown so the block textarea keeps
   focus), and Tab inside a block indents, so a ring there is unreachable.

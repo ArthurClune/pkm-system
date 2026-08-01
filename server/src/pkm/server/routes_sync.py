@@ -18,7 +18,7 @@ from pkm.server.db import get_db
 from pkm.server.response_models import (ChangesPayload, SnapshotPayload,
                                         SyncBlock, SyncPage, SyncRef,
                                         SyncSidebarEntry, SyncTombstone)
-from pkm.server.sync_core import dedupe_window
+from pkm.server.sync_core import chunk_ids, dedupe_window, hydrate_in_order
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -33,42 +33,96 @@ def _generation(db: sqlite3.Connection) -> str:
     return row["value"] if row is not None else ""
 
 
+def _blocks_by_uid(db: sqlite3.Connection,
+                   uids: list[str]) -> dict[str, sqlite3.Row]:
+    out: dict[str, sqlite3.Row] = {}
+    for chunk in chunk_ids(uids):
+        marks = ",".join("?" * len(chunk))
+        for row in db.execute(
+                "SELECT uid, page_id, parent_uid, order_idx, text, heading,"
+                " collapsed, created_at, updated_at, view_type"
+                f" FROM blocks WHERE uid IN ({marks})", chunk):
+            out[row["uid"]] = row
+    return out
+
+
+def _refs_by_block(db: sqlite3.Connection,
+                   uids: list[str]) -> dict[str, list[SyncRef]]:
+    out: dict[str, list[SyncRef]] = {}
+    for chunk in chunk_ids(uids):
+        marks = ",".join("?" * len(chunk))
+        # refs is WITHOUT ROWID, keyed on (src_block_uid, target_page_id,
+        # kind) -- ordering by the trailing key columns keeps each uid's
+        # ref list in the same order the old single-uid query returned
+        # (that query had no ORDER BY either, but a WITHOUT ROWID table's
+        # scan is a btree walk in primary-key order already).
+        for row in db.execute(
+                "SELECT src_block_uid, target_page_id, kind FROM refs"
+                f" WHERE src_block_uid IN ({marks})"
+                " ORDER BY src_block_uid, target_page_id, kind", chunk):
+            out.setdefault(row["src_block_uid"], []).append(
+                SyncRef(target_page_id=row["target_page_id"],
+                        kind=row["kind"]))
+    return out
+
+
 def _block_payloads(db: sqlite3.Connection,
                     uids: list[str]) -> tuple[list[SyncBlock], set[int]]:
     """Hydrate blocks + their refs; also return every page id referenced
     by those refs (dependency pages -- spec section 1: a window boundary
     can split a block+refs from the implicitly-created page it points at,
-    so referenced pages ship with the block)."""
-    blocks: list[SyncBlock] = []
+    so referenced pages ship with the block). Fetched via chunked
+    `WHERE uid IN (...)` set queries rather than one query per uid
+    (pkm-ldqx) -- a legal window/snapshot can carry thousands of uids."""
+    if not uids:
+        return [], set()
+    block_rows = _blocks_by_uid(db, uids)
+    # refs only for uids that still have a block row: a uid whose block
+    # was deleted again since has no row here, and the caller turns its
+    # absence into a tombstone -- same as the old per-uid loop skipping
+    # the refs query for a missing block.
+    refs_by_uid = _refs_by_block(db, list(block_rows))
+    by_uid: dict[str, SyncBlock] = {}
     dep_pages: set[int] = set()
-    for uid in uids:
-        row = db.execute(
-            "SELECT uid, page_id, parent_uid, order_idx, text, heading,"
-            " collapsed, created_at, updated_at, view_type"
-            " FROM blocks WHERE uid = ?",
-            (uid,)).fetchone()
-        if row is None:
-            continue  # deleted again since -- the tombstone row covers it
-        refs = [SyncRef(target_page_id=r["target_page_id"], kind=r["kind"])
-                for r in db.execute(
-                    "SELECT target_page_id, kind FROM refs"
-                    " WHERE src_block_uid = ?", (uid,))]
+    for uid, row in block_rows.items():
+        refs = refs_by_uid.get(uid, [])
         dep_pages.update(r.target_page_id for r in refs)
-        blocks.append(SyncBlock(
+        by_uid[uid] = SyncBlock(
             uid=row["uid"], page_id=row["page_id"],
             parent_uid=row["parent_uid"], order_idx=row["order_idx"],
             text=row["text"], heading=row["heading"],
             view_type=row["view_type"],
             collapsed=row["collapsed"], created_at=row["created_at"],
-            updated_at=row["updated_at"], refs=refs))
-    return blocks, dep_pages
+            updated_at=row["updated_at"], refs=refs)
+    return hydrate_in_order(uids, by_uid), dep_pages
 
 
 def _page_payloads(db: sqlite3.Connection, ids: set[int]) -> list[SyncPage]:
-    return [SyncPage(**dict(row)) for pid in sorted(ids)
-            if (row := db.execute(
+    if not ids:
+        return []
+    ordered = sorted(ids)
+    by_id: dict[int, SyncPage] = {}
+    for chunk in chunk_ids(ordered):
+        marks = ",".join("?" * len(chunk))
+        for row in db.execute(
                 "SELECT id, title, created_at, updated_at FROM pages"
-                " WHERE id = ?", (pid,)).fetchone()) is not None]
+                f" WHERE id IN ({marks})", chunk):
+            by_id[row["id"]] = SyncPage(**dict(row))
+    return hydrate_in_order(ordered, by_id)
+
+
+def _sidebar_payloads(db: sqlite3.Connection,
+                      ids: list[int]) -> list[SyncSidebarEntry]:
+    if not ids:
+        return []
+    by_id: dict[int, SyncSidebarEntry] = {}
+    for chunk in chunk_ids(ids):
+        marks = ",".join("?" * len(chunk))
+        for row in db.execute(
+                "SELECT id, title, order_idx FROM sidebar_entries"
+                f" WHERE id IN ({marks})", chunk):
+            by_id[row["id"]] = SyncSidebarEntry(**dict(row))
+    return hydrate_in_order(ids, by_id)
 
 
 @router.get("/api/sync/changes", response_model=ChangesPayload)
@@ -98,10 +152,7 @@ def sync_changes(since: int = 0, limit: int = 1000,
 
         blocks, dep_pages = _block_payloads(db, block_uids)
         pages = _page_payloads(db, page_ids | dep_pages)
-        sidebar = [SyncSidebarEntry(**dict(row)) for sid in sidebar_ids
-                   if (row := db.execute(
-                       "SELECT id, title, order_idx FROM sidebar_entries"
-                       " WHERE id = ?", (sid,)).fetchone()) is not None]
+        sidebar = _sidebar_payloads(db, sidebar_ids)
 
         present_blocks = {b.uid for b in blocks}
         present_pages = {p.id for p in pages}

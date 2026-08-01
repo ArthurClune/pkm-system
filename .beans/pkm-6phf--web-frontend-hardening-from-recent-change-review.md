@@ -1,11 +1,11 @@
 ---
 # pkm-6phf
 title: Web frontend hardening from recent-change review
-status: todo
+status: in-progress
 type: epic
 priority: high
 created_at: 2026-07-31T15:32:12Z
-updated_at: 2026-07-31T15:32:12Z
+updated_at: 2026-08-01T13:21:31Z
 ---
 
 ## Context

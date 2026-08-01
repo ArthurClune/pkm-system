@@ -374,7 +374,17 @@ an already-published database.
   (`markdown.py` resolves `((refs))` to text, one level deep, and keeps
   `{{query: ...}}` macros as the raw command), and mirrors assets
   incrementally. Markdown files are rewritten byte-identically when unchanged,
-  so the git diff of a nightly export is minimal. The whole-database export
+  so the git diff of a nightly export is minimal. Rendering and asset
+  copying happen into a scratch `.export-staging-*` directory beside the
+  live one; the previous `pages/`, `journal/`, and `assets/` are only
+  replaced (via `_publish_dir`'s atomic directory rename, one subtree at a
+  time) once a full new export is ready, so a rendering, disk, or
+  asset-copy failure anywhere leaves the last known-good export untouched
+  (pkm-n8eq) -- the same "stage, then swap" shape as the database/report
+  publish below, applied to a directory tree instead of a file. A crash
+  mid-swap can leave a `<name>.stale` directory holding the pre-swap
+  contents; the next run's own `_publish_dir` call cleans it up before
+  proceeding, so no manual recovery is needed. The whole-database export
   is also exposed over HTTP (`routes_export.py`'s `/api/export.zip`,
   pkm-uvqf): the same `export_graph()` into a temp dir, downloaded zipped --
   same backup semantics, unchanged by pkm-kplp below.

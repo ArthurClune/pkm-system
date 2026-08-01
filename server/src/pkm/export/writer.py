@@ -1,14 +1,25 @@
 # pattern: Imperative Shell
 """Write the full markdown + assets export for a graph database.
 
-*.md files are wiped and rewritten every run (renames/deletes stay honest;
-git still diffs minimally because unchanged content is byte-identical).
-The asset mirror is incremental: content-hashed files never change, so
-only new hashes are copied and vanished hashes pruned."""
+Rendering and asset staging happen entirely in a scratch directory beside
+the live one; the last good export is only replaced once a full new export
+is ready, via atomic directory renames (see `_publish_dir`). A crash or
+exception anywhere in rendering, disk I/O, or asset copying leaves the
+previous export byte-identical -- nothing is deleted or overwritten
+in-place.
+
+*.md files are wholly regenerated every run (git still diffs minimally
+because unchanged content is byte-identical). The asset mirror is
+incremental: content-hashed files never change, so an asset already present
+in the export is hardlinked into the new tree instead of re-copied; only
+new hashes are actually copied from the live store, and vanished hashes are
+simply left out of the new tree (pruned)."""
 from __future__ import annotations
 
+import os
 import shutil
 import sqlite3
+import tempfile
 from pathlib import Path
 
 from pkm.export.markdown import page_filename, render_page
@@ -16,7 +27,26 @@ from pkm.filenames import safe_filename
 from pkm.server.daily import date_for_title
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
-GITIGNORE = "assets/\n"
+GITIGNORE = "assets/\n.export-staging-*/\n"
+
+
+def _publish_dir(staged: Path, target: Path) -> None:
+    """Atomically replace `target`'s contents with `staged`'s.
+
+    A plain `os.replace(staged, target)` fails when `target` is a
+    non-empty directory, so the previous contents are first moved aside
+    (a second atomic rename) and only removed once the new contents are
+    in place. That leaves, at most, a brief window where `target` doesn't
+    exist -- never a window where it holds partial contents.
+    """
+    stale = target.with_name(target.name + ".stale")
+    if stale.exists():
+        shutil.rmtree(stale)
+    if target.exists():
+        os.replace(target, stale)
+    os.replace(staged, target)
+    if stale.exists():
+        shutil.rmtree(stale)
 
 
 def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
@@ -24,8 +54,7 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
     pages_dir = export_dir / "pages"
     journal_dir = export_dir / "journal"
     assets_dir = export_dir / "assets"
-    for d in (pages_dir, journal_dir, assets_dir):
-        d.mkdir(parents=True, exist_ok=True)
+    export_dir.mkdir(parents=True, exist_ok=True)
     (export_dir / ".gitignore").write_text(GITIGNORE, encoding="utf-8")
 
     texts = [r["text"] for r in db.execute("SELECT text FROM blocks")]
@@ -36,11 +65,8 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         if row is not None:
             uid_to_text[uid] = row["text"]
 
-    for d in (pages_dir, journal_dir):
-        for old in d.glob("*.md"):
-            old.unlink()
-
     counts = {"pages": 0, "journal": 0, "assets_copied": 0, "assets_pruned": 0}
+    rendered: dict[tuple[str, str], str] = {}  # (kind, filename) -> body
     taken: set[str] = set()
     for page in db.execute("SELECT id, title FROM pages ORDER BY title"):
         rows = db.execute(
@@ -50,28 +76,48 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         body = render_page(page["title"], build_tree(rows), uid_to_text)
         day = date_for_title(page["title"])
         if day is not None:
-            (journal_dir / f"{day.isoformat()}.md").write_text(
-                body, encoding="utf-8")
+            rendered["journal", f"{day.isoformat()}.md"] = body
             counts["journal"] += 1
         else:
-            (pages_dir / page_filename(page["title"], taken)).write_text(
-                body, encoding="utf-8")
+            rendered["pages", page_filename(page["title"], taken)] = body
             counts["pages"] += 1
 
     wanted: dict[str, str] = {
         row["sha256"]: safe_filename(row["filename"])
         for row in db.execute("SELECT sha256, filename FROM assets")}
-    for sha, fname in wanted.items():
-        src = live_assets_dir / sha[:2] / sha
-        out = assets_dir / sha / fname
-        if not src.is_file():
-            continue  # row without a stored file: known import residue
-        if not out.is_file():
-            out.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, out)
+    previously_present = ({d.name for d in assets_dir.iterdir() if d.is_dir()}
+                          if assets_dir.is_dir() else set())
+    counts["assets_pruned"] = len(previously_present - wanted.keys())
+
+    staging = Path(tempfile.mkdtemp(dir=export_dir, prefix=".export-staging-"))
+    try:
+        stage_pages, stage_journal, stage_assets = (
+            staging / "pages", staging / "journal", staging / "assets")
+        stage_pages.mkdir()
+        stage_journal.mkdir()
+        stage_assets.mkdir()
+        for (kind, fname), body in rendered.items():
+            (staging / kind / fname).write_text(body, encoding="utf-8")
+
+        for sha, fname in wanted.items():
+            dest = stage_assets / sha / fname
+            existing = assets_dir / sha / fname
+            if existing.is_file():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                os.link(existing, dest)
+                continue
+            src = live_assets_dir / sha[:2] / sha
+            if not src.is_file():
+                continue  # row without a stored file: known import residue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
             counts["assets_copied"] += 1
-    for d in assets_dir.iterdir():
-        if d.is_dir() and d.name not in wanted:
-            shutil.rmtree(d)
-            counts["assets_pruned"] += 1
+
+        # Publish only now that every render and copy above has succeeded.
+        _publish_dir(stage_pages, pages_dir)
+        _publish_dir(stage_journal, journal_dir)
+        _publish_dir(stage_assets, assets_dir)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
     return counts

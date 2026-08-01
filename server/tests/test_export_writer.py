@@ -1,9 +1,16 @@
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from pkm.export.writer import export_graph
 from pkm.schema import DDL
+
+
+def _snapshot(export_dir: Path) -> dict[str, bytes]:
+    """Every file under `export_dir`, by relative path, with its bytes."""
+    return {str(p.relative_to(export_dir)): p.read_bytes()
+           for p in export_dir.rglob("*") if p.is_file()}
 
 
 @pytest.fixture()
@@ -44,7 +51,7 @@ def test_export_writes_pages_journal_assets(graph):
     journal = (export / "journal" / "2026-07-07.md").read_text()
     assert "- journal refs ((root block))" in journal
     assert (export / "assets" / sha / "pic.png").read_bytes() == b"png"
-    assert (export / ".gitignore").read_text() == "assets/\n"
+    assert (export / ".gitignore").read_text() == "assets/\n.export-staging-*/\n"
 
 
 def test_export_is_incremental_and_prunes(graph):
@@ -119,3 +126,72 @@ def test_export_does_not_clobber_assets_that_collide_after_truncation(tmp_path):
     assert name_a == name_b  # truncation collides...
     assert (assets_dir / sha_a / name_a).read_bytes() == b"one"
     assert (assets_dir / sha_b / name_b).read_bytes() == b"two"  # ...but not the files
+
+
+def test_render_failure_preserves_previous_export(graph, monkeypatch):
+    # A crash while rendering a page must not touch the last good export:
+    # the old export is only replaced once a full new one is ready.
+    db, live_assets, export, sha = graph
+    export_graph(db, live_assets, export)
+    before = _snapshot(export)
+
+    db.execute("INSERT INTO pages VALUES (?,?,?,?)", (3, "Beta", None, None))
+    db.commit()
+
+    def boom(*a, **kw):
+        raise RuntimeError("simulated render failure")
+    monkeypatch.setattr("pkm.export.writer.render_page", boom)
+
+    with pytest.raises(RuntimeError):
+        export_graph(db, live_assets, export)
+
+    assert _snapshot(export) == before
+
+
+def test_asset_copy_failure_preserves_previous_export(graph, monkeypatch):
+    # A crash while copying a *new* asset into the export must not touch
+    # the last good export either -- not even a brand-new page that
+    # rendered fine before the copy blew up.
+    db, live_assets, export, sha = graph
+    export_graph(db, live_assets, export)
+    before = _snapshot(export)
+
+    db.execute("INSERT INTO pages VALUES (?,?,?,?)", (3, "Beta", None, None))
+    db.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        ("u4u4u4", 3, None, 0, "new content", None, 0, None, None))
+    new_sha = "ef" * 32
+    db.execute("INSERT INTO assets(sha256, filename, mime, size, created_at)"
+              " VALUES (?,?,?,?,?)",
+              (new_sha, "new.png", "image/png", 3, None))
+    db.commit()
+    (live_assets / new_sha[:2]).mkdir(parents=True, exist_ok=True)
+    (live_assets / new_sha[:2] / new_sha).write_bytes(b"new")
+
+    def boom(*a, **kw):
+        raise OSError("simulated disk failure during asset copy")
+    monkeypatch.setattr("pkm.export.writer.shutil.copy2", boom)
+
+    with pytest.raises(OSError):
+        export_graph(db, live_assets, export)
+
+    assert _snapshot(export) == before
+
+
+def test_recovers_from_a_stale_dir_left_by_a_prior_crash(graph):
+    # If a process died between the two renames inside _publish_dir, a
+    # "<name>.stale" directory holding the old contents can be left behind.
+    # The next run must clean it up on its own rather than tripping over it.
+    db, live_assets, export, sha = graph
+    export_graph(db, live_assets, export)
+    (export / "pages.stale").mkdir()
+    (export / "pages.stale" / "leftover.md").write_text("garbage")
+
+    counts = export_graph(db, live_assets, export)
+
+    assert counts == {"pages": 1, "journal": 1,
+                      "assets_copied": 0, "assets_pruned": 0}
+    assert not (export / "pages.stale").exists()
+    assert (export / "pages" / "Alpha.md").is_file()

@@ -210,6 +210,40 @@ test("an expired sidebar parent cannot publish an empty same-title child", async
   expect(isOutlineSessionActive("Paper")).toBe(false);
 });
 
+// pkm-63s1: a daily page nobody has written to yet 404s (the server
+// auto-creates only today's). That is an empty page, not an error, in every
+// surface that displays it — the same fixture in the main pane and in a
+// sidebar panel must both render an editable empty outline.
+const MISSING_DAILY = "June 3rd, 2026";
+
+const missingDailyTree = (surface: "main" | "sidebar") => (
+  <SyncContext.Provider value={makeSync()}>
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}
+                  initialEntries={["/page/June%203rd%2C%202026"]}>
+      {surface === "main"
+        ? <Routes><Route path="/page/*" element={<PageView />} /></Routes>
+        : <EditableSidebarPanel title={MISSING_DAILY} />}
+    </MemoryRouter>
+  </SyncContext.Provider>
+);
+
+for (const surface of ["main", "sidebar"] as const) {
+  test(`a missing daily page is an editable empty outline in the ${surface} pane`,
+       async () => {
+    stubFetch([]);
+    const view = render(missingDailyTree(surface));
+    try {
+      expect(await screen.findByRole("button", {
+        name: "Click to start writing…",
+      })).toBeInTheDocument();
+      expect(document.querySelectorAll(".error")).toHaveLength(0);
+    } finally {
+      view.unmount();
+    }
+    expect(isOutlineSessionActive(MISSING_DAILY)).toBe(false);
+  });
+}
+
 test("shows the fetch error", async () => {
   stubFetch([]);
   render(

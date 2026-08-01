@@ -50,9 +50,11 @@ outline/               The editor engine.
                        edits.ts, tree.ts (applyOps — mirrors server ops_apply),
                        keyEdits.ts, slashCommands.ts, autocomplete.ts,
                        refAtCaret.ts, blockSelection.ts, history.ts,
-                       paste.ts (outline paste), calendar.ts (/date month grid)
+                       paste.ts (outline paste), calendar.ts (/date month grid),
+                       missingPage.ts (the missing-page policy)
                        Shells: useOutline.ts (the hook), outlineSessions.ts
-                       (per-title shared store), undoManager.ts
+                       (per-title shared store), useOutlinePageLoad.ts (the
+                       shared page-load controller), undoManager.ts
 grammar/               Roam-markdown parsing: scan.ts (the shared scanner,
                        mirrors server refs.py), tokenize.ts (render tokens),
                        refs.ts, todo.ts, snippet.ts
@@ -125,6 +127,27 @@ There is no Redux/Zustand; state lives in three layers:
    newest request, the revision is unchanged, and no relevant write ticket
    is unsettled — otherwise it's retained and reconsidered after settlement.
    The pure reducer behind it is `outlineState.ts::transitionOutline`.
+
+Driving a session correctly from a view is subtle enough that the two
+**single-page** surfaces share one implementation of it:
+**`outline/useOutlinePageLoad.ts`**, used by `PageView` and
+`EditableSidebarPanel`. (The Journal is the third surface showing editable
+outlines, and deliberately does not use it: it loads many days in one
+batched `/api/journal` request and delivers each day's blocks through its
+own capture-ticket path.) The hook owns the whole read lifecycle — one outstanding
+generation per mount, the parent readiness promise a `"parent"` read
+publishes through, the authoritative loader and parent read controller
+registered on the session, and the cleanup order at unmount — and returns
+just `{payload, error, reload}`. The surfaces differ only in presentation
+and in where they scroll; a second copy of this controller is how the two
+panes silently drifted apart before (pkm-63s1). What a *failed* read means
+is a policy argument, not something a surface reimplements: the pure
+`outline/missingPage.ts::substituteMissingDaily` turns a 404 on a daily
+title into an empty editable page — a daily nobody has written to yet is
+not an error anywhere it is displayed (the server auto-creates only today's,
+pkm-fy52; the first edit creates the row) — and leaves every other missing
+page an error. `reload("resync")` is how `PageView` answers a `resyncSeq`
+bump; the sidebar does not subscribe to resync.
 
 The block tree itself is the generated `BlockNode` shape (recursive
 `{uid, text, children[], order_idx, heading, collapsed, view_type}`). All

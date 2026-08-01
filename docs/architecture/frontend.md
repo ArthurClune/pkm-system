@@ -47,7 +47,10 @@ views/                 Journal (daily notes, `/`), PageView (`/page/*`),
                        filesCore.ts), Settings (`/settings`), Help (`/help`);
                        EditablePage = one editable outline, reused by main pane
                        and sidebar panels
-outline/               The editor engine.
+outline/               The editor engine. It owns its own contract: handlers.ts
+                       declares OutlineHandlers, the command port useOutline
+                       implements and the components call, so the dependency
+                       runs UI → engine (pkm-64bq).
                        Cores: outlineState.ts (the reducer), keyboardPolicy.ts,
                        edits.ts, tree.ts (applyOps — mirrors server ops_apply),
                        keyEdits.ts, slashCommands.ts, autocomplete.ts,
@@ -56,12 +59,17 @@ outline/               The editor engine.
                        missingPage.ts (the missing-page policy)
                        Shells: useOutline.ts (the hook), outlineSessions.ts
                        (per-title shared store), useOutlinePageLoad.ts (the
-                       shared page-load controller), undoManager.ts
+                       shared page-load controller), undoManager.ts,
+                       useAutocomplete.ts (the popup's shared state),
+                       useBlockDraft.ts (the focused block's draft session)
 grammar/               Roam-markdown parsing: scan.ts (the shared scanner,
                        mirrors server refs.py), tokenize.ts (render tokens),
                        refs.ts, todo.ts, snippet.ts
-components/            ~40 files: inline rendering (InlineSegments, MathSpan,
-                       MermaidDiagram, PdfEmbed/PdfViewer, QueryBlock, BlockRef,
+components/            ~45 files: the editor's own views (EditableBlockTree =
+                       the read-side tree + selection keyboard, BlockInput =
+                       the focused block's textarea), inline rendering
+                       (InlineSegments, MathSpan, QueryBlock, BlockRef,
+                       MermaidDiagram, PdfEmbed/PdfViewer,
                        PageLink, AssetImage, CodeBlock, BlueskyEmbed, roamTable…)
                        + chrome (TopBar, SidebarNav/Panel, SearchBar,
                        OfflineIndicator, Composer, BacklinksSection,
@@ -161,9 +169,24 @@ the server.
 
 **Textarea-based, not contenteditable.** Only the focused block is a live,
 auto-growing `<textarea>` holding raw markdown; every other block is
-rendered HTML (`EditableBlockTree` → `EditableBlock` → `BlockInput`). This
-is the load-bearing performance decision: a 500-block page is one textarea
-plus cheap static HTML.
+rendered HTML (`EditableBlockTree` → `EditableBlock` → `BlockInput`, the last
+of these its own file). This is the load-bearing performance decision: a
+500-block page is one textarea plus cheap static HTML.
+
+**Which way the editor's dependencies point.** Everything the UI can ask the
+editor to do is the `OutlineHandlers` port in `outline/handlers.ts` — about
+thirty named callbacks (focus, draft, split/indent/move, selection, upload,
+paste, undo). `useOutline` implements it; `EditableBlockTree`, `EditableBlock`
+and `BlockInput` only call it. The port lives in `outline/` deliberately: it
+used to be declared in `EditableBlockTree.tsx`, which made the engine import a
+type from a component (pkm-64bq). It stays a plain callback interface rather
+than a command union + dispatcher — every member is already a distinct,
+individually-typed operation, so a union would add a second name and a switch
+case per member without removing one. No component holds block-tree state.
+The most state any of them owns is `BlockInput`'s *draft* of one block's text
+(`outline/useBlockDraft.ts`: the value, its dirty flag, IME composition, the
+adoption of committed text over a clean draft, and caret restoration after a
+programmatic value swap) plus the transient popup offsets around it.
 
 ```mermaid
 flowchart LR
@@ -217,16 +240,38 @@ Editing mechanics worth knowing before touching `outline/`:
   multi-block selection, slash commands, and Cmd-Z / Shift-Cmd-Z undo/redo
   (`history.ts` + `undoManager.ts`).
 
-  A multi-block *selection* is keyed elsewhere: with no focused textarea the
-  tree container itself takes focus and `EditableBlockTree.onKeyDown` owns the
-  chain (extend / move / indent / copy / clear / delete). The split invariant
-  there is that **creating, extending and copying a selection are
+  A multi-block *selection* is keyed by the second policy function,
+  `decideSelectionKey`: with no focused textarea the tree container itself
+  takes focus, and `EditableBlockTree.onKeyDown` executes what the policy
+  decides (extend / move / indent / copy / clear / delete). The split
+  invariant there is that **creating, extending and copying a selection are
   read-only-safe, while every mutating branch is gated on `!readOnly`** — Tab,
   Shift+Cmd+Arrow and Backspace/Delete (pkm-rckh; the delete gate was missing,
   so a selection made while editable could still be destroyed after sync
   turned the outline read-only). `useOutline`'s handlers do not re-check
-  editability, so the gate has to be here.
+  editability, so the gate has to be in the policy. A gated key resolves to
+  `"none"`, which the shell leaves **uncancelled** — no `preventDefault`, so
+  read-only Tab still moves focus out of the tree the way the platform
+  intends. That is why "did nothing" and "was not handled" are the same
+  decision here.
 
+- **The autocomplete popup is shared state, and its caret is read live.**
+  `outline/useAutocomplete.ts` holds the open completion context and the
+  highlighted row for both the outline editor's `BlockInput` and the phone
+  `Composer`; the pure detection and staleness rule are in
+  `outline/autocomplete.ts`, and which keys the popup may claim is
+  `keyboardPolicy.autocompleteKeyAction` (unmodified Arrow/Enter/Tab/Escape
+  only, so Cmd/Ctrl/Shift/Alt chords stay with the platform and the editor).
+  The invariant worth protecting: **no action ever uses a remembered caret.**
+  Context is detected on input, but clicks and selection-only caret moves
+  fire no input event, so every action path (keydown, click, mouse pick) goes
+  through `resolve(textarea)`, which re-derives the context from the live
+  selection, closes the popup when it no longer matches, and returns the
+  caret to splice at. A stale popup therefore claims nothing — Enter stays a
+  split, Tab stays an indent (pkm-noow, which could otherwise complete at the
+  offset the caret had left). `resolve` must not be called from `keyup`:
+  both editors place the caret after a key-edit in a `requestAnimationFrame`,
+  and keyup always lands inside that window, where every context looks stale.
 - **Paste is opt-in structural, and the modifier is captured on keydown.**
   Plain Cmd-V is always left native — it inserts text into the textarea and
   nothing else (pkm-fwa2). `Shift-Cmd-V` *arms* an outline paste: `paste.ts`

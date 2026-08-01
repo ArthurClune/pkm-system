@@ -1,6 +1,6 @@
 // pattern: Functional Core
 // Finds the [[page reference]] span (if any) whose bracket-inclusive range
-// contains the caret, so Ctrl-O (see EditableBlockTree.tsx) can navigate to
+// contains the caret, so Ctrl-O (see BlockInput.tsx) can navigate to
 // that page. Spans come from the shared grammar scanner (grammar/scan.ts),
 // so refs inside code are opaque and never match.
 

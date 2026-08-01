@@ -1,10 +1,12 @@
 // pattern: Functional Core
-// The keydown policy for a focused block's textarea. EditableBlockTree reads
-// the live DOM (key, modifiers, caret, selection) and the current autocomplete
-// state, hands them here, and executes the returned semantic decision. All
-// DOM effects (preventDefault, blur, navigation, setState) stay in the shell;
-// this module only decides. Ordering mirrors the former inline onKeyDown chain
-// exactly, so behaviour is unchanged.
+// The editor's keydown policy, in two halves: decideEditorKey for a focused
+// block's textarea (BlockInput reads the live DOM and autocomplete state),
+// and decideSelectionKey for a multi-block selection, which has no textarea
+// and is keyed by the tree container itself (EditableBlockTree). Both are
+// pure: the shells hand in key + modifiers + state and execute the returned
+// semantic decision. All DOM effects (preventDefault, blur, navigation,
+// setState) stay in the shells. Ordering mirrors the former inline onKeyDown
+// chains exactly, so behaviour is unchanged.
 import { cycleTodo } from "../grammar/todo";
 import { autoPairBracket, BRACKET_CHARS, toggleEmphasis, wrapLink,
          type TextSelection } from "./keyEdits";
@@ -61,6 +63,30 @@ export type KeyDecision =
   | { type: "none" };
 
 const NONE: KeyDecision = { type: "none" };
+const NONE_SELECTION: SelectionKeyDecision = { type: "none" };
+
+export type AutocompleteKeyAction = "move-up" | "move-down" | "pick" | "close";
+
+/** Whether an open autocomplete popup should claim this keydown, and what it
+ * should do. Only unmodified Arrow/Enter/Tab/Escape are consumed — any
+ * Cmd/Ctrl/Shift/Alt combination is left for native selection/navigation or
+ * editor commands instead (pkm-clt1). Shared by decideEditorKey (the outline
+ * editor) and Composer so both agree on the same modifier boundary rather
+ * than each re-deriving it. */
+export function autocompleteKeyAction(k: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+}): AutocompleteKeyAction | null {
+  if (k.metaKey || k.ctrlKey || k.altKey || k.shiftKey) return null;
+  if (k.key === "ArrowDown") return "move-down";
+  if (k.key === "ArrowUp") return "move-up";
+  if (k.key === "Enter" || k.key === "Tab") return "pick";
+  if (k.key === "Escape") return "close";
+  return null;
+}
 
 // Modifier convention: letter-chord editing shortcuts are Meta-only with
 // Ctrl/Alt/Shift excluded — Ctrl+letter is left to the emacs-style textarea
@@ -109,20 +135,21 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   }
   // Autocomplete popup owns the unmodified arrows / Enter / Tab / Escape while open.
   if (i.acRowsLength > 0) {
-    if (i.key === "ArrowDown") {
+    const acAction = autocompleteKeyAction(i);
+    if (acAction === "move-down") {
       return { type: "ac-move", selected: Math.min(i.acSelected + 1, i.acRowsLength - 1) };
     }
-    if (i.key === "ArrowUp") {
+    if (acAction === "move-up") {
       return { type: "ac-move", selected: Math.max(i.acSelected - 1, 0) };
     }
-    if (i.key === "Enter" || i.key === "Tab") return { type: "ac-pick" };
-    if (i.key === "Escape") return { type: "ac-close" };
+    if (acAction === "pick") return { type: "ac-pick" };
+    if (acAction === "close") return { type: "ac-close" };
   }
   if (i.key === "Escape") return { type: "blur" };
   // Ctrl-O inside a [[page reference]] opens that page (Meta/Alt left alone);
   // Ctrl-Shift-O opens it in the sidebar instead, mirroring shift-click on a
   // rendered wiki link (PageLink.tsx). The target page may not exist server
-  // side yet — the shell (EditableBlockTree) creates it before navigating.
+  // side yet — the shell (BlockInput) creates it before navigating.
   if (i.ctrlKey && !i.metaKey && !i.altKey && i.key.toLowerCase() === "o") {
     const title = refTitleAtCaret(i.draft, pos);
     if (title) return { type: "navigate-ref", title, sidebar: i.shiftKey };
@@ -219,4 +246,69 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
     return { type: "arrow", dir: "right" };
   }
   return NONE;
+}
+
+export interface SelectionKeyInput {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  readOnly: boolean;
+}
+
+export type SelectionKeyDecision =
+  | { type: "indent-selection" }
+  | { type: "outdent-selection" }
+  | { type: "move-selection"; dir: "up" | "down" }
+  | { type: "extend-selection"; dir: "up" | "down" }
+  | { type: "copy-selection" }
+  | { type: "clear-selection" }
+  | { type: "delete-selection" }
+  /** Collapse the selection back into editing its head block at offset 0. */
+  | { type: "focus-selection-head" }
+  | { type: "none" };
+
+/** The keydown policy while a multi-block selection is active. There is no
+ * focused textarea then — the tree container holds focus and owns these keys.
+ *
+ * Two invariants the shell depends on:
+ * - Every decision other than "none" is preventDefault-ed by the shell, and
+ *   "none" leaves the event uncancelled for the platform.
+ * - Creating, extending, copying and dismissing a selection are
+ *   read-only-safe; every MUTATING branch (indent/outdent, move, delete) is
+ *   gated on !readOnly and degrades to "none" (pkm-rckh: a selection made
+ *   while editable outlives the switch to read-only, and used to stay
+ *   destroyable). useOutline's handlers do not re-check editability, so this
+ *   gate is the only one. */
+export function decideSelectionKey(i: SelectionKeyInput): SelectionKeyDecision {
+  const verticalArrow = i.key === "ArrowUp" || i.key === "ArrowDown";
+  const dir = i.key === "ArrowUp" ? "up" : "down";
+  if (i.key === "Tab") {
+    if (i.readOnly) return NONE_SELECTION;
+    return i.shiftKey ? { type: "outdent-selection" } : { type: "indent-selection" };
+  }
+  // Shift+Cmd+Arrow moves the selected blocks; checked before the plain-Shift
+  // extend below, which has the same shiftKey+Arrow shape.
+  if (i.shiftKey && i.metaKey && !i.ctrlKey && !i.altKey && verticalArrow) {
+    return i.readOnly ? NONE_SELECTION : { type: "move-selection", dir };
+  }
+  if (i.shiftKey && !i.metaKey && !i.ctrlKey && !i.altKey && verticalArrow) {
+    return { type: "extend-selection", dir };
+  }
+  // Ctrl+Cmd+Up/Down keeps extending the selection it started (pkm-am54).
+  if (i.ctrlKey && i.metaKey && !i.shiftKey && !i.altKey && verticalArrow) {
+    return { type: "extend-selection", dir };
+  }
+  if ((i.metaKey || i.ctrlKey) && i.key.toLowerCase() === "c") {
+    return { type: "copy-selection" };
+  }
+  if (i.key === "Escape") return { type: "clear-selection" };
+  if (i.key === "Backspace" || i.key === "Delete") {
+    return i.readOnly ? NONE_SELECTION : { type: "delete-selection" };
+  }
+  if (!i.shiftKey && !i.metaKey && !i.ctrlKey && !i.altKey && verticalArrow) {
+    return { type: "focus-selection-head" };
+  }
+  return NONE_SELECTION;
 }

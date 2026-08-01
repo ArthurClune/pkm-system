@@ -38,6 +38,26 @@ const slotEntry = (page: number, ratio: number): IOEntry => {
 
 // ---- react-pdf mock --------------------------------------------------
 let failLoad = false;
+// Manual mode lets a test control exactly when a document's load and its
+// page-1 metadata resolve, independently -- needed to exercise the
+// old-document-completes-late races (pkm-qs7y). Each mount/href-change of
+// the mocked Document registers one entry in pendingLoads.
+type Viewport = { width: number; height: number };
+type LoadHandle = {
+  resolveSuccess: (numPages: number) => void;
+  resolveError: () => void;
+  resolvePage: (viewport: Viewport) => void;
+};
+let manual = false;
+const pendingLoads: LoadHandle[] = [];
+function createDeferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 vi.mock("react-pdf", async () => {
   const { useEffect } = await import("react");
   const fakePdf = {
@@ -45,16 +65,27 @@ vi.mock("react-pdf", async () => {
     getPage: () =>
       Promise.resolve({ getViewport: () => ({ width: 612, height: 792 }) }),
   };
-  function Document({ onLoadSuccess, onLoadError, children }: {
-    onLoadSuccess?: (pdf: typeof fakePdf) => void;
+  function Document({ file, onLoadSuccess, onLoadError, children }: {
+    file?: string;
+    onLoadSuccess?: (pdf: { numPages: number; getPage: () => Promise<{ getViewport: (o: { scale: number }) => Viewport }> }) => void;
     onLoadError?: (err: Error) => void;
     children?: ReactNode;
   }) {
     useEffect(() => {
+      if (manual) {
+        const pageDeferred = createDeferred<{ getViewport: (o: { scale: number }) => Viewport }>();
+        pendingLoads.push({
+          resolveSuccess: (numPages) =>
+            onLoadSuccess?.({ numPages, getPage: () => pageDeferred.promise }),
+          resolveError: () => onLoadError?.(new Error("bad pdf")),
+          resolvePage: (viewport) => pageDeferred.resolve({ getViewport: () => viewport }),
+        });
+        return;
+      }
       if (failLoad) onLoadError?.(new Error("bad pdf"));
       else onLoadSuccess?.(fakePdf);
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [file]);
     return <div data-testid="pdf-document">{children}</div>;
   }
   function Page({ pageNumber, onRenderSuccess }: {
@@ -77,6 +108,8 @@ const href = `/assets/${"ab".repeat(32)}/doc.pdf`;
 
 beforeEach(() => {
   failLoad = false;
+  manual = false;
+  pendingLoads.length = 0;
   observers.length = 0;
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
@@ -255,4 +288,93 @@ it("falls back to the download link when the document fails to load", async () =
   expect(screen.getByText("Couldn't render this PDF.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", href);
   expect(screen.queryByTestId("pdf-document")).toBeNull();
+});
+
+// ---- pkm-qs7y: reset and generation-guard on href change --------------
+
+const href2 = `/assets/${"cd".repeat(32)}/doc2.pdf`;
+
+it("resets expansion and page state when href changes to a new document", async () => {
+  const { rerender } = render(<PdfViewer href={href} label="Notes" />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+  act(() => indicatorObserver().cb([slotEntry(3, 0.9)]));
+  expect(document.querySelector(".pdf-overlay")).not.toBeNull();
+  // both the inline footer and the overlay show the indicator while expanded
+  expect(screen.getAllByText("Page 3 of 3")).toHaveLength(2);
+
+  rerender(<PdfViewer href={href2} label="Notes 2" />);
+  await act(async () => {});
+
+  // a new href is a new document: the overlay and the stale page number from
+  // the previous document must not survive the switch
+  expect(document.querySelector(".pdf-overlay")).toBeNull();
+  expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+});
+
+it("a slow getPage(1) from the previous document cannot overwrite the new document's metadata", async () => {
+  manual = true;
+  const { rerender } = render(<PdfViewer href={href} label="A" />);
+  await act(async () => {});
+  expect(pendingLoads).toHaveLength(1);
+
+  // the old document finishes loading, but its page-1 metadata is still in
+  // flight when href changes
+  act(() => pendingLoads[0].resolveSuccess(5));
+
+  rerender(<PdfViewer href={href2} label="B" />);
+  await act(async () => {});
+  expect(pendingLoads).toHaveLength(2);
+
+  act(() => pendingLoads[1].resolveSuccess(2));
+  await act(async () => {
+    pendingLoads[1].resolvePage({ width: 100, height: 200 });
+  });
+  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+
+  // the old document's stale getPage(1) resolves late: it must not resurrect
+  // its page count or aspect for the currently-displayed document
+  await act(async () => {
+    pendingLoads[0].resolvePage({ width: 1, height: 999 });
+  });
+  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+});
+
+it("a document load that finishes after href has already moved on does not resurrect its metadata", async () => {
+  manual = true;
+  const { rerender } = render(<PdfViewer href={href} label="A" />);
+  await act(async () => {});
+  expect(pendingLoads).toHaveLength(1); // the old load is registered but never resolves
+
+  rerender(<PdfViewer href={href2} label="B" />);
+  await act(async () => {});
+  expect(pendingLoads).toHaveLength(2);
+
+  act(() => pendingLoads[1].resolveSuccess(2));
+  await act(async () => {
+    pendingLoads[1].resolvePage({ width: 100, height: 200 });
+  });
+  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+
+  // the abandoned load for the old href finally completes -- too late
+  act(() => pendingLoads[0].resolveSuccess(9));
+  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+  expect(screen.queryByText(/of 9/)).toBeNull();
+});
+
+it("a stale load error from the previous document does not mark the new document as failed", async () => {
+  manual = true;
+  const { rerender } = render(<PdfViewer href={href} label="A" />);
+  await act(async () => {});
+
+  rerender(<PdfViewer href={href2} label="B" />);
+  await act(async () => {});
+  act(() => pendingLoads[1].resolveSuccess(2));
+  await act(async () => {
+    pendingLoads[1].resolvePage({ width: 100, height: 200 });
+  });
+
+  act(() => pendingLoads[0].resolveError());
+  expect(screen.queryByText("Couldn't render this PDF.")).toBeNull();
+  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
 });

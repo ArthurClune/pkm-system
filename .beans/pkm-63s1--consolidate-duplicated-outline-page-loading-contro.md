@@ -43,9 +43,12 @@ both show an editable empty outline with no error.
 
 Two smaller unifications fell out of merging the copies:
 
-- a substituted missing page is now delivered through the same generation
-  check as a real response (the old PageView copy could adopt one behind a
-  superseded read and leaked that read's parent readiness);
+- a substituted missing page is now delivered through the same path as a real
+  response, generation check included, instead of its own shorter branch. The
+  old copy could not actually publish behind a superseded read (the session
+  rejects a superseded token) and did not leak anything: `load()` releases the
+  previous read's parent readiness as it supersedes it. This is symmetry —
+  one delivery path for every settled response — not a bug fix;
 - the sidebar now resets to Loading on a title change instead of keeping the
   previous title's payload in state, and `PageView` gained the sidebar's
   render-time title key, so neither can paint a payload under a title it

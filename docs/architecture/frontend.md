@@ -128,10 +128,13 @@ There is no Redux/Zustand; state lives in three layers:
    is unsettled — otherwise it's retained and reconsidered after settlement.
    The pure reducer behind it is `outlineState.ts::transitionOutline`.
 
-Driving a session correctly from a view is subtle enough that there is
-exactly one implementation of it: **`outline/useOutlinePageLoad.ts`**, used
-by both surfaces that show an editable page outline (`PageView` and
-`EditableSidebarPanel`). It owns the whole read lifecycle — one outstanding
+Driving a session correctly from a view is subtle enough that the two
+**single-page** surfaces share one implementation of it:
+**`outline/useOutlinePageLoad.ts`**, used by `PageView` and
+`EditableSidebarPanel`. (The Journal is the third surface showing editable
+outlines, and deliberately does not use it: it loads many days in one
+batched `/api/journal` request and delivers each day's blocks through its
+own capture-ticket path.) The hook owns the whole read lifecycle — one outstanding
 generation per mount, the parent readiness promise a `"parent"` read
 publishes through, the authoritative loader and parent read controller
 registered on the session, and the cleanup order at unmount — and returns

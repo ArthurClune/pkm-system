@@ -24,8 +24,10 @@
 //    the previous read's parent readiness and cancels its token, so at most
 //    one read per mount is outstanding;
 //  * a response whose generation has been superseded releases readiness and
-//    cancels its token instead of writing state — a stale response must
-//    never publish, not even an accepted-looking empty one;
+//    cancels its token instead of writing state. The session would reject
+//    that token anyway, so this is not what stops a stale publish; it is how
+//    the superseded read's reservation is freed when another surface's read
+//    won, and it keeps one exit path for every settled response;
 //  * the session, not the caller, decides adoption: state is written only
 //    for a payload receiveParentAuthoritative() accepted, and a "parent"
 //    read publishes through the readiness promise (which resolves with
@@ -117,8 +119,8 @@ export function useOutlinePageLoad(
           setErrorState({ title, message: String(winnerError) });
         });
     }
-    // A substituted missing page is delivered here too, so the policy cannot
-    // publish behind a superseded generation.
+    // A substituted missing page is delivered here too: one delivery path,
+    // whatever the response came from.
     const deliver = (page: PagePayload) => {
       if (seq !== seqRef.current) {
         readiness?.release();

@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from pathlib import Path
 
@@ -180,10 +181,11 @@ def test_asset_copy_failure_preserves_previous_export(graph, monkeypatch):
     assert _snapshot(export) == before
 
 
-def test_recovers_from_a_stale_dir_left_by_a_prior_crash(graph):
-    # If a process died between the two renames inside _publish_dir, a
-    # "<name>.stale" directory holding the old contents can be left behind.
-    # The next run must clean it up on its own rather than tripping over it.
+def test_recovers_from_an_abandoned_stale_dir(graph):
+    # If a process died after both renames in _publish_dir landed but
+    # before the final "<name>.stale" cleanup ran, `target` already holds
+    # the correct new content and an orphaned "<name>.stale" sits beside
+    # it. The next run must clear that leftover on its own.
     db, live_assets, export, sha = graph
     export_graph(db, live_assets, export)
     (export / "pages.stale").mkdir()
@@ -195,3 +197,76 @@ def test_recovers_from_a_stale_dir_left_by_a_prior_crash(graph):
                       "assets_copied": 0, "assets_pruned": 0}
     assert not (export / "pages.stale").exists()
     assert (export / "pages" / "Alpha.md").is_file()
+
+
+def test_recovers_from_a_crash_between_the_two_publish_renames(graph):
+    # The riskier crash window: a process died *between* _publish_dir's
+    # two renames, so `target` itself moved aside to "<name>.stale" and
+    # was never replaced -- `target` is missing outright and the real
+    # (old) content lives only under the stale name. The next run must
+    # still recover: the stale content is superseded by a freshly
+    # rendered `target`, and the stale dir is cleared.
+    db, live_assets, export, sha = graph
+    export_graph(db, live_assets, export)
+    (export / "pages").rename(export / "pages.stale")
+    assert not (export / "pages").exists()
+
+    counts = export_graph(db, live_assets, export)
+
+    assert counts == {"pages": 1, "journal": 1,
+                      "assets_copied": 0, "assets_pruned": 0}
+    assert not (export / "pages.stale").exists()
+    assert (export / "pages" / "Alpha.md").is_file()
+
+
+def test_cross_subtree_publish_failure_recovers_on_next_run(graph, monkeypatch):
+    # _publish_dir is called once per subtree (pages, then journal, then
+    # assets); each call is individually atomic, but the three together
+    # are not a single transaction. If journal's publish fails after
+    # pages' already landed, this run leaves pages/ on the new content
+    # while journal/ is stuck mid-swap (moved aside to journal.stale,
+    # never replaced) and assets/ untouched -- a real mixed state, not
+    # byte-identical to the pre-run export. What must still hold: nothing
+    # is corrupted or silently lost, the failure is raised (so the
+    # nightly job exits nonzero and never git-commits this run's output,
+    # per backup/__main__.py), and the very next successful run converges
+    # to a fully consistent export.
+    db, live_assets, export, sha = graph
+    export_graph(db, live_assets, export)
+
+    db.execute("INSERT INTO pages VALUES (?,?,?,?)", (3, "Beta", None, None))
+    db.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        ("u4u4u4", 3, None, 0, "new content", None, 0, None, None))
+    db.commit()
+
+    real_replace = os.replace
+
+    def flaky_replace(src, dst):
+        if Path(dst).name == "journal":  # the *second* replace inside
+            raise OSError("simulated failure publishing journal/")  # _publish_dir(journal)
+        return real_replace(src, dst)
+    monkeypatch.setattr("pkm.export.writer.os.replace", flaky_replace)
+
+    with pytest.raises(OSError):
+        export_graph(db, live_assets, export)
+
+    # pages/ already published this run's new content...
+    assert (export / "pages" / "Beta.md").is_file()
+    # ...journal/ is missing outright (mid-swap), old content preserved
+    # under journal.stale rather than lost...
+    assert not (export / "journal").exists()
+    assert (export / "journal.stale" / "2026-07-07.md").is_file()
+    # ...and assets/ was never reached, so it's still exactly as before.
+    assert (export / "assets" / sha / "pic.png").read_bytes() == b"png"
+
+    monkeypatch.undo()  # restore the real os.replace for the recovery run
+    counts = export_graph(db, live_assets, export)
+
+    assert counts == {"pages": 2, "journal": 1,
+                      "assets_copied": 0, "assets_pruned": 0}
+    assert not (export / "journal.stale").exists()
+    assert (export / "journal" / "2026-07-07.md").is_file()
+    assert (export / "pages" / "Beta.md").is_file()

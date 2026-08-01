@@ -377,14 +377,19 @@ an already-published database.
   so the git diff of a nightly export is minimal. Rendering and asset
   copying happen into a scratch `.export-staging-*` directory beside the
   live one; the previous `pages/`, `journal/`, and `assets/` are only
-  replaced (via `_publish_dir`'s atomic directory rename, one subtree at a
-  time) once a full new export is ready, so a rendering, disk, or
-  asset-copy failure anywhere leaves the last known-good export untouched
+  replaced (via `_publish_dir`'s atomic directory rename) once a full new
+  export is ready, so a rendering, disk, or asset-copy failure *before
+  publishing starts* leaves the last known-good export byte-identical
   (pkm-n8eq) -- the same "stage, then swap" shape as the database/report
-  publish below, applied to a directory tree instead of a file. A crash
-  mid-swap can leave a `<name>.stale` directory holding the pre-swap
-  contents; the next run's own `_publish_dir` call cleans it up before
-  proceeding, so no manual recovery is needed. The whole-database export
+  publish below, applied to a directory tree instead of a file. Publishing
+  itself is three separate atomic renames, one per subtree, not one
+  transaction: a failure partway through (e.g. journal's publish erroring
+  after pages' already landed) leaves a genuine mixed old/new state for
+  that run, self-healing on the next successful run rather than
+  instantaneously -- nothing is corrupted or lost in between (the
+  not-yet-published subtree's old content survives under `<name>.stale`
+  until superseded), and the raised exception keeps the nightly job from
+  ever git-committing that mixed state. The whole-database export
   is also exposed over HTTP (`routes_export.py`'s `/api/export.zip`,
   pkm-uvqf): the same `export_graph()` into a temp dir, downloaded zipped --
   same backup semantics, unchanged by pkm-kplp below.

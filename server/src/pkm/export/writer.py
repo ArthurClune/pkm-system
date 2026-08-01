@@ -4,9 +4,22 @@
 Rendering and asset staging happen entirely in a scratch directory beside
 the live one; the last good export is only replaced once a full new export
 is ready, via atomic directory renames (see `_publish_dir`). A crash or
-exception anywhere in rendering, disk I/O, or asset copying leaves the
-previous export byte-identical -- nothing is deleted or overwritten
-in-place.
+exception anywhere in rendering, disk I/O, or asset copying -- before any
+`_publish_dir` call runs -- leaves the previous export byte-identical:
+nothing is deleted or overwritten in-place.
+
+Publishing itself is three separate atomic renames (pages/, journal/,
+assets/ in turn), not one transaction across all three: if a later one
+fails after an earlier one already landed (e.g. `_publish_dir(journal)`
+raising after `_publish_dir(pages)` succeeded), this run's export is left
+in a genuine mixed old/new state -- not byte-identical to before -- until
+the next successful run's per-subtree self-heal (see `_publish_dir`)
+converges it back to fully consistent. Nothing is ever corrupted or
+silently lost in that window (the old content of each not-yet-published
+subtree survives under `<name>.stale` until superseded), and the raised
+exception means the nightly backup job (`pkm.backup.__main__`) exits
+nonzero and never reaches `git_commit_export` -- so this mixed state is
+never the thing that gets committed to the export's git history.
 
 *.md files are wholly regenerated every run (git still diffs minimally
 because unchanged content is byte-identical). The asset mirror is
@@ -114,6 +127,9 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
             counts["assets_copied"] += 1
 
         # Publish only now that every render and copy above has succeeded.
+        # Each call is atomic on its own, but the three together are not
+        # one transaction -- see the module docstring for what a failure
+        # partway through this sequence does and doesn't guarantee.
         _publish_dir(stage_pages, pages_dir)
         _publish_dir(stage_journal, journal_dir)
         _publish_dir(stage_assets, assets_dir)

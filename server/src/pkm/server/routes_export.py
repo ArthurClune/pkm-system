@@ -17,14 +17,15 @@ then hands it to the pure renderer -- it never mutates export_graph's
 semantics."""
 from __future__ import annotations
 
-import io
+import shutil
 import sqlite3
 import tempfile
 import zipfile
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse, Response
 
 from pkm.export.markdown import page_filename
 from pkm.export.resolve import (
@@ -37,6 +38,7 @@ from pkm.server.db import get_config, get_db
 from pkm.server.query import (
     QUERY_SOURCE_FILTER, parse_query, plan_sql, QueryParseError)
 from pkm.server.store import fetch_page
+from pkm.server.tempfile_response import CleanupFileResponse
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -153,17 +155,31 @@ def export_page_markdown(title: str,
 
 @router.get("/api/export.zip")
 def export_all_markdown(db: sqlite3.Connection = Depends(get_db),
-                        config: Config = Depends(get_config)) -> Response:
-    with tempfile.TemporaryDirectory() as tmp:
-        export_dir = Path(tmp) / "export"
+                        config: Config = Depends(get_config)) -> FileResponse:
+    """Whole-graph export, zipped. pkm-13ty: built in a temp directory and
+    streamed back via FileResponse rather than buffered whole in an
+    in-memory BytesIO -- the graph has no size cap, so an unbounded
+    number of pages/assets must not translate into an unbounded process
+    allocation. The temp directory is removed once the response finishes,
+    errors, or is interrupted (CleanupFileResponse); a failure before
+    that point is cleaned up here directly and re-raised."""
+    tmp_dir = Path(tempfile.mkdtemp(prefix="pkm-export-"))
+    try:
+        export_dir = tmp_dir / "export"
         export_graph(db, config.assets_dir, export_dir)
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zip_path = tmp_dir / "export.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for path in sorted(export_dir.rglob("*")):
                 if path.is_file():
                     zf.write(path, path.relative_to(export_dir))
-        content = buf.getvalue()
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
     filename = f"pkm-export-{date.today().isoformat()}.zip"
-    return Response(
-        content=content, media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+    async def _cleanup() -> None:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return CleanupFileResponse(
+        zip_path, media_type="application/zip", filename=filename,
+        cleanup=_cleanup)

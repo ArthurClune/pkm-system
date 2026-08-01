@@ -191,6 +191,67 @@ def test_stale_tmp_asset_does_not_survive_import(tmp_path):
     assert list((out / "assets").rglob("*.tmp")) == []
 
 
+def test_truncated_existing_asset_is_repaired(tmp_path):
+    # pkm-x3l7: a content-addressed asset file that survived a previous
+    # truncated write must not be trusted just because it exists at its
+    # sha-named path -- a re-run has to notice and rewrite it.
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+    sha = hashlib.sha256(b"PNGDATA").hexdigest()
+    dest = out / "assets" / sha[:2] / sha
+    dest.write_bytes(b"PNGDA")  # truncated
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    assert dest.read_bytes() == b"PNGDATA"
+
+
+def test_same_size_corrupted_existing_asset_is_repaired(tmp_path):
+    # Same byte count as the real asset but wrong content -- a size
+    # check alone can't catch this, only a hash comparison can.
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+    sha = hashlib.sha256(b"PNGDATA").hexdigest()
+    dest = out / "assets" / sha[:2] / sha
+    assert len(dest.read_bytes()) == len(b"PNGDATA")
+    dest.write_bytes(b"CORRUPTX")  # same length, wrong bytes
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    assert dest.read_bytes() == b"PNGDATA"
+
+
+def test_repair_is_atomic_no_tmp_leftover(tmp_path):
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+    sha = hashlib.sha256(b"PNGDATA").hexdigest()
+    dest = out / "assets" / sha[:2] / sha
+    dest.write_bytes(b"GARBAGE!")
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    assert dest.read_bytes() == b"PNGDATA"
+    assert list((out / "assets").rglob("*.tmp")) == []
+
+
+def test_valid_existing_asset_is_not_rewritten(tmp_path, monkeypatch):
+    # The common case must stay cheap and not touch a byte-identical file.
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+    sha = hashlib.sha256(b"PNGDATA").hexdigest()
+    dest = out / "assets" / sha[:2] / sha
+    before_mtime = dest.stat().st_mtime_ns
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    assert dest.stat().st_mtime_ns == before_mtime
+    assert dest.read_bytes() == b"PNGDATA"
+
+
 def test_missing_export_file_reports_friendly_error(tmp_path, capsys):
     missing = tmp_path / "nope.edn"
     out = tmp_path / "data"

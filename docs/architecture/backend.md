@@ -69,6 +69,7 @@ Inside `pkm/server/`:
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
 | `tree.py`, `backlinks.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py`, `response_models.py` | Core | Pure helpers: tree building, backlink shaping, daily-page titles, FTS queries, `{{[[query]]}}` evaluation, sync windowing, MIME sniffing, Pydantic response models |
 | `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
+| `tempfile_response.py` | Shell | `CleanupFileResponse`: a `FileResponse` whose cleanup callback runs even on a missing/unreadable file or a send-time error, not only after a completed transfer (used by the zip export routes; see [Assets](#assets) for why this isn't about an ordinary client disconnect under uvicorn) |
 | `request_log.py` / `logfmt.py` | Shell / Core | The `pkm.access` request log — one line per request, with durations (see [Logging](#logging-and-observability)) |
 | `run.py` / `setup.py` | Shell | `python -m pkm.server.run` entrypoint; `setup` writes `config.json` |
 | `openapi_dump.py` / `shim_parity_dump.py` | Shell | Generated-artifact writers (see [Generated artifacts](#generated-artifacts-and-parity-fixtures)) |
@@ -333,14 +334,36 @@ The three management endpoints behind the `/files` browser (pkm-jdu3) share
   download. Unknown, malformed, duplicate and missing-on-disk digests are
   skipped rather than erroring — the zip honestly contains what could be
   exported — and filename collisions get a short sha prefix
-  (`zip_arcnames`). Like `/api/export.zip` it builds in RAM, bounded here by
-  the user's selection.
+  (`zip_arcnames`). The selection's count and total bytes (summed from the
+  `assets` table's `size` column, never by opening a file) are checked
+  against fixed limits (500 assets / 1 GiB, `MAX_EXPORT_ASSET_COUNT` /
+  `MAX_EXPORT_TOTAL_BYTES` in `routes_assets.py`) before any archive is
+  built; over either limit the request is refused with 413 — never a
+  silently truncated zip. Both this route and the whole-graph
+  `/api/export.zip` build their archive in a temp directory and stream it
+  back via a `FileResponse` subclass (`CleanupFileResponse`) instead of
+  buffering the whole zip in memory; the temp directory is removed
+  regardless of how the response ends. This isn't about an ordinary
+  client disconnect — under uvicorn, `send()` silently no-ops once a
+  connection drops rather than raising, so the transfer loop still runs
+  to completion and stock `FileResponse`'s own `background` task (only
+  awaited after a send loop that returns without raising) still fires.
+  What it genuinely guards is a missing/unreadable file at send time
+  (`FileResponse.__call__` raises before reaching its `background` line)
+  and, as defense-in-depth, an ASGI server other than uvicorn whose
+  `send()` does raise on a dropped connection.
 
 ## Importer (Roam EDN → fresh database)
 
 `python -m pkm.importer.run export.edn --files <dir> --out <data-dir>`. Each
 run builds a complete new database and atomically swaps it in — re-running is
-always safe.
+always safe. Asset copying (the "copy assets" step below) likewise never
+trusts an existing content-addressed destination just because it's present:
+it's verified against the freshly-indexed source's size and sha256
+(`assets_core.asset_needs_repair`, shared with the export writer's own
+verify-then-hardlink check), and a mismatch is rewritten atomically
+(temp-file + `os.replace`) from the linked-files source — the same path
+used for a brand-new hash (pkm-x3l7).
 
 ```mermaid
 flowchart TD
@@ -401,8 +424,33 @@ an already-published database.
   to `export/pages/<title>.md` and dailies to `export/journal/YYYY-MM-DD.md`
   (`markdown.py` resolves `((refs))` to text, one level deep, and keeps
   `{{query: ...}}` macros as the raw command), and mirrors assets
-  incrementally. Markdown files are rewritten byte-identically when unchanged,
-  so the git diff of a nightly export is minimal. The whole-database export
+  incrementally. A previously-exported asset's mere presence at its
+  content-addressed path is never trusted: it's verified against the
+  `assets` row's known size and sha256 (`assets_core.asset_needs_repair`
+  — a cheap stat first, a full hash only once the size already matches)
+  before being hardlinked into the new tree; a mismatch is transparently
+  re-copied from the live store instead, so a truncated or corrupted file
+  from a past export doesn't survive forever (pkm-x3l7). If that repair
+  source is itself missing too, the asset is dropped from this export
+  with a `pkm.export` warning and its own `assets_missing_source_on_repair`
+  count, rather than disappearing into the ordinary "missing asset" case
+  silently. Markdown files are rewritten byte-identically when unchanged,
+  so the git diff of a nightly export is minimal. Rendering and asset
+  copying happen into a scratch `.export-staging-*` directory beside the
+  live one; the previous `pages/`, `journal/`, and `assets/` are only
+  replaced (via `_publish_dir`'s atomic directory rename) once a full new
+  export is ready, so a rendering, disk, or asset-copy failure *before
+  publishing starts* leaves the last known-good export byte-identical
+  (pkm-n8eq) -- the same "stage, then swap" shape as the database/report
+  publish below, applied to a directory tree instead of a file. Publishing
+  itself is three separate atomic renames, one per subtree, not one
+  transaction: a failure partway through (e.g. journal's publish erroring
+  after pages' already landed) leaves a genuine mixed old/new state for
+  that run, self-healing on the next successful run rather than
+  instantaneously -- nothing is corrupted or lost in between (the
+  not-yet-published subtree's old content survives under `<name>.stale`
+  until superseded), and the raised exception keeps the nightly job from
+  ever git-committing that mixed state. The whole-database export
   is also exposed over HTTP (`routes_export.py`'s `/api/export.zip`,
   pkm-uvqf): the same `export_graph()` into a temp dir, downloaded zipped --
   same backup semantics, unchanged by pkm-kplp below.

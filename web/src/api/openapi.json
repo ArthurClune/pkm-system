@@ -1156,7 +1156,7 @@
     "/api/assets/export.zip": {
       "post": {
         "summary": "Export Assets",
-        "description": "Zip the selected assets under their original filenames (name\ncollisions get a short sha prefix via zip_arcnames). Form-encoded so\nthe web app can drive it with a plain <form method=\"post\"> and let\nthe browser own the download. Unknown, malformed, duplicate, and\nmissing-on-disk shas are skipped, not errors: the zip honestly\ncontains what could be exported. In-RAM like /api/export.zip \u2014\nbounded by the user's selection.",
+        "description": "Zip the selected assets under their original filenames (name\ncollisions get a short sha prefix via zip_arcnames). Form-encoded so\nthe web app can drive it with a plain <form method=\"post\"> and let\nthe browser own the download. Unknown, malformed, duplicate, and\nmissing-on-disk shas are skipped, not errors: the zip honestly\ncontains what could be exported.\n\npkm-13ty: the selection's count and total bytes (summed from the\n`assets` table -- no file is opened just to measure it) are checked\nagainst MAX_EXPORT_ASSET_COUNT/MAX_EXPORT_TOTAL_BYTES before any zip\nis built; over either limit the request is refused with 413, never\nsilently truncated. The archive itself is built in a temp directory\nand streamed back via FileResponse (not buffered whole in memory),\nwith the directory removed once the response finishes, errors, or is\ninterrupted (CleanupFileResponse).",
         "operationId": "export_assets_api_assets_export_zip_post",
         "requestBody": {
           "content": {
@@ -1371,6 +1371,7 @@
     "/api/export.zip": {
       "get": {
         "summary": "Export All Markdown",
+        "description": "Whole-graph export, zipped. pkm-13ty: built in a temp directory and\nstreamed back via FileResponse rather than buffered whole in an\nin-memory BytesIO -- the graph has no size cap, so an unbounded\nnumber of pages/assets must not translate into an unbounded process\nallocation. The temp directory is removed once the response finishes,\nerrors, or is interrupted (CleanupFileResponse); a failure before\nthat point is cleaned up here directly and re-raised.",
         "operationId": "export_all_markdown_api_export_zip_get",
         "responses": {
           "200": {

@@ -1,9 +1,13 @@
 # pattern: Functional Core
 """Pure helpers for the asset file browser (pkm-jdu3): reference-token
 stripping, mime categorisation (and its SQL twin), and zip arcname
-de-duplication."""
+de-duplication. Also (pkm-x3l7) the sha256 hashing and repair decision
+used to verify a content-addressed asset file's bytes actually match the
+digest encoded in its own storage path, instead of trusting that a file
+at that path is correct just because it exists."""
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import PurePosixPath
 
@@ -61,17 +65,78 @@ def strip_asset_tokens(text: str, sha256: str) -> str:
     return re.sub(r" {2,}", " ", text).strip()
 
 
+def sha256_hex(data: bytes) -> str:
+    """The digest callers compare against a content-addressed asset's
+    known sha256."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def asset_needs_repair(expected_sha256: str, expected_size: int,
+                       actual_size: int, actual_sha256: str | None) -> bool:
+    """Whether a content-addressed asset file on disk must be rewritten
+    from its known-good source.
+
+    Callers gather `actual_size` with a plain stat() first -- a size
+    mismatch alone already proves corruption (e.g. truncation), so pass
+    `actual_sha256=None` in that case rather than paying for a full read
+    + hash of a file already known to be wrong. Only compute and pass
+    the real hash once the sizes already agree, to also catch a
+    same-size corruption (bit rot, a same-length overwrite)."""
+    if actual_size != expected_size:
+        return True
+    return actual_sha256 != expected_sha256
+
+
+def export_limit_violation(count: int, total_bytes: int, *,
+                           max_count: int, max_bytes: int) -> str | None:
+    """None if a selected-asset export's `count` and `total_bytes` both sit
+    within their limits; otherwise a human-readable detail naming which
+    limit was exceeded and by how much, for a 413 response. Callers must
+    refuse the whole request on a violation -- never build a truncated
+    archive that silently drops the assets over the line.
+
+    Count is checked first: it is the cheaper number for a user to act on
+    (deselect a few files) than a byte total, so when a request blows both
+    limits at once the message leads with the more actionable one."""
+    if count > max_count:
+        return (f"selection has {count} assets, exceeding the limit of "
+                f"{max_count}")
+    if total_bytes > max_bytes:
+        return (f"selection totals {total_bytes} bytes, exceeding the "
+                f"limit of {max_bytes} bytes")
+    return None
+
+
 def zip_arcnames(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Map (sha256, filename) pairs to unique zip arcnames: first use of
-    a name wins, later case-insensitive collisions get ' (<sha8>)'
-    before the suffix."""
+    a name wins (case-insensitively, since zips get extracted on
+    case-insensitive filesystems), later collisions get ' (<sha8>)'
+    before the suffix.
+
+    A generated candidate can itself already be taken -- by another
+    entry's original filename that merely looks generated, or by
+    another entry whose sha256 shares the same 8-char prefix -- so the
+    candidate is rechecked against `used` and, if still colliding, the
+    sha prefix is extended one character at a time up to its full
+    length. In the residual case of two entries sharing both name and
+    full sha256, even the full digest can't disambiguate them, so an
+    incrementing numeric suffix is the final fallback. Every returned
+    arcname is guaranteed unique modulo case."""
     used: set[str] = set()
     out: list[tuple[str, str]] = []
     for sha, name in entries:
         arc = name
         if arc.lower() in used:
             p = PurePosixPath(name)
-            arc = f"{p.stem} ({sha[:8]}){p.suffix}"
+            prefix_len = 8
+            arc = f"{p.stem} ({sha[:prefix_len]}){p.suffix}"
+            while arc.lower() in used and prefix_len < len(sha):
+                prefix_len += 1
+                arc = f"{p.stem} ({sha[:prefix_len]}){p.suffix}"
+            n = 2
+            while arc.lower() in used:
+                arc = f"{p.stem} ({sha[:prefix_len]}-{n}){p.suffix}"
+                n += 1
         used.add(arc.lower())
         out.append((sha, arc))
     return out

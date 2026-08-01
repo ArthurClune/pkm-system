@@ -18,10 +18,11 @@ def uvicorn_log_config() -> dict:
     """uvicorn's default logging dictconfig, plus timestamps on every
     formatter and a parent `pkm` logger wired to the default (stderr)
     handler at INFO, so every `pkm.*` child - `pkm.assets`, `pkm.assistant`,
-    `pkm.describe`, and any future addition - inherits handlers/level/format
-    by propagation with no per-logger entry needed. Without a configured
-    ancestor, a child logger's INFO lines silently vanish via root-logger
-    propagation (nothing configures the root logger); this bit `pkm.assets`
+    `pkm.describe`, `pkm.export`, and any future addition - inherits
+    handlers/level/format by propagation with no per-logger entry needed.
+    Without a configured ancestor, a child logger's INFO lines silently
+    vanish via root-logger propagation (nothing configures the root
+    logger); this bit `pkm.assets`
     and `pkm.assistant` before this parent policy existed, repeating the
     drift once fixed one logger at a time for `pkm.describe` (pkm-4z9r).
 

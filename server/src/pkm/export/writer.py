@@ -1,22 +1,96 @@
 # pattern: Imperative Shell
 """Write the full markdown + assets export for a graph database.
 
-*.md files are wiped and rewritten every run (renames/deletes stay honest;
-git still diffs minimally because unchanged content is byte-identical).
-The asset mirror is incremental: content-hashed files never change, so
-only new hashes are copied and vanished hashes pruned."""
+Rendering and asset staging happen entirely in a scratch directory beside
+the live one; the last good export is only replaced once a full new export
+is ready, via atomic directory renames (see `_publish_dir`). A crash or
+exception anywhere in rendering, disk I/O, or asset copying -- before any
+`_publish_dir` call runs -- leaves the previous export byte-identical:
+nothing is deleted or overwritten in-place, except `export_dir/.gitignore`
+itself, which is written in place unconditionally at the very start of
+every run, before any staging happens -- it's static, idempotent content,
+not part of the pages/journal/assets tree any `_publish_dir` call or
+crash-recovery guarantee covers.
+
+Publishing itself is three separate atomic renames (pages/, journal/,
+assets/ in turn), not one transaction across all three: if a later one
+fails after an earlier one already landed (e.g. `_publish_dir(journal)`
+raising after `_publish_dir(pages)` succeeded), this run's export is left
+in a genuine mixed old/new state -- not byte-identical to before -- until
+the next successful run's per-subtree self-heal (see `_publish_dir`)
+converges it back to fully consistent. Nothing is ever corrupted or
+silently lost in that window (the old content of each not-yet-published
+subtree survives under `<name>.stale` until superseded), and the raised
+exception means the nightly backup job (`pkm.backup.__main__`) exits
+nonzero and never reaches `git_commit_export` -- so this mixed state is
+never the thing that gets committed to the export's git history.
+
+*.md files are wholly regenerated every run (git still diffs minimally
+because unchanged content is byte-identical). The asset mirror is
+incremental: content-hashed files never change, so an asset already present
+in the export is hardlinked into the new tree instead of re-copied; only
+new hashes are actually copied from the live store, and vanished hashes are
+simply left out of the new tree (pruned).
+
+An asset already present is only hardlinked after it passes verification
+against the assets row's known sha256/size (pkm-x3l7): a cheap stat-based
+size check first, and only once that matches, a full sha256 of its bytes.
+A file that fails either check is never hardlinked forward -- the loop
+falls through to the same branch used for a brand-new hash and re-copies
+correct bytes from `live_assets_dir`, so a corrupted "existing" asset is
+transparently repaired by the time this run's `_publish_dir(stage_assets,
+assets_dir)` lands. Hashing the whole previously-present set every run
+costs a full read of each file, but at this graph's scale (order ~1e3
+images) that's a low-single-digit-second tax on a nightly job, not
+something worth a sampling scheme -- see assets_core.asset_needs_repair
+for where the size check saves a read outright.
+
+If a file that fails verification also has no live-store source to
+repair from, it can't be silently dropped the same way a DB row whose
+file was never captured at import time is (that's ordinary, expected
+"missing asset" residue) -- this one *was* present, readable, and now
+provably wrong, and there's nothing left to repair it from. That case
+gets its own `assets_missing_source_on_repair` count plus a `pkm.export`
+warning naming the sha, instead of disappearing into `assets_pruned`
+(its sha is still `wanted`, so it isn't pruned either) with zero
+signal."""
 from __future__ import annotations
 
+import logging
+import os
 import shutil
 import sqlite3
+import tempfile
 from pathlib import Path
 
+from pkm.assets_core import asset_needs_repair, sha256_hex
 from pkm.export.markdown import page_filename, render_page
 from pkm.filenames import safe_filename
 from pkm.server.daily import date_for_title
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
-GITIGNORE = "assets/\n"
+logger = logging.getLogger("pkm.export")
+
+GITIGNORE = "assets/\n.export-staging-*/\n"
+
+
+def _publish_dir(staged: Path, target: Path) -> None:
+    """Atomically replace `target`'s contents with `staged`'s.
+
+    A plain `os.replace(staged, target)` fails when `target` is a
+    non-empty directory, so the previous contents are first moved aside
+    (a second atomic rename) and only removed once the new contents are
+    in place. That leaves, at most, a brief window where `target` doesn't
+    exist -- never a window where it holds partial contents.
+    """
+    stale = target.with_name(target.name + ".stale")
+    if stale.exists():
+        shutil.rmtree(stale)
+    if target.exists():
+        os.replace(target, stale)
+    os.replace(staged, target)
+    if stale.exists():
+        shutil.rmtree(stale)
 
 
 def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
@@ -24,8 +98,7 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
     pages_dir = export_dir / "pages"
     journal_dir = export_dir / "journal"
     assets_dir = export_dir / "assets"
-    for d in (pages_dir, journal_dir, assets_dir):
-        d.mkdir(parents=True, exist_ok=True)
+    export_dir.mkdir(parents=True, exist_ok=True)
     (export_dir / ".gitignore").write_text(GITIGNORE, encoding="utf-8")
 
     texts = [r["text"] for r in db.execute("SELECT text FROM blocks")]
@@ -36,11 +109,9 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         if row is not None:
             uid_to_text[uid] = row["text"]
 
-    for d in (pages_dir, journal_dir):
-        for old in d.glob("*.md"):
-            old.unlink()
-
-    counts = {"pages": 0, "journal": 0, "assets_copied": 0, "assets_pruned": 0}
+    counts = {"pages": 0, "journal": 0, "assets_copied": 0, "assets_pruned": 0,
+             "assets_missing_source_on_repair": 0}
+    rendered: dict[tuple[str, str], str] = {}  # (kind, filename) -> body
     taken: set[str] = set()
     for page in db.execute("SELECT id, title FROM pages ORDER BY title"):
         rows = db.execute(
@@ -50,28 +121,68 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         body = render_page(page["title"], build_tree(rows), uid_to_text)
         day = date_for_title(page["title"])
         if day is not None:
-            (journal_dir / f"{day.isoformat()}.md").write_text(
-                body, encoding="utf-8")
+            rendered["journal", f"{day.isoformat()}.md"] = body
             counts["journal"] += 1
         else:
-            (pages_dir / page_filename(page["title"], taken)).write_text(
-                body, encoding="utf-8")
+            rendered["pages", page_filename(page["title"], taken)] = body
             counts["pages"] += 1
 
-    wanted: dict[str, str] = {
-        row["sha256"]: safe_filename(row["filename"])
-        for row in db.execute("SELECT sha256, filename FROM assets")}
-    for sha, fname in wanted.items():
-        src = live_assets_dir / sha[:2] / sha
-        out = assets_dir / sha / fname
-        if not src.is_file():
-            continue  # row without a stored file: known import residue
-        if not out.is_file():
-            out.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, out)
+    wanted: dict[str, tuple[str, int]] = {
+        row["sha256"]: (safe_filename(row["filename"]), row["size"])
+        for row in db.execute("SELECT sha256, filename, size FROM assets")}
+    previously_present = ({d.name for d in assets_dir.iterdir() if d.is_dir()}
+                          if assets_dir.is_dir() else set())
+    counts["assets_pruned"] = len(previously_present - wanted.keys())
+
+    staging = Path(tempfile.mkdtemp(dir=export_dir, prefix=".export-staging-"))
+    try:
+        stage_pages, stage_journal, stage_assets = (
+            staging / "pages", staging / "journal", staging / "assets")
+        stage_pages.mkdir()
+        stage_journal.mkdir()
+        stage_assets.mkdir()
+        for (kind, fname), body in rendered.items():
+            (staging / kind / fname).write_text(body, encoding="utf-8")
+
+        for sha, (fname, size) in wanted.items():
+            dest = stage_assets / sha / fname
+            existing = assets_dir / sha / fname
+            was_present = existing.is_file()
+            if was_present:
+                actual_size = existing.stat().st_size
+                actual_sha = (sha256_hex(existing.read_bytes())
+                             if actual_size == size else None)
+                if not asset_needs_repair(sha, size, actual_size, actual_sha):
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    os.link(existing, dest)
+                    continue
+            src = live_assets_dir / sha[:2] / sha
+            if not src.is_file():
+                if was_present:
+                    # Present but failed verification, and now nothing to
+                    # repair it from either: unlike the case below, this
+                    # asset didn't just vanish quietly -- surface it.
+                    counts["assets_missing_source_on_repair"] += 1
+                    logger.warning(
+                        "export: asset %s (%s) failed verification against"
+                        " the previous export and has no live-store source"
+                        " to repair from -- dropping it from this export",
+                        sha, fname)
+                # else: a DB row whose file was never captured at import
+                # time -- known, ordinary import residue, not a new failure.
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
             counts["assets_copied"] += 1
-    for d in assets_dir.iterdir():
-        if d.is_dir() and d.name not in wanted:
-            shutil.rmtree(d)
-            counts["assets_pruned"] += 1
+
+        # Publish only now that every render and copy above has succeeded.
+        # Each call is atomic on its own, but the three together are not
+        # one transaction -- see the module docstring for what a failure
+        # partway through this sequence does and doesn't guarantee.
+        _publish_dir(stage_pages, pages_dir)
+        _publish_dir(stage_journal, journal_dir)
+        _publish_dir(stage_assets, assets_dir)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
     return counts

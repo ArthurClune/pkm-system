@@ -60,3 +60,35 @@ client method loops pagination and why.
 Verification: `uv run pytest -q` (1038 passed, 96.28% coverage),
 `uv run pyrefly check` (0 errors), `uv run ruff check` (all checks
 passed) -- all from the worktree's `server/`.
+
+### Review round 1 fixes
+
+Two Important findings, both fixed (see report file's "Fix report:
+review round 1" section for full detail):
+
+1. **Untested "one request" claim** -- the no-backlinks test only
+   checked the returned shape, never counted HTTP requests. Fixed by
+   spying on `pkm_client._http.request` and asserting exactly one call.
+2. **Pagination relied on a mutable sort key** (`updated_at DESC, title`)
+   with no dedup/gap detection -- a concurrent write shifting a source's
+   rank mid-fetch could silently duplicate one group while skipping
+   another, since a naive `len(groups) >= total` exit doesn't notice a
+   duplicate masking a skip. Fixed client-side (not by changing the
+   route's sort key, which the web UI's backlinks display also
+   consumes): `get_backlinks` now retries via `_fetch_backlinks_once`
+   (bounded by `_BACKLINK_MAX_ATTEMPTS = 5`), which detects a reappearing
+   page_id, a `total_pages` mismatch across requests, or a final count
+   short of the reported total, and signals a full restart from offset 0;
+   if no attempt converges, it raises rather than ever returning a
+   possibly incomplete/duplicated set.
+
+New tests: `test_get_backlinks_restarts_when_source_order_shifts_mid_fetch`
+(simulates a concurrent `updated_at` write between two requests via a DB
+mutation triggered from a transport spy) and
+`test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes`
+(stubbed `get_page` that never converges) -- both in
+`server/tests/test_client_api.py`.
+
+Re-verification: `uv run pytest -q` (1040 passed, 96.24% coverage),
+`uv run pyrefly check` (0 errors), `uv run ruff check` (all checks
+passed).

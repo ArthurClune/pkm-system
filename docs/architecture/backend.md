@@ -511,7 +511,16 @@ and broadcasts as the web client.
   first page: the route caps a single response at 100 groups, but the
   CLI/MCP wording promises the complete backlink list, and Arthur's
   standing rule is no silent truncation of user-visible output (pkm-3cyg).
-  `get_page` itself (used for a page's own content) is unchanged and still
+  The route sorts backlink sources by `(updated_at DESC, title)`, which is
+  only stable across `get_backlinks`'s sequential requests if no source
+  page's `updated_at` changes mid-fetch (e.g. a concurrent write from
+  another CLI/MCP process). A rank shift across a page boundary produces
+  a duplicate page_id and/or a total that's short of what the server
+  reported; `_fetch_backlinks_once` detects either and `get_backlinks`
+  restarts the whole fetch from offset 0 (bounded by
+  `_BACKLINK_MAX_ATTEMPTS`), raising rather than ever returning a
+  possibly skipped/duplicated set. `get_page` itself (used for a page's
+  own content) is unchanged and still
   returns only one page of backlinks alongside the blocks.
 - The MCP server exposes eleven tools — seven reads (`get_page`,
   `get_block`, `search`, `query`, `backlinks`, `todos`, `search_assets`) and

@@ -5,6 +5,7 @@ import pytest
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient, login, new_uid
 from pkm.client.core import ApiError, CliConfig, ConfigError
+from pkm.server.db import open_db
 from pkm.server.ops_core import UID_RE
 
 
@@ -196,9 +197,69 @@ def test_get_backlinks_fetches_every_group_beyond_the_single_page_cap(
     assert {"BL Source 000", "BL Source 100", "July 7th, 2026"} <= titles
 
 
-def test_get_backlinks_no_backlinks_makes_one_request(pkm_client):
+def test_get_backlinks_no_backlinks_makes_one_request(pkm_client, monkeypatch):
+    calls: list[tuple[str, str]] = []
+    orig_request = pkm_client._http.request
+
+    def spy(method, url, **kw):
+        calls.append((method, url))
+        return orig_request(method, url, **kw)
+
+    monkeypatch.setattr(pkm_client._http, "request", spy)
     result = pkm_client.get_backlinks("July 7th, 2026")
+    assert len(calls) == 1  # no extra round trip once total_pages is 0
     assert result == {"groups": [], "total_pages": 0, "offset": 0, "limit": 0}
+
+
+def test_get_backlinks_restarts_when_source_order_shifts_mid_fetch(
+        pkm_client, seed_backlinks, seeded_config, monkeypatch):
+    """The route sorts backlink sources by (updated_at DESC, title) --
+    ordering that a concurrent write can change between two of this
+    method's sequential requests. Simulate that: right before the SECOND
+    HTTP call, promote one already-unseen source to the very top of the
+    ranking (as a real concurrent edit would). A naive offset-walking
+    loop would then re-fetch a page it already saw (a duplicate) while
+    never fetching the one that got bumped out of its old slot (a skip)
+    -- exactly the silent-incompleteness bug pkm-3cyg exists to close."""
+    seed_backlinks(5)  # + the seeded "July 7th, 2026" = 6 distinct sources
+    orig_request = pkm_client._http.request
+    calls = {"n": 0}
+
+    def spy(method, url, **kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            con = open_db(seeded_config.db_path)
+            con.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
+                       (9_999_999_999_999, 103))
+            con.commit()
+            con.close()
+        return orig_request(method, url, **kw)
+
+    monkeypatch.setattr(pkm_client._http, "request", spy)
+    result = pkm_client.get_backlinks("Machine Learning", page_size=2)
+
+    assert result["total_pages"] == 6
+    page_ids = [g["page_id"] for g in result["groups"]]
+    assert len(page_ids) == len(set(page_ids)) == 6  # no skip, no dup
+    # 3 requests would suffice with a stable order; more prove a restart
+    # actually happened rather than the shift going undetected.
+    assert calls["n"] > 3
+
+
+def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
+        pkm_client, monkeypatch):
+    """Pathological case: every attempt re-observes the same page_id at a
+    later offset, so the fetch can never converge on a stable, complete
+    set. Rather than eventually returning a possibly-incomplete result,
+    it must raise (pkm-3cyg: no silent truncation, in either direction)."""
+    def flaky_get_page(title, bl_limit=100, bl_offset=0):
+        group = {"page_id": 1, "page_title": "X", "items": []}
+        return {"backlinks": {"groups": [group], "total_pages": 2,
+                              "offset": bl_offset, "limit": bl_limit}}
+
+    monkeypatch.setattr(pkm_client, "get_page", flaky_get_page)
+    with pytest.raises(ApiError, match="reorder"):
+        pkm_client.get_backlinks("whatever", page_size=1)
 
 
 def test_unauthenticated_client_gets_login_hint(anon_client):

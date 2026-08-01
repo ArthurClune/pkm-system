@@ -19,6 +19,7 @@ from pkm.refs import normalize_title
 from pkm.server.ops_core import OpBatch
 
 CLIENT_ID = "pkm-cli"
+_BACKLINK_MAX_ATTEMPTS = 5
 
 
 def config_path() -> Path:
@@ -118,22 +119,60 @@ class PkmClient:
         routes_pages.py) until none remain. The CLI/MCP wording promises
         the complete backlink list, so returning only the first page
         here would silently truncate it (pkm-3cyg -- no silent
-        truncation)."""
+        truncation).
+
+        The route sorts backlink sources by (updated_at DESC, title) --
+        an order that's only stable across this method's sequential
+        requests if no source page's updated_at changes in between, e.g.
+        a concurrent write landing mid-fetch (plausible with a
+        multi-process CLI/MCP). If a source's rank shifts across a page
+        boundary while fetching, `_fetch_backlinks_once` detects the
+        resulting duplicate/mismatch and the whole fetch restarts from
+        offset 0, up to `_BACKLINK_MAX_ATTEMPTS` times -- never silently
+        returning the skipped/duplicated set that ordering shift would
+        otherwise produce."""
+        for _ in range(_BACKLINK_MAX_ATTEMPTS):
+            attempt = self._fetch_backlinks_once(title, page_size)
+            if attempt is not None:
+                return attempt
+        raise ApiError(
+            0, f"backlinks for {title!r} kept reordering mid-fetch across"
+               f" {_BACKLINK_MAX_ATTEMPTS} attempts — try again")
+
+    def _fetch_backlinks_once(self, title: str, page_size: int) -> dict | None:
+        """One attempt at fetching every backlink group for `title`.
+        Returns None if the server's reported ordering shifted mid-fetch
+        -- a page_id reappearing, `total_pages` changing between
+        requests, or fewer distinct pages arriving than promised -- so
+        the caller can restart instead of accepting a possibly
+        incomplete or duplicated result."""
         offset = 0
+        seen_page_ids: set[int] = set()
         groups: list[dict] = []
-        total = 0
+        total: int | None = None
         while True:
             payload = self.get_page(title, bl_limit=page_size,
                                     bl_offset=offset)
             backlinks = payload["backlinks"]
-            total = backlinks["total_pages"]
+            page_total = backlinks["total_pages"]
+            if total is None:
+                total = page_total
+            elif page_total != total:
+                return None  # total shifted mid-fetch -- restart
             new_groups = backlinks["groups"]
             if not new_groups:
                 break
+            for g in new_groups:
+                if g["page_id"] in seen_page_ids:
+                    return None  # a source reappeared -- restart
+                seen_page_ids.add(g["page_id"])
             groups.extend(new_groups)
             offset += len(new_groups)
             if len(groups) >= total:
                 break
+        total = total or 0
+        if len(groups) != total:
+            return None  # fewer distinct pages arrived than promised
         return {"groups": groups, "total_pages": total, "offset": 0,
                 "limit": len(groups)}
 

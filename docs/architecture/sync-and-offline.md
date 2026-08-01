@@ -131,6 +131,29 @@ incidental surplus — `delete_asset` is listed in
 this reason. Only the orphan-delete branch (no referencing blocks, so the
 commit touches `assets` alone) sends a nudge that changes nothing.
 
+### Hub fan-out: concurrent, per-client ordered (pkm-nn57)
+
+`Hub.broadcast()` (`ws.py`) hands each frame to a small bounded
+per-client queue (`QUEUE_SIZE`) and returns without waiting on any
+client's network send. Each connection has its own "drain" task that is
+the sole consumer of that client's queue, sending one frame at a time
+with a `SEND_TIMEOUT`-bounded `send_json`. This gives two properties at
+once: fan-out across clients is fully concurrent (a stalled client no
+longer adds its timeout to every other client's delivery, or to the
+write path that called `broadcast()` — previously a sequential
+await-with-timeout loop meant N stalled clients cost N seconds), while
+delivery to any one client stays strictly in the order `broadcast()` was
+called, because a single-consumer FIFO queue can't reorder its own
+items. A client is disconnected outright — never buffered without bound
+or waited on further — if its queue fills up (it isn't draining fast
+enough) or a send doesn't complete within `SEND_TIMEOUT`; it reconnects
+and resyncs from its cursor, which is the correctness mechanism here
+regardless of nudge delivery (see above). This is proportionate for a
+single-user server with a handful of connected replicas, not a design
+meant to scale to many concurrent connections — there is deliberately no
+separate cap on total connection count, since the per-client queue bound
+and send timeout already bound the cost that matters at this scale.
+
 ## Offline editing and reconnect
 
 While disconnected, reads and search are served from the replica through the

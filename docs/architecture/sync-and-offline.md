@@ -119,11 +119,17 @@ journal-advancing route and asserts each one emits a seq nudge; a route
 that starts writing to `blocks`/`pages`/`sidebar_entries` needs a case
 added there, or it ships with the same silent gap.
 
-Asset routes (`assets` table) are the one common exception: `assets` has
-no changes-journal trigger, so those commits don't need a nudge at all —
-`delete_asset` sends one anyway (harmless: the seq value is just
-unchanged) because its commit also touches `blocks` in the referencing-block
-case; `upload_asset`'s commit touches only `assets` and sends none.
+Asset routes are a partial, not blanket, exception: `assets` itself has no
+changes-journal trigger, so `upload_asset` (writes only `assets`) correctly
+sends no nudge. `delete_asset` is different — when the deleted asset has
+referencing blocks, it strips the reference token from each one and either
+`UPDATE`s or `DELETE`s the block (`routes_assets.py` ~184-188), which *is*
+a `blocks` write and does advance `changes.seq`. In that branch the nudge
+is load-bearing, exactly like every other journal-advancing route, not
+incidental surplus — `delete_asset` is listed in
+`test_journal_advancing_contract.py` with a referencing-block scenario for
+this reason. Only the orphan-delete branch (no referencing blocks, so the
+commit touches `assets` alone) sends a nudge that changes nothing.
 
 ## Offline editing and reconnect
 

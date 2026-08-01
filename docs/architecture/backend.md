@@ -329,7 +329,13 @@ The three management endpoints behind the `/files` browser (pkm-jdu3) share
 
 `python -m pkm.importer.run export.edn --files <dir> --out <data-dir>`. Each
 run builds a complete new database and atomically swaps it in — re-running is
-always safe.
+always safe. Asset copying (the "copy assets" step below) likewise never
+trusts an existing content-addressed destination just because it's present:
+it's verified against the freshly-indexed source's size and sha256
+(`assets_core.asset_needs_repair`, shared with the export writer's own
+verify-then-hardlink check), and a mismatch is rewritten atomically
+(temp-file + `os.replace`) from the linked-files source — the same path
+used for a brand-new hash (pkm-x3l7).
 
 ```mermaid
 flowchart TD
@@ -390,7 +396,17 @@ an already-published database.
   to `export/pages/<title>.md` and dailies to `export/journal/YYYY-MM-DD.md`
   (`markdown.py` resolves `((refs))` to text, one level deep, and keeps
   `{{query: ...}}` macros as the raw command), and mirrors assets
-  incrementally. Markdown files are rewritten byte-identically when unchanged,
+  incrementally. A previously-exported asset's mere presence at its
+  content-addressed path is never trusted: it's verified against the
+  `assets` row's known size and sha256 (`assets_core.asset_needs_repair`
+  — a cheap stat first, a full hash only once the size already matches)
+  before being hardlinked into the new tree; a mismatch is transparently
+  re-copied from the live store instead, so a truncated or corrupted file
+  from a past export doesn't survive forever (pkm-x3l7). If that repair
+  source is itself missing too, the asset is dropped from this export
+  with a `pkm.export` warning and its own `assets_missing_source_on_repair`
+  count, rather than disappearing into the ordinary "missing asset" case
+  silently. Markdown files are rewritten byte-identically when unchanged,
   so the git diff of a nightly export is minimal. Rendering and asset
   copying happen into a scratch `.export-staging-*` directory beside the
   live one; the previous `pages/`, `journal/`, and `assets/` are only

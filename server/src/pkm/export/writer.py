@@ -6,7 +6,11 @@ the live one; the last good export is only replaced once a full new export
 is ready, via atomic directory renames (see `_publish_dir`). A crash or
 exception anywhere in rendering, disk I/O, or asset copying -- before any
 `_publish_dir` call runs -- leaves the previous export byte-identical:
-nothing is deleted or overwritten in-place.
+nothing is deleted or overwritten in-place, except `export_dir/.gitignore`
+itself, which is written in place unconditionally at the very start of
+every run, before any staging happens -- it's static, idempotent content,
+not part of the pages/journal/assets tree any `_publish_dir` call or
+crash-recovery guarantee covers.
 
 Publishing itself is three separate atomic renames (pages/, journal/,
 assets/ in turn), not one transaction across all three: if a later one

@@ -83,7 +83,7 @@ def test_get_missing_page_exits_1_with_stderr(run):
     code, out, err = run("get", "No Such Page")
     assert code == 1
     assert out == ""
-    assert "404" in err
+    assert err == "404: page not found\n"
 
 
 def test_search(run):

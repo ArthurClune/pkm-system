@@ -60,6 +60,12 @@ def test_save_note_returns_uids_and_writes(tools, pkm_client):
     assert any(n.text == "hello from mcp" for n in page.blocks)
 
 
+def test_missing_page_error_has_one_status_prefix(tools):
+    with pytest.raises(ApiError) as exc:
+        tools.get_page("No Such Page")
+    assert str(exc.value) == "404: page not found"
+
+
 def test_save_note_todo_and_outline(tools, pkm_client):
     tools.save_note("task\n  detail", page="AI", todo=True)
     assert pkm_client.todos(page="AI").total == 1

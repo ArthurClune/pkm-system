@@ -4,6 +4,7 @@
 import { useRef, useState } from "react";
 import { applyCompletion, detectAutocomplete,
          type AcContext } from "../outline/autocomplete";
+import { autocompleteKeyAction } from "../outline/keyboardPolicy";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { AutocompletePopup, buildRows, useTitleOptions } from "./AutocompletePopup";
 
@@ -46,12 +47,17 @@ export function Composer({ onSend, readOnly }: {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (acRows.length > 0) {
-      if (e.key === "ArrowDown") { e.preventDefault(); setAcSelected((s) => Math.min(s + 1, acRows.length - 1)); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); setAcSelected((s) => Math.max(s - 1, 0)); return; }
-      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pick(acRows[acSelected]); return; }
-      if (e.key === "Escape") { e.preventDefault(); setAc(null); return; }
-    }
+    if (acRows.length === 0) return;
+    // Shared with the outline editor (pkm-clt1): only unmodified Arrow/
+    // Enter/Tab/Escape are consumed here, so Cmd/Ctrl/Shift/Alt variants
+    // reach native textarea behaviour instead of navigating the popup.
+    const action = autocompleteKeyAction(e);
+    if (!action) return;
+    e.preventDefault();
+    if (action === "move-down") { setAcSelected((s) => Math.min(s + 1, acRows.length - 1)); return; }
+    if (action === "move-up") { setAcSelected((s) => Math.max(s - 1, 0)); return; }
+    if (action === "pick") { pick(acRows[acSelected]); return; }
+    if (action === "close") { setAc(null); return; }
   };
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {

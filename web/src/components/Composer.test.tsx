@@ -73,6 +73,29 @@ test("arrow keys choose an autocomplete row and Enter applies it", async () => {
   expect(onSend).not.toHaveBeenCalled();
 });
 
+test("modified Arrow/Enter/Tab/Escape do not move, pick, or close the popup", async () => {
+  // pkm-clt1: Cmd/Ctrl/Shift/Alt variants must be left alone — Composer has
+  // no other keyboard shortcuts, so a modified key should leave the popup,
+  // selection, and draft exactly as they were.
+  stubFetch([["/api/titles", { titles: ["Alpha", "Alpine"] }]]);
+  render(<Composer onSend={vi.fn()} readOnly={false} />);
+  const ta = typeRefQuery("Al");
+  await screen.findByRole("option", { name: "Alpha" });
+
+  const modifierProps = [
+    { metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true },
+  ];
+  for (const key of ["ArrowUp", "ArrowDown", "Enter", "Tab", "Escape"]) {
+    for (const mod of modifierProps) {
+      fireEvent.keyDown(ta, { key, ...mod });
+    }
+  }
+
+  expect(ta).toHaveValue("See [[Al");
+  expect(screen.getByRole("option", { name: "Alpha" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("option", { name: "Alpine" })).toHaveAttribute("aria-selected", "false");
+});
+
 test("Tab applies autocomplete and Escape cancels it", async () => {
   const onSend = vi.fn();
   stubFetch([["/api/titles", { titles: ["Alpha"] }]]);

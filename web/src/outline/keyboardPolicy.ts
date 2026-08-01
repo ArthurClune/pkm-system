@@ -62,6 +62,29 @@ export type KeyDecision =
 
 const NONE: KeyDecision = { type: "none" };
 
+export type AutocompleteKeyAction = "move-up" | "move-down" | "pick" | "close";
+
+/** Whether an open autocomplete popup should claim this keydown, and what it
+ * should do. Only unmodified Arrow/Enter/Tab/Escape are consumed — any
+ * Cmd/Ctrl/Shift/Alt combination is left for native selection/navigation or
+ * editor commands instead (pkm-clt1). Shared by decideEditorKey (the outline
+ * editor) and Composer so both agree on the same modifier boundary rather
+ * than each re-deriving it. */
+export function autocompleteKeyAction(k: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+}): AutocompleteKeyAction | null {
+  if (k.metaKey || k.ctrlKey || k.altKey || k.shiftKey) return null;
+  if (k.key === "ArrowDown") return "move-down";
+  if (k.key === "ArrowUp") return "move-up";
+  if (k.key === "Enter" || k.key === "Tab") return "pick";
+  if (k.key === "Escape") return "close";
+  return null;
+}
+
 // Modifier convention: letter-chord editing shortcuts are Meta-only with
 // Ctrl/Alt/Shift excluded — Ctrl+letter is left to the emacs-style textarea
 // bindings macOS provides (Ctrl-K kill-line, Ctrl-B back-char, ...), and
@@ -109,14 +132,15 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   }
   // Autocomplete popup owns the unmodified arrows / Enter / Tab / Escape while open.
   if (i.acRowsLength > 0) {
-    if (i.key === "ArrowDown") {
+    const acAction = autocompleteKeyAction(i);
+    if (acAction === "move-down") {
       return { type: "ac-move", selected: Math.min(i.acSelected + 1, i.acRowsLength - 1) };
     }
-    if (i.key === "ArrowUp") {
+    if (acAction === "move-up") {
       return { type: "ac-move", selected: Math.max(i.acSelected - 1, 0) };
     }
-    if (i.key === "Enter" || i.key === "Tab") return { type: "ac-pick" };
-    if (i.key === "Escape") return { type: "ac-close" };
+    if (acAction === "pick") return { type: "ac-pick" };
+    if (acAction === "close") return { type: "ac-close" };
   }
   if (i.key === "Escape") return { type: "blur" };
   // Ctrl-O inside a [[page reference]] opens that page (Meta/Alt left alone);

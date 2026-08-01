@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideEditorKey, type EditorKeyInput } from "./keyboardPolicy";
+import { autocompleteKeyAction, decideEditorKey, type EditorKeyInput } from "./keyboardPolicy";
 
 const input = (over: Partial<EditorKeyInput>): EditorKeyInput => ({
   key: "",
@@ -57,6 +57,73 @@ describe("decideEditorKey autocomplete precedence", () => {
     // Enter is a split once the popup is closed, not an ac-pick.
     expect(decideEditorKey(input({ key: "Enter", acRowsLength: 0 })))
       .toEqual({ type: "split", cursor: 0 });
+  });
+
+  // pkm-clt1: every Cmd/Ctrl/Shift/Alt combination must fall through to the
+  // same decision it would get with the popup closed, never an ac-* type —
+  // modified keys perform native selection/navigation or editor commands,
+  // never autocomplete navigation/pick/close.
+  it("never lets a modified Arrow/Enter/Tab/Escape reach the popup", () => {
+    const cases: Array<[string, Partial<EditorKeyInput>, ReturnType<typeof decideEditorKey>]> = [
+      ["ArrowUp", { altKey: true }, { type: "none" }],
+      ["ArrowUp", { ctrlKey: true }, { type: "none" }],
+      ["ArrowUp", { shiftKey: true }, { type: "start-block-selection", dir: "up" }],
+      ["ArrowUp", { metaKey: true }, { type: "none" }],
+
+      ["ArrowDown", { altKey: true }, { type: "none" }],
+      ["ArrowDown", { ctrlKey: true }, { type: "none" }],
+      ["ArrowDown", { shiftKey: true }, { type: "start-block-selection", dir: "down" }],
+      ["ArrowDown", { metaKey: true }, { type: "none" }],
+
+      ["Enter", { altKey: true }, { type: "split", cursor: 0 }],
+      ["Enter", { ctrlKey: true },
+        { type: "key-edit", edit: { text: "{{TODO}} ", selStart: 9, selEnd: 9 } }],
+      ["Enter", { shiftKey: true }, { type: "none" }],
+      ["Enter", { metaKey: true },
+        { type: "key-edit", edit: { text: "{{TODO}} ", selStart: 9, selEnd: 9 } }],
+
+      ["Tab", { altKey: true }, { type: "indent" }],
+      ["Tab", { ctrlKey: true }, { type: "indent" }],
+      ["Tab", { shiftKey: true }, { type: "outdent" }],
+      ["Tab", { metaKey: true }, { type: "indent" }],
+
+      ["Escape", { altKey: true }, { type: "blur" }],
+      ["Escape", { ctrlKey: true }, { type: "blur" }],
+      ["Escape", { shiftKey: true }, { type: "blur" }],
+      ["Escape", { metaKey: true }, { type: "blur" }],
+    ];
+    for (const [key, mod, expected] of cases) {
+      const got = decideEditorKey(input({ key, acRowsLength: 3, acSelected: 1, ...mod }));
+      expect(got, `${key} + ${JSON.stringify(mod)}`).toEqual(expected);
+      expect(got.type).not.toBe("ac-move");
+      expect(got.type).not.toBe("ac-pick");
+      expect(got.type).not.toBe("ac-close");
+    }
+  });
+});
+
+describe("autocompleteKeyAction", () => {
+  const base = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false };
+
+  it("claims unmodified Arrow/Enter/Tab/Escape", () => {
+    expect(autocompleteKeyAction({ ...base, key: "ArrowDown" })).toBe("move-down");
+    expect(autocompleteKeyAction({ ...base, key: "ArrowUp" })).toBe("move-up");
+    expect(autocompleteKeyAction({ ...base, key: "Enter" })).toBe("pick");
+    expect(autocompleteKeyAction({ ...base, key: "Tab" })).toBe("pick");
+    expect(autocompleteKeyAction({ ...base, key: "Escape" })).toBe("close");
+  });
+
+  it("rejects every key when any modifier is held", () => {
+    for (const key of ["ArrowUp", "ArrowDown", "Enter", "Tab", "Escape"]) {
+      expect(autocompleteKeyAction({ ...base, key, metaKey: true })).toBeNull();
+      expect(autocompleteKeyAction({ ...base, key, ctrlKey: true })).toBeNull();
+      expect(autocompleteKeyAction({ ...base, key, shiftKey: true })).toBeNull();
+      expect(autocompleteKeyAction({ ...base, key, altKey: true })).toBeNull();
+    }
+  });
+
+  it("ignores keys the popup never claims", () => {
+    expect(autocompleteKeyAction({ ...base, key: "a" })).toBeNull();
   });
 });
 

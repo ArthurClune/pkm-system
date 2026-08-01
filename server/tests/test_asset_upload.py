@@ -25,7 +25,7 @@ def test_upload_roundtrip(client, seeded_config):
     sha = hashlib.sha256(b"PNGDATA").hexdigest()
     assert body == {"sha256": sha, "filename": "pic.png",
                     "mime": "image/png", "size": 7,
-                    "url": f"/assets/{sha}/pic.png"}
+                    "url": f"/assets/{sha}/pic.png", "existing": False}
     assert (seeded_config.assets_dir / sha[:2] / sha).read_bytes() == b"PNGDATA"
     fetched = client.get(body["url"])
     assert fetched.status_code == 200
@@ -45,6 +45,16 @@ def test_upload_dedupes_by_content(client, seeded_config):
     sha = first["sha256"]
     stored = list((seeded_config.assets_dir / sha[:2]).iterdir())
     assert [p.name for p in stored] == [sha]  # one file, no temp leftovers
+
+
+def test_upload_existing_flag_distinguishes_new_from_deduped_uploads(client):
+    # Callers that upload-then-link (pkm-c17m) use this flag to decide
+    # whether a failed link makes THEM the orphan's sole owner, and so
+    # safe to delete -- a dedup hit must never look deletable.
+    first = _upload(client, name="a.png").json()
+    assert first["existing"] is False
+    second = _upload(client, name="b.png").json()
+    assert second["existing"] is True
 
 
 def test_upload_empty_400(client):

@@ -142,6 +142,52 @@ def test_upload_no_block(run, pkm_client, tmp_path):
     assert not any("doc.txt" in t for t in _page_texts(pkm_client, "AI"))
 
 
+def test_upload_invalid_parent_is_rejected_before_any_upload(
+        run, pkm_client, tmp_path):
+    png = tmp_path / "pic.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 100)
+    code, out, err = run("upload", str(png), "-p", "AI",
+                         "--parent", "((no-such-uid))")
+    assert code == 1
+    assert "not on page" in err
+    assert out == ""  # nothing printed -- the asset was never uploaded
+    assert pkm_client.search_assets("pic.png")["total"] == 0
+
+
+def test_upload_post_ops_failure_deletes_the_orphaned_asset(
+        run, pkm_client, tmp_path, monkeypatch):
+    png = tmp_path / "pic.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 100)
+
+    def _fail(ops, batch_id):
+        raise ApiError(500, "boom")
+
+    monkeypatch.setattr(pkm_client, "post_ops", _fail)
+    code, out, err = run("upload", str(png), "-p", "AI")
+    assert code == 1
+    assert out == ""  # success output withheld until the link actually lands
+    assert pkm_client.search_assets("pic.png")["total"] == 0
+    assert not any("pic.png" in t for t in _page_texts(pkm_client, "AI"))
+
+
+def test_upload_post_ops_failure_does_not_delete_a_pre_existing_asset(
+        run, pkm_client, tmp_path, monkeypatch):
+    png = tmp_path / "pic.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 100)
+    code, _, _ = run("upload", str(png), "-p", "AI")
+    assert code == 0  # first upload lands for real -- the asset is now in use
+
+    def _fail(ops, batch_id):
+        raise ApiError(500, "boom")
+
+    monkeypatch.setattr(pkm_client, "post_ops", _fail)
+    code, _, _ = run("upload", str(png), "-p", "Machine Learning")
+    assert code == 1
+    # same content re-uploads to the same sha256 (content-addressed) --
+    # it must survive since the first upload's block still references it
+    assert pkm_client.search_assets("pic.png")["total"] == 1
+
+
 def test_batch_atomic_create_with_alias(run, pkm_client):
     cmds = [
         {"command": "create",

@@ -284,7 +284,15 @@ Uploads stream in 1 MiB chunks with a running size cap (413 over
 `<assets_dir>/<sha256[:2]>/<sha256>` and deduplicated by digest; the `assets`
 row keeps the display filename/MIME/size. Raster images and PDFs serve
 inline; everything else (including SVG, which can script) is forced to
-download with `nosniff`.
+download with `nosniff`. The upload response's `existing` bool records
+whether the `assets` row was already there before this call (a dedup hit)
+or is brand new — the CLI's `pkm upload` and the MCP `upload_asset` tool
+resolve/validate the destination page and parent *before* calling
+`POST /api/assets`, and if the follow-up `/api/ops` write that links the
+asset then fails, they compensate with `DELETE /api/assets/{sha256}` only
+when `existing` was `false` (pkm-c17m). Deleting on a dedup hit would be
+wrong: the sha may already be referenced by other blocks that have nothing
+to do with this call's failed write.
 
 The three management endpoints behind the `/files` browser (pkm-jdu3) share
 `assets_core.py` for their pure parts:

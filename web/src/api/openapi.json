@@ -1778,6 +1778,10 @@
           "url": {
             "type": "string",
             "title": "Url"
+          },
+          "existing": {
+            "type": "boolean",
+            "title": "Existing"
           }
         },
         "type": "object",
@@ -1786,7 +1790,8 @@
           "filename",
           "mime",
           "size",
-          "url"
+          "url",
+          "existing"
         ],
         "title": "AssetUploadResponse"
       },

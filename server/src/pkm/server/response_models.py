@@ -156,6 +156,7 @@ class AssetUploadResponse(BaseModel):
     mime: str
     size: int
     url: str
+    existing: bool
 
 
 class AssetRef(BaseModel):

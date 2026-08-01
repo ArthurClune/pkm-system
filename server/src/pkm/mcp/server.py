@@ -12,9 +12,10 @@ from mcp.server.fastmcp import FastMCP
 
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
+from pkm.client.core import ApiError
 from pkm.cli.build import (asset_block_text, create_page_ops, plan_batch,
                            plan_mark, plan_save, plan_update,
-                           referenced_pages)
+                           referenced_pages, resolve_parent)
 from pkm.cli.render import (render_assets, render_backlinks, render_block,
                             render_groups, render_page, render_search)
 from pkm.server.daily import title_for_date
@@ -153,14 +154,25 @@ def upload_asset(path: str, page: str | None = None,
     if not p.is_file():
         raise ValueError(f"no such file: {path}")
     client = _client()
-    asset = client.upload(p)
     title = page if page is not None else title_for_date(date.today())
     payload, missing = client.get_page_or_placeholder(title)
+    # Validate the destination BEFORE uploading: an invalid parent must
+    # never leave an unlinked asset sitting on the server (pkm-c17m).
+    resolve_parent(payload, parent)
+    asset = client.upload(p)
     text = asset_block_text(asset["filename"], asset["mime"], asset["url"])
     save_ops = plan_save(payload, title, parent, text, todo=False,
                          uids=_uids())
     ops = (create_page_ops([title]) if missing else []) + save_ops
-    client.post_ops(ops, batch_id=uuid.uuid4().hex)
+    try:
+        client.post_ops(ops, batch_id=uuid.uuid4().hex)
+    except ApiError:
+        # The link never landed. Compensate only if this call was the sole
+        # owner of the asset row -- deleting a sha another block already
+        # references would destroy real content, not an orphan.
+        if not asset["existing"]:
+            client.delete_asset(asset["sha256"])
+        raise
     return f"{asset['url']}\ncreated ^{save_ops[0]['uid']}"
 
 

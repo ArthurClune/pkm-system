@@ -3,7 +3,8 @@ import { jsonResponse } from "../test-helpers";
 import { assetMarkdown, uploadAsset } from "./assets";
 
 const INFO = { sha256: "ab".repeat(32), filename: "cat.png",
-               mime: "image/png", size: 3, url: `/assets/${"ab".repeat(32)}/cat.png` };
+               mime: "image/png", size: 3, url: `/assets/${"ab".repeat(32)}/cat.png`,
+               existing: false };
 
 test("uploadAsset POSTs multipart form data to /api/assets", async () => {
   const mock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {

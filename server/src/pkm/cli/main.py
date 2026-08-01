@@ -20,7 +20,7 @@ from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
 from pkm.cli.build import (BuildError, asset_block_text, create_page_ops,
                            plan_batch, plan_mark, plan_save, plan_update,
-                           referenced_pages)
+                           referenced_pages, resolve_parent)
 from pkm.cli.render import (RenderError, clip_depth, render_assets,
                             render_backlinks, render_block, render_groups,
                             render_page, render_search, select_section)
@@ -408,17 +408,30 @@ def cmd_update(args: argparse.Namespace, client: PkmClient) -> int:
 
 
 def cmd_upload(args: argparse.Namespace, client: PkmClient) -> int:
-    asset = client.upload(Path(args.file))
-    print(asset["url"])
     if args.no_block:
+        asset = client.upload(Path(args.file))
+        print(asset["url"])
         return 0
     title = _default_page(args.page)
     payload, missing = client.get_page_or_placeholder(title)
+    # Validate the destination BEFORE uploading: an invalid parent must
+    # never leave an unlinked asset sitting on the server (pkm-c17m).
+    resolve_parent(payload, args.parent)
+    asset = client.upload(Path(args.file))
     text = asset_block_text(asset["filename"], asset["mime"], asset["url"])
     save_ops = plan_save(payload, title, args.parent, text, todo=False,
                          uids=iter(client_api.new_uid, None))
     ops = (create_page_ops([title]) if missing else []) + save_ops
-    client.post_ops(ops, batch_id=uuid.uuid4().hex)
+    try:
+        client.post_ops(ops, batch_id=uuid.uuid4().hex)
+    except ApiError:
+        # The link never landed. Compensate only if this call was the sole
+        # owner of the asset row -- deleting a sha another block already
+        # references would destroy real content, not an orphan.
+        if not asset["existing"]:
+            client.delete_asset(asset["sha256"])
+        raise
+    print(asset["url"])
     print(f"created ^{save_ops[0]['uid']}")
     return 0
 

@@ -139,6 +139,44 @@ def test_upload_asset_missing_file(tools):
         tools.upload_asset("/nonexistent/x.png")
 
 
+def test_upload_asset_invalid_parent_is_rejected_before_any_upload(
+        tools, pkm_client, tmp_path):
+    f = tmp_path / "pic.png"
+    f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)
+    with pytest.raises(BuildError, match="not on page"):
+        tools.upload_asset(str(f), page="AI", parent="((no-such-uid))")
+    assert pkm_client.search_assets("pic.png")["total"] == 0
+
+
+def test_upload_asset_post_ops_failure_deletes_the_orphaned_asset(
+        tools, pkm_client, tmp_path, monkeypatch):
+    f = tmp_path / "pic.png"
+    f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)
+
+    def _fail(ops, batch_id):
+        raise ApiError(500, "boom")
+
+    monkeypatch.setattr(pkm_client, "post_ops", _fail)
+    with pytest.raises(ApiError):
+        tools.upload_asset(str(f), page="AI")
+    assert pkm_client.search_assets("pic.png")["total"] == 0
+
+
+def test_upload_asset_post_ops_failure_does_not_delete_a_pre_existing_asset(
+        tools, pkm_client, tmp_path, monkeypatch):
+    f = tmp_path / "pic.png"
+    f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)
+    tools.upload_asset(str(f), page="AI")  # lands for real -- now in use
+
+    def _fail(ops, batch_id):
+        raise ApiError(500, "boom")
+
+    monkeypatch.setattr(pkm_client, "post_ops", _fail)
+    with pytest.raises(ApiError):
+        tools.upload_asset(str(f), page="Machine Learning")
+    assert pkm_client.search_assets("pic.png")["total"] == 1
+
+
 def test_search_assets(tools, tmp_path):
     f = tmp_path / "diagram.png"
     f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)

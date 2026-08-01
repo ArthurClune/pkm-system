@@ -750,6 +750,8 @@ export interface components {
             size: number;
             /** Url */
             url: string;
+            /** Existing */
+            existing: boolean;
         };
         /** AssistantAck */
         AssistantAck: {

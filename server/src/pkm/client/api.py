@@ -245,6 +245,9 @@ class PkmClient:
         return self._request("GET", "/api/assets/search",
                              params={"q": q, "limit": limit})
 
+    def delete_asset(self, sha256: str) -> dict:
+        return self._request("DELETE", f"/api/assets/{sha256}")
+
     def scan_assets(self, force: bool = False) -> dict:
         params = {"force": "true"} if force else {}
         return self._request("POST", "/api/assets/scan", params=params)

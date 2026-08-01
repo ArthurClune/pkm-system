@@ -17,7 +17,7 @@ from pkm.describe.core import enabled_reason
 from pkm.describe.openai_client import OpenAIDescriber
 from pkm.describe.routes import router as describe_router
 from pkm.describe.service import DescribeService
-from pkm.server.auth import require_auth, router as auth_router
+from pkm.server.auth import LoginThrottle, require_auth, router as auth_router
 from pkm.server.config import Config
 from pkm.server.db import init_db
 from pkm.server.request_log import RequestLogMiddleware
@@ -87,6 +87,7 @@ def create_app(
     )
     app.state.config = config
     app.state.hub = Hub()
+    app.state.login_throttle = LoginThrottle()
     if assistant_engine is None:
         from pkm.assistant.claude_engine import ClaudeEngine
 

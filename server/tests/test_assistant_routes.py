@@ -228,6 +228,8 @@ def test_close_conversation_via_post_for_sendbeacon(assistant_client):
 
 
 class ExplodingConversation:
+    healthy = True
+
     async def send(self, text):
         from pkm.assistant.events import TextDelta
 

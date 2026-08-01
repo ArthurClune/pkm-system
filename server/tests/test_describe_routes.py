@@ -2,11 +2,15 @@
 plus the upload → enqueue hook."""
 import time
 
-from fake_describer import PNG
+from fake_describer import PNG, BlockingDescriber
+from fastapi.testclient import TestClient
 
 from pkm.describe.openai_client import OpenAIDescriber
+from pkm.describe.service import DescribeService
+from pkm.server.app import create_app
 
 _NO_KEY_REASON = "no openai_key file and OPENAI_API_KEY is not set"
+_TEST_PASSWORD = "test-pw"  # must match conftest.py
 
 
 def _upload(client, content=PNG, name="graph.png", mime="image/png"):
@@ -71,6 +75,31 @@ def test_scan_endpoint(describe_client):
 def test_scan_disabled(describe_disabled_client):
     r = describe_disabled_client.post("/api/assets/scan")
     assert r.json() == {"queued": 0, "enabled": False, "reason": _NO_KEY_REASON}
+
+
+def test_duplicate_upload_of_same_content_describes_once(seeded_config):
+    """Two uploads of byte-identical content before the first describe
+    attempt finishes must not trigger a second concurrent describe call
+    (pkm-1wv1). The fake genuinely blocks mid-flight so the second
+    upload's maybe_enqueue races a real in-flight attempt, not one that
+    already finished (pkm-mbcc)."""
+    fake = BlockingDescriber()
+    service = DescribeService(seeded_config, fake, None)
+    with TestClient(create_app(seeded_config, describe_service=service)) as client:
+        r = client.post("/api/login", json={"password": _TEST_PASSWORD})
+        assert r.status_code == 200
+
+        sha = _upload(client)
+        assert fake.started.wait(timeout=5)   # worker is genuinely in-flight
+        second_sha = _upload(client)           # identical bytes -> same sha256
+        assert second_sha == sha
+
+        assert service._queue.qsize() == 0     # not re-queued while active
+        fake.release.set()
+        row = _wait_processed(client, sha)
+
+    assert row["status"] == "described"
+    assert fake.calls == ["image/png"]  # describer invoked exactly once, not twice
 
 
 def test_search_by_filename_and_recency(describe_client):

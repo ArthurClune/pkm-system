@@ -112,6 +112,12 @@ class ClaudeConversation:
         self._pending: dict[str, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
         self._pump_task: asyncio.Task[None] | None = None
+        # Flips to False the moment an interrupt on this harness goes
+        # unacknowledged (timed out or raised) -- see send()'s cleanup
+        # below. The owner (AssistantService) checks this after the turn
+        # ends and retires rather than reuses a handle gone unhealthy
+        # (pkm-rwwc).
+        self.healthy = True
 
     def attach(self, client: Any) -> None:
         self._client = client
@@ -186,11 +192,19 @@ class ClaudeConversation:
                     await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT_S)
                 except TimeoutError:
                     logger.warning(
-                        "assistant interrupt not acknowledged in %ss; abandoning the turn",
+                        "assistant interrupt not acknowledged in %ss; abandoning the turn "
+                        "and retiring the harness",
                         INTERRUPT_TIMEOUT_S,
                     )
+                    # The subprocess may still be executing the abandoned
+                    # turn: an interrupt it never acknowledged is not proof
+                    # it stopped. Mark this handle unhealthy so the caller
+                    # (AssistantService) tears it down instead of handing it
+                    # a later turn (pkm-rwwc).
+                    self.healthy = False
                 except Exception:
-                    logger.exception("assistant interrupt failed")
+                    logger.exception("assistant interrupt failed; retiring the harness")
+                    self.healthy = False
             # if the consumer went away mid-turn, don't block generator
             # close on a live harness turn
             if not pump.done():

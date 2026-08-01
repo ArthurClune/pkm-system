@@ -38,6 +38,13 @@ class DescribeService:
         self.reason = reason
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._task: asyncio.Task | None = None
+        # SHAs currently queued or mid-attempt; guards at most one ordinary
+        # in-flight describe per asset (pkm-1wv1). Cleared in the worker's
+        # `finally` so a crash never permanently blocks a sha -- it's a
+        # concurrency guard, not a history of past failures, so an
+        # explicit force-retry (scan(force=True)) still reaches a sha once
+        # its prior attempt has actually finished.
+        self._active: set[str] = set()
 
     @property
     def enabled(self) -> bool:
@@ -58,14 +65,18 @@ class DescribeService:
             self._task = None
 
     def maybe_enqueue(self, sha256: str, mime: str, size: int) -> None:
-        """Fire-and-forget enqueue on upload; no-op when disabled or the
-        mime can never be described (oversized still enqueues so the
-        failure is recorded honestly)."""
-        if self.enabled and describe_action(mime, size) != "skip":
+        """Fire-and-forget enqueue on upload; no-op when disabled, the mime
+        can never be described (oversized still enqueues so the failure is
+        recorded honestly), or the sha is already queued/in-flight."""
+        if (self.enabled and describe_action(mime, size) != "skip"
+                and sha256 not in self._active):
+            self._active.add(sha256)
             self._queue.put_nowait(sha256)
 
     def scan(self, db: sqlite3.Connection, force: bool = False) -> int:
-        """Enqueue every undescribed eligible asset; force retries failures."""
+        """Enqueue every undescribed eligible asset; force retries failures.
+        Skips any sha already queued/in-flight (pkm-1wv1) -- a repeat scan
+        before the worker drains must not double up an attempt."""
         if not self.enabled:
             return 0
         sql = "SELECT sha256, mime, size FROM assets WHERE description IS NULL"
@@ -73,8 +84,11 @@ class DescribeService:
             sql += " AND describe_error IS NULL"
         queued = 0
         for row in db.execute(sql).fetchall():
-            if describe_action(row["mime"], row["size"]) != "skip":
-                self._queue.put_nowait(row["sha256"])
+            sha = row["sha256"]
+            if (describe_action(row["mime"], row["size"]) != "skip"
+                    and sha not in self._active):
+                self._active.add(sha)
+                self._queue.put_nowait(sha)
                 queued += 1
         return queued
 
@@ -91,6 +105,7 @@ class DescribeService:
                 # One bad asset must not kill the worker for the rest.
                 log.exception("describe failed for %s", sha)
             finally:
+                self._active.discard(sha)
                 self._queue.task_done()
 
     async def _process(self, sha: str) -> None:

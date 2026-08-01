@@ -62,7 +62,7 @@ Inside `pkm/server/`:
 | `app.py` | Shell | App factory `create_app(config)`; runs `init_db()`, builds the `AssistantService` (engine injectable), mounts routers, serves the SPA |
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
 | `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
-| `auth.py` / `auth_core.py` | Shell / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens |
+| `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
 | `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_export.py` | Shell | The HTTP surface (table below) |
 | `ops_core.py` | Core | Op models + pure `plan_op()` → effect tuples |
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
@@ -211,6 +211,34 @@ Deliberately modest, layered under Tailscale (see `docs/SECURITY.md`):
   (`auth_core.py`). `POST /api/login` sets a `pkm_session` cookie —
   HMAC-SHA256-signed `v1.<issued_ms>.<sig>`, httponly, `samesite=lax`,
   1-year expiry.
+- `LoginThrottle` (`auth.py`, one instance per app on `app.state`) bounds
+  the cost of unauthenticated login attempts two ways: a per-source
+  exponential backoff (1s, 2s, 4s, ... capped at 30s; a success clears
+  it) rejects a throttled attempt *before* scrypt runs, and a
+  process-wide semaphore caps concurrent scrypt computations regardless
+  of source. A throttled attempt gets the same 401 a wrong password
+  gets — including one with the *correct* password — so the only signal
+  that distinguishes them is the timing difference between a fast
+  reject and a real scrypt computation, which the design accepts.
+  Acquiring that semaphore slot (`scrypt_slot()`) is bounded by a
+  timeout (`SCRYPT_ACQUIRE_TIMEOUT_S`, 2s), not an unbounded wait —
+  `login()` is a sync route, so it runs on the same shared worker-thread
+  pool as every other sync route, and blocking indefinitely on a full
+  semaphore would let enough concurrent connections to `/api/login`
+  (which cost nothing while queued) starve that pool and freeze the
+  whole app, not just login. A timed-out acquire fails into the same
+  uniform 401. Per-source backoff cannot defend against this on its
+  own, since it only engages after a failure is recorded — which
+  requires having gotten a slot and run a password check first; the
+  timeout is what actually bounds it.
+  Prod sits behind `tailscale serve`, so `request.client.host` is the
+  proxy's address for every request — all clients collapse into one
+  throttle bucket there. The per-source backoff is therefore effectively
+  *global* in prod: one wrong password from anyone throttles everyone,
+  including a subsequent correct-password login, for that backoff
+  window. The global semaphore plus its 2s acquire timeout — not
+  per-source isolation — is the actual load-bearing defense against a
+  concurrency flood in the real deployment.
 - Every feature router is declared with
   `dependencies=[Depends(require_auth)]`; public surface is only `GET
   /login`, `POST /api/login`, `GET /healthz`, and the static SPA shell.
@@ -593,6 +621,20 @@ How `claude_engine.py` confines the harness:
   so interrupting first wedges the harness forever (pkm-mbcc). Note that
   `FakeSDKClient.interrupt()` returns instantly, which hides this entirely;
   the regression tests use a subclass whose `interrupt()` never returns.
+- **An unacknowledged interrupt retires the conversation, not just the turn**:
+  if `interrupt()` times out or raises, `ClaudeConversation` flips its
+  `healthy` flag to `False` — the subprocess may still be running the
+  abandoned turn, so its state is uncertain and it must never be handed a
+  later turn (pkm-rwwc). `AssistantService._stream()` checks `healthy` after
+  every turn and, if it's gone false, pops the conversation out of `_entries`
+  and closes the harness there instead of just clearing `busy`; the next
+  `send()` for that id gets a plain `UnknownConversationError` (404), the
+  same as any other unknown conversation. This check runs synchronously
+  right after the busy flag is cleared, with no `await` in between, so it
+  can't race a concurrent admission's reap/evict (both skip busy entries)
+  — and it only closes the handle if its own pop is what removed the entry,
+  so it can't double-close one a concurrent explicit `delete()` (e.g. the
+  pagehide beacon) already tore down.
 - **Silent turns are the norm, not the exception**: 80s of model reasoning
   before the first token and 25s serialising a large tool call were both
   measured on 2026-07-30, and a parked confirm writes nothing for as long as

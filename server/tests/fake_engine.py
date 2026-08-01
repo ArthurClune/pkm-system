@@ -31,6 +31,7 @@ class FakeConversation:
         self.system_prompt = system_prompt
         self.model = model
         self.closed = False
+        self.healthy = True
         self.sent: list[str] = []
         self._decisions: dict[str, asyncio.Future[bool]] = {}
         self._confirm_seq = 0

@@ -21,7 +21,7 @@ from pkm.server.fts import phrase_query
 from pkm.server.ops_core import UID_RE as _UID_RE
 from pkm.server.response_models import (
     BlockPayload, BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
-    JournalPayload, PageMeta, PagePayload)
+    JournalPayload, PageMeta, PagePayload, RenamePageResponse)
 from pkm.server.store import (BlankTitleError, delete_page_rows, fetch_page,
                               get_or_create_page, merge_page_rows,
                               rename_page_rows)
@@ -220,7 +220,7 @@ def delete_page(request: Request, title: str,
     return {"ok": True}
 
 
-@router.post("/api/page/{title:path}/rename")
+@router.post("/api/page/{title:path}/rename", response_model=RenamePageResponse)
 def rename_page(request: Request, title: str, body: RenamePageRequest,
                 db: sqlite3.Connection = Depends(get_db)) -> dict:
     """Rename a page, rewriting every [[link]]/#tag/attr:: in block text.

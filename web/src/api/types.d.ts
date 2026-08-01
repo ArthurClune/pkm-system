@@ -1121,6 +1121,21 @@ export interface components {
              */
             allow_merge: boolean;
         };
+        /**
+         * RenamePageResponse
+         * @description POST /api/page/{title}/rename: which branch ran, and the title the
+         *     page now lives under (normalized, so it can differ from the requested
+         *     one). `result` is a Literal so the web client can switch on it.
+         */
+        RenamePageResponse: {
+            /**
+             * Result
+             * @enum {string}
+             */
+            result: "renamed" | "merged";
+            /** Title */
+            title: string;
+        };
         /** ReorderSidebarEntriesRequest */
         ReorderSidebarEntriesRequest: {
             /** Order */
@@ -1622,9 +1637,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["RenamePageResponse"];
                 };
             };
             /** @description Validation Error */

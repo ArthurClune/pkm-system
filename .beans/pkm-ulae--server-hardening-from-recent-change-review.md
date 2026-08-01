@@ -1,11 +1,11 @@
 ---
 # pkm-ulae
 title: Server hardening from recent-change review
-status: in-progress
+status: completed
 type: epic
 priority: high
 created_at: 2026-07-31T15:45:04Z
-updated_at: 2026-08-01T13:27:30Z
+updated_at: 2026-08-01T19:50:23Z
 ---
 
 ## Context
@@ -24,9 +24,9 @@ Both ancestry cycle detection and subtree enumeration silently stop at depth 100
 
 **Direction:** Traverse the complete hierarchy with cycle-safe recursive SQL, or enforce a documented depth limit before mutation. Cross-page moves must update every descendant or fail atomically.
 
-- [ ] Add depth-boundary tests at 100, 101, and deeper
-- [ ] Verify cycle prevention and every descendant's page after a cross-page move
-- [ ] Replace the silent traversal cap with complete traversal or explicit validation
+- [x] Add depth-boundary tests at 100, 101, and deeper
+- [x] Verify cycle prevention and every descendant's page after a cross-page move
+- [x] Replace the silent traversal cap with complete traversal or explicit validation
 
 ### 2. Reject normalized-empty page titles at the shared creation boundary
 
@@ -36,8 +36,8 @@ Both ancestry cycle detection and subtree enumeration silently stop at depth 100
 
 **Direction:** Make the shared creation boundary define normalized-empty behavior. Prefer rejecting the operation before mutation with a stable operation error; if offline replay needs a different recovery policy, specify it explicitly.
 
-- [ ] Add whitespace-only title tests for create, create_page, and move operations
-- [ ] Enforce the invariant in the shared creation path
+- [x] Add whitespace-only title tests for create, create_page, and move operations
+- [x] Enforce the invariant in the shared creation path
 
 ### 3. Serialize assistant conversation admission
 
@@ -47,8 +47,8 @@ The conversation-cap check occurs before awaiting `engine.create_conversation()`
 
 **Direction:** Serialize admission with a lock or atomically reserve creation slots, releasing reservations on every failure/cancellation path.
 
-- [ ] Add barrier-controlled concurrent creation tests
-- [ ] Enforce the cap across active and in-progress creations
+- [x] Add barrier-controlled concurrent creation tests
+- [x] Enforce the cap across active and in-progress creations
 
 ### 4. Make Claude harness startup transactional and cancellation-safe
 
@@ -58,8 +58,8 @@ Startup writes a 0600 config containing a long-lived session token, creates the 
 
 **Direction:** Wrap all work after config creation in cancellation-safe cleanup that disconnects any created client and always unlinks the config before re-raising.
 
-- [ ] Test factory failure, partial connect failure, and cancellation during connect
-- [ ] Assert credential unlink and client disconnect on every failed startup path
+- [x] Test factory failure, partial connect failure, and cancellation during connect
+- [x] Assert credential unlink and client disconnect on every failed startup path
 
 ### 5. Keep CLI/MCP batch page creation inside the advertised atomic transaction
 
@@ -69,8 +69,8 @@ Both shells call `_ensure_page()` before fully validating and posting a batch. A
 
 **Direction:** Validate the complete command batch before I/O. Represent missing pages as empty planning payloads and include supported create_page operations in the same `OpBatch`.
 
-- [ ] Add failed-batch tests asserting no pages or blocks remain
-- [ ] Move page creation into the atomic operation batch
+- [x] Add failed-batch tests asserting no pages or blocks remain
+- [x] Move page creation into the atomic operation batch
 
 ### 6. Generate CLI-safe UIDs and preserve access to legacy leading-dash UIDs
 
@@ -80,9 +80,9 @@ Both shells call `_ensure_page()` before fully validating and posting a batch. A
 
 **Direction:** Generate UIDs with an alphanumeric first character. Preserve access to existing leading-dash UIDs through documented `--` handling or an explicit `--uid` option and plan any regex tightening compatibly.
 
-- [ ] Add deterministic leading-dash parser and end-to-end tests
-- [ ] Make new UID generation CLI-safe
-- [ ] Document or implement access to legacy UIDs
+- [x] Add deterministic leading-dash parser and end-to-end tests
+- [x] Make new UID generation CLI-safe
+- [x] Document or implement access to legacy UIDs
 
 ### 7. Resolve heading parents by text and heading level
 
@@ -92,8 +92,8 @@ Both shells call `_ensure_page()` before fully validating and posting a batch. A
 
 **Direction:** Require the requested heading level when resolving heading specifications and define duplicate-heading selection semantics.
 
-- [ ] Add plain-text collision, wrong-level collision, and duplicate-heading tests
-- [ ] Align fetched-page and in-batch heading resolution
+- [x] Add plain-text collision, wrong-level collision, and duplicate-heading tests
+- [x] Align fetched-page and in-batch heading resolution
 
 ### 8. Do not silently discard valid orphan blocks during import
 
@@ -103,9 +103,9 @@ The importer records only the count of valid UID/string blocks unreachable from 
 
 **Direction:** Preserve orphan subtrees on a deterministic recovery page, or refuse publication unless an explicit lossy-import option is supplied. Complete preflight/reporting before swapping databases.
 
-- [ ] Assert every orphan UID/text remains recoverable or import is refused
-- [ ] Verify the existing database remains untouched on refusal/report failure
-- [ ] Make lossy behavior explicit rather than warning after publication
+- [x] Assert every orphan UID/text remains recoverable or import is refused
+- [x] Verify the existing database remains untouched on refusal/report failure
+- [x] Make lossy behavior explicit rather than warning after publication
 
 ### 9. Preserve block-reference integrity during Mermaid conversion
 
@@ -115,9 +115,9 @@ Mermaid conversion flattens descendant text and drops/deletes descendant rows an
 
 **Direction:** Detect inbound references before conversion. Preserve referenced descendants, rewrite references only where semantics are valid, or refuse/report conversion. If a lossy mode remains, enumerate every affected UID.
 
-- [ ] Test referenced nested Mermaid descendants
-- [ ] Add dry-run reporting of affected UIDs and inbound references
-- [ ] Preserve or explicitly gate lossy metadata/UID removal
+- [x] Test referenced nested Mermaid descendants
+- [x] Add dry-run reporting of affected UIDs and inbound references
+- [x] Preserve or explicitly gate lossy metadata/UID removal
 
 ## Medium-priority findings
 
@@ -129,9 +129,9 @@ Journal cleanup commits page/block deletions and advances `changes.seq` but send
 
 **Direction:** Send a post-commit nudge when cleanup deletes rows, and centralize the commit-then-nudge protocol to prevent route omissions.
 
-- [ ] Add WebSocket coverage for journal cleanup
-- [ ] Add a mutation-route contract test for every journal-advancing endpoint
-- [ ] Centralize or enforce post-commit notification
+- [x] Add WebSocket coverage for journal cleanup
+- [x] Add a mutation-route contract test for every journal-advancing endpoint
+- [x] Centralize or enforce post-commit notification
 
 ### 11. Make WebSocket fan-out concurrent without losing per-client ordering
 
@@ -141,8 +141,8 @@ Journal cleanup commits page/block deletions and advances `changes.seq` but send
 
 **Direction:** Send concurrently with bounded concurrency and per-client timeout. Preserve per-client frame ordering via queues or locks and consider connection limits.
 
-- [ ] Add multiple-stalled-client latency tests
-- [ ] Implement bounded concurrent fan-out with ordered per-client delivery
+- [x] Add multiple-stalled-client latency tests
+- [x] Implement bounded concurrent fan-out with ordered per-client delivery
 
 ### 12. Batch sync hydration queries
 
@@ -152,8 +152,8 @@ Changed blocks are hydrated with one block query and one refs query per UID; pag
 
 **Direction:** Fetch blocks, refs, pages, and sidebar rows in chunked set queries under SQLite's parameter limit and group them in memory.
 
-- [ ] Add distinct-UID query-count or benchmark coverage
-- [ ] Replace N+1 hydration with bounded set queries
+- [x] Add distinct-UID query-count or benchmark coverage
+- [x] Replace N+1 hydration with bounded set queries
 
 ### 13. Throttle expensive unauthenticated password checks
 
@@ -163,8 +163,8 @@ Every login failure runs scrypt with no rate limit, concurrency bound, or backof
 
 **Direction:** Add global/per-source throttling and bound concurrent checks while keeping failure responses uniform.
 
-- [ ] Add rate-limit and concurrent-attempt tests
-- [ ] Bound unauthenticated scrypt work
+- [x] Add rate-limit and concurrent-attempt tests
+- [x] Bound unauthenticated scrypt work
 
 ### 14. Retire assistant conversations after failed interrupts
 
@@ -174,8 +174,8 @@ If interrupt times out or raises, local cleanup continues and the service marks 
 
 **Direction:** Treat unacknowledged interrupt as terminal: disconnect/kill the harness and remove or invalidate the conversation.
 
-- [ ] Add a second-send test after interrupt timeout/failure
-- [ ] Prevent reuse of uncertain harnesses
+- [x] Add a second-send test after interrupt timeout/failure
+- [x] Prevent reuse of uncertain harnesses
 
 ### 15. Deduplicate queued and in-flight image descriptions
 
@@ -185,8 +185,8 @@ Uploads and scans enqueue SHA values without pending/in-flight deduplication. Du
 
 **Direction:** Track queued/in-flight SHAs with `finally` cleanup and model force-retry intent explicitly.
 
-- [ ] Add duplicate upload/scan tests with a failing describer
-- [ ] Guarantee at most one ordinary in-flight attempt per asset
+- [x] Add duplicate upload/scan tests with a failing describer
+- [x] Guarantee at most one ordinary in-flight attempt per asset
 
 ### 16. Preserve the last good Markdown backup until replacement succeeds
 
@@ -196,8 +196,8 @@ Uploads and scans enqueue SHA values without pending/in-flight deduplication. Du
 
 **Direction:** Render and validate in staging, then atomically publish while preserving the export repository, or implement rollback-safe replacement.
 
-- [ ] Inject rendering and copy failures and assert the previous export is byte-identical
-- [ ] Publish exports atomically
+- [x] Inject rendering and copy failures and assert the previous export is byte-identical
+- [x] Publish exports atomically
 
 ### 17. Verify content-addressed files instead of trusting existence
 
@@ -207,8 +207,8 @@ Importer and backup export skip copying whenever the destination exists; they do
 
 **Direction:** Verify size and SHA-256 and atomically repair mismatches from the known source.
 
-- [ ] Add same-size and truncated corruption repair tests
-- [ ] Validate and repair existing content-addressed files
+- [x] Add same-size and truncated corruption repair tests
+- [x] Validate and repair existing content-addressed files
 
 ### 18. Guarantee ZIP member-name uniqueness after suffix generation
 
@@ -218,8 +218,8 @@ Importer and backup export skip copying whenever the destination exists; they do
 
 **Direction:** Loop until the candidate is unused, using a longer SHA or incrementing suffix when necessary.
 
-- [ ] Test generated-looking names, shared SHA prefixes, and case-insensitive collisions
-- [ ] Assert every archive name is unique
+- [x] Test generated-looking names, shared SHA prefixes, and case-insensitive collisions
+- [x] Assert every archive name is unique
 
 ### 19. Make EDN parsing strict and Unicode-safe
 
@@ -229,9 +229,9 @@ Unsupported string/character escapes can be silently changed, surrogate-pair esc
 
 **Direction:** Validate escape names and hex length, combine/reject surrogates correctly, normalize parser errors to `EdnError`, and model discard forms at collection-parser level.
 
-- [ ] Add unknown/truncated/lone-surrogate/supplementary-codepoint tests
-- [ ] Add collection-end discard tests
-- [ ] Reject unsupported forms without altering text
+- [x] Add unknown/truncated/lone-surrogate/supplementary-codepoint tests
+- [x] Add collection-end discard tests
+- [x] Reject unsupported forms without altering text
 
 ### 20. Introduce typed transport-neutral client contracts and remove dependency inversion
 
@@ -241,9 +241,9 @@ Unsupported string/character escapes can be silently changed, surrogate-pair esc
 
 **Direction:** Move transport-neutral operation/response contracts into an independent domain package, return validated models or precise `TypedDict`s, and extract shared application workflows while keeping presentation shells separate.
 
-- [ ] Define dependency direction and transport-neutral contracts
-- [ ] Add malformed/stale response contract tests
-- [ ] Replace duplicate CLI/MCP workflows without over-generalising presentation
+- [x] Define dependency direction and transport-neutral contracts
+- [x] Add malformed/stale response contract tests
+- [x] Replace duplicate CLI/MCP workflows without over-generalising presentation
 
 ### 21. Validate batch commands with a discriminated schema before planning or I/O
 
@@ -253,8 +253,8 @@ The only contract is `list[dict]`; malformed items and nested values can escape 
 
 **Direction:** Add command-specific discriminated models in the functional core, validate the full envelope before page discovery, and dispatch to small per-command planners with one stable user-facing error contract.
 
-- [ ] Test non-object items/params, missing/wrong fields, indexes, and aliases in CLI and MCP
-- [ ] Split validation from command planning
+- [x] Test non-object items/params, missing/wrong fields, indexes, and aliases in CLI and MCP
+- [x] Split validation from command planning
 
 ### 22. Use canonical page titles returned by creation
 
@@ -264,8 +264,8 @@ Both `_ensure_page()` implementations ignore the canonical title returned by POS
 
 **Direction:** Use the returned canonical title and centralize ensure-page behavior.
 
-- [ ] Add whitespace-normalization tests for CLI and MCP
-- [ ] Remove duplicate, non-canonical ensure-page implementations
+- [x] Add whitespace-normalization tests for CLI and MCP
+- [x] Remove duplicate, non-canonical ensure-page implementations
 
 ### 23. Do not silently truncate CLI/MCP backlinks
 
@@ -275,8 +275,8 @@ Both `_ensure_page()` implementations ignore the canonical title returned by POS
 
 **Direction:** Fetch all pages or expose pagination and clearly report truncation through a dedicated client method.
 
-- [ ] Test `total_pages > len(groups)` in client, CLI, and MCP
-- [ ] Make completeness/truncation explicit
+- [x] Test `total_pages > len(groups)` in client, CLI, and MCP
+- [x] Make completeness/truncation explicit
 
 ### 24. Avoid orphan assets in upload-and-link workflows
 
@@ -286,8 +286,8 @@ The asset is uploaded before page/parent validation and before the block operati
 
 **Direction:** Resolve/validate destination before upload, delay success output, and add either a transactional endpoint or compensating deletion for post-upload write failure.
 
-- [ ] Add invalid-parent and post-upload operation-failure tests
-- [ ] Prevent or compensate orphaned uploads
+- [x] Add invalid-parent and post-upload operation-failure tests
+- [x] Prevent or compensate orphaned uploads
 
 ### 25. Configure production logging through a parent package logger
 
@@ -297,8 +297,8 @@ Production logging explicitly configures only `pkm.access` and `pkm.describe`. N
 
 **Direction:** Configure a parent `pkm` logger once, with explicit stream/format overrides only where required.
 
-- [ ] Add a test enumerating `pkm.*` loggers and asserting effective handlers/levels
-- [ ] Replace the open-ended logger allowlist with a parent policy
+- [x] Add a test enumerating `pkm.*` loggers and asserting effective handlers/levels
+- [x] Replace the open-ended logger allowlist with a parent policy
 
 ### 26. Bound memory use for ZIP responses
 
@@ -308,9 +308,9 @@ Whole-graph and selected-asset exports build complete ZIPs in `BytesIO` and call
 
 **Direction:** Use a temporary-file-backed or streaming response and enforce count/byte limits.
 
-- [ ] Add archive size/count limit tests
-- [ ] Verify temporary archive cleanup on cancellation/error
-- [ ] Replace unbounded in-memory buffering
+- [x] Add archive size/count limit tests
+- [x] Verify temporary archive cleanup on cancellation/error
+- [x] Replace unbounded in-memory buffering
 
 ## Lower-priority findings
 
@@ -320,8 +320,8 @@ Whole-graph and selected-asset exports build complete ZIPs in `BytesIO` and call
 
 Concurrent additions use read/check/compute/insert. Different titles can receive duplicate order indexes; identical titles can surface an uncaught uniqueness error as 500 instead of 409.
 
-- [ ] Add concurrent same-title and different-title tests
-- [ ] Serialize index allocation and map uniqueness conflicts to 409
+- [x] Add concurrent same-title and different-title tests
+- [x] Serialize index allocation and map uniqueness conflicts to 409
 
 ### 28. Close the owned OpenAI HTTP client during application shutdown
 
@@ -329,8 +329,8 @@ Concurrent additions use read/check/compute/insert. Different titles can receive
 
 `OpenAIDescriber` owns an async client and exposes `close()`, but `DescribeService.close()` only cancels the worker. Lifespan restarts can leak sockets and transport resources.
 
-- [ ] Define describer ownership/lifecycle semantics
-- [ ] Close owned clients from application shutdown and test it
+- [x] Define describer ownership/lifecycle semantics
+- [x] Close owned clients from application shutdown and test it
 
 ### 29. Remove duplicate HTTP status prefixes from CLI/MCP errors
 
@@ -338,19 +338,19 @@ Concurrent additions use read/check/compute/insert. Different titles can receive
 
 `friendly_error()` prefixes status and `ApiError` prefixes it again, producing strings such as `404: 404: page not found`.
 
-- [ ] Add exact end-to-end error-string tests
-- [ ] Assign status formatting to one layer
+- [x] Add exact end-to-end error-string tests
+- [x] Assign status formatting to one layer
 
 ## Verification and documentation
 
-- [ ] Use test-driven development for every behavior change
-- [ ] Run `cd server && uv run pytest -q`
-- [ ] Run `cd server && uv run pyrefly check`
-- [ ] Run `cd server && uv run ruff check`
-- [ ] Review and update `docs/architecture/backend.md` for route, contract, dependency, importer, logging, and archive changes
-- [ ] Update `docs/architecture/sync-and-offline.md` for notification and sync hydration invariants
-- [ ] Recheck FCIS classifications for any modules split or moved
-- [ ] Split independent findings into child beans before implementation
+- [x] Use test-driven development for every behavior change
+- [x] Run `cd server && uv run pytest -q`
+- [x] Run `cd server && uv run pyrefly check`
+- [x] Run `cd server && uv run ruff check`
+- [x] Review and update `docs/architecture/backend.md` for route, contract, dependency, importer, logging, and archive changes
+- [x] Update `docs/architecture/sync-and-offline.md` for notification and sync hydration invariants
+- [x] Recheck FCIS classifications for any modules split or moved
+- [x] Split independent findings into child beans before implementation
 
 ## High-priority sweep — completed 2026-07-31
 
@@ -406,4 +406,26 @@ New follow-up beans filed during the sweep: pkm-5h2k (importer CLI EDN error UX 
 
 Deploy notes: pkm.describe log lines move stdout->stderr under the parent-logger policy (launchd log files swap roles for those lines); login gains throttling (global scrypt bound is the real defense behind tailscale serve).
 
-Lower-priority findings (27-29) remain open in this epic.
+Lower-priority findings (27-29) were the only remaining items at the end of the medium sweep and are completed below.
+
+## Low-priority sweep — completed 2026-08-01
+
+All three lower-priority findings (27–29) were fixed via child beans and isolated branches, developed test-first, independently reviewed, and merged with `--no-ff`.
+
+- Finding 27 → pkm-9nzn (completed): SQLite writer reservation serializes sidebar append allocation; duplicate races return 409.
+- Finding 28 → pkm-wztk (completed): DescribeService owns and closes its describer after worker shutdown; app teardown remains failure-safe.
+- Finding 29 → pkm-qvus (completed): friendly details are status-neutral and ApiError renders one numeric prefix.
+
+Architecture documentation records the sidebar and describer lifecycle invariants.
+
+Full server verification: 1203 server tests passed (96.72% coverage); pyrefly 0 errors; ruff clean.
+
+## Summary of Changes
+
+All 29 server-hardening review findings are now complete across three sweeps.
+
+- Findings 1–9 (high priority): removed the traversal corruption boundary; rejected normalized-empty titles at the shared creation boundary; serialized assistant admission; made Claude startup transactional and cancellation-safe; kept CLI/MCP page creation inside one OpBatch; made new UIDs CLI-safe while preserving legacy `--` access; resolved heading parents by heading level and text; preserved orphan import blocks; and kept Mermaid conversion from breaking inbound block refs.
+- Findings 10–26 (medium priority): restored post-commit sync nudges and route coverage; made WebSocket fan-out bounded and ordered; batched sync hydration; throttled unauthenticated scrypt work; retired conversations after failed interrupts; deduplicated queued/in-flight image descriptions; staged Markdown exports atomically; verified and repaired content-addressed files; guaranteed ZIP member uniqueness; made EDN parsing strict and Unicode-safe; moved typed contracts to `pkm.contracts`; validated batch commands before planning/I/O; normalized client title lookups; fetched backlinks to completion; prevented or compensated orphan asset uploads; configured logging through the parent `pkm` logger; and replaced in-memory ZIP buffering with bounded temp-file-backed responses.
+- Findings 27–29 (low priority): serialized sidebar append allocation under SQLite's write reservation; made `DescribeService` own worker-first describer shutdown while app teardown still closes assistant resources; and removed duplicate HTTP status prefixes so ApiError is the sole numeric status renderer.
+
+Architecture docs now match the merged code's sidebar writer-reservation invariant, the DescribeService ownership/close ordering, and the transactional `POST /api/ops` wording.

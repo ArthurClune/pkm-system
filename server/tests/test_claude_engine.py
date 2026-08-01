@@ -466,9 +466,9 @@ def test_disconnect_cleanup_survives_a_wedged_interrupt(tmp_path, monkeypatch):
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
         await conv.close()
-        return client
+        return conv, client
 
-    client = asyncio.run(scenario())
+    conv, client = asyncio.run(scenario())
     assert client.interrupts == 1
 
 
@@ -490,10 +490,88 @@ def test_disconnect_cleanup_survives_an_interrupt_that_raises(tmp_path):
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
         await conv.close()
-        return client
+        return conv, client
 
-    client = asyncio.run(scenario())
+    conv, client = asyncio.run(scenario())
     assert client.interrupts == 1
+
+
+# --- pkm-rwwc: an unacknowledged interrupt leaves the harness state
+# uncertain -- the conversation must be flagged unhealthy so the service
+# retires it instead of reusing it for a later turn. ---
+
+
+def test_wedged_interrupt_marks_conversation_unhealthy(tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_engine, "INTERRUPT_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path, factory=HangingInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+
+        async def consume():
+            async for _ in conv.send("hi"):  # no messages fed: blocks forever
+                pass
+
+        task = asyncio.create_task(consume())
+        for _ in range(3):
+            await asyncio.sleep(0)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+        await conv.close()
+        return conv
+
+    conv = asyncio.run(scenario())
+    assert conv.healthy is False
+
+
+def test_interrupt_that_raises_marks_conversation_unhealthy(tmp_path):
+    engine = make_engine(tmp_path, factory=BrokenInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+
+        async def consume():
+            async for _ in conv.send("hi"):
+                pass
+
+        task = asyncio.create_task(consume())
+        for _ in range(3):
+            await asyncio.sleep(0)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+        await conv.close()
+        return conv
+
+    conv = asyncio.run(scenario())
+    assert conv.healthy is False
+
+
+def test_acknowledged_interrupt_leaves_conversation_healthy(tmp_path):
+    # a consumer drop that the harness *does* acknowledge promptly is not
+    # terminal -- only a failed/timed-out interrupt should retire the
+    # conversation.
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+
+        async def consume():
+            async for _ in conv.send("hi"):  # no messages fed: blocks forever
+                pass
+
+        task = asyncio.create_task(consume())
+        for _ in range(3):
+            await asyncio.sleep(0)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await conv.close()
+        return conv
+
+    conv = asyncio.run(scenario())
+    assert conv.healthy is True
 
 
 def test_send_does_not_interrupt_on_normal_completion(tmp_path):

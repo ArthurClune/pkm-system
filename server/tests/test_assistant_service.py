@@ -25,12 +25,26 @@ class FakeClock:
 
 
 class _StubHandle:
-    def __init__(self, *, hang_close: bool = False) -> None:
+    def __init__(self, *, hang_close: bool = False, unhealthy_after_interrupt: bool = False) -> None:
         self.closed = False
+        self.healthy = True
         self._hang_close = hang_close
+        # Models what claude_engine.ClaudeConversation.send() does for real:
+        # a turn that blocks (as a live turn does) until the consumer drops,
+        # at which point cleanup attempts an interrupt that never lands, and
+        # the handle goes unhealthy. Blocking rather than returning early
+        # matters here (pkm-mbcc lesson): a fake that resolves immediately
+        # never exercises the cancellation-triggered cleanup path.
+        self._unhealthy_after_interrupt = unhealthy_after_interrupt
 
     def send(self, text: str) -> AsyncIterator[AssistantEvent]:
         async def _gen() -> AsyncIterator[AssistantEvent]:
+            if self._unhealthy_after_interrupt:
+                try:
+                    await asyncio.Event().wait()  # never set: blocks like a live turn
+                finally:
+                    self.healthy = False
+                return
             return
             yield  # pragma: no cover - never reached, satisfies AsyncIterator
 
@@ -256,6 +270,59 @@ def test_confirm_unknown_conversation_raises():
     service = AssistantService(FakeEngine())
     with pytest.raises(UnknownConversationError):
         service.confirm("nope", "t1", True)
+
+
+# --- pkm-rwwc: an interrupt that never lands leaves the harness state
+# uncertain -- the conversation must be retired, not reused for a later
+# turn. ---
+
+
+async def _drain(stream: AsyncIterator[AssistantEvent]) -> None:
+    async for _ in stream:
+        pass
+
+
+def test_second_send_after_failed_interrupt_gets_unknown_conversation():
+    engine = FakeEngine()
+    service = AssistantService(engine)
+    handle = _StubHandle(unhealthy_after_interrupt=True)
+    service._entries["broken"] = _Entry(handle=handle, model="sonnet", last_used=service._clock())
+
+    async def scenario():
+        stream = service.send("broken", "hi")
+        task = asyncio.create_task(_drain(stream))
+        for _ in range(3):
+            await asyncio.sleep(0)  # let it reach the blocking send()
+        task.cancel()  # simulates the SSE consumer dropping mid-turn
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        with pytest.raises(UnknownConversationError):
+            service.send("broken", "again")
+
+    asyncio.run(scenario())
+    assert handle.healthy is False
+    assert handle.closed is True
+    assert "broken" not in service._entries
+
+
+def test_healthy_conversation_is_reused_after_a_dropped_turn():
+    # control for the test above: a turn abandoned by the consumer is not by
+    # itself terminal -- only a handle that actually goes unhealthy should
+    # be retired.
+    engine = FakeEngine()
+    service = AssistantService(engine)
+    handle = _StubHandle()
+    service._entries["ok"] = _Entry(handle=handle, model="sonnet", last_used=service._clock())
+
+    async def scenario():
+        _ = [ev async for ev in service.send("ok", "hi")]
+
+    asyncio.run(scenario())
+    assert handle.healthy is True
+    assert handle.closed is False
+    assert "ok" in service._entries
+    # the entry is usable again, not stuck busy or removed
+    assert service._entries["ok"].busy is False
 
 
 def test_delete_closes_and_is_idempotent():

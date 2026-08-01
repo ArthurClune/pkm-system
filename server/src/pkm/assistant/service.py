@@ -184,6 +184,26 @@ class AssistantService:
             entry.last_used = self._clock()
         finally:
             entry.busy = False
+            if not entry.handle.healthy:
+                # An interrupt on this handle went unacknowledged: the
+                # harness may still be running the abandoned turn, so its
+                # state is uncertain. Popping happens synchronously here (no
+                # `await` between the busy-flag reset above and this pop),
+                # so no concurrent create()/reap/evict can observe this cid
+                # as idle-and-reusable in between -- the next send() for it
+                # raises UnknownConversationError instead of resuming a
+                # possibly-still-running subprocess (pkm-rwwc). Only close if
+                # this pop is the one that actually removed the entry: an
+                # explicit delete() (e.g. the pagehide beacon) racing this
+                # same cid may already have popped and closed it, and close()
+                # is not free to call twice just because it happens to
+                # tolerate it.
+                removed = self._entries.pop(cid, None) is not None
+                logger.warning(
+                    "assistant conversation %s retired after an unacknowledged interrupt", cid
+                )
+                if removed:
+                    await entry.handle.close()
 
     def confirm(self, conversation_id: str, tool_use_id: str, allow: bool) -> None:
         self._get(conversation_id).handle.resolve_confirm(tool_use_id, allow)

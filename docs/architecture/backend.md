@@ -613,6 +613,20 @@ How `claude_engine.py` confines the harness:
   so interrupting first wedges the harness forever (pkm-mbcc). Note that
   `FakeSDKClient.interrupt()` returns instantly, which hides this entirely;
   the regression tests use a subclass whose `interrupt()` never returns.
+- **An unacknowledged interrupt retires the conversation, not just the turn**:
+  if `interrupt()` times out or raises, `ClaudeConversation` flips its
+  `healthy` flag to `False` — the subprocess may still be running the
+  abandoned turn, so its state is uncertain and it must never be handed a
+  later turn (pkm-rwwc). `AssistantService._stream()` checks `healthy` after
+  every turn and, if it's gone false, pops the conversation out of `_entries`
+  and closes the harness there instead of just clearing `busy`; the next
+  `send()` for that id gets a plain `UnknownConversationError` (404), the
+  same as any other unknown conversation. This check runs synchronously
+  right after the busy flag is cleared, with no `await` in between, so it
+  can't race a concurrent admission's reap/evict (both skip busy entries)
+  — and it only closes the handle if its own pop is what removed the entry,
+  so it can't double-close one a concurrent explicit `delete()` (e.g. the
+  pagehide beacon) already tore down.
 - **Silent turns are the norm, not the exception**: 80s of model reasoning
   before the first token and 25s serialising a large tool call were both
   measured on 2026-07-30, and a parked confirm writes nothing for as long as

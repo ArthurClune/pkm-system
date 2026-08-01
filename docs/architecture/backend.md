@@ -69,6 +69,7 @@ Inside `pkm/server/`:
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
 | `tree.py`, `backlinks.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py`, `response_models.py` | Core | Pure helpers: tree building, backlink shaping, daily-page titles, FTS queries, `{{[[query]]}}` evaluation, sync windowing, MIME sniffing, Pydantic response models |
 | `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
+| `tempfile_response.py` | Shell | `CleanupFileResponse`: a `FileResponse` whose cleanup callback runs even on a client disconnect or send-time error, not only after a completed transfer (used by the zip export routes) |
 | `request_log.py` / `logfmt.py` | Shell / Core | The `pkm.access` request log — one line per request, with durations (see [Logging](#logging-and-observability)) |
 | `run.py` / `setup.py` | Shell | `python -m pkm.server.run` entrypoint; `setup` writes `config.json` |
 | `openapi_dump.py` / `shim_parity_dump.py` | Shell | Generated-artifact writers (see [Generated artifacts](#generated-artifacts-and-parity-fixtures)) |
@@ -305,8 +306,19 @@ The three management endpoints behind the `/files` browser (pkm-jdu3) share
   download. Unknown, malformed, duplicate and missing-on-disk digests are
   skipped rather than erroring — the zip honestly contains what could be
   exported — and filename collisions get a short sha prefix
-  (`zip_arcnames`). Like `/api/export.zip` it builds in RAM, bounded here by
-  the user's selection.
+  (`zip_arcnames`). The selection's count and total bytes (summed from the
+  `assets` table's `size` column, never by opening a file) are checked
+  against fixed limits (500 assets / 1 GiB, `MAX_EXPORT_ASSET_COUNT` /
+  `MAX_EXPORT_TOTAL_BYTES` in `routes_assets.py`) before any archive is
+  built; over either limit the request is refused with 413 — never a
+  silently truncated zip. Both this route and the whole-graph
+  `/api/export.zip` build their archive in a temp directory and stream it
+  back via a `FileResponse` subclass (`CleanupFileResponse`) instead of
+  buffering the whole zip in memory; the temp directory is removed once the
+  response completes, errors, or is interrupted by a client disconnect —
+  stock `FileResponse`'s own `background` task only runs after a send loop
+  that returns without raising, so it alone can't be trusted to clean up an
+  interrupted download.
 
 ## Importer (Roam EDN → fresh database)
 

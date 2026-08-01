@@ -1,11 +1,11 @@
 ---
 # pkm-13ty
 title: Bound memory use for ZIP responses
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-08-01T07:51:42Z
-updated_at: 2026-08-01T07:51:42Z
+updated_at: 2026-08-01T09:09:54Z
 parent: pkm-ulae
 ---
 
@@ -21,6 +21,67 @@ Whole-graph and selected-asset exports build complete ZIPs in BytesIO and call g
 
 ## Tasks
 
-- [ ] Add archive size/count limit tests
-- [ ] Verify temporary archive cleanup on cancellation/error
-- [ ] Replace unbounded in-memory buffering
+- [x] Add archive size/count limit tests
+- [x] Verify temporary archive cleanup on cancellation/error
+- [x] Replace unbounded in-memory buffering
+
+## Summary of Changes
+
+Both ZIP-building routes now stream from a temp-file-backed archive
+instead of an in-memory `BytesIO`, and the selected-asset export gained a
+hard count/byte cap enforced before the archive is built.
+
+- **`server/src/pkm/assets_core.py`**: new pure `export_limit_violation(count,
+  total_bytes, *, max_count, max_bytes) -> str | None` — the count check
+  runs first (cheaper for a user to act on), returns a 413-ready detail
+  string naming the exceeded limit and the actual value, or `None` if both
+  are within bounds.
+- **`server/src/pkm/server/tempfile_response.py`** (new, Imperative Shell):
+  `CleanupFileResponse`, a `FileResponse` subclass whose `cleanup`
+  coroutine runs unconditionally — success, a send-time exception (client
+  disconnect mid-download), or a missing file — wrapped in `try/finally`.
+  Stock Starlette `FileResponse.background` is only awaited *after* a send
+  loop that returns without raising, so it alone cannot guarantee cleanup
+  on an interrupted transfer; verified this gap directly by reading
+  `starlette.responses.FileResponse.__call__` (installed 1.3.1) before
+  writing the fix.
+- **`server/src/pkm/server/routes_assets.py`**: `export_assets` now (a)
+  sums `size` from the `assets` table for every selected, on-disk asset
+  *before* building anything, refusing with 413 via
+  `export_limit_violation` against new `MAX_EXPORT_ASSET_COUNT` (500) /
+  `MAX_EXPORT_TOTAL_BYTES` (1 GiB) constants if either is exceeded — no
+  file is opened just to measure the total; (b) builds the zip into a
+  `tempfile.mkdtemp()`-backed directory and returns it via
+  `CleanupFileResponse`, with an explicit `except Exception: rmtree; raise`
+  around the build step for failures that happen before the response
+  object even exists.
+- **`server/src/pkm/server/routes_export.py`**: `export_all_markdown` gets
+  the identical temp-dir + `CleanupFileResponse` treatment (no count/byte
+  limit here — the whole graph has no user-controlled selection to bound).
+- **Docs**: `docs/architecture/backend.md` — added `tempfile_response.py`
+  to the module table, replaced the stale "builds in RAM, bounded by the
+  user's selection" line under Assets with the new limit/temp-file
+  behaviour.
+- **Regen**: `openapi.json` + `web/src/api/types.d.ts` regenerated (the
+  return-type annotation changed from `Response` to `FileResponse` on both
+  routes, but the diff is docstring-only — no schema/contract change).
+  Verified `web/src/views/Files.tsx`'s plain `<form method="post">` submit
+  to `/api/assets/export.zip` still typechecks and its unit tests still
+  pass; the route's request/response shape is unchanged.
+
+Tests added: `test_assets_core.py` (5 cases for
+`export_limit_violation`), `test_tempfile_response.py` (3 cases proving
+`CleanupFileResponse` cleans up on success, on a send-time exception, and
+on a missing file), `test_asset_export.py` (6 cases: over-count 413,
+at-limit success, over-bytes 413, over-limit-never-partial, temp-dir-used
++ removed-after-success, temp-dir-removed-on-build-error),
+`test_export_routes.py` (2 cases: temp-dir-used + removed-after-success,
+temp-dir-removed-on-build-error for the whole-graph route). All written
+RED-first against the pre-change code/absent module, then made GREEN.
+
+Full suite: `cd server && uv run pytest -q` → 1069 passed, coverage
+96.34% (required 95%). `uv run pyrefly check` → 0 errors. `uv run ruff
+check` → all checks passed. `cd web && pnpm typecheck` and `pnpm
+test:unit` → clean (1750 tests passed); full `pnpm verify` (Playwright
+e2e) not run since no web source file changed, only generated
+`openapi.json`/`types.d.ts`.

@@ -4,8 +4,8 @@ import hashlib
 import pytest
 
 from pkm.assets_core import (
-    asset_needs_repair, mime_category, sha256_hex, strip_asset_tokens,
-    type_where, zip_arcnames)
+    asset_needs_repair, export_limit_violation, mime_category, sha256_hex,
+    strip_asset_tokens, type_where, zip_arcnames)
 
 SHA = "ab" * 32
 URL = f"/assets/{SHA}/pic.png"
@@ -201,3 +201,34 @@ def test_needs_repair_true_on_same_size_hash_mismatch():
     sha = sha256_hex(b"content")
     other_sha = sha256_hex(b"CONTENT")
     assert asset_needs_repair(sha, 7, 7, other_sha) is True
+
+
+# --- export_limit_violation (pkm-13ty) ---
+
+def test_export_limit_violation_none_when_within_both_limits():
+    assert export_limit_violation(5, 500, max_count=10, max_bytes=1000) is None
+
+
+def test_export_limit_violation_at_exact_limits_is_ok():
+    # A boundary of exactly the limit is allowed; only exceeding it refuses.
+    assert export_limit_violation(10, 1000, max_count=10, max_bytes=1000) is None
+
+
+def test_export_limit_violation_reports_count_over_limit():
+    msg = export_limit_violation(11, 500, max_count=10, max_bytes=1000)
+    assert msg is not None
+    assert "11" in msg and "10" in msg
+
+
+def test_export_limit_violation_reports_bytes_over_limit():
+    msg = export_limit_violation(5, 1001, max_count=10, max_bytes=1000)
+    assert msg is not None
+    assert "1001" in msg and "1000" in msg
+
+
+def test_export_limit_violation_checks_count_before_bytes():
+    # Both limits are blown at once -- the count violation is reported
+    # first (it's the cheaper, more legible number for a user to act on).
+    msg = export_limit_violation(11, 1001, max_count=10, max_bytes=1000)
+    assert msg is not None
+    assert "11" in msg

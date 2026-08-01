@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import logging
 import os
 import re
+import shutil
 import sqlite3
+import tempfile
 import time
 import uuid
 import zipfile
@@ -16,9 +17,10 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 
-from pkm.assets_core import strip_asset_tokens, type_where, zip_arcnames
+from pkm.assets_core import (
+    export_limit_violation, strip_asset_tokens, type_where, zip_arcnames)
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
 from pkm.server import notify
@@ -28,6 +30,7 @@ from pkm.server.db import get_config, get_db
 from pkm.server.fts import phrase_query
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
 from pkm.server.response_models import AssetSearchPayload, AssetUploadResponse
+from pkm.server.tempfile_response import CleanupFileResponse
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -59,6 +62,15 @@ INLINE_MIME = frozenset({
     "image/png", "image/jpeg", "image/gif", "image/webp", "image/heic",
     "application/pdf",
 })
+
+# Selected-asset export (pkm-13ty): proportionate limits for a personal,
+# single-user server -- generous enough that no real selection through
+# the /files browser hits them, but bounded so a request can't force the
+# server to zip an unbounded number of files or an unbounded number of
+# bytes. Over either limit, the request is refused outright (413) before
+# the archive is built -- never silently truncated.
+MAX_EXPORT_ASSET_COUNT = 500
+MAX_EXPORT_TOTAL_BYTES = 1024 ** 3  # 1 GiB
 
 
 def referencing_blocks(db: sqlite3.Connection,
@@ -199,19 +211,28 @@ def delete_asset(request: Request, sha256: str,
 @router.post("/api/assets/export.zip")
 def export_assets(sha256s: list[str] = Form(default=[]),
                   db: sqlite3.Connection = Depends(get_db),
-                  config: Config = Depends(get_config)) -> Response:
+                  config: Config = Depends(get_config)) -> FileResponse:
     """Zip the selected assets under their original filenames (name
     collisions get a short sha prefix via zip_arcnames). Form-encoded so
     the web app can drive it with a plain <form method="post"> and let
     the browser own the download. Unknown, malformed, duplicate, and
     missing-on-disk shas are skipped, not errors: the zip honestly
-    contains what could be exported. In-RAM like /api/export.zip —
-    bounded by the user's selection."""
+    contains what could be exported.
+
+    pkm-13ty: the selection's count and total bytes (summed from the
+    `assets` table -- no file is opened just to measure it) are checked
+    against MAX_EXPORT_ASSET_COUNT/MAX_EXPORT_TOTAL_BYTES before any zip
+    is built; over either limit the request is refused with 413, never
+    silently truncated. The archive itself is built in a temp directory
+    and streamed back via FileResponse (not buffered whole in memory),
+    with the directory removed once the response finishes, errors, or is
+    interrupted (CleanupFileResponse)."""
     chosen: list[tuple[str, str, Path]] = []
+    total_bytes = 0
     for sha in dict.fromkeys(sha256s):
         if not _SHA_RE.match(sha):
             continue
-        row = db.execute("SELECT filename FROM assets WHERE sha256 = ?",
+        row = db.execute("SELECT filename, size FROM assets WHERE sha256 = ?",
                          (sha,)).fetchone()
         if row is None:
             continue
@@ -219,16 +240,30 @@ def export_assets(sha256s: list[str] = Form(default=[]),
         if not path.is_file():
             continue
         chosen.append((sha, row["filename"], path))
+        total_bytes += row["size"]
+    violation = export_limit_violation(
+        len(chosen), total_bytes,
+        max_count=MAX_EXPORT_ASSET_COUNT, max_bytes=MAX_EXPORT_TOTAL_BYTES)
+    if violation is not None:
+        raise HTTPException(status_code=413, detail=violation)
     arcs = zip_arcnames([(sha, safe_filename(name)) for sha, name, _ in chosen])
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for (_, _, path), (_, arc) in zip(chosen, arcs):
-            zf.write(path, arc)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="pkm-assets-export-"))
+    zip_path = tmp_dir / "export.zip"
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for (_, _, path), (_, arc) in zip(chosen, arcs):
+                zf.write(path, arc)
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
     filename = f"assets-{date.today().isoformat()}.zip"
-    return Response(
-        content=buf.getvalue(), media_type="application/zip",
-        headers={"Content-Disposition":
-                 f'attachment; filename="{filename}"'})
+
+    async def _cleanup() -> None:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return CleanupFileResponse(
+        zip_path, media_type="application/zip", filename=filename,
+        cleanup=_cleanup)
 
 
 @router.get("/assets/{sha256}/{filename}")

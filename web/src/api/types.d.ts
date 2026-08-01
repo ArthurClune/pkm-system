@@ -491,8 +491,16 @@ export interface paths {
          *     the web app can drive it with a plain <form method="post"> and let
          *     the browser own the download. Unknown, malformed, duplicate, and
          *     missing-on-disk shas are skipped, not errors: the zip honestly
-         *     contains what could be exported. In-RAM like /api/export.zip —
-         *     bounded by the user's selection.
+         *     contains what could be exported.
+         *
+         *     pkm-13ty: the selection's count and total bytes (summed from the
+         *     `assets` table -- no file is opened just to measure it) are checked
+         *     against MAX_EXPORT_ASSET_COUNT/MAX_EXPORT_TOTAL_BYTES before any zip
+         *     is built; over either limit the request is refused with 413, never
+         *     silently truncated. The archive itself is built in a temp directory
+         *     and streamed back via FileResponse (not buffered whole in memory),
+         *     with the directory removed once the response finishes, errors, or is
+         *     interrupted (CleanupFileResponse).
          */
         post: operations["export_assets_api_assets_export_zip_post"];
         delete?: never;
@@ -593,7 +601,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Export All Markdown */
+        /**
+         * Export All Markdown
+         * @description Whole-graph export, zipped. pkm-13ty: built in a temp directory and
+         *     streamed back via FileResponse rather than buffered whole in an
+         *     in-memory BytesIO -- the graph has no size cap, so an unbounded
+         *     number of pages/assets must not translate into an unbounded process
+         *     allocation. The temp directory is removed once the response finishes,
+         *     errors, or is interrupted (CleanupFileResponse); a failure before
+         *     that point is cleaned up here directly and re-raised.
+         */
         get: operations["export_all_markdown_api_export_zip_get"];
         put?: never;
         post?: never;

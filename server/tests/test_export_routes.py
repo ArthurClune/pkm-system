@@ -9,9 +9,12 @@ nightly backup's Core renderer unchanged (raw query command, one-level,
 parens-wrapped ref resolution)."""
 import zipfile
 from io import BytesIO
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from pkm.server import routes_export
 from pkm.server.app import create_app
 from pkm.server.auth_core import hash_password
 from pkm.server.config import Config
@@ -176,3 +179,55 @@ def test_export_all_markdown_returns_a_zip(client):
 def test_export_all_markdown_requires_auth(anon_client):
     r = anon_client.get("/api/export.zip")
     assert r.status_code == 401
+
+
+# --- pkm-13ty: temp-file-backed archive + cleanup ---
+
+def test_export_all_markdown_builds_zip_via_a_temp_dir_removed_after_response(
+        client, monkeypatch):
+    """Same fix as the selected-asset export: the whole-graph zip must not
+    be built fully in an in-memory BytesIO. Confirm a real temp
+    directory backs it (the route's own, not export_graph's internal
+    rendering-staging dir, which cleans itself up independently), and
+    it's gone once the response has been sent."""
+    seen: list[Path] = []
+    real_mkdtemp = routes_export.tempfile.mkdtemp
+
+    def spy_mkdtemp(*args, **kwargs):
+        d = real_mkdtemp(*args, **kwargs)
+        seen.append(Path(d))
+        return d
+
+    monkeypatch.setattr(routes_export.tempfile, "mkdtemp", spy_mkdtemp)
+    r = client.get("/api/export.zip")
+    assert r.status_code == 200
+    with zipfile.ZipFile(BytesIO(r.content)) as zf:
+        assert "pages/Machine Learning.md" in zf.namelist()
+    route_dirs = [d for d in seen if d.name.startswith("pkm-export-")]
+    assert len(route_dirs) == 1
+    assert not route_dirs[0].exists()
+
+
+def test_export_all_markdown_cleans_up_temp_dir_on_build_error(
+        client, monkeypatch):
+    """A failure while assembling the archive must still remove the temp
+    directory rather than leaking it, and the error must propagate
+    instead of returning a partial zip."""
+    seen: list[Path] = []
+    real_mkdtemp = routes_export.tempfile.mkdtemp
+
+    def spy_mkdtemp(*args, **kwargs):
+        d = real_mkdtemp(*args, **kwargs)
+        seen.append(Path(d))
+        return d
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated build failure")
+
+    monkeypatch.setattr(routes_export.tempfile, "mkdtemp", spy_mkdtemp)
+    monkeypatch.setattr(routes_export.zipfile, "ZipFile", boom)
+    with pytest.raises(RuntimeError, match="simulated build failure"):
+        client.get("/api/export.zip")
+    route_dirs = [d for d in seen if d.name.startswith("pkm-export-")]
+    assert len(route_dirs) == 1
+    assert not route_dirs[0].exists()

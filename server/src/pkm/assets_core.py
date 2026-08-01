@@ -87,6 +87,26 @@ def asset_needs_repair(expected_sha256: str, expected_size: int,
     return actual_sha256 != expected_sha256
 
 
+def export_limit_violation(count: int, total_bytes: int, *,
+                           max_count: int, max_bytes: int) -> str | None:
+    """None if a selected-asset export's `count` and `total_bytes` both sit
+    within their limits; otherwise a human-readable detail naming which
+    limit was exceeded and by how much, for a 413 response. Callers must
+    refuse the whole request on a violation -- never build a truncated
+    archive that silently drops the assets over the line.
+
+    Count is checked first: it is the cheaper number for a user to act on
+    (deselect a few files) than a byte total, so when a request blows both
+    limits at once the message leads with the more actionable one."""
+    if count > max_count:
+        return (f"selection has {count} assets, exceeding the limit of "
+                f"{max_count}")
+    if total_bytes > max_bytes:
+        return (f"selection totals {total_bytes} bytes, exceeding the "
+                f"limit of {max_bytes} bytes")
+    return None
+
+
 def zip_arcnames(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Map (sha256, filename) pairs to unique zip arcnames: first use of
     a name wins (case-insensitively, since zips get extracted on

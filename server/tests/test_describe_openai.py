@@ -10,9 +10,15 @@ from pkm.describe.service import DescribeError
 
 
 def _describe(handler, content=b"\x89PNGdata", mime="image/png") -> str:
-    http = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
-    client = OpenAIDescriber("sk-test", "gpt-4o-mini", http=http)
-    return asyncio.run(client.describe(content, mime))
+    async def run() -> str:
+        http = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+        client = OpenAIDescriber("sk-test", "gpt-4o-mini", http=http)
+        try:
+            return await client.describe(content, mime)
+        finally:
+            await client.close()
+
+    return asyncio.run(run())
 
 
 def test_describe_success():
@@ -61,3 +67,13 @@ def test_describe_non_json_body():
 
     with pytest.raises(DescribeError, match="bad response"):
         _describe(handler)
+
+
+def test_close_closes_injected_http_client():
+    async def run() -> bool:
+        http = httpx2.AsyncClient()
+        client = OpenAIDescriber("sk-test", "gpt-4o-mini", http=http)
+        await client.close()
+        return http.is_closed
+
+    assert asyncio.run(run()) is True

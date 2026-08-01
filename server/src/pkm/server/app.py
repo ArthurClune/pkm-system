@@ -62,8 +62,10 @@ def _default_describe_service(config: Config) -> DescribeService:
 async def _lifespan(app: FastAPI):
     app.state.describe.start()
     yield
-    await app.state.describe.close()
-    await app.state.assistant.close_all()
+    try:
+        await app.state.describe.close()
+    finally:
+        await app.state.assistant.close_all()
 
 
 def create_app(

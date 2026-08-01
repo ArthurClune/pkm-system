@@ -13,12 +13,18 @@ class FakeDescriber:
         self.text = text
         self.error = error
         self.calls: list[str] = []
+        self.close_calls = 0
+        self.events: list[str] = []
 
     async def describe(self, image_bytes: bytes, mime: str) -> str:
         self.calls.append(mime)
         if self.error is not None:
             raise DescribeError(self.error)
         return self.text
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        self.events.append("closed")
 
 
 class BlockingDescriber:
@@ -35,13 +41,22 @@ class BlockingDescriber:
         self.text = text
         self.error = error
         self.calls: list[str] = []
+        self.close_calls = 0
+        self.events: list[str] = []
         self.started = threading.Event()
         self.release = threading.Event()
 
     async def describe(self, image_bytes: bytes, mime: str) -> str:
         self.calls.append(mime)
         self.started.set()
-        await asyncio.to_thread(self.release.wait, 5)
+        try:
+            await asyncio.to_thread(self.release.wait, 5)
+        finally:
+            self.events.append("describe-finished")
         if self.error is not None:
             raise DescribeError(self.error)
         return self.text
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        self.events.append("closed")

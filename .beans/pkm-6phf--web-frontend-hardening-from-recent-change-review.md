@@ -1,11 +1,11 @@
 ---
 # pkm-6phf
 title: Web frontend hardening from recent-change review
-status: in-progress
+status: completed
 type: epic
 priority: high
 created_at: 2026-07-31T15:32:12Z
-updated_at: 2026-08-01T18:06:03Z
+updated_at: 2026-08-01T19:44:36Z
 ---
 
 ## Context
@@ -211,8 +211,10 @@ Done in pkm-vszf.
 
 Both parallel active implementations while apparently being imported only by tests, increasing drift risk without serving runtime code.
 
-- [ ] Confirm runtime call sites
-- [ ] Remove the compatibility paths and migrate tests, or deliberately make them shared runtime implementations
+- [x] Confirm runtime call sites
+- [x] Remove the compatibility paths and migrate tests, or deliberately make them shared runtime implementations
+
+Done in pkm-p9em.
 
 ### 16. Fix Files note selector mismatch
 
@@ -220,8 +222,10 @@ Both parallel active implementations while apparently being imported only by tes
 
 Only `.settings-section p.settings-note` is defined, but Files applies `settings-note` outside `.settings-section`, so the class has no effect there.
 
-- [ ] Promote the note style to a shared selector or add a Files-specific class
-- [ ] Add selector-usage coverage
+- [x] Promote the note style to a shared selector or add a Files-specific class
+- [x] Add selector-usage coverage
+
+Done in pkm-xh61.
 
 ### 17. Style disabled danger buttons consistently
 
@@ -229,12 +233,18 @@ Only `.settings-section p.settings-note` is defined, but Files applies `settings
 
 `.btn-danger` retains pointer and hover styling while disabled, unlike `.btn-secondary`.
 
-- [ ] Add disabled danger-button styling and guard hover with `:not(:disabled)`
-- [ ] Add stylesheet/component coverage
+- [x] Add disabled danger-button styling and guard hover with `:not(:disabled)`
+- [x] Add stylesheet/component coverage
+
+Done in pkm-xh61.
 
 ## Verification and documentation
 
-- [x] Use test-driven development for each behavior change (mediums; TDD evidence in each child bean branch)
-- [x] Run `cd web && pnpm verify` (green on every lane pre-merge and on merged main: 48 e2e, 1782-range unit suite)
+- [x] Use test-driven development for each behavior change in the relevant child bean branches, including the low-priority Files styling behavior; do not claim TDD for pure dead-code deletion
+- [x] Run `cd web && pnpm verify` (green on integrated `pkm-6phf-low`: 1,808 coverage-gated unit tests and 48 E2E tests; merged focused suites: 279 tests)
 - [x] Review and update `docs/architecture/frontend.md` for route metadata, API typing, editor boundaries, loading-controller, control-class, or stylesheet invariant changes (done per lane; backend.md and sync-and-offline.md also updated for pkm-60bf)
-- [x] Split independent work into child beans where implementation should proceed separately (nine child beans, findings 6-14)
+- [x] Split independent work into child beans where implementation should proceed separately (eleven child beans, findings 6-17)
+
+## Summary of Changes
+
+Completed all 17 frontend-hardening findings. The final low-priority lanes removed the production-dead BlockTree and activeOutlines compatibility paths in favor of EditableBlockTree fallback mode and outlineSessions leases, promoted Files supporting notes to shared `p.settings-note` styling, and aligned disabled danger-button hover, opacity, and cursor behavior with secondary controls. Updated active-runtime and stylesheet/component coverage plus `docs/architecture/frontend.md`. Integrated verification passed 279 focused tests, 1,808 coverage-gated unit tests, all type/lint/FCIS/build/budget gates, and 48 Playwright E2E tests.

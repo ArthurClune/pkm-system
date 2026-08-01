@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import { block, makeSync, stubFetch, type SyncFake } from "../test-helpers";
-import { registerOutline } from "../outline/activeOutlines";
+import { acquireOutlineSession } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
 
@@ -26,6 +26,16 @@ function mount(sync = makeSync(), initial = [
 function focusBlock(text: string): HTMLTextAreaElement {
   fireEvent.click(screen.getByText(text));
   return screen.getByRole("textbox") as HTMLTextAreaElement;
+}
+
+function reserveOutlineEditor(title: string): () => void {
+  const handle = acquireOutlineSession(title, null);
+  const lease = handle.claimEditor(Symbol(`test-reservation:${title}`));
+  if (!lease.granted) throw new Error(`Could not reserve editor for ${title}`);
+  return () => {
+    lease.release();
+    handle.release();
+  };
 }
 
 test("typing flushes one update_text op after the debounce", () => {
@@ -522,9 +532,9 @@ test("draft for a remotely-deleted block is dropped, not flushed", () => {
 test("a page already active elsewhere in this tab renders read-only", () => {
   // Simulates a second instance for the same title (e.g. the page is also
   // open in a sidebar panel): the newcomer must not offer an editable
-  // textarea, since two live editors of one page in this tab can't see
-  // each other's edits (see outline/activeOutlines.ts).
-  const release = registerOutline("Page");
+  // textarea, since the atomic outlineSessions editor lease permits only one
+  // editor per title in this tab.
+  const release = reserveOutlineEditor("Page");
   try {
     mount();
     fireEvent.click(screen.getByText("first"));
@@ -615,7 +625,7 @@ test("a remaining same-title fallback atomically takes over after owner unmount"
 });
 
 test("the read-only fallback still reflects genuinely remote batches", () => {
-  const release = registerOutline("Page");
+  const release = reserveOutlineEditor("Page");
   try {
     const sync = mount();
     act(() => sync.emit({ client_id: "other", ts: 1, ops: [

@@ -317,9 +317,11 @@ Editing mechanics worth knowing before touching `outline/`:
   `onOpenMenu` call site is on that span and `keyboardPolicy` has no menu
   shortcut, so removing its tab stop removes keyboard access to Copy block
   reference and the view modes entirely. Its focus styling is constrained
-  too — see *Focus and interactive affordances* below. The read-only
-  `BlockTree` bullet is a plain `aria-hidden` span with no handlers: not
-  focusable, by design.
+  too — see *Focus and interactive affordances* below. In
+  `EditableBlockTree` fallback mode (`fallback=true`), bullets are inert spans
+  with no role, tab stop, menu, focus, upload, selection, or drag handlers,
+  and chevrons are disabled. The same renderer therefore displays the live
+  shared outline without creating a second editing implementation.
 - Phones get a bottom **Composer** (append-to-daily-note) instead of full
   outline editing.
 
@@ -458,17 +460,25 @@ in by name rather than silently inheriting a look — or silently getting none.
   (`.top-bar-menu-button`, `.sidebar-toggle-button`, `.help-button`) whose
   transparent border keeps hover from shifting layout. `.btn-secondary`
   carries its own padding — before pkm-mrru it had none, so bare call sites
-  silently rendered at UA metrics. The left nav is the exception to look out
-  for: its `.nav-link` class covers both `<a>` and `<button>` (see below).
+  silently rendered at UA metrics. The danger family mirrors the same disabled
+  treatment: `.btn-danger:hover:not(:disabled)` suppresses hover feedback once
+  busy/disabled, and `.btn-danger:disabled` uses the same 0.35 opacity and
+  default cursor as `.btn-secondary:disabled`. The left nav is the exception to
+  look out for: its `.nav-link` class covers both `<a>` and `<button>` (see
+  below).
 - **Fields** are `.input-control` (text inputs, selects, textareas) and
   `.search-field` / `.search-field-input` — the latter is the top-bar search
   look, extracted so `/files`' search is literally the same field as `Cmd-U`
-  rather than a lookalike. The resting fill is `--color-bg-subtle`, lifting to
-  `--color-bg-surface` on focus; per-call-site rules add geometry only. The one
-  colour exception is the left nav's `Add page…` input, which sits *on*
-  `--color-bg-subtle` (`.left-nav`'s own background) and so takes the surface
-  fill at rest — otherwise only its border would separate it from the nav. Its
-  focus is then carried by the border colour and the ring alone.
+  rather than a lookalike. Shared supporting/status copy in Files and Settings
+  uses `p.settings-note`; the `p` qualifier deliberately keeps
+  `.settings-section p` specificity, so the later shared rule can set the muted
+  colour and tighter top margin without undoing Settings' paragraph reset. The
+  resting fill is `--color-bg-subtle`, lifting to `--color-bg-surface` on
+  focus; per-call-site rules add geometry only. The one colour exception is the
+  left nav's `Add page…` input, which sits *on* `--color-bg-subtle`
+  (`.left-nav`'s own background) and so takes the surface fill at rest —
+  otherwise only its border would separate it from the nav. Its focus is then
+  carried by the border colour and the ring alone.
 
 `--color-error-fill` is a **fill-only** token, separate from the error text
 colour: reusing one red for both made dark-theme Delete buttons read as

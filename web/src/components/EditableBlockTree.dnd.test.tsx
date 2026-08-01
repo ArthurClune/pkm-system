@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider } from "../dnd/DndContext";
-import { registerOutline as registerActiveOutline } from "../outline/activeOutlines";
+import { acquireOutlineSession } from "../outline/outlineSessions";
 import { EditablePage } from "../views/EditablePage";
 import { block, makeSync } from "../test-helpers";
 
@@ -15,6 +15,16 @@ function dt() {
     setData: (k: string, v: string) => { data[k] = v; },
     getData: (k: string) => data[k] ?? "",
     effectAllowed: "", dropEffect: "",
+  };
+}
+
+function reserveOutlineEditor(title: string): () => void {
+  const handle = acquireOutlineSession(title, null);
+  const lease = handle.claimEditor(Symbol(`test-reservation:${title}`));
+  if (!lease.granted) throw new Error(`Could not reserve editor for ${title}`);
+  return () => {
+    lease.release();
+    handle.release();
   };
 }
 
@@ -169,7 +179,7 @@ it("dragend without a drop clears the active drag so a later drop is inert", () 
 it("a fallback panel (title already active elsewhere) is excluded from DnD both ways", () => {
   // Claim "P" as the live instance elsewhere in the tab, so the P mount below
   // renders as the read-only fallback.
-  const release = registerActiveOutline("P");
+  const release = reserveOutlineEditor("P");
   try {
     const sync = makeSync();
     render(

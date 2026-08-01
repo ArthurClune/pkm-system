@@ -1,6 +1,6 @@
 # pkm-6phf Low-Priority Cleanup Design
 
-**Bean:** `pkm-6phf`  
+**Bean:** `pkm-6phf`
 **Child beans:** `pkm-p9em`, `pkm-xh61`
 
 ## Goal

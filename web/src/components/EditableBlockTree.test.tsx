@@ -286,9 +286,9 @@ test("chevron toggles collapse via handler; todo checkbox toggles via handler", 
       <EditableBlockTree blocks={withKids} focus={null} handlers={h}
                          readOnly={false} />
     </MemoryRouter>);
-  // jsdom doesn't apply the stylesheet's `.chevron.hidden { visibility:
+  // jsdom does not apply the stylesheet's `.chevron.hidden { visibility:
   // hidden }`, so the childless "kid" block's chevron is still reachable by
-  // role here (same workaround as BlockTree.test.tsx uses for this scenario).
+  // role in this test even though the browser would hide it visually.
   fireEvent.click(screen.getAllByRole("button", { name: "toggle children" })[0]);
   expect(h.onToggleCollapsed).toHaveBeenCalledWith("p", true);
 });
@@ -341,6 +341,34 @@ test("readOnly disables the chevron (even with children) and the todo checkbox",
   expect(box).toBeDisabled();
   fireEvent.click(box);
   expect(h.onToggleTodo).not.toHaveBeenCalled();
+});
+
+test("fallback renders nested rich text but exposes no editor controls", () => {
+  const h = handlers();
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree
+        blocks={[block("parent", "Papers", {
+          heading: 2,
+          children: [block("child", "read [[Paper]]")],
+        })]}
+        focus={null}
+        handlers={h}
+        readOnly={false}
+        fallback
+      />
+    </MemoryRouter>,
+  );
+
+  expect(screen.getByText("Papers").closest("h2")).not.toBeNull();
+  expect(screen.getByRole("link", { name: "Paper" })).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "toggle children" })[0])
+    .toBeDisabled();
+  const bullet = container.querySelector('[data-uid="parent"] .bullet');
+  expect(bullet).not.toHaveAttribute("role");
+  expect(bullet).not.toHaveAttribute("tabindex");
+  fireEvent.click(screen.getByText("Papers"));
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
 });
 
 test("typing / opens the command menu; Enter wraps the block in a code fence", () => {

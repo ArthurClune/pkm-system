@@ -317,9 +317,11 @@ Editing mechanics worth knowing before touching `outline/`:
   `onOpenMenu` call site is on that span and `keyboardPolicy` has no menu
   shortcut, so removing its tab stop removes keyboard access to Copy block
   reference and the view modes entirely. Its focus styling is constrained
-  too — see *Focus and interactive affordances* below. The read-only
-  `BlockTree` bullet is a plain `aria-hidden` span with no handlers: not
-  focusable, by design.
+  too — see *Focus and interactive affordances* below. In
+  `EditableBlockTree` fallback mode (`fallback=true`), bullets are inert spans
+  with no role, tab stop, menu, focus, upload, selection, or drag handlers,
+  and chevrons are disabled. The same renderer therefore displays the live
+  shared outline without creating a second editing implementation.
 - Phones get a bottom **Composer** (append-to-daily-note) instead of full
   outline editing.
 

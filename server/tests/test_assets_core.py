@@ -1,8 +1,11 @@
-"""Pure asset-browser helpers (pkm-jdu3)."""
+"""Pure asset-browser helpers (pkm-jdu3, pkm-x3l7)."""
+import hashlib
+
 import pytest
 
 from pkm.assets_core import (
-    mime_category, strip_asset_tokens, type_where, zip_arcnames)
+    asset_needs_repair, mime_category, sha256_hex, strip_asset_tokens,
+    type_where, zip_arcnames)
 
 SHA = "ab" * 32
 URL = f"/assets/{SHA}/pic.png"
@@ -105,3 +108,29 @@ def test_zip_arcnames_collision_is_case_insensitive():
     entries: list[tuple[str, str]] = [("aa" * 32, "Report.pdf"), ("bb" * 32, "report.pdf")]
     _, second = zip_arcnames(entries)[1]
     assert second == f"report ({'bb' * 4}).pdf"
+
+
+# --- sha256_hex / asset_needs_repair (pkm-x3l7) ---
+
+def test_sha256_hex_matches_hashlib():
+    assert sha256_hex(b"hello") == hashlib.sha256(b"hello").hexdigest()
+
+
+def test_needs_repair_false_when_size_and_hash_match():
+    sha = sha256_hex(b"content")
+    assert asset_needs_repair(sha, 7, 7, sha) is False
+
+
+def test_needs_repair_true_on_size_mismatch_without_hashing():
+    # A truncated file is detected from size alone -- callers must not
+    # need to compute/pass a real hash to catch this case.
+    sha = sha256_hex(b"content")
+    assert asset_needs_repair(sha, 7, 3, None) is True
+
+
+def test_needs_repair_true_on_same_size_hash_mismatch():
+    # Same length, different bytes: only catchable once a hash is
+    # actually computed and compared.
+    sha = sha256_hex(b"content")
+    other_sha = sha256_hex(b"CONTENT")
+    assert asset_needs_repair(sha, 7, 7, other_sha) is True

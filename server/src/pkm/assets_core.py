@@ -1,9 +1,13 @@
 # pattern: Functional Core
 """Pure helpers for the asset file browser (pkm-jdu3): reference-token
 stripping, mime categorisation (and its SQL twin), and zip arcname
-de-duplication."""
+de-duplication. Also (pkm-x3l7) the sha256 hashing and repair decision
+used to verify a content-addressed asset file's bytes actually match the
+digest encoded in its own storage path, instead of trusting that a file
+at that path is correct just because it exists."""
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import PurePosixPath
 
@@ -59,6 +63,28 @@ def strip_asset_tokens(text: str, sha256: str) -> str:
                     url):
         text = re.sub(pattern, "", text)
     return re.sub(r" {2,}", " ", text).strip()
+
+
+def sha256_hex(data: bytes) -> str:
+    """The digest callers compare against a content-addressed asset's
+    known sha256."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def asset_needs_repair(expected_sha256: str, expected_size: int,
+                       actual_size: int, actual_sha256: str | None) -> bool:
+    """Whether a content-addressed asset file on disk must be rewritten
+    from its known-good source.
+
+    Callers gather `actual_size` with a plain stat() first -- a size
+    mismatch alone already proves corruption (e.g. truncation), so pass
+    `actual_sha256=None` in that case rather than paying for a full read
+    + hash of a file already known to be wrong. Only compute and pass
+    the real hash once the sizes already agree, to also catch a
+    same-size corruption (bit rot, a same-length overwrite)."""
+    if actual_size != expected_size:
+        return True
+    return actual_sha256 != expected_sha256
 
 
 def zip_arcnames(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:

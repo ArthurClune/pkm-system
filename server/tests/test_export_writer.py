@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sqlite3
 from pathlib import Path
@@ -23,7 +24,11 @@ def graph(tmp_path):
         (1, "Alpha", None, None),
         (2, "July 7th, 2026", None, None),
     ])
-    sha = "ab" * 32
+    # pkm-x3l7: export_graph now verifies an existing asset's sha256/size
+    # before hardlinking it forward, so the fixture's sha must be the
+    # real hash of its bytes (b"png") -- a placeholder would look
+    # corrupt on every run after the first.
+    sha = hashlib.sha256(b"png").hexdigest()
     db.executemany(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
         " heading, collapsed, created_at, updated_at)"
@@ -217,6 +222,53 @@ def test_recovers_from_a_crash_between_the_two_publish_renames(graph):
                       "assets_copied": 0, "assets_pruned": 0}
     assert not (export / "pages.stale").exists()
     assert (export / "pages" / "Alpha.md").is_file()
+
+
+def test_repairs_truncated_existing_asset_from_live_store(graph):
+    # pkm-x3l7: a previously-exported asset file that got truncated on
+    # disk must not be hardlinked forward as-is -- the next export has
+    # to notice the size mismatch and re-copy the correct bytes from the
+    # live store instead.
+    db, live_assets, export, sha = graph
+    export_graph(db, live_assets, export)
+    corrupt = export / "assets" / sha / "pic.png"
+    corrupt.write_bytes(b"pn")  # truncated: live bytes are b"png"
+
+    counts = export_graph(db, live_assets, export)
+
+    assert counts["assets_copied"] == 1  # re-copied, not hardlinked
+    assert (export / "assets" / sha / "pic.png").read_bytes() == b"png"
+
+
+def test_repairs_same_size_corrupted_existing_asset_from_live_store(graph):
+    # Same byte count as the real asset but different content (bit rot,
+    # a same-length overwrite) -- undetectable by size alone, so this
+    # only gets caught once the hash is actually compared.
+    db, live_assets, export, sha = graph
+    export_graph(db, live_assets, export)
+    corrupt = export / "assets" / sha / "pic.png"
+    assert len(corrupt.read_bytes()) == len(b"png")
+    corrupt.write_bytes(b"bad")  # same length as b"png", wrong bytes
+
+    counts = export_graph(db, live_assets, export)
+
+    assert counts["assets_copied"] == 1
+    assert (export / "assets" / sha / "pic.png").read_bytes() == b"png"
+
+
+def test_valid_existing_asset_is_still_hardlinked_not_recopied(graph):
+    # The common case must stay cheap: a byte-identical existing asset
+    # is still hardlinked, not re-copied, after verification.
+    db, live_assets, export, sha = graph
+    export_graph(db, live_assets, export)
+    before_inode = (export / "assets" / sha / "pic.png").stat().st_ino
+
+    counts = export_graph(db, live_assets, export)
+
+    assert counts["assets_copied"] == 0
+    after = export / "assets" / sha / "pic.png"
+    assert after.read_bytes() == b"png"
+    assert after.stat().st_ino == before_inode
 
 
 def test_cross_subtree_publish_failure_recovers_on_next_run(graph, monkeypatch):

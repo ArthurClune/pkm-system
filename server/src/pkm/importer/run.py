@@ -11,6 +11,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from pkm.assets_core import asset_needs_repair, sha256_hex
 from pkm.edn import parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
@@ -98,13 +99,27 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         con.close()
 
+    # An existing destination is verified (size, then sha256 if the size
+    # already matches) rather than trusted just because it's present --
+    # pkm-x3l7: a previously truncated/corrupted file must not survive
+    # forever. Imports are one-shot manual runs, not a nightly job, so
+    # re-hashing every already-present asset every run isn't worth
+    # optimizing away.
     for sha, src in paths.items():
         dest = out / "assets" / sha[:2] / sha
-        if not dest.exists():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest_tmp = dest.with_name(dest.name + ".tmp")
-            shutil.copyfile(src, dest_tmp)
-            os.replace(dest_tmp, dest)
+        if dest.is_file():
+            expected_size = unique_assets[sha].size
+            actual_size = dest.stat().st_size
+            actual_sha = (sha256_hex(dest.read_bytes())
+                         if actual_size == expected_size else None)
+            if not asset_needs_repair(sha, expected_size, actual_size, actual_sha):
+                continue
+        # Missing, or present but corrupt (size/hash mismatch): (re)write
+        # it atomically from the known-good source file.
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest_tmp = dest.with_name(dest.name + ".tmp")
+        shutil.copyfile(src, dest_tmp)
+        os.replace(dest_tmp, dest)
 
     # All fallible preflight work (parsing, row-building, populating the
     # tmp db, copying assets, rendering and writing the report) must

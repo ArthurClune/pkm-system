@@ -26,7 +26,20 @@ because unchanged content is byte-identical). The asset mirror is
 incremental: content-hashed files never change, so an asset already present
 in the export is hardlinked into the new tree instead of re-copied; only
 new hashes are actually copied from the live store, and vanished hashes are
-simply left out of the new tree (pruned)."""
+simply left out of the new tree (pruned).
+
+An asset already present is only hardlinked after it passes verification
+against the assets row's known sha256/size (pkm-x3l7): a cheap stat-based
+size check first, and only once that matches, a full sha256 of its bytes.
+A file that fails either check is never hardlinked forward -- the loop
+falls through to the same branch used for a brand-new hash and re-copies
+correct bytes from `live_assets_dir`, so a corrupted "existing" asset is
+transparently repaired by the time this run's `_publish_dir(stage_assets,
+assets_dir)` lands. Hashing the whole previously-present set every run
+costs a full read of each file, but at this graph's scale (order ~1e3
+images) that's a low-single-digit-second tax on a nightly job, not
+something worth a sampling scheme -- see assets_core.asset_needs_repair
+for where the size check saves a read outright."""
 from __future__ import annotations
 
 import os
@@ -35,6 +48,7 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
+from pkm.assets_core import asset_needs_repair, sha256_hex
 from pkm.export.markdown import page_filename, render_page
 from pkm.filenames import safe_filename
 from pkm.server.daily import date_for_title
@@ -95,9 +109,9 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
             rendered["pages", page_filename(page["title"], taken)] = body
             counts["pages"] += 1
 
-    wanted: dict[str, str] = {
-        row["sha256"]: safe_filename(row["filename"])
-        for row in db.execute("SELECT sha256, filename FROM assets")}
+    wanted: dict[str, tuple[str, int]] = {
+        row["sha256"]: (safe_filename(row["filename"]), row["size"])
+        for row in db.execute("SELECT sha256, filename, size FROM assets")}
     previously_present = ({d.name for d in assets_dir.iterdir() if d.is_dir()}
                           if assets_dir.is_dir() else set())
     counts["assets_pruned"] = len(previously_present - wanted.keys())
@@ -112,13 +126,17 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         for (kind, fname), body in rendered.items():
             (staging / kind / fname).write_text(body, encoding="utf-8")
 
-        for sha, fname in wanted.items():
+        for sha, (fname, size) in wanted.items():
             dest = stage_assets / sha / fname
             existing = assets_dir / sha / fname
             if existing.is_file():
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                os.link(existing, dest)
-                continue
+                actual_size = existing.stat().st_size
+                actual_sha = (sha256_hex(existing.read_bytes())
+                             if actual_size == size else None)
+                if not asset_needs_repair(sha, size, actual_size, actual_sha):
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    os.link(existing, dest)
+                    continue
             src = live_assets_dir / sha[:2] / sha
             if not src.is_file():
                 continue  # row without a stored file: known import residue

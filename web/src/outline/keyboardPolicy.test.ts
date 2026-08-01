@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { autocompleteKeyAction, decideEditorKey, type EditorKeyInput } from "./keyboardPolicy";
+import { autocompleteKeyAction, decideEditorKey, decideSelectionKey,
+         type EditorKeyInput, type SelectionKeyInput } from "./keyboardPolicy";
 
 const input = (over: Partial<EditorKeyInput>): EditorKeyInput => ({
   key: "",
@@ -639,6 +640,119 @@ describe("decideEditorKey meta-wrap shortcuts (Cmd-K/B/I)", () => {
   it("is read-only gated", () => {
     expect(decideEditorKey(input({
       key: "b", metaKey: true, readOnly: true, draft: "x", selStart: 0, selEnd: 1,
+    }))).toEqual({ type: "none" });
+  });
+});
+
+const selKey = (over: Partial<SelectionKeyInput>): SelectionKeyInput => ({
+  key: "",
+  metaKey: false,
+  ctrlKey: false,
+  altKey: false,
+  shiftKey: false,
+  readOnly: false,
+  ...over,
+});
+
+describe("decideSelectionKey", () => {
+  it("indents and outdents with Tab / Shift-Tab (pkm-0ovd)", () => {
+    expect(decideSelectionKey(selKey({ key: "Tab" })))
+      .toEqual({ type: "indent-selection" });
+    expect(decideSelectionKey(selKey({ key: "Tab", shiftKey: true })))
+      .toEqual({ type: "outdent-selection" });
+  });
+
+  it("moves the selection on Shift+Cmd+Arrow, before plain Shift extends it", () => {
+    expect(decideSelectionKey(selKey({
+      key: "ArrowUp", shiftKey: true, metaKey: true,
+    }))).toEqual({ type: "move-selection", dir: "up" });
+    expect(decideSelectionKey(selKey({
+      key: "ArrowDown", shiftKey: true, metaKey: true,
+    }))).toEqual({ type: "move-selection", dir: "down" });
+  });
+
+  it("extends on plain Shift+Arrow and on Ctrl+Cmd+Arrow (pkm-am54)", () => {
+    expect(decideSelectionKey(selKey({ key: "ArrowDown", shiftKey: true })))
+      .toEqual({ type: "extend-selection", dir: "down" });
+    expect(decideSelectionKey(selKey({ key: "ArrowUp", shiftKey: true })))
+      .toEqual({ type: "extend-selection", dir: "up" });
+    expect(decideSelectionKey(selKey({
+      key: "ArrowDown", ctrlKey: true, metaKey: true,
+    }))).toEqual({ type: "extend-selection", dir: "down" });
+    expect(decideSelectionKey(selKey({
+      key: "ArrowUp", ctrlKey: true, metaKey: true,
+    }))).toEqual({ type: "extend-selection", dir: "up" });
+  });
+
+  it("copies on Cmd-C or Ctrl-C", () => {
+    expect(decideSelectionKey(selKey({ key: "c", metaKey: true })))
+      .toEqual({ type: "copy-selection" });
+    expect(decideSelectionKey(selKey({ key: "C", ctrlKey: true })))
+      .toEqual({ type: "copy-selection" });
+  });
+
+  it("clears on Escape and deletes on Backspace / Delete (pkm-q89w)", () => {
+    expect(decideSelectionKey(selKey({ key: "Escape" })))
+      .toEqual({ type: "clear-selection" });
+    expect(decideSelectionKey(selKey({ key: "Backspace" })))
+      .toEqual({ type: "delete-selection" });
+    expect(decideSelectionKey(selKey({ key: "Delete" })))
+      .toEqual({ type: "delete-selection" });
+  });
+
+  it("collapses back to editing the head on an unmodified vertical arrow", () => {
+    expect(decideSelectionKey(selKey({ key: "ArrowUp" })))
+      .toEqual({ type: "focus-selection-head" });
+    expect(decideSelectionKey(selKey({ key: "ArrowDown" })))
+      .toEqual({ type: "focus-selection-head" });
+  });
+
+  it("gates every mutation on !readOnly, leaving creation and copying alone", () => {
+    // mutations: nothing happens, and the shell must not preventDefault
+    for (const k of [
+      selKey({ key: "Tab", readOnly: true }),
+      selKey({ key: "Tab", shiftKey: true, readOnly: true }),
+      selKey({ key: "ArrowUp", shiftKey: true, metaKey: true, readOnly: true }),
+      selKey({ key: "Backspace", readOnly: true }),
+      selKey({ key: "Delete", readOnly: true }),
+    ]) {
+      expect(decideSelectionKey(k)).toEqual({ type: "none" });
+    }
+    // read-only-safe: extending, copying and dismissing still work (pkm-rckh)
+    expect(decideSelectionKey(selKey({
+      key: "ArrowDown", ctrlKey: true, metaKey: true, readOnly: true,
+    }))).toEqual({ type: "extend-selection", dir: "down" });
+    expect(decideSelectionKey(selKey({
+      key: "ArrowDown", shiftKey: true, readOnly: true,
+    }))).toEqual({ type: "extend-selection", dir: "down" });
+    expect(decideSelectionKey(selKey({ key: "c", metaKey: true, readOnly: true })))
+      .toEqual({ type: "copy-selection" });
+    expect(decideSelectionKey(selKey({ key: "Escape", readOnly: true })))
+      .toEqual({ type: "clear-selection" });
+  });
+
+  it("leaves Option+Arrow and unhandled keys to the platform", () => {
+    expect(decideSelectionKey(selKey({ key: "ArrowUp", altKey: true })))
+      .toEqual({ type: "none" });
+    expect(decideSelectionKey(selKey({ key: "ArrowDown", altKey: true })))
+      .toEqual({ type: "none" });
+    expect(decideSelectionKey(selKey({ key: "a" }))).toEqual({ type: "none" });
+    // horizontal arrows are not a selection gesture
+    expect(decideSelectionKey(selKey({ key: "ArrowLeft" })))
+      .toEqual({ type: "none" });
+  });
+
+  it("keeps Alt/Ctrl variants of the arrow chords out of the selection keyboard", () => {
+    // Shift+Cmd+Ctrl / Shift+Cmd+Alt are not the movement chord
+    expect(decideSelectionKey(selKey({
+      key: "ArrowUp", shiftKey: true, metaKey: true, ctrlKey: true,
+    }))).toEqual({ type: "none" });
+    expect(decideSelectionKey(selKey({
+      key: "ArrowUp", shiftKey: true, metaKey: true, altKey: true,
+    }))).toEqual({ type: "none" });
+    // Ctrl+Shift+Arrow is native select-to-paragraph, not an extend
+    expect(decideSelectionKey(selKey({
+      key: "ArrowUp", shiftKey: true, ctrlKey: true,
     }))).toEqual({ type: "none" });
   });
 });

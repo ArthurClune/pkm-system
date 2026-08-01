@@ -11,6 +11,7 @@ import type { FocusTarget } from "../outline/edits";
 import type { OutlineHandlers } from "../outline/handlers";
 import { BlockEditContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
+import { decideSelectionKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
 import { findNode } from "../outline/tree";
@@ -77,48 +78,50 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     if (selection) treeRef.current?.focus();
   }, [selection]);
 
+  // Like BlockInput's, this keydown only executes: what the key MEANS while a
+  // selection is active — including which branches are read-only-gated — is
+  // decideSelectionKey's, in the policy core. Anything it doesn't claim is
+  // left uncancelled for the platform.
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (fallback || !selection) return;
-    const verticalArrow = e.key === "ArrowUp" || e.key === "ArrowDown";
-    if (!readOnly && e.key === "Tab") {
-      e.preventDefault();
-      if (e.shiftKey) handlers.onOutdentSelection();
-      else handlers.onIndentSelection();
-    } else if (e.shiftKey && e.metaKey && !e.ctrlKey && !e.altKey
-               && verticalArrow) {
-      if (!readOnly) {
-        e.preventDefault();
-        if (e.key === "ArrowUp") handlers.onMoveSelectionUp();
+    const decision = decideSelectionKey({
+      key: e.key,
+      metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
+      shiftKey: e.shiftKey,
+      readOnly,
+    });
+    if (decision.type === "none") return;
+    e.preventDefault();
+    switch (decision.type) {
+      case "indent-selection":
+        handlers.onIndentSelection();
+        return;
+      case "outdent-selection":
+        handlers.onOutdentSelection();
+        return;
+      case "move-selection":
+        if (decision.dir === "up") handlers.onMoveSelectionUp();
         else handlers.onMoveSelectionDown();
-      }
-    } else if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
-               && verticalArrow) {
-      e.preventDefault();
-      handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
-    } else if (e.ctrlKey && e.metaKey && !e.shiftKey && !e.altKey
-               && verticalArrow) {
-      // Ctrl+Cmd+Up/Down keeps extending the selection it started (pkm-am54).
-      e.preventDefault();
-      handlers.onExtendBlockSelection(e.key === "ArrowUp" ? "up" : "down");
-    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
-      e.preventDefault();
-      void navigator.clipboard?.writeText(selectionText(blocks, selection));
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      handlers.onClearBlockSelection();
-    } else if (e.key === "Backspace" || e.key === "Delete") {
-      // Selection CREATION and copying are deliberately read-only-safe
-      // (pkm-am54); destroying one is a mutation, so it is gated like the
-      // Tab and Shift+Cmd+Arrow branches above. A selection made while
-      // editable outlives the switch to read-only (pkm-rckh).
-      if (!readOnly) {
-        e.preventDefault();
+        return;
+      case "extend-selection":
+        handlers.onExtendBlockSelection(decision.dir);
+        return;
+      case "copy-selection":
+        void navigator.clipboard?.writeText(selectionText(blocks, selection));
+        return;
+      case "clear-selection":
+        handlers.onClearBlockSelection();
+        return;
+      case "delete-selection":
         handlers.onDeleteBlockSelection();
+        return;
+      case "focus-selection-head":
+        handlers.onFocusBlock(selection.head, 0);
+        return;
+      default: {
+        const exhaustive: never = decision;
+        return exhaustive;
       }
-    } else if (!e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
-               && verticalArrow) {
-      e.preventDefault();
-      handlers.onFocusBlock(selection.head, 0);
     }
   };
 

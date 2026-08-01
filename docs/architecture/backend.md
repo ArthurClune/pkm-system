@@ -779,13 +779,24 @@ slow/hung yesterday, what was it doing?"* Stock uvicorn output could not
   dies before responding still logs what the client saw. The line is
   formatted by the pure `logfmt.request_line`.
 - **`logfmt.uvicorn_log_config()`** is uvicorn's default dictconfig plus
-  timestamps on every formatter, and it explicitly wires the `pkm.access` and
-  `pkm.describe` loggers to the stdout handler with `propagate: False`.
-  Without that wiring their INFO lines silently vanish (nothing configures
-  the root logger). **Any new `pkm.*` logger that should reach production logs
-  must be added here** — this is the trap pkm-4z9r was filed for.
-- Streams follow uvicorn's convention — lifecycle and errors to stderr,
-  access lines to stdout — so launchd's two log files keep their roles.
+  timestamps on every formatter, and it wires a **parent `pkm` logger** to
+  the default (stderr) handler at INFO. Every `pkm.*` child — `pkm.assets`,
+  `pkm.assistant`, `pkm.describe`, and any future addition — inherits that
+  handler/level/format by propagation with no entry of its own. Without a
+  configured ancestor a child's INFO lines silently vanish (nothing
+  configures the root logger); this bit `pkm.describe` once (pkm-4z9r,
+  fixed by adding it individually) and then `pkm.assets`/`pkm.assistant`
+  the same way until the parent policy replaced the per-logger allowlist
+  (pkm-5g3d). `test_every_declared_pkm_logger_has_an_effective_info_handler`
+  in `test_request_log.py` enumerates every `pkm.*` logger declared in the
+  codebase and asserts it resolves to a real handler, so the next new
+  logger can't silently repeat the drift.
+- **`pkm.access` keeps an explicit override**, the only one left: its lines
+  are pre-formatted request summaries (`request_line`), not level-prefixed
+  lifecycle messages, and go to stdout like uvicorn's own access log did.
+  Streams otherwise follow uvicorn's convention — lifecycle and errors to
+  stderr, access lines to stdout — so launchd's two log files keep their
+  roles.
 
 When measuring a slow request, prefer these durations to client-side timing:
 the filter-hang investigation (pkm-0fx3) found ~4 ms server-side, which is

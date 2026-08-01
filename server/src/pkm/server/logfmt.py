@@ -16,13 +16,21 @@ def request_line(client: str | None, method: str, path: str,
 
 def uvicorn_log_config() -> dict:
     """uvicorn's default logging dictconfig, plus timestamps on every
-    formatter and `pkm.access` (the request-duration middleware, replacing
-    uvicorn's own duration-less access log disabled in run.py) and
-    `pkm.describe` (the image-description service) loggers wired to the
-    same stdout handler, so their INFO lines don't silently drop via
-    root-logger propagation. Streams match uvicorn's defaults:
-    lifecycle/errors to stderr, access lines to stdout, so launchd's two
-    log files keep their roles."""
+    formatter and a parent `pkm` logger wired to the default (stderr)
+    handler at INFO, so every `pkm.*` child - `pkm.assets`, `pkm.assistant`,
+    `pkm.describe`, and any future addition - inherits handlers/level/format
+    by propagation with no per-logger entry needed. Without a configured
+    ancestor, a child logger's INFO lines silently vanish via root-logger
+    propagation (nothing configures the root logger); this bit `pkm.assets`
+    and `pkm.assistant` before this parent policy existed, repeating the
+    drift once fixed one logger at a time for `pkm.describe` (pkm-4z9r).
+
+    `pkm.access` (the request-duration middleware, replacing uvicorn's own
+    duration-less access log disabled in run.py) keeps its own explicit
+    override: its lines are pre-formatted request summaries (see
+    `request_line`), not level-prefixed lifecycle messages, and belong on
+    stdout like uvicorn's own access log did - so launchd's two log files
+    keep their roles (lifecycle/errors to stderr, access lines to stdout)."""
     return {
         "version": 1,
         "disable_existing_loggers": False,
@@ -51,9 +59,9 @@ def uvicorn_log_config() -> dict:
             "uvicorn": {"handlers": ["default"], "level": "INFO",
                         "propagate": False},
             "uvicorn.error": {"level": "INFO"},
+            "pkm": {"handlers": ["default"], "level": "INFO",
+                    "propagate": False},
             "pkm.access": {"handlers": ["access"], "level": "INFO",
                            "propagate": False},
-            "pkm.describe": {"handlers": ["access"], "level": "INFO",
-                             "propagate": False},
         },
     }

@@ -1,5 +1,9 @@
+import contextlib
 import json
 import logging
+import logging.config
+import re
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -37,14 +41,93 @@ def test_uvicorn_log_config_routes_pkm_access_to_stdout():
     assert handler["stream"] == "ext://sys.stdout"
 
 
-def test_uvicorn_log_config_routes_pkm_describe_to_stdout():
+def test_uvicorn_log_config_configures_a_pkm_parent_logger():
+    # pkm-5g3d: a parent "pkm" logger carries the shared level/handler so
+    # every pkm.* child (pkm.assets, pkm.assistant, pkm.describe, and any
+    # future addition) inherits it by propagation instead of needing its own
+    # entry here - the per-logger allowlist this replaces let pkm.assets and
+    # pkm.assistant silently lose their INFO logs (they inherited from the
+    # unconfigured root logger instead).
     config = uvicorn_log_config()
-    describe_logger = config["loggers"]["pkm.describe"]
-    assert describe_logger["level"] == "INFO"
-    assert describe_logger["propagate"] is False
-    [handler_name] = describe_logger["handlers"]
+    parent = config["loggers"]["pkm"]
+    assert parent["level"] == "INFO"
+    assert parent["propagate"] is False
+    [handler_name] = parent["handlers"]
     handler = config["handlers"][handler_name]
-    assert handler["stream"] == "ext://sys.stdout"
+    assert handler["class"] == "logging.StreamHandler"
+
+
+def test_uvicorn_log_config_no_longer_lists_pkm_describe_individually():
+    # Locks in the parent-policy replacement: pkm.describe used to need its
+    # own entry (pkm-4z9r); now it inherits from "pkm" like any other child.
+    config = uvicorn_log_config()
+    assert "pkm.describe" not in config["loggers"]
+
+
+_LOGGER_CALL_RE = re.compile(r'getLogger\(\s*["\'](pkm(?:\.[A-Za-z0-9_]+)+)["\']\s*\)')
+
+
+def _declared_pkm_loggers() -> set[str]:
+    """Every `logging.getLogger("pkm...")` name declared anywhere under
+    src/pkm, found by scanning source text rather than importing (so this
+    stays cheap and doesn't need every module's runtime deps importable)."""
+    src_root = Path(__file__).resolve().parents[1] / "src" / "pkm"
+    return {name for path in src_root.rglob("*.py")
+            for name in _LOGGER_CALL_RE.findall(path.read_text(encoding="utf-8"))}
+
+
+@contextlib.contextmanager
+def _dict_config_applied(config: dict):
+    """Apply `config` via logging.config.dictConfig for the block, then
+    restore every affected logger's handlers/level/propagate. dictConfig
+    mutates process-global logger state, which would otherwise leak into
+    later tests in this same pytest process (e.g. caplog-based ones that
+    expect default propagation)."""
+    affected = set(config["loggers"]) | _declared_pkm_loggers()
+    snapshot = {name: (list(logging.getLogger(name).handlers),
+                        logging.getLogger(name).level,
+                        logging.getLogger(name).propagate)
+                for name in affected}
+    logging.config.dictConfig(config)
+    try:
+        yield
+    finally:
+        for name, (handlers, level, propagate) in snapshot.items():
+            lg = logging.getLogger(name)
+            lg.handlers = handlers
+            lg.level = level
+            lg.propagate = propagate
+
+
+def _effective_handlers(logger: logging.Logger) -> list[logging.Handler]:
+    """Mirrors the walk `Logger.callHandlers` does: collect handlers up the
+    propagate=True ancestor chain, stopping at the first propagate=False
+    logger (or the root) - i.e. what actually receives a log record."""
+    handlers: list[logging.Handler] = []
+    current: logging.Logger | None = logger
+    while current is not None:
+        handlers.extend(current.handlers)
+        if not current.propagate:
+            break
+        current = current.parent
+    return handlers
+
+
+def test_every_declared_pkm_logger_has_an_effective_info_handler():
+    # pkm-5g3d: enumerates every pkm.* logger declared in the codebase and,
+    # once uvicorn_log_config() is applied, asserts each resolves to a real
+    # handler at INFO. Guards the drift this task fixed (pkm.assets and
+    # pkm.assistant silently losing lifecycle logs) against recurring for
+    # the next new pkm.* logger.
+    declared = _declared_pkm_loggers()
+    assert declared >= {"pkm.access", "pkm.assets", "pkm.assistant", "pkm.describe"}
+    with _dict_config_applied(uvicorn_log_config()):
+        for name in declared:
+            logger = logging.getLogger(name)
+            assert logger.getEffectiveLevel() <= logging.INFO, (
+                f"{name} would drop INFO lifecycle logs")
+            assert _effective_handlers(logger), (
+                f"{name} has no effective handler - its logs vanish silently")
 
 
 @pytest.fixture()

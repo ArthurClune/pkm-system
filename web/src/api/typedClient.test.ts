@@ -54,8 +54,6 @@ function methodAndPathAreChecked() {
   apiGet("/api/not-a-route", { query: { q: "x" } });
   // @ts-expect-error /api/sidebar has no DELETE (only /api/sidebar/{entry_id})
   apiDelete("/api/sidebar", {});
-  // /api/sidebar does have a PUT
-  void apiPut("/api/sidebar", { body: { order: [1, 2] } });
 }
 
 function parametersAreChecked() {
@@ -133,6 +131,16 @@ it("sends a JSON body with the method the path declares", async () => {
       body: JSON.stringify({ new_title: "New", allow_merge: true }),
     },
   ]);
+});
+
+it("sends a PUT with the body its schema declares", async () => {
+  const fetchMock = stubFetch();
+  await apiPut("/api/sidebar", { body: { order: [3, 1] } });
+  expect(fetchMock.mock.calls[0]).toEqual(["/api/sidebar", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ order: [3, 1] }),
+  }]);
 });
 
 it("sends no body or content type for a bodyless write", async () => {

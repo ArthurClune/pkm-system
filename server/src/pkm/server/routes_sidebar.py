@@ -7,11 +7,11 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from pkm.contracts.responses import SidebarNavPayload
 from pkm.importer.sidebar_rows import next_order_idx, reorder_is_valid
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
-from pkm.server.response_models import SidebarNavPayload
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 

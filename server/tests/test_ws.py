@@ -143,7 +143,7 @@ def test_non_op_write_paths_emit_seq_nudge(client):
 
 def test_daily_autocreate_on_get_emits_seq_nudge(client):
     from datetime import date
-    from pkm.server.daily import title_for_date
+    from pkm.contracts.daily import title_for_date
 
     with client.websocket_connect("/api/ws") as ws:
         today = title_for_date(date.today())

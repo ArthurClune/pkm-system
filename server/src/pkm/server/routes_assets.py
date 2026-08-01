@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Upl
 from fastapi.responses import FileResponse, Response
 
 from pkm.assets_core import strip_asset_tokens, type_where, zip_arcnames
+from pkm.contracts.responses import AssetSearchPayload, AssetUploadResponse
 from pkm.describe.core import derive_status
 from pkm.filenames import safe_filename
 from pkm.server import notify
@@ -27,7 +28,6 @@ from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
 from pkm.server.fts import phrase_query
 from pkm.server.mime_sniff import resolve_stored_mime, sniff_mime
-from pkm.server.response_models import AssetSearchPayload, AssetUploadResponse
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 

@@ -5,10 +5,10 @@ review.md finding 1 for the original Playwright-reproduced traceback."""
 import sqlite3
 import threading
 
+from pkm.contracts.ops import CreateOp, OpBatch
 from pkm.schema import DDL
 from pkm.server.db import open_db
 from pkm.server.ops_apply import apply_batch
-from pkm.server.ops_core import CreateOp, OpBatch
 
 NOW = 1_800_000_000_000
 

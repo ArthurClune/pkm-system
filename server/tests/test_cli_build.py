@@ -7,30 +7,43 @@ from pkm.cli.build import (BuildError, create_page_ops, next_child_idx,
                            plan_update, referenced_pages, resolve_parent,
                            split_heading, validate_batch)
 from pkm.cli.render import render_page
-from pkm.server.ops_core import text_hash
+from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
+                               SetHeadingOp, UpdateTextOp, text_hash)
+from pkm.contracts.responses import BlockNode, PagePayload
 
 
-def _node(uid, text, children=(), heading=None):
-    return {"uid": uid, "text": text, "heading": heading, "view_type": None,
-            "collapsed": False, "order_idx": 0, "created_at": None,
-            "updated_at": None, "children": list(children)}
+def _node(uid, text, children=(), heading=None) -> BlockNode:
+    return BlockNode(uid=uid, text=text, heading=heading, view_type=None,
+                     collapsed=False, order_idx=0, created_at=None,
+                     updated_at=None, children=list(children))
 
 
-PAYLOAD = {
-    "page": {"id": 1, "title": "Machine Learning", "created_at": None,
-             "updated_at": None},
-    "blocks": [
-        _node("u1", "Tags:: #AI"),
-        _node("u2", "Papers", heading=2,
-              children=[_node("u3", "existing child")]),
-    ],
-    "backlinks": {"groups": [], "total_pages": 0, "offset": 0, "limit": 100},
-    "block_ref_texts": {},
-}
+# The planners take a page's blocks, not a whole payload -- blocks are all
+# they read, and a page that doesn't exist yet has nothing else to offer.
+BLOCKS = [
+    _node("u1", "Tags:: #AI"),
+    _node("u2", "Papers", heading=2,
+          children=[_node("u3", "existing child")]),
+]
 
 
 def uid_gen():
     return (f"gen_uid_{i}" for i in itertools.count())
+
+
+def as_create(op) -> CreateOp:
+    """One planned op as the CreateOp it must be. `plan_batch` returns the
+    heterogeneous BlockOp union, so reading a create-only field (text,
+    parent_uid, order_idx, heading) has to narrow first -- which is the
+    point: an op that turned out to be a move or a delete fails here."""
+    assert isinstance(op, CreateOp), op
+    return op
+
+
+def creates(ops) -> list[CreateOp]:
+    """Same, for a batch the planner should have turned entirely into
+    creates."""
+    return [as_create(o) for o in ops]
 
 
 def test_parse_outline_depths():
@@ -47,35 +60,35 @@ def test_parse_outline_clamps_depth_jumps():
 
 
 def test_next_child_idx():
-    assert next_child_idx(PAYLOAD["blocks"], None) == 2
-    assert next_child_idx(PAYLOAD["blocks"], "u2") == 1
+    assert next_child_idx(BLOCKS, None) == 2
+    assert next_child_idx(BLOCKS, "u2") == 1
 
 
 def test_resolve_parent_forms():
-    assert resolve_parent(PAYLOAD, None) == (None, None)
-    assert resolve_parent(PAYLOAD, "((u3))") == ("u3", None)
-    assert resolve_parent(PAYLOAD, "## Papers") == ("u2", None)
-    assert resolve_parent(PAYLOAD, "## Notes") == (None, (2, "Notes"))
+    assert resolve_parent(BLOCKS, None) == (None, None)
+    assert resolve_parent(BLOCKS, "((u3))") == ("u3", None)
+    assert resolve_parent(BLOCKS, "## Papers") == ("u2", None)
+    assert resolve_parent(BLOCKS, "## Notes") == (None, (2, "Notes"))
 
 
 def test_resolve_parent_unknown_uid_raises():
     with pytest.raises(BuildError, match="not on page"):
-        resolve_parent(PAYLOAD, "((zzz999))")
+        resolve_parent(BLOCKS, "((zzz999))")
 
 
 def test_resolve_parent_ignores_plain_block_with_matching_text():
     # A plain (non-heading) block whose text happens to equal "Notes" must
     # not be selected for a "## Notes" (level 2) parent spec -- the heading
     # is missing, so the caller should create it, not nest under prose.
-    payload = {**PAYLOAD, "blocks": [_node("u9", "Notes")]}
-    assert resolve_parent(payload, "## Notes") == (None, (2, "Notes"))
+    assert resolve_parent([_node("u9", "Notes")], "## Notes") == \
+        (None, (2, "Notes"))
 
 
 def test_resolve_parent_requires_matching_level():
     # A level-3 heading with matching text must not satisfy a level-2 spec.
-    payload = {**PAYLOAD, "blocks": [_node("u9", "Notes", heading=3)]}
-    assert resolve_parent(payload, "## Notes") == (None, (2, "Notes"))
-    assert resolve_parent(payload, "### Notes") == ("u9", None)
+    blocks = [_node("u9", "Notes", heading=3)]
+    assert resolve_parent(blocks, "## Notes") == (None, (2, "Notes"))
+    assert resolve_parent(blocks, "### Notes") == ("u9", None)
 
 
 def test_resolve_parent_duplicate_headings_picks_first_in_document_order():
@@ -85,56 +98,56 @@ def test_resolve_parent_duplicate_headings_picks_first_in_document_order():
     # first) document order, not top-level list order, as the tie-break.
     # This matches the in-batch memoization's first-write rule
     # (_Planner._headings.setdefault).
-    payload = {**PAYLOAD, "blocks": [
+    blocks = [
         _node("container", "Some section",
               children=[_node("first", "Notes", heading=2)]),
         _node("second", "Notes", heading=2),
-    ]}
-    assert resolve_parent(payload, "## Notes") == ("first", None)
+    ]
+    assert resolve_parent(blocks, "## Notes") == ("first", None)
 
 
 def test_plan_save_appends_at_end_of_page():
-    ops = plan_save(PAYLOAD, "Machine Learning", None, "new note",
+    ops = plan_save(BLOCKS, "Machine Learning", None, "new note",
                     todo=False, uids=uid_gen())
-    assert ops == [{"op": "create", "uid": "gen_uid_0",
-                    "page_title": "Machine Learning", "parent_uid": None,
-                    "order_idx": 2, "text": "new note"}]
+    assert ops == [CreateOp(op="create", uid="gen_uid_0",
+                            page_title="Machine Learning", parent_uid=None,
+                            order_idx=2, text="new note")]
 
 
 def test_plan_save_outline_nests():
-    ops = plan_save(PAYLOAD, "Machine Learning", "((u2))",
+    ops = plan_save(BLOCKS, "Machine Learning", "((u2))",
                     "item\n  sub item", todo=False, uids=uid_gen())
-    assert [o["parent_uid"] for o in ops] == ["u2", "gen_uid_0"]
-    assert [o["order_idx"] for o in ops] == [1, 0]
+    assert [o.parent_uid for o in ops] == ["u2", "gen_uid_0"]
+    assert [o.order_idx for o in ops] == [1, 0]
 
 
 def test_plan_save_todo_marks_top_level_items_only():
-    ops = plan_save(PAYLOAD, "Machine Learning", None,
+    ops = plan_save(BLOCKS, "Machine Learning", None,
                     "task\n  detail", todo=True, uids=uid_gen())
-    assert ops[0]["text"] == "{{TODO}} task"
-    assert ops[1]["text"] == "detail"
+    assert ops[0].text == "{{TODO}} task"
+    assert ops[1].text == "detail"
 
 
 def test_plan_save_creates_missing_heading_first():
-    ops = plan_save(PAYLOAD, "Machine Learning", "## Notes", "under it",
+    ops = plan_save(BLOCKS, "Machine Learning", "## Notes", "under it",
                     todo=False, uids=uid_gen())
-    assert ops[0] == {"op": "create", "uid": "gen_uid_0",
-                      "page_title": "Machine Learning", "parent_uid": None,
-                      "order_idx": 2, "text": "Notes", "heading": 2}
-    assert ops[1]["parent_uid"] == "gen_uid_0"
-    assert ops[1]["order_idx"] == 0
+    assert ops[0] == CreateOp(op="create", uid="gen_uid_0",
+                              page_title="Machine Learning", parent_uid=None,
+                              order_idx=2, text="Notes", heading=2)
+    assert ops[1].parent_uid == "gen_uid_0"
+    assert ops[1].order_idx == 0
 
 
 def test_plan_save_multiple_appends_increment_order():
-    ops = plan_save(PAYLOAD, "Machine Learning", None, "a\nb",
+    ops = plan_save(BLOCKS, "Machine Learning", None, "a\nb",
                     todo=False, uids=uid_gen())
-    assert [o["order_idx"] for o in ops] == [2, 3]
+    assert [o.order_idx for o in ops] == [2, 3]
 
 
 def test_create_page_ops():
     assert create_page_ops(["Brand New Page", "Another New Page"]) == [
-        {"op": "create_page", "page_title": "Brand New Page"},
-        {"op": "create_page", "page_title": "Another New Page"}]
+        CreatePageOp(op="create_page", page_title="Brand New Page"),
+        CreatePageOp(op="create_page", page_title="Another New Page")]
 
 
 def test_create_page_ops_empty():
@@ -142,9 +155,13 @@ def test_create_page_ops_empty():
 
 
 def test_referenced_pages():
-    cmds = [{"command": "create", "params": {"page": "A", "text": "x"}},
-            {"command": "delete", "params": {"uid": "u9"}},
-            {"command": "outline", "params": {"page": "B", "items": ["y"]}}]
+    # Reads validated commands: `delete` (like `update`) addresses a block
+    # by uid and names no page, so it contributes nothing to fetch.
+    cmds = validate_batch(
+        [{"command": "create", "params": {"page": "A", "text": "x"}},
+         {"command": "delete", "params": {"uid": "u9"}},
+         {"command": "outline", "params": {"page": "B", "items": ["y"]}},
+         {"command": "move", "params": {"uid": "u9", "page": "A"}}])
     assert referenced_pages(cmds) == ["A", "B"]
 
 
@@ -157,11 +174,11 @@ def test_plan_batch_create_with_alias_parent():
          "params": {"page": "Machine Learning", "parent": "{{mtg}}",
                     "items": ["Attendees", "Actions"]}},
     ]
-    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
-    assert ops[0]["text"] == "[[Meeting]] notes"
-    assert ops[1]["parent_uid"] == ops[0]["uid"]
-    assert ops[2]["parent_uid"] == ops[0]["uid"]
-    assert [o["order_idx"] for o in ops] == [2, 0, 1]
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    assert ops[0].text == "[[Meeting]] notes"
+    assert ops[1].parent_uid == ops[0].uid
+    assert ops[2].parent_uid == ops[0].uid
+    assert [o.order_idx for o in ops] == [2, 0, 1]
 
 
 def test_plan_batch_todo_update_move_delete():
@@ -173,13 +190,13 @@ def test_plan_batch_todo_update_move_delete():
                                        "parent": "((u2))"}},
         {"command": "delete", "params": {"uid": "u3"}},
     ]
-    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
-    assert ops[0]["text"] == "{{TODO}} follow up"
-    assert ops[1] == {"op": "update_text", "uid": "u3", "text": "edited"}
-    assert ops[2] == {"op": "set_heading", "uid": "u3", "heading": None}
-    assert ops[3] == {"op": "move", "uid": "u1", "parent_uid": "u2",
-                      "order_idx": 1, "page_title": None}
-    assert ops[4] == {"op": "delete", "uid": "u3"}
+    ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
+    assert as_create(ops[0]).text == "{{TODO}} follow up"
+    assert ops[1] == UpdateTextOp(op="update_text", uid="u3", text="edited")
+    assert ops[2] == SetHeadingOp(op="set_heading", uid="u3", heading=None)
+    assert ops[3] == MoveOp(op="move", uid="u1", parent_uid="u2",
+                            order_idx=1, page_title=None)
+    assert ops[4] == DeleteOp(op="delete", uid="u3")
 
 
 def test_plan_batch_unknown_command_and_alias():
@@ -189,7 +206,7 @@ def test_plan_batch_unknown_command_and_alias():
         plan_batch([{"command": "create",
                      "params": {"page": "Machine Learning", "text": "x",
                                 "parent": "{{nope}}"}}],
-                   {"Machine Learning": PAYLOAD}, uid_gen())
+                   {"Machine Learning": BLOCKS}, uid_gen())
 
 
 def test_plan_batch_missing_page_payload():
@@ -207,12 +224,12 @@ def test_plan_batch_reuses_repeated_missing_heading():
          "params": {"page": "Machine Learning", "parent": "## Notes",
                     "text": "second"}},
     ]
-    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
-    heading_ops = [o for o in ops if o.get("heading") is not None]
-    content_ops = [o for o in ops if o.get("heading") is None]
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    heading_ops = [o for o in ops if o.heading is not None]
+    content_ops = [o for o in ops if o.heading is None]
     assert len(heading_ops) == 1
-    assert [o["parent_uid"] for o in content_ops] == [heading_ops[0]["uid"]] * 2
-    assert [o["order_idx"] for o in content_ops] == [0, 1]
+    assert [o.parent_uid for o in content_ops] == [heading_ops[0].uid] * 2
+    assert [o.order_idx for o in content_ops] == [0, 1]
 
 
 def test_plan_batch_move_rejects_wrong_level_heading():
@@ -220,32 +237,31 @@ def test_plan_batch_move_rejects_wrong_level_heading():
     # "## Notes" (level 2) -- move never creates a missing heading, so
     # this must fail during planning rather than silently landing under
     # the wrong-level block.
-    payload = {**PAYLOAD, "blocks": [
-        *PAYLOAD["blocks"], _node("u9", "Notes", heading=3)]}
+    blocks = [*BLOCKS, _node("u9", "Notes", heading=3)]
     cmds = [{"command": "move",
              "params": {"uid": "u1", "page": "Machine Learning",
                         "parent": "## Notes"}}]
     with pytest.raises(BuildError, match="move target heading does not exist"):
-        plan_batch(cmds, {"Machine Learning": payload}, uid_gen())
+        plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
 
 
 def test_plan_batch_create_with_index():
     cmds = [{"command": "create",
              "params": {"page": "Machine Learning", "text": "top",
                         "index": 0}}]
-    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
-    assert ops[0]["order_idx"] == 0
-    assert ops[0]["parent_uid"] is None
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    assert ops[0].order_idx == 0
+    assert ops[0].parent_uid is None
 
 
 def test_plan_batch_todo_with_index_under_parent():
     cmds = [{"command": "todo",
              "params": {"page": "Machine Learning", "parent": "((u2))",
                         "text": "urgent", "index": 0}}]
-    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
-    assert ops[0]["order_idx"] == 0
-    assert ops[0]["parent_uid"] == "u2"
-    assert ops[0]["text"] == "{{TODO}} urgent"
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    assert ops[0].order_idx == 0
+    assert ops[0].parent_uid == "u2"
+    assert ops[0].text == "{{TODO}} urgent"
 
 
 def test_plan_batch_alias_as_uid():
@@ -257,11 +273,13 @@ def test_plan_batch_alias_as_uid():
                     "parent": "((u2))", "index": 0}},
         {"command": "update", "params": {"uid": "{{n}}", "text": "y"}},
     ]
-    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
-    assert ops[1]["op"] == "move" and ops[1]["uid"] == ops[0]["uid"]
-    assert ops[2] == {"op": "update_text", "uid": ops[0]["uid"], "text": "y"}
-    assert ops[3] == {"op": "set_heading", "uid": ops[0]["uid"],
-                      "heading": None}
+    ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
+    new_uid = as_create(ops[0]).uid
+    assert ops[1] == MoveOp(op="move", uid=new_uid, parent_uid="u2",
+                            order_idx=0, page_title=None)
+    assert ops[2] == UpdateTextOp(op="update_text", uid=new_uid, text="y")
+    assert ops[3] == SetHeadingOp(op="set_heading", uid=new_uid,
+                                  heading=None)
 
 
 def test_plan_batch_alias_as_uid_unknown_raises():
@@ -392,7 +410,7 @@ def test_plan_batch_rejects_negative_index():
         plan_batch([{"command": "create",
                     "params": {"page": "Machine Learning", "text": "x",
                                "index": -1}}],
-                   {"Machine Learning": PAYLOAD}, uid_gen())
+                   {"Machine Learning": BLOCKS}, uid_gen())
 
 
 def test_split_heading_levels():
@@ -414,18 +432,18 @@ def test_split_heading_leaves_non_headings_alone(text):
 
 
 def test_plan_save_outline_sets_heading_levels():
-    ops = plan_save(PAYLOAD, "Machine Learning", None,
+    ops = plan_save(BLOCKS, "Machine Learning", None,
                     "## Overview\n  detail\n### Deeper", todo=False,
                     uids=uid_gen())
-    assert [(o["text"], o.get("heading")) for o in ops] == [
+    assert [(o.text, o.heading) for o in ops] == [
         ("Overview", 2), ("detail", None), ("Deeper", 3)]
 
 
 def test_plan_save_todo_marker_rides_on_a_heading():
-    ops = plan_save(PAYLOAD, "Machine Learning", None, "## Do it",
+    ops = plan_save(BLOCKS, "Machine Learning", None, "## Do it",
                     todo=True, uids=uid_gen())
-    assert ops[0]["text"] == "{{TODO}} Do it"
-    assert ops[0]["heading"] == 2
+    assert ops[0].text == "{{TODO}} Do it"
+    assert ops[0].heading == 2
 
 
 def test_plan_batch_create_and_outline_set_headings():
@@ -436,8 +454,8 @@ def test_plan_batch_create_and_outline_set_headings():
          "params": {"page": "Machine Learning",
                     "items": ["## Section", ["body"]]}},
     ]
-    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
-    assert [(o["text"], o.get("heading")) for o in ops] == [
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    assert [(o.text, o.heading) for o in ops] == [
         ("Top", 1), ("Section", 2), ("body", None)]
 
 
@@ -449,35 +467,42 @@ def test_plan_batch_created_heading_resolves_as_a_later_parent():
          "params": {"page": "Machine Learning", "parent": "## Notes",
                     "text": "beneath"}},
     ]
-    ops = plan_batch(cmds, {"Machine Learning": PAYLOAD}, uid_gen())
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
     assert len(ops) == 2                  # no duplicate "Notes" heading
-    assert ops[1]["parent_uid"] == ops[0]["uid"]
+    assert ops[1].parent_uid == ops[0].uid
 
 
 def test_render_then_save_round_trips_a_heading():
-    line = next(ln for ln in render_page(PAYLOAD).splitlines()
+    page = PagePayload.model_validate(
+        {"page": {"id": 1, "title": "Machine Learning", "created_at": None,
+                  "updated_at": None},
+         "blocks": BLOCKS,
+         "backlinks": {"groups": [], "total_pages": 0, "offset": 0,
+                       "limit": 100},
+         "block_ref_texts": {}})
+    line = next(ln for ln in render_page(page).splitlines()
                 if "Papers" in ln)
     assert line == "- ## Papers"
-    ops = plan_save({"blocks": []}, "P", None, line.removeprefix("- "),
+    ops = plan_save([], "P", None, line.removeprefix("- "),
                     todo=False, uids=uid_gen())
-    assert (ops[0]["text"], ops[0]["heading"]) == ("Papers", 2)
+    assert (ops[0].text, ops[0].heading) == ("Papers", 2)
 
 
 def test_plan_update_sets_heading_from_text():
     assert plan_update("u3", "## Overview", "old text") == [
-        {"op": "update_text", "uid": "u3", "text": "Overview",
-         "base_text_hash": text_hash("old text")},
-        {"op": "set_heading", "uid": "u3", "heading": 2}]
+        UpdateTextOp(op="update_text", uid="u3", text="Overview",
+                     base_text_hash=text_hash("old text")),
+        SetHeadingOp(op="set_heading", uid="u3", heading=2)]
 
 
 def test_plan_update_clears_heading_for_plain_text():
     ops = plan_update("u3", "Overview", "old text")
-    assert ops[1] == {"op": "set_heading", "uid": "u3", "heading": None}
+    assert ops[1] == SetHeadingOp(op="set_heading", uid="u3", heading=None)
 
 
 def test_plan_update_without_base_text_has_no_hash_guard():
     ops = plan_update("u3", "edited")
-    assert ops[0] == {"op": "update_text", "uid": "u3", "text": "edited"}
+    assert ops[0] == UpdateTextOp(op="update_text", uid="u3", text="edited")
 
 
 def test_plan_update_same_plain_text_emits_a_single_op():
@@ -485,24 +510,24 @@ def test_plan_update_same_plain_text_emits_a_single_op():
     # "unknown" -- the guarded path must still skip set_heading when it
     # matches the new level.
     ops = plan_update("u3", "same text", "same text", current_heading=None)
-    assert ops == [{"op": "update_text", "uid": "u3", "text": "same text",
-                    "base_text_hash": text_hash("same text")}]
+    assert ops == [UpdateTextOp(op="update_text", uid="u3", text="same text",
+                                base_text_hash=text_hash("same text"))]
 
 
 def test_plan_update_same_heading_level_emits_a_single_op():
     ops = plan_update("u3", "## Overview", "old text", current_heading=2)
-    assert ops == [{"op": "update_text", "uid": "u3", "text": "Overview",
-                    "base_text_hash": text_hash("old text")}]
+    assert ops == [UpdateTextOp(op="update_text", uid="u3", text="Overview",
+                                base_text_hash=text_hash("old text"))]
 
 
 def test_plan_update_changing_level_still_sets_heading():
     ops = plan_update("u3", "## Overview", "old text", current_heading=1)
-    assert ops[1] == {"op": "set_heading", "uid": "u3", "heading": 2}
+    assert ops[1] == SetHeadingOp(op="set_heading", uid="u3", heading=2)
 
 
 def test_plan_update_clearing_heading_still_sets_heading():
     ops = plan_update("u3", "Overview", "old text", current_heading=2)
-    assert ops[1] == {"op": "set_heading", "uid": "u3", "heading": None}
+    assert ops[1] == SetHeadingOp(op="set_heading", uid="u3", heading=None)
 
 
 def test_plan_update_batch_path_omits_current_heading_stays_unconditional():
@@ -510,9 +535,9 @@ def test_plan_update_batch_path_omits_current_heading_stays_unconditional():
     # when the text has no heading change at all.
     ops = plan_update("u3", "same text", "same text")
     assert ops == [
-        {"op": "update_text", "uid": "u3", "text": "same text",
-         "base_text_hash": text_hash("same text")},
-        {"op": "set_heading", "uid": "u3", "heading": None}]
+        UpdateTextOp(op="update_text", uid="u3", text="same text",
+                     base_text_hash=text_hash("same text")),
+        SetHeadingOp(op="set_heading", uid="u3", heading=None)]
 
 
 def test_plan_mark_applies_marker_and_hash_guard_no_heading_op():
@@ -521,20 +546,20 @@ def test_plan_mark_applies_marker_and_hash_guard_no_heading_op():
     # already bare (the heading level lives in its own column).
     ops = plan_mark("u3", "buy milk", "TODO")
     assert ops == [
-        {"op": "update_text", "uid": "u3", "text": "{{TODO}} buy milk",
-         "base_text_hash": text_hash("buy milk")}]
+        UpdateTextOp(op="update_text", uid="u3", text="{{TODO}} buy milk",
+                     base_text_hash=text_hash("buy milk"))]
 
 
 def test_plan_mark_done_toggles_existing_marker():
     ops = plan_mark("u3", "{{TODO}} buy milk", "DONE")
     assert ops == [
-        {"op": "update_text", "uid": "u3", "text": "{{DONE}} buy milk",
-         "base_text_hash": text_hash("{{TODO}} buy milk")}]
+        UpdateTextOp(op="update_text", uid="u3", text="{{DONE}} buy milk",
+                     base_text_hash=text_hash("{{TODO}} buy milk"))]
 
 
 def test_plan_mark_never_emits_set_heading():
     # Even when current_text looks like it has hashes, plan_mark must not
     # interpret them as a heading marker -- it never splits the text at all.
     ops = plan_mark("u3", "## Overview", "TODO")
-    assert all(op["op"] != "set_heading" for op in ops)
-    assert ops[0]["text"] == "{{TODO}} ## Overview"
+    assert all(op.op != "set_heading" for op in ops)
+    assert ops[0].text == "{{TODO}} ## Overview"

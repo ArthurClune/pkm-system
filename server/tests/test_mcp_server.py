@@ -57,12 +57,12 @@ def test_save_note_returns_uids_and_writes(tools, pkm_client):
     out = tools.save_note("hello from mcp", page="AI")
     assert out.startswith("created ^")
     page = pkm_client.get_page("AI")
-    assert any(n["text"] == "hello from mcp" for n in page["blocks"])
+    assert any(n.text == "hello from mcp" for n in page.blocks)
 
 
 def test_save_note_todo_and_outline(tools, pkm_client):
     tools.save_note("task\n  detail", page="AI", todo=True)
-    assert pkm_client.todos(page="AI")["total"] == 1
+    assert pkm_client.todos(page="AI").total == 1
 
 
 def test_save_note_twice_to_a_control_whitespace_titled_page_appends_and_reuses_the_heading(
@@ -74,18 +74,18 @@ def test_save_note_twice_to_a_control_whitespace_titled_page_appends_and_reuses_
     tools.save_note("first", page="Ctrl\tTitle", parent="## Notes")
     tools.save_note("second", page="Ctrl\tTitle", parent="## Notes")
     page = pkm_client.get_page("Ctrl Title")
-    headings = [n for n in page["blocks"] if n["text"] == "Notes"]
+    headings = [n for n in page.blocks if n.text == "Notes"]
     assert len(headings) == 1
-    assert [c["text"] for c in headings[0]["children"]] == ["first", "second"]
+    assert [c.text for c in headings[0].children] == ["first", "second"]
 
 
 def test_update_block_text_and_mark(tools, pkm_client):
     tools.save_note("temp", page="AI")
-    uid = next(n["uid"] for n in pkm_client.get_page("AI")["blocks"]
-               if n["text"] == "temp")
+    uid = next(n.uid for n in pkm_client.get_page("AI").blocks
+               if n.text == "temp")
     assert tools.update_block(uid, text="edited") == f"updated ^{uid}"
     assert tools.update_block(uid, mark="TODO") == f"updated ^{uid}"
-    assert pkm_client.get_block(uid)["block"]["text"] == "{{TODO}} edited"
+    assert pkm_client.get_block(uid).block.text == "{{TODO}} edited"
 
 
 def test_update_block_requires_exactly_one_change(tools):
@@ -93,6 +93,13 @@ def test_update_block_requires_exactly_one_change(tools):
         tools.update_block("uid_b6")
     with pytest.raises(ValueError, match="exactly one"):
         tools.update_block("uid_b6", text="x", mark="DONE")
+
+
+def test_update_block_rejects_an_unknown_mark(tools):
+    # Only the two task markers the todo syntax defines; anything else
+    # would be written into the block text verbatim.
+    with pytest.raises(ValueError, match="TODO"):
+        tools.update_block("uid_b6", mark="MAYBE")
 
 
 def test_batch(tools, pkm_client):
@@ -198,7 +205,7 @@ def test_upload_asset_invalid_parent_is_rejected_before_any_upload(
     f.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 50)
     with pytest.raises(BuildError, match="not on page"):
         tools.upload_asset(str(f), page="AI", parent="((no-such-uid))")
-    assert pkm_client.search_assets("pic.png")["total"] == 0
+    assert pkm_client.search_assets("pic.png").total == 0
 
 
 def test_upload_asset_post_ops_failure_deletes_the_orphaned_asset(
@@ -212,7 +219,7 @@ def test_upload_asset_post_ops_failure_deletes_the_orphaned_asset(
     monkeypatch.setattr(pkm_client, "post_ops", _fail)
     with pytest.raises(ApiError):
         tools.upload_asset(str(f), page="AI")
-    assert pkm_client.search_assets("pic.png")["total"] == 0
+    assert pkm_client.search_assets("pic.png").total == 0
 
 
 def test_upload_asset_post_ops_failure_does_not_delete_a_pre_existing_asset(
@@ -227,7 +234,7 @@ def test_upload_asset_post_ops_failure_does_not_delete_a_pre_existing_asset(
     monkeypatch.setattr(pkm_client, "post_ops", _fail)
     with pytest.raises(ApiError):
         tools.upload_asset(str(f), page="Machine Learning")
-    assert pkm_client.search_assets("pic.png")["total"] == 1
+    assert pkm_client.search_assets("pic.png").total == 1
 
 
 def test_search_assets(tools, tmp_path):
@@ -248,17 +255,17 @@ def test_get_page_resolve_refs(tools):
 def test_save_note_heading_levels(tools, pkm_client):
     tools.save_note("# Big", page="AI")
     page = pkm_client.get_page("AI")
-    assert any(n["text"] == "Big" and n["heading"] == 1
-               for n in page["blocks"])
+    assert any(n.text == "Big" and n.heading == 1
+               for n in page.blocks)
 
 
 def test_update_block_sets_heading_and_mark_preserves_it(tools, pkm_client):
     tools.save_note("temp", page="AI")
-    uid = next(n["uid"] for n in pkm_client.get_page("AI")["blocks"]
-               if n["text"] == "temp")
+    uid = next(n.uid for n in pkm_client.get_page("AI").blocks
+               if n.text == "temp")
     tools.update_block(uid, text="### Section")
-    block = pkm_client.get_block(uid)["block"]
-    assert (block["text"], block["heading"]) == ("Section", 3)
+    block = pkm_client.get_block(uid).block
+    assert (block.text, block.heading) == ("Section", 3)
     tools.update_block(uid, mark="TODO")
-    block = pkm_client.get_block(uid)["block"]
-    assert (block["text"], block["heading"]) == ("{{TODO}} Section", 3)
+    block = pkm_client.get_block(uid).block
+    assert (block.text, block.heading) == ("{{TODO}} Section", 3)

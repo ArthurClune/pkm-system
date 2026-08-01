@@ -1,6 +1,6 @@
 import sqlite3
 
-from pkm.server.ops_core import text_hash
+from pkm.contracts.ops import text_hash
 
 
 _batch_counter = 0
@@ -271,7 +271,7 @@ def test_no_false_conflict_after_structural_change(client):
 
 def test_orphaned_edit_lands_on_todays_daily_page(client):
     from datetime import date
-    from pkm.server.daily import title_for_date
+    from pkm.contracts.daily import title_for_date
     client.post("/api/ops", json={"client_id": "c1", "batch_id": "orphan_edit1",
                                   "ops": [
         {"op": "delete", "uid": "uid_b6"}]})

@@ -2,9 +2,9 @@ from datetime import date
 
 import pytest
 
-from pkm.server.daily import (
-    date_for_title, is_page_empty, past_week_dates, select_journal_days,
-    title_for_date)
+from pkm.contracts.daily import date_for_title, title_for_date
+from pkm.server.daily import (is_page_empty, past_week_dates,
+                              select_journal_days)
 
 CASES = [
     (date(2026, 7, 1), "July 1st, 2026"),

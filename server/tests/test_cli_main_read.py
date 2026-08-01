@@ -3,7 +3,7 @@ import json
 import pytest
 
 from pkm.cli.main import main
-from pkm.server.daily import title_for_date
+from pkm.contracts.daily import title_for_date
 
 
 @pytest.fixture()

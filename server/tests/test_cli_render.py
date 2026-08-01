@@ -1,14 +1,18 @@
 from pkm.cli.render import (render_assets, render_backlinks, render_block,
                             render_groups, render_page, render_search)
+from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
+                                     BlockNode, BlockPayload, GroupsPayload,
+                                     PagePayload, QueryPayload, SearchPayload)
 
 
-def _node(uid, text, children=(), heading=None):
-    return {"uid": uid, "text": text, "heading": heading, "view_type": None,
-            "collapsed": False, "order_idx": 0, "created_at": None,
-            "updated_at": None, "children": list(children)}
+def _node(uid, text, children=(), heading=None) -> BlockNode:
+    return BlockNode(uid=uid, text=text, heading=heading, view_type=None,
+                     collapsed=False, order_idx=0, created_at=None,
+                     updated_at=None, children=list(children))
 
 
-PAGE = {
+NO_BACKLINKS = {"groups": [], "total_pages": 0, "offset": 0, "limit": 100}
+PAGE = PagePayload.model_validate({
     "page": {"id": 1, "title": "Machine Learning", "created_at": None,
              "updated_at": None},
     "blocks": [
@@ -16,9 +20,9 @@ PAGE = {
         _node("u2", "Papers", heading=2,
               children=[_node("u3", "[[Attention Is All You Need]]")]),
     ],
-    "backlinks": {"groups": [], "total_pages": 0, "offset": 0, "limit": 100},
+    "backlinks": NO_BACKLINKS,
     "block_ref_texts": {},
-}
+})
 
 
 def test_render_page_markdown():
@@ -37,20 +41,23 @@ def test_render_page_with_uids():
 
 
 def test_render_block_with_breadcrumbs():
-    payload = {"page": PAGE["page"],
-               "block": _node("u3", "leaf"),
-               "breadcrumbs": ["Papers"], "block_ref_texts": {}}
+    payload = BlockPayload(page=PAGE.page, block=_node("u3", "leaf"),
+                           breadcrumbs=["Papers"], block_ref_texts={})
     assert render_block(payload) == (
         "(in: Machine Learning > Papers)\n"
         "\n"
         "- leaf\n")
 
 
+def _search(**kw) -> SearchPayload:
+    return SearchPayload.model_validate(
+        {"pages": [{"id": 1, "title": "AI"}],
+         "blocks": [{"uid": "u1", "page_title": "ML",
+                     "snippet": "…<mark>hit</mark>…"}], **kw})
+
+
 def test_render_search():
-    payload = {"pages": [{"id": 1, "title": "AI"}],
-               "blocks": [{"uid": "u1", "page_title": "ML",
-                           "snippet": "…<mark>hit</mark>…"}]}
-    assert render_search(payload) == (
+    assert render_search(_search()) == (
         "## Pages\n"
         "- AI\n"
         "\n"
@@ -59,14 +66,11 @@ def test_render_search():
 
 
 def test_render_search_empty():
-    assert render_search({"pages": [], "blocks": []}) == "no results\n"
+    assert render_search(SearchPayload(pages=[], blocks=[])) == "no results\n"
 
 
 def test_render_search_compact():
-    payload = {"pages": [{"id": 1, "title": "AI"}],
-               "blocks": [{"uid": "u1", "page_title": "ML",
-                           "snippet": "…<mark>hit</mark>…"}]}
-    assert render_search(payload, compact=True) == (
+    assert render_search(_search(), compact=True) == (
         "## Pages\n"
         "- AI\n"
         "\n"
@@ -75,9 +79,10 @@ def test_render_search_compact():
 
 
 def test_render_groups_with_uids_and_total():
-    payload = {"groups": [{"page_id": 1, "page_title": "AI",
-                           "items": [{"uid": "t1", "text": "{{TODO}} x"}]}],
-               "total": 1}
+    payload = GroupsPayload.model_validate(
+        {"groups": [{"page_id": 1, "page_title": "AI",
+                     "items": [{"uid": "t1", "text": "{{TODO}} x"}]}],
+         "total": 1})
     assert render_groups(payload) == (
         "## AI\n"
         "- {{TODO}} x  ^t1\n"
@@ -86,25 +91,33 @@ def test_render_groups_with_uids_and_total():
 
 
 def test_render_groups_empty_with_ref_counts_hint():
-    payload = {"groups": [], "total": 0,
-               "ref_counts": {"Meeting": 312, "Databases": 51}}
+    payload = QueryPayload(groups=[], total=0,
+                           ref_counts={"Meeting": 312, "Databases": 51})
     out = render_groups(payload)
     assert out == ("(0 total)\n"
                    "per-ref block counts: [[Meeting]] 312, [[Databases]] 51\n")
 
 
 def test_render_groups_no_hint_when_results_exist():
-    payload = {"groups": [{"page_id": 1, "page_title": "AI",
-                           "items": [{"uid": "t1", "text": "x"}]}],
-               "total": 1, "ref_counts": {"AI": 1}}
+    payload = QueryPayload.model_validate(
+        {"groups": [{"page_id": 1, "page_title": "AI",
+                     "items": [{"uid": "t1", "text": "x"}]}],
+         "total": 1, "ref_counts": {"AI": 1}})
     assert "per-ref" not in render_groups(payload)
 
 
+def test_render_groups_without_ref_counts_prints_no_hint():
+    # /api/todos returns a plain GroupsPayload -- no ref_counts field at
+    # all, so an empty result must not try to read one.
+    assert render_groups(GroupsPayload(groups=[], total=0)) == "(0 total)\n"
+
+
 def test_render_backlinks():
-    backlinks = {"groups": [{"page_id": 3, "page_title": "July 7th, 2026",
-                             "items": [{"uid": "b4", "text": "Studying",
-                                        "breadcrumbs": []}]}],
-                 "total_pages": 1, "offset": 0, "limit": 100}
+    backlinks = Backlinks.model_validate(
+        {"groups": [{"page_id": 3, "page_title": "July 7th, 2026",
+                     "items": [{"uid": "b4", "text": "Studying",
+                                "breadcrumbs": []}]}],
+         "total_pages": 1, "offset": 0, "limit": 100})
     assert render_backlinks("Machine Learning", backlinks) == (
         "# Backlinks: Machine Learning (1 pages)\n"
         "\n"
@@ -113,22 +126,21 @@ def test_render_backlinks():
 
 
 def test_render_empty_text_block():
-    payload = {
+    payload = PagePayload.model_validate({
         "page": {"id": 1, "title": "Test", "created_at": None,
                  "updated_at": None},
-        "blocks": [
-            _node("u1", ""),  # empty text
-        ],
-        "backlinks": {"groups": [], "total_pages": 0, "offset": 0, "limit": 100},
+        "blocks": [_node("u1", "")],  # empty text
+        "backlinks": NO_BACKLINKS,
         "block_ref_texts": {},
-    }
+    })
     assert render_page(payload) == "# Test\n\n-\n"
     assert render_page(payload, include_uids=True) == "# Test\n\n-  ^u1\n"
 
 
 def test_resolve_ref_texts_inlines_and_keeps_uid():
     from pkm.cli.render import resolve_ref_texts
-    ref_map = {"u9": {"text": "the target", "page_title": "P"}}
+    from pkm.contracts.responses import BlockRefText
+    ref_map = {"u9": BlockRefText(text="the target", page_title="P")}
     assert resolve_ref_texts("see ((u9)) here", ref_map) == \
         'see "the target" ((u9)) here'
 
@@ -140,37 +152,39 @@ def test_resolve_ref_texts_unknown_uid_untouched():
 
 def test_resolve_ref_texts_nested_and_cyclic():
     from pkm.cli.render import resolve_ref_texts
-    ref_map = {"a": {"text": "A says ((b))", "page_title": "P"},
-               "b": {"text": "B says ((a))", "page_title": "P"}}
+    from pkm.contracts.responses import BlockRefText
+    ref_map = {"a": BlockRefText(text="A says ((b))", page_title="P"),
+               "b": BlockRefText(text="B says ((a))", page_title="P")}
     out = resolve_ref_texts("root ((a))", ref_map)
     # a inlined; b inlined inside it; the cyclic ((a)) inside b stays bare
     assert out == 'root "A says "B says ((a))" ((b))" ((a))'
 
 
 def test_render_page_resolve_refs():
-    payload = {"page": PAGE["page"],
-               "blocks": [_node("u1", "see ((u9))")],
-               "backlinks": PAGE["backlinks"],
-               "block_ref_texts": {"u9": {"text": "target",
-                                          "page_title": "X"}}}
+    payload = PagePayload.model_validate(
+        {"page": PAGE.page, "blocks": [_node("u1", "see ((u9))")],
+         "backlinks": NO_BACKLINKS,
+         "block_ref_texts": {"u9": {"text": "target", "page_title": "X"}}})
     out = render_page(payload, resolve_refs=True)
     assert '- see "target" ((u9))\n' in out
     assert "see ((u9))" in render_page(payload)  # default unchanged
 
 
 def test_render_assets():
-    payload = {"assets": [
+    payload = AssetSearchPayload.model_validate({"total": 2, "assets": [
         {"sha256": "ab" * 32, "filename": "graph.png", "mime": "image/png",
          "size": 1234, "created_at": 1753500000000,
          "url": "/assets/" + "ab" * 32 + "/graph.png",
          "description": "a bar chart of revenue", "status": "described",
+         "describe_error": None,
          "refs": [{"uid": "u1", "page_title": "Holiday 2026"},
                   {"uid": "u2", "page_title": "July 26th, 2026"}]},
         {"sha256": "cd" * 32, "filename": "raw.png", "mime": "image/png",
          "size": 99, "created_at": None,
          "url": "/assets/" + "cd" * 32 + "/raw.png",
-         "description": None, "status": "pending", "refs": []},
-    ]}
+         "description": None, "status": "pending", "describe_error": None,
+         "refs": []},
+    ]})
     out = render_assets(payload)
     assert "graph.png" in out
     assert "a bar chart of revenue" in out
@@ -184,29 +198,20 @@ def test_render_assets():
 
 
 def test_render_assets_empty():
-    assert render_assets({"assets": []}) == "no assets found"
-
-
-def test_render_assets_tolerates_missing_refs_key():
-    payload = {"assets": [
-        {"sha256": "ef" * 32, "filename": "old.png", "mime": "image/png",
-         "size": 1, "created_at": None,
-         "url": "/assets/" + "ef" * 32 + "/old.png",
-         "description": None, "status": "pending"}]}
-    out = render_assets(payload)
-    assert "old.png" in out
-    assert "in [[" not in out
+    assert render_assets(AssetSearchPayload(total=0, assets=[])) == \
+        "no assets found"
 
 
 def test_select_section_and_clip_depth():
-    from pkm.cli.render import RenderError, clip_depth, select_section
     import pytest
-    blocks = PAGE["blocks"]
+
+    from pkm.cli.render import RenderError, clip_depth, select_section
+    blocks = PAGE.blocks
     [sec] = select_section(blocks, "## Papers")
-    assert sec["uid"] == "u2"
-    assert select_section(blocks, "Papers")[0]["uid"] == "u2"
+    assert sec.uid == "u2"
+    assert select_section(blocks, "Papers")[0].uid == "u2"
     with pytest.raises(RenderError, match="Papers"):
         select_section(blocks, "## Missing")
     clipped = clip_depth(blocks, 1)
-    assert clipped[1]["children"] == []
-    assert PAGE["blocks"][1]["children"]  # original not mutated
+    assert clipped[1].children == []
+    assert PAGE.blocks[1].children  # original not mutated

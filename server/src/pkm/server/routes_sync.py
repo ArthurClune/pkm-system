@@ -13,11 +13,11 @@ import sqlite3
 
 from fastapi import APIRouter, Depends
 
-from pkm.server.auth import require_auth
-from pkm.server.db import get_db
-from pkm.server.response_models import (ChangesPayload, SnapshotPayload,
+from pkm.contracts.responses import (ChangesPayload, SnapshotPayload,
                                         SyncBlock, SyncPage, SyncRef,
                                         SyncSidebarEntry, SyncTombstone)
+from pkm.server.auth import require_auth
+from pkm.server.db import get_db
 from pkm.server.sync_core import dedupe_window
 
 router = APIRouter(dependencies=[Depends(require_auth)])

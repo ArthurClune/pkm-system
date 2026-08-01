@@ -5,8 +5,9 @@ import pytest
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient, login, new_uid
 from pkm.client.core import ApiError, CliConfig, ConfigError
+from pkm.contracts.ops import UID_RE, CreateOp, CreatePageOp
+from pkm.contracts.responses import Backlinks, PagePayload
 from pkm.server.db import open_db
-from pkm.server.ops_core import UID_RE
 
 
 def test_new_uid_matches_server_uid_re():
@@ -91,32 +92,44 @@ def test_login_wrong_password_raises(anon_client):
 
 def test_get_page_and_block(pkm_client):
     page = pkm_client.get_page("Machine Learning")
-    assert page["page"]["title"] == "Machine Learning"
+    assert page.page.title == "Machine Learning"
     block = pkm_client.get_block("uid_b3")
-    assert block["breadcrumbs"] == ["Papers"]
+    assert block.breadcrumbs == ["Papers"]
 
 
 def test_get_page_quotes_title(pkm_client):
     # daily titles contain a comma+space; slash titles pass through the
     # {title:path} converter unencoded
     page = pkm_client.get_page("July 7th, 2026")
-    assert page["page"]["title"] == "July 7th, 2026"
+    assert page.page.title == "July 7th, 2026"
 
 
 def test_search_query_todos(pkm_client):
-    assert pkm_client.search("Papers")["blocks"]
-    assert pkm_client.run_query("{and: [[Paper]]}")["total"] == 1
-    assert pkm_client.todos() == {"groups": [], "total": 0}
+    assert pkm_client.search("Papers").blocks
+    assert pkm_client.run_query("{and: [[Paper]]}").total == 1
+    todos = pkm_client.todos()
+    assert (todos.groups, todos.total) == ([], 0)
 
 
 def test_post_ops_creates_block(pkm_client):
     uid = new_uid()
-    r = pkm_client.post_ops([{"op": "create", "uid": uid,
-                              "page_title": "AI", "parent_uid": None,
-                              "order_idx": 1, "text": "from client"}],
-                            batch_id="cli-batch-0001a")
-    assert r["applied"] == 1
-    assert pkm_client.get_block(uid)["block"]["text"] == "from client"
+    ack = pkm_client.post_ops(
+        [CreateOp(op="create", uid=uid, page_title="AI", parent_uid=None,
+                  order_idx=1, text="from client")],
+        batch_id="cli-batch-0001a")
+    assert (ack.ok, ack.applied) == (True, 1)
+    assert pkm_client.get_block(uid).block.text == "from client"
+
+
+def test_post_ops_accepts_hand_written_op_mappings(pkm_client):
+    # The planners hand over contract models, but a raw mapping is still a
+    # legitimate way to write a one-off op; OpBatch validates either.
+    uid = new_uid()
+    ack = pkm_client.post_ops([{"op": "create", "uid": uid,
+                                "page_title": "AI", "parent_uid": None,
+                                "order_idx": 1, "text": "hand written"}],
+                              batch_id="cli-batch-0001c")
+    assert ack.applied == 1
 
 
 def test_post_ops_rejects_malformed_op_locally(pkm_client):
@@ -136,8 +149,8 @@ def test_upload_asset(pkm_client, tmp_path):
     p = tmp_path / "note.txt"
     p.write_bytes(b"hello")
     r = pkm_client.upload(p)
-    assert r["url"].startswith("/assets/")
-    assert r["filename"] == "note.txt"
+    assert r.url.startswith("/assets/")
+    assert r.filename == "note.txt"
 
 
 def test_search_and_scan_assets(pkm_client, client):
@@ -146,41 +159,44 @@ def test_search_and_scan_assets(pkm_client, client):
                      files={"file": ("cli.png", content, "image/png")})
     assert up.status_code == 200
     found = pkm_client.search_assets("cli")
-    assert found["assets"][0]["filename"] == "cli.png"
+    assert found.assets[0].filename == "cli.png"
     scanned = pkm_client.scan_assets(force=True)
-    assert set(scanned) == {"queued", "enabled", "reason"}
+    assert (scanned.enabled, scanned.queued) == (False, 0)
 
 
-def test_get_page_or_placeholder_returns_existing_page(pkm_client):
-    payload, missing = pkm_client.get_page_or_placeholder("AI")
+def test_get_page_blocks_returns_existing_page(pkm_client):
+    blocks, missing = pkm_client.get_page_blocks("AI")
     assert missing is False
-    assert payload["page"]["title"] == "AI"
+    assert [b.text for b in blocks] == [
+        "AI overview mentions Machine Learning in plain text"]
 
 
-def test_get_page_or_placeholder_missing_page_is_not_created(pkm_client):
-    payload, missing = pkm_client.get_page_or_placeholder("Brand New Page")
+def test_get_page_blocks_missing_page_is_not_created(pkm_client):
+    blocks, missing = pkm_client.get_page_blocks("Brand New Page")
     assert missing is True
-    assert payload["blocks"] == []
+    assert blocks == []
     # must not have created the page as a side effect (pkm-w80k)
     with pytest.raises(ApiError) as e:
         pkm_client.get_page("Brand New Page")
     assert e.value.status == 404
 
 
-def test_get_page_or_placeholder_finds_a_page_whose_title_holds_control_whitespace(
+def test_get_page_blocks_finds_a_page_whose_title_holds_control_whitespace(
         pkm_client):
     """store.get_or_create_page normalizes a title's control whitespace at
     creation (pkm-hjhy) -- a page created as "Ctrl\tTitle" is stored, and
     only addressable, as "Ctrl Title". A caller that still holds the raw
     pre-normalization spelling (e.g. a second `pkm save` to the same page)
     must resolve to that SAME existing page, not a false "missing" that
-    hides its real blocks behind an empty placeholder (pkm-5k8p)."""
+    hides its real blocks behind an empty one (pkm-5k8p)."""
     pkm_client.post_ops(
-        [{"op": "create_page", "page_title": "Ctrl\tTitle"}],
+        [CreatePageOp(op="create_page", page_title="Ctrl\tTitle"),
+         CreateOp(op="create", uid="ctrlws000001", page_title="Ctrl\tTitle",
+                  parent_uid=None, order_idx=0, text="already here")],
         batch_id="ctrl-ws-create-0001")
-    payload, missing = pkm_client.get_page_or_placeholder("Ctrl\tTitle")
+    blocks, missing = pkm_client.get_page_blocks("Ctrl\tTitle")
     assert missing is False
-    assert payload["page"]["title"] == "Ctrl Title"
+    assert [b.text for b in blocks] == ["already here"]
 
 
 def test_get_backlinks_fetches_every_group_beyond_the_single_page_cap(
@@ -191,9 +207,9 @@ def test_get_backlinks_fetches_every_group_beyond_the_single_page_cap(
     # silently drop one group (pkm-3cyg -- no silent truncation).
     seed_backlinks(101)
     result = pkm_client.get_backlinks("Machine Learning")
-    assert result["total_pages"] == 102
-    assert len(result["groups"]) == 102
-    titles = {g["page_title"] for g in result["groups"]}
+    assert result.total_pages == 102
+    assert len(result.groups) == 102
+    titles = {g.page_title for g in result.groups}
     assert {"BL Source 000", "BL Source 100", "July 7th, 2026"} <= titles
 
 
@@ -208,7 +224,7 @@ def test_get_backlinks_no_backlinks_makes_one_request(pkm_client, monkeypatch):
     monkeypatch.setattr(pkm_client._http, "request", spy)
     result = pkm_client.get_backlinks("July 7th, 2026")
     assert len(calls) == 1  # no extra round trip once total_pages is 0
-    assert result == {"groups": [], "total_pages": 0, "offset": 0, "limit": 0}
+    assert result == Backlinks(groups=[], total_pages=0, offset=0, limit=0)
 
 
 def test_get_backlinks_restarts_when_source_order_shifts_mid_fetch(
@@ -238,8 +254,8 @@ def test_get_backlinks_restarts_when_source_order_shifts_mid_fetch(
     monkeypatch.setattr(pkm_client._http, "request", spy)
     result = pkm_client.get_backlinks("Machine Learning", page_size=2)
 
-    assert result["total_pages"] == 6
-    page_ids = [g["page_id"] for g in result["groups"]]
+    assert result.total_pages == 6
+    page_ids = [g.page_id for g in result.groups]
     assert len(page_ids) == len(set(page_ids)) == 6  # no skip, no dup
     # 3 requests would suffice with a stable order; more prove a restart
     # actually happened rather than the shift going undetected.
@@ -253,9 +269,14 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
     set. Rather than eventually returning a possibly-incomplete result,
     it must raise (pkm-3cyg: no silent truncation, in either direction)."""
     def flaky_get_page(title, bl_limit=100, bl_offset=0):
-        group = {"page_id": 1, "page_title": "X", "items": []}
-        return {"backlinks": {"groups": [group], "total_pages": 2,
-                              "offset": bl_offset, "limit": bl_limit}}
+        return PagePayload.model_validate(
+            {"page": {"id": 1, "title": "X", "created_at": None,
+                      "updated_at": None},
+             "blocks": [], "block_ref_texts": {},
+             "backlinks": {"groups": [{"page_id": 1, "page_title": "X",
+                                       "items": []}],
+                           "total_pages": 2, "offset": bl_offset,
+                           "limit": bl_limit}})
 
     monkeypatch.setattr(pkm_client, "get_page", flaky_get_page)
     with pytest.raises(ApiError, match="reorder"):

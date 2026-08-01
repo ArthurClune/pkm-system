@@ -3,7 +3,7 @@ from datetime import date
 
 import sqlite3
 
-from pkm.server.daily import title_for_date
+from pkm.contracts.daily import title_for_date
 
 
 def test_journal_includes_seeded_daily(client):

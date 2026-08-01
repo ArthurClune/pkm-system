@@ -43,17 +43,34 @@ pkm/
 ├── schema_dump.py       Shell  Generates web/src/replica/baseSchema.gen.ts
 ├── refs_parity_dump.py  Shell  Generates shared/fixtures/refs_parity.json
 │
+├── contracts/           Core   The wire contract, depended on by BOTH sides:
+│                               ops.py (op models + UID_RE + text_hash),
+│                               responses.py (JSON response models),
+│                               daily.py (date <-> "July 8th, 2026" titles)
+│
 ├── server/              The FastAPI app (details below)
 ├── importer/            Roam EDN import pipeline
 ├── export/              Markdown export (markdown.py Core render, writer.py Shell)
 ├── backup/              Nightly backup job (__main__.py Shell, rotation.py Core)
 ├── cli/                 `pkm` CLI (main.py Shell; build.py/render.py Core planners)
-├── client/              Shared HTTP client (api.py Shell PkmClient, core.py Core)
+├── client/              Shared HTTP client (api.py Shell PkmClient, core.py Core,
+│                        workflows.py Shell: the write workflows CLI+MCP share)
 ├── mcp/                 `pkm-mcp` FastMCP stdio server over the same client
 ├── assistant/           Embedded LLM assistant: SSE routes + Claude Agent SDK
 │                        harness confined to the pkm MCP tools (details below)
 └── test_data/           Synthetic fixture graph generator
 ```
+
+**Dependency direction (pkm-0wr8).** `cli`/`mcp`/`client` → `contracts` ←
+`server`, and `contracts` imports neither side. Client-side code used to
+import `pkm.server.ops_core` / `pkm.server.daily` for the op models, the
+uid regex and the daily-title spelling — a client compiling against server
+internals. Those shapes are transport contracts, not server internals, so
+they moved to `pkm/contracts/`; `pkm.server` still owns everything that
+acts on them (`ops_core.plan_op`, `server/daily.py`'s journal-day
+selection). Two tests in `tests/test_client_contracts.py` enforce the
+direction by parsing imports, so a re-crossing fails the suite rather than
+review.
 
 Inside `pkm/server/`:
 
@@ -64,10 +81,10 @@ Inside `pkm/server/`:
 | `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
 | `auth.py` / `auth_core.py` | Shell / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens |
 | `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_export.py` | Shell | The HTTP surface (table below) |
-| `ops_core.py` | Core | Op models + pure `plan_op()` → effect tuples |
+| `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py` |
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
-| `tree.py`, `backlinks.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py`, `response_models.py` | Core | Pure helpers: tree building, backlink shaping, daily-page titles, FTS queries, `{{[[query]]}}` evaluation, sync windowing, MIME sniffing, Pydantic response models |
+| `tree.py`, `backlinks.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py` | Core | Pure helpers: tree building, backlink shaping, journal-day selection + empty-daily test, FTS queries, `{{[[query]]}}` evaluation, sync windowing, MIME sniffing |
 | `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
 | `request_log.py` / `logfmt.py` | Shell / Core | The `pkm.access` request log — one line per request, with durations (see [Logging](#logging-and-observability)) |
 | `run.py` / `setup.py` | Shell | `python -m pkm.server.run` entrypoint; `setup` writes `config.json` |
@@ -224,8 +241,10 @@ Deliberately modest, layered under Tailscale (see `docs/SECURITY.md`):
 Authoritative sources: the `routes_*.py` modules and the generated
 `web/src/api/openapi.json` (regenerate with `pkm.server.openapi_dump`; the
 server test suite fails if it is stale). Response models are Pydantic
-classes in `response_models.py`, which is what makes the generated TS types
-trustworthy. All endpoints require the session cookie unless marked public.
+classes in `pkm/contracts/responses.py`, which is what makes the generated
+TS types trustworthy — and, since `PkmClient` validates every response with
+the same classes, what makes a drifting payload fail loudly in the CLI/MCP
+client too. All endpoints require the session cookie unless marked public.
 FastAPI's `/docs` and `/redoc` are disabled.
 
 | Method | Path | Purpose |
@@ -434,7 +453,27 @@ and broadcasts as the web client.
 - `client/api.py::PkmClient` owns all I/O: config at
   `~/.config/pkm-cli/config.json` (session token from `pkm login`, sent as
   the `pkm_session` cookie), HTTP via httpx2. Tests inject an in-process
-  FastAPI `TestClient`.
+  FastAPI `TestClient`. Every method returns a validated
+  `pkm/contracts/responses.py` model, never a bare dict (pkm-0wr8): the
+  planners and renderers downstream read typed attributes, so a field that
+  drifts is a pyrefly error rather than a `KeyError` in front of the user.
+  A 2xx body that doesn't satisfy its model raises
+  `ResponseSchemaError` (an `ApiError`, so the CLI still exits 1 with one
+  line on stderr) naming the endpoint and the offending field path;
+  *unknown extra* fields are ignored on purpose, so a newer server stays
+  usable from an older CLI. Full models rather than TypedDicts precisely
+  because the runtime validation is the point — a TypedDict would type the
+  read without ever detecting the drift.
+- `client/workflows.py` (Shell) holds the write workflows the CLI and MCP
+  server both perform — `save_blocks`, `edit_block`, `apply_batch`,
+  `upload_and_link`, and the `default_page_title` (today's daily note)
+  rule. They were duplicated line-for-line in both shells, which is how a
+  fix could land in one and not the other; the ordering invariants below
+  (validate before any I/O, resolve the parent before uploading, page
+  creation inside the same batch) now live in one place. Presentation
+  stays split: these return values (the created ops, an applied count),
+  and each shell phrases them — the CLI prints, the MCP tools return
+  strings.
 - `cli/build.py` (Core) holds the pure planners: `plan_save` (indented
   outline text → create ops), `plan_batch` (the `pkm batch` command language:
   `create`/`todo`/`update`/`move`/`delete`/`outline`, `as`-aliases,
@@ -462,7 +501,7 @@ and broadcasts as the web client.
   heading.
 - The heading round trip is `pkm get`/`get_page`/`get_block` only.
   `render_groups`, `render_backlinks`, and `render_search` (the renderers
-  behind `pkm todos`/`query`/`refs`/`search`) print `item['text']` bare,
+  behind `pkm todos`/`query`/`refs`/`search`) print `item.text` bare,
   because the response models behind them (`GroupItem`, `BacklinkItem`,
   `SearchBlockHit`) never carry a `heading` field — `backlinks.py` and
   `routes_search.py` select only `uid`/`text` (+ `breadcrumbs` for
@@ -479,7 +518,7 @@ and broadcasts as the web client.
   CLI/MCP client), `server/ops_apply.py::_new_uid` (the conflict-sibling
   uid, server-side), and `web/src/uid.ts::newUid` (the SPA, via
   `uidCore.ts::isAlphanumericByte`) — resamples until the first character
-  is alphanumeric (pkm-y5yv). `UID_RE` (`ops_core.py`) itself is unchanged
+  is alphanumeric (pkm-y5yv). `UID_RE` (`contracts/ops.py`) itself is unchanged
   and still *accepts* a leading `-`/`_`, so existing blocks whose uid
   predates pkm-y5yv (a Roam import, or a block created by a pre-pkm-y5yv
   web app build) can still have one. A bare uid CLI argument starting with
@@ -493,20 +532,23 @@ and broadcasts as the web client.
   addressable by uid for updates/moves, which a naive regex change would
   break (needs its own migration-aware bean).
 - A page a write targets that doesn't exist yet is never created via a
-  separate request: `PkmClient.get_page_or_placeholder` returns an empty
-  placeholder (`{"blocks": []}`) instead, and the shell (`cmd_save`/
-  `cmd_batch`/`cmd_upload` in the CLI, `save_note`/`batch`/`upload_asset` in
-  the MCP server) prepends a `create_page` op (`build.create_page_ops`) to
-  the same `OpBatch` the planned blocks ride in. That keeps the "one atomic
+  separate request: `PkmClient.get_page_blocks` returns `([], True)` — an
+  empty block list plus a "missing" flag — instead, and the shared workflow
+  (`save_blocks`/`apply_batch`/`upload_and_link` in `client/workflows.py`)
+  prepends a `create_page` op (`build.create_page_ops`) to the same
+  `OpBatch` the planned blocks ride in. Blocks are all a planner needs and
+  the only part of a page payload a missing page can honestly stand in for
+  — there is no id or timestamp to invent — which is why the method hands
+  back blocks rather than a synthesized payload. That keeps the "one atomic
   transaction" contract real: a batch that fails validation after this
   point leaves neither the page nor its blocks behind, since the whole
   batch (including the page's creation) rolls back together (pkm-w80k).
-  `get_page_or_placeholder` looks up `refs.normalize_title(title)`, not
+  `get_page_blocks` looks up `refs.normalize_title(title)`, not
   `title` verbatim (pkm-5k8p): a page whose title held control whitespace
   is only ever stored, and addressable, under its normalized spelling
   (pkm-hjhy above), so a caller still holding the pre-normalization string
   — a second save to the same page, say — would otherwise get a false
-  "missing" and plan its next write against an empty placeholder instead
+  "missing" and plan its next write against an empty page instead
   of the page's real blocks, prepending fresh content and re-creating any
   `## Heading` parent the first write already made. The `create_page`/
   `create` ops built from that call still carry the caller's original,

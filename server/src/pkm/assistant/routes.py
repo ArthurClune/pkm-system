@@ -17,8 +17,8 @@ from pkm.assistant.service import (
     ConversationLimitError,
     UnknownConversationError,
 )
+from pkm.contracts.responses import AssistantAck, AssistantConversation
 from pkm.server.auth import require_auth
-from pkm.server.response_models import AssistantAck, AssistantConversation
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 

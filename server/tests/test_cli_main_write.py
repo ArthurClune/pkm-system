@@ -5,7 +5,7 @@ import pytest
 
 from pkm.cli.main import main
 from pkm.client.core import ApiError
-from pkm.server.daily import title_for_date
+from pkm.contracts.daily import title_for_date
 
 
 @pytest.fixture()
@@ -22,9 +22,9 @@ def run(pkm_client, capsys, monkeypatch):
 def _page_texts(pkm_client, title):
     def _flat(nodes):
         for n in nodes:
-            yield n["text"]
-            yield from _flat(n["children"])
-    return list(_flat(pkm_client.get_page(title)["blocks"]))
+            yield n.text
+            yield from _flat(n.children)
+    return list(_flat(pkm_client.get_page(title).blocks))
 
 
 def test_save_to_named_page(run, pkm_client):
@@ -66,9 +66,9 @@ def test_save_under_new_heading(run, pkm_client):
     code, _, _ = run("save", "-p", "AI", "--parent", "## Notes", "beneath")
     assert code == 0
     page = pkm_client.get_page("AI")
-    heading = next(n for n in page["blocks"] if n["text"] == "Notes")
-    assert heading["heading"] == 2
-    assert heading["children"][0]["text"] == "beneath"
+    heading = next(n for n in page.blocks if n.text == "Notes")
+    assert heading.heading == 2
+    assert heading.children[0].text == "beneath"
 
 
 def test_save_twice_to_a_control_whitespace_titled_page_appends_and_reuses_the_heading(
@@ -84,37 +84,37 @@ def test_save_twice_to_a_control_whitespace_titled_page_appends_and_reuses_the_h
     code, _, _ = run("save", "-p", "Ctrl\tTitle", "--parent", "## Notes", "second")
     assert code == 0
     page = pkm_client.get_page("Ctrl Title")
-    headings = [n for n in page["blocks"] if n["text"] == "Notes"]
+    headings = [n for n in page.blocks if n.text == "Notes"]
     assert len(headings) == 1
-    assert [c["text"] for c in headings[0]["children"]] == ["first", "second"]
+    assert [c.text for c in headings[0].children] == ["first", "second"]
 
 
 def test_update_text(run, pkm_client):
     code, out, _ = run("update", "uid_b6", "rewritten")
     assert code == 0
     assert out == "updated ^uid_b6\n"
-    assert pkm_client.get_block("uid_b6")["block"]["text"] == "rewritten"
+    assert pkm_client.get_block("uid_b6").block.text == "rewritten"
 
 
 def test_update_done_and_todo_flags(run, pkm_client):
     run("save", "-p", "AI", "--todo", "task x")
-    uid = pkm_client.todos(page="AI")["groups"][0]["items"][0]["uid"]
+    uid = pkm_client.todos(page="AI").groups[0].items[0].uid
     run("update", uid, "-D")
-    assert pkm_client.get_block(uid)["block"]["text"] == "{{DONE}} task x"
+    assert pkm_client.get_block(uid).block.text == "{{DONE}} task x"
     run("update", uid, "-T")
-    assert pkm_client.get_block(uid)["block"]["text"] == "{{TODO}} task x"
+    assert pkm_client.get_block(uid).block.text == "{{TODO}} task x"
 
 
 def test_update_stdin_strips_trailing_newline(run, pkm_client):
     code, _, _ = run("update", "uid_b6", "-", stdin="rewritten\n")
     assert code == 0
-    assert pkm_client.get_block("uid_b6")["block"]["text"] == "rewritten"
+    assert pkm_client.get_block("uid_b6").block.text == "rewritten"
 
 
 def test_update_stdin_strips_multiple_trailing_newlines_only(run, pkm_client):
     code, _, _ = run("update", "uid_b6", "-", stdin="rewritten  \n\n")
     assert code == 0
-    assert pkm_client.get_block("uid_b6")["block"]["text"] == "rewritten  "
+    assert pkm_client.get_block("uid_b6").block.text == "rewritten  "
 
 
 def test_update_requires_exactly_one_change(run):
@@ -151,7 +151,7 @@ def test_upload_invalid_parent_is_rejected_before_any_upload(
     assert code == 1
     assert "not on page" in err
     assert out == ""  # nothing printed -- the asset was never uploaded
-    assert pkm_client.search_assets("pic.png")["total"] == 0
+    assert pkm_client.search_assets("pic.png").total == 0
 
 
 def test_upload_post_ops_failure_deletes_the_orphaned_asset(
@@ -166,7 +166,7 @@ def test_upload_post_ops_failure_deletes_the_orphaned_asset(
     code, out, err = run("upload", str(png), "-p", "AI")
     assert code == 1
     assert out == ""  # success output withheld until the link actually lands
-    assert pkm_client.search_assets("pic.png")["total"] == 0
+    assert pkm_client.search_assets("pic.png").total == 0
     assert not any("pic.png" in t for t in _page_texts(pkm_client, "AI"))
 
 
@@ -185,7 +185,7 @@ def test_upload_post_ops_failure_does_not_delete_a_pre_existing_asset(
     assert code == 1
     # same content re-uploads to the same sha256 (content-addressed) --
     # it must survive since the first upload's block still references it
-    assert pkm_client.search_assets("pic.png")["total"] == 1
+    assert pkm_client.search_assets("pic.png").total == 1
 
 
 def test_batch_atomic_create_with_alias(run, pkm_client):
@@ -200,8 +200,8 @@ def test_batch_atomic_create_with_alias(run, pkm_client):
     assert code == 0
     assert out == "applied 3 ops\n"
     page = pkm_client.get_page("AI")
-    mtg = next(n for n in page["blocks"] if n["text"] == "[[Meeting]] notes")
-    assert [c["text"] for c in mtg["children"]] == ["Attendees", "Actions"]
+    mtg = next(n for n in page.blocks if n.text == "[[Meeting]] notes")
+    assert [c.text for c in mtg.children] == ["Attendees", "Actions"]
 
 
 def test_save_empty_text_on_new_page_leaves_no_page_behind(run, pkm_client):
@@ -309,30 +309,30 @@ def test_save_heading_text_becomes_a_real_heading(run, pkm_client):
     code, _, _ = run("save", "-p", "AI", "## Overview\n  detail")
     assert code == 0
     page = pkm_client.get_page("AI")
-    overview = next(n for n in page["blocks"] if n["text"] == "Overview")
-    assert overview["heading"] == 2
-    assert overview["children"][0]["text"] == "detail"
+    overview = next(n for n in page.blocks if n.text == "Overview")
+    assert overview.heading == 2
+    assert overview.children[0].text == "detail"
 
 
 def test_update_to_a_heading_sets_the_level(run, pkm_client):
     code, _, _ = run("update", "uid_b6", "## Rewritten")
     assert code == 0
-    block = pkm_client.get_block("uid_b6")["block"]
-    assert (block["text"], block["heading"]) == ("Rewritten", 2)
+    block = pkm_client.get_block("uid_b6").block
+    assert (block.text, block.heading) == ("Rewritten", 2)
 
 
 def test_update_to_plain_text_clears_the_level(run, pkm_client):
     run("update", "uid_b6", "## Rewritten")
     run("update", "uid_b6", "Rewritten again")
-    block = pkm_client.get_block("uid_b6")["block"]
-    assert (block["text"], block["heading"]) == ("Rewritten again", None)
+    block = pkm_client.get_block("uid_b6").block
+    assert (block.text, block.heading) == ("Rewritten again", None)
 
 
 def test_update_done_flag_keeps_the_heading(run, pkm_client):
     run("update", "uid_b6", "## Task x")
     run("update", "uid_b6", "-D")
-    block = pkm_client.get_block("uid_b6")["block"]
-    assert (block["text"], block["heading"]) == ("{{DONE}} Task x", 2)
+    block = pkm_client.get_block("uid_b6").block
+    assert (block.text, block.heading) == ("{{DONE}} Task x", 2)
 
 
 def test_update_addresses_a_legacy_leading_dash_uid_via_double_dash(
@@ -347,7 +347,7 @@ def test_update_addresses_a_legacy_leading_dash_uid_via_double_dash(
     code, out, _ = run("update", "--", legacy_uid, "rewritten legacy block")
     assert code == 0
     assert out == f"updated ^{legacy_uid}\n"
-    assert pkm_client.get_block(legacy_uid)["block"]["text"] == \
+    assert pkm_client.get_block(legacy_uid).block.text == \
         "rewritten legacy block"
 
 
@@ -361,5 +361,5 @@ def test_update_done_flag_on_a_legacy_leading_dash_uid_puts_flags_before_the_gua
     ], batch_id="legacy-dash-update-done")
     code, _, _ = run("update", "-D", "--", legacy_uid)
     assert code == 0
-    assert pkm_client.get_block(legacy_uid)["block"]["text"] == \
+    assert pkm_client.get_block(legacy_uid).block.text == \
         "{{DONE}} legacy task"

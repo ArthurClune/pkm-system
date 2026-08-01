@@ -2,24 +2,43 @@
 """HTTP client for the PKM server, shared by the CLI and the MCP server.
 Owns all I/O: config file, uid randomness, and HTTP. An injected
 httpx2-compatible client (FastAPI's TestClient in tests) replaces the
-network."""
+network.
+
+Every method returns a validated `pkm.contracts` model, never a bare
+dict: the same models the server serializes its responses with, so a
+payload that drifts fails here -- naming the endpoint and the field --
+instead of surfacing as a KeyError inside a renderer or planner
+(pkm-0wr8). Nothing in this package imports `pkm.server`; the contracts
+package is the only thing both halves share."""
 from __future__ import annotations
 
 import mimetypes
 import os
 import secrets
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any, TypeVar
 from urllib.parse import quote
 
 import httpx2
+from pydantic import BaseModel, ValidationError
 
-from pkm.client.core import (ApiError, CliConfig, ConfigError, cookie_header,
-                             friendly_error, parse_config, serialize_config)
+from pkm.client.core import (ApiError, CliConfig, ConfigError,
+                             ResponseSchemaError, cookie_header,
+                             friendly_error, parse_config, serialize_config,
+                             validation_detail)
+from pkm.contracts.ops import BlockOp, OpBatch
+from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
+                                     AssetUploadResponse, Backlinks,
+                                     BlockNode, BlockPayload, GroupsPayload,
+                                     OpsAck, PageMeta, PagePayload,
+                                     QueryPayload, ScanPayload, SearchPayload)
 from pkm.refs import normalize_title
-from pkm.server.ops_core import OpBatch
 
 CLIENT_ID = "pkm-cli"
 _BACKLINK_MAX_ATTEMPTS = 5
+
+M = TypeVar("M", bound=BaseModel)
 
 
 def config_path() -> Path:
@@ -96,7 +115,10 @@ class PkmClient:
             base_url=config.url, timeout=30)
         self._headers = cookie_header(config.token)
 
-    def _request(self, method: str, path: str, **kw) -> dict:
+    def _request(self, method: str, path: str, model: type[M], **kw) -> M:
+        """One request, decoded into `model`. A body that isn't JSON, or
+        that doesn't satisfy the contract, raises ResponseSchemaError --
+        the client refuses to hand a half-understood payload onward."""
         try:
             r = self._http.request(method, path, headers=self._headers, **kw)
         except httpx2.TransportError:
@@ -105,15 +127,24 @@ class PkmClient:
         if r.status_code >= 400:
             raise ApiError(r.status_code,
                            friendly_error(r.status_code, _detail(r)))
-        return r.json()
+        try:
+            body = r.json()
+        except ValueError:
+            raise ResponseSchemaError(method, path,
+                                      "body is not JSON") from None
+        try:
+            return model.model_validate(body)
+        except ValidationError as e:
+            raise ResponseSchemaError(method, path,
+                                      validation_detail(e)) from None
 
     def get_page(self, title: str, bl_limit: int = 100,
-                bl_offset: int = 0) -> dict:
+                bl_offset: int = 0) -> PagePayload:
         return self._request(
-            "GET", f"/api/page/{quote(title, safe='/')}",
+            "GET", f"/api/page/{quote(title, safe='/')}", PagePayload,
             params={"bl_limit": bl_limit, "bl_offset": bl_offset})
 
-    def get_backlinks(self, title: str, page_size: int = 100) -> dict:
+    def get_backlinks(self, title: str, page_size: int = 100) -> Backlinks:
         """Every backlink group for `title`, looping /api/page's
         pagination (capped server-side at 100 groups per request,
         routes_pages.py) until none remain. The CLI/MCP wording promises
@@ -139,7 +170,8 @@ class PkmClient:
             0, f"backlinks for {title!r} kept reordering mid-fetch across"
                f" {_BACKLINK_MAX_ATTEMPTS} attempts — try again")
 
-    def _fetch_backlinks_once(self, title: str, page_size: int) -> dict | None:
+    def _fetch_backlinks_once(self, title: str,
+                              page_size: int) -> Backlinks | None:
         """One attempt at fetching every backlink group for `title`.
         Returns None if the server's reported ordering shifted mid-fetch
         -- a page_id reappearing, `total_pages` changing between
@@ -148,24 +180,22 @@ class PkmClient:
         incomplete or duplicated result."""
         offset = 0
         seen_page_ids: set[int] = set()
-        groups: list[dict] = []
+        groups = []
         total: int | None = None
         while True:
-            payload = self.get_page(title, bl_limit=page_size,
-                                    bl_offset=offset)
-            backlinks = payload["backlinks"]
-            page_total = backlinks["total_pages"]
+            backlinks = self.get_page(title, bl_limit=page_size,
+                                      bl_offset=offset).backlinks
             if total is None:
-                total = page_total
-            elif page_total != total:
+                total = backlinks.total_pages
+            elif backlinks.total_pages != total:
                 return None  # total shifted mid-fetch -- restart
-            new_groups = backlinks["groups"]
+            new_groups = backlinks.groups
             if not new_groups:
                 break
             for g in new_groups:
-                if g["page_id"] in seen_page_ids:
+                if g.page_id in seen_page_ids:
                     return None  # a source reappeared -- restart
-                seen_page_ids.add(g["page_id"])
+                seen_page_ids.add(g.page_id)
             groups.extend(new_groups)
             offset += len(new_groups)
             if len(groups) >= total:
@@ -173,17 +203,21 @@ class PkmClient:
         total = total or 0
         if len(groups) != total:
             return None  # fewer distinct pages arrived than promised
-        return {"groups": groups, "total_pages": total, "offset": 0,
-                "limit": len(groups)}
+        return Backlinks(groups=groups, total_pages=total, offset=0,
+                         limit=len(groups))
 
-    def get_page_or_placeholder(self, title: str) -> tuple[dict, bool]:
-        """Fetch `title`, or an empty placeholder (no blocks) if it
-        doesn't exist yet -- (payload, missing). Never creates the page
-        itself: a batch that references a missing title folds a
-        create_page op for it into the same OpBatch as whatever else the
-        batch does, so creation commits atomically with the rest instead
-        of persisting from a separate request even when the batch later
-        fails validation (pkm-w80k).
+    def get_page_blocks(self, title: str) -> tuple[list[BlockNode], bool]:
+        """The blocks of `title`, or an empty list if the page doesn't
+        exist yet -- (blocks, missing). Never creates the page itself: a
+        batch that references a missing title folds a create_page op for
+        it into the same OpBatch as whatever else the batch does, so
+        creation commits atomically with the rest instead of persisting
+        from a separate request even when the batch later fails
+        validation (pkm-w80k).
+
+        Blocks are all a planner needs, and are the only part of a page
+        payload a missing page could honestly stand in for -- there is no
+        page id or timestamp to invent.
 
         Looks up `normalize_title(title)`, not `title` verbatim: every page
         creation path (store.get_or_create_page) normalizes a title's
@@ -192,62 +226,76 @@ class PkmClient:
         that still holds the pre-normalization spelling -- e.g. a second
         `pkm save`/`save_note` to the same page -- would otherwise get a
         false "missing" here and plan its next write against an empty
-        placeholder instead of the page's real, already-saved blocks
-        (pkm-5k8p). The op(s) this caller goes on to build still carry the
-        caller's original `title` string for `page_title`: that is fine,
-        since the server normalizes it again at the same choke point and
-        lands on this identical row either way."""
+        page instead of the page's real, already-saved blocks (pkm-5k8p).
+        The op(s) this caller goes on to build still carry the caller's
+        original `title` string for `page_title`: that is fine, since the
+        server normalizes it again at the same choke point and lands on
+        this identical row either way."""
         try:
-            return self.get_page(normalize_title(title)), False
+            return self.get_page(normalize_title(title)).blocks, False
         except ApiError as e:
             if e.status != 404:
                 raise
-            return {"blocks": []}, True
+            return [], True
 
-    def get_block(self, uid: str) -> dict:
-        return self._request("GET", f"/api/block/{quote(uid, safe='')}")
+    def get_block(self, uid: str) -> BlockPayload:
+        return self._request("GET", f"/api/block/{quote(uid, safe='')}",
+                             BlockPayload)
 
-    def search(self, q: str, limit: int = 20, exact: bool = False) -> dict:
+    def search(self, q: str, limit: int = 20,
+               exact: bool = False) -> SearchPayload:
         params: dict = {"q": q, "limit": limit}
         if exact:
             params["exact"] = "true"
-        return self._request("GET", "/api/search", params=params)
+        return self._request("GET", "/api/search", SearchPayload,
+                             params=params)
 
-    def run_query(self, expr: str, expand: bool = False) -> dict:
+    def run_query(self, expr: str, expand: bool = False) -> QueryPayload:
         params = {"expr": expr}
         if expand:
             params["expand"] = "true"
-        return self._request("GET", "/api/query", params=params)
+        return self._request("GET", "/api/query", QueryPayload, params=params)
 
-    def todos(self, page: str | None = None) -> dict:
+    def todos(self, page: str | None = None) -> GroupsPayload:
         params = {} if page is None else {"page": page}
-        return self._request("GET", "/api/todos", params=params)
+        return self._request("GET", "/api/todos", GroupsPayload,
+                             params=params)
 
-    def create_page(self, title: str) -> dict:
-        return self._request("POST", "/api/pages", json={"title": title})
+    def create_page(self, title: str) -> PageMeta:
+        return self._request("POST", "/api/pages", PageMeta,
+                             json={"title": title})
 
-    def post_ops(self, ops: list[dict], batch_id: str) -> dict:
+    def post_ops(self, ops: Sequence[BlockOp | Mapping[str, Any]],
+                 batch_id: str) -> OpsAck:
+        """Apply `ops` as one atomic batch. The planners in `pkm.cli.build`
+        hand over contract models; raw mappings are accepted too (tests and
+        one-off scripts write ops by hand) and validated identically by
+        OpBatch, so a malformed op fails here with 422 rather than on the
+        wire."""
         try:
-            batch = OpBatch(client_id=CLIENT_ID, batch_id=batch_id, ops=ops)
+            batch = OpBatch(client_id=CLIENT_ID, batch_id=batch_id,
+                            ops=list(ops))
         except ValueError as e:
             raise ApiError(422, f"invalid ops: {e}")
-        return self._request("POST", "/api/ops",
+        return self._request("POST", "/api/ops", OpsAck,
                              json=batch.model_dump(mode="json"))
 
-    def upload(self, path: Path) -> dict:
+    def upload(self, path: Path) -> AssetUploadResponse:
         mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         with open(path, "rb") as fh:
             return self._request(
-                "POST", "/api/assets",
+                "POST", "/api/assets", AssetUploadResponse,
                 files={"file": (path.name, fh, mime)})
 
-    def search_assets(self, q: str, limit: int = 50) -> dict:
-        return self._request("GET", "/api/assets/search",
+    def search_assets(self, q: str, limit: int = 50) -> AssetSearchPayload:
+        return self._request("GET", "/api/assets/search", AssetSearchPayload,
                              params={"q": q, "limit": limit})
 
-    def delete_asset(self, sha256: str) -> dict:
-        return self._request("DELETE", f"/api/assets/{sha256}")
+    def delete_asset(self, sha256: str) -> AssetDeleteAck:
+        return self._request("DELETE", f"/api/assets/{sha256}",
+                             AssetDeleteAck)
 
-    def scan_assets(self, force: bool = False) -> dict:
+    def scan_assets(self, force: bool = False) -> ScanPayload:
         params = {"force": "true"} if force else {}
-        return self._request("POST", "/api/assets/scan", params=params)
+        return self._request("POST", "/api/assets/scan", ScanPayload,
+                             params=params)

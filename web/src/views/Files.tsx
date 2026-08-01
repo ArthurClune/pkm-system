@@ -110,8 +110,6 @@ export function Files() {
   // Stale-response guard: only the latest reload may set state.
   const generation = useRef(0);
 
-  useEffect(() => { document.title = "Files — pkm"; }, []);
-
   const fetchPage = useCallback(
     (f: FileFilters, offset: number) =>
       apiFetch<AssetSearchPayload>(

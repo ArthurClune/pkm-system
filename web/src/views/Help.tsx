@@ -1,5 +1,4 @@
 // pattern: Imperative Shell
-import { useEffect } from "react";
 import keyboardDoc from "../../../docs/keyboard.md?raw";
 import { parseHelpMarkdown, type HelpBlock, type Inline } from "../help/parseHelpMarkdown";
 
@@ -54,8 +53,6 @@ export function HelpBlocks({ blocks }: { blocks: HelpBlock[] }) {
 }
 
 export function Help() {
-  useEffect(() => { document.title = "Keyboard shortcuts — pkm"; }, []);
-
   return (
     <article className="help-page">
       <HelpBlocks blocks={blocks} />

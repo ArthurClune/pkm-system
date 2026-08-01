@@ -34,6 +34,11 @@ depth — this doc covers them only from the UI side.
 ```
 main.tsx / App.tsx     Shell   Entry + top-level tree: SyncProvider > DndProvider >
                                SidebarContext > (left nav, TopBar, routes, sidebar stack)
+routeMeta.ts           Core    Route paths + top-bar label/browser-title table, one
+                               entry per static route; TopBar, App.tsx's routing,
+                               and useRouteTitle.ts (Shell, the single title effect)
+                               all consume it, so /page/* and the not-found
+                               catch-all are the only routes without a fixed label
 api/                   client.ts (fetch wrapper + offline gateway), generated
                        openapi.json + types.d.ts, type-only re-exports (ops.ts, payloads.ts)
 assistant/             The embedded-assistant chat panel (Cmd/Ctrl+J).
@@ -80,7 +85,16 @@ styles.css             All styling (plain CSS, design tokens)
 Routes: `/` → Journal (infinite scroll of daily pages), `/page/*` → PageView,
 `/current-work` → recently edited pages, `/files` → the asset browser,
 `/settings` → whole-database export and future settings, `/help` → the static
-keyboard-shortcut doc, `*` → NotFound. The right-hand sidebar is a
+keyboard-shortcut doc, `*` → NotFound. Route paths, top-bar labels, and
+browser titles for every route but `/page/*` and the not-found catch-all
+live in one table (`routeMeta.ts`, pkm-77w2): App.tsx's `<Routes>`/`NavLink`s,
+TopBar's label + page-action-menu gating, and `useRouteTitle.ts` (the single
+route-aware `document.title` effect, called once from `App`) all read it, so
+a route can't end up labelled in one place and not another — `/files` and
+`/settings` previously had no top-bar label for exactly that reason. `/page/*`
+is the deliberate exception: PageView.tsx sets its own title once the page's
+own title has loaded, since that can't be derived from the pathname alone.
+The right-hand sidebar is a
 session-only **stack**: shift-clicking any page link or ref pushes a
 `SidebarPanel` onto it. The left nav holds pinned pages (server-persisted
 via `/api/sidebar`), then a rule-fenced block of app destinations —

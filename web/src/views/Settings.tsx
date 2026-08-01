@@ -67,8 +67,6 @@ const SECTIONS: SettingsSection[] = [
 ];
 
 export function Settings() {
-  useEffect(() => { document.title = "Settings — pkm"; }, []);
-
   return (
     <article className="settings-page">
       <h1 className="page-title">Settings</h1>

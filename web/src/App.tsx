@@ -12,7 +12,9 @@ import { TopBar } from "./components/TopBar";
 import { SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
 import { pagePath } from "./paths";
+import { ROUTES } from "./routeMeta";
 import { SyncProvider } from "./sync/SyncProvider";
+import { useRouteTitle } from "./useRouteTitle";
 import { useSidebarCollapsed } from "./useSidebarCollapsed";
 import { CurrentWork } from "./views/CurrentWork";
 import { Files } from "./views/Files";
@@ -34,7 +36,7 @@ function NotFound() {
     <div className="not-found">
       <h1>Page not found</h1>
       <p>No app route matches this address.</p>
-      <Link to="/">Go to Daily Notes</Link>
+      <Link to={ROUTES.journal}>Go to Daily Notes</Link>
     </div>
   );
 }
@@ -54,6 +56,7 @@ export function App() {
   const hamburgerRef = useRef<HTMLButtonElement>(null);
   const navWasOpenRef = useRef(false);
   const navigate = useNavigate();
+  useRouteTitle();
   // Governs both whether <aside class="sidebar"> renders (below) and how
   // much room the center pane claims (pkm-57mo): the two must agree, or the
   // pane would stay narrow next to a sidebar that isn't actually there.
@@ -149,11 +152,11 @@ export function App() {
                 <div className="nav-title">pkm</div>
                 {/* "primary": always accent-coloured, unlike the pinned pages
                   * below which are muted until active (pkm-nn7o) */}
-                <NavLink to="/" end onClick={() => setNavOpen(false)}
+                <NavLink to={ROUTES.journal} end onClick={() => setNavOpen(false)}
                          className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                   Daily Notes
                 </NavLink>
-                <NavLink to="/current-work" onClick={() => setNavOpen(false)}
+                <NavLink to={ROUTES.currentWork} onClick={() => setNavOpen(false)}
                          className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                   Current Work
                 </NavLink>
@@ -177,11 +180,11 @@ export function App() {
                   * like Daily Notes/Current Work/TODO above (pkm-eztt). Only
                   * one setting exists today; more are coming, so this link --
                   * not those -- is where they'll live. */}
-                <NavLink to="/files" onClick={() => setNavOpen(false)}
+                <NavLink to={ROUTES.files} onClick={() => setNavOpen(false)}
                          className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                   Files
                 </NavLink>
-                <NavLink to="/settings" onClick={() => setNavOpen(false)}
+                <NavLink to={ROUTES.settings} onClick={() => setNavOpen(false)}
                          className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                   Settings
                 </NavLink>
@@ -190,13 +193,13 @@ export function App() {
                 <TopBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
                 <main className="main-pane">
                   <Routes>
-                    <Route path="/" element={<Journal />} />
-                    <Route path="/current-work" element={<CurrentWork />} />
-                    <Route path="/page/*" element={<PageView />} />
-                    <Route path="/help" element={<Help />} />
-                    <Route path="/files" element={<Files />} />
-                    <Route path="/settings" element={<Settings />} />
-                    <Route path="*" element={<NotFound />} />
+                    <Route path={ROUTES.journal} element={<Journal />} />
+                    <Route path={ROUTES.currentWork} element={<CurrentWork />} />
+                    <Route path={ROUTES.page} element={<PageView />} />
+                    <Route path={ROUTES.help} element={<Help />} />
+                    <Route path={ROUTES.files} element={<Files />} />
+                    <Route path={ROUTES.settings} element={<Settings />} />
+                    <Route path={ROUTES.notFound} element={<NotFound />} />
                   </Routes>
                 </main>
               </div>

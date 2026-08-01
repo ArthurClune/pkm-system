@@ -200,6 +200,18 @@ it("labels the current-work route in the bar (pkm-absu)", () => {
   expect(screen.getByText("Current Work")).toHaveClass("top-bar-title");
 });
 
+// pkm-77w2: /files and /settings existed in the router but had no top-bar
+// label until route metadata was centralized.
+it("labels the files route in the bar (pkm-77w2)", () => {
+  renderTopBar("/files");
+  expect(screen.getByText("Files")).toHaveClass("top-bar-title");
+});
+
+it("labels the settings route in the bar (pkm-77w2)", () => {
+  renderTopBar("/settings");
+  expect(screen.getByText("Settings")).toHaveClass("top-bar-title");
+});
+
 it("shows the search shortcut hint inside the search pill (pkm-absu)", () => {
   const { container } = renderTopBar("/");
   const hint = container.querySelector("kbd.top-bar-search-hint");

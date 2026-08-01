@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: low
 created_at: 2026-08-01T19:23:16Z
-updated_at: 2026-08-01T19:31:12Z
+updated_at: 2026-08-01T20:09:06Z
 parent: pkm-ulae
 ---
 
@@ -24,3 +24,7 @@ pkm-ulae finding 27: concurrent sidebar additions read/check/allocate before ent
 ## Summary of Changes
 
 Serialized sidebar title checking and append-index allocation with `BEGIN IMMEDIATE`, translated defensive title uniqueness races to HTTP 409, and added repeated concurrent route regressions for same and different titles.
+
+## Final Review Hardening
+
+Replaced the 250 ms helper timeout with a deterministic `get_db` dependency override around real `open_db()` connections. The gate rendezvous occurs after the sidebar snapshot is captured or when the competing fixed-code request attempts `BEGIN IMMEDIATE`, asserts arrival, restores the override, and closes both connections. Removing `BEGIN IMMEDIATE` deterministically produced duplicate append indexes.

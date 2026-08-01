@@ -5,7 +5,7 @@ status: completed
 type: epic
 priority: high
 created_at: 2026-07-31T15:45:04Z
-updated_at: 2026-08-01T19:50:23Z
+updated_at: 2026-08-01T20:10:18Z
 ---
 
 ## Context
@@ -418,11 +418,11 @@ All three lower-priority findings (27–29) were fixed via child beans and isola
 
 Architecture documentation records the sidebar and describer lifecycle invariants.
 
-Full server verification: 1203 server tests passed (96.72% coverage); pyrefly 0 errors; ruff clean.
+Full server verification: 1205 server tests passed (96.67% coverage); pyrefly 0 errors; ruff clean.
 
 ## Summary of Changes
 
-All 29 server-hardening review findings are now complete across three sweeps.
+All 29 server-hardening review findings are now complete across three sweeps. Final-review hardening now also makes describer shutdown shared and cancellation-safe and proves sidebar concurrency at the real database dependency boundary.
 
 - Findings 1–9 (high priority): removed the traversal corruption boundary; rejected normalized-empty titles at the shared creation boundary; serialized assistant admission; made Claude startup transactional and cancellation-safe; kept CLI/MCP page creation inside one OpBatch; made new UIDs CLI-safe while preserving legacy `--` access; resolved heading parents by heading level and text; preserved orphan import blocks; and kept Mermaid conversion from breaking inbound block refs.
 - Findings 10–26 (medium priority): restored post-commit sync nudges and route coverage; made WebSocket fan-out bounded and ordered; batched sync hydration; throttled unauthenticated scrypt work; retired conversations after failed interrupts; deduplicated queued/in-flight image descriptions; staged Markdown exports atomically; verified and repaired content-addressed files; guaranteed ZIP member uniqueness; made EDN parsing strict and Unicode-safe; moved typed contracts to `pkm.contracts`; validated batch commands before planning/I/O; normalized client title lookups; fetched backlinks to completion; prevented or compensated orphan asset uploads; configured logging through the parent `pkm` logger; and replaced in-memory ZIP buffering with bounded temp-file-backed responses.

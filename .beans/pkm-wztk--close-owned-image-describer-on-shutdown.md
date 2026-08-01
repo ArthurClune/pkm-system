@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: low
 created_at: 2026-08-01T19:23:16Z
-updated_at: 2026-08-01T19:30:59Z
+updated_at: 2026-08-01T20:09:06Z
 parent: pkm-ulae
 ---
 
@@ -25,3 +25,7 @@ pkm-ulae finding 28: DescribeService owns the production OpenAIDescriber but shu
 ## Summary of Changes
 
 Made `DescribeService` the explicit owner of its `ImageDescriber`, added idempotent worker-first shutdown and HTTP-client closure, and made app teardown attempt assistant cleanup even when describe cleanup fails. Added service, transport, and lifespan regressions.
+
+## Final Review Hardening
+
+Replaced boolean-only close idempotence with one retained, cancellation-shielded shutdown task. Every closer waits for worker-first/provider-once cleanup; caller cancellation is re-propagated only after cleanup finishes. Concurrent-close and repeated-cancellation lifecycle regressions prove both wait semantics.

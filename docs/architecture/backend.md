@@ -804,10 +804,13 @@ two descriptive sentences, stored in new `assets` columns (`description`,
   (`described` / `failed` / `pending`); `service.py` (Shell) —
   `DescribeService`, an in-memory `asyncio.Queue` drained by one sequential
   background worker per process (deliberately rate-limit-friendly, not
-  parallel). Passing it an `ImageDescriber` transfers ownership: app-lifespan
-  shutdown cancels the worker first, then closes the provider transport
-  exactly once; `app.py` still attempts assistant conversation cleanup in a
-  `finally` if describer shutdown raises. `openai_client.py` (Shell) — the
+  parallel). Passing it an `ImageDescriber` transfers ownership: shutdown uses
+  one retained, cancellation-shielded task that cancels the worker first and
+  then closes the provider transport exactly once. Every `close()` caller waits
+  for that shared task; caller cancellation is re-propagated only after the
+  owned cleanup finishes. `app.py` still attempts assistant conversation
+  cleanup in a `finally` if describer shutdown raises. `openai_client.py`
+  (Shell) — the
   `ImageDescriber` implementation, a single `httpx2` POST per image against
   the OpenAI chat-completions endpoint (no OpenAI SDK); `routes.py` (Shell)
   — the status/scan endpoints (asset search lives in `routes_assets.py`

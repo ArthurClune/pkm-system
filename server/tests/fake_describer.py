@@ -27,6 +27,23 @@ class FakeDescriber:
         self.events.append("closed")
 
 
+class BlockingCloseDescriber(FakeDescriber):
+    """Hold provider shutdown until a lifecycle test explicitly releases it."""
+
+    def __init__(self):
+        super().__init__()
+        self.close_started = asyncio.Event()
+        self.close_release = asyncio.Event()
+        self.close_completed = asyncio.Event()
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        self.close_started.set()
+        await self.close_release.wait()
+        self.close_completed.set()
+        self.events.append("closed")
+
+
 class BlockingDescriber:
     """A describer that genuinely holds the in-flight state until the test
     releases it (pkm-1wv1 dedup tests). `started` is set the instant

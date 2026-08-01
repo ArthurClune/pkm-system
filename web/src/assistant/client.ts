@@ -2,21 +2,21 @@
 // HTTP client for /api/assistant/*. streamMessage bypasses apiFetch because
 // apiFetch consumes res.json(); it replicates apiFetch's 401 handling.
 
-import { ApiError, apiFetch, callUnauthorizedHandler, readErrorDetail } from "../api/client";
+import { ApiError, callUnauthorizedHandler, readErrorDetail } from "../api/client";
+import { apiDelete, apiPost } from "../api/typedClient";
+import type { components } from "../api/types";
 import { createSseParser, type AssistantEvent } from "./sse";
 
-export async function createConversation(
+export function createConversation(
   model: string | null,
-): Promise<{ id: string; model: string }> {
-  return apiFetch("/api/assistant/conversations", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(model ? { model } : {}),
-  });
+): Promise<components["schemas"]["AssistantConversation"]> {
+  return apiPost("/api/assistant/conversations",
+                 { body: model ? { model } : {} });
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  await apiFetch(`/api/assistant/conversations/${id}`, { method: "DELETE" });
+  await apiDelete("/api/assistant/conversations/{conversation_id}",
+                  { path: { conversation_id: id } });
 }
 
 /** Best-effort, fire-and-forget close for pagehide (pkm-c98s item 1):
@@ -37,10 +37,9 @@ export async function confirmTool(
   toolUseId: string,
   allow: boolean,
 ): Promise<void> {
-  await apiFetch(`/api/assistant/conversations/${id}/confirm`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tool_use_id: toolUseId, allow }),
+  await apiPost("/api/assistant/conversations/{conversation_id}/confirm", {
+    path: { conversation_id: id },
+    body: { tool_use_id: toolUseId, allow },
   });
 }
 

@@ -373,9 +373,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Rename Page Api Page  Title  Rename Post"
+                  "$ref": "#/components/schemas/RenamePageResponse"
                 }
               }
             }
@@ -2792,6 +2790,29 @@
           "new_title"
         ],
         "title": "RenamePageRequest"
+      },
+      "RenamePageResponse": {
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "renamed",
+              "merged"
+            ],
+            "title": "Result"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "result",
+          "title"
+        ],
+        "title": "RenamePageResponse",
+        "description": "POST /api/page/{title}/rename: which branch ran, and the title the\npage now lives under (normalized, so it can differ from the requested\none). `result` is a Literal so the web client can switch on it."
       },
       "ReorderSidebarEntriesRequest": {
         "properties": {

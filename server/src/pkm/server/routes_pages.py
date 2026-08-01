@@ -13,7 +13,7 @@ from pkm.contracts.daily import date_for_title, title_for_date
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     BlockPayload, BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
-    JournalPayload, PageMeta, PagePayload)
+    JournalPayload, PageMeta, PagePayload, RenamePageResponse)
 from pkm.refs import normalize_title
 from pkm.server import notify
 from pkm.server.auth import require_auth
@@ -220,7 +220,7 @@ def delete_page(request: Request, title: str,
     return {"ok": True}
 
 
-@router.post("/api/page/{title:path}/rename")
+@router.post("/api/page/{title:path}/rename", response_model=RenamePageResponse)
 def rename_page(request: Request, title: str, body: RenamePageRequest,
                 db: sqlite3.Connection = Depends(get_db)) -> dict:
     """Rename a page, rewriting every [[link]]/#tag/attr:: in block text.

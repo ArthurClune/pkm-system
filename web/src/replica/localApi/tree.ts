@@ -2,16 +2,20 @@
 // Ports of server tree.py (flat rows -> nested tree, ((ref)) collection)
 // and the transitive block-ref resolver from routes_pages.py.
 
+import type { BlockNode, PagePayload } from "../../api/payloads";
 import type { ReplicaDb } from "../db";
 import { extractRefs } from "../refs";
 
+/** A blocks-table row, NOT a response shape: `collapsed` is sqlite's 0/1
+ * and there is no children list yet. buildTree turns these into the
+ * generated BlockNode the server sends. */
 export interface BlockRow {
   uid: string;
   parent_uid: string | null;
   order_idx: number;
   text: string;
   heading: number | null;
-  view_type: "numbered" | "document" | null;
+  view_type: BlockNode["view_type"];
   collapsed: number;
   created_at: number | null;
   updated_at: number | null;
@@ -21,19 +25,7 @@ export const BLOCK_COLS =
   "uid, parent_uid, order_idx, text, heading, collapsed," +
   " created_at, updated_at, view_type";
 
-export interface BlockNodeOut {
-  uid: string;
-  text: string;
-  heading: number | null;
-  view_type: "numbered" | "document" | null;
-  collapsed: boolean;
-  order_idx: number;
-  created_at: number | null;
-  updated_at: number | null;
-  children: BlockNodeOut[];
-}
-
-export function buildTree(rows: BlockRow[]): BlockNodeOut[] {
+export function buildTree(rows: BlockRow[]): BlockNode[] {
   const known = new Set(rows.map((r) => r.uid));
   const byParent = new Map<string | null, BlockRow[]>();
   for (const r of rows) {
@@ -44,7 +36,7 @@ export function buildTree(rows: BlockRow[]): BlockNodeOut[] {
     else byParent.set(parent, [r]);
   }
   const byIdx = (a: BlockRow, b: BlockRow) => a.order_idx - b.order_idx;
-  const nodes = (parent: string | null): BlockNodeOut[] => {
+  const nodes = (parent: string | null): BlockNode[] => {
     const items = byParent.get(parent) ?? [];
     let children: BlockRow[];
     if (parent === null) {
@@ -84,7 +76,7 @@ export function collectBlockRefUids(texts: string[]): string[] {
   return out;
 }
 
-export type BlockRefTexts = Record<string, { text: string; page_title: string }>;
+export type BlockRefTexts = PagePayload["block_ref_texts"];
 
 /** Resolve ((refs)) transitively — a referenced block's own text may embed
  * further ((refs)); the seen set terminates cycles. */

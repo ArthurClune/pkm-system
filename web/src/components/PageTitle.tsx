@@ -6,15 +6,11 @@
 // rejects them too). The server is atomic, so any failure = clean revert.
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError, apiFetch } from "../api/client";
-import { encodeTitle, pagePath } from "../paths";
+import { ApiError } from "../api/client";
+import { apiPost } from "../api/typedClient";
+import { pagePath } from "../paths";
 import { dateForTitle } from "../replica/daily";
 import { useConfirm } from "./ConfirmDialog";
-
-interface RenameResult {
-  result: "renamed" | "merged";
-  title: string;
-}
 
 export function PageTitle({ title }: { title: string }) {
   const [editing, setEditing] = useState(false);
@@ -25,10 +21,9 @@ export function PageTitle({ title }: { title: string }) {
   const { confirm, dialog } = useConfirm();
 
   const rename = (newTitle: string, allowMerge: boolean) =>
-    apiFetch<RenameResult>(`/api/page/${encodeTitle(title)}/rename`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ new_title: newTitle, allow_merge: allowMerge }),
+    apiPost("/api/page/{title}/rename", {
+      path: { title },
+      body: { new_title: newTitle, allow_merge: allowMerge },
     });
 
   const commit = async (value: string) => {

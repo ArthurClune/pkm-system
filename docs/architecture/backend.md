@@ -291,7 +291,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references on demand |
 | POST | `/api/pages` | Idempotent page create |
 | DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry); inbound links remain as text |
-| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge` |
+| POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`. Returns `RenamePageResponse` (`result: "renamed" \| "merged"`, `title`) |
 | GET | `/api/unlinked?title` | Unlinked mentions of a title |
 | GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll) |
 | POST | `/api/journal/cleanup` | Prune empty daily pages (spares today + referenced blocks) |

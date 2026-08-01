@@ -34,8 +34,10 @@ depth — this doc covers them only from the UI side.
 ```
 main.tsx / App.tsx     Shell   Entry + top-level tree: SyncProvider > DndProvider >
                                SidebarContext > (left nav, TopBar, routes, sidebar stack)
-api/                   client.ts (fetch wrapper + offline gateway), generated
-                       openapi.json + types.d.ts, type-only re-exports (ops.ts, payloads.ts)
+api/                   client.ts (fetch wrapper + offline gateway),
+                       typedClient.ts (path/method-aware wrapper over it),
+                       generated openapi.json + types.d.ts, type-only
+                       re-exports (ops.ts, payloads.ts)
 assistant/             The embedded-assistant chat panel (Cmd/Ctrl+J).
                        Core: sse.ts (incremental SSE frame parser).
                        Shells: client.ts (fetch/stream over /api/assistant/*),
@@ -349,6 +351,22 @@ over `api/openapi.json`, which the server generates); `api/ops.ts` and
 `api/payloads.ts` are type-only re-exports. **Never hand-write API types** —
 regenerate when the server changes (the server test suite fails on stale
 artifacts).
+
+`api/typedClient.ts` (`apiGet`/`apiPost`/`apiPut`/`apiDelete`) is a typing
+layer over `apiFetch`, not a second transport: it builds the same URL and
+calls `apiFetch`, so the offline gateway and error behaviour are identical.
+The difference is that it takes the **OpenAPI path template**, not a built
+URL — `apiGet("/api/page/{title}", { path: { title } })` — which lets the
+generated `paths` table decide the path/query parameters, the JSON request
+body, and the response type. `apiFetch<T>` cannot do that: `T` is whatever
+the caller names, so an obsolete caller type or a wrong body typechecks.
+Prefer the typed client for new call sites; the remaining `apiFetch<T>`
+callers are a mechanical conversion still to be done (pkm-60bf). Path
+parameters are encoded per segment because `{title:path}` routes carry
+namespace titles whose slashes must survive; every other path parameter is
+slash-free by construction. Compile-time drift probes live in
+`api/typedClient.test.ts` — an expected-error directive that stops erroring
+fails the build, so the probes cannot rot.
 
 ## Styling and theming
 

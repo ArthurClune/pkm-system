@@ -74,6 +74,14 @@ class PagePayload(BaseModel):
     block_ref_texts: dict[str, BlockRefText]
 
 
+class RenamePageResponse(BaseModel):
+    """POST /api/page/{title}/rename: which branch ran, and the title the
+    page now lives under (normalized, so it can differ from the requested
+    one). `result` is a Literal so the web client can switch on it."""
+    result: Literal["renamed", "merged"]
+    title: str
+
+
 class GroupItem(BaseModel):
     uid: str
     text: str

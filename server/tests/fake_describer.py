@@ -13,12 +13,35 @@ class FakeDescriber:
         self.text = text
         self.error = error
         self.calls: list[str] = []
+        self.close_calls = 0
+        self.events: list[str] = []
 
     async def describe(self, image_bytes: bytes, mime: str) -> str:
         self.calls.append(mime)
         if self.error is not None:
             raise DescribeError(self.error)
         return self.text
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        self.events.append("closed")
+
+
+class BlockingCloseDescriber(FakeDescriber):
+    """Hold provider shutdown until a lifecycle test explicitly releases it."""
+
+    def __init__(self):
+        super().__init__()
+        self.close_started = asyncio.Event()
+        self.close_release = asyncio.Event()
+        self.close_completed = asyncio.Event()
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        self.close_started.set()
+        await self.close_release.wait()
+        self.close_completed.set()
+        self.events.append("closed")
 
 
 class BlockingDescriber:
@@ -35,13 +58,22 @@ class BlockingDescriber:
         self.text = text
         self.error = error
         self.calls: list[str] = []
+        self.close_calls = 0
+        self.events: list[str] = []
         self.started = threading.Event()
         self.release = threading.Event()
 
     async def describe(self, image_bytes: bytes, mime: str) -> str:
         self.calls.append(mime)
         self.started.set()
-        await asyncio.to_thread(self.release.wait, 5)
+        try:
+            await asyncio.to_thread(self.release.wait, 5)
+        finally:
+            self.events.append("describe-finished")
         if self.error is not None:
             raise DescribeError(self.error)
         return self.text
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        self.events.append("closed")

@@ -143,6 +143,8 @@ def test_api_error_carries_friendly_message(pkm_client):
     with pytest.raises(ApiError) as e:
         pkm_client.get_page("No Such Page")
     assert e.value.status == 404
+    assert e.value.message == "page not found"
+    assert str(e.value) == "404: page not found"
 
 
 def test_upload_asset(pkm_client, tmp_path):
@@ -286,5 +288,7 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
 def test_unauthenticated_client_gets_login_hint(anon_client):
     bad = PkmClient(CliConfig(url="http://testserver", token="junk"),
                     http=anon_client)
-    with pytest.raises(ApiError, match="pkm login"):
+    with pytest.raises(ApiError) as exc:
         bad.get_page("AI")
+    assert str(exc.value) == (
+        "401: session expired or missing — run `pkm login`")

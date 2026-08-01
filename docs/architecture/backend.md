@@ -1,11 +1,11 @@
 # Backend architecture (server/ + HTTP API)
 
 The backend is a Python 3.12+ FastAPI application over a single SQLite file.
-It is the sole authority for the graph: every mutation flows through one
-endpoint (`POST /api/ops`), refs and full-text indexes are re-derived inside
-the same transaction, and a trigger-based change journal feeds the sync
-protocol. There is no ORM and no migration framework — raw `sqlite3` with
-replayable DDL.
+It is the sole authority for the graph: block-graph mutations flow through
+`POST /api/ops`, other writes use dedicated routes, refs and full-text
+indexes are re-derived inside the same transaction, and a trigger-based
+change journal feeds the sync protocol. There is no ORM and no migration
+framework — raw `sqlite3` with replayable DDL.
 
 Start with [overview.md](overview.md) for the system-level picture. The sync
 protocol has its own doc: [sync-and-offline.md](sync-and-offline.md).
@@ -172,10 +172,10 @@ Around that base model:
 
 ## The write path
 
-`POST /api/ops` is the **only** way anything mutates. Clients send an
-`OpBatch` (`client_id`, optional `batch_id`, 1–500 ops) of block-level
-operations: `create`, `update_text`, `move`, `delete`, `set_collapsed`,
-`set_heading`, `set_view_type`, `create_page`.
+`POST /api/ops` is the transactional block-operation write path. Clients
+send an `OpBatch` (`client_id`, optional `batch_id`, 1–500 ops) of
+block-level operations: `create`, `update_text`, `move`, `delete`,
+`set_collapsed`, `set_heading`, `set_view_type`, `create_page`.
 
 The path is the cleanest FCIS example in the repo — a pure planner
 sandwiched between two thin shells:
@@ -220,6 +220,13 @@ Page-level mutations (create/delete/rename/merge) live in `store.py` as
 composable functions that never commit; routes own the transaction.
 `POST /api/page/{title}/rename` rewrites all referencing block text via
 `rename.py` and merges (concatenating blocks) when `allow_merge` is set.
+
+Sidebar pinning is a separate write path. `POST /api/sidebar` takes
+SQLite's writer reservation with `BEGIN IMMEDIATE` before it checks title
+uniqueness and computes the append slot as `max(order_idx) + 1`, so a
+same-title race becomes HTTP 409 and two distinct concurrent appends cannot
+land on the same `order_idx`. That serialization is transactional, not a
+schema-level uniqueness constraint on `sidebar_entries.order_idx`.
 
 ## Auth
 
@@ -284,7 +291,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/{path}` *(public)* | SPA fallback: serves `web_dist` (index.html no-cache, hashed bundles under `/app-assets/`) |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | **The only write path** — apply an `OpBatch` transactionally |
+| POST | `/api/ops` | Transactional block-operation write path — apply an `OpBatch` transactionally |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks (daily pages auto-created) |
 | GET | `/api/block/{uid}` | One block subtree with page context + breadcrumbs |
@@ -797,10 +804,17 @@ two descriptive sentences, stored in new `assets` columns (`description`,
   (`described` / `failed` / `pending`); `service.py` (Shell) —
   `DescribeService`, an in-memory `asyncio.Queue` drained by one sequential
   background worker per process (deliberately rate-limit-friendly, not
-  parallel); `openai_client.py` (Shell) — the `ImageDescriber` implementation,
-  a single `httpx2` POST per image against the OpenAI chat-completions
-  endpoint (no OpenAI SDK); `routes.py` (Shell) — the status/scan endpoints
-  (asset search lives in `routes_assets.py` alongside the other asset routes).
+  parallel). Passing it an `ImageDescriber` transfers ownership: shutdown uses
+  one retained, cancellation-shielded task that cancels the worker first and
+  then closes the provider transport exactly once. Every `close()` caller waits
+  for that shared task; caller cancellation is re-propagated only after the
+  owned cleanup finishes. `app.py` still attempts assistant conversation
+  cleanup in a `finally` if describer shutdown raises. `openai_client.py`
+  (Shell) — the
+  `ImageDescriber` implementation, a single `httpx2` POST per image against
+  the OpenAI chat-completions endpoint (no OpenAI SDK); `routes.py` (Shell)
+  — the status/scan endpoints (asset search lives in `routes_assets.py`
+  alongside the other asset routes).
 - **Config**: the on/off switch is the OpenAI key, resolved with this
   precedence: the contents of a key file at `PKM_HOME/openai_key` (default —
   note this is the `PKM_HOME` root, a sibling of `data/`, not inside it,

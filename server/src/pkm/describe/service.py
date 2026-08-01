@@ -29,6 +29,10 @@ class ImageDescriber(Protocol):
         """Return a search-oriented description; raise DescribeError."""
         ...
 
+    async def close(self) -> None:
+        """Release resources owned by this describer."""
+        ...
+
 
 class DescribeService:
     def __init__(self, config: Config, describer: ImageDescriber | None,
@@ -38,6 +42,8 @@ class DescribeService:
         self.reason = reason
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._task: asyncio.Task | None = None
+        self._shutdown_task: asyncio.Task[None] | None = None
+        self._closed = False
         # SHAs currently queued or mid-attempt; guards at most one ordinary
         # in-flight describe per asset (pkm-1wv1). Cleared in the worker's
         # `finally` so a crash never permanently blocks a sha -- it's a
@@ -52,17 +58,48 @@ class DescribeService:
 
     def start(self) -> None:
         """Start the worker; call from the app lifespan (needs a loop)."""
+        if self._closed:
+            raise RuntimeError("describe service is closed")
         if self.enabled and self._task is None:
             self._task = asyncio.get_running_loop().create_task(self._worker())
 
     async def close(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
+        shutdown_task = self._shutdown_task
+        if shutdown_task is None:
+            self._closed = True
+            shutdown_task = asyncio.create_task(self._shutdown())
+            self._shutdown_task = shutdown_task
+        elif shutdown_task.done():
+            shutdown_task.result()
+            return
+
+        caller_cancelled = False
+        while not shutdown_task.done():
             try:
-                await self._task
+                await asyncio.shield(shutdown_task)
             except asyncio.CancelledError:
-                pass
-            self._task = None
+                if shutdown_task.done() and shutdown_task.cancelled():
+                    shutdown_task.result()
+                caller_cancelled = True
+
+        shutdown_task.result()
+        if caller_cancelled:
+            raise asyncio.CancelledError
+
+    async def _shutdown(self) -> None:
+        try:
+            if self._task is not None:
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    current_task = asyncio.current_task()
+                    if current_task is not None and current_task.cancelling():
+                        raise
+                self._task = None
+        finally:
+            if self._describer is not None:
+                await self._describer.close()
 
     def maybe_enqueue(self, sha256: str, mime: str, size: int) -> None:
         """Fire-and-forget enqueue on upload; no-op when disabled, the mime

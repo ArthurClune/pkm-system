@@ -3,6 +3,7 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from pkm.assistant import routes
 from pkm.assistant.events import SSE_COMMENT, TextDelta
 
@@ -248,6 +249,14 @@ class ExplodingEngine:
         return ExplodingConversation()
 
 
+class CloseFailingDescriber:
+    async def describe(self, image_bytes: bytes, mime: str) -> str:
+        return "unused"
+
+    async def close(self) -> None:
+        raise RuntimeError("describe close failed")
+
+
 def test_app_shutdown_closes_live_conversations(seeded_config):
     from fastapi.testclient import TestClient
 
@@ -261,6 +270,27 @@ def test_app_shutdown_closes_live_conversations(seeded_config):
         c.post("/api/assistant/conversations", json={})
         assert engine.conversations[0].closed is False
     # TestClient's context manager exit runs the app's shutdown lifespan
+    assert engine.conversations[0].closed is True
+
+
+def test_app_shutdown_closes_assistant_when_describer_close_fails(seeded_config):
+    from fastapi.testclient import TestClient
+
+    from fake_engine import FakeEngine
+    from pkm.describe.service import DescribeService
+    from pkm.server.app import create_app
+
+    engine = FakeEngine()
+    describer = CloseFailingDescriber()
+    service = DescribeService(seeded_config, describer, None)
+    app = create_app(
+        seeded_config, assistant_engine=engine, describe_service=service)
+
+    with pytest.raises(RuntimeError, match="describe close failed"):
+        with TestClient(app) as client:
+            client.post("/api/login", json={"password": "test-pw"})
+            client.post("/api/assistant/conversations", json={})
+
     assert engine.conversations[0].closed is True
 
 

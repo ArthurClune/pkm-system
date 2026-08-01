@@ -1,6 +1,12 @@
 import asyncio
 
-from fake_describer import PNG, BlockingDescriber, FakeDescriber
+import pytest
+from fake_describer import (
+    PNG,
+    BlockingCloseDescriber,
+    BlockingDescriber,
+    FakeDescriber,
+)
 
 from pkm.describe.service import DescribeService
 from pkm.server.db import open_db
@@ -104,6 +110,100 @@ def test_maybe_enqueue_ignores_ineligible_and_disabled(seeded_config):
     assert disabled._task is None
 
 
+def test_close_closes_owned_describer_once(seeded_config):
+    fake = FakeDescriber()
+    service = DescribeService(seeded_config, fake, None)
+
+    async def run():
+        service.start()
+        await service.close()
+        await service.close()
+
+    asyncio.run(run())
+    assert fake.close_calls == 1
+
+
+def test_concurrent_close_callers_wait_for_shared_shutdown(seeded_config):
+    fake = BlockingCloseDescriber()
+    service = DescribeService(seeded_config, fake, None)
+
+    async def run():
+        first = asyncio.create_task(service.close())
+        await asyncio.wait_for(fake.close_started.wait(), timeout=5)
+        second = asyncio.create_task(service.close())
+        await asyncio.sleep(0)
+
+        assert not first.done()
+        assert not second.done()
+        assert fake.close_calls == 1
+
+        fake.close_release.set()
+        await asyncio.gather(first, second)
+        assert fake.close_completed.is_set()
+
+    asyncio.run(run())
+    assert fake.close_calls == 1
+
+
+def test_cancelled_close_caller_waits_for_shared_shutdown(seeded_config):
+    fake = BlockingCloseDescriber()
+    service = DescribeService(seeded_config, fake, None)
+
+    async def run():
+        caller = asyncio.create_task(service.close())
+        await asyncio.wait_for(fake.close_started.wait(), timeout=5)
+
+        caller.cancel()
+        await asyncio.sleep(0)
+        assert not caller.done()
+        assert not fake.close_completed.is_set()
+
+        caller.cancel()
+        await asyncio.sleep(0)
+        assert not caller.done()
+        assert fake.close_calls == 1
+
+        fake.close_release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await caller
+        assert fake.close_completed.is_set()
+
+        await service.close()
+
+    asyncio.run(run())
+    assert fake.close_calls == 1
+
+
+def test_close_cancels_worker_before_closing_describer(seeded_config):
+    fake = BlockingDescriber()
+    service = DescribeService(seeded_config, fake, None)
+    _insert_asset(seeded_config, SHA_A)
+
+    async def run():
+        service.start()
+        service.maybe_enqueue(SHA_A, "image/png", len(PNG))
+        await asyncio.to_thread(fake.started.wait, 5)
+        await service.close()
+
+    asyncio.run(run())
+    assert fake.events == ["describe-finished", "closed"]
+    assert fake.close_calls == 1
+
+
+def test_close_disabled_service_is_idempotent(seeded_config):
+    service = DescribeService(
+        seeded_config, None, "OPENAI_API_KEY is not set")
+    asyncio.run(service.close())
+    asyncio.run(service.close())
+
+
+def test_start_rejects_reuse_after_close(seeded_config):
+    service = DescribeService(seeded_config, FakeDescriber(), None)
+    asyncio.run(service.close())
+    with pytest.raises(RuntimeError, match="describe service is closed"):
+        service.start()
+
+
 def test_scan_enqueues_undescribed_and_force_retries(seeded_config):
     fake = FakeDescriber(error="openai http 429")
     service = DescribeService(seeded_config, fake, None)
@@ -172,6 +272,9 @@ def test_worker_survives_unexpected_exception(seeded_config):
     class ExplodingDescriber:
         async def describe(self, image_bytes: bytes, mime: str) -> str:
             raise RuntimeError("boom")
+
+        async def close(self) -> None:
+            pass
 
     service = DescribeService(seeded_config, ExplodingDescriber(), None)
     _insert_asset(seeded_config, SHA_A)

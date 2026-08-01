@@ -5,7 +5,7 @@ status: in-progress
 type: epic
 priority: high
 created_at: 2026-07-31T15:45:04Z
-updated_at: 2026-07-31T19:07:30Z
+updated_at: 2026-08-01T07:52:07Z
 ---
 
 ## Context
@@ -369,3 +369,13 @@ All nine high-priority findings fixed via child beans, each TDD'd, task-reviewed
 New follow-up beans filed during review: pkm-2ilw (padded-title migration), pkm-8kw2 (client parity: depth caps, blank-ref handling), pkm-dzgw (select_section level), pkm-x1ig (importer polish bundle).
 
 Medium/lower-priority findings (10-29) remain open in this epic.
+
+## Medium sweep — started 2026-08-01
+
+Child beans (finding → bean), grouped into five parallel track branches:
+
+- **sync track**: 10 → pkm-getl, 11 → pkm-nn57, 12 → pkm-ldqx
+- **services track**: 13 → pkm-lk7t, 14 → pkm-rwwc, 15 → pkm-1wv1
+- **exports track**: 16 → pkm-n8eq, 17 → pkm-x3l7, 18 → pkm-9mdl, 26 → pkm-13ty
+- **climcp track** (sequential): 22 → pkm-5k8p, 23 → pkm-3cyg, 24 → pkm-c17m, 21 → pkm-4w23, 20 → pkm-0wr8
+- **misc track**: 19 → pkm-r72f, 25 → pkm-5g3d

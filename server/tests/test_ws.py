@@ -32,6 +32,15 @@ class _RaisingWS:
         raise RuntimeError("client gone")
 
     async def close(self):
+        # A real internal suspension point, like Starlette's actual
+        # WebSocket.close() (close() -> send() -> await self._send(...)).
+        # Without this, close() completes within a single scheduler step
+        # and structurally cannot be interrupted by a pending
+        # self-cancellation -- which would make a test using this fake
+        # blind to the exact ordering bug pkm-nn57's second-round review
+        # found (disconnect()-before-close() lets the drain task's
+        # self-cancel land inside this await and cut the close short).
+        await asyncio.sleep(0)
         self.closed = True
 
 
@@ -46,6 +55,7 @@ class _StallingWS:
         await asyncio.sleep(60)
 
     async def close(self):
+        await asyncio.sleep(0)  # see _RaisingWS.close for why
         self.closed = True
 
 

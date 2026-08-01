@@ -66,9 +66,17 @@ class Hub:
     def disconnect(self, ws: WebSocket) -> None:
         client = self._clients.pop(ws, None)
         if client is not None and client.drain_task is not None:
-            # The task's own except-block calls disconnect() on itself
-            # (see _drain) before returning; cancelling an already-
-            # finishing task here is a harmless no-op in that case.
+            # _drain's except-block calls this on itself (self-cancel)
+            # AFTER its own await _safe_close(...) has already completed,
+            # with nothing left to await before it returns -- so the
+            # pending cancellation has no further suspension point to
+            # land on and is a genuine no-op. Do not reorder: a
+            # self-cancel followed by an await lets the cancellation
+            # interrupt that very await (CPython's Task.__step applies a
+            # pending self-cancel to the next future the coroutine
+            # yields, not "the next loop turn"), which silently cut the
+            # close short before the ASGI close message went out
+            # (pkm-nn57 second-round review).
             client.drain_task.cancel()
 
     async def broadcast(self, message: dict) -> None:
@@ -99,12 +107,22 @@ class Hub:
                     await asyncio.wait_for(client.ws.send_json(message),
                                            timeout=SEND_TIMEOUT)
                 except Exception:
-                    self.disconnect(client.ws)
-                    # A dropped-for-timeout/error connection is often
-                    # still alive at the transport level -- close it so
-                    # the client's `onclose` fires and it reconnects,
-                    # instead of silently wedging until tab reload.
+                    # Close BEFORE self.disconnect(): disconnect()
+                    # cancels this very task (self-cancel), and a
+                    # pending self-cancel interrupts whatever this
+                    # coroutine awaits next -- if that were the close,
+                    # the cancellation would land inside
+                    # WebSocket.close()'s own internal await and cut it
+                    # short before the ASGI close message is sent,
+                    # silently reproducing the "drop never closes the
+                    # socket" bug this fix exists to prevent (pkm-nn57
+                    # second-round review). A dropped-for-timeout/error
+                    # connection is often still alive at the transport
+                    # level -- close it so the client's `onclose` fires
+                    # and it reconnects, instead of silently wedging
+                    # until tab reload.
                     await _safe_close(client.ws)
+                    self.disconnect(client.ws)
                     return
         except asyncio.CancelledError:
             pass

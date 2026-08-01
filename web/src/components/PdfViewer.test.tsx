@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import type { ReactNode } from "react";
 
 // ---- observer stubs --------------------------------------------------
@@ -44,12 +45,17 @@ let failLoad = false;
 // the mocked Document registers one entry in pendingLoads.
 type Viewport = { width: number; height: number };
 type LoadHandle = {
+  file: string;
   resolveSuccess: (numPages: number) => void;
   resolveError: () => void;
   resolvePage: (viewport: Viewport) => void;
 };
 let manual = false;
 const pendingLoads: LoadHandle[] = [];
+// StrictMode double-invokes mount effects, so a single logical mount can
+// register more than one handle for the same file -- resolve by file, not
+// by index, so tests don't need to know or care how many times it fired.
+const loadsFor = (file: string) => pendingLoads.filter((l) => l.file === file);
 function createDeferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void;
   const promise = new Promise<T>((res) => {
@@ -75,6 +81,7 @@ vi.mock("react-pdf", async () => {
       if (manual) {
         const pageDeferred = createDeferred<{ getViewport: (o: { scale: number }) => Viewport }>();
         pendingLoads.push({
+          file: file ?? "",
           resolveSuccess: (numPages) =>
             onLoadSuccess?.({ numPages, getPage: () => pageDeferred.promise }),
           resolveError: () => onLoadError?.(new Error("bad pdf")),
@@ -376,5 +383,43 @@ it("a stale load error from the previous document does not mark the new document
 
   act(() => pendingLoads[0].resolveError());
   expect(screen.queryByText("Couldn't render this PDF.")).toBeNull();
+  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+});
+
+it("StrictMode double-invocation still guards a slow getPage(1) from the previous document", async () => {
+  // The render-time gen bump + reset (see PdfViewer.tsx) relies on being
+  // idempotent under React's double-invoked renders/effects in StrictMode
+  // (app is wrapped in it: main.tsx). Pin that down mechanically rather
+  // than by reasoning, matching this codebase's convention for
+  // lifecycle-order-sensitive code (SyncProvider.test.tsx, EditablePage.test.tsx).
+  manual = true;
+  const { rerender } = render(
+    <StrictMode><PdfViewer href={href} label="A" /></StrictMode>,
+  );
+  await act(async () => {});
+  const loadsA = loadsFor(href);
+  expect(loadsA.length).toBeGreaterThan(0);
+  act(() => {
+    for (const l of loadsA) l.resolveSuccess(5);
+  });
+
+  rerender(<StrictMode><PdfViewer href={href2} label="B" /></StrictMode>);
+  await act(async () => {});
+  const loadsB = loadsFor(href2);
+  expect(loadsB.length).toBeGreaterThan(0);
+  act(() => {
+    for (const l of loadsB) l.resolveSuccess(2);
+  });
+  await act(async () => {
+    for (const l of loadsB) l.resolvePage({ width: 100, height: 200 });
+  });
+  expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+
+  // the old document's stale getPage(1) resolves late, even under
+  // StrictMode's extra render/effect pass -- it must not resurrect stale
+  // metadata for the document now on screen
+  await act(async () => {
+    for (const l of loadsA) l.resolvePage({ width: 1, height: 999 });
+  });
   expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
 });

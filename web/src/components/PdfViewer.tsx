@@ -223,7 +223,8 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
         setDoc({ numPages: pdf.numPages, aspect: v.height / v.width });
       },
       () => {
-        // keep the default aspect; placeholders are approximate anyway
+        // keep the default aspect; placeholders are approximate anyway --
+        // no gen guard needed here since this branch never calls setState
       },
     );
   };

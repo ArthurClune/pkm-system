@@ -57,3 +57,44 @@ the existing auto-resolving mode used by all prior tests (unchanged).
 
 Verification: `pnpm test:unit` (115 files / 1756 tests) and `pnpm
 typecheck` both pass.
+
+## Fix round 1 (review)
+
+Review found one Important issue: the app runs under `<StrictMode>`
+(main.tsx), and this codebase's convention (`SyncProvider.test.tsx`,
+`EditablePage.test.tsx`) is to mechanically verify lifecycle-order-
+sensitive code under StrictMode rather than rely on reasoning alone. None
+of the four race tests did.
+
+- Added `it("StrictMode double-invocation still guards a slow getPage(1)
+  from the previous document", ...)` in `PdfViewer.test.tsx`, wrapping
+  `render`/`rerender` in `<StrictMode>`, reusing the manual-mode race
+  scenario from the non-StrictMode test.
+- Tagged each mock `LoadHandle` with the `file` it was registered for and
+  added a `loadsFor(file)` helper, since StrictMode double-invokes the
+  mock `Document`'s mount effect (confirmed empirically: `loadsA.length`
+  is 2, not 1, under StrictMode) -- the test resolves *all* handles for a
+  given href rather than assuming a fixed index, so it doesn't
+  vacuously pass regardless of invocation count.
+- Minor: added a one-line comment on the `getPage(1).then` failure branch
+  (`PdfViewer.tsx`) noting it has no gen guard because it never calls
+  setState, so a future edit doesn't "helpfully" add one for symmetry.
+
+Verification:
+```
+$ pnpm vitest run src/components/PdfViewer.test.tsx
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+
+$ pnpm test:unit
+ Test Files  115 passed (115)
+      Tests  1757 passed (1757)
+
+$ pnpm typecheck
+$ tsc
+(exit 0)
+
+$ pnpm lint
+$ eslint src tooling
+(exit 0)
+```

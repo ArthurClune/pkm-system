@@ -69,6 +69,11 @@ function parametersAreChecked() {
   apiGet("/api/page/{title}", { path: { title: "T" }, query: { bl_limit: "5" } });
 }
 
+function headersMustBeAPlainRecord() {
+  // @ts-expect-error a Headers instance would be dropped by the merge
+  apiGet("/api/current-work", { init: { headers: new Headers() } });
+}
+
 function requestBodiesAreChecked() {
   // @ts-expect-error the field is `title`, not `titel`
   apiPost("/api/pages", { body: { titel: "T" } });
@@ -190,5 +195,6 @@ it("keeps the compile-time probes referenced", () => {
   expect(typeof wrongResponseType).toBe("function");
   expect(typeof methodAndPathAreChecked).toBe("function");
   expect(typeof parametersAreChecked).toBe("function");
+  expect(typeof headersMustBeAPlainRecord).toBe("function");
   expect(typeof requestBodiesAreChecked).toBe("function");
 });

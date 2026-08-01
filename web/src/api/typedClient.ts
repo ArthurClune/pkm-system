@@ -62,10 +62,17 @@ type BodyPart<O> = [BodyOf<O>] extends [never]
   ? { body?: undefined }
   : { body: BodyOf<O> };
 
+/** Headers are narrowed to a plain record rather than the full HeadersInit:
+ * buildInit merges them by spreading, which would silently DROP a `Headers`
+ * instance or an array of pairs. A compile error beats a request that
+ * quietly loses its headers -- and callers only ever pass literals. Use the
+ * canonical casing ("Content-Type"), since a merge is by exact key. */
 export interface RequestExtras {
   /** Headers, signal, and friends. The method, the body and the URL belong
    * to the typed client; a caller cannot override them here. */
-  init?: Omit<RequestInit, "method" | "body">;
+  init?: Omit<RequestInit, "method" | "body" | "headers"> & {
+    headers?: Record<string, string>;
+  };
 }
 
 type Options<O> = PathPart<O> & QueryPart<O> & BodyPart<O> & RequestExtras;
@@ -84,7 +91,7 @@ interface RawOptions {
   path?: Record<string, string | number | boolean>;
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
-  init?: Omit<RequestInit, "method" | "body">;
+  init?: RequestExtras["init"];
 }
 
 /** Path parameters are encoded per segment: the `{title:path}` routes take

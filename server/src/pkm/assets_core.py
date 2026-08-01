@@ -89,15 +89,34 @@ def asset_needs_repair(expected_sha256: str, expected_size: int,
 
 def zip_arcnames(entries: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Map (sha256, filename) pairs to unique zip arcnames: first use of
-    a name wins, later case-insensitive collisions get ' (<sha8>)'
-    before the suffix."""
+    a name wins (case-insensitively, since zips get extracted on
+    case-insensitive filesystems), later collisions get ' (<sha8>)'
+    before the suffix.
+
+    A generated candidate can itself already be taken -- by another
+    entry's original filename that merely looks generated, or by
+    another entry whose sha256 shares the same 8-char prefix -- so the
+    candidate is rechecked against `used` and, if still colliding, the
+    sha prefix is extended one character at a time up to its full
+    length. In the residual case of two entries sharing both name and
+    full sha256, even the full digest can't disambiguate them, so an
+    incrementing numeric suffix is the final fallback. Every returned
+    arcname is guaranteed unique modulo case."""
     used: set[str] = set()
     out: list[tuple[str, str]] = []
     for sha, name in entries:
         arc = name
         if arc.lower() in used:
             p = PurePosixPath(name)
-            arc = f"{p.stem} ({sha[:8]}){p.suffix}"
+            prefix_len = 8
+            arc = f"{p.stem} ({sha[:prefix_len]}){p.suffix}"
+            while arc.lower() in used and prefix_len < len(sha):
+                prefix_len += 1
+                arc = f"{p.stem} ({sha[:prefix_len]}){p.suffix}"
+            n = 2
+            while arc.lower() in used:
+                arc = f"{p.stem} ({sha[:prefix_len]}-{n}){p.suffix}"
+                n += 1
         used.add(arc.lower())
         out.append((sha, arc))
     return out

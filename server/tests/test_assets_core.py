@@ -110,6 +110,56 @@ def test_zip_arcnames_collision_is_case_insensitive():
     assert second == f"report ({'bb' * 4}).pdf"
 
 
+def _assert_all_unique_case_insensitive(arcs: list[tuple[str, str]]) -> None:
+    lowered = [arc.lower() for _, arc in arcs]
+    assert len(lowered) == len(set(lowered)), arcs
+
+
+def test_zip_arcnames_generated_looking_name_still_gets_disambiguated():
+    # A real original filename that happens to look like an
+    # already-generated arcname (" (<sha8>)") must not silently collide
+    # with a name zip_arcnames itself generates for a later entry that
+    # shares the same 8-char sha prefix.
+    sha_b = "bb" * 32
+    entries: list[tuple[str, str]] = [
+        ("aa" * 32, "report.pdf"),
+        (sha_b, f"report ({sha_b[:8]}).pdf"),
+        (sha_b, "report.pdf"),
+    ]
+    arcs = zip_arcnames(entries)
+    _assert_all_unique_case_insensitive(arcs)
+
+
+def test_zip_arcnames_shared_sha_prefix_still_gets_disambiguated():
+    # Two distinct assets whose sha256 values share the same first 8
+    # hex characters must not produce the same generated arcname when
+    # both collide with an existing name.
+    sha_x = "b" * 8 + "1" * 56
+    sha_y = "b" * 8 + "2" * 56
+    entries: list[tuple[str, str]] = [
+        ("aa" * 32, "report.pdf"),
+        (sha_x, "report.pdf"),
+        (sha_y, "report.pdf"),
+    ]
+    arcs = zip_arcnames(entries)
+    _assert_all_unique_case_insensitive(arcs)
+
+
+def test_zip_arcnames_identical_sha_and_name_still_gets_disambiguated():
+    # Degenerate case: the same (sha, filename) pair appears twice.
+    # Even extending the sha prefix to its full length can't
+    # distinguish two identical strings, so a final incrementing
+    # suffix must kick in.
+    sha_b = "bb" * 32
+    entries: list[tuple[str, str]] = [
+        ("aa" * 32, "report.pdf"),
+        (sha_b, "report.pdf"),
+        (sha_b, "report.pdf"),
+    ]
+    arcs = zip_arcnames(entries)
+    _assert_all_unique_case_insensitive(arcs)
+
+
 # --- sha256_hex / asset_needs_repair (pkm-x3l7) ---
 
 def test_sha256_hex_matches_hashlib():

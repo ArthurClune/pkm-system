@@ -1,6 +1,6 @@
 import asyncio
 
-from fake_describer import PNG, FakeDescriber
+from fake_describer import PNG, BlockingDescriber, FakeDescriber
 
 from pkm.describe.service import DescribeService
 from pkm.server.db import open_db
@@ -105,13 +105,60 @@ def test_maybe_enqueue_ignores_ineligible_and_disabled(seeded_config):
 
 
 def test_scan_enqueues_undescribed_and_force_retries(seeded_config):
-    service = DescribeService(seeded_config, FakeDescriber(), None)
+    fake = FakeDescriber(error="openai http 429")
+    service = DescribeService(seeded_config, fake, None)
     _insert_asset(seeded_config, SHA_A)                      # pending
     _insert_asset(seeded_config, SHA_B, error="openai http 500")  # failed
     con = open_db(seeded_config.db_path)
     assert service.scan(con) == 1            # pending only
+    # Let SHA_A's ordinary attempt run to completion (and fail) before
+    # force-rescanning, so it's no longer "active" and the dedup guard
+    # doesn't mask the force-retry path under test (pkm-1wv1).
+    asyncio.run(_run(service))
     assert service.scan(con, force=True) == 2  # failed too
     con.close()
+
+
+def test_scan_does_not_requeue_a_sha_already_active(seeded_config):
+    """Two scans before the worker drains the first pending sha must not
+    double-queue it -- this is the "repeated scan" duplication the bean
+    describes (pkm-1wv1)."""
+    service = DescribeService(seeded_config, FakeDescriber(), None)
+    _insert_asset(seeded_config, SHA_A)
+    con = open_db(seeded_config.db_path)
+    assert service.scan(con) == 1
+    assert service.scan(con, force=True) == 0   # SHA_A already active: nothing new
+    assert service._queue.qsize() == 1
+    con.close()
+
+
+def test_maybe_enqueue_dedupes_while_in_flight(seeded_config):
+    """Two maybe_enqueue calls for the same sha while the first attempt is
+    genuinely in flight must not trigger a second describe call -- this is
+    the "duplicate upload" duplication the bean describes (pkm-1wv1)."""
+    fake = BlockingDescriber(error="openai http 429")
+    service = DescribeService(seeded_config, fake, None)
+    _insert_asset(seeded_config, SHA_A)
+
+    async def run():
+        service.start()
+        service.maybe_enqueue(SHA_A, "image/png", len(PNG))
+        await asyncio.to_thread(fake.started.wait, 5)  # now genuinely in-flight
+        service.maybe_enqueue(SHA_A, "image/png", len(PNG))  # duplicate
+        assert service._queue.qsize() == 0  # not re-queued while active
+        fake.release.set()
+        await asyncio.wait_for(service.drain(), timeout=5)
+        await service.close()
+
+    asyncio.run(run())
+    assert fake.calls == ["image/png"]  # describer invoked exactly once
+    row = _asset_row(seeded_config, SHA_A)
+    assert row["describe_error"] == "openai http 429"
+
+    # finally-cleanup: once the attempt has finished, the sha is no longer
+    # blocked, so a later retry is allowed through again.
+    service.maybe_enqueue(SHA_A, "image/png", len(PNG))
+    assert service._queue.qsize() == 1
 
 
 def test_scan_disabled_returns_zero(seeded_config):

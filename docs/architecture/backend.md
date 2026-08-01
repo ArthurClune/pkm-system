@@ -62,7 +62,7 @@ Inside `pkm/server/`:
 | `app.py` | Shell | App factory `create_app(config)`; runs `init_db()`, builds the `AssistantService` (engine injectable), mounts routers, serves the SPA |
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
 | `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
-| `auth.py` / `auth_core.py` | Shell / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens |
+| `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
 | `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_export.py` | Shell | The HTTP surface (table below) |
 | `ops_core.py` | Core | Op models + pure `plan_op()` → effect tuples |
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
@@ -211,6 +211,15 @@ Deliberately modest, layered under Tailscale (see `docs/SECURITY.md`):
   (`auth_core.py`). `POST /api/login` sets a `pkm_session` cookie —
   HMAC-SHA256-signed `v1.<issued_ms>.<sig>`, httponly, `samesite=lax`,
   1-year expiry.
+- `LoginThrottle` (`auth.py`, one instance per app on `app.state`) bounds
+  the cost of unauthenticated login attempts two ways: a per-source
+  exponential backoff (1s, 2s, 4s, ... capped at 30s; a success clears
+  it) rejects a throttled attempt *before* scrypt runs, and a
+  process-wide semaphore caps concurrent scrypt computations regardless
+  of source. A throttled attempt gets the same 401 a wrong password
+  gets — including one with the *correct* password — so the only signal
+  that distinguishes them is the timing difference between a fast
+  reject and a real scrypt computation, which the design accepts.
 - Every feature router is declared with
   `dependencies=[Depends(require_auth)]`; public surface is only `GET
   /login`, `POST /api/login`, `GET /healthz`, and the static SPA shell.

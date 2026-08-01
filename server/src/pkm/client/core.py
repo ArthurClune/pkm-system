@@ -89,5 +89,5 @@ def friendly_error(status: int, detail: object) -> str:
     if isinstance(detail, dict) and "reason" in detail:
         index = detail.get("index")
         prefix = f"op {index}: " if index is not None else ""
-        return f"{status}: {prefix}{detail['reason']}"
-    return f"{status}: {detail}"
+        return f"{prefix}{detail['reason']}"
+    return str(detail)

@@ -28,19 +28,25 @@ def test_cookie_header():
 
 
 def test_friendly_error_401_suggests_login():
-    assert "pkm login" in friendly_error(401, "unauthorized")
+    assert friendly_error(401, "unauthorized") == (
+        "session expired or missing — run `pkm login`")
 
 
 def test_friendly_error_renders_ops_detail_dict():
-    msg = friendly_error(400, {"index": 2, "reason": "block not found: x"})
-    assert "op 2" in msg and "block not found: x" in msg
+    assert friendly_error(
+        400, {"index": 2, "reason": "block not found: x"}
+    ) == "op 2: block not found: x"
 
 
 def test_friendly_error_plain_detail():
-    assert friendly_error(404, "page not found") == "404: page not found"
+    assert friendly_error(404, "page not found") == "page not found"
 
 
-def test_api_error_carries_status_and_message():
+def test_api_error_carries_status_message_and_single_prefix():
     e = ApiError(409, "conflict")
     assert (e.status, e.message) == (409, "conflict")
-    assert "conflict" in str(e)
+    assert str(e) == "409: conflict"
+
+
+def test_api_error_status_zero_has_one_prefix():
+    assert str(ApiError(0, "network unavailable")) == "0: network unavailable"

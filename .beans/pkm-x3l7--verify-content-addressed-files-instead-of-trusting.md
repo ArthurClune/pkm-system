@@ -70,3 +70,28 @@ check` (all checks passed). TDD evidence: RED confirmed by running the
 new tests before each implementation (ImportError for the pure-function
 tests; explicit assertion failures for the importer/export repair
 tests), GREEN after each corresponding implementation.
+
+## Fix Round 1 (review finding)
+
+Review flagged: when an existing export asset failed verification AND
+its live-store source was also missing, `writer.py` fell into the same
+`continue` branch used for a DB row whose file was never captured at
+import time — silently dropping a genuinely-regressed asset with zero
+counter or log signal.
+
+Fixed by splitting that branch: a new `assets_missing_source_on_repair`
+counts key, plus a `logging.getLogger("pkm.export").warning(...)` naming
+the sha/filename, fire only when the asset actually `was_present` before
+falling through; the "never captured at import" case is unchanged. Wired
+`pkm.export` into `logfmt.uvicorn_log_config()` (matching `pkm.describe`)
+so the warning isn't dropped by root-logger propagation under the live
+server. Added `test_corrupt_existing_asset_with_missing_live_source_is_surfaced`
+and `test_uvicorn_log_config_routes_pkm_export_to_stdout`, updated four
+pre-existing exact-`counts`-dict assertions for the new key. Checked both
+callers of `export_graph` (`backup/__main__.py` prints the dict, no
+strict-shape assumption; `routes_export.py` discards the return value) —
+neither needed adaptation.
+
+Re-verified: `uv run pytest -q` -> 1049 passed, 96.30% coverage; `uv run
+pyrefly check` -> 0 errors; `uv run ruff check` -> all checks passed.
+Full RED/GREEN evidence and self-review in the report file.

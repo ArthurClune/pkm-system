@@ -39,9 +39,20 @@ assets_dir)` lands. Hashing the whole previously-present set every run
 costs a full read of each file, but at this graph's scale (order ~1e3
 images) that's a low-single-digit-second tax on a nightly job, not
 something worth a sampling scheme -- see assets_core.asset_needs_repair
-for where the size check saves a read outright."""
+for where the size check saves a read outright.
+
+If a file that fails verification also has no live-store source to
+repair from, it can't be silently dropped the same way a DB row whose
+file was never captured at import time is (that's ordinary, expected
+"missing asset" residue) -- this one *was* present, readable, and now
+provably wrong, and there's nothing left to repair it from. That case
+gets its own `assets_missing_source_on_repair` count plus a `pkm.export`
+warning naming the sha, instead of disappearing into `assets_pruned`
+(its sha is still `wanted`, so it isn't pruned either) with zero
+signal."""
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import sqlite3
@@ -53,6 +64,8 @@ from pkm.export.markdown import page_filename, render_page
 from pkm.filenames import safe_filename
 from pkm.server.daily import date_for_title
 from pkm.server.tree import build_tree, collect_block_ref_uids
+
+logger = logging.getLogger("pkm.export")
 
 GITIGNORE = "assets/\n.export-staging-*/\n"
 
@@ -92,7 +105,8 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         if row is not None:
             uid_to_text[uid] = row["text"]
 
-    counts = {"pages": 0, "journal": 0, "assets_copied": 0, "assets_pruned": 0}
+    counts = {"pages": 0, "journal": 0, "assets_copied": 0, "assets_pruned": 0,
+             "assets_missing_source_on_repair": 0}
     rendered: dict[tuple[str, str], str] = {}  # (kind, filename) -> body
     taken: set[str] = set()
     for page in db.execute("SELECT id, title FROM pages ORDER BY title"):
@@ -129,7 +143,8 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         for sha, (fname, size) in wanted.items():
             dest = stage_assets / sha / fname
             existing = assets_dir / sha / fname
-            if existing.is_file():
+            was_present = existing.is_file()
+            if was_present:
                 actual_size = existing.stat().st_size
                 actual_sha = (sha256_hex(existing.read_bytes())
                              if actual_size == size else None)
@@ -139,7 +154,19 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
                     continue
             src = live_assets_dir / sha[:2] / sha
             if not src.is_file():
-                continue  # row without a stored file: known import residue
+                if was_present:
+                    # Present but failed verification, and now nothing to
+                    # repair it from either: unlike the case below, this
+                    # asset didn't just vanish quietly -- surface it.
+                    counts["assets_missing_source_on_repair"] += 1
+                    logger.warning(
+                        "export: asset %s (%s) failed verification against"
+                        " the previous export and has no live-store source"
+                        " to repair from -- dropping it from this export",
+                        sha, fname)
+                # else: a DB row whose file was never captured at import
+                # time -- known, ordinary import residue, not a new failure.
+                continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
             counts["assets_copied"] += 1

@@ -47,6 +47,18 @@ def test_uvicorn_log_config_routes_pkm_describe_to_stdout():
     assert handler["stream"] == "ext://sys.stdout"
 
 
+def test_uvicorn_log_config_routes_pkm_export_to_stdout():
+    # pkm-x3l7 review fix: export.writer's asset-repair warnings must not
+    # silently drop via root-logger propagation under uvicorn.
+    config = uvicorn_log_config()
+    export_logger = config["loggers"]["pkm.export"]
+    assert export_logger["level"] == "INFO"
+    assert export_logger["propagate"] is False
+    [handler_name] = export_logger["handlers"]
+    handler = config["handlers"][handler_name]
+    assert handler["stream"] == "ext://sys.stdout"
+
+
 @pytest.fixture()
 def logged_app() -> FastAPI:
     app = FastAPI()

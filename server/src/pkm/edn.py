@@ -136,16 +136,19 @@ def _parse_string(text: str, pos: int) -> tuple[str, int]:
     raise EdnError("unterminated string")
 
 
+_HEX_DIGITS = set("0123456789abcdefABCDEF")
+
+
 def _parse_hex4(text: str, pos: int) -> int:
     """Parse exactly 4 hex digits starting at pos (pos is the first hex digit,
-    i.e. just past a `\\u`)."""
+    i.e. just past a `\\u`). Checked digit-by-digit rather than handed to
+    int(chunk, 16): that builtin also accepts signs, surrounding whitespace,
+    and underscore separators, which would smuggle malformed escapes through
+    (or overflow chr() below into a raw, uncaught ValueError)."""
     chunk = text[pos : pos + 4]
-    if len(chunk) != 4:
-        raise EdnError(f"truncated unicode escape at offset {pos}")
-    try:
-        return int(chunk, 16)
-    except ValueError:
-        raise EdnError(f"invalid unicode escape at offset {pos}") from None
+    if len(chunk) != 4 or any(c not in _HEX_DIGITS for c in chunk):
+        raise EdnError(f"invalid unicode escape at offset {pos}")
+    return int(chunk, 16)
 
 
 def _parse_unicode_escape(text: str, pos: int) -> tuple[str, int]:

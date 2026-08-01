@@ -67,6 +67,20 @@ def test_truncated_unicode_escape_raises():
         parse_edn('"\\u12zz"')  # non-hex characters in the escape
 
 
+def test_unicode_escape_rejects_forms_int_would_otherwise_accept():
+    # int(chunk, 16) is lax about signs/whitespace/underscores; a 4-char
+    # "hex" chunk must be checked digit-by-digit or these smuggle through
+    # (or, for a leading '-', overflow chr() into a raw ValueError).
+    with pytest.raises(EdnError):
+        parse_edn('"\\u-123"')
+    with pytest.raises(EdnError):
+        parse_edn('"\\u+12f"')
+    with pytest.raises(EdnError):
+        parse_edn('"\\u 12f"')
+    with pytest.raises(EdnError):
+        parse_edn('"\\u1_2f"')
+
+
 def test_lone_surrogate_escapes_raise():
     with pytest.raises(EdnError):
         parse_edn('"\\ud83d"')  # lone high surrogate, nothing follows
@@ -94,3 +108,5 @@ def test_nested_discard_forms():
 def test_unsupported_char_literal_raises():
     with pytest.raises(EdnError):
         parse_edn("\\notachar")
+    with pytest.raises(EdnError):
+        parse_edn("\\")  # trailing backslash, empty char token

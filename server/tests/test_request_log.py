@@ -64,6 +64,10 @@ def test_uvicorn_log_config_no_longer_lists_pkm_describe_individually():
     assert "pkm.describe" not in config["loggers"]
 
 
+# Only matches a literal getLogger("pkm...") string argument - it can't see
+# getLogger(__name__) children. That's fine: the "pkm" parent-logger policy
+# (see test above) is what protects those, by propagation, so this enumeration
+# doesn't need to catch them too. Don't broaden this regex to try to.
 _LOGGER_CALL_RE = re.compile(r'getLogger\(\s*["\'](pkm(?:\.[A-Za-z0-9_]+)+)["\']\s*\)')
 
 

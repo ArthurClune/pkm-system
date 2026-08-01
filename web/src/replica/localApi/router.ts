@@ -4,6 +4,8 @@
 // shapes the server returns. Unmatched routes report handled:false — the
 // caller surfaces a clear online-only error. Runs inside the worker.
 
+import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
+              TitlesPayload } from "../../api/payloads";
 import { normalizeRefTitle } from "../../grammar/scan";
 import { titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
@@ -68,7 +70,7 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
     return ok(currentWorkPayload(db, req.nowMs));
   }
   if (method === "GET" && path === "/api/titles") {
-    return ok(titles(db, q.get("q") ?? "", Number(q.get("limit") ?? 10)));
+    return ok(titlesPayload(db, q.get("q") ?? "", Number(q.get("limit") ?? 10)));
   }
   if (method === "GET" && path === "/api/block-refs") {
     const wanted = (q.get("uids") ?? "").split(",").filter((u) => u.length > 0);
@@ -76,11 +78,10 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
     for (const uid of wanted) {
       if (!UID_RE.test(uid)) return err(422, `malformed uid: '${uid}'`);
     }
-    return ok({ block_ref_texts: resolveRefUids(db, wanted) });
+    return ok(blockRefsPayload(db, wanted));
   }
   if (method === "GET" && path === "/api/sidebar") {
-    return ok({ entries: db.select(
-      "SELECT id, title FROM sidebar_entries ORDER BY order_idx") });
+    return ok(sidebarPayload(db));
   }
   if (method === "GET" && path === "/api/search") {
     const exact = q.get("exact") === "1" || q.get("exact") === "true";
@@ -103,7 +104,18 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
   return NOT_HANDLED;
 }
 
-function titles(db: ReplicaDb, qStr: string, limit: number): unknown {
+export function blockRefsPayload(db: ReplicaDb,
+                                 uids: string[]): BlockRefsPayload {
+  return { block_ref_texts: resolveRefUids(db, uids) };
+}
+
+export function sidebarPayload(db: ReplicaDb): SidebarNavPayload {
+  return { entries: db.select<SidebarNavEntry>(
+    "SELECT id, title FROM sidebar_entries ORDER BY order_idx") };
+}
+
+export function titlesPayload(db: ReplicaDb, qStr: string,
+                              limit: number): TitlesPayload {
   const lim = Math.max(1, Math.min(limit, 50));
   const needle = qStr.trim();
   if (needle.length === 0) return { titles: [] };

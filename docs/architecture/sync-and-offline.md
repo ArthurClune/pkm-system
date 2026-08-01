@@ -34,7 +34,7 @@ collisions at push time.
 | Replica | `web/src/replica/` (worker, OPFS) | sqlite-wasm copy of the graph (BASE_DDL only) in a worker on the OPFS SAHPool VFS |
 | Op queue | `web/src/sync/opQueue.ts`, `web/src/replica/queue.ts` | Durable `pending_ops` rows in the replica DB; optimistic local apply; drain-on-reconnect |
 | Sync orchestration | `web/src/sync/SyncProvider.tsx`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncSeq`) |
-| Offline API shim | `web/src/replica/localApi/` | Serves the read API's exact JSON shapes from the replica when offline (pinned byte-identical by `shared/fixtures/shim_parity.json`) |
+| Offline API shim | `web/src/replica/localApi/` | Serves the read API's exact JSON shapes from the replica when offline (pinned byte-identical by `shared/fixtures/shim_parity.json`, and statically by the generated return types described below) |
 
 ## An online edit, end to end
 
@@ -167,6 +167,15 @@ local API shim, and edits keep enqueueing durably (each op optimistically
 applied to the replica under a per-op SAVEPOINT; `base_text_hash` — the
 sha256 of the text the edit was based on — is captured *before* the apply).
 The header shows "Offline — N changes pending".
+
+Every shim response builder declares a **generated** return type (`PagePayload`,
+`JournalPayload`, `SearchPayload`, …) rather than `unknown` (pkm-60bf), so a
+server-side field rename that the shim does not follow fails `pnpm typecheck`
+instead of surfacing as a wrong-shaped payload the first time a user goes
+offline. `shim_parity.json` pins recorded *values* for a handful of requests;
+the return types pin the *shape* of every builder, including branches no
+fixture exercises. `localApi/payloadTypes.test.ts` guards the declarations
+themselves against being widened back.
 
 ```mermaid
 sequenceDiagram

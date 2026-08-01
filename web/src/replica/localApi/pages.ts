@@ -5,6 +5,8 @@
 // online visit, and a daily page with content pushes via its block ops'
 // page_title anyway (spec section 1).
 
+import type { BacklinkGroup, BlockGroup, CurrentWorkPage, CurrentWorkPayload,
+              GroupsPayload, PageMeta, PagePayload } from "../../api/payloads";
 import { titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
@@ -12,15 +14,8 @@ import { phraseQuery } from "./fts";
 import { BLOCK_COLS, type BlockRow, blockRefTexts, buildTree,
          fetchAncestors } from "./tree";
 
-interface PageRow {
-  id: number;
-  title: string;
-  created_at: number | null;
-  updated_at: number | null;
-}
-
-const fetchPage = (db: ReplicaDb, title: string): PageRow | null => {
-  const rows = db.select<PageRow>(
+const fetchPage = (db: ReplicaDb, title: string): PageMeta | null => {
+  const rows = db.select<PageMeta>(
     "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
     [title]);
   return rows.length > 0 ? rows[0] : null;
@@ -43,8 +38,8 @@ const CURRENT_WORK_SECTIONS = [
     maxAge: 7 * 24 * HOUR_MS },
 ] as const;
 
-function backlinks(db: ReplicaDb, pageId: number, offset: number,
-                   limit: number) {
+function backlinks(db: ReplicaDb, pageId: number, offset: number, limit: number):
+    { groups: BacklinkGroup[]; total: number; texts: string[] } {
   const total = Number(db.select<{ n: number }>(
     `SELECT count(DISTINCT b.page_id) AS n FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
@@ -67,9 +62,8 @@ function backlinks(db: ReplicaDb, pageId: number, offset: number,
       ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`,
     [pageId, ...pageIds]);
   const ancestors = fetchAncestors(db, rows.map((r) => r.uid));
-  const groups: { page_id: number; page_title: string;
-                  items: { uid: string; text: string; breadcrumbs: string[] }[] }[] = [];
-  const index = new Map<number, (typeof groups)[number]>();
+  const groups: BacklinkGroup[] = [];
+  const index = new Map<number, BacklinkGroup>();
   for (const r of rows) {
     let group = index.get(r.src_page_id);
     if (!group) {
@@ -86,7 +80,7 @@ function backlinks(db: ReplicaDb, pageId: number, offset: number,
 
 /** null = page not found (and not a daily title): the caller 404s. */
 export function pagePayload(db: ReplicaDb, title: string, blOffset: number,
-                            blLimit: number, nowMs: number): unknown | null {
+                            blLimit: number, nowMs: number): PagePayload | null {
   const limit = Math.max(1, Math.min(blLimit, 100));
   let page = fetchPage(db, title);
   if (page === null) {
@@ -111,7 +105,7 @@ export function pagePayload(db: ReplicaDb, title: string, blOffset: number,
 }
 
 export function unlinked(db: ReplicaDb, title: string, limit: number,
-                         offset: number): unknown | null {
+                         offset: number): GroupsPayload | null {
   const lim = Math.max(1, Math.min(limit, 100));
   const page = fetchPage(db, title);
   if (page === null) return null;
@@ -130,9 +124,8 @@ export function unlinked(db: ReplicaDb, title: string, limit: number,
     `SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
      ${where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?`,
     [...params, lim, offset]);
-  const groups: { page_id: number; page_title: string;
-                  items: { uid: string; text: string }[] }[] = [];
-  const index = new Map<number, (typeof groups)[number]>();
+  const groups: BlockGroup[] = [];
+  const index = new Map<number, BlockGroup>();
   for (const r of rows) {
     let group = index.get(r.page_id);
     if (!group) {
@@ -145,7 +138,8 @@ export function unlinked(db: ReplicaDb, title: string, limit: number,
   return { groups, total };
 }
 
-export function currentWorkPayload(db: ReplicaDb, nowMs: number): unknown {
+export function currentWorkPayload(db: ReplicaDb,
+                                   nowMs: number): CurrentWorkPayload {
   return {
     sections: CURRENT_WORK_SECTIONS.map((section) => {
       const newerThan = nowMs - section.maxAge;
@@ -154,7 +148,7 @@ export function currentWorkPayload(db: ReplicaDb, nowMs: number): unknown {
       return {
         id: section.id,
         title: section.title,
-        pages: db.select(
+        pages: db.select<CurrentWorkPage>(
           `SELECT id, title, updated_at FROM pages
              WHERE updated_at IS NOT NULL
                AND updated_at ${lowerOperator} ?

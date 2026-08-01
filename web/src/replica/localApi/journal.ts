@@ -4,6 +4,7 @@
 // The head batch auto-creates today locally (negative id, deliberately
 // not pushed) so there is always a page to compose into.
 
+import type { JournalDay, JournalPayload } from "../../api/payloads";
 import { dateForTitle, selectJournalDays, titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
@@ -29,7 +30,8 @@ const REFERENCED_DAILY_SQL =
 
 /** null = invalid `before` date (the caller 400s). */
 export function journalPayload(db: ReplicaDb, before: string | null,
-                               days: number, nowMs: number): unknown | null {
+                               days: number,
+                               nowMs: number): JournalPayload | null {
   const window = Math.max(1, Math.min(days, 31));
   const now = new Date(nowMs);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -58,7 +60,7 @@ export function journalPayload(db: ReplicaDb, before: string | null,
     const d = dateForTitle(title);
     if (d !== null) nonempty.push(d);
   }
-  const out: unknown[] = [];
+  const out: JournalDay[] = [];
   const texts: string[] = [];
   for (const d of selectJournalDays(nonempty, today, cursor, window)) {
     const page = fetchPage(db, titleForDate(d));

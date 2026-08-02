@@ -326,6 +326,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | WS | `/api/ws` | Push nudges: applied-op broadcasts + `seq` hints |
 | **Assistant** (SSE — see [Embedded assistant](#embedded-assistant-pkmassistant)) | | |
 | POST | `/api/assistant/conversations` | Create a conversation (`model`: `sonnet` default / `opus` / `haiku`); 409 over the 3-conversation cap |
+| POST | `/api/assistant/conversations/{id}` | Beacon cleanup close (`navigator.sendBeacon`): delete the conversation, shut down its harness, and return `AssistantAck` |
 | POST | `/api/assistant/conversations/{id}/messages` | Send one user turn → SSE stream of `text_delta` / `tool_started` / `tool_finished` / `confirm_request` / `turn_done` / `error` events; 409 while a turn is in flight |
 | POST | `/api/assistant/conversations/{id}/confirm` | Answer a pending write confirmation (`tool_use_id`, `allow`) |
 | DELETE | `/api/assistant/conversations/{id}` | Close the conversation and shut down its harness |

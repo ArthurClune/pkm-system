@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from pkm.refs import canonicalize_title
+from pkm.rename import rewrite_title_refs_map
 
 
 @dataclass(frozen=True)
@@ -170,6 +171,7 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
     clean_pages = {page.title: page for page in pages}
     padded_groups: dict[str, list[InventoryPage]] = {}
     blockers: list[InventoryPage] = []
+    boundary_replacements: dict[str, str] = {}
     for page in pages:
         canonical = canonicalize_title(page.title, plain_space=True)
         if page.title == canonical:
@@ -178,26 +180,55 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
             blockers.append(page)
             continue
         padded_groups.setdefault(canonical, []).append(page)
+        boundary_replacements[page.title] = canonical
+
+    # Nested refs are overlapping identities: changing an inner source also
+    # changes the spelling of every enclosing page title. Group by that final
+    # spelling so an existing final twin wins and otherwise the same outer
+    # survivor identity is retitled rather than duplicated during reindex.
+    final_groups: dict[str, list[InventoryPage]] = {}
+    intermediate_titles: dict[str, set[str]] = {}
+    for boundary_title, group_pages in padded_groups.items():
+        final_title = rewrite_title_refs_map(
+            boundary_title, boundary_replacements
+        )
+        final_groups.setdefault(final_title, []).extend(group_pages)
+        intermediate_titles.setdefault(final_title, set()).add(boundary_title)
 
     groups: list[TitleMigrationGroup] = []
     replacements: dict[str, str] = {}
-    for canonical_title, group_pages in padded_groups.items():
-        clean_twin = clean_pages.get(canonical_title)
-        survivor = clean_twin or min(group_pages, key=lambda page: page.page_id)
-        pages_in_group = list(group_pages)
-        if clean_twin is not None:
-            pages_in_group.append(clean_twin)
+    for canonical_title, group_pages in final_groups.items():
+        exact_clean_twin = clean_pages.get(canonical_title)
+        intermediate_clean = sorted(
+            (
+                clean_pages[title]
+                for title in intermediate_titles[canonical_title]
+                if title != canonical_title and title in clean_pages
+            ),
+            key=lambda page: page.page_id,
+        )
+        survivor = (
+            exact_clean_twin
+            or (intermediate_clean[0] if intermediate_clean else None)
+            or min(group_pages, key=lambda page: page.page_id)
+        )
+        pages_by_id = {page.page_id: page for page in group_pages}
+        for page in intermediate_clean:
+            pages_by_id[page.page_id] = page
+        if exact_clean_twin is not None:
+            pages_by_id[exact_clean_twin.page_id] = exact_clean_twin
+        pages_in_group = list(pages_by_id.values())
         sources = tuple(sorted(
             (page for page in pages_in_group if page != survivor),
             key=lambda page: page.page_id,
         ))
-        page_ids = {page.page_id for page in pages_in_group}
+        page_ids = set(pages_by_id)
         page_titles = {page.title for page in pages_in_group}
         groups.append(TitleMigrationGroup(
             canonical_title=canonical_title,
             survivor=survivor,
             sources=sources,
-            has_clean_twin=clean_twin is not None,
+            has_clean_twin=exact_clean_twin is not None,
             block_count=sum(block.page_id in page_ids for block in blocks),
             inbound_ref_count=sum(ref.target_page_id in page_ids for ref in refs),
             sidebar_count=sum(sidebar.title in page_titles for sidebar in sidebars),

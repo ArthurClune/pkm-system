@@ -193,19 +193,30 @@ def _page_title(db: sqlite3.Connection, page_id: int) -> str | None:
     return row["title"] if row is not None else None
 
 
+def _require_page_title(db: sqlite3.Connection, page_id: int) -> str:
+    title = _page_title(db, page_id)
+    if title is None:
+        raise AssertionError(
+            f"authoritative page title missing after applied op: page_id={page_id}"
+        )
+    return title
+
+
 def _broadcast_page_title(db: sqlite3.Connection, op,
                           ctx: OpContext) -> str | None:
     if isinstance(op, (CreateOp, CreatePageOp)) and ctx.page_id is not None:
-        return _page_title(db, ctx.page_id)
+        return _require_page_title(db, ctx.page_id)
     if not isinstance(op, MoveOp) or ctx.block is None:
         return None
     row = db.execute("SELECT page_id FROM blocks WHERE uid = ?",
                      (op.uid,)).fetchone()
     if row is None:
-        return None
+        raise AssertionError(
+            f"applied move block missing before broadcast: uid={op.uid}"
+        )
     if op.page_title is None and row["page_id"] == ctx.block.page_id:
         return None
-    return _page_title(db, row["page_id"])
+    return _require_page_title(db, row["page_id"])
 
 
 def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:
@@ -215,7 +226,8 @@ def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:
     broadcast page_title comes from the authoritative stored page row the op
     actually applied to, not from the caller's spelling."""
     d = op.model_dump()
-    if title := _broadcast_page_title(db, op, ctx):
+    title = _broadcast_page_title(db, op, ctx)
+    if title is not None:
         d["page_title"] = title
     return d
 

@@ -152,6 +152,37 @@ def test_move_broadcast_uses_the_destination_page_title_after_apply(db):
     }]
 
 
+@pytest.mark.parametrize(
+    "op",
+    [
+        {
+            "op": "create",
+            "uid": "missingtitle1",
+            "page_title": "Caller Create Spelling",
+            "parent_uid": None,
+            "order_idx": 0,
+            "text": "body",
+        },
+        {"op": "create_page", "page_title": "Caller Page Spelling"},
+        {
+            "op": "move",
+            "uid": "uid_b4",
+            "parent_uid": None,
+            "order_idx": 0,
+            "page_title": "Caller Move Spelling",
+        },
+    ],
+    ids=["create", "create_page", "resolved_move"],
+)
+def test_applied_page_broadcast_fails_closed_when_authoritative_title_is_missing(
+        db, monkeypatch, op):
+    """Mutation caught: fall back to op.model_dump() caller spelling."""
+    monkeypatch.setattr(ops_apply, "_page_title", lambda *_args: None)
+
+    with pytest.raises(AssertionError, match="authoritative page title"):
+        apply_batch(db, _batch(op), NOW)
+
+
 def test_same_page_move_broadcast_keeps_page_title_null(db):
     broadcast = apply_batch(db, _batch(
         {"op": "move", "uid": "uid_b3", "parent_uid": None, "order_idx": 0},

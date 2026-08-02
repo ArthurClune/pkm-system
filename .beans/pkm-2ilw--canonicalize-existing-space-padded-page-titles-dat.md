@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-02T20:57:40Z
+updated_at: 2026-08-02T21:47:49Z
 parent: pkm-ulae
 ---
 
@@ -106,3 +106,15 @@ Reused the shared title-migration audit/apply shell against importer-built tempo
 ## Summary of Changes
 
 Implemented deterministic title-migration planning and digesting; atomic audit/apply with merge, reference/sidebar reconciliation, activation, generation rotation, authenticated API and typed CLI; activation-aware online/offline title boundaries and pending replay reconciliation; authoritative title broadcasts; importer reuse before publication; control-whitespace read normalization; and truthful complete backlink pagination. Documented the complete operator and architecture contracts and verified the focused/generated gates plus an isolated CLI migration lifecycle. Production title migration/inventory was NOT executed; all Task 10 runtime verification used disposable data, a disposable CLI config, and http://127.0.0.1:18974.
+
+## Final review fix wave
+
+- [x] Canonicalize overlapping nested migration sources in pure rewrite, atomic apply, and importer publication without residual padded identities
+- [x] Reindex under transaction-local post-activation semantics and preserve rollback/digest behavior
+- [x] Force an immediate equal-cursor pull after metadata-only generation rotation without fabricating a journal sequence
+- [x] Fail closed when an applied-page broadcast cannot load its authoritative stored title
+- [x] Update sync/backend architecture invariants and run focused server/web/type/lint gates
+
+## Final review fix summary
+
+Nested source targets now resolve to one final canonical spelling while preserving the chosen outer page identity; activation is set before reindex inside the same rollback-protected transaction, so ref resolution cannot recreate deleted padded pages. Title activation broadcasts a forced WebSocket seq frame containing the actual journal maximum and new generation, allowing already-current replicas to pull and rebootstrap without mutating or inventing cursor values. Applied-page broadcasts raise on an unreachable authoritative-title lookup failure instead of retaining caller spelling, while same-page null semantics remain unchanged. All verification used only in-memory or pytest temporary data; no production PKM data/config or port 8974 was used.

@@ -46,12 +46,37 @@ def _matching_bracket_end(text: str, start: int, stop: int) -> int | None:
     return index if depth == 0 else None
 
 
+def _mapped_title(
+    source: str,
+    target: str,
+    replacements: Mapping[str, str],
+    expanding: frozenset[str],
+) -> str:
+    """Rewrite nested sources carried inside an enclosing source's target.
+
+    Replacement targets are not generally chained (``A -> B``, ``B -> C``
+    still rewrites ``[[A]]`` to ``[[B]]``). Nested refs are different: their
+    spans existed inside the matched outer title, so simultaneous migration
+    semantics require them to be rewritten too. The expansion guard makes
+    adversarial cyclic mappings terminate deterministically.
+    """
+    if source in expanding:
+        return target
+    return _rewrite_title_refs_map(
+        target,
+        replacements,
+        expanding=expanding | {source},
+        allow_attribute=False,
+    )
+
+
 def _scan_range(
     clean: str,
     replacements: Mapping[str, str],
     start: int,
     stop: int,
     spans: list[tuple[int, int, str]],
+    expanding: frozenset[str],
 ) -> None:
     index = start
     while index < stop:
@@ -63,9 +88,19 @@ def _scan_range(
                 title = clean[inner_start:inner_end]
                 new_title = replacements.get(title)
                 if new_title is not None:
-                    spans.append((index, close, f"#[[{new_title}]]"))
+                    rendered = _mapped_title(
+                        title, new_title, replacements, expanding
+                    )
+                    spans.append((index, close, f"#[[{rendered}]]"))
                 else:
-                    _scan_range(clean, replacements, inner_start, inner_end, spans)
+                    _scan_range(
+                        clean,
+                        replacements,
+                        inner_start,
+                        inner_end,
+                        spans,
+                        expanding,
+                    )
                 index = close
                 continue
 
@@ -77,9 +112,19 @@ def _scan_range(
                 title = clean[inner_start:inner_end]
                 new_title = replacements.get(title)
                 if new_title is not None:
-                    spans.append((index, close, f"[[{new_title}]]"))
+                    rendered = _mapped_title(
+                        title, new_title, replacements, expanding
+                    )
+                    spans.append((index, close, f"[[{rendered}]]"))
                 else:
-                    _scan_range(clean, replacements, inner_start, inner_end, spans)
+                    _scan_range(
+                        clean,
+                        replacements,
+                        inner_start,
+                        inner_end,
+                        spans,
+                        expanding,
+                    )
                 index = close
                 continue
 
@@ -89,32 +134,50 @@ def _scan_range(
                 title = match.group(0)
                 new_title = replacements.get(title)
                 if new_title is not None:
-                    spans.append((index, match.end(), _tag_form(new_title)))
+                    rendered = _mapped_title(
+                        title, new_title, replacements, expanding
+                    )
+                    spans.append((index, match.end(), _tag_form(rendered)))
                 index = match.end()
                 continue
 
         index += 1
 
 
-def rewrite_title_refs_map(text: str, replacements: Mapping[str, str]) -> str:
-    if not replacements:
-        return text
-
+def _rewrite_title_refs_map(
+    text: str,
+    replacements: Mapping[str, str],
+    *,
+    expanding: frozenset[str],
+    allow_attribute: bool,
+) -> str:
     clean = _strip_code(text)
     spans: list[tuple[int, int, str]] = []
 
-    if (match := _ATTRIBUTE.match(clean)) is not None:
+    if allow_attribute and (match := _ATTRIBUTE.match(clean)) is not None:
         title = match.group(1).strip()
         new_title = replacements.get(title)
         if new_title is not None:
-            spans.append((match.start(1), match.end(), _attribute_form(new_title)))
+            rendered = _mapped_title(title, new_title, replacements, expanding)
+            spans.append((match.start(1), match.end(), _attribute_form(rendered)))
 
-    _scan_range(clean, replacements, 0, len(clean), spans)
+    _scan_range(clean, replacements, 0, len(clean), spans, expanding)
 
     out = text
     for start, end, replacement in sorted(spans, reverse=True):
         out = out[:start] + replacement + out[end:]
     return out
+
+
+def rewrite_title_refs_map(text: str, replacements: Mapping[str, str]) -> str:
+    if not replacements:
+        return text
+    return _rewrite_title_refs_map(
+        text,
+        replacements,
+        expanding=frozenset(),
+        allow_attribute=True,
+    )
 
 
 def rewrite_title_refs(text: str, old_title: str, new_title: str) -> str:

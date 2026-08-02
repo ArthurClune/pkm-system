@@ -84,7 +84,12 @@ def apply_title_canonicalization(
         AlreadyActiveTitleMigration,
     ) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
-    notify.nudge_threadpool(request, db)
+    notify.nudge_threadpool(
+        request,
+        db,
+        force=True,
+        generation=outcome.generation,
+    )
     return {
         "digest": outcome.digest,
         "groups_applied": outcome.groups_applied,

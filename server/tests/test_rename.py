@@ -118,3 +118,15 @@ def test_map_order_does_not_change_the_result():
     )
     assert first == "[[Acme]] [[Acme]] #[[New Name]]"
     assert second == first
+
+
+def test_map_rewrites_overlapping_nested_sources_simultaneously():
+    """Mutation caught: let an outer replacement suppress its nested source."""
+    replacements = {
+        " Outer [[ Inner ]] ": "Outer [[ Inner ]]",
+        " Inner ": "Inner",
+    }
+
+    assert rewrite_title_refs_map(
+        "[[ Outer [[ Inner ]] ]]", replacements
+    ) == "[[Outer [[Inner]]]]"

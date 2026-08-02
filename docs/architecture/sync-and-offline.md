@@ -15,7 +15,8 @@ source of truth; clients apply edits optimistically and send op batches to
 `POST /api/ops`. Down-sync is *pull-based*: an append-only change journal
 (populated by SQLite triggers) gives every change a monotonic `seq`, clients
 keep a cursor, and `GET /api/sync/changes?since=` returns everything after
-it. The WebSocket only *nudges* — it announces new seqs and echoes applied
+it. The WebSocket only *nudges* — it announces real journal seqs, can force a
+pull for committed metadata-only generation changes, and echoes applied
 batches, but correctness never depends on receiving a frame. Offline is a
 cache, not a fork: each browser holds a sqlite-wasm replica plus a durable
 queue of unacknowledged batches; batch ids make replays idempotent, and
@@ -30,7 +31,7 @@ collisions at push time.
 | Windowed feed | `server/.../routes_sync.py`, `sync_core.py` | `changes?since=` dedupes a window of raw journal rows; `snapshot` bootstraps |
 | Sync metadata | `sync_meta` (`db_generation`, `plain_space_title_canonicalization`) | Durable server-only switches: the generation token forces client rebootstrap after importer swaps, and the title-canonicalization flag gates stripping leading/trailing plain spaces |
 | Idempotent writes | `routes_ops.py`, `applied_batches` table | Same `batch_id` + same payload hash → replay stored ack; different payload → 409 |
-| WS hub | `server/.../ws.py`, `notify.py` | Post-commit push of `{type:"seq",seq}` + applied-op echoes; 1 s send timeout, stalled clients dropped |
+| WS hub | `server/.../ws.py`, `notify.py` | Post-commit push of `{type:"seq",seq}`; metadata-only generation rotation adds `force:true,generation`; applied-op echoes; 1 s send timeout, stalled clients dropped |
 | Replica | `web/src/replica/` (worker, OPFS) | sqlite-wasm copy of the graph (BASE_DDL only) in a worker on the OPFS SAHPool VFS |
 | Op queue | `web/src/sync/opQueue.ts`, `web/src/replica/queue.ts` | Durable `pending_ops` rows in the replica DB; optimistic local apply; drain-on-reconnect |
 | Sync orchestration | `web/src/sync/SyncProvider.tsx`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncSeq`) |
@@ -124,8 +125,13 @@ client that receives the first post-migration changes payload sees the new
 generation and returns `needs-bootstrap` **before** mutating cursor,
 generation, or activation metadata; the snapshot then installs the canonical
 server graph and metadata together and replays pending intent. The apply
-route sends one seq nudge after commit so connected clients discover this
-promptly, but the pull/generation check remains the correctness mechanism.
+route sends one forced seq frame after commit:
+`{type:"seq", seq:<actual journal max>, force:true, generation:<new token>}`.
+A current client pulls even when that real seq equals its cursor, discovers
+the generation mismatch, and reboots immediately. The force bit never changes
+or fabricates the cursor, so the next ordinary higher-seq frame remains
+observable. Reconnect pull plus the feed's generation check remain the
+correctness mechanism if the best-effort frame is lost.
 
 Applied-op echoes also use authoritative stored titles: create, create-page,
 and moves with a resolved page target replace the caller spelling with the
@@ -139,7 +145,10 @@ page key while still relying on the journal pull for state.
 Every route whose commit touches a changes-journaled table (`blocks`,
 `pages`, or `sidebar_entries` — the three with triggers in `schema.py`
 `SERVER_DDL`) must send a WS `{type:"seq", seq}` nudge immediately after
-that commit, so connected replicas know to pull the new window (nudges are
+that commit, so connected replicas know to pull the new window. A committed
+metadata/generation change that may leave `changes.seq` unchanged must send
+the same frame with `force:true` and the new `generation`; `seq` is still the
+actual journal maximum, never a synthetic future value. Nudges are
 a latency optimization, never a correctness dependency — see "An online
 edit, end to end" above). `notify.py` provides `commit_and_nudge_threadpool`
 for sync-def routes (hopping back to the event loop via
@@ -362,7 +371,7 @@ recovery coordinator:
 | Trigger | Detected by | Kind |
 |---|---|---|
 | App deploy changed the client schema | `SCHEMA_VERSION` = sha256(base + client DDL) vs stored value | `reset` (rebuild file) |
-| Server DB rebuilt (importer swap) | `generation` token mismatch in any feed payload | `rebase` (flush queue, re-snapshot) |
+| Server DB rebuilt or title activation rotated generation | `generation` token mismatch in any feed payload; a forced WS frame makes metadata-only rotation pull immediately | `rebase` (flush queue, re-snapshot) |
 | Cursor ahead of journal | `reset: true` from the feed | `rebase` |
 
 ## Ancillary details

@@ -51,6 +51,17 @@ ALL_SPACE_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :d
   [2 :block/order 0 1]
  ]}"""
 
+NESTED_MIGRATION_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title " Outer [[ Inner ]] " 1]
+  [10 :node/title " Inner " 1]
+  [20 :node/title "Watcher" 1]
+  [20 :block/children 21 1]
+  [21 :block/uid "uid-nested-watcher" 1]
+  [21 :block/string "[[ Outer [[ Inner ]] ]]" 1]
+  [21 :block/order 0 1]
+ ]}"""
+
 
 def _setup_files(tmp_path: Path) -> Path:
     files = tmp_path / "files"
@@ -417,6 +428,38 @@ def test_import_canonicalizes_padded_titles_before_publication(tmp_path):
         ("uid-padded-root", page_ids["Other"], "link"),
         ("uid-watcher", page_ids["Acme"], "link"),
     ]
+
+
+def test_import_canonicalizes_nested_sources_before_publication(tmp_path):
+    """Mutation caught: publish after nested reindex recreates a padded page."""
+    export_file = _write_export(tmp_path, "nested-migration.edn", NESTED_MIGRATION_EXPORT)
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 0
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute(
+        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
+    ).fetchone()[0] == "1"
+    page_ids = {
+        title: page_id
+        for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
+    }
+    assert page_ids.keys() == {"Outer [[Inner]]", "Inner", "Watcher"}
+    assert con.execute(
+        "SELECT text FROM blocks WHERE uid='uid-nested-watcher'"
+    ).fetchone()[0] == "[[Outer [[Inner]]]]"
+    assert [tuple(row) for row in con.execute(
+        "SELECT target_page_id, kind FROM refs "
+        "WHERE src_block_uid='uid-nested-watcher' ORDER BY target_page_id, kind"
+    )] == sorted([
+        (page_ids["Outer [[Inner]]"], "link"),
+        (page_ids["Inner"], "link"),
+    ])
+    assert con.execute(
+        "SELECT count(*) FROM pages WHERE title != rtrim(ltrim(title, ' '), ' ')"
+    ).fetchone()[0] == 0
 
 
 def test_import_marks_ordinary_database_active(tmp_path):

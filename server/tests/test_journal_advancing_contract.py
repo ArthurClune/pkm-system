@@ -285,3 +285,53 @@ def test_journal_advancing_route_emits_seq_nudge(name, setup, action, client,
         else:
             raise AssertionError(f"{name}: no seq nudge in {frames}")
         assert frames[-1]["seq"] > 0
+
+
+def test_zero_group_title_activation_forces_an_equal_cursor_replica_pull(
+        client, seeded_config):
+    """Mutation caught: send an ordinary equal-cursor seq after metadata rotation."""
+    audit = client.get("/api/migrations/title-canonicalization").json()
+    assert audit["groups"] == []
+
+    db = open_db(seeded_config.db_path)
+    try:
+        latest_seq = db.execute(
+            "SELECT COALESCE(MAX(seq), 0) FROM changes"
+        ).fetchone()[0]
+        old_generation = db.execute(
+            "SELECT value FROM sync_meta WHERE key='db_generation'"
+        ).fetchone()[0]
+    finally:
+        db.close()
+
+    with client.websocket_connect("/api/ws") as ws:
+        response = client.post(
+            "/api/migrations/title-canonicalization",
+            json={"audit_digest": audit["digest"]},
+        )
+        assert response.status_code == 200, response.text
+        frame = ws.receive_json()
+
+    applied = response.json()
+    assert applied["groups_applied"] == 0
+    assert applied["generation"] != old_generation
+    assert frame == {
+        "type": "seq",
+        "seq": latest_seq,
+        "force": True,
+        "generation": applied["generation"],
+    }
+
+    db = open_db(seeded_config.db_path)
+    try:
+        assert db.execute(
+            "SELECT COALESCE(MAX(seq), 0) FROM changes"
+        ).fetchone()[0] == latest_seq
+    finally:
+        db.close()
+
+    changes = client.get(f"/api/sync/changes?since={latest_seq}").json()
+    assert changes["next_since"] == latest_seq
+    assert changes["latest_seq"] == latest_seq
+    assert changes["generation"] == applied["generation"]
+    assert changes["plain_space_title_canonicalization"] is True

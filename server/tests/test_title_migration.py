@@ -300,6 +300,77 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
     assert db.in_transaction is False
 
 
+def test_nested_final_orphan_sidebar_identity_is_inventoried_and_digested():
+    """Mutation caught: omit the nested final title from sidebar inventory."""
+    db = _database()
+    db.executemany(
+        "INSERT INTO pages(id, title) VALUES (?, ?)",
+        [(1, " Outer [[ Inner ]] "), (2, " Inner ")],
+    )
+    db.execute(
+        "INSERT INTO sidebar_entries(id, title, order_idx) "
+        "VALUES (9, 'Outer [[Inner]]', 3)"
+    )
+    db.commit()
+
+    plan = audit_title_migration(db)
+
+    assert [
+        (sidebar.sidebar_id, sidebar.title, sidebar.order_idx)
+        for sidebar in plan.sidebars
+    ] == [(9, "Outer [[Inner]]", 3)]
+    db.execute("UPDATE sidebar_entries SET order_idx=4 WHERE id=9")
+    db.commit()
+    with pytest.raises(StaleTitleMigration):
+        apply_title_migration(db, plan.digest, now_ms=10_001)
+
+
+def test_apply_canonicalizes_nested_sources_without_recreating_padded_pages():
+    """Mutation caught: suppress inner rewrite or reindex before activation."""
+    db = _database()
+    db.executemany(
+        "INSERT INTO pages(id, title) VALUES (?, ?)",
+        [
+            (1, " Outer [[ Inner ]] "),
+            (2, " Inner "),
+            (3, "Watcher"),
+        ],
+    )
+    db.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text) "
+        "VALUES ('nested-watcher', 3, NULL, 0, '[[ Outer [[ Inner ]] ]]')"
+    )
+    db.executemany(
+        "INSERT INTO refs(src_block_uid, target_page_id, kind) VALUES (?, ?, 'link')",
+        [("nested-watcher", 1), ("nested-watcher", 2)],
+    )
+    db.commit()
+    plan = audit_title_migration(db)
+    audited_digest = plan.digest
+
+    outcome = apply_title_migration(db, audited_digest, now_ms=10_001)
+
+    assert outcome.digest == audited_digest
+    assert plain_space_title_canonicalization_active(db) is True
+    assert [tuple(row) for row in db.execute(
+        "SELECT id, title FROM pages ORDER BY id"
+    )] == [
+        (1, "Outer [[Inner]]"),
+        (2, "Inner"),
+        (3, "Watcher"),
+    ]
+    assert db.execute(
+        "SELECT text FROM blocks WHERE uid='nested-watcher'"
+    ).fetchone()[0] == "[[Outer [[Inner]]]]"
+    assert [tuple(row) for row in db.execute(
+        "SELECT target_page_id, kind FROM refs "
+        "WHERE src_block_uid='nested-watcher' ORDER BY target_page_id, kind"
+    )] == [(1, "link"), (2, "link")]
+    assert db.execute(
+        "SELECT count(*) FROM pages WHERE title != rtrim(ltrim(title, ' '), ' ')"
+    ).fetchone()[0] == 0
+
+
 def test_apply_rejects_stale_digest_without_mutation():
     """Mutation caught: trust the audit digest without re-inventory under write lock."""
     db = _database()
@@ -356,7 +427,12 @@ def test_apply_rolls_back_all_effects_when_rewrite_fails(monkeypatch):
     plan = audit_title_migration(db)
     before = _state(db)
 
-    def fail_rewrite(*args, **kwargs):
+    activation_seen_during_reindex: list[bool] = []
+
+    def fail_rewrite(rewrite_db, *args, **kwargs):
+        activation_seen_during_reindex.append(
+            plain_space_title_canonicalization_active(rewrite_db)
+        )
         raise RuntimeError("injected rewrite failure")
 
     monkeypatch.setattr(
@@ -366,6 +442,7 @@ def test_apply_rolls_back_all_effects_when_rewrite_fails(monkeypatch):
     with pytest.raises(RuntimeError, match="injected rewrite failure"):
         apply_title_migration(db, plan.digest, now_ms=10_004)
 
+    assert activation_seen_during_reindex == [True]
     assert _state(db) == before
     assert plain_space_title_canonicalization_active(db) is False
     assert db.in_transaction is False

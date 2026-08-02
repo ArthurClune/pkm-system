@@ -10,11 +10,15 @@ export interface WsBatch {
 }
 
 /** Post-commit journal nudge (server notify.SeqFrame): the replica pulls
- * the changes feed when one arrives. Best-effort — the cursor pull on
+ * the changes feed when one arrives. A forced frame carries the real journal
+ * maximum plus the committed generation and pulls even at an equal cursor;
+ * it never fabricates a future sequence. Best-effort — the cursor pull on
  * reconnect is the correctness mechanism. */
 export interface WsSeq {
   type: "seq";
   seq: number;
+  force?: boolean;
+  generation?: string;
 }
 
 export interface SocketHandle {

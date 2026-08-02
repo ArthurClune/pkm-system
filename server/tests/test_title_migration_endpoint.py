@@ -215,10 +215,10 @@ def test_title_migration_apply_activates_rotates_generation_and_nudges_once(
         finally:
             counting_db.close()
 
-    nudges: list[tuple[object, _CountingConnection]] = []
+    nudges: list[tuple[object, _CountingConnection, bool, str | None]] = []
 
-    def fake_nudge(request, db):
-        nudges.append((request, db))
+    def fake_nudge(request, db, *, force=False, generation=None):
+        nudges.append((request, db, force, generation))
 
     previous_override = client.app.dependency_overrides.get(get_db)
     client.app.dependency_overrides[get_db] = override_db
@@ -247,6 +247,7 @@ def test_title_migration_apply_activates_rotates_generation_and_nudges_once(
     assert counting_db.commit_calls == 1
     assert len(nudges) == 1
     assert nudges[0][1] is counting_db
+    assert nudges[0][2:] == (True, r.json()["generation"])
 
     db = open_db(seeded_config.db_path)
     assert plain_space_title_canonicalization_active(db) is True

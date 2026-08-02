@@ -323,7 +323,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | **Sync** (see [sync-and-offline.md](sync-and-offline.md)) | | |
 | GET | `/api/sync/snapshot` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation |
 | GET | `/api/sync/changes?since&limit` | Windowed incremental feed with the same generation/activation metadata |
-| WS | `/api/ws` | Push nudges: applied-op broadcasts + `seq` hints |
+| WS | `/api/ws` | Push nudges: applied-op broadcasts + real `seq` hints; title generation rotation adds `force:true,generation` without fabricating a cursor |
 | **Assistant** (SSE — see [Embedded assistant](#embedded-assistant-pkmassistant)) | | |
 | POST | `/api/assistant/conversations` | Create a conversation (`model`: `sonnet` default / `opus` / `haiku`); 409 over the 3-conversation cap |
 | POST | `/api/assistant/conversations/{id}` | Beacon cleanup close (`navigator.sendBeacon`): delete the conversation, shut down its harness, and return `AssistantAck` |
@@ -916,10 +916,14 @@ restart alone cannot change title identity.
 The operator path is split along FCIS boundaries:
 
 - `pkm/title_migration.py` is the pure deterministic planner. It groups padded
-  titles by canonical spelling, chooses an existing clean twin when present
-  (otherwise the lowest page id), lists source pages in stable id order,
-  counts affected blocks/inbound refs/sidebar entries, and reports all-space
-  pages as blockers. Its SHA-256 digest covers the active state and the exact
+  titles by canonical spelling, simultaneously rewrites nested source titles
+  inside enclosing titles, chooses an existing final clean twin when present
+  (otherwise preserves an intermediate clean identity or the lowest padded
+  page id), lists source pages in stable id order, counts affected
+  blocks/inbound refs/sidebar entries, and reports all-space pages as blockers.
+  Thus `[[ Outer [[ Inner ]] ]]` canonicalizes to `[[Outer [[Inner]]]]` when
+  both identities are sources without minting a second outer identity. Its
+  SHA-256 digest covers the active state and the exact
   relevant page, block, ref, sidebar, group and replacement snapshots, so
   repeated unchanged audits are stable.
 - `server/title_migration.py::audit_title_migration()` owns a read transaction
@@ -928,11 +932,15 @@ The operator path is split along FCIS boundaries:
 - Apply requires a 64-lowercase-hex `audit_digest`, takes `BEGIN IMMEDIATE`,
   re-inventories under that writer reservation, and refuses stale digests,
   all-space blockers, or an already-active database (HTTP 409). It then
-  retitles or merges in stable order, moves blocks, rewrites each snapshotted
-  inbound block once and rebuilds refs, reconciles sidebar identities, sets
-  activation, and rotates `db_generation` in that same transaction. Any error
-  or interruption rolls all of it back. The route emits one post-commit seq
-  nudge and returns the applied counts plus the new generation.
+  retitles or merges in stable order, moves blocks, sets activation before
+  rewriting each snapshotted inbound block and rebuilding refs, reconciles
+  sidebar identities, and rotates `db_generation` in that same transaction.
+  Setting activation before reindex is transaction-local and load-bearing:
+  every final ref resolves under post-activation canonical semantics, while
+  any error or interruption rolls the flag and all row changes back before
+  they can become visible. The route emits one post-commit forced seq frame
+  containing the real journal maximum and new generation, then returns the
+  applied counts plus that generation.
 
 The successful generation rotation is part of activation, not bookkeeping:
 connected browser replicas see a generation mismatch, reject that changes
@@ -970,9 +978,11 @@ with real user content.
 caller's `page_title` with that stored title;
 this covers the `"Untitled"` fallback, control-whitespace normalization, and
 post-activation boundary-space stripping. A same-page move with no
-`page_title` remains null. Remote replicas therefore refetch the page the
-server actually mutated rather than keying local state by a raw caller
-spelling the server did not store.
+`page_title` remains null. If an applied-page row lookup ever violates its
+normally unreachable invariant, broadcast assembly raises and the owning op
+transaction rolls back rather than emitting caller spelling. Remote replicas
+therefore refetch the page the server actually mutated rather than keying
+local state by a raw caller spelling the server did not store.
 
 **Ref indexing (not just page creation) needs the same blankness check, but
 answers it differently.** `refs.extract()`'s own "drop a blank ref" filter

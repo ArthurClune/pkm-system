@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-02T19:36:50Z
+updated_at: 2026-08-02T19:56:09Z
 parent: pkm-ulae
 ---
 
@@ -68,3 +68,15 @@ Added typed client audit/apply methods for the authenticated title-canonicalizat
 ## Task 6 Summary of Changes
 
 Gated server and replica title boundaries on the durable migration activation flag, propagated required activation metadata through snapshot/reset/changes contracts, persisted accepted browser metadata before pending replay without mutating generation-mismatched state, centralized pure TypeScript title canonicalization, and covered activation-aware local reads/creation/moves. Regenerated OpenAPI/types and passed the focused server/web tests, pyrefly, ruff, and TypeScript typecheck. Production inventory/apply was not run and remains the only unchecked top-level operational item; the bean stays in progress.
+
+## Task 6 fix round 1/5
+
+- [x] Add and capture RED server POST boundary regression
+- [x] Add and capture RED replica activation replay regression
+- [x] Implement minimal FCIS-consistent fixes
+- [x] Run focused suites, typecheck, pyrefly, and ruff
+- [x] Append report evidence and commit fix round
+
+## Task 6 fix round 1/5 summary
+
+Added a focused real-POST activation regression (with mutation RED because the base Task 6 commit already contained the raw-title route fix), reconciled pre-applied padded negative-id pages onto accepted canonical targets before pending replay, preserved optimistic blocks/refs and unchanged wire operations across create_page/create/cross-page move shapes, updated architecture invariants, and passed focused server/web suites plus TypeScript, pyrefly, and ruff gates. The two reviewer minors remain deferred to final review as requested.

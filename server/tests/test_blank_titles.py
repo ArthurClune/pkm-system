@@ -219,6 +219,37 @@ def test_post_pages_route_rejects_spaces_only_title_too(client):
     assert r.status_code == 422
 
 
+def test_post_pages_gates_boundary_spaces_without_weakening_blank_rejection(
+        client, seeded_config):
+    inactive_title = "  Inactive POST Boundary  "
+    inactive = client.post("/api/pages", json={"title": inactive_title})
+
+    assert inactive.status_code == 200
+    assert inactive.json()["title"] == inactive_title
+    assert inactive_title in _titles(seeded_config)
+    assert "Inactive POST Boundary" not in _titles(seeded_config)
+    assert client.post("/api/pages", json={"title": SPACES_ONLY}).status_code == 422
+
+    audit = client.get("/api/migrations/title-canonicalization").json()
+    applied = client.post(
+        "/api/migrations/title-canonicalization",
+        json={"audit_digest": audit["digest"]},
+    )
+    assert applied.status_code == 200
+
+    active_title = "  Active POST Boundary  "
+    active = client.post("/api/pages", json={"title": active_title})
+
+    assert active.status_code == 200
+    assert active.json()["title"] == "Active POST Boundary"
+    titles = _titles(seeded_config)
+    assert inactive_title not in titles
+    assert "Inactive POST Boundary" in titles
+    assert active_title not in titles
+    assert "Active POST Boundary" in titles
+    assert client.post("/api/pages", json={"title": SPACES_ONLY}).status_code == 422
+
+
 def test_all_creation_boundaries_preserve_plain_space_before_activation(
         client, seeded_config):
     posted = client.post("/api/pages", json={"title": "  Pre Post  "})

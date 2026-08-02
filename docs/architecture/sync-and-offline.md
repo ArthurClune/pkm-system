@@ -92,10 +92,14 @@ database; your cursor is meaningless".
 Both snapshot and changes payloads also carry the required
 `plain_space_title_canonicalization` flag. The replica persists it in
 `sync_client_meta` as `"0"` or `"1"` in the same transaction as an accepted
-payload, **before** replaying pending optimistic batches. That order is
-load-bearing: after migration activation, replay must resolve padded page
-titles using the newly active boundary-U+0020 rule rather than recreating the
-old spelling. A reset or generation-mismatched changes payload returns before
+payload, **before** reconciling and replaying pending optimistic batches. That
+order is load-bearing: after migration activation, the replica first
+canonicalizes negative-id pages created under the inactive rule. It remaps
+their blocks and refs onto a canonical authoritative page from the accepted
+feed when one exists, or retitles the negative page in place otherwise. It
+then replays the unchanged durable wire operations under the newly active
+boundary-U+0020 rule, so neither padded page residue nor optimistic user state
+is lost. A reset or generation-mismatched changes payload returns before
 mutating cursor, generation, or activation metadata; the subsequent snapshot
 replaces them together. Local creation and read shells consult the persisted
 flag, while the pure title core always normalizes control whitespace and,

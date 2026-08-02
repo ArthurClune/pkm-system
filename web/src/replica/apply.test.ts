@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { getMeta } from "./meta";
-import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
+import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 
 const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
@@ -202,23 +202,72 @@ describe("applySnapshot", () => {
 });
 
 describe("applyChanges", () => {
-  test("persists accepted activation before replaying pending ops", () => {
-    t.db.exec(
-      "INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, ?)",
-      ["pending-feed-title", JSON.stringify([
-        { op: "create_page", page_title: "  Feed Pending  " },
-      ])],
-    );
+  test("activation reconciles already-applied pending page targets before replay", () => {
+    enqueueBatch(t.db, [
+      { op: "create_page", page_title: "  New Page Target  " },
+    ], 5, "pending-create-page");
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_pending1", page_title: "  Created Block Target  ",
+        parent_uid: null, order_idx: 0, text: "pending create" },
+    ], 5, "pending-create");
+    enqueueBatch(t.db, [
+      { op: "move", uid: "uid_b2", parent_uid: null, order_idx: 0,
+        page_title: "  Moved Block Target  " },
+    ], 5, "pending-move");
+
+    expect(t.db.select(
+      "SELECT id, title FROM pages WHERE id < 0 ORDER BY title"))
+      .toEqual([
+        { id: -2, title: "  Created Block Target  " },
+        { id: -3, title: "  Moved Block Target  " },
+        { id: -1, title: "  New Page Target  " },
+      ]);
+    expect(t.db.select(
+      "SELECT uid, page_id FROM blocks" +
+      " WHERE uid IN ('uid_pending1', 'uid_b2', 'uid_b3') ORDER BY uid"))
+      .toEqual([
+        { uid: "uid_b2", page_id: -3 },
+        { uid: "uid_b3", page_id: -3 },
+        { uid: "uid_pending1", page_id: -2 },
+      ]);
+    const wireOpsBefore = allBatches(t.db).map((batch) => batch.ops);
+    expect(wireOpsBefore).toEqual([
+      [{ op: "create_page", page_title: "  New Page Target  " }],
+      [{ op: "create", uid: "uid_pending1", page_title: "  Created Block Target  ",
+        parent_uid: null, order_idx: 0, text: "pending create" }],
+      [{ op: "move", uid: "uid_b2", parent_uid: null, order_idx: 0,
+        page_title: "  Moved Block Target  " }],
+    ]);
 
     expect(applyChanges(t.db, emptyFeed({
       next_since: 11,
       latest_seq: 11,
       plain_space_title_canonicalization: true,
+      pages: [
+        page(10, "New Page Target"),
+        page(11, "Created Block Target"),
+        page(12, "Moved Block Target"),
+      ],
     }), 6)).toEqual({ status: "applied", cursor: 11 });
 
     expect(getMeta(t.db, "plain_space_title_canonicalization")).toBe("1");
-    expect(t.db.select("SELECT title FROM pages WHERE title LIKE '%Pending%'"))
-      .toEqual([{ title: "Feed Pending" }]);
+    expect(t.db.select(
+      "SELECT id, title FROM pages WHERE title LIKE '%Target%' ORDER BY id"))
+      .toEqual([
+        { id: 10, title: "New Page Target" },
+        { id: 11, title: "Created Block Target" },
+        { id: 12, title: "Moved Block Target" },
+      ]);
+    expect(t.db.select("SELECT id, title FROM pages WHERE id < 0")).toEqual([]);
+    expect(t.db.select(
+      "SELECT uid, page_id FROM blocks" +
+      " WHERE uid IN ('uid_pending1', 'uid_b2', 'uid_b3') ORDER BY uid"))
+      .toEqual([
+        { uid: "uid_b2", page_id: 12 },
+        { uid: "uid_b3", page_id: 12 },
+        { uid: "uid_pending1", page_id: 11 },
+      ]);
+    expect(allBatches(t.db).map((batch) => batch.ops)).toEqual(wireOpsBefore);
   });
 
   test("feed windows preserve optimistically-applied pending state", () => {

@@ -11,7 +11,7 @@ import type { ReplicaDb, SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
 import { getMeta, setMeta, setPlainSpaceTitleCanonicalization } from "./meta";
 import { allBatches } from "./queue";
-import { reconcilePage } from "./reconcile";
+import { reconcileActivationPageTitles, reconcilePage } from "./reconcile";
 
 export type Changes = components["schemas"]["ChangesPayload"];
 export type Snapshot = components["schemas"]["SnapshotPayload"];
@@ -70,6 +70,7 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
     setMeta(db, "generation", snap.generation);
     setPlainSpaceTitleCanonicalization(
       db, snap.plain_space_title_canonicalization);
+    reconcileActivationPageTitles(db);
     reapplyPending(db, nowMs);
   });
 }
@@ -132,6 +133,7 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
     setMeta(db, "cursor", String(feed.next_since));
     setPlainSpaceTitleCanonicalization(
       db, feed.plain_space_title_canonicalization);
+    reconcileActivationPageTitles(db);
     reapplyPending(db, nowMs);
   });
   return { status: "applied", cursor: feed.next_since };

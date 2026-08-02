@@ -366,7 +366,10 @@ frontend contributor needs day-to-day:
   routes returning identical JSON (pinned by `shared/fixtures/shim_parity.json`).
   Unshimmed routes throw `OfflineError`, and their UI says "online only".
 - Pages created offline get negative ids, remapped by
-  `replica/reconcile.ts` when the authoritative row arrives.
+  `replica/reconcile.ts` when the authoritative row arrives. When title
+  canonicalization activates, the same shell canonicalizes or merges padded
+  negative-id pages before pending replay, preserving their blocks, refs, and
+  unchanged wire operations without leaving divergent padded pages.
 - The service worker (Workbox, configured in `vite.config.ts`) precaches the
   app shell + sqlite wasm + pdf.js worker + core KaTeX fonts, runtime-caches
   `/assets/` (CacheFirst, 400-entry LRU), and never caches `/api`.

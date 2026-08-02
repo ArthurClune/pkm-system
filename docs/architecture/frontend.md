@@ -121,9 +121,10 @@ filters (text, type, date range, linked/orphan), offset pagination and
 multi-select for delete and zip export. Pagination uses a synchronous
 single-flight lock as well as the disabled button state, while the generation
 guard still discards responses made stale by filter changes. Its pure half
-(`views/filesCore.ts`) owns the query-string building, MIME categorisation,
-size formatting, confirm-text composition and the reference token a user can
-copy into a block; the shell owns fetching, selection state and the download.
+(`views/filesCore.ts`) owns the typed query-object building, MIME
+categorisation, size formatting, confirm-text composition and the reference
+token a user can copy into a block; `typedClient` serializes that query while
+the shell owns fetching, selection state and the download.
 The zip export is submitted as a throwaway hidden `<form method="post">`
 rather than a fetch, so the browser owns the download rather than the SPA
 buffering it.
@@ -407,8 +408,9 @@ entry.
   types, which is what makes the server's keepalive comment frames (sent
   every 15 idle seconds, pkm-mbcc) invisible here — keep it that way.
 - `streamMessage` bypasses `apiFetch` (which consumes the body as JSON) but
-  replicates its 401 handling; the other calls use `apiFetch`. The
-  assistant is online-only — `/api/assistant/*` has no offline shim.
+  replicates its 401 handling; the other assistant JSON calls use the typed
+  client helpers. The assistant is online-only — `/api/assistant/*` has no
+  offline shim.
 
 ## API layer
 

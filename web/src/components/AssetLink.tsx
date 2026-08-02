@@ -3,7 +3,7 @@
 // asset-link rule (pkm-gdi5). The assistant panel mentions assets this way
 // ("here's the chart at /assets/<sha>/name.jpeg"); clicking should open the
 // block that actually references the asset, not the raw file. Resolution
-// goes through GET /api/search?exact=1: the FTS5 unicode61 tokenizer keeps
+// goes through GET /api/search?exact=true: the FTS5 unicode61 tokenizer keeps
 // a 64-hex sha as one token, so a block whose text contains the asset URL
 // is an exact match on the sha. No referencing block (or a failed lookup,
 // e.g. offline) falls back to opening the asset itself.

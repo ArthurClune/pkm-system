@@ -1,5 +1,5 @@
 // Flat, type-aware ESLint config (config file: exempt from the FCIS header
-// rule). Enforces exactly three rule families, no more:
+// rule). Enforces exactly three policy families, no more:
 //   * React Hooks correctness (rules-of-hooks, exhaustive-deps) so hook
 //     dependency arrays cannot silently drift out of sync with the effect
 //     body -- this is what lets Task 10 delete every exhaustive-deps
@@ -35,8 +35,8 @@ export default tseslint.config(
   },
   // base only: registers the typescript-eslint parser + plugin so the
   // @typescript-eslint/* rules below resolve, WITHOUT pulling in any of the
-  // recommended rule sets (that would be rule sprawl beyond the two named
-  // families this task is scoped to).
+  // recommended rule sets (that would be rule sprawl beyond the three named
+  // policy families this task is scoped to).
   tseslint.configs.base,
   {
     files: ["src/**/*.{ts,tsx}", "tooling/**/*.{ts,tsx}"],

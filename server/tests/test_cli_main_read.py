@@ -91,6 +91,20 @@ def test_get_page_json(run):
     assert json.loads(out)["page"]["title"] == "Machine Learning"
 
 
+def test_get_normalizes_control_whitespace_title(run, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create_page", "page_title": "Ctrl\tTitle"},
+        {"op": "create", "uid": "cligetctrl01", "page_title": "Ctrl\tTitle",
+         "parent_uid": None, "order_idx": 0, "text": "cli body"},
+    ], batch_id="cli-get-ctrlws-0001")
+
+    code, out, _ = run("get", "Ctrl\tTitle")
+
+    assert code == 0
+    assert out.startswith("# Ctrl Title\n")
+    assert "cli body" in out
+
+
 def test_get_uids_flag(run):
     _, out, _ = run("get", "Machine Learning", "--uids")
     assert "^uid_b1" in out
@@ -188,6 +202,21 @@ def test_refs(run):
     assert code == 0
     assert out.startswith("# Backlinks: Machine Learning (1 pages)")
     assert "July 7th, 2026" in out
+
+
+def test_refs_normalizes_control_whitespace_title(run, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create_page", "page_title": "Ctrl\tTitle"},
+        {"op": "create", "uid": "clirefsctrl1", "page_title": "Ctrl Source",
+         "parent_uid": None, "order_idx": 0, "text": "See [[Ctrl Title]]"},
+    ], batch_id="cli-refs-ctrlws-0001")
+
+    code, out, _ = run("refs", "Ctrl\tTitle", "--json")
+
+    assert code == 0
+    payload = json.loads(out)
+    assert payload["total_pages"] == 1
+    assert payload["groups"][0]["page_title"] == "Ctrl Source"
 
 
 def test_refs_returns_every_group_beyond_the_single_page_cap(

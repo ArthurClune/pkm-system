@@ -104,6 +104,20 @@ def test_get_page_quotes_title(pkm_client):
     assert page.page.title == "July 7th, 2026"
 
 
+def test_get_page_finds_a_page_whose_title_holds_control_whitespace(
+        pkm_client):
+    pkm_client.post_ops(
+        [CreatePageOp(op="create_page", page_title="Ctrl\tTitle"),
+         CreateOp(op="create", uid="ctrlwsread001", page_title="Ctrl\tTitle",
+                  parent_uid=None, order_idx=0, text="read me")],
+        batch_id="ctrl-ws-read-0001")
+
+    page = pkm_client.get_page("Ctrl\tTitle")
+
+    assert page.page.title == "Ctrl Title"
+    assert [block.text for block in page.blocks] == ["read me"]
+
+
 def test_search_query_todos(pkm_client):
     assert pkm_client.search("Papers").blocks
     assert pkm_client.run_query("{and: [[Paper]]}").total == 1
@@ -201,6 +215,34 @@ def test_get_page_blocks_finds_a_page_whose_title_holds_control_whitespace(
     assert [b.text for b in blocks] == ["already here"]
 
 
+def test_get_backlinks_finds_a_page_whose_title_holds_control_whitespace(
+        pkm_client):
+    pkm_client.post_ops(
+        [CreatePageOp(op="create_page", page_title="Ctrl\tTitle"),
+         CreateOp(op="create", uid="ctrlwslink001", page_title="Ctrl Source",
+                  parent_uid=None, order_idx=0, text="See [[Ctrl Title]]")],
+        batch_id="ctrl-ws-backlinks-0001")
+
+    result = pkm_client.get_backlinks("Ctrl\tTitle")
+
+    assert result.total_pages == 1
+    assert [(group.page_title, [item.text for item in group.items])
+            for group in result.groups] == [
+                ("Ctrl Source", ["See [[Ctrl Title]]"]),
+            ]
+
+
+def test_get_backlinks_preserves_the_first_server_limit_metadata(
+        pkm_client, seed_backlinks):
+    seed_backlinks(101)
+
+    result = pkm_client.get_backlinks("Machine Learning", page_size=1000)
+
+    assert result.total_pages == 102
+    assert len(result.groups) == 102
+    assert result.limit == 100
+
+
 def test_get_backlinks_fetches_every_group_beyond_the_single_page_cap(
         pkm_client, seed_backlinks):
     # routes_pages.py caps a single /api/page response to 100 backlink
@@ -226,7 +268,7 @@ def test_get_backlinks_no_backlinks_makes_one_request(pkm_client, monkeypatch):
     monkeypatch.setattr(pkm_client._http, "request", spy)
     result = pkm_client.get_backlinks("July 7th, 2026")
     assert len(calls) == 1  # no extra round trip once total_pages is 0
-    assert result == Backlinks(groups=[], total_pages=0, offset=0, limit=0)
+    assert result == Backlinks(groups=[], total_pages=0, offset=0, limit=100)
 
 
 def test_get_backlinks_restarts_when_source_order_shifts_mid_fetch(

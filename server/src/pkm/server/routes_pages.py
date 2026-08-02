@@ -34,6 +34,13 @@ _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
                " created_at, updated_at, view_type")
 
 
+def _read_title(db: sqlite3.Connection, title: str) -> str:
+    return canonicalize_title(
+        title,
+        plain_space=plain_space_title_canonicalization_active(db),
+    )
+
+
 class CreatePageRequest(BaseModel):
     title: str = Field(min_length=1)
 
@@ -167,6 +174,7 @@ def get_block(uid: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
 def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 20,
              db: sqlite3.Connection = Depends(get_db)) -> dict:
     bl_limit = max(1, min(bl_limit, 100))
+    title = _read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
         # Only TODAY auto-creates on read (journal semantics). Auto-creating
@@ -286,6 +294,7 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
 def get_unlinked(title: str, limit: int = 20, offset: int = 0,
                  db: sqlite3.Connection = Depends(get_db)) -> dict:
     limit = max(1, min(limit, 100))
+    title = _read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")

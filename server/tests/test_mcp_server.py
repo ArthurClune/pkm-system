@@ -25,6 +25,19 @@ def test_get_page_markdown_includes_uids(tools):
     assert "^uid_b1" in out
 
 
+def test_get_page_normalizes_control_whitespace_title(tools, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create_page", "page_title": "Ctrl\tTitle"},
+        {"op": "create", "uid": "mcpgetctrl01", "page_title": "Ctrl\tTitle",
+         "parent_uid": None, "order_idx": 0, "text": "mcp body"},
+    ], batch_id="mcp-get-ctrlws-0001")
+
+    out = tools.get_page("Ctrl\tTitle")
+
+    assert out.startswith("# Ctrl Title\n")
+    assert "mcp body" in out
+
+
 def test_get_block(tools):
     assert tools.get_block("uid_b3").startswith(
         "(in: Machine Learning > Papers)")
@@ -35,6 +48,19 @@ def test_search_query_backlinks_todos(tools):
     assert "(1 total)" in tools.query("{and: [[Paper]]}")
     assert tools.backlinks("Machine Learning").startswith("# Backlinks:")
     assert "(0 total)" in tools.todos()
+
+
+def test_backlinks_normalizes_control_whitespace_title(tools, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create_page", "page_title": "Ctrl\tTitle"},
+        {"op": "create", "uid": "mcprefsctrl1", "page_title": "Ctrl Source",
+         "parent_uid": None, "order_idx": 0, "text": "See [[Ctrl Title]]"},
+    ], batch_id="mcp-refs-ctrlws-0001")
+
+    out = tools.backlinks("Ctrl\tTitle")
+
+    assert "## Ctrl Source" in out
+    assert "See [[Ctrl Title]]" in out
 
 
 def test_backlinks_returns_every_group_beyond_the_single_page_cap(

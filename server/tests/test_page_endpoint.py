@@ -1,4 +1,6 @@
+import sqlite3
 from datetime import date, timedelta
+from urllib.parse import quote
 
 from pkm.contracts.daily import title_for_date
 
@@ -103,12 +105,71 @@ def test_missing_daily_page_auto_creates(client):
 
 
 def test_namespace_title_with_slash(client, seeded_config):
-    import sqlite3
     con = sqlite3.connect(seeded_config.db_path)
     con.execute("INSERT INTO pages(id,title) VALUES (99,'AWS/SCP')")
     con.commit()
     con.close()
     assert client.get("/api/page/AWS/SCP").status_code == 200
+
+
+def test_get_page_normalizes_routable_control_whitespace(client, seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (99, "Ctrl Title", 100, 100),
+    )
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("uid_ctrl_read", 99, None, 0, "page body", None, 0, None, None),
+    )
+    con.commit()
+    con.close()
+
+    r = client.get(f"/api/page/{quote('Ctrl\tTitle', safe='/')}")
+
+    assert r.status_code == 200
+    assert r.json()["page"]["title"] == "Ctrl Title"
+    assert [b["text"] for b in r.json()["blocks"]] == ["page body"]
+
+
+def test_get_page_preserves_inactive_padded_exact_reads(client, seeded_config):
+    padded = " Legacy Padded Page "
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (99, padded, 100, 100),
+    )
+    con.commit()
+    con.close()
+
+    exact = client.get(f"/api/page/{quote(padded, safe='/')}")
+    stripped = client.get(f"/api/page/{quote(padded.strip(), safe='/')}")
+
+    assert exact.status_code == 200
+    assert exact.json()["page"]["title"] == padded
+    assert stripped.status_code == 404
+
+
+def test_get_page_canonicalizes_padded_title_when_plain_space_migration_is_active(
+        client, seeded_config):
+    canonical = "Legacy Padded Page"
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (99, canonical, 100, 100),
+    )
+    con.execute(
+        "UPDATE sync_meta SET value = '1'"
+        " WHERE key = 'plain_space_title_canonicalization'"
+    )
+    con.commit()
+    con.close()
+
+    r = client.get(f"/api/page/{quote(f' {canonical} ', safe='/')}")
+
+    assert r.status_code == 200
+    assert r.json()["page"]["title"] == canonical
 
 
 def test_create_page_creates_new_page(client):

@@ -143,6 +143,7 @@ class PkmClient:
 
     def get_page(self, title: str, bl_limit: int = 100,
                 bl_offset: int = 0) -> PagePayload:
+        title = normalize_title(title)
         return self._request(
             "GET", f"/api/page/{quote(title, safe='/')}", PagePayload,
             params={"bl_limit": bl_limit, "bl_offset": bl_offset})
@@ -165,6 +166,7 @@ class PkmClient:
         offset 0, up to `_BACKLINK_MAX_ATTEMPTS` times -- never silently
         returning the skipped/duplicated set that ordering shift would
         otherwise produce."""
+        title = normalize_title(title)
         for _ in range(_BACKLINK_MAX_ATTEMPTS):
             attempt = self._fetch_backlinks_once(title, page_size)
             if attempt is not None:
@@ -185,9 +187,12 @@ class PkmClient:
         seen_page_ids: set[int] = set()
         groups = []
         total: int | None = None
+        observed_limit: int | None = None
         while True:
             backlinks = self.get_page(title, bl_limit=page_size,
                                       bl_offset=offset).backlinks
+            if observed_limit is None:
+                observed_limit = backlinks.limit
             if total is None:
                 total = backlinks.total_pages
             elif backlinks.total_pages != total:
@@ -207,7 +212,7 @@ class PkmClient:
         if len(groups) != total:
             return None  # fewer distinct pages arrived than promised
         return Backlinks(groups=groups, total_pages=total, offset=0,
-                         limit=len(groups))
+                         limit=observed_limit or 0)
 
     def get_page_blocks(self, title: str) -> tuple[list[BlockNode], bool]:
         """The blocks of `title`, or an empty list if the page doesn't

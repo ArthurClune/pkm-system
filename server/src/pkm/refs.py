@@ -50,6 +50,11 @@ def normalize_title(title: str) -> str:
     return _WS_RUN.sub(" ", title).strip()
 
 
+def canonicalize_title(title: str, *, plain_space: bool) -> str:
+    normalized = normalize_title(title)
+    return normalized.strip(" ") if plain_space else normalized
+
+
 def is_blank_title(title: str) -> bool:
     """True when `title` has nothing in it but whitespace once normalized --
     the same test store.get_or_create_page uses to decide whether to raise

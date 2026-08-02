@@ -1,11 +1,11 @@
 ---
 # pkm-8kw2
 title: 'Client/server parity: remaining depth-100 caps and blank-ref handling'
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:50:33Z
-updated_at: 2026-07-31T19:07:30Z
+updated_at: 2026-08-02T17:50:55Z
 parent: pkm-ulae
 ---
 

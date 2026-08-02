@@ -1,11 +1,11 @@
 ---
 # pkm-xo6w
 title: Normalize titles on client read paths (get/refs 404 on spellings save handles)
-status: todo
+status: in-progress
 type: bug
 priority: normal
 created_at: 2026-08-01T14:23:28Z
-updated_at: 2026-08-01T14:23:28Z
+updated_at: 2026-08-02T17:50:55Z
 parent: pkm-ulae
 ---
 

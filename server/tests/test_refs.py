@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pkm.refs import Ref, extract, normalize_title
+from pkm.refs import Ref, canonicalize_title, extract, normalize_title
 
 FIXTURE = Path(__file__).parents[2] / "shared" / "fixtures" / "ref_grammar.json"
 CASES = json.loads(FIXTURE.read_text())["cases"]
@@ -80,3 +80,11 @@ def test_normalize_title_leaves_control_free_titles_byte_for_byte():
 def test_normalize_title_is_idempotent():
     once = normalize_title("Challenges and\nOpportunities")
     assert normalize_title(once) == once
+
+
+def test_canonicalize_title_preserves_plain_space_when_inactive_and_strips_only_plain_space_when_active():
+    assert canonicalize_title("A\t B", plain_space=False) == "A B"
+    assert canonicalize_title(" A ", plain_space=False) == " A "
+    assert canonicalize_title(" A ", plain_space=True) == "A"
+    assert canonicalize_title("\u00a0A\u00a0", plain_space=True) == "\u00a0A\u00a0"
+    assert canonicalize_title("  ", plain_space=True) == ""

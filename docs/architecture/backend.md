@@ -163,8 +163,11 @@ Around that base model:
     automatically journalled. Cascade deletes journal correctly *only*
     because `recursive_triggers=ON`.
   - `applied_batches(batch_id, request_hash, response)` — op idempotency.
-  - `sync_meta` — holds a random `db_generation` token; a rebuilt database
-    gets a new token and clients rebootstrap.
+  - `sync_meta` — durable server sync/title metadata. Today it holds the
+    random `db_generation` token (a rebuilt database gets a new one and
+    clients rebootstrap) plus `plain_space_title_canonicalization`, the
+    rollout flag for stripping leading/trailing plain spaces from
+    canonicalized page titles.
 - **Migrations.** No framework. Additive tables/indexes are replayable
   `IF NOT EXISTS` statements in `schema.py`; additive columns are guarded
   `PRAGMA` checks in `db._ensure_schema_migrations` (currently

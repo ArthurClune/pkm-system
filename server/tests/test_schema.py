@@ -3,6 +3,10 @@ import sqlite3
 import pytest
 
 from pkm.schema import DDL
+from pkm.server.sync_meta import (database_generation,
+                                  plain_space_title_canonicalization_active,
+                                  rotate_database_generation,
+                                  set_plain_space_title_canonicalization)
 
 
 @pytest.fixture()
@@ -98,3 +102,37 @@ def test_db_generation_token_differs_between_databases():
         ).fetchone()[0])
         con.close()
     assert len(tokens) == 2
+
+
+def test_plain_space_title_canonicalization_defaults_false_and_replay_keeps_true(db):
+    meta = dict(db.execute("SELECT key, value FROM sync_meta"))
+    assert meta["plain_space_title_canonicalization"] == "0"
+    assert plain_space_title_canonicalization_active(db) is False
+
+    set_plain_space_title_canonicalization(db, active=True)
+
+    assert dict(db.execute("SELECT key, value FROM sync_meta"))[
+        "plain_space_title_canonicalization"
+    ] == "1"
+    assert plain_space_title_canonicalization_active(db) is True
+
+    db.executescript(DDL)
+
+    assert dict(db.execute("SELECT key, value FROM sync_meta"))[
+        "plain_space_title_canonicalization"
+    ] == "1"
+    assert plain_space_title_canonicalization_active(db) is True
+
+
+def test_rotate_database_generation_changes_only_generation(db):
+    before = dict(db.execute("SELECT key, value FROM sync_meta"))
+
+    rotated = rotate_database_generation(db)
+
+    after = dict(db.execute("SELECT key, value FROM sync_meta"))
+    assert rotated == database_generation(db)
+    assert rotated != before["db_generation"]
+    assert after.keys() == before.keys()
+    assert after["plain_space_title_canonicalization"] == before[
+        "plain_space_title_canonicalization"
+    ]

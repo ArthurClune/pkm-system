@@ -1,11 +1,11 @@
 ---
 # pkm-2ilw
 title: Canonicalize existing space-padded page titles (data migration)
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-07-31T16:43:21Z
+updated_at: 2026-08-02T17:50:55Z
 parent: pkm-ulae
 ---
 

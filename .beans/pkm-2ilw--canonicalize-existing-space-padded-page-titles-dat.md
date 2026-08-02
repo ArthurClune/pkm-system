@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-02T19:56:09Z
+updated_at: 2026-08-02T20:41:02Z
 parent: pkm-ulae
 ---
 
@@ -80,3 +80,17 @@ Gated server and replica title boundaries on the durable migration activation fl
 ## Task 6 fix round 1/5 summary
 
 Added a focused real-POST activation regression (with mutation RED because the base Task 6 commit already contained the raw-title route fix), reconciled pre-applied padded negative-id pages onto accepted canonical targets before pending replay, preserved optimistic blocks/refs and unchanged wire operations across create_page/create/cross-page move shapes, updated architecture invariants, and passed focused server/web suites plus TypeScript, pyrefly, and ruff gates. The two reviewer minors remain deferred to final review as requested.
+
+## Task 9: importer canonicalization before publication
+
+- [x] Write importer E2E RED tests for padded merge, ordinary activation, and all-space refusal
+- [x] Reuse audit/apply on the temporary importer database before publication
+- [x] Run focused importer tests, pyrefly, ruff, brief gates, self-review, and commit
+
+## Task 9 Notes
+
+- 2026-08-02: Added importer E2E RED coverage for clean+padded merge, ordinary activation, and all-space refusal. Observed RED: activation stays "0" on successful imports and all-space imports still publish/return 0.
+
+## Task 9 Summary of Changes
+
+Reused the shared title-migration audit/apply shell against importer-built temporary databases before publication, so fresh imports now publish with `plain_space_title_canonicalization = "1"`, clean/padded twins merge through the existing stable block/ref rewrite path, and all-space imports refuse with exit 2 before any db/report swap. Added importer E2E coverage for merge + activation + refusal, and documented the importer-side activation/refusal invariant in backend architecture notes.

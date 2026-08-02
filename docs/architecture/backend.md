@@ -414,9 +414,20 @@ flowchart TD
     G --> D
     D -- "firebase URLs → /assets/… (assets.py)<br/>mermaid component blocks → fenced (mermaid.py)<br/>orphan subtrees → recovery page" --> D
     D --> E["write pkm.sqlite3.tmp + copy assets"]
-    E --> R["render + write import-report.txt.tmp (Core render, Shell write)"]
+    E --> M["audit + apply shared title migration on tmp DB"]
+    M --> R["render + write import-report.txt.tmp (Core render, Shell write)"]
     R --> H["atomic os.replace: db, then report"]
 ```
+
+Before either `os.replace`, the importer runs the same shared
+`audit_title_migration()` / `apply_title_migration()` shell used by the
+operator route against the temporary database it just built. That keeps fresh
+imports on the post-migration title rule immediately (`sync_meta`
+`plain_space_title_canonicalization = '1'`) and merges any imported clean/
+padded twins with the normal stable block/ref rewrite path before the swap. If
+that audit finds an all-space title blocker, the importer refuses the run,
+prints the friendly title-migration error, deletes the temp DB, and leaves the
+already-published database/report untouched.
 
 Roam block uids, ordering and timestamps are preserved, so every existing
 `((block ref))` and daily-note link keeps resolving. Mermaid conversion

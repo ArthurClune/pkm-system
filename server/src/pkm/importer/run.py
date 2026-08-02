@@ -9,6 +9,7 @@ import os
 import shutil
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 from pkm.assets_core import asset_needs_repair, sha256_hex
@@ -19,6 +20,11 @@ from pkm.importer.parse_export import parse_export
 from pkm.importer.report import ImportReport, render
 from pkm.importer.rows import to_rows
 from pkm.schema import DDL
+from pkm.server.title_migration import (
+    BlockedTitleMigration,
+    apply_title_migration,
+    audit_title_migration,
+)
 
 
 def _index_files(files_dir: Path) -> tuple[dict[str, Asset], dict[str, Path]]:
@@ -82,7 +88,9 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     tmp = out / "pkm.sqlite3.tmp"
     tmp.unlink(missing_ok=True)
+    blocked_migration: BlockedTitleMigration | None = None
     con = sqlite3.connect(tmp)
+    con.row_factory = sqlite3.Row
     try:
         con.executescript(DDL)
         con.executemany("INSERT INTO pages VALUES (?,?,?,?)", rows.pages)
@@ -96,8 +104,18 @@ def main(argv: list[str] | None = None) -> int:
             " VALUES (?,?,?,?,NULL)",
             [(a.sha256, a.filename, a.mime, a.size) for a in unique_assets.values()])
         con.commit()
+        try:
+            plan = audit_title_migration(con)
+            apply_title_migration(con, plan.digest, now_ms=int(time.time() * 1000))
+        except BlockedTitleMigration as exc:
+            blocked_migration = exc
     finally:
         con.close()
+
+    if blocked_migration is not None:
+        tmp.unlink(missing_ok=True)
+        print(f"error: import refused: {blocked_migration}", file=sys.stderr)
+        return 2
 
     # An existing destination is verified (size, then sha256 if the size
     # already matches) rather than trusted just because it's present --

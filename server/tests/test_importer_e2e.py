@@ -10,6 +10,47 @@ from pkm.importer.run import main
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_export.edn"
 
+MERGE_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Acme" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-clean-root" 1]
+  [2 :block/string "clean root" 1]
+  [2 :block/order 0 1]
+  [10 :node/title " Acme " 1]
+  [10 :block/children 11 1]
+  [11 :block/uid "uid-padded-root" 1]
+  [11 :block/string "self [[ Acme ]] and [[Other]]" 1]
+  [11 :block/order 0 1]
+  [11 :block/children 12 1]
+  [12 :block/uid "uid-padded-child" 1]
+  [12 :block/string "nested child" 1]
+  [12 :block/order 0 1]
+  [20 :node/title "Watcher" 1]
+  [20 :block/children 21 1]
+  [21 :block/uid "uid-watcher" 1]
+  [21 :block/string "[[Acme]] and [[ Acme ]]" 1]
+  [21 :block/order 0 1]
+ ]}"""
+
+ORDINARY_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Solo" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-solo" 1]
+  [2 :block/string "hello" 1]
+  [2 :block/order 0 1]
+ ]}"""
+
+ALL_SPACE_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "   " 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-space" 1]
+  [2 :block/string "blocked" 1]
+  [2 :block/order 0 1]
+ ]}"""
+
 
 def _setup_files(tmp_path: Path) -> Path:
     files = tmp_path / "files"
@@ -325,3 +366,89 @@ def test_overlong_filename_import_produces_bounded_asset_row(tmp_path):
     assert filename.endswith(".png")
     assert len(filename.encode("utf-8")) <= 200
     assert filename != overlong_name
+
+
+def _write_export(tmp_path: Path, name: str, raw: str) -> Path:
+    export_file = tmp_path / name
+    export_file.write_text(raw, encoding="utf-8")
+    return export_file
+
+
+def test_import_canonicalizes_padded_titles_before_publication(tmp_path):
+    export_file = _write_export(tmp_path, "merge.edn", MERGE_EXPORT)
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 0
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute(
+        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
+    ).fetchone()[0] == "1"
+    page_ids = {
+        title: page_id
+        for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
+    }
+    assert page_ids.keys() == {"Acme", "Watcher", "Other"}
+    assert [tuple(row) for row in con.execute(
+        "SELECT uid, page_id, parent_uid, order_idx, text FROM blocks ORDER BY uid"
+    )] == [
+        ("uid-clean-root", page_ids["Acme"], None, 0, "clean root"),
+        (
+            "uid-padded-child",
+            page_ids["Acme"],
+            "uid-padded-root",
+            0,
+            "nested child",
+        ),
+        (
+            "uid-padded-root",
+            page_ids["Acme"],
+            None,
+            1,
+            "self [[Acme]] and [[Other]]",
+        ),
+        ("uid-watcher", page_ids["Watcher"], None, 0, "[[Acme]] and [[Acme]]"),
+    ]
+    assert [tuple(row) for row in con.execute(
+        "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"
+    )] == [
+        ("uid-padded-root", page_ids["Acme"], "link"),
+        ("uid-padded-root", page_ids["Other"], "link"),
+        ("uid-watcher", page_ids["Acme"], "link"),
+    ]
+
+
+def test_import_marks_ordinary_database_active(tmp_path):
+    export_file = _write_export(tmp_path, "ordinary.edn", ORDINARY_EXPORT)
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 0
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute(
+        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
+    ).fetchone()[0] == "1"
+    assert con.execute("SELECT title FROM pages").fetchall() == [("Solo",)]
+
+
+def test_all_space_import_refuses_without_replacing_published_output(
+    tmp_path, capsys
+):
+    baseline_export = _write_export(tmp_path, "baseline.edn", ORDINARY_EXPORT)
+    blocked_export = _write_export(tmp_path, "blocked.edn", ALL_SPACE_EXPORT)
+    out = tmp_path / "data"
+
+    assert main([str(baseline_export), "--out", str(out)]) == 0
+    original_db = (out / "pkm.sqlite3").read_bytes()
+    original_report = (out / "import-report.txt").read_text(encoding="utf-8")
+
+    rc = main([str(blocked_export), "--out", str(out)])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "title migration is blocked by all-space titles" in captured.err
+    assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert not (out / "pkm.sqlite3.tmp").exists()

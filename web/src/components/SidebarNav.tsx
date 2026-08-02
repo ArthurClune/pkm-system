@@ -1,8 +1,9 @@
 // pattern: Imperative Shell
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { ApiError, apiFetch } from "../api/client";
-import type { SidebarNavEntry, SidebarNavPayload } from "../api/payloads";
+import { ApiError } from "../api/client";
+import { apiDelete, apiGet, apiPost, apiPut } from "../api/typedClient";
+import type { SidebarNavEntry } from "../api/payloads";
 import { pagePath } from "../paths";
 
 type MutationState = "idle" | "running" | "failed";
@@ -34,11 +35,11 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   const refresh = () =>
-    apiFetch<SidebarNavPayload>("/api/sidebar").then((p) => applyEntries(p.entries));
+    apiGet("/api/sidebar").then((p) => applyEntries(p.entries));
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<SidebarNavPayload>("/api/sidebar")
+    apiGet("/api/sidebar")
       .then((p) => { if (!cancelled) applyEntries(p.entries); })
       .catch(() => { if (!cancelled) setError(true); });
     return () => { cancelled = true; };
@@ -73,11 +74,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     setAddError(null);
     await runMutation(async () => {
       try {
-        await apiFetch("/api/sidebar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title }),
-        });
+        await apiPost("/api/sidebar", { body: { title } });
         setNewTitle("");
       } catch (err) {
         setAddError(err instanceof ApiError && err.status === 409
@@ -88,7 +85,9 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   function removeEntry(id: number) {
-    void runMutation(() => apiFetch(`/api/sidebar/${id}`, { method: "DELETE" }).then(() => undefined));
+    void runMutation(() => apiDelete("/api/sidebar/{entry_id}", {
+      path: { entry_id: id },
+    }).then(() => undefined));
   }
 
   function moveEntry(index: number, direction: -1 | 1) {
@@ -97,11 +96,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       if (target < 0 || target >= current.length) return;
       const ids = current.map((entry) => entry.id);
       [ids[index], ids[target]] = [ids[target], ids[index]];
-      await apiFetch("/api/sidebar", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order: ids }),
-      });
+      await apiPut("/api/sidebar", { body: { order: ids } });
     });
   }
 

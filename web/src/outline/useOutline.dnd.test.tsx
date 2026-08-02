@@ -144,7 +144,7 @@ it("starts one target refetch for one remote batch across same-title views", asy
   });
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", undefined);
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", { method: "GET" });
 });
 
 it("quoted TODO controls preserve the quote prefix and update optimistically", () => {
@@ -233,7 +233,7 @@ it("a remote parent-based cross-page move (server-resolved page_title) removes f
   expect(findNode(src.blocks, "moved")).toBeNull();
   expect(src.blocks.map((b) => b.uid)).toEqual(["p"]);
   // target: op carries no block content, so it pulls the authoritative tree
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/Dst", undefined);
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Dst", { method: "GET" });
   expect(dst.blocks.map((b) => b.uid)).toEqual(["tp", "moved"]);
 });
 
@@ -262,7 +262,7 @@ it("target-side refetch ignores global settlement and adopts a safe response", a
     await Promise.resolve();
   });
 
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", undefined);
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", { method: "GET" });
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["srv"]);
   // the focused uid ("u1") no longer exists in the adopted tree
   expect(getOutline().focus).toBeNull();

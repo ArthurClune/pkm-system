@@ -140,6 +140,6 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
   delivered.resolve({ status: "delivered" });
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
   expect(fetchMock).toHaveBeenCalledTimes(1);
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", undefined);
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", { method: "GET" });
   expect(outline.blocks[0]).toMatchObject({ text: "authoritative", heading: 1 });
 });

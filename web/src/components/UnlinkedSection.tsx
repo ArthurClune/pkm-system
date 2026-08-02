@@ -1,8 +1,8 @@
 // pattern: Imperative Shell
 import { useRef, useState } from "react";
-import { apiFetch } from "../api/client";
+import { apiGet } from "../api/typedClient";
 import type { UpdateTextOp } from "../api/ops";
-import type { BlockGroup, GroupsPayload } from "../api/payloads";
+import type { BlockGroup } from "../api/payloads";
 import { linkUnlinkedReference } from "../grammar/linkReference";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { sha256Hex } from "../replica/sha256";
@@ -46,8 +46,9 @@ export function UnlinkedSection({ title, onLinked }: {
     setLoading(true);
     setError(null);
     try {
-      const p = await apiFetch<GroupsPayload>(
-        `/api/unlinked?title=${encodeURIComponent(title)}&limit=${PAGE_SIZE}&offset=${from}`);
+      const p = await apiGet("/api/unlinked", {
+        query: { title, limit: PAGE_SIZE, offset: from },
+      });
       setGroups((g) => mergeGroups(g, p.groups));
       setTotal(p.total);
       // /api/unlinked paginates by blocks: advance by items received.

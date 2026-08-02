@@ -73,7 +73,7 @@ it("renders backlink groups with breadcrumbs and loads more on demand", async ()
   fireEvent.click(screen.getByRole("button", { name: /show more/i }));
   expect(await screen.findByRole("link", { name: "AI" })).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/Machine%20Learning?bl_offset=1&bl_limit=20", undefined);
+    "/api/page/Machine%20Learning?bl_offset=1&bl_limit=20", { method: "GET" });
   // 2 groups loaded of total_pages 2 -> button gone
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
 });
@@ -178,9 +178,9 @@ it("refresh with an open filter panel refetches from offset 0 at limit 100 until
   expect(await screen.findByRole("link", { name: "Fresh A" })).toBeInTheDocument();
   expect(await screen.findByRole("link", { name: "Fresh B" })).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/Claude?bl_offset=0&bl_limit=100", undefined);
+    "/api/page/Claude?bl_offset=0&bl_limit=100", { method: "GET" });
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/Claude?bl_offset=1&bl_limit=100", undefined);
+    "/api/page/Claude?bl_offset=1&bl_limit=100", { method: "GET" });
   expect(screen.queryByRole("link", { name: "Daily A" })).toBeNull();
 });
 
@@ -344,7 +344,7 @@ it("disables show-more during refresh so stale pagination cannot start", async (
     </MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/ACME?bl_offset=0&bl_limit=20", undefined,
+    "/api/page/ACME?bl_offset=0&bl_limit=20", { method: "GET" },
   ));
   await vi.waitFor(() => expect(screen.getByRole("button", { name: "Show more" })).toBeDisabled());
   fireEvent.click(screen.getByRole("button", { name: "Show more" }));
@@ -399,7 +399,7 @@ it("prevents opening the filter panel during refresh so stale load-all cannot st
     </MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/Claude?bl_offset=0&bl_limit=20", undefined,
+    "/api/page/Claude?bl_offset=0&bl_limit=20", { method: "GET" },
   ));
   await vi.waitFor(() => expect(screen.getByRole("button", { name: /filter/i })).toBeDisabled());
   fireEvent.click(screen.getByRole("button", { name: /filter/i }));
@@ -463,12 +463,12 @@ it("changing filter-panel state does not issue a second refresh for the same gen
 
 it("unlinked references fetch lazily on first open and paginate", async () => {
   const fetchMock = stubFetch([
-    ["/api/unlinked?title=Machine%20Learning&limit=20&offset=1", {
+    ["/api/unlinked?title=Machine+Learning&limit=20&offset=1", {
       groups: [{ page_id: 5, page_title: "AGI", items: [
         { uid: "uid_u2", text: "machine learning épilogue" }] }],
       total: 2,
     }],
-    ["/api/unlinked?title=Machine%20Learning", {
+    ["/api/unlinked?title=Machine+Learning", {
       groups: [{ page_id: 2, page_title: "AI", items: [
         { uid: "uid_u1", text: "AI overview mentions Machine Learning in plain text" }] }],
       total: 2,
@@ -817,7 +817,7 @@ it("opening the filter panel loads all remaining backlinks first (pkm-m4an)", as
   // chips appear only once the remaining page is fetched (bl_limit=100)
   expect(await screen.findByRole("button", { name: "Paper (2)" })).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/Claude?bl_offset=1&bl_limit=100", undefined);
+    "/api/page/Claude?bl_offset=1&bl_limit=100", { method: "GET" });
   // show-more is hidden while the panel is open, even though it was eligible
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
 });

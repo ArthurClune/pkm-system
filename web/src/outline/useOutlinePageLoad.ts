@@ -38,9 +38,9 @@
 //    releases the session — in that order, so cancellation can never elect
 //    a controller belonging to the unmounting surface.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, apiFetch } from "../api/client";
+import { ApiError } from "../api/client";
+import { apiGet } from "../api/typedClient";
 import type { PagePayload } from "../api/payloads";
-import { encodeTitle } from "../paths";
 import type { MissingPagePolicy } from "./missingPage";
 import {
   acquireOutlineSession,
@@ -138,7 +138,7 @@ export function useOutlinePageLoad(
         });
       }
     };
-    apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`)
+    apiGet("/api/page/{title}", { path: { title } })
       .then(deliver)
       .catch((e: unknown) => {
         const substitute = missingPageRef.current(title, statusOf(e));
@@ -164,9 +164,7 @@ export function useOutlinePageLoad(
     sessionRef.current = handle;
     const removeLoader = handle.setAuthoritativeLoader(async () => {
       try {
-        const page = await apiFetch<PagePayload>(
-          `/api/page/${encodeTitle(title)}`,
-        );
+        const page = await apiGet("/api/page/{title}", { path: { title } });
         return page.blocks;
       } catch (e: unknown) {
         const substitute = missingPageRef.current(title, statusOf(e));

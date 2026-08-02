@@ -3,14 +3,13 @@
 // asset-link rule (pkm-gdi5). The assistant panel mentions assets this way
 // ("here's the chart at /assets/<sha>/name.jpeg"); clicking should open the
 // block that actually references the asset, not the raw file. Resolution
-// goes through GET /api/search?exact=1: the FTS5 unicode61 tokenizer keeps
+// goes through GET /api/search?exact=true: the FTS5 unicode61 tokenizer keeps
 // a 64-hex sha as one token, so a block whose text contains the asset URL
 // is an exact match on the sha. No referencing block (or a failed lookup,
 // e.g. offline) falls back to opening the asset itself.
 import { useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiFetch } from "../api/client";
-import type { SearchPayload } from "../api/payloads";
+import { apiGet } from "../api/typedClient";
 import { SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
 
@@ -22,9 +21,9 @@ export function AssetLink({ url, sha, filename }: {
 
   const go = async (shiftKey: boolean) => {
     try {
-      const result = await apiFetch<SearchPayload>(
-        `/api/search?q=${encodeURIComponent(sha)}&exact=1`,
-      );
+      const result = await apiGet("/api/search", {
+        query: { q: sha, exact: true },
+      });
       const hit = result.blocks[0];
       if (hit) {
         if (shiftKey) openInSidebar(hit.page_title, hit.uid);

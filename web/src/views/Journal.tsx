@@ -1,9 +1,9 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, apiFetch } from "../api/client";
-import type { BlockRefText, JournalDay, JournalPayload,
-                  PagePayload } from "../api/payloads";
+import { ApiError } from "../api/client";
+import { apiGet, apiPost } from "../api/typedClient";
+import type { BlockRefText, JournalDay, PagePayload } from "../api/payloads";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { JournalDayReferences } from "../components/JournalDayReferences";
 import { acquireOutlineSession,
@@ -12,7 +12,7 @@ import { acquireOutlineSession,
          type AuthoritativeReadSource,
          type CapturedOutlineRead,
          type OutlineSessionHandle } from "../outline/outlineSessions";
-import { encodeTitle, pagePath } from "../paths";
+import { pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
 
@@ -25,7 +25,7 @@ const SERVER_MAX_DAYS = 31; // get_journal clamps `days`; asking for more is moo
 // way that's an empty day, not a failed load.
 async function fetchDayBlocks(title: string): Promise<PagePayload["blocks"]> {
   try {
-    const page = await apiFetch<PagePayload>(`/api/page/${encodeTitle(title)}`);
+    const page = await apiGet("/api/page/{title}", { path: { title } });
     return page.blocks;
   } catch (e: unknown) {
     if (e instanceof ApiError && e.status === 404) return [];
@@ -97,8 +97,9 @@ export function Journal() {
       const want = oldest ? BATCH : Math.min(
         SERVER_MAX_DAYS, Math.max(BATCH, windowRef.current));
       windowRef.current = 0;
-      const qs = oldest ? `?days=${want}&before=${oldest}` : `?days=${want}`;
-      const p = await apiFetch<JournalPayload>(`/api/journal${qs}`);
+      const p = await apiGet("/api/journal", {
+        query: { days: want, before: oldest },
+      });
       if (!mountedRef.current || gen !== genRef.current) return;
       const received = p.days.map((day) => {
         const activeAtResponse = isOutlineSessionActive(day.title);
@@ -169,7 +170,7 @@ export function Journal() {
   // connections, which is why deletions may not be reflected in this view
   // (see spec's Concurrency and staleness section).
   useEffect(() => {
-    void apiFetch("/api/journal/cleanup", { method: "POST" })
+    void apiPost("/api/journal/cleanup")
       .catch(() => {});
   }, []);
 

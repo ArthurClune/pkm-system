@@ -103,10 +103,12 @@ live in one table (`routeMeta.ts`, pkm-77w2): App.tsx's `<Routes>`/`NavLink`s,
 TopBar's label + page-action-menu gating, and `useRouteTitle.ts` (the single
 route-aware `document.title` effect, called once from `App`) all read it, so
 a route can't end up labelled in one place and not another — `/files` and
-`/settings` previously had no top-bar label for exactly that reason. `/page/*`
-is the deliberate exception: PageView.tsx sets its own title once the page's
-own title has loaded, since that can't be derived from the pathname alone.
-The right-hand sidebar is a
+`/settings` previously had no top-bar label for exactly that reason. `routeMetaFor`
+canonicalizes one or more trailing slashes on non-root static paths before
+lookup, so hand-typed `/files/` and `/settings/` still receive the canonical
+labels/titles, while `/page/*` remains dynamic and still bypasses the table.
+`PageView.tsx` sets its own title once the page's own title has loaded, since
+that can't be derived from the pathname alone. The right-hand sidebar is a
 session-only **stack**: shift-clicking any page link or ref pushes a
 `SidebarPanel` onto it. The left nav holds pinned pages (server-persisted
 via `/api/sidebar`), then a rule-fenced block of app destinations —
@@ -116,12 +118,16 @@ sidebar, `Cmd/Ctrl+J` toggles the assistant panel.
 
 `/files` (pkm-jdu3) is a plain table over `/api/assets/search` with
 filters (text, type, date range, linked/orphan), offset pagination and
-multi-select for delete and zip export. Its pure half (`views/filesCore.ts`)
-owns the query-string building, MIME categorisation, size formatting,
-confirm-text composition and the reference token a user can copy into a
-block; the shell owns fetching, selection state and the download. The zip
-export is submitted as a throwaway hidden `<form method="post">` rather than
-a fetch, so the browser owns the download rather than the SPA buffering it.
+multi-select for delete and zip export. Pagination uses a synchronous
+single-flight lock as well as the disabled button state, while the generation
+guard still discards responses made stale by filter changes. Its pure half
+(`views/filesCore.ts`) owns the typed query-object building, MIME
+categorisation, size formatting, confirm-text composition and the reference
+token a user can copy into a block; `typedClient` serializes that query while
+the shell owns fetching, selection state and the download.
+The zip export is submitted as a throwaway hidden `<form method="post">`
+rather than a fetch, so the browser owns the download rather than the SPA
+buffering it.
 Journal days additionally render their own linked references inline
 (`JournalDayReferences`, pkm-vvta), lazily per day and hidden when a day has
 none, reusing `BacklinksSection` rather than a second renderer.
@@ -133,8 +139,9 @@ time* — a fact that drives the outline-session design below.
 
 There is no Redux/Zustand; state lives in three layers:
 
-1. **Server payloads per view** — components fetch with `apiFetch` and hold
-   results in local state, refetching when told to.
+1. **Server payloads per view** — components fetch JSON through the typed
+   client (`apiGet`/`apiPost`/`apiPut`/`apiDelete`) and hold results in
+   local state, refetching when told to.
 2. **`SyncProvider`** (`sync/SyncProvider.tsx`) — one global context:
    connection status, editability, pending-op count, delivery-health
    `problem`, `enqueue()`, and `resyncSeq` — a counter bumped whenever
@@ -401,8 +408,9 @@ entry.
   types, which is what makes the server's keepalive comment frames (sent
   every 15 idle seconds, pkm-mbcc) invisible here — keep it that way.
 - `streamMessage` bypasses `apiFetch` (which consumes the body as JSON) but
-  replicates its 401 handling; the other calls use `apiFetch`. The
-  assistant is online-only — `/api/assistant/*` has no offline shim.
+  replicates its 401 handling; the other assistant JSON calls use the typed
+  client helpers. The assistant is online-only — `/api/assistant/*` has no
+  offline shim.
 
 ## API layer
 
@@ -413,7 +421,10 @@ over `api/openapi.json`, which the server generates); `api/ops.ts` and
 regenerate when the server changes (the server test suite fails on stale
 artifacts).
 
-`api/typedClient.ts` (`apiGet`/`apiPost`/`apiPut`/`apiDelete`) is a typing
+Concrete JSON requests must use `api/typedClient.ts`'s `apiGet`/`apiPost`/
+`apiPut`/`apiDelete`. ESLint enforces that boundary with
+`no-restricted-imports`: production/tooling code cannot import `apiFetch`
+from `api/client` except at raw transport seams. The typed client is a typing
 layer over `apiFetch`, not a second transport: it builds the same URL and
 calls `apiFetch`, so the offline gateway and error behaviour are identical.
 The difference is that it takes the **OpenAPI path template**, not a built
@@ -421,13 +432,17 @@ URL — `apiGet("/api/page/{title}", { path: { title } })` — which lets the
 generated `paths` table decide the path/query parameters, the JSON request
 body, and the response type. `apiFetch<T>` cannot do that: `T` is whatever
 the caller names, so an obsolete caller type or a wrong body typechecks.
-Prefer the typed client for new call sites; the remaining `apiFetch<T>`
-callers are a mechanical conversion still to be done (pkm-60bf). Path
-parameters are encoded per segment because `{title:path}` routes carry
-namespace titles whose slashes must survive; every other path parameter is
-slash-free by construction. Compile-time drift probes live in
-`api/typedClient.test.ts` — an expected-error directive that stops erroring
-fails the build, so the probes cannot rot.
+
+The only raw `apiFetch` exceptions are the typed-client implementation
+itself, multipart upload in `sync/assets.ts`, and `SyncProvider.tsx`'s
+`replicaSync` injection seam (`fetchJson: apiFetch`). `SyncProvider` is
+allowed for that deliberate transport injection only; it does not issue a
+concrete JSON request at the import site. Path parameters are encoded per
+segment because `{title:path}` routes carry namespace titles whose slashes
+must survive; every other path parameter is slash-free by construction.
+Compile-time drift probes live in `api/typedClient.test.ts` — an
+expected-error directive that stops erroring fails the build, so the probes
+cannot rot.
 
 ## Styling and theming
 

@@ -100,11 +100,11 @@ describe("Files", () => {
     fireEvent.change(screen.getByLabelText("Type"),
                      { target: { value: "pdf" } });
     await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("type=pdf")));
+      expect.stringContaining("type=pdf"), { method: "GET" }));
     fireEvent.change(screen.getByLabelText("Linked"),
                      { target: { value: "orphan" } });
     await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("linked=orphan")));
+      expect.stringContaining("linked=orphan"), { method: "GET" }));
   });
 
   it("loads more pages and selects all across pages", async () => {
@@ -121,7 +121,7 @@ describe("Files", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     await screen.findByText("51 selected");
     expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("offset=50"));
+      expect.stringContaining("offset=50"), { method: "GET" });
   });
 
   it("discards a stale loadMore response when filters change first (pkm-3622)",
@@ -140,7 +140,7 @@ describe("Files", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("offset=50")));
+      expect.stringContaining("offset=50"), { method: "GET" }));
 
     fireEvent.change(screen.getByLabelText("Type"),
                      { target: { value: "pdf" } });
@@ -153,6 +153,33 @@ describe("Files", () => {
     await act(async () => { await stale.promise; await Promise.resolve(); });
     expect(screen.getByText("1 of 1 files")).toBeInTheDocument();
     expect(screen.queryByText("f0.png")).not.toBeInTheDocument();
+  });
+
+  it("runs only one Load more request for two clicks before rerender (pkm-ow62)",
+     async () => {
+    const first = Array.from({ length: 50 }, (_, i) =>
+      item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
+    const pending = deferred<AssetSearchPayload>();
+    const last = item({ sha256: "ef".repeat(32), filename: "last.png" });
+    mockFetch
+      .mockResolvedValueOnce(payload(first, 51))
+      .mockReturnValueOnce(pending.promise);
+    render(<Files />);
+    const button = await screen.findByRole("button", { name: "Load more" });
+
+    act(() => {
+      button.click();
+      button.click();
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(button).toBeDisabled();
+    await act(async () => {
+      pending.resolve(payload([last], 51));
+      await pending.promise;
+    });
+    expect(await screen.findByText("51 of 51 files")).toBeInTheDocument();
+    expect(screen.getAllByText("last.png")).toHaveLength(1);
   });
 
   it("discards a stale selectAll response when filters change first " +
@@ -171,7 +198,7 @@ describe("Files", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("offset=50")));
+      expect.stringContaining("offset=50"), { method: "GET" }));
 
     fireEvent.change(screen.getByLabelText("Type"),
                      { target: { value: "pdf" } });

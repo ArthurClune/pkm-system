@@ -80,7 +80,7 @@ Inside `pkm/server/`:
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
 | `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
 | `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
-| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_export.py` | Shell | The HTTP surface (table below) |
+| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below), including the authenticated title-canonicalization audit/apply operator route |
 | `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py` |
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
@@ -306,6 +306,9 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll) |
 | POST | `/api/journal/cleanup` | Prune empty daily pages (spares today + referenced blocks) |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
+| **Migrations** | | |
+| GET | `/api/migrations/title-canonicalization` | Side-effect-free audit of legacy leading/trailing-ASCII-space titles: grouped survivor/source plan, blockers, digest, and active state |
+| POST | `/api/migrations/title-canonicalization` | Apply the audited title-canonicalization plan by digest; 409 on stale, blocked, or already-active databases; returns applied counts + new `generation` |
 | **Search & queries** | | |
 | GET | `/api/search?q` | FTS5 search over pages + blocks |
 | GET | `/api/query?expr` | `{{[[query]]}}` evaluation (`and`/`or`/`not` over refs) |

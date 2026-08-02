@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-02T18:35:45Z
+updated_at: 2026-08-02T19:03:18Z
 parent: pkm-ulae
 ---
 
@@ -33,3 +33,15 @@ Design a one-time data migration that trims existing padded page titles, merging
 ## Task 3 Summary of Changes
 
 Added transaction-owned database audit/inventory, phased rename/merge store primitives, and BEGIN IMMEDIATE atomic migration apply with complete snapshots/mapping, activation and generation rotation, plus stale/blocked/active and rollback coverage. Production inventory and activation remain intentionally unexecuted; API/CLI activation work remains pending.
+
+## Task 4: authenticated migration API and generated contracts
+
+- [x] Write authenticated audit/apply RED tests
+- [x] Add concrete Pydantic models
+- [x] Implement and register routes
+- [x] Verify OpenAPI drift, regenerate, and retest
+- [x] Commit authenticated title migration API work
+
+## Task 4 Summary of Changes
+
+Added authenticated title-canonicalization audit/apply HTTP routes with concrete OpenAPI response/request models, 409 translations for stale/blocked/already-active domain conflicts, a single post-commit seq nudge after the already-atomic apply path, journal-contract coverage, regenerated OpenAPI/TypeScript artifacts, and backend API documentation for the new operator route.

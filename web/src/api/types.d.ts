@@ -620,6 +620,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/migrations/title-canonicalization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audit Title Canonicalization */
+        get: operations["audit_title_canonicalization_api_migrations_title_canonicalization_get"];
+        put?: never;
+        /** Apply Title Canonicalization */
+        post: operations["apply_title_canonicalization_api_migrations_title_canonicalization_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/assistant/conversations": {
         parameters: {
             query?: never;
@@ -1302,6 +1320,62 @@ export interface components {
             kind: string;
             /** Entity Id */
             entity_id: string;
+        };
+        /** TitleMigrationApplyRequest */
+        TitleMigrationApplyRequest: {
+            /** Audit Digest */
+            audit_digest: string;
+        };
+        /** TitleMigrationApplyResponse */
+        TitleMigrationApplyResponse: {
+            /** Digest */
+            digest: string;
+            /** Groups Applied */
+            groups_applied: number;
+            /** Pages Retitled */
+            pages_retitled: number;
+            /** Pages Merged */
+            pages_merged: number;
+            /** Blocks Moved */
+            blocks_moved: number;
+            /** Blocks Rewritten */
+            blocks_rewritten: number;
+            /** Generation */
+            generation: string;
+        };
+        /** TitleMigrationAuditPayload */
+        TitleMigrationAuditPayload: {
+            /** Active */
+            active: boolean;
+            /** Digest */
+            digest: string;
+            /** Groups */
+            groups: components["schemas"]["TitleMigrationGroup"][];
+            /** Blockers */
+            blockers: components["schemas"]["TitleMigrationPage"][];
+        };
+        /** TitleMigrationGroup */
+        TitleMigrationGroup: {
+            /** Canonical Title */
+            canonical_title: string;
+            survivor: components["schemas"]["TitleMigrationPage"];
+            /** Sources */
+            sources: components["schemas"]["TitleMigrationPage"][];
+            /** Has Clean Twin */
+            has_clean_twin: boolean;
+            /** Block Count */
+            block_count: number;
+            /** Inbound Ref Count */
+            inbound_ref_count: number;
+            /** Sidebar Count */
+            sidebar_count: number;
+        };
+        /** TitleMigrationPage */
+        TitleMigrationPage: {
+            /** Page Id */
+            page_id: number;
+            /** Title */
+            title: string;
         };
         /** TitlesPayload */
         TitlesPayload: {
@@ -2340,6 +2414,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    audit_title_canonicalization_api_migrations_title_canonicalization_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleMigrationAuditPayload"];
+                };
+            };
+        };
+    };
+    apply_title_canonicalization_api_migrations_title_canonicalization_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TitleMigrationApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleMigrationApplyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

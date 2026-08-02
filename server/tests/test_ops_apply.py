@@ -107,6 +107,65 @@ def test_move_reparents_and_shifts(db):
                       ).fetchone()[0] == 1
 
 
+def test_create_broadcast_uses_the_stored_page_title(db):
+    title = "Paper/Levels of AGI:\nthe Path to AGI"
+    broadcast = apply_batch(db, _batch(
+        {"op": "create", "uid": "titlecast1", "page_title": title,
+         "parent_uid": None, "order_idx": 0, "text": "body text"},
+    ), NOW)
+
+    assert broadcast == [{
+        "op": "create",
+        "uid": "titlecast1",
+        "page_title": "Paper/Levels of AGI: the Path to AGI",
+        "parent_uid": None,
+        "order_idx": 0,
+        "text": "body text",
+        "heading": None,
+        "view_type": None,
+    }]
+
+
+def test_create_page_broadcast_uses_the_stored_page_title(db):
+    broadcast = apply_batch(db, _batch(
+        {"op": "create_page", "page_title": "Paper/Levels of AGI:\nthe Path to AGI"},
+    ), NOW)
+
+    assert broadcast == [{
+        "op": "create_page",
+        "page_title": "Paper/Levels of AGI: the Path to AGI",
+    }]
+
+
+def test_move_broadcast_uses_the_destination_page_title_after_apply(db):
+    broadcast = apply_batch(db, _batch(
+        {"op": "move", "uid": "uid_b4", "parent_uid": None,
+         "order_idx": 0, "page_title": "Paper/Levels of AGI:\nthe Path to AGI"},
+    ), NOW)
+
+    assert broadcast == [{
+        "op": "move",
+        "uid": "uid_b4",
+        "parent_uid": None,
+        "order_idx": 0,
+        "page_title": "Paper/Levels of AGI: the Path to AGI",
+    }]
+
+
+def test_same_page_move_broadcast_keeps_page_title_null(db):
+    broadcast = apply_batch(db, _batch(
+        {"op": "move", "uid": "uid_b3", "parent_uid": None, "order_idx": 0},
+    ), NOW)
+
+    assert broadcast == [{
+        "op": "move",
+        "uid": "uid_b3",
+        "parent_uid": None,
+        "order_idx": 0,
+        "page_title": None,
+    }]
+
+
 def test_move_cycle_against_db_chain(db):
     # child of uid_b2 is uid_b3; moving uid_b2 under uid_b3 must fail
     with pytest.raises(OpError, match="cycle"):

@@ -316,6 +316,56 @@ def test_all_creation_boundaries_canonicalize_plain_space_after_activation(
     assert not any(title.startswith(" ") or title.endswith(" ") for title in titles)
 
 
+def test_ops_broadcast_the_canonical_title_after_activation(client):
+    audit = client.get("/api/migrations/title-canonicalization").json()
+    applied = client.post(
+        "/api/migrations/title-canonicalization",
+        json={"audit_digest": audit["digest"]},
+    )
+    assert applied.status_code == 200
+
+    with client.websocket_connect("/api/ws") as ws:
+        assert _post_ops(
+            client,
+            {"op": "create_page", "page_title": "  Create Page Op  "},
+        ).status_code == 200
+        assert ws.receive_json()["ops"] == [{
+            "op": "create_page",
+            "page_title": "Create Page Op",
+        }]
+
+    with client.websocket_connect("/api/ws") as ws:
+        assert _post_ops(
+            client,
+            {"op": "create", "uid": "activecast01", "page_title": "  Create Op  ",
+             "parent_uid": None, "order_idx": 0, "text": "body"},
+        ).status_code == 200
+        assert ws.receive_json()["ops"] == [{
+            "op": "create",
+            "uid": "activecast01",
+            "page_title": "Create Op",
+            "parent_uid": None,
+            "order_idx": 0,
+            "text": "body",
+            "heading": None,
+            "view_type": None,
+        }]
+
+    with client.websocket_connect("/api/ws") as ws:
+        assert _post_ops(
+            client,
+            {"op": "move", "uid": "uid_b4", "parent_uid": None,
+             "order_idx": 0, "page_title": "  Move Op  "},
+        ).status_code == 200
+        assert ws.receive_json()["ops"] == [{
+            "op": "move",
+            "uid": "uid_b4",
+            "parent_uid": None,
+            "order_idx": 0,
+            "page_title": "Move Op",
+        }]
+
+
 def test_padded_title_is_preserved_and_reused_exactly(tmp_path):
     """Round-2 regression (review round 2): a title padded with plain
     leading/trailing space but not blank -- real content sits under it --

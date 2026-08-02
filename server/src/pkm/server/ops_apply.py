@@ -10,7 +10,7 @@ from datetime import date
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OpBatch, UpdateTextOp)
-from pkm.refs import extract, is_blank_title
+from pkm.refs import extract
 from pkm.server.ops_core import (BlockInfo, DeleteBlocks, Effect, InsertBlock,
                                  OpContext, ReindexRefs, SetCollapsed,
                                  SetHeading, SetPageId, SetParent, SetViewType,
@@ -193,26 +193,30 @@ def _page_title(db: sqlite3.Connection, page_id: int) -> str | None:
     return row["title"] if row is not None else None
 
 
+def _broadcast_page_title(db: sqlite3.Connection, op,
+                          ctx: OpContext) -> str | None:
+    if isinstance(op, (CreateOp, CreatePageOp)) and ctx.page_id is not None:
+        return _page_title(db, ctx.page_id)
+    if not isinstance(op, MoveOp) or ctx.block is None:
+        return None
+    row = db.execute("SELECT page_id FROM blocks WHERE uid = ?",
+                     (op.uid,)).fetchone()
+    if row is None:
+        return None
+    if op.page_title is None and row["page_id"] == ctx.block.page_id:
+        return None
+    return _page_title(db, row["page_id"])
+
+
 def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:
-    """The op as broadcast to remote clients. Identical to the request wire
-    form, except:
-    - a parent-based cross-page move that omitted page_title is enriched
-      with the resolved target title: without it the source can't drop the
-      block (its parent isn't in the source tree) and the target's refetch
-      has no page_title to key on, leaving both views stale.
-    - a create/create_page/move whose page_title normalized to blank was
-      actually resolved to UNTITLED_PAGE_TITLE server-side (_resolve_page);
-      broadcasting the raw blank string instead would send a remote
-      replica looking for (and mint its own local page under) a title the
-      server never actually used, diverging until the next resync."""
+    """The op as broadcast to remote clients.
+
+    For create/create_page and any move that lands on a different page, the
+    broadcast page_title comes from the authoritative stored page row the op
+    actually applied to, not from the caller's spelling."""
     d = op.model_dump()
-    if (isinstance(op, MoveOp) and op.page_title is None
-            and ctx.parent is not None and ctx.block is not None
-            and ctx.parent.page_id != ctx.block.page_id):
-        d["page_title"] = _page_title(db, ctx.parent.page_id)
-    elif (isinstance(op, (CreateOp, CreatePageOp, MoveOp))
-            and op.page_title is not None and is_blank_title(op.page_title)):
-        d["page_title"] = UNTITLED_PAGE_TITLE
+    if title := _broadcast_page_title(db, op, ctx):
+        d["page_title"] = title
     return d
 
 

@@ -6,10 +6,9 @@
 // this component's only job is the per-day lazy fetch and the "has any
 // references at all" gate that keeps empty days uncluttered.
 import { useContext, useEffect, useState } from "react";
-import { apiFetch } from "../api/client";
+import { apiGet } from "../api/typedClient";
 import type { PagePayload } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
-import { encodeTitle } from "../paths";
 import { BacklinksSection } from "./BacklinksSection";
 
 // A scroll full of days each showing every referencing page would be noisy;
@@ -32,8 +31,10 @@ export function JournalDayReferences({ title }: { title: string }) {
     // same payload, and runs after the day itself has rendered -- it never
     // blocks the journal's initial paint. A failure (offline, deleted
     // underneath us) just means no references section for this day.
-    apiFetch<PagePayload>(
-      `/api/page/${encodeTitle(title)}?bl_limit=${PREVIEW_LIMIT}`)
+    apiGet("/api/page/{title}", {
+      path: { title },
+      query: { bl_limit: PREVIEW_LIMIT },
+    })
       .then((p) => {
         if (cancelled) return;
         setBacklinks(p.backlinks);

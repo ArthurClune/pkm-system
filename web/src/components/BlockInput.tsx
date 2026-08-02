@@ -10,7 +10,7 @@
 // the OutlineHandlers port; nothing here touches the block tree (pkm-64bq).
 import { useContext, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiFetch } from "../api/client";
+import { apiPost } from "../api/typedClient";
 import type { BlockNode } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { applyCompletion, holdsDraftFlush } from "../outline/autocomplete";
@@ -113,11 +113,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   const ensureRefPageThenOpen = async (title: string, sidebar: boolean) => {
     handlers.onFlushDraft();
     try {
-      await apiFetch("/api/pages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
-      });
+      await apiPost("/api/pages", { body: { title } });
     } catch {
       // fall through regardless
     }

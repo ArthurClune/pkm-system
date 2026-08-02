@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiFetch } from "../api/client";
+import { apiGet } from "../api/typedClient";
 import type { CurrentWorkPayload } from "../api/payloads";
 import { pagePath } from "../paths";
 import { useResync } from "../sync/SyncProvider";
@@ -14,7 +14,7 @@ export function CurrentWork() {
   const load = useCallback(() => {
     const token = ++seqRef.current;
     setError(null);
-    apiFetch<CurrentWorkPayload>("/api/current-work")
+    apiGet("/api/current-work")
       .then((p) => { if (token === seqRef.current) setPayload(p); })
       .catch((e: unknown) => {
         if (token === seqRef.current) setError(String(e));

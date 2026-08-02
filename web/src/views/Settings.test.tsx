@@ -49,7 +49,8 @@ it("shows image descriptions enabled", async () => {
 
   expect(await screen.findByText(/image descriptions/i)).toBeInTheDocument();
   expect(await screen.findByText(/enabled/i)).toBeInTheDocument();
-  expect(apiFetchMock).toHaveBeenCalledWith("/api/assets/describe-status");
+  expect(apiFetchMock).toHaveBeenCalledWith(
+    "/api/assets/describe-status", { method: "GET" });
 });
 
 it("shows the disabled reason", async () => {

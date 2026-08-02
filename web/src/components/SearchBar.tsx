@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 import { useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiFetch } from "../api/client";
+import { apiGet, apiPost } from "../api/typedClient";
 import type { SearchPayload } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { parseSnippet } from "../grammar/snippet";
@@ -118,7 +118,7 @@ export function SearchBar() {
     }
     const timer = setTimeout(() => {
       const token = ++seqRef.current;
-      apiFetch<SearchPayload>(`/api/search?q=${encodeURIComponent(query)}`)
+      apiGet("/api/search", { query: { q: query } })
         .then((p) => {
           if (token !== seqRef.current) return; // stale response: drop
           setRows(toRows(p));
@@ -149,11 +149,7 @@ export function SearchBar() {
   const go = async (row: ResultRow, sidebar: boolean) => {
     if (row.key === CREATE_ROW_KEY) {
       try {
-        await apiFetch("/api/pages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: row.title }),
-        });
+        await apiPost("/api/pages", { body: { title: row.title } });
       } catch {
         return; // creation failed: keep the search open, don't navigate
       }

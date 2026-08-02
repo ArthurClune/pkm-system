@@ -26,16 +26,16 @@ function localMs(date: string, endOfDay: boolean): number {
     : new Date(y, m - 1, d).getTime();
 }
 
-export function searchParams(f: FileFilters, offset: number): string {
-  const p = new URLSearchParams();
-  if (f.q.trim()) p.set("q", f.q.trim());
-  if (f.type) p.set("type", f.type);
-  if (f.fromDate) p.set("from_ms", String(localMs(f.fromDate, false)));
-  if (f.toDate) p.set("to_ms", String(localMs(f.toDate, true)));
-  if (f.linked !== "all") p.set("linked", f.linked);
-  p.set("limit", String(PAGE_SIZE));
-  p.set("offset", String(offset));
-  return p.toString();
+export function searchQuery(f: FileFilters, offset: number) {
+  return {
+    q: f.q.trim() || undefined,
+    type: f.type || undefined,
+    from_ms: f.fromDate ? localMs(f.fromDate, false) : undefined,
+    to_ms: f.toDate ? localMs(f.toDate, true) : undefined,
+    linked: f.linked === "all" ? undefined : f.linked,
+    limit: PAGE_SIZE,
+    offset,
+  };
 }
 
 const DOCUMENT_MIME = new Set([

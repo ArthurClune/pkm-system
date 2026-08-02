@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AssetSearchItem } from "../api/payloads";
 import {
   EMPTY_FILTERS, PAGE_SIZE, clipboardToken, deleteConfirm, formatSize,
-  mimeCategory, searchParams, summarizeDeletes,
+  mimeCategory, searchQuery, summarizeDeletes,
 } from "./filesCore";
 
 const item = (over: Partial<AssetSearchItem>): AssetSearchItem => ({
@@ -13,27 +13,32 @@ const item = (over: Partial<AssetSearchItem>): AssetSearchItem => ({
   status: "pending", describe_error: null, refs: [], ...over,
 });
 
-describe("searchParams", () => {
-  it("always carries limit and offset", () => {
-    const p = new URLSearchParams(searchParams(EMPTY_FILTERS, 50));
-    expect(p.get("limit")).toBe(String(PAGE_SIZE));
-    expect(p.get("offset")).toBe("50");
-    expect(p.get("q")).toBeNull();
-    expect(p.get("linked")).toBeNull();
+describe("searchQuery", () => {
+  it("always carries limit and offset while omitting optional filters", () => {
+    expect(searchQuery(EMPTY_FILTERS, 50)).toEqual({
+      q: undefined,
+      type: undefined,
+      from_ms: undefined,
+      to_ms: undefined,
+      linked: undefined,
+      limit: PAGE_SIZE,
+      offset: 50,
+    });
   });
 
-  it("maps filters to query params", () => {
-    const p = new URLSearchParams(searchParams({
+  it("maps filters to typed query params", () => {
+    expect(searchQuery({
       q: " cat ", type: "pdf", fromDate: "2026-07-01",
       toDate: "2026-07-31", linked: "orphan",
-    }, 0));
-    expect(p.get("q")).toBe("cat");
-    expect(p.get("type")).toBe("pdf");
-    expect(p.get("linked")).toBe("orphan");
-    expect(Number(p.get("from_ms"))).toBe(
-      new Date(2026, 6, 1).getTime());
-    expect(Number(p.get("to_ms"))).toBe(
-      new Date(2026, 6, 31, 23, 59, 59, 999).getTime());
+    }, 0)).toEqual({
+      q: "cat",
+      type: "pdf",
+      from_ms: new Date(2026, 6, 1).getTime(),
+      to_ms: new Date(2026, 6, 31, 23, 59, 59, 999).getTime(),
+      linked: "orphan",
+      limit: PAGE_SIZE,
+      offset: 0,
+    });
   });
 });
 

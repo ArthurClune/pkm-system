@@ -23,7 +23,7 @@ it("renders nothing while loading and stays absent when a day has no references"
     // read of the same title (the two can otherwise collide when a page is
     // open in both the journal and elsewhere at once).
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/page/July%207th%2C%202026?bl_limit=5", undefined);
+      "/api/page/July%207th%2C%202026?bl_limit=5", { method: "GET" });
   });
 
 it("renders the reused BacklinksSection once a day's references load",

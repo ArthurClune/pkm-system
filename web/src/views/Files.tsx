@@ -1,15 +1,13 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiFetch } from "../api/client";
-import type {
-  AssetSearchItem, AssetSearchPayload, ScanPayload,
-} from "../api/payloads";
+import { apiDelete, apiGet, apiPost } from "../api/typedClient";
+import type { AssetSearchItem } from "../api/payloads";
 import { useConfirm } from "../components/ConfirmDialog";
 import { SearchIcon } from "../components/icons";
 import { useSync } from "../sync/SyncProvider";
 import {
   EMPTY_FILTERS, clipboardToken, deleteConfirm, formatSize,
-  mimeCategory, searchParams, summarizeDeletes,
+  mimeCategory, searchQuery, summarizeDeletes,
 } from "./filesCore";
 import type { FileFilters } from "./filesCore";
 
@@ -114,8 +112,7 @@ export function Files() {
 
   const fetchPage = useCallback(
     (f: FileFilters, offset: number) =>
-      apiFetch<AssetSearchPayload>(
-        `/api/assets/search?${searchParams(f, offset)}`),
+      apiGet("/api/assets/search", { query: searchQuery(f, offset) }),
     []);
 
   const reload = useCallback((f: FileFilters) => {
@@ -207,8 +204,9 @@ export function Files() {
     let deleted = 0;
     for (const item of chosen) {
       try {
-        await apiFetch(`/api/assets/${item.sha256}`,
-                       { method: "DELETE" });
+        await apiDelete("/api/assets/{sha256}", {
+          path: { sha256: item.sha256 },
+        });
         deleted += 1;
       } catch {
         failures.push(item.filename);
@@ -226,8 +224,7 @@ export function Files() {
 
   const runScan = async () => {
     try {
-      const p = await apiFetch<ScanPayload>("/api/assets/scan",
-                                            { method: "POST" });
+      const p = await apiPost("/api/assets/scan");
       setNotice(p.enabled
         ? `Scan queued ${p.queued} file${p.queued === 1 ? "" : "s"}.`
         : `Image descriptions are disabled — ${p.reason}`);

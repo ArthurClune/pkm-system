@@ -2,8 +2,7 @@
 // Title options for the [[ / # popup: debounced fetch with a stale-response
 // token (same pattern as SearchModal), plus the dumb popup list itself.
 import { useEffect, useRef, useState } from "react";
-import { apiFetch } from "../api/client";
-import type { TitlesPayload } from "../api/payloads";
+import { apiGet } from "../api/typedClient";
 
 const DEBOUNCE_MS = 150;
 
@@ -18,7 +17,7 @@ export function useTitleOptions(query: string | null): string[] {
     }
     const token = ++seqRef.current;
     const timer = setTimeout(() => {
-      apiFetch<TitlesPayload>(`/api/titles?q=${encodeURIComponent(query)}`)
+      apiGet("/api/titles", { query: { q: query } })
         .then((p) => { if (token === seqRef.current) setOptions(p.titles); })
         .catch(() => { if (token === seqRef.current) setOptions([]); });
     }, DEBOUNCE_MS);

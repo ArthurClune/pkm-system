@@ -9,8 +9,7 @@
 // e.g. offline) falls back to opening the asset itself.
 import { useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiFetch } from "../api/client";
-import type { SearchPayload } from "../api/payloads";
+import { apiGet } from "../api/typedClient";
 import { SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
 
@@ -22,9 +21,9 @@ export function AssetLink({ url, sha, filename }: {
 
   const go = async (shiftKey: boolean) => {
     try {
-      const result = await apiFetch<SearchPayload>(
-        `/api/search?q=${encodeURIComponent(sha)}&exact=1`,
-      );
+      const result = await apiGet("/api/search", {
+        query: { q: sha, exact: true },
+      });
       const hit = result.blocks[0];
       if (hit) {
         if (shiftKey) openInSidebar(hit.page_title, hit.uid);

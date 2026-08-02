@@ -6,8 +6,8 @@
 // most once per mount — a uid the server doesn't know stays unresolved
 // rather than refetching forever.
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { apiFetch } from "../api/client";
-import type { BlockRefsPayload, BlockRefText } from "../api/payloads";
+import { apiGet } from "../api/typedClient";
+import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, BlockRefRequestContext } from "../contexts";
 
 // Server rejects >50 uids per request.
@@ -33,7 +33,7 @@ export function BlockRefProvider({ seed, children }: {
       pendingRef.current.clear();
       for (let i = 0; i < uids.length; i += CHUNK) {
         const batch = uids.slice(i, i + CHUNK);
-        apiFetch<BlockRefsPayload>(`/api/block-refs?uids=${batch.join(",")}`)
+        apiGet("/api/block-refs", { query: { uids: batch.join(",") } })
           .then((p) => setFetched((m) => ({ ...m, ...p.block_ref_texts })))
           .catch(() => undefined); // stays unresolved; renders as ((uid))
       }

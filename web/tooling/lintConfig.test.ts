@@ -75,6 +75,15 @@ const cases: readonly FixtureCase[] = [
       "  });\n" +
       "}\n",
   },
+  {
+    file: "restricted-api-fetch.ts",
+    rule: "no-restricted-imports",
+    corrected:
+      'import { apiGet } from "../../src/api/typedClient";\n' +
+      "export function load() {\n" +
+      '  return apiGet("/api/current-work");\n' +
+      "}\n",
+  },
 ];
 
 describe("eslint flat config", () => {

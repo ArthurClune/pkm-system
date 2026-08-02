@@ -2,7 +2,8 @@
 // Persistence completion and HTTP delivery are deliberately separate: a
 // WriteTicket settles when the active storage accepts a write, while drain()
 // reports whether every retained write reached the server.
-import { ApiError, apiFetch } from "../api/client";
+import { ApiError } from "../api/client";
+import { apiPost } from "../api/typedClient";
 import type { BlockOp } from "../api/ops";
 import type { PoisonedBatch, Replica } from "../replica/client";
 import { isSahPoolContention } from "../replica/openRetry";
@@ -135,15 +136,9 @@ function ticket(scope: readonly string[] | undefined,
   return { id: `write-${nextTicket++}`, scope: scope ?? [], settled, delivered };
 }
 
-function postOps(ops: BlockOp[], batchId?: string): Promise<unknown> {
-  return apiFetch("/api/ops", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: clientId,
-      ...(batchId === undefined ? {} : { batch_id: batchId }),
-      ops,
-    }),
+function postOps(ops: BlockOp[], batchId: string): Promise<unknown> {
+  return apiPost("/api/ops", {
+    body: { client_id: clientId, batch_id: batchId, ops },
   });
 }
 

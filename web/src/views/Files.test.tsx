@@ -100,11 +100,11 @@ describe("Files", () => {
     fireEvent.change(screen.getByLabelText("Type"),
                      { target: { value: "pdf" } });
     await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("type=pdf")));
+      expect.stringContaining("type=pdf"), { method: "GET" }));
     fireEvent.change(screen.getByLabelText("Linked"),
                      { target: { value: "orphan" } });
     await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("linked=orphan")));
+      expect.stringContaining("linked=orphan"), { method: "GET" }));
   });
 
   it("loads more pages and selects all across pages", async () => {
@@ -121,7 +121,7 @@ describe("Files", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     await screen.findByText("51 selected");
     expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("offset=50"));
+      expect.stringContaining("offset=50"), { method: "GET" });
   });
 
   it("discards a stale loadMore response when filters change first (pkm-3622)",
@@ -140,7 +140,7 @@ describe("Files", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("offset=50")));
+      expect.stringContaining("offset=50"), { method: "GET" }));
 
     fireEvent.change(screen.getByLabelText("Type"),
                      { target: { value: "pdf" } });
@@ -198,7 +198,7 @@ describe("Files", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     await waitFor(() => expect(mockFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining("offset=50")));
+      expect.stringContaining("offset=50"), { method: "GET" }));
 
     fireEvent.change(screen.getByLabelText("Type"),
                      { target: { value: "pdf" } });

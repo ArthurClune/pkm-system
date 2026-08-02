@@ -138,8 +138,9 @@ time* — a fact that drives the outline-session design below.
 
 There is no Redux/Zustand; state lives in three layers:
 
-1. **Server payloads per view** — components fetch with `apiFetch` and hold
-   results in local state, refetching when told to.
+1. **Server payloads per view** — components fetch JSON through the typed
+   client (`apiGet`/`apiPost`/`apiPut`/`apiDelete`) and hold results in
+   local state, refetching when told to.
 2. **`SyncProvider`** (`sync/SyncProvider.tsx`) — one global context:
    connection status, editability, pending-op count, delivery-health
    `problem`, `enqueue()`, and `resyncSeq` — a counter bumped whenever
@@ -418,7 +419,10 @@ over `api/openapi.json`, which the server generates); `api/ops.ts` and
 regenerate when the server changes (the server test suite fails on stale
 artifacts).
 
-`api/typedClient.ts` (`apiGet`/`apiPost`/`apiPut`/`apiDelete`) is a typing
+Concrete JSON requests must use `api/typedClient.ts`'s `apiGet`/`apiPost`/
+`apiPut`/`apiDelete`. ESLint enforces that boundary with
+`no-restricted-imports`: production/tooling code cannot import `apiFetch`
+from `api/client` except at raw transport seams. The typed client is a typing
 layer over `apiFetch`, not a second transport: it builds the same URL and
 calls `apiFetch`, so the offline gateway and error behaviour are identical.
 The difference is that it takes the **OpenAPI path template**, not a built
@@ -426,13 +430,17 @@ URL — `apiGet("/api/page/{title}", { path: { title } })` — which lets the
 generated `paths` table decide the path/query parameters, the JSON request
 body, and the response type. `apiFetch<T>` cannot do that: `T` is whatever
 the caller names, so an obsolete caller type or a wrong body typechecks.
-Prefer the typed client for new call sites; the remaining `apiFetch<T>`
-callers are a mechanical conversion still to be done (pkm-60bf). Path
-parameters are encoded per segment because `{title:path}` routes carry
-namespace titles whose slashes must survive; every other path parameter is
-slash-free by construction. Compile-time drift probes live in
-`api/typedClient.test.ts` — an expected-error directive that stops erroring
-fails the build, so the probes cannot rot.
+
+The only raw `apiFetch` exceptions are the typed-client implementation
+itself, multipart upload in `sync/assets.ts`, and `SyncProvider.tsx`'s
+`replicaSync` injection seam (`fetchJson: apiFetch`). `SyncProvider` is
+allowed for that deliberate transport injection only; it does not issue a
+concrete JSON request at the import site. Path parameters are encoded per
+segment because `{title:path}` routes carry namespace titles whose slashes
+must survive; every other path parameter is slash-free by construction.
+Compile-time drift probes live in `api/typedClient.test.ts` — an
+expected-error directive that stops erroring fails the build, so the probes
+cannot rot.
 
 ## Styling and theming
 

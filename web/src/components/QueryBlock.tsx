@@ -1,7 +1,8 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
-import { OfflineError, apiFetch } from "../api/client";
-import type { BlockGroup, GroupsPayload } from "../api/payloads";
+import { OfflineError } from "../api/client";
+import { apiGet } from "../api/typedClient";
+import type { BlockGroup } from "../api/payloads";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
@@ -25,8 +26,7 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
 
   const load = useCallback(async (requestId: number) => {
     try {
-      const p = await apiFetch<GroupsPayload>(
-        `/api/query?expr=${encodeURIComponent(expr)}`);
+      const p = await apiGet("/api/query", { query: { expr } });
       if (requestId !== requestIdRef.current) return;
       setGroups(p.groups);
       setTotal(p.total);

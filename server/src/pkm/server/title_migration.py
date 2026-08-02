@@ -102,7 +102,7 @@ def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventor
         for row in db.execute(
             "SELECT id, title, order_idx FROM sidebar_entries"
         ).fetchall()
-        if row["title"] in page_titles
+        if row["title"] in page_titles or row["title"] in canonical_titles
     ]
 
     return TitleMigrationInventory(
@@ -232,7 +232,7 @@ def apply_title_migration(
         )
         db.commit()
         return outcome
-    except Exception:
+    except BaseException:
         if transaction_started:
             db.rollback()
         raise

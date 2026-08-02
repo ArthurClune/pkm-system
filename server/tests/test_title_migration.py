@@ -147,6 +147,59 @@ def test_audit_inventories_only_migration_rows_without_side_effects():
     assert db.in_transaction is False
 
 
+def test_audit_and_apply_include_orphan_canonical_sidebar_identity():
+    """Mutation caught: omit an orphan canonical sidebar from migration inventory."""
+    db = _database()
+    db.executemany(
+        "INSERT INTO pages(id, title) VALUES (?, ?)",
+        [(1, " Beta "), (2, "Beta ")],
+    )
+    db.executemany(
+        "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (?, ?, ?)",
+        [(10, " Beta ", 8), (11, "Beta ", 4), (12, "Beta", 2)],
+    )
+    db.commit()
+
+    plan = audit_title_migration(db)
+
+    assert [
+        (sidebar.sidebar_id, sidebar.title, sidebar.order_idx)
+        for sidebar in plan.sidebars
+    ] == [(10, " Beta ", 8), (11, "Beta ", 4), (12, "Beta", 2)]
+    assert plan.sidebar_count == 3
+
+    apply_title_migration(db, plan.digest, now_ms=9_999)
+
+    assert [tuple(row) for row in db.execute(
+        "SELECT id, title, order_idx FROM sidebar_entries ORDER BY id"
+    )] == [(12, "Beta", 2)]
+    assert [tuple(row) for row in db.execute(
+        "SELECT id, title FROM pages ORDER BY id"
+    )] == [(1, "Beta")]
+
+
+def test_apply_detects_stale_digest_when_orphan_canonical_sidebar_changes():
+    """Mutation caught: omit a surviving canonical orphan's order from the digest."""
+    db = _database()
+    db.execute("INSERT INTO pages(id, title) VALUES (1, ' Beta ')")
+    db.execute(
+        "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (12, 'Beta', 2)"
+    )
+    db.commit()
+    plan = audit_title_migration(db)
+    db.execute("UPDATE sidebar_entries SET order_idx=7 WHERE id=12")
+    db.commit()
+    before = _state(db)
+
+    with pytest.raises(StaleTitleMigration) as raised:
+        apply_title_migration(db, plan.digest, now_ms=10_000)
+
+    assert raised.value.expected_digest == plan.digest
+    assert raised.value.actual_digest != plan.digest
+    assert _state(db) == before
+    assert db.in_transaction is False
+
+
 def test_audit_refuses_to_terminate_a_caller_owned_transaction():
     """Mutation caught: remove the pre-existing transaction ownership guard."""
     db = _database()
@@ -312,6 +365,28 @@ def test_apply_rolls_back_all_effects_when_rewrite_fails(monkeypatch):
 
     with pytest.raises(RuntimeError, match="injected rewrite failure"):
         apply_title_migration(db, plan.digest, now_ms=10_004)
+
+    assert _state(db) == before
+    assert plain_space_title_canonicalization_active(db) is False
+    assert db.in_transaction is False
+
+
+def test_apply_rolls_back_all_effects_when_base_exception_propagates(monkeypatch):
+    """Mutation caught: catch Exception and strand partial writes on BaseException."""
+    db = _database()
+    _seed_migration_graph(db)
+    plan = audit_title_migration(db)
+    before = _state(db)
+
+    def interrupt_rewrite(*args, **kwargs):
+        raise KeyboardInterrupt("injected migration interrupt")
+
+    monkeypatch.setattr(
+        title_migration_shell, "rewrite_snapshotted_blocks", interrupt_rewrite
+    )
+
+    with pytest.raises(KeyboardInterrupt, match="injected migration interrupt"):
+        apply_title_migration(db, plan.digest, now_ms=10_005)
 
     assert _state(db) == before
     assert plain_space_title_canonicalization_active(db) is False

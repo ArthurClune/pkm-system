@@ -103,10 +103,12 @@ live in one table (`routeMeta.ts`, pkm-77w2): App.tsx's `<Routes>`/`NavLink`s,
 TopBar's label + page-action-menu gating, and `useRouteTitle.ts` (the single
 route-aware `document.title` effect, called once from `App`) all read it, so
 a route can't end up labelled in one place and not another — `/files` and
-`/settings` previously had no top-bar label for exactly that reason. `/page/*`
-is the deliberate exception: PageView.tsx sets its own title once the page's
-own title has loaded, since that can't be derived from the pathname alone.
-The right-hand sidebar is a
+`/settings` previously had no top-bar label for exactly that reason. `routeMetaFor`
+canonicalizes one or more trailing slashes on non-root static paths before
+lookup, so hand-typed `/files/` and `/settings/` still receive the canonical
+labels/titles, while `/page/*` remains dynamic and still bypasses the table.
+`PageView.tsx` sets its own title once the page's own title has loaded, since
+that can't be derived from the pathname alone. The right-hand sidebar is a
 session-only **stack**: shift-clicking any page link or ref pushes a
 `SidebarPanel` onto it. The left nav holds pinned pages (server-persisted
 via `/api/sidebar`), then a rule-fenced block of app destinations —

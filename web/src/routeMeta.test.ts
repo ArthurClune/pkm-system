@@ -17,14 +17,17 @@ describe("ROUTES / ROUTE_META consistency", () => {
 });
 
 describe("routeMetaFor", () => {
-  it("resolves label and title for a static route", () => {
-    expect(routeMetaFor(ROUTES.files)).toEqual({ label: "Files", title: "Files — pkm" });
-    expect(routeMetaFor(ROUTES.settings)).toEqual({ label: "Settings", title: "Settings — pkm" });
+  it.each([
+    ["/files/", { label: "Files", title: "Files — pkm" }],
+    ["/settings///", { label: "Settings", title: "Settings — pkm" }],
+  ])("normalizes trailing slashes for static route %s", (pathname, expected) => {
+    expect(routeMetaFor(pathname)).toEqual(expected);
   });
 
-  it("is undefined for a dynamic route (page or not-found)", () => {
-    expect(routeMetaFor("/page/Paper")).toBeUndefined();
-    expect(routeMetaFor("/definitely/not/a/route")).toBeUndefined();
+  it("keeps root canonical and dynamic/unmatched paths undefined", () => {
+    expect(routeMetaFor("/")).toEqual(ROUTE_META[ROUTES.journal]);
+    expect(routeMetaFor("/page/Paper/")).toBeUndefined();
+    expect(routeMetaFor("/definitely/not/a/route/")).toBeUndefined();
   });
 
   it("a route's label and title may differ (Help's browser title isn't its top-bar label)", () => {

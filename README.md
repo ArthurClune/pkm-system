@@ -130,7 +130,10 @@ uv run python -m pkm.importer.run /path/to/export.edn \
 
 Each run builds a fresh database and atomically swaps it in, ending with a
 report of everything imported (and anything unrecognised — nothing is
-silently dropped). It's safe to re-run.
+silently dropped). Before publication it reuses the title-migration audit/apply
+path on the temporary database, so padded clean twins are merged and title
+canonicalization is active from first use; an all-space title refuses the
+import before either the database or report is swapped. It's safe to re-run.
 
 ### Regenerating the local data
 
@@ -193,6 +196,8 @@ CLI quick reference (`uv run pkm <cmd> --help` for details — every verb's
     pkm refs "Page" / pkm query "{and: [[A]] [[B]]}" [--expand]
     pkm upload file.png [-p "Page"] [--no-block]
     pkm batch < commands.json                # atomic multi-op transaction
+    pkm migrate-titles [--json]              # side-effect-free audit
+    pkm migrate-titles --apply DIGEST        # explicit audited apply
 
 Notes: `pkm save` with no `-p` targets today's daily note (pages are created
 if missing); multi-line text is an outline (2-space indent = nesting). A
@@ -207,7 +212,44 @@ wildcard); `--compact` prints titles/uids without snippets; the default
 ([[X]] matches blocks referencing a page that itself references X); when a
 query's total is 0, the response (and rendered output) also reports a
 per-operand block count so you can tell a typo'd `[[Page]]` from operands
-that simply don't intersect.
+that simply don't intersect. `pkm refs` follows every server page rather than
+silently stopping at the route's 100-group cap, retries if concurrent writes
+shift pagination, and reports the first response's actual `limit` in JSON
+instead of synthesizing a limit from the aggregate group count.
+
+### One-time title integrity activation
+
+Existing leading/trailing ASCII-space titles require a deliberate,
+audit-first data migration. Normal server startup only replays schema setup;
+it **never** audits or applies this migration. Production activation is a
+separate later operator action and must not be inferred from a deploy or
+restart.
+
+For an approved target, set both the config and URL explicitly rather than
+inheriting the normal CLI defaults:
+
+```bash
+PKM_CLI_CONFIG=/explicit/target-config.json PKM_URL=https://explicit-target \
+  uv run --project server pkm migrate-titles
+PKM_CLI_CONFIG=/explicit/target-config.json PKM_URL=https://explicit-target \
+  uv run --project server pkm migrate-titles --apply <audit-digest>
+```
+
+The audit is side-effect-free and prints a stable 64-hex digest plus each
+canonical group, survivor/source merge plan, counts, and any all-space
+blockers. Review it before apply. Apply requires that exact digest; database
+changes that affect the plan make it stale, and stale, blocked, or
+already-active applies are refused. Success retitles/merges pages, rewrites
+inbound references and sidebar identities, activates boundary-U+0020
+canonicalization, and rotates the sync generation in one transaction. Do not
+run either production command unless production was explicitly requested and
+both variables were deliberately configured; take the normal operational
+backup first.
+
+Control whitespace in titles is always normalized on creation and on the
+page/unlinked/export plus CLI/MCP read paths. Activation additionally removes
+leading/trailing ordinary spaces online and offline; internal ordinary spaces
+and NBSP remain byte-exact.
 
 `pkm batch` applies a JSON array of `{command, params}` objects in one
 transaction. Commands: `create` (page, text, parent?, index?, as?), `todo`
@@ -240,10 +282,11 @@ an absolute path to the repo's `server/` directory (e.g.
 `"args": ["run", "--project", "/absolute/path/to/pkm/server", "pkm-mcp"]`).
 Run `pkm login` once first — the MCP server reads the same config file.
 
-The MCP server exposes ten tools mirroring the CLI: `get_page`, `get_block`,
-`search`, `query`, `backlinks`, `todos`, `save_note`, `update_block`, `batch`
-(same command format as `pkm batch`), and `upload_asset`. Reads return
-markdown annotated with `^uid` markers that the write tools accept.
+The MCP server exposes eleven tools mirroring the CLI: `get_page`, `get_block`,
+`search`, `query`, `backlinks`, `todos`, `search_assets`, `save_note`,
+`update_block`, `batch` (same command format as `pkm batch`), and
+`upload_asset`. Reads return markdown annotated with `^uid` markers that the
+write tools accept.
 
 ## Deployment
 

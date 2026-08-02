@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:50:33Z
-updated_at: 2026-08-02T20:29:57Z
+updated_at: 2026-08-02T20:57:58Z
 parent: pkm-ulae
 ---
 
@@ -28,3 +28,7 @@ Additional item from ops-branch re-review (pre-existing): _broadcast_op relays a
 ## Summary of Changes
 
 - Broadcast ops now use the authoritative stored page title from the applied page row for create, create_page, and move operations, covering blank fallback, control-whitespace normalization, activation-time padding canonicalization, and cross-page moves while preserving same-page null broadcasts.
+
+## Task 10 status review
+
+Only the authoritative title-broadcast item is complete. The subtree traversal, ancestor cap, and blank-ref parity items intentionally remain unchecked, and this bean remains in progress for the later parity lane.

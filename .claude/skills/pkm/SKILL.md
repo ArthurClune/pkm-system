@@ -90,6 +90,31 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   or, for `update`/`move`/`delete`, as `"uid": "{{name}}"`; repeated
   `"## Heading"` parents on the same page resolve to one heading.
 
+## Title migration (operator-only)
+
+Existing leading/trailing plain-space titles are migrated only by an explicit,
+audit-first operator command. Server startup never audits or applies this data
+migration.
+
+Never run either command against production unless your partner explicitly asks
+for that production action. Deliberately set **both** `PKM_CLI_CONFIG` and
+`PKM_URL` for the intended server; do not inherit the normal CLI config or URL.
+For an approved target:
+
+    PKM_CLI_CONFIG=/explicit/config.json PKM_URL=https://explicit-host \
+      uv run --project server pkm migrate-titles
+    PKM_CLI_CONFIG=/explicit/config.json PKM_URL=https://explicit-host \
+      uv run --project server pkm migrate-titles --apply <audit-digest>
+
+The first command is side-effect-free: review its groups, survivor/source merge
+plan, and all-space blockers, then retain its 64-hex digest. Apply has no
+implicit/default mode and requires that exact digest. A database change that
+alters the audited plan makes the digest stale and refuses the apply; re-audit
+instead of bypassing it.
+Blockers also refuse the whole apply. A successful apply is one transaction:
+it retitles/merges pages, rewrites inbound refs, activates boundary-plain-space
+canonicalization, and rotates the sync generation.
+
 ## Gotchas
 
 - A verb returning `404: not found` means the running server is older than

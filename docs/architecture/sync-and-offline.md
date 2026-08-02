@@ -89,21 +89,50 @@ Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
 rebuilt) or a changed `generation` token. Both mean "this is a different
 database; your cursor is meaningless".
 
-Both snapshot and changes payloads also carry the required
-`plain_space_title_canonicalization` flag. The replica persists it in
-`sync_client_meta` as `"0"` or `"1"` in the same transaction as an accepted
-payload, **before** reconciling and replaying pending optimistic batches. That
-order is load-bearing: after migration activation, the replica first
-canonicalizes negative-id pages created under the inactive rule. It remaps
-their blocks and refs onto a canonical authoritative page from the accepted
-feed when one exists, or retitles the negative page in place otherwise. It
-then replays the unchanged durable wire operations under the newly active
-boundary-U+0020 rule, so neither padded page residue nor optimistic user state
-is lost. A reset or generation-mismatched changes payload returns before
-mutating cursor, generation, or activation metadata; the subsequent snapshot
-replaces them together. Local creation and read shells consult the persisted
-flag, while the pure title core always normalizes control whitespace and,
-only when active, strips boundary U+0020 (not NBSP).
+## Title activation across online and offline paths
+
+Snapshot and changes payloads both carry the required
+`plain_space_title_canonicalization` boolean alongside `generation`. This is a
+server-owned rollout switch, not a client preference: normal server startup
+does not change it, so an unactivated database stays inactive, and startup
+never runs the padded-title data migration. A later explicit audited apply
+sets the flag and rotates the server generation in the same transaction.
+Fresh importer databases reuse
+that audit/apply path on their temporary database before publication, so they
+arrive active rather than waiting for startup.
+
+The server and replica deliberately make the same decision at their I/O
+boundaries:
+
+| State | Online server/API | Offline replica |
+|---|---|---|
+| Always | Normalize control whitespace in title creation and page/unlinked read lookup, so the caller's original tab/newline spelling still resolves | `canonicalizeTitle` applies the same control-whitespace rule to local creation and page/unlinked reads |
+| Inactive | Preserve leading/trailing ordinary U+0020 exactly, allowing legacy padded rows to resolve to themselves | Persist `"0"`; preserve boundary ordinary spaces and keep queued wire operations unchanged |
+| Active | Strip only boundary U+0020 on creation/read; keep internal ordinary spaces and NBSP exact | Persist `"1"`; strip boundary U+0020 before local page lookup/creation and optimistic replay |
+
+The replica persists an accepted flag in `sync_client_meta` in the same
+transaction as the accepted payload, **before** reconciling and replaying
+pending optimistic batches. That order is load-bearing: after activation it
+first canonicalizes negative-id pages created under the inactive rule. It
+remaps their blocks and refs onto a canonical authoritative page from the
+accepted feed when one exists, or retitles the negative page in place
+otherwise. It then replays the unchanged durable wire operations under the
+new rule, so neither padded-page residue nor optimistic user state is lost.
+
+Activation's generation rotation intentionally forces a full rebootstrap. A
+client that receives the first post-migration changes payload sees the new
+generation and returns `needs-bootstrap` **before** mutating cursor,
+generation, or activation metadata; the snapshot then installs the canonical
+server graph and metadata together and replays pending intent. The apply
+route sends one seq nudge after commit so connected clients discover this
+promptly, but the pull/generation check remains the correctness mechanism.
+
+Applied-op echoes also use authoritative stored titles: create, create-page,
+and moves with a resolved page target replace the caller spelling with the
+title of the page row the server actually changed (blank fallback, control
+normalization, and active boundary stripping included). Same-page moves with
+no `page_title` remain null. Other tabs therefore refetch the authoritative
+page key while still relying on the journal pull for state.
 
 ## Post-commit nudges
 

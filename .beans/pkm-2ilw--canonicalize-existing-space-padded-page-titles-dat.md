@@ -1,11 +1,11 @@
 ---
 # pkm-2ilw
 title: Canonicalize existing space-padded page titles (data migration)
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-02T20:41:02Z
+updated_at: 2026-08-02T20:57:40Z
 parent: pkm-ulae
 ---
 
@@ -13,7 +13,7 @@ Follow-up from pkm-1rb5 review. Production data contains pages whose stored titl
 
 Design a one-time data migration that trims existing padded page titles, merging into an existing clean-named twin where one exists (reuse the pkm-g0t5 rename/merge machinery), rewriting inbound [[refs]] accordingly. After migration, consider stripping plain spaces at the shared creation boundary so new padded titles cannot be created (blocked on the migration; see pkm-1rb5's recorded decision).
 
-- [ ] Inventory padded titles in prod DB
+- [x] Verify audit/planner/CLI behavior against an isolated temporary database/server only (production title migration/inventory was NOT executed)
 - [x] Migration with merge handling + ref rewrite
 - [x] Then (and only then) canonicalize new titles at the creation boundary
 
@@ -94,3 +94,15 @@ Added a focused real-POST activation regression (with mutation RED because the b
 ## Task 9 Summary of Changes
 
 Reused the shared title-migration audit/apply shell against importer-built temporary databases before publication, so fresh imports now publish with `plain_space_title_canonicalization = "1"`, clean/padded twins merge through the existing stable block/ref rewrite path, and all-space imports refuse with exit 2 before any db/report swap. Added importer E2E coverage for merge + activation + refusal, and documented the importer-side activation/refusal invariant in backend architecture notes.
+
+## Task 10: documentation and isolated activation verification
+
+- [x] Document operator, API, transaction, sync, importer, read, backlink, and broadcast title contracts
+- [x] Skill-TDD the PKM migration guidance with fresh RED and GREEN agents
+- [x] Run the focused server/web, generated-contract, type, and lint gates
+- [x] Verify audit/apply/activation only with temporary data/config on http://127.0.0.1:18974 and clean up process/data
+- [x] Reconcile title-related bean status without claiming production access
+
+## Summary of Changes
+
+Implemented deterministic title-migration planning and digesting; atomic audit/apply with merge, reference/sidebar reconciliation, activation, generation rotation, authenticated API and typed CLI; activation-aware online/offline title boundaries and pending replay reconciliation; authoritative title broadcasts; importer reuse before publication; control-whitespace read normalization; and truthful complete backlink pagination. Documented the complete operator and architecture contracts and verified the focused/generated gates plus an isolated CLI migration lifecycle. Production title migration/inventory was NOT executed; all Task 10 runtime verification used disposable data, a disposable CLI config, and http://127.0.0.1:18974.

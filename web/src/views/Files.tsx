@@ -107,6 +107,8 @@ export function Files() {
     useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const loadMoreInFlight = useRef(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   // Stale-response guard: only the latest reload may set state.
   const generation = useRef(0);
 
@@ -142,6 +144,9 @@ export function Files() {
     setFilters((f) => ({ ...f, ...patch }));
 
   const loadMore = async () => {
+    if (loadMoreInFlight.current) return;
+    loadMoreInFlight.current = true;
+    setLoadingMore(true);
     const gen = generation.current;
     try {
       const p = await fetchPage(filters, items.length);
@@ -150,6 +155,9 @@ export function Files() {
       setTotal(p.total);
     } catch {
       if (!isStale(generation, gen)) setNotice("Could not load more files.");
+    } finally {
+      loadMoreInFlight.current = false;
+      setLoadingMore(false);
     }
   };
 
@@ -335,6 +343,7 @@ export function Files() {
       )}
       {state === "ready" && items.length < total && (
         <button type="button" className="btn-secondary files-more"
+                disabled={busy || loadingMore}
                 onClick={() => void loadMore()}>
           Load more
         </button>

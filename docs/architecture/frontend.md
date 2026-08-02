@@ -118,12 +118,15 @@ sidebar, `Cmd/Ctrl+J` toggles the assistant panel.
 
 `/files` (pkm-jdu3) is a plain table over `/api/assets/search` with
 filters (text, type, date range, linked/orphan), offset pagination and
-multi-select for delete and zip export. Its pure half (`views/filesCore.ts`)
-owns the query-string building, MIME categorisation, size formatting,
-confirm-text composition and the reference token a user can copy into a
-block; the shell owns fetching, selection state and the download. The zip
-export is submitted as a throwaway hidden `<form method="post">` rather than
-a fetch, so the browser owns the download rather than the SPA buffering it.
+multi-select for delete and zip export. Pagination uses a synchronous
+single-flight lock as well as the disabled button state, while the generation
+guard still discards responses made stale by filter changes. Its pure half
+(`views/filesCore.ts`) owns the query-string building, MIME categorisation,
+size formatting, confirm-text composition and the reference token a user can
+copy into a block; the shell owns fetching, selection state and the download.
+The zip export is submitted as a throwaway hidden `<form method="post">`
+rather than a fetch, so the browser owns the download rather than the SPA
+buffering it.
 Journal days additionally render their own linked references inline
 (`JournalDayReferences`, pkm-vvta), lazily per day and hidden when a day has
 none, reusing `BacklinksSection` rather than a second renderer.

@@ -155,6 +155,33 @@ describe("Files", () => {
     expect(screen.queryByText("f0.png")).not.toBeInTheDocument();
   });
 
+  it("runs only one Load more request for two clicks before rerender (pkm-ow62)",
+     async () => {
+    const first = Array.from({ length: 50 }, (_, i) =>
+      item({ sha256: String(i).padStart(64, "0"), filename: `f${i}.png` }));
+    const pending = deferred<AssetSearchPayload>();
+    const last = item({ sha256: "ef".repeat(32), filename: "last.png" });
+    mockFetch
+      .mockResolvedValueOnce(payload(first, 51))
+      .mockReturnValueOnce(pending.promise);
+    render(<Files />);
+    const button = await screen.findByRole("button", { name: "Load more" });
+
+    act(() => {
+      button.click();
+      button.click();
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(button).toBeDisabled();
+    await act(async () => {
+      pending.resolve(payload([last], 51));
+      await pending.promise;
+    });
+    expect(await screen.findByText("51 of 51 files")).toBeInTheDocument();
+    expect(screen.getAllByText("last.png")).toHaveLength(1);
+  });
+
   it("discards a stale selectAll response when filters change first " +
      "(pkm-3622)", async () => {
     const firstPage = Array.from({ length: 50 }, (_, i) =>

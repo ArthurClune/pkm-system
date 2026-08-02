@@ -202,6 +202,8 @@ def render_title_migration_audit(payload: TitleMigrationAuditPayload) -> str:
         lines.extend([
             "",
             "No padded plain-space titles need migration.",
+            "Migration is already active; apply mode is unavailable."
+            if payload.active else
             "Apply mode is disabled until you provide an audit digest explicitly.",
         ])
     return "\n".join(lines) + "\n"

@@ -288,6 +288,26 @@ def test_render_title_migration_audit_empty_explains_that_only_a_reviewed_audit_
     )
 
 
+def test_render_title_migration_audit_active_empty_says_apply_is_unavailable_because_it_is_already_active():
+    payload = TitleMigrationAuditPayload(
+        active=True,
+        digest="2" * 64,
+        groups=[],
+        blockers=[],
+    )
+    assert render_title_migration_audit(payload) == (
+        "# Title migration audit\n"
+        "\n"
+        "state: active\n"
+        "digest: " + "2" * 64 + "\n"
+        "groups: 0\n"
+        "blockers: 0\n"
+        "\n"
+        "No padded plain-space titles need migration.\n"
+        "Migration is already active; apply mode is unavailable.\n"
+    )
+
+
 def test_render_title_migration_apply_includes_applied_counts_and_generation():
     payload = TitleMigrationApplyResponse(
         digest="8" * 64,

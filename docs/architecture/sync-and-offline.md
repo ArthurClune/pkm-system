@@ -89,6 +89,18 @@ Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
 rebuilt) or a changed `generation` token. Both mean "this is a different
 database; your cursor is meaningless".
 
+Both snapshot and changes payloads also carry the required
+`plain_space_title_canonicalization` flag. The replica persists it in
+`sync_client_meta` as `"0"` or `"1"` in the same transaction as an accepted
+payload, **before** replaying pending optimistic batches. That order is
+load-bearing: after migration activation, replay must resolve padded page
+titles using the newly active boundary-U+0020 rule rather than recreating the
+old spelling. A reset or generation-mismatched changes payload returns before
+mutating cursor, generation, or activation metadata; the subsequent snapshot
+replaces them together. Local creation and read shells consult the persisted
+flag, while the pure title core always normalizes control whitespace and,
+only when active, strips boundary U+0020 (not NBSP).
+
 ## Post-commit nudges
 
 Every route whose commit touches a changes-journaled table (`blocks`,
@@ -347,6 +359,7 @@ recovery coordinator:
 
 Everything stateful is inspectable SQLite: the journal is rows in the server
 DB, the queue is rows in the replica DB, and the only moving parts are a
-cursor, a generation token, and content hashes. There are no vector clocks
+cursor, a generation token, the title-canonicalization activation flag, and
+content hashes. There are no vector clocks
 and no merge machinery; every failure mode reduces to "pull the feed again"
 or "re-snapshot and replay the queue".

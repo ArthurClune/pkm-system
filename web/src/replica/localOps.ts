@@ -10,12 +10,17 @@
 
 import type { BlockOp } from "../api/ops";
 import type { ReplicaDb } from "./db";
+import { plainSpaceTitleCanonicalizationActive } from "./meta";
 import { extractRefs } from "./refs";
+import { canonicalizeTitle } from "./titles";
 
 export class LocalOpError extends Error {}
 
 export function getOrCreateLocalPage(db: ReplicaDb, title: string,
                                      nowMs: number): number {
+  title = canonicalizeTitle(
+    title, plainSpaceTitleCanonicalizationActive(db));
+  if (title.trim().length === 0) title = "Untitled";
   const existing = db.select<{ id: number }>(
     "SELECT id FROM pages WHERE title = ?", [title]);
   if (existing.length > 0) return existing[0].id;

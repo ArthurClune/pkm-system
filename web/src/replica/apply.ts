@@ -9,7 +9,7 @@
 import type { components } from "../api/types";
 import type { ReplicaDb, SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
-import { getMeta, setMeta } from "./meta";
+import { getMeta, setMeta, setPlainSpaceTitleCanonicalization } from "./meta";
 import { allBatches } from "./queue";
 import { reconcilePage } from "./reconcile";
 
@@ -68,6 +68,8 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
     }
     setMeta(db, "cursor", String(snap.seq));
     setMeta(db, "generation", snap.generation);
+    setPlainSpaceTitleCanonicalization(
+      db, snap.plain_space_title_canonicalization);
     reapplyPending(db, nowMs);
   });
 }
@@ -128,6 +130,8 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
       }
     }
     setMeta(db, "cursor", String(feed.next_since));
+    setPlainSpaceTitleCanonicalization(
+      db, feed.plain_space_title_canonicalization);
     reapplyPending(db, nowMs);
   });
   return { status: "applied", cursor: feed.next_since };

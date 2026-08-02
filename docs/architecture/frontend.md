@@ -86,8 +86,9 @@ replica/               The offline engine: worker.ts + workerHandlers.ts,
                        rpc.ts/client.ts (typed RPC), baseSchema.gen.ts
                        (generated from server DDL), clientSchema.ts,
                        queue.ts, apply.ts, reconcile.ts, recoveryGate.ts,
-                       openRetry.ts (OPFS open contention),
-                       localApi/ (offline read shims), localOps.ts
+                       openRetry.ts (OPFS open contention), titles.ts
+                       (pure title canonicalization), localApi/ (offline read
+                       shims), localOps.ts
 dnd/                   Drag-and-drop context + drop zones
 styles.css             All styling (plain CSS, design tokens)
 ```

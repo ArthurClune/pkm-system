@@ -6,8 +6,9 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Mapping, Sequence
 
-from pkm.refs import extract, is_blank_title, normalize_title
+from pkm.refs import canonicalize_title, extract, is_blank_title
 from pkm.rename import rewrite_title_refs_map
+from pkm.server.sync_meta import plain_space_title_canonicalization_active
 
 
 class BlankTitleError(ValueError):
@@ -28,35 +29,22 @@ def fetch_page(db: sqlite3.Connection, title: str) -> sqlite3.Row | None:
 
 def get_or_create_page(db: sqlite3.Connection, title: str,
                        now_ms: int) -> sqlite3.Row:
-    """Normalizes the title first: this is the one choke point every
-    creation path funnels through (ref indexing, ops create/move
-    page_title, POST /api/pages, rename, the CLI, the importer), so a
-    title holding control whitespace -- unreachable through the API, see
-    refs.normalize_title -- cannot be minted by any of them. Normalizing
-    rather than rejecting is deliberate: an offline client replaying a
-    queued op must never meet a permanent 422, or its queue wedges.
+    """Canonicalize at the choke point shared by every creation path.
 
-    A title that is nothing but whitespace once normalized is different:
-    unlike a normalized-but-nonempty title, it can never be addressed (no
-    [[link]] resolves to it, no route can name it), so it would sit in the
-    pages table as permanently unreachable dead weight. This function
-    refuses to create it -- raising BlankTitleError rather than silently
-    minting the page -- and leaves the recovery policy to the caller.
+    Control whitespace is always normalized because such titles are
+    unreachable through the HTTP path. Boundary U+0020 remains byte-exact
+    before the title migration, then is stripped only after the durable
+    activation flag is set. This lets pre-migration padded rows keep resolving
+    to themselves while preventing their recreation after migration.
 
-    Blankness and canonicalization are deliberately separate checks here
-    (pkm-1rb5 review round 2): normalize_title is narrow and only acts on
-    a title holding a *control* whitespace char, so a title of plain
-    spaces alone ("   ") comes back byte for byte -- not touched by
-    normalize_title, but still all-whitespace, so `.strip()` is used ONLY
-    to test for that, never to decide what gets stored or looked up. A
-    title that is merely *padded* (e.g. " EvilCorp", real content, just a
-    leading space -- production has pages exactly like this, minted back
-    when refs/ops never stripped) is not blank and must keep matching
-    itself byte for byte, the same as before this function existed: a
-    caller passing the padded title again must find the same row, not
-    stamp out a second, empty page under some canonicalized variant it
-    never actually asked to look up."""
-    title = normalize_title(title)
+    Blankness remains a separate policy: a title that is all whitespace is
+    refused with BlankTitleError. Interactive routes translate that to 422;
+    offline-replayed ops substitute their fixed fallback rather than wedging
+    the durable queue."""
+    title = canonicalize_title(
+        title,
+        plain_space=plain_space_title_canonicalization_active(db),
+    )
     if is_blank_title(title):
         raise BlankTitleError(title)
     page = fetch_page(db, title)

@@ -2181,6 +2181,10 @@
             "type": "string",
             "title": "Generation"
           },
+          "plain_space_title_canonicalization": {
+            "type": "boolean",
+            "title": "Plain Space Title Canonicalization"
+          },
           "next_since": {
             "type": "integer",
             "title": "Next Since"
@@ -2221,6 +2225,7 @@
         "type": "object",
         "required": [
           "generation",
+          "plain_space_title_canonicalization",
           "next_since",
           "latest_seq",
           "pages",
@@ -3116,6 +3121,10 @@
             "type": "string",
             "title": "Generation"
           },
+          "plain_space_title_canonicalization": {
+            "type": "boolean",
+            "title": "Plain Space Title Canonicalization"
+          },
           "seq": {
             "type": "integer",
             "title": "Seq"
@@ -3145,6 +3154,7 @@
         "type": "object",
         "required": [
           "generation",
+          "plain_space_title_canonicalization",
           "seq",
           "pages",
           "blocks",

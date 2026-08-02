@@ -14,7 +14,7 @@ from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     BlockPayload, BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
     JournalPayload, PageMeta, PagePayload, RenamePageResponse)
-from pkm.refs import normalize_title
+from pkm.refs import canonicalize_title, is_blank_title
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.backlinks import group_backlinks
@@ -25,6 +25,7 @@ from pkm.server.fts import phrase_query
 from pkm.server.store import (BlankTitleError, delete_page_rows, fetch_page,
                               get_or_create_page, merge_page_rows,
                               rename_page_rows)
+from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -198,7 +199,7 @@ def create_page(request: Request, body: CreatePageRequest,
     # interactive, so it turns that into an explicit 422 rather than the
     # ops path's fallback-title recovery (ops_apply.py).
     try:
-        page = get_or_create_page(db, body.title.strip(), int(time.time() * 1000))
+        page = get_or_create_page(db, body.title, int(time.time() * 1000))
     except BlankTitleError:
         raise HTTPException(status_code=422,
                             detail="title must not be blank") from None
@@ -233,8 +234,11 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
     # normalized here as well as in get_or_create_page: the merge branch
     # below compares and reports new_title directly, so it has to be the
     # title that actually lands in the row.
-    new_title = normalize_title(body.new_title.strip())
-    if not new_title:
+    new_title = canonicalize_title(
+        body.new_title,
+        plain_space=plain_space_title_canonicalization_active(db),
+    )
+    if is_blank_title(new_title):
         raise HTTPException(status_code=422,
                             detail="title must not be blank")
     if "[[" in new_title or "]]" in new_title:

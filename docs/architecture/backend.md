@@ -317,8 +317,8 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | **Sidebar** | | |
 | GET / POST / PUT / DELETE | `/api/sidebar`… | Pinned pages: list / pin / reorder (permutation-validated) / unpin |
 | **Sync** (see [sync-and-offline.md](sync-and-offline.md)) | | |
-| GET | `/api/sync/snapshot` | Full graph bootstrap + `seq` + `generation` |
-| GET | `/api/sync/changes?since&limit` | Windowed incremental change feed |
+| GET | `/api/sync/snapshot` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation |
+| GET | `/api/sync/changes?since&limit` | Windowed incremental feed with the same generation/activation metadata |
 | WS | `/api/ws` | Push nudges: applied-op broadcasts + `seq` hints |
 | **Assistant** (SSE — see [Embedded assistant](#embedded-assistant-pkmassistant)) | | |
 | POST | `/api/assistant/conversations` | Create a conversation (`model`: `sonnet` default / `opus` / `haiku`); 409 over the 3-conversation cap |

@@ -5,7 +5,7 @@ import { openRawTestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 
 const SNAP: Snapshot = {
-  generation: "gen-1", seq: 5,
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: 5,
   pages: [{ id: 1, title: "AI", created_at: 1, updated_at: 1 }],
   blocks: [{ uid: "uid_b1", page_id: 1, parent_uid: null, order_idx: 0,
     text: "hello", heading: null, view_type: null, collapsed: 0,

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
 import { applyLocalOps, getOrCreateLocalPage } from "./localOps";
+import { setPlainSpaceTitleCanonicalization } from "./meta";
 import { openTestDb, type TestDb } from "./testDb";
 
 let t: TestDb;
@@ -24,6 +25,25 @@ const blockRow = (uid: string) =>
      FROM blocks WHERE uid = '${uid}'`)[0];
 
 describe("getOrCreateLocalPage", () => {
+  test("preserves boundary U+0020 while inactive and always normalizes control whitespace", () => {
+    const padded = getOrCreateLocalPage(t.db, "  Offline Padded  ", 5);
+    const control = getOrCreateLocalPage(t.db, "Control\nTitle", 5);
+
+    expect(rows("SELECT title FROM pages WHERE id = " + padded))
+      .toEqual([{ title: "  Offline Padded  " }]);
+    expect(rows("SELECT title FROM pages WHERE id = " + control))
+      .toEqual([{ title: "Control Title" }]);
+  });
+
+  test("canonicalizes creation and lookup while active", () => {
+    setPlainSpaceTitleCanonicalization(t.db, true);
+
+    const created = getOrCreateLocalPage(t.db, "  Active Page  ", 5);
+    expect(getOrCreateLocalPage(t.db, "Active Page", 9)).toBe(created);
+    expect(rows("SELECT id, title FROM pages WHERE title LIKE '%Active%'"))
+      .toEqual([{ id: created, title: "Active Page" }]);
+  });
+
   test("returns existing pages and mints distinct negative ids for new ones", () => {
     expect(getOrCreateLocalPage(t.db, "AI", 5)).toBe(1);
     const p1 = getOrCreateLocalPage(t.db, "Offline One", 5);
@@ -108,6 +128,38 @@ describe("applyLocalOps", () => {
     expect(blockRow("uid_r1").view_type).toBe("numbered");
     expect(blockRow("uid_r1").text).toBe("first");
     expect(blockRow("uid_r1").parent_uid).toBeNull();
+  });
+
+  test("blank op titles use the server fallback instead of minting blank pages", () => {
+    applyLocalOps(t.db, [
+      { op: "create_page", page_title: "   " },
+      { op: "create", uid: "uid_blank", page_title: "\n\t",
+        parent_uid: null, order_idx: 0, text: "fallback" },
+    ], 99);
+
+    expect(rows("SELECT title FROM pages WHERE trim(title) = ''")).toEqual([]);
+    const untitled = rows<{ id: number }>(
+      "SELECT id FROM pages WHERE title = 'Untitled'");
+    expect(untitled).toHaveLength(1);
+    expect(blockRow("uid_blank").page_id).toBe(untitled[0].id);
+  });
+
+  test("active create, create_page and cross-page move share canonical page ids", () => {
+    setPlainSpaceTitleCanonicalization(t.db, true);
+    applyLocalOps(t.db, [
+      { op: "create_page", page_title: "  Shared Target  " },
+      { op: "create", uid: "uid_active", page_title: " Shared Target ",
+        parent_uid: null, order_idx: 0, text: "active" },
+      { op: "move", uid: "uid_r2", parent_uid: null, order_idx: 1,
+        page_title: "  Shared Target " },
+    ], 99);
+
+    const target = rows<{ id: number }>(
+      "SELECT id FROM pages WHERE title = 'Shared Target'");
+    expect(target).toHaveLength(1);
+    expect(blockRow("uid_active").page_id).toBe(target[0].id);
+    expect(blockRow("uid_r2").page_id).toBe(target[0].id);
+    expect(blockRow("uid_r2c").page_id).toBe(target[0].id);
   });
 
   test("create_page is a local get-or-create (idempotent, negative id)", () => {

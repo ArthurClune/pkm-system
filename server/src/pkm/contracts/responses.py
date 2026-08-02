@@ -245,6 +245,7 @@ class SyncTombstone(BaseModel):
 class ChangesPayload(BaseModel):
     reset: bool = False
     generation: str
+    plain_space_title_canonicalization: bool
     next_since: int
     latest_seq: int
     pages: list[SyncPage]
@@ -263,6 +264,7 @@ class BlockPayload(BaseModel):
 
 class SnapshotPayload(BaseModel):
     generation: str
+    plain_space_title_canonicalization: bool
     seq: int
     pages: list[SyncPage]
     blocks: list[SyncBlock]

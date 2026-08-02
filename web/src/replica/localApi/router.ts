@@ -6,11 +6,12 @@
 
 import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
               TitlesPayload } from "../../api/payloads";
-import { normalizeRefTitle } from "../../grammar/scan";
 import { titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
+import { plainSpaceTitleCanonicalizationActive } from "../meta";
 import { enqueueBatch } from "../queue";
+import { canonicalizeTitle } from "../titles";
 import { escapeFtsQuery } from "./fts";
 import { journalPayload } from "./journal";
 import { currentWorkPayload, fetchPage, pagePayload, unlinked } from "./pages";
@@ -89,11 +90,11 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
                             Number(q.get("limit") ?? 20), exact));
   }
   if (method === "POST" && path === "/api/pages" && deps) {
-    // normalized before the blank check, exactly as routes_pages.create_page
-    // does: a whitespace-only title must 422 rather than normalize to ""
-    const title = normalizeRefTitle(
-      String((req.body as { title?: unknown })?.title ?? "").trim());
-    if (title.length === 0) return err(422, "title must not be blank");
+    const title = canonicalizeTitle(
+      String((req.body as { title?: unknown })?.title ?? ""),
+      plainSpaceTitleCanonicalizationActive(db),
+    );
+    if (title.trim().length === 0) return err(422, "title must not be blank");
     // local negative id now; the durable create_page op carries the title
     // to the server (get_or_create there — spec section 1)
     getOrCreateLocalPage(db, title, req.nowMs);

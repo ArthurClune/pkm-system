@@ -213,12 +213,76 @@ def test_post_pages_route_still_rejects_whitespace_only_title(client):
 
 
 def test_post_pages_route_rejects_spaces_only_title_too(client):
-    """Symmetry check (finding 2): the route already strips before calling
-    the store (`body.title.strip()`), so this passed before the fix and
-    must keep passing after it -- the fix only needed to change the ops
-    path, which does not pre-strip."""
+    """Symmetry check: the interactive route rejects plain-space blankness
+    in either activation mode instead of applying the ops fallback policy."""
     r = client.post("/api/pages", json={"title": SPACES_ONLY})
     assert r.status_code == 422
+
+
+def test_all_creation_boundaries_preserve_plain_space_before_activation(
+        client, seeded_config):
+    posted = client.post("/api/pages", json={"title": "  Pre Post  "})
+    assert _post_ops(
+        client, {"op": "create_page", "page_title": "  Pre Create Page  "}
+    ).status_code == 200
+    assert _post_ops(
+        client,
+        {"op": "create", "uid": "precreate01", "page_title": "  Pre Create  ",
+         "parent_uid": None, "order_idx": 0, "text": "body"},
+    ).status_code == 200
+    assert _post_ops(
+        client,
+        {"op": "move", "uid": "uid_b4", "parent_uid": None,
+         "order_idx": 0, "page_title": "  Pre Move  "},
+    ).status_code == 200
+    renamed = client.post(
+        "/api/page/Machine Learning/rename",
+        json={"new_title": "  Pre Rename  ", "allow_merge": False},
+    )
+
+    assert posted.json()["title"] == "  Pre Post  "
+    assert renamed.json() == {"result": "renamed", "title": "  Pre Rename  "}
+    exact = {"  Pre Post  ", "  Pre Create Page  ", "  Pre Create  ",
+             "  Pre Move  ", "  Pre Rename  "}
+    titles = set(_titles(seeded_config))
+    assert exact <= titles
+    assert not {title.strip() for title in exact} & titles
+
+
+def test_all_creation_boundaries_canonicalize_plain_space_after_activation(
+        client, seeded_config):
+    audit = client.get("/api/migrations/title-canonicalization").json()
+    applied = client.post(
+        "/api/migrations/title-canonicalization",
+        json={"audit_digest": audit["digest"]},
+    )
+    assert applied.status_code == 200
+
+    assert client.post("/api/pages", json={"title": "  Post Route  "}).json()[
+        "title"
+    ] == "Post Route"
+    assert _post_ops(
+        client, {"op": "create_page", "page_title": "  Create Page Op  "}
+    ).status_code == 200
+    assert _post_ops(
+        client,
+        {"op": "create", "uid": "activecreate1", "page_title": "  Create Op  ",
+         "parent_uid": None, "order_idx": 0, "text": "body"},
+    ).status_code == 200
+    assert _post_ops(
+        client,
+        {"op": "move", "uid": "uid_b4", "parent_uid": None,
+         "order_idx": 0, "page_title": "  Move Op  "},
+    ).status_code == 200
+    renamed = client.post(
+        "/api/page/Machine Learning/rename",
+        json={"new_title": "  Rename Route  ", "allow_merge": False},
+    )
+
+    assert renamed.json() == {"result": "renamed", "title": "Rename Route"}
+    titles = _titles(seeded_config)
+    assert {"Post Route", "Create Page Op", "Create Op", "Move Op", "Rename Route"} <= set(titles)
+    assert not any(title.startswith(" ") or title.endswith(" ") for title in titles)
 
 
 def test_padded_title_is_preserved_and_reused_exactly(tmp_path):

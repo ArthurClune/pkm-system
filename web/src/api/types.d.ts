@@ -915,6 +915,8 @@ export interface components {
             reset: boolean;
             /** Generation */
             generation: string;
+            /** Plain Space Title Canonicalization */
+            plain_space_title_canonicalization: boolean;
             /** Next Since */
             next_since: number;
             /** Latest Seq */
@@ -1253,6 +1255,8 @@ export interface components {
         SnapshotPayload: {
             /** Generation */
             generation: string;
+            /** Plain Space Title Canonicalization */
+            plain_space_title_canonicalization: boolean;
             /** Seq */
             seq: number;
             /** Pages */

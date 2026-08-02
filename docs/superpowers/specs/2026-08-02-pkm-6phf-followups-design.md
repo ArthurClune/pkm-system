@@ -1,6 +1,6 @@
 # pkm-6phf Follow-up Completion Design
 
-**Date:** 2026-08-02  
+**Date:** 2026-08-02
 **Scope:** Complete the four remaining open child beans under `pkm-6phf`: `pkm-ow62`, `pkm-6dg0`, `pkm-mlbh`, and `pkm-9jma`.
 
 ## Context

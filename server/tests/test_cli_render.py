@@ -1,8 +1,12 @@
 from pkm.cli.render import (render_assets, render_backlinks, render_block,
-                            render_groups, render_page, render_search)
+                            render_groups, render_page, render_search,
+                            render_title_migration_apply,
+                            render_title_migration_audit)
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
                                      BlockNode, BlockPayload, GroupsPayload,
-                                     PagePayload, QueryPayload, SearchPayload)
+                                     PagePayload, QueryPayload, SearchPayload,
+                                     TitleMigrationApplyResponse,
+                                     TitleMigrationAuditPayload)
 
 
 def _node(uid, text, children=(), heading=None) -> BlockNode:
@@ -200,6 +204,111 @@ def test_render_assets():
 def test_render_assets_empty():
     assert render_assets(AssetSearchPayload(total=0, assets=[])) == \
         "no assets found"
+
+
+def test_render_title_migration_audit_includes_state_group_details_and_merge_order():
+    payload = TitleMigrationAuditPayload.model_validate({
+        "active": False,
+        "digest": "7" * 64,
+        "groups": [
+            {
+                "canonical_title": "Acme",
+                "survivor": {"page_id": 10, "title": "Acme"},
+                "sources": [
+                    {"page_id": 11, "title": " Acme"},
+                    {"page_id": 12, "title": "Acme "},
+                ],
+                "has_clean_twin": True,
+                "block_count": 4,
+                "inbound_ref_count": 4,
+                "sidebar_count": 2,
+            },
+            {
+                "canonical_title": "Beta",
+                "survivor": {"page_id": 13, "title": " Beta "},
+                "sources": [{"page_id": 14, "title": "Beta "}],
+                "has_clean_twin": False,
+                "block_count": 2,
+                "inbound_ref_count": 2,
+                "sidebar_count": 1,
+            },
+        ],
+        "blockers": [{"page_id": 19, "title": "   "}],
+    })
+    assert render_title_migration_audit(payload) == (
+        "# Title migration audit\n"
+        "\n"
+        "state: blocked\n"
+        "digest: " + "7" * 64 + "\n"
+        "groups: 2\n"
+        "blockers: 1\n"
+        "\n"
+        "## Acme\n"
+        "survivor: [10] \"Acme\"\n"
+        "sources:\n"
+        "- [11] \" Acme\"\n"
+        "- [12] \"Acme \"\n"
+        "has clean twin: yes\n"
+        "counts: 4 blocks, 4 inbound refs, 2 sidebar entries\n"
+        "merge order:\n"
+        "- [11] \" Acme\" -> [10] \"Acme\"\n"
+        "- [12] \"Acme \" -> [10] \"Acme\"\n"
+        "\n"
+        "## Beta\n"
+        "survivor: [13] \" Beta \"\n"
+        "sources:\n"
+        "- [14] \"Beta \"\n"
+        "has clean twin: no\n"
+        "counts: 2 blocks, 2 inbound refs, 1 sidebar entry\n"
+        "merge order:\n"
+        "- [14] \"Beta \" -> [13] \" Beta \"\n"
+        "\n"
+        "## Blockers\n"
+        "- [19] \"   \"\n"
+    )
+
+
+def test_render_title_migration_audit_empty_explains_that_only_a_reviewed_audit_can_be_applied():
+    payload = TitleMigrationAuditPayload(
+        active=False,
+        digest="1" * 64,
+        groups=[],
+        blockers=[],
+    )
+    assert render_title_migration_audit(payload) == (
+        "# Title migration audit\n"
+        "\n"
+        "state: clean\n"
+        "digest: " + "1" * 64 + "\n"
+        "groups: 0\n"
+        "blockers: 0\n"
+        "\n"
+        "No padded plain-space titles need migration.\n"
+        "Apply mode is disabled until you provide an audit digest explicitly.\n"
+    )
+
+
+def test_render_title_migration_apply_includes_applied_counts_and_generation():
+    payload = TitleMigrationApplyResponse(
+        digest="8" * 64,
+        groups_applied=2,
+        pages_retitled=1,
+        pages_merged=3,
+        blocks_moved=4,
+        blocks_rewritten=3,
+        generation="0123456789abcdef0123456789abcdef",
+    )
+    assert render_title_migration_apply(payload) == (
+        "# Title migration applied\n"
+        "\n"
+        "digest: " + "8" * 64 + "\n"
+        "groups applied: 2\n"
+        "pages retitled: 1\n"
+        "pages merged: 3\n"
+        "blocks moved: 4\n"
+        "blocks rewritten: 3\n"
+        "generation: 0123456789abcdef0123456789abcdef\n"
+    )
 
 
 def test_select_section_and_clip_depth():

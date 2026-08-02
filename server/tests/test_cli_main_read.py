@@ -1,9 +1,73 @@
 import json
+import sqlite3
 
 import pytest
 
 from pkm.cli.main import main
 from pkm.contracts.daily import title_for_date
+
+
+def _seed_migration_graph(db_path) -> None:
+    con = sqlite3.connect(db_path)
+    con.executemany(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        [
+            (10, "Acme", 10, 11),
+            (11, " Acme", 20, 21),
+            (12, "Acme ", 30, 31),
+            (13, " Beta ", 40, 41),
+            (14, "Beta ", 50, 51),
+            (15, "Inbound", 60, 61),
+            (16, "Unrelated", 70, 71),
+            (17, "\u00a0Gamma\u00a0", 80, 81),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, collapsed) "
+        "VALUES (?, ?, ?, ?, ?, 0)",
+        [
+            ("target-root", 10, None, 0, "target"),
+            ("source-leading", 11, None, 0, "self [[ Acme]] and [[Unrelated]]"),
+            ("child-leading", 11, "source-leading", 0, "child"),
+            ("source-trailing", 12, None, 0, "trailing"),
+            ("beta-first", 13, None, 0, "beta first"),
+            ("beta-second", 14, None, 0, "beta second"),
+            (
+                "inbound",
+                15,
+                None,
+                0,
+                "[[ Acme]] + [[Acme ]] + [[ Beta ]] + [[Beta ]] + [[Unrelated]]",
+            ),
+            ("inbound-two", 15, None, 1, "again [[ Acme]]"),
+            ("unrelated-root", 16, None, 0, "untouched"),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO refs(src_block_uid, target_page_id, kind) VALUES (?, ?, ?)",
+        [
+            ("source-leading", 11, "link"),
+            ("source-leading", 16, "link"),
+            ("beta-first", 16, "link"),
+            ("inbound", 11, "link"),
+            ("inbound", 12, "link"),
+            ("inbound", 13, "link"),
+            ("inbound", 14, "link"),
+            ("inbound", 16, "link"),
+            ("inbound-two", 11, "link"),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (?, ?, ?)",
+        [
+            (10, "Acme", 0),
+            (11, " Acme", 1),
+            (12, "Beta ", 2),
+            (13, "Unrelated", 3),
+        ],
+    )
+    con.commit()
+    con.close()
 
 
 @pytest.fixture()
@@ -256,6 +320,81 @@ def test_assets_scan_disabled_exits_nonzero(run):
     assert code == 1
     assert out == ""
     assert "OPENAI_API_KEY" in err
+
+
+def test_migrate_titles_audits_by_default_and_renders_human_output(
+        run, seeded_config):
+    _seed_migration_graph(seeded_config.db_path)
+
+    code, out, err = run("migrate-titles")
+
+    assert code == 0
+    assert err == ""
+    assert out.startswith("# Title migration audit\n")
+    assert "state: ready\n" in out
+    assert "digest: 76737aabf05749402ed3d78b010ba025df16cfd6e4c8d7a2780214adff51a6f3\n" in out
+    assert "- [11] \" Acme\" -> [10] \"Acme\"\n" in out
+    assert "- [14] \"Beta \" -> [13] \" Beta \"\n" in out
+
+
+def test_migrate_titles_json_audit_uses_the_validated_payload(run, seeded_config):
+    _seed_migration_graph(seeded_config.db_path)
+
+    code, out, err = run("migrate-titles", "--json")
+
+    assert code == 0
+    assert err == ""
+    payload = json.loads(out)
+    assert payload["digest"] == "76737aabf05749402ed3d78b010ba025df16cfd6e4c8d7a2780214adff51a6f3"
+    assert payload["groups"][0]["survivor"] == {"page_id": 10, "title": "Acme"}
+
+
+def test_migrate_titles_apply_requires_a_digest_value(capsys):
+    with pytest.raises(SystemExit) as e:
+        main(["migrate-titles", "--apply"])
+    assert e.value.code == 2
+    assert "--apply" in capsys.readouterr().err
+
+
+def test_migrate_titles_apply_renders_human_output(run, seeded_config, pkm_client):
+    _seed_migration_graph(seeded_config.db_path)
+    digest = pkm_client.audit_title_migration().digest
+
+    code, out, err = run("migrate-titles", "--apply", digest)
+
+    assert code == 0
+    assert err == ""
+    assert out.startswith("# Title migration applied\n")
+    assert f"digest: {digest}\n" in out
+    assert "groups applied: 2\n" in out
+    assert "generation: " in out
+
+
+def test_migrate_titles_apply_json_uses_the_validated_payload(
+        run, seeded_config, pkm_client):
+    _seed_migration_graph(seeded_config.db_path)
+    digest = pkm_client.audit_title_migration().digest
+
+    code, out, err = run("migrate-titles", "--apply", digest, "--json")
+
+    assert code == 0
+    assert err == ""
+    payload = json.loads(out)
+    assert payload["digest"] == digest
+    assert payload["groups_applied"] == 2
+    assert payload["pages_merged"] == 3
+    assert isinstance(payload["generation"], str) and len(payload["generation"]) == 32
+
+
+def test_migrate_titles_apply_preserves_existing_409_exit_behavior(
+        run, seeded_config):
+    _seed_migration_graph(seeded_config.db_path)
+
+    code, out, err = run("migrate-titles", "--apply", "0" * 64)
+
+    assert code == 1
+    assert out == ""
+    assert err == "409: title migration audit digest is stale\n"
 
 
 def test_get_section_on_uid_shaped_page_title(run, pkm_client):

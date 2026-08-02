@@ -285,6 +285,111 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
         pkm_client.get_backlinks("whatever", page_size=1)
 
 
+def test_audit_title_migration_uses_the_canonicalization_route_and_validates_response(
+        pkm_client, monkeypatch):
+    payload = {
+        "active": False,
+        "digest": "7" * 64,
+        "groups": [{
+            "canonical_title": "Acme",
+            "survivor": {"page_id": 10, "title": "Acme"},
+            "sources": [{"page_id": 11, "title": " Acme"}],
+            "has_clean_twin": True,
+            "block_count": 4,
+            "inbound_ref_count": 4,
+            "sidebar_count": 2,
+        }],
+        "blockers": [{"page_id": 19, "title": "   "}],
+    }
+    seen: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+        text = repr(payload)
+
+        def json(self):
+            return payload
+
+    def spy(method, path, **kw):
+        seen["method"] = method
+        seen["path"] = path
+        seen["kw"] = kw
+        return _Response()
+
+    monkeypatch.setattr(pkm_client._http, "request", spy)
+
+    audit = pkm_client.audit_title_migration()
+
+    assert seen == {
+        "method": "GET",
+        "path": "/api/migrations/title-canonicalization",
+        "kw": {"headers": pkm_client._headers},
+    }
+    assert audit.digest == payload["digest"]
+    assert audit.groups[0].survivor.page_id == 10
+    assert audit.blockers[0].title == "   "
+
+
+def test_apply_title_migration_posts_the_audit_digest_and_validates_response(
+        pkm_client, monkeypatch):
+    payload = {
+        "digest": "8" * 64,
+        "groups_applied": 2,
+        "pages_retitled": 1,
+        "pages_merged": 3,
+        "blocks_moved": 4,
+        "blocks_rewritten": 3,
+        "generation": "0123456789abcdef0123456789abcdef",
+    }
+    seen: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+        text = repr(payload)
+
+        def json(self):
+            return payload
+
+    def spy(method, path, **kw):
+        seen["method"] = method
+        seen["path"] = path
+        seen["kw"] = kw
+        return _Response()
+
+    monkeypatch.setattr(pkm_client._http, "request", spy)
+
+    result = pkm_client.apply_title_migration("0" * 64)
+
+    assert seen == {
+        "method": "POST",
+        "path": "/api/migrations/title-canonicalization",
+        "kw": {
+            "headers": pkm_client._headers,
+            "json": {"audit_digest": "0" * 64},
+        },
+    }
+    assert result.groups_applied == 2
+    assert result.generation == payload["generation"]
+
+
+def test_apply_title_migration_rejects_a_malformed_digest_before_http(
+        pkm_client, monkeypatch):
+    called = False
+
+    def fail_if_called(method, path, **kw):
+        nonlocal called
+        called = True
+        raise AssertionError("HTTP should not run for an invalid digest")
+
+    monkeypatch.setattr(pkm_client._http, "request", fail_if_called)
+
+    with pytest.raises(ApiError) as e:
+        pkm_client.apply_title_migration("not-a-sha256")
+
+    assert e.value.status == 422
+    assert called is False
+
+
 def test_unauthenticated_client_gets_login_hint(anon_client):
     bad = PkmClient(CliConfig(url="http://testserver", token="junk"),
                     http=anon_client)

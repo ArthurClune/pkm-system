@@ -32,7 +32,10 @@ from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
                                      BlockNode, BlockPayload, GroupsPayload,
                                      OpsAck, PageMeta, PagePayload,
-                                     QueryPayload, ScanPayload, SearchPayload)
+                                     QueryPayload, ScanPayload, SearchPayload,
+                                     TitleMigrationApplyRequest,
+                                     TitleMigrationApplyResponse,
+                                     TitleMigrationAuditPayload)
 from pkm.refs import normalize_title
 
 CLIENT_ID = "pkm-cli"
@@ -264,6 +267,23 @@ class PkmClient:
     def create_page(self, title: str) -> PageMeta:
         return self._request("POST", "/api/pages", PageMeta,
                              json={"title": title})
+
+    def audit_title_migration(self) -> TitleMigrationAuditPayload:
+        return self._request("GET", "/api/migrations/title-canonicalization",
+                             TitleMigrationAuditPayload)
+
+    def apply_title_migration(
+        self, audit_digest: str
+    ) -> TitleMigrationApplyResponse:
+        try:
+            request = TitleMigrationApplyRequest(audit_digest=audit_digest)
+        except ValueError as e:
+            raise ApiError(422, f"invalid title migration apply request: {e}")
+        return self._request(
+            "POST", "/api/migrations/title-canonicalization",
+            TitleMigrationApplyResponse,
+            json=request.model_dump(mode="json"),
+        )
 
     def post_ops(self, ops: Sequence[BlockOp | Mapping[str, Any]],
                  batch_id: str) -> OpsAck:

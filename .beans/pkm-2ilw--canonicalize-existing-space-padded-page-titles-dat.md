@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-02T19:03:18Z
+updated_at: 2026-08-02T19:17:34Z
 parent: pkm-ulae
 ---
 
@@ -45,3 +45,14 @@ Added transaction-owned database audit/inventory, phased rename/merge store prim
 ## Task 4 Summary of Changes
 
 Added authenticated title-canonicalization audit/apply HTTP routes with concrete OpenAPI response/request models, 409 translations for stale/blocked/already-active domain conflicts, a single post-commit seq nudge after the already-atomic apply path, journal-contract coverage, regenerated OpenAPI/TypeScript artifacts, and backend API documentation for the new operator route.
+
+## Task 5: typed client and audit-first CLI
+
+- [x] Write client/renderer/CLI RED tests
+- [x] Implement typed methods and pure renderers
+- [x] Register `migrate-titles`
+- [x] Verify and commit
+
+## Task 5 Summary of Changes
+
+Added typed client audit/apply methods for the authenticated title-canonicalization migration, pure human renderers for audit/apply payloads, and an audit-first `pkm migrate-titles` CLI with `--json` and explicit `--apply DIGEST` modes. Help now explains that startup does not run the migration automatically, conflicts still surface through the existing CLI exit path, and focused/client-contract/backend verification all passed.

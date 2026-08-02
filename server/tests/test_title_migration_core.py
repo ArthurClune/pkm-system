@@ -53,6 +53,17 @@ def _digest_inventory() -> TitleMigrationInventory:
     )
 
 
+def _control_whitespace_inventory() -> TitleMigrationInventory:
+    return _inventory(
+        InventoryPage(page_id=6, title=" \nacme\t "),
+        InventoryPage(page_id=3, title=" \n\t "),
+        InventoryPage(page_id=4, title="\u00a0Acme\u00a0"),
+        InventoryPage(page_id=1, title="Acme"),
+        InventoryPage(page_id=5, title="acme"),
+        InventoryPage(page_id=2, title=" \nAcme\t "),
+    )
+
+
 def _expected_digest(inventory: TitleMigrationInventory) -> str:
     pages = sorted(inventory.pages, key=lambda page: page.page_id)
     blocks = sorted(inventory.blocks, key=lambda block: block.uid)
@@ -195,6 +206,92 @@ def test_build_title_migration_plan_groups_padded_titles_deterministically():
     }
     assert "\u00a0Gamma\u00a0" not in plan.replacements
     assert plan.active is False
+
+
+def test_build_title_migration_plan_normalizes_control_whitespace_before_plain_space_grouping():
+    """Mutation caught: replace canonicalize_title(..., plain_space=True) with title.strip(" ")."""
+    plan = build_title_migration_plan(_control_whitespace_inventory())
+
+    assert [group.canonical_title for group in plan.groups] == ["Acme", "acme"]
+
+    acme, lower = plan.groups
+
+    assert acme.survivor == InventoryPage(page_id=1, title="Acme")
+    assert acme.sources == (InventoryPage(page_id=2, title=" \nAcme\t "),)
+    assert acme.has_clean_twin is True
+
+    assert lower.survivor == InventoryPage(page_id=5, title="acme")
+    assert lower.sources == (InventoryPage(page_id=6, title=" \nacme\t "),)
+    assert lower.has_clean_twin is True
+
+    assert plan.blockers == (InventoryPage(page_id=3, title=" \n\t "),)
+    assert plan.replacements == {
+        " \nAcme\t ": "Acme",
+        " \nacme\t ": "acme",
+    }
+    assert "\u00a0Acme\u00a0" not in plan.replacements
+
+
+def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_blockers():
+    """Mutation caught: replace canonicalize_title(..., plain_space=True) with title.strip(" ")."""
+    inventory = _control_whitespace_inventory()
+    plan = build_title_migration_plan(inventory)
+
+    payload = {
+        "active": False,
+        "blockers": [{"page_id": 3, "title": " \n\t "}],
+        "blocks": [],
+        "counts": {
+            "blockers": 1,
+            "blocks": 0,
+            "groups": 2,
+            "pages": 6,
+            "refs": 0,
+            "replacements": 2,
+            "sidebars": 0,
+        },
+        "groups": [
+            {
+                "block_count": 0,
+                "canonical_title": "Acme",
+                "has_clean_twin": True,
+                "inbound_ref_count": 0,
+                "sidebar_count": 0,
+                "sources": [{"page_id": 2, "title": " \nAcme\t "}],
+                "survivor": {"page_id": 1, "title": "Acme"},
+            },
+            {
+                "block_count": 0,
+                "canonical_title": "acme",
+                "has_clean_twin": True,
+                "inbound_ref_count": 0,
+                "sidebar_count": 0,
+                "sources": [{"page_id": 6, "title": " \nacme\t "}],
+                "survivor": {"page_id": 5, "title": "acme"},
+            },
+        ],
+        "pages": [
+            {"page_id": 1, "title": "Acme"},
+            {"page_id": 2, "title": " \nAcme\t "},
+            {"page_id": 3, "title": " \n\t "},
+            {"page_id": 4, "title": "\u00a0Acme\u00a0"},
+            {"page_id": 5, "title": "acme"},
+            {"page_id": 6, "title": " \nacme\t "},
+        ],
+        "refs": [],
+        "replacements": [
+            {"source": " \nAcme\t ", "target": "Acme"},
+            {"source": " \nacme\t ", "target": "acme"},
+        ],
+        "sidebars": [],
+        "version": 1,
+    }
+
+    expected_digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    assert plan.digest == expected_digest
 
 
 def test_build_title_migration_plan_digest_is_canonical_and_order_independent():

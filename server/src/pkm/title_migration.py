@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from pkm.refs import canonicalize_title
+
 
 @dataclass(frozen=True)
 class InventoryPage:
@@ -169,7 +171,7 @@ def build_title_migration_plan(inventory: TitleMigrationInventory) -> TitleMigra
     padded_groups: dict[str, list[InventoryPage]] = {}
     blockers: list[InventoryPage] = []
     for page in pages:
-        canonical = page.title.strip(" ")
+        canonical = canonicalize_title(page.title, plain_space=True)
         if page.title == canonical:
             continue
         if canonical == "":

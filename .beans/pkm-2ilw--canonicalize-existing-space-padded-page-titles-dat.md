@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-02T18:20:13Z
+updated_at: 2026-08-02T18:35:45Z
 parent: pkm-ulae
 ---
 
@@ -22,3 +22,14 @@ Design a one-time data migration that trims existing padded page titles, merging
 - 2026-08-02: Task 2 landed the pure deterministic migration planner and simultaneous one-pass reference rewrite core; atomic DB inventory/apply and API surfaces remain pending in later tasks.
 
 - 2026-08-02 fix round 1/5: task 2 now reuses the shared normalize-then-strip title rule in the migration planner, adds control-whitespace regression coverage for grouping/blockers/digest, and removes reviewed .superpowers scratch files from Git tracking while keeping them locally ignored.
+
+## Task 3: database inventory and atomic apply
+
+- [x] Side-effect-free inventory/audit TDD cycle
+- [x] Phased store primitive composition TDD cycle
+- [x] Atomic apply and rollback TDD cycle
+- [x] Focused tests, type check, lint, and atomicity self-review
+
+## Task 3 Summary of Changes
+
+Added transaction-owned database audit/inventory, phased rename/merge store primitives, and BEGIN IMMEDIATE atomic migration apply with complete snapshots/mapping, activation and generation rotation, plus stale/blocked/active and rollback coverage. Production inventory and activation remain intentionally unexecuted; API/CLI activation work remains pending.

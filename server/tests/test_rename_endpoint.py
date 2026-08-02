@@ -1,5 +1,12 @@
 import sqlite3
 
+from pkm.server.db import open_db
+from pkm.server.store import (
+    append_page_without_rewrite,
+    retitle_page_without_rewrite,
+    rewrite_snapshotted_blocks,
+)
+
 
 def _rename(client, title, new_title, allow_merge=False):
     return client.post(f"/api/page/{title}/rename",
@@ -224,6 +231,133 @@ def test_rename_race_condition_returns_409(client, monkeypatch):
     # source page survived untouched
     body = client.get("/api/page/Machine Learning").json()
     assert [b["text"] for b in body["blocks"]] == ["Tags:: #AI", "Papers"]
+
+
+def test_retitle_without_rewrite_changes_only_page_and_sidebar_title(seeded_config):
+    """Mutation caught: phased retitle eagerly rewrites an inbound block."""
+    db = open_db(seeded_config.db_path)
+    db.execute(
+        "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (20, 'Machine Learning', 0)"
+    )
+    before_text = db.execute("SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0]
+    before_refs = list(
+        db.execute(
+            "SELECT src_block_uid, target_page_id, kind FROM refs "
+            "WHERE src_block_uid='uid_b4'"
+        )
+    )
+
+    retitle_page_without_rewrite(
+        db, 1, "Machine Learning", "Deep Learning Notes", 9_001
+    )
+
+    assert tuple(db.execute("SELECT title, updated_at FROM pages WHERE id=1").fetchone()) == (
+        "Deep Learning Notes",
+        9_001,
+    )
+    assert tuple(
+        db.execute("SELECT id, title FROM sidebar_entries WHERE id=20").fetchone()
+    ) == (20, "Deep Learning Notes")
+    assert db.execute("SELECT text FROM blocks WHERE uid='uid_b4'").fetchone()[0] == before_text
+    assert list(
+        db.execute(
+            "SELECT src_block_uid, target_page_id, kind FROM refs "
+            "WHERE src_block_uid='uid_b4'"
+        )
+    ) == before_refs
+    assert db.execute(
+        "SELECT count(*) FROM pages_fts WHERE pages_fts MATCH '\"Deep Learning Notes\"'"
+    ).fetchone()[0] == 1
+    db.rollback()
+    db.close()
+
+
+def test_append_without_rewrite_preserves_stable_subtrees_and_target_sidebar(seeded_config):
+    """Mutation caught: append descendants as tops or discard target's pinned entry."""
+    db = open_db(seeded_config.db_path)
+    db.executescript(
+        """
+        INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, collapsed)
+        VALUES ('source-second', 2, NULL, 5, 'source second', 0),
+               ('source-child', 2, 'source-second', 2, 'source child', 0);
+        INSERT INTO sidebar_entries(id, title, order_idx)
+        VALUES (20, 'AI', 0), (21, 'Machine Learning', 1);
+        """
+    )
+
+    moved = append_page_without_rewrite(
+        db, 2, 1, "AI", "Machine Learning", 9_002
+    )
+
+    assert moved == 3
+    assert db.execute("SELECT count(*) FROM pages WHERE id=2").fetchone()[0] == 0
+    assert [tuple(row) for row in db.execute(
+        "SELECT uid, order_idx FROM blocks WHERE page_id=1 AND parent_uid IS NULL "
+        "ORDER BY order_idx"
+    )] == [("uid_b1", 0), ("uid_b2", 1), ("uid_b6", 2), ("source-second", 3)]
+    assert tuple(db.execute(
+        "SELECT page_id, parent_uid, order_idx, updated_at FROM blocks "
+        "WHERE uid='source-child'"
+    ).fetchone()) == (1, "source-second", 2, 9_002)
+    assert [tuple(row) for row in db.execute(
+        "SELECT id, title FROM sidebar_entries ORDER BY id"
+    )] == [(21, "Machine Learning")]
+    assert db.execute("SELECT text FROM blocks WHERE uid='uid_b1'").fetchone()[0] == "Tags:: #AI"
+    db.rollback()
+    db.close()
+
+
+def test_rewrite_snapshots_updates_and_reindexes_each_block_once(seeded_config):
+    """Mutation caught: sequential source rewrites update/index intermediate text."""
+    db = open_db(seeded_config.db_path)
+    original = "[[AI]] then [[Paper]] and [[Machine Learning]]"
+    db.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, collapsed) "
+        "VALUES ('uid_multi', 3, NULL, 2, ?, 0)",
+        (original,),
+    )
+    db.executemany(
+        "INSERT INTO refs(src_block_uid, target_page_id, kind) VALUES (?, ?, ?)",
+        [
+            ("uid_multi", 1, "link"),
+            ("uid_multi", 2, "link"),
+            ("uid_multi", 4, "link"),
+        ],
+    )
+    changes_before = db.execute(
+        "SELECT count(*) FROM changes WHERE kind='block' AND entity_id='uid_multi'"
+    ).fetchone()[0]
+
+    rewritten = rewrite_snapshotted_blocks(
+        db,
+        (("uid_multi", original),),
+        {"AI": "Machine Learning", "Paper": "Machine Learning"},
+        9_003,
+    )
+
+    assert rewritten == 1
+    assert tuple(db.execute(
+        "SELECT text, updated_at FROM blocks WHERE uid='uid_multi'"
+    ).fetchone()) == (
+        "[[Machine Learning]] then [[Machine Learning]] and [[Machine Learning]]",
+        9_003,
+    )
+    assert [tuple(row) for row in db.execute(
+        "SELECT target_page_id, kind FROM refs WHERE src_block_uid='uid_multi'"
+    )] == [(1, "link")]
+    assert db.execute(
+        "SELECT count(*) FROM changes WHERE kind='block' AND entity_id='uid_multi'"
+    ).fetchone()[0] == changes_before + 1
+    assert db.execute(
+        "SELECT count(*) FROM blocks_fts JOIN blocks ON blocks.rowid=blocks_fts.rowid "
+        "WHERE blocks.uid='uid_multi' AND blocks_fts MATCH 'AI'"
+    ).fetchone()[0] == 0
+    assert db.execute(
+        "SELECT count(*) FROM blocks_fts JOIN blocks ON blocks.rowid=blocks_fts.rowid "
+        "WHERE blocks.uid='uid_multi' AND blocks_fts MATCH '\"Machine Learning\"'"
+    ).fetchone()[0] == 1
+    db.rollback()
+    db.close()
 
 
 def test_rename_self_referencing_block_rewrites_in_place(client, seeded_config):

@@ -4,9 +4,10 @@ owns the transaction (read routes commit; the ops batch commits once)."""
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Mapping, Sequence
 
 from pkm.refs import extract, is_blank_title, normalize_title
-from pkm.rename import rewrite_title_refs
+from pkm.rename import rewrite_title_refs_map
 
 
 class BlankTitleError(ValueError):
@@ -105,27 +106,56 @@ def delete_page_rows(db: sqlite3.Connection, page_id: int,
     db.execute("DELETE FROM sidebar_entries WHERE title = ?", (title,))
 
 
-def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: int,
-                               old_title: str, new_title: str,
-                               now_ms: int) -> None:
-    """Rewrite [[old]]/#old/old:: in every block that refs `page_id`, then
-    reindex those blocks' refs from the rewritten text. Must run AFTER the
-    new title exists in pages (rename applied / merge target present) so
-    the reindex resolves [[new]] to the surviving row instead of creating
-    a page. Never commits."""
+def _snapshot_referencing_blocks(
+    db: sqlite3.Connection, page_id: int
+) -> tuple[tuple[str, str], ...]:
     rows = db.execute(
         """SELECT DISTINCT b.uid, b.text FROM refs r
              JOIN blocks b ON b.uid = r.src_block_uid
-            WHERE r.target_page_id = ?""", (page_id,)).fetchall()
-    for row in rows:
-        new_text = rewrite_title_refs(row["text"], old_title, new_title)
-        if new_text != row["text"]:
+            WHERE r.target_page_id = ?
+            ORDER BY b.uid""",
+        (page_id,),
+    ).fetchall()
+    return tuple((row["uid"], row["text"]) for row in rows)
+
+
+def rewrite_snapshotted_blocks(
+    db: sqlite3.Connection,
+    snapshots: Sequence[tuple[str, str]],
+    replacements: Mapping[str, str],
+    now_ms: int,
+) -> int:
+    """Rewrite each original block snapshot once, then replace its ref index.
+
+    The complete replacement map is applied to original text rather than to
+    intermediate database text, so multi-source migrations never hide a later
+    source reference. Never commits.
+    """
+    rewritten = 0
+    seen: set[str] = set()
+    for uid, original_text in snapshots:
+        if uid in seen:
+            continue
+        seen.add(uid)
+        new_text = rewrite_title_refs_map(original_text, replacements)
+        if new_text != original_text:
             db.execute(
                 "UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
-                (new_text, now_ms, row["uid"]))
-        db.execute("DELETE FROM refs WHERE src_block_uid = ?", (row["uid"],))
+                (new_text, now_ms, uid),
+            )
+            rewritten += 1
+        db.execute("DELETE FROM refs WHERE src_block_uid = ?", (uid,))
         for ref in extract(new_text).refs:
-            index_ref(db, row["uid"], ref.title, ref.kind, now_ms)
+            index_ref(db, uid, ref.title, ref.kind, now_ms)
+    return rewritten
+
+
+def rewrite_referencing_blocks(db: sqlite3.Connection, page_id: int,
+                               old_title: str, new_title: str,
+                               now_ms: int) -> None:
+    """Preserved single-page rewrite helper. Never commits."""
+    snapshots = _snapshot_referencing_blocks(db, page_id)
+    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
 
 
 def retitle_sidebar_entry(db: sqlite3.Connection, old_title: str,
@@ -142,39 +172,72 @@ def retitle_sidebar_entry(db: sqlite3.Connection, old_title: str,
                    (new_title, old_title))
 
 
+def retitle_page_without_rewrite(
+    db: sqlite3.Connection,
+    page_id: int,
+    old_title: str,
+    new_title: str,
+    now_ms: int,
+) -> None:
+    """Retitle a page and reconcile its sidebar entry without touching refs."""
+    db.execute(
+        "UPDATE pages SET title = ?, updated_at = ? WHERE id = ?",
+        (new_title, now_ms, page_id),
+    )
+    retitle_sidebar_entry(db, old_title, new_title)
+
+
+def append_page_without_rewrite(
+    db: sqlite3.Connection,
+    source_id: int,
+    target_id: int,
+    old_title: str,
+    new_title: str,
+    now_ms: int,
+) -> int:
+    """Append a source page's stable top-level order and preserve its subtrees."""
+    moved = db.execute(
+        "SELECT count(*) FROM blocks WHERE page_id = ?", (source_id,)
+    ).fetchone()[0]
+    base = db.execute(
+        "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
+        " WHERE page_id = ? AND parent_uid IS NULL",
+        (target_id,),
+    ).fetchone()[0]
+    tops = db.execute(
+        "SELECT uid FROM blocks WHERE page_id = ? AND parent_uid IS NULL"
+        " ORDER BY order_idx, uid",
+        (source_id,),
+    ).fetchall()
+    for offset, row in enumerate(tops):
+        db.execute(
+            "UPDATE blocks SET page_id = ?, order_idx = ?, updated_at = ?"
+            " WHERE uid = ?",
+            (target_id, base + offset, now_ms, row["uid"]),
+        )
+    db.execute(
+        "UPDATE blocks SET page_id = ?, updated_at = ? WHERE page_id = ?",
+        (target_id, now_ms, source_id),
+    )
+    db.execute("UPDATE pages SET updated_at = ? WHERE id = ?", (now_ms, target_id))
+    db.execute("DELETE FROM pages WHERE id = ?", (source_id,))
+    retitle_sidebar_entry(db, old_title, new_title)
+    return moved
+
+
 def rename_page_rows(db: sqlite3.Connection, page_id: int, old_title: str,
                      new_title: str, now_ms: int) -> None:
-    """Rename in place. Refs stay valid (keyed by page id); pages_fts is
-    trigger-maintained. Never commits."""
-    db.execute("UPDATE pages SET title = ?, updated_at = ? WHERE id = ?",
-               (new_title, now_ms, page_id))
-    rewrite_referencing_blocks(db, page_id, old_title, new_title, now_ms)
-    retitle_sidebar_entry(db, old_title, new_title)
+    """Rename in place while preserving the public composed behavior."""
+    snapshots = _snapshot_referencing_blocks(db, page_id)
+    retitle_page_without_rewrite(db, page_id, old_title, new_title, now_ms)
+    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)
 
 
 def merge_page_rows(db: sqlite3.Connection, source_id: int, target_id: int,
                     old_title: str, new_title: str, now_ms: int) -> None:
-    """Concatenate source onto target: rewrite/reindex referencing text
-    first (so [[new]] resolves to the target), append the source's
-    top-level blocks after the target's (subtrees follow via parent_uid;
-    uids never change, so ((uid)) block refs keep resolving), then drop
-    the source page row. Never commits."""
-    rewrite_referencing_blocks(db, source_id, old_title, new_title, now_ms)
-    base = db.execute(
-        "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
-        " WHERE page_id = ? AND parent_uid IS NULL",
-        (target_id,)).fetchone()[0]
-    tops = db.execute(
-        "SELECT uid FROM blocks WHERE page_id = ? AND parent_uid IS NULL"
-        " ORDER BY order_idx", (source_id,)).fetchall()
-    for i, row in enumerate(tops):
-        db.execute(
-            "UPDATE blocks SET page_id = ?, order_idx = ?, updated_at = ?"
-            " WHERE uid = ?", (target_id, base + i, now_ms, row["uid"]))
-    db.execute(  # descendants: same page, original order_idx
-        "UPDATE blocks SET page_id = ?, updated_at = ? WHERE page_id = ?",
-        (target_id, now_ms, source_id))
-    db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
-               (now_ms, target_id))
-    db.execute("DELETE FROM pages WHERE id = ?", (source_id,))
-    retitle_sidebar_entry(db, old_title, new_title)
+    """Merge a page while preserving stable blocks, subtrees, refs and sidebar."""
+    snapshots = _snapshot_referencing_blocks(db, source_id)
+    append_page_without_rewrite(
+        db, source_id, target_id, old_title, new_title, now_ms
+    )
+    rewrite_snapshotted_blocks(db, snapshots, {old_title: new_title}, now_ms)

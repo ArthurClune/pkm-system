@@ -22,6 +22,16 @@ def test_unlinked_endpoint(client):
     # uid_b4 links [[Machine Learning]] so it is NOT unlinked
 
 
+def test_unlinked_normalizes_routable_control_whitespace(client):
+    r = client.get("/api/unlinked", params={"title": "Machine\tLearning"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    [group] = body["groups"]
+    assert group["page_title"] == "AI"
+    assert [i["uid"] for i in group["items"]] == ["uid_b6"]
+
+
 def test_unlinked_missing_page_404(client):
     assert client.get("/api/unlinked",
                       params={"title": "No Such Page"}).status_code == 404

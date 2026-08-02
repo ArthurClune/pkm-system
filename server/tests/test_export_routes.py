@@ -133,6 +133,31 @@ def test_export_page_markdown_canonicalizes_padded_title_when_plain_space_migrat
     assert r.text.startswith("# Legacy Export\n")
 
 
+def test_export_page_markdown_preserves_inactive_padded_exact_reads(
+        client, seeded_config):
+    padded = " Legacy Export "
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (99, padded, 100, 100),
+    )
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("uid_ctrl_export", 99, None, 0, "export body", None, 0, None, None),
+    )
+    con.commit()
+    con.close()
+
+    exact = client.get(f"/api/export/page/{quote(padded, safe='/')}")
+    stripped = client.get(f"/api/export/page/{quote(padded.strip(), safe='/')}")
+
+    assert exact.status_code == 200
+    assert exact.text.splitlines()[0] == f"# {padded}"
+    assert "export body" in exact.text
+    assert stripped.status_code == 404
+
+
 def test_export_page_markdown_requires_auth(anon_client):
     r = anon_client.get("/api/export/page/Machine Learning")
     assert r.status_code == 401

@@ -1,6 +1,6 @@
 from pkm import rename
 from pkm import refs
-from pkm.rename import rewrite_title_refs
+from pkm.rename import rewrite_title_refs, rewrite_title_refs_map
 
 
 def test_bare_tag_matches_hashtag_capture_class():
@@ -89,3 +89,32 @@ def test_nested_link_outer_rewritten():
 
 def test_no_refs_no_change():
     assert rewrite_title_refs("plain text", "Old", "New") == "plain text"
+
+
+def test_map_rewrites_multiple_titles_simultaneously():
+    assert rewrite_title_refs_map(
+        "[[ Acme]] and [[Acme ]] plus #Legacy",
+        {" Acme": "Acme", "Acme ": "Acme", "Legacy": "New Name"},
+    ) == "[[Acme]] and [[Acme]] plus #[[New Name]]"
+
+
+def test_map_preserves_code_and_attributes_and_ignores_unrelated_casing():
+    text = "Legacy:: `[[ Acme]]`\n```\n#Legacy\n```\n[[ Acme]] [[acme]]"
+    assert rewrite_title_refs_map(
+        text,
+        {" Acme": "Acme", "Legacy": "New Name"},
+    ) == "New Name:: `[[ Acme]]`\n```\n#Legacy\n```\n[[Acme]] [[acme]]"
+
+
+def test_map_order_does_not_change_the_result():
+    text = "[[ Acme]] [[Acme ]] #Legacy"
+    first = rewrite_title_refs_map(
+        text,
+        {" Acme": "Acme", "Acme ": "Acme", "Legacy": "New Name"},
+    )
+    second = rewrite_title_refs_map(
+        text,
+        {"Legacy": "New Name", "Acme ": "Acme", " Acme": "Acme"},
+    )
+    assert first == "[[Acme]] [[Acme]] #[[New Name]]"
+    assert second == first

@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-02T17:50:55Z
+updated_at: 2026-08-02T18:09:31Z
 parent: pkm-ulae
 ---
 
@@ -16,3 +16,7 @@ Design a one-time data migration that trims existing padded page titles, merging
 - [ ] Inventory padded titles in prod DB
 - [ ] Migration with merge handling + ref rewrite
 - [ ] Then (and only then) canonicalize new titles at the creation boundary
+
+## Notes
+
+- 2026-08-02: Task 2 landed the pure deterministic migration planner and simultaneous one-pass reference rewrite core; atomic DB inventory/apply and API surfaces remain pending in later tasks.

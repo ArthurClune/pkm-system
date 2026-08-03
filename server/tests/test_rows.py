@@ -183,6 +183,48 @@ def test_internal_only_reference_does_not_block_flattening():
     assert rows.mermaid_preserved_refs == ()
 
 
+NESTED_MERMAID_EXPORT = Export(
+    pages=(
+        Page(
+            "Nested diagrams",
+            None,
+            None,
+            (
+                _block(
+                    "outer-uid",
+                    "{{[[mermaid]]}}",
+                    children=(
+                        _block(
+                            "inner-uid",
+                            "{{[[mermaid]]}}",
+                            children=(_block("line-uid", "flowchart TB"),),
+                        ),
+                        _block("citer-uid", "see ((line-uid))"),
+                    ),
+                ),
+            ),
+        ),
+    ),
+    orphan_block_count=0,
+    skipped_entities=0,
+    attr_counts={},
+)
+
+
+def test_nested_mermaid_protection_preserves_every_ancestor_and_reports_once():
+    rows = to_rows(NESTED_MERMAID_EXPORT, lambda text: text)
+    by_uid = {row[0]: row for row in rows.blocks}
+
+    assert set(by_uid) == {"outer-uid", "inner-uid", "line-uid", "citer-uid"}
+    assert by_uid["outer-uid"][2] is None
+    assert by_uid["inner-uid"][2] == "outer-uid"
+    assert by_uid["line-uid"][2] == "inner-uid"
+    assert by_uid["citer-uid"][2] == "outer-uid"
+    assert by_uid["outer-uid"][4] == "{{[[mermaid]]}}"
+    assert by_uid["inner-uid"][4] == "{{[[mermaid]]}}"
+    assert rows.mermaid_preserved_refs == (("line-uid", ("citer-uid",)),)
+
+
 def test_no_recovery_page_when_no_orphans():
     rows = to_rows(EXPORT, lambda t: t)
     assert rows.recovery_page_title is None

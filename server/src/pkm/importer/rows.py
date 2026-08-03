@@ -9,13 +9,15 @@ block's own text, and its children are consumed (not walked/emitted as
 their own block rows) -- unless a descendant that would be dropped is
 still targeted by an inbound ((uid)) reference from a block outside the
 subtree, in which case the whole subtree is left as ordinary nested
-blocks instead, so no referenced uid ever disappears."""
+blocks instead. Every candidate ancestor containing a protected nested
+component is also kept, so no outer flatten can delete protected rows."""
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from pkm.importer.mermaid import convert_to_fence
+from pkm.importer.mermaid_preservation import plan_mermaid_preservation
 from pkm.importer.parse_export import Block, Export
 from pkm.refs import extract
 
@@ -78,6 +80,26 @@ def _descendant_uids(b: Block) -> set[str]:
     return uids
 
 
+def _collect_mermaid_candidates(
+    export: Export,
+) -> dict[str, tuple[str, set[str]]]:
+    candidates: dict[str, tuple[str, set[str]]] = {}
+
+    def scan(block: Block) -> None:
+        fence = convert_to_fence(block.text, block.children)
+        if fence is not None:
+            candidates[block.uid] = (fence, _descendant_uids(block))
+        for child in block.children:
+            scan(child)
+
+    for page in export.pages:
+        for child in page.children:
+            scan(child)
+    for orphan in export.orphan_blocks:
+        scan(orphan)
+    return candidates
+
+
 def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
     pages: list[tuple] = []
     blocks: list[tuple] = []
@@ -85,7 +107,14 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
     page_ids: dict[str, int] = {}
     counts = {"block_ref": 0, "embed": 0}
     block_ref_sources = _collect_block_ref_sources(export)
-    preserved_refs: list[tuple[str, tuple[str, ...]]] = []
+    mermaid_candidates = _collect_mermaid_candidates(export)
+    mermaid_plan = plan_mermaid_preservation(
+        {
+            uid: descendants
+            for uid, (_, descendants) in mermaid_candidates.items()
+        },
+        block_ref_sources,
+    )
 
     def page_id(title: str, created: int | None = None,
                 updated: int | None = None) -> int:
@@ -99,18 +128,13 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         page_id(p.title, p.created_at, p.edited_at)
 
     def walk(b: Block, pid: int, parent_uid: str | None, order_idx: int) -> None:
-        fence = convert_to_fence(b.text, b.children)
-        if fence is not None:
-            subtree = _descendant_uids(b)
-            in_subtree = subtree | {b.uid}
-            referenced = [
-                (descendant_uid, tuple(sorted(external)))
-                for descendant_uid in sorted(subtree)
-                if (external := block_ref_sources.get(descendant_uid, set()) - in_subtree)
-            ]
-            if referenced:  # flattening would drop a referenced uid -- keep nested
-                fence = None
-                preserved_refs.extend(referenced)
+        candidate = mermaid_candidates.get(b.uid)
+        fence = (
+            candidate[0]
+            if candidate is not None
+            and b.uid not in mermaid_plan.preserved_component_uids
+            else None
+        )
         text = transform_text(fence if fence is not None else b.text)
         parsed = extract(text)  # runs on final text, so a fence has no [[mermaid]] ref
         blocks.append((b.uid, pid, parent_uid, order_idx, text, b.heading,
@@ -147,4 +171,7 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
                 block_ref_count=counts["block_ref"],
                 embed_count=counts["embed"],
                 recovery_page_title=recovery_page_title,
-                mermaid_preserved_refs=tuple(preserved_refs))
+                mermaid_preserved_refs=tuple(
+                    (ref.descendant_uid, ref.source_uids)
+                    for ref in mermaid_plan.preserved_refs
+                ))

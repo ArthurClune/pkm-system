@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-03T11:53:31Z
+updated_at: 2026-08-03T12:05:31Z
 parent: pkm-ulae
 ---
 
@@ -127,7 +127,7 @@ The approved 2026-08-02 requirements revision supersedes the nested-title closur
 - [x] Reject `#`, `[[`, and `]]` at every normal Python/server title boundary with atomic ref-derived and batch refusal
 - [x] Report `all_space` and `forbidden_syntax` migration blockers through digest, API, and CLI
 - [x] Sanitize imported title markup recursively before row creation, merge collisions deterministically, and report changes
-- [ ] Enforce equivalent TypeScript/offline validation using shared fixtures
+- [x] Enforce equivalent TypeScript/offline validation using shared fixtures
 - [ ] Regenerate contracts and update README, PKM skill, architecture docs, and bean history
 - [ ] Run focused gates and disposable-port-18974 lifecycle verification without production access
 - [ ] Pass fresh task reviews and final whole-title-lane review
@@ -146,3 +146,7 @@ Added the shared title-syntax fixture and pure Python predicate for later bounda
 ## Revised Tasks 2-4 Summary of Changes
 
 Rejected forbidden explicit and reference-derived titles before any server operation-batch mutation; restored boundary-space-only migration planning with digest-bearing `all_space`/`forbidden_syntax` blockers and generated API/CLI contracts; and added pure recursive import sanitization before row/filesystem work with deterministic collision merges, preserved page/orphan block trees and refs, truthful reporting, and typed refusal. The human-approved coupled review required one importer fix round for extractor-normalized targets and hash-removal marker formation; the scoped re-review found both addressed. Full server verification after the fix: 1368 passed, coverage 96.69%; pyrefly reported zero errors and ruff passed.
+
+## Revised Task 5 Summary of Changes
+
+Added shared-fixture TypeScript title-syntax parity and operation preflight; rejected complete local and durable queue batches before optimistic or pending-row mutation; adapted local page creation to 422 before negative-page/queue creation; and preserved authoritative snapshot/feed acceptance. Verification: 113 focused and 1861 full web unit tests passed; typecheck, lint, and FCIS checks passed. Task review approved with no findings.

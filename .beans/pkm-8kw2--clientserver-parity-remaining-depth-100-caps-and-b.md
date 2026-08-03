@@ -29,7 +29,5 @@ Additional item from ops-branch re-review (pre-existing): _broadcast_op relays a
 
 - Broadcast ops now use the authoritative stored page title from the applied page row for create, create_page, and move operations, covering blank fallback, control-whitespace normalization, activation-time padding canonicalization, and cross-page moves while preserving same-page null broadcasts. An unreachable authoritative-row lookup now fails closed instead of retaining caller spelling.
 - Blank references are now dropped in both pure extractors before local/server ref indexing, preserving byte-exact nonblank padding, regenerating the shared parity fixture, and covering the local replica so `[[   ]]` is ignored while valid refs in the same block still index.
-
-## Task 10 status review
-
-All parity items from this bean are now complete, and the task is ready to close.
+- All three recursive traversals lost their `depth < 100` cap in favour of a visited-path guard (`instr(path, ',' || uid || ',') = 0`), making each one complete *and* cycle-safe rather than trading one for the other: `routes_pages.py::_fetch_ancestors` (breadcrumbs for `GET /api/block/{uid}` and every backlink group), `web/src/replica/localApi/tree.ts`'s ancestor CTE, and `web/src/replica/localOps.ts::subtreeUids`. The comma delimiters are exact because `UID_RE` (`^[a-zA-Z0-9_-]{6,32}$`) admits no commas. `subtreeUids` was the one with a correctness cost beyond truncation: it backs optimistic `delete` and cross-page `move`, so descendants below depth 100 were left parentless, or holding the old `page_id`, until the next full resync.
+- Documented in `docs/architecture/backend.md` (§ Breadcrumbs and recursive traversal, plus the rewritten blank-ref/defense-in-depth prose) and `docs/architecture/sync-and-offline.md`, both stating that the three statements must change together.

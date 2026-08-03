@@ -193,6 +193,7 @@ CLI quick reference (`uv run pkm <cmd> --help` for details — every verb's
     pkm get "Page Title" | today | <uid>     # markdown; --uids / --json
     pkm get "Page" --resolve-refs            # inline ((uid)) refs, cycle-safe
     pkm get "Page" --section "## H" [--depth N]   # subtree only (pages only)
+    pkm get "Page" --section "H"             # ...at any heading level
     pkm todos [-p "Page"]
     pkm save [-p "Page"] [--parent "## H"|"((uid))"] [--todo] "text" | -
     pkm update <uid> "new text" | -D | -T

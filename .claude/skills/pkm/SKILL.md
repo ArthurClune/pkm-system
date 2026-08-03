@@ -31,6 +31,7 @@ tokens, sign cookies, or read the DB as a workaround.
     pkm get today --uids          # ^uid markers — fetch these before updating
     pkm get "Page" --resolve-refs # inline ((uid)) refs as "text" ((uid)), cycle-safe
     pkm get "Page" --section "## H" [--depth N]   # subtree only (pages only); --depth also clips uid targets
+    pkm get "Page" --section "H"   # bare = that text at ANY level; "## H" = H2 only
     pkm search "term" [--limit N]  # default limit 10
     pkm search "term" --exact      # whole-word match, no prefix wildcard
     pkm search "term" --compact    # titles + "[page] ^uid" only, no snippets

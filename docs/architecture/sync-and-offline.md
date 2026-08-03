@@ -253,6 +253,25 @@ the builder returns, is what the compiler actually verifies. What remains
 unchecked is the row type against the real SQL — a renamed *column* is still a
 runtime failure, which is what `shim_parity.json` is for.
 
+Two replica reads walk the block tree recursively, and both are **uncapped and
+cycle-safe** rather than depth-limited (pkm-8kw2): `localApi/tree.ts`'s
+ancestor CTE, which builds the breadcrumb trails the shim's payloads carry,
+and `localOps.ts::subtreeUids`, which enumerates a subtree for optimistic
+delete/move. Each carries a `path` column of `,uid,uid,…,` and recurses only
+while `instr(path, ',' || b.uid || ',') = 0`, so a trail or subtree is
+complete however deep it goes, and a parent cycle in a damaged replica
+terminates at the repeat instead of running away. This mirrors the server's
+`_fetch_ancestors` exactly — see
+[backend.md](backend.md#breadcrumbs-and-recursive-traversal) — and the
+mirroring is the point: a breadcrumb read offline must return the same trail
+as the same read online, so all three statements change together or not at
+all. Both previously stopped at `depth < 100`, which truncated a breadcrumb
+trail silently on the read path and, worse, let `subtreeUids` under-report a
+subtree on the *write* path: an optimistic `delete` left descendants below
+depth 100 in the replica with their parent gone, and a cross-page `move` left
+them holding the old `page_id`, so the replica disagreed with the server about
+which page owned them until the next full resync.
+
 ```mermaid
 sequenceDiagram
     participant U as User (offline)

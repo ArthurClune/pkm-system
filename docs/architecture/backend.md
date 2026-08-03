@@ -343,6 +343,30 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
 | GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
 
+### Breadcrumbs and recursive traversal
+
+`routes_pages.py::_fetch_ancestors` builds the breadcrumb trail behind
+`GET /api/block/{uid}` and (via `backlinks.py`) every backlink group. It walks
+parents with a recursive CTE, and its termination condition is a **visited
+path, not a depth limit**: the CTE carries `path` as `,uid,uid,…,` and the
+recursive arm keeps a row only while `instr(a.path, ',' || b.uid || ',') = 0`.
+
+That shape is load-bearing in two directions, and both were previously wrong
+in the same statement (pkm-8kw2). It is *complete* — the old `depth < 100`
+guard silently truncated a breadcrumb trail at 100 levels, which is a wrong
+answer rather than a slow one, and Arthur's standing rule is no silent
+truncation of user-visible output. And it is *cycle-safe* — a parent cycle
+(which the write path forbids but a corrupted or hand-edited database can
+still hold) would otherwise recurse until SQLite gave up; a visited-path guard
+stops at the repeat instead. The comma delimiters are what make the `instr`
+test exact: `UID_RE` is `^[a-zA-Z0-9_-]{6,32}$`, so no uid can contain a
+comma, and `,abc,` therefore cannot match a fragment of a neighbouring uid.
+
+Both replica mirrors of this traversal use the identical guard — see
+[sync-and-offline.md](sync-and-offline.md). When editing any of the three,
+change them together: the whole point is that an offline read and a server
+read return the same trail.
+
 ### Assets
 
 Uploads stream in 1 MiB chunks with a running size cap (413 over
@@ -646,6 +670,24 @@ and broadcasts as the web client.
   rule, so a heading resolves to the same parent whether it came from
   the fetched page or from earlier in the batch.
   `cli/render.py` (Core) renders API payloads to terminal markdown.
+- `pkm get --section SPEC` (`render.py::select_section`) has two modes, and
+  which one applies is decided by the spec's own syntax rather than by a
+  flag. A *marked* spec (`## Notes`, one space after one to three `#`)
+  selects the first block in document order whose heading level **and** text
+  both match — the same level-and-text rule `--parent` uses, so the two
+  specs can't disagree about which `Notes` they mean. A *bare* spec
+  (`Notes`) selects the first block with that exact text at any level,
+  including a plain non-heading block; this is the lenient form kept for
+  callers that don't know or care how a section is marked up (pkm-dzgw:
+  before this, the marker was stripped and both forms behaved as bare, so
+  `--section "## Notes"` could silently return an H3 or a plain block).
+  Blank-vs-heading is the only leniency — text still matches exactly, and
+  a miss raises `RenderError` listing the page's headings *with* their level
+  markers, so the error text tells you which spelling to ask for next. The
+  `{1,3}` bound on the marker matches the app's whole heading domain
+  (`HEADING_COMMANDS` in `web/src/outline/slashCommands.ts` offers h1-h3
+  only); a `####` spec is therefore read as bare text, which still finds the
+  block by exact text whatever its level.
 - Text is the source of truth for a block's heading level on every CLI/MCP
   write: `split_heading` runs in `_Planner.creates` (the one call site every
   create path funnels through) and in `plan_update`, so `## X` is never
@@ -1038,26 +1080,39 @@ transaction rolls back rather than emitting caller spelling. Remote replicas
 therefore refetch the page the server actually mutated rather than keying
 local state by a raw caller spelling the server did not store.
 
-**Ref indexing (not just page creation) needs the same blankness check, but
-answers it differently.** `refs.extract()`'s own "drop a blank ref" filter
-(`if norm := normalize_title(title)`) reuses the narrow `normalize_title`,
-so it has the identical gap: a spaces-only bracket ref like `[[   ]]`
-survives it as `Ref(title="   ")`. Both places that resolve an extracted
-`Ref` onto a page (`ops_apply.py`'s `ReindexRefs` handling and
-`store.py`'s `rewrite_referencing_blocks`, used by rename/merge) go through
-`store.index_ref()`, which catches `BlankTitleError` and skips the ref
-entirely — no page created, no `refs` row inserted, no fallback. This is
-deliberately different from the ops `page_title` fallback: an op needs
-*some* page to land its content on, but a ref with a blank-normalizing
-title is not a reference at all (same reasoning as `extract()`'s own
-docstring), so indexing it onto `"Untitled"` would fabricate a phantom
-backlink. Before this fix, the two call sites called `get_or_create_page`
-directly, so a spaces-only ref in ordinary block text (typed via the
-editor's `[[` autopair, then just spaces) raised `BlankTitleError` with
-nothing above it to catch it — an uncaught HTTP 500 on the ops path
-(`routes_ops.py` catches only `OpError`) and on rename (which catches only
-`sqlite3.IntegrityError`), worse than either the pre-pkm-1rb5 silent
-blank-page creation or the 422 pkm-hjhy explicitly forbids on the ops path.
+**Ref indexing (not just page creation) needs the same blankness check, and
+it is now made in the pure extractor on both sides.** `refs.is_blank_title()`
+— normalize, then strip — is the one blankness predicate, and
+`refs.extract()`'s bracket branch calls it, so `[[]]`, `[[\n]]` *and* the
+plain-spaces `[[   ]]` are all dropped before anything downstream sees a
+`Ref` (pkm-8kw2). `web/src/grammar/refs.ts::extractRefs` filters on
+`r.title.trim() === ""` for the same reason, and the shared fixtures pin the
+pair together: `shared/fixtures/ref_grammar.json` and
+`shared/fixtures/refs_parity.json` both carry
+`skip [[   ]] but keep [[ Valid ]]`, which is the case that distinguishes
+"blank once stripped" (dropped) from "padded but nonblank" (kept byte-exact,
+` Valid `, since a nonblank padded title must never be silently trimmed).
+The other two branches need no change: an attribute name is `.strip()`ed
+before normalizing, and hashtag titles cannot hold whitespace at all.
+
+`store.index_ref()` still catches `BlankTitleError` and skips the ref
+entirely — no page created, no `refs` row inserted, no fallback — but that
+catch is now defense in depth at the store boundary rather than the only
+guard. Both places that resolve an extracted `Ref` onto a page
+(`ops_apply.py`'s `ReindexRefs` handling and `store.py`'s
+`rewrite_referencing_blocks`, used by rename/merge) go through it. Keep it:
+the deliberate behaviour on a blank title is to index *nothing*, which is
+the opposite of the ops `page_title` fallback. An op needs *some* page to
+land its content on, but a ref with a blank-normalizing title is not a
+reference at all, so resolving it onto `"Untitled"` would fabricate a
+phantom backlink. Before pkm-1rb5 the two call sites called
+`get_or_create_page` directly, so a spaces-only ref in ordinary block text
+(typed via the editor's `[[` autopair, then just spaces) raised
+`BlankTitleError` with nothing above it to catch it — an uncaught HTTP 500
+on the ops path (`routes_ops.py` catches only `OpError`) and on rename
+(which catches only `sqlite3.IntegrityError`), worse than either the silent
+blank-page creation before it or the 422 pkm-hjhy explicitly forbids on the
+ops path.
 
 ## Logging and observability
 

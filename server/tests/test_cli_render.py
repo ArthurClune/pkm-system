@@ -1,6 +1,6 @@
-from pkm.cli.render import (render_assets, render_backlinks, render_block,
-                            render_groups, render_page, render_search,
-                            render_title_migration_apply,
+from pkm.cli.render import (clip_depth, render_assets, render_backlinks,
+                            render_block, render_groups, render_page,
+                            render_search, render_title_migration_apply,
                             render_title_migration_audit)
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
                                      BlockNode, BlockPayload, GroupsPayload,
@@ -333,16 +333,52 @@ def test_render_title_migration_apply_includes_applied_counts_and_generation():
     )
 
 
-def test_select_section_and_clip_depth():
-    import pytest
-
-    from pkm.cli.render import RenderError, clip_depth, select_section
+def test_clip_depth_preserves_original_and_copies_requested_depth():
     blocks = PAGE.blocks
-    [sec] = select_section(blocks, "## Papers")
-    assert sec.uid == "u2"
-    assert select_section(blocks, "Papers")[0].uid == "u2"
-    with pytest.raises(RenderError, match="Papers"):
-        select_section(blocks, "## Missing")
     clipped = clip_depth(blocks, 1)
     assert clipped[1].children == []
     assert PAGE.blocks[1].children  # original not mutated
+
+
+def _section_blocks() -> list[BlockNode]:
+    """Document-order collisions on the text "Notes": a plain block, an
+    H3, then two duplicate H2s -- exercises level-aware matching plus
+    document-order tie-breaking for both bare and marked specs."""
+    return [
+        _node("plain", "Notes"),
+        _node("h3", "Notes", heading=3),
+        _node("h2a", "Notes", heading=2, children=[_node("h2a-child", "first")]),
+        _node("h2b", "Notes", heading=2, children=[_node("h2b-child", "second")]),
+        _node("papers", "Papers", heading=2),
+    ]
+
+
+def test_select_section_marked_spec_matches_heading_level_and_text():
+    from pkm.cli.render import select_section
+    [sec] = select_section(_section_blocks(), "## Notes")
+    assert sec.uid == "h2a"
+
+
+def test_select_section_marked_spec_selects_different_level_same_text():
+    from pkm.cli.render import select_section
+    [sec] = select_section(_section_blocks(), "### Notes")
+    assert sec.uid == "h3"
+
+
+def test_select_section_bare_spec_is_heading_agnostic_and_picks_first_in_document_order():
+    from pkm.cli.render import select_section
+    [sec] = select_section(_section_blocks(), "Notes")
+    assert sec.uid == "plain"
+
+
+def test_select_section_miss_lists_available_marked_headings_in_document_order():
+    import pytest
+
+    from pkm.cli.render import RenderError, select_section
+    with pytest.raises(RenderError) as exc_info:
+        select_section(_section_blocks(), "# Notes")
+    message = str(exc_info.value)
+    headings = message[message.index("headings: ") + len("headings: "):
+                       -1].split(", ")
+    assert headings == ["### Notes", "## Notes", "## Notes", "## Papers"]
+    assert "## Papers" in message

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
-import { applyLocalOps, getOrCreateLocalPage, LocalOpError } from "./localOps";
+import { applyLocalOps, getOrCreateLocalPage, LocalOpError, subtreeUids } from "./localOps";
 import { setPlainSpaceTitleCanonicalization } from "./meta";
 import { openTestDb, type TestDb } from "./testDb";
 
@@ -31,6 +31,44 @@ const replicaState = () => ({
   refs: rows("SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"),
   sidebar: rows("SELECT * FROM sidebar_entries ORDER BY id"),
   metadata: rows("SELECT * FROM sync_client_meta ORDER BY key"),
+});
+
+const makeChain = (count: number, prefix: string) => {
+  const uids = Array.from({ length: count }, (_, i) => `${prefix}_${i}`);
+  t.db.exec(
+    "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text) VALUES (?, 1, NULL, 0, ?)",
+    [uids[0], `${prefix}_0`]);
+  for (let i = 1; i < uids.length; i++) {
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text) VALUES (?, 1, ?, 0, ?)",
+      [uids[i], uids[i - 1], `${prefix}_${i}`]);
+  }
+  return uids;
+};
+
+const makeCycle = () => {
+  const [root, child] = makeChain(2, "cycle");
+  t.db.exec("UPDATE blocks SET parent_uid = ? WHERE uid = ?", [child, root]);
+  return [root, child] as const;
+};
+
+describe("subtreeUids", () => {
+  test.each([
+    [100, "depth_100"],
+    [101, "depth_101"],
+    [102, "depth_102"],
+    [150, "depth_150"],
+  ] as const)("returns all %i nodes deepest-first", (count, prefix) => {
+    const uids = makeChain(count, prefix);
+
+    expect(subtreeUids(t.db, uids[0])).toEqual([...uids].reverse());
+  });
+
+  test("returns each uid once across a corrupt cycle", () => {
+    const [root, child] = makeCycle();
+
+    expect(subtreeUids(t.db, root)).toEqual([child, root]);
+  });
 });
 
 describe("getOrCreateLocalPage", () => {
@@ -135,6 +173,22 @@ describe("applyLocalOps", () => {
     expect(refs.map((r) => r.target_page_id)).toContain(brandNew.id);
   });
 
+  test("create skips blank refs while still indexing nonblank refs in the same block", () => {
+    applyLocalOps(t.db, [{
+      op: "create", uid: "uid_blank_ref", page_title: "AI", parent_uid: null,
+      order_idx: 1, text: "skip [[   ]] but keep [[Valid Page]]",
+    }], 99);
+
+    expect(rows("SELECT title FROM pages WHERE title = 'Untitled'")).toEqual([]);
+    expect(rows<{ title: string }>(
+      "SELECT title FROM pages WHERE trim(title) = ''",
+    )).toEqual([]);
+    expect(rows<{ kind: string; title: string }>(
+      "SELECT r.kind, p.title FROM refs r JOIN pages p ON p.id = r.target_page_id" +
+      " WHERE r.src_block_uid = 'uid_blank_ref' ORDER BY p.title, r.kind",
+    )).toEqual([{ kind: "link", title: "Valid Page" }]);
+  });
+
   test("update_text rewrites text and refs; FTS sees the new text", () => {
     applyLocalOps(t.db, [
       { op: "update_text", uid: "uid_r1", text: "now mentions [[ML]]" },
@@ -156,6 +210,19 @@ describe("applyLocalOps", () => {
     expect(blockRow("uid_r2c").page_id).toBe(2); // descendant followed
   });
 
+  test("cross-page move rewrites every page_id in a 150-block subtree", () => {
+    const uids = makeChain(150, "move_150");
+
+    applyLocalOps(t.db, [{
+      op: "move", uid: uids[0], parent_uid: null, order_idx: 0,
+      page_title: "ML",
+    }], 99);
+
+    expect(rows<{ page_id: number }>(
+      "SELECT page_id FROM blocks WHERE uid LIKE 'move_150_%' ORDER BY uid"
+    ).map((row) => row.page_id)).toEqual(Array(150).fill(2));
+  });
+
   test("move under a parent on the same page shifts siblings at the target", () => {
     applyLocalOps(t.db, [{
       op: "move", uid: "uid_r1", parent_uid: "uid_r2", order_idx: 0,
@@ -170,6 +237,16 @@ describe("applyLocalOps", () => {
     applyLocalOps(t.db, [{ op: "delete", uid: "uid_r2" }], 99);
     expect(rows("SELECT uid FROM blocks")).toEqual([{ uid: "uid_r1" }]);
     expect(rows("SELECT COUNT(*) AS n FROM refs")).toEqual([{ n: 0 }]);
+  });
+
+  test("delete removes every row from a 150-block subtree", () => {
+    const uids = makeChain(150, "delete_150");
+
+    applyLocalOps(t.db, [{ op: "delete", uid: uids[0] }], 99);
+
+    expect(rows<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM blocks WHERE uid LIKE 'delete_150_%'"
+    )).toEqual([{ n: 0 }]);
   });
 
   test("set_collapsed and set_heading update flags", () => {

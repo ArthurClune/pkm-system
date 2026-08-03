@@ -33,6 +33,14 @@ def test_get_help_documents_target_forms(capsys):
         assert needle in out
 
 
+def test_get_help_documents_section_level_semantics(capsys):
+    with pytest.raises(SystemExit):
+        main(["get", "--help"])
+    out = capsys.readouterr().out
+    for needle in ["level and exact text", "bare text", "regardless of heading"]:
+        assert needle in out, f"get --help omits {needle!r}"
+
+
 def test_migrate_titles_help_is_self_sufficient_about_manual_audit_and_apply(capsys):
     with pytest.raises(SystemExit):
         main(["migrate-titles", "--help"])

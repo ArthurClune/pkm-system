@@ -73,17 +73,13 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
 def index_ref(db: sqlite3.Connection, src_uid: str, ref_title: str,
              ref_kind: str, now_ms: int) -> None:
     """Resolve one extracted Ref onto a page and record it in `refs`.
-    refs.extract()'s own "drop a blank ref" check reuses normalize_title,
-    which is narrow (control whitespace only, see get_or_create_page's
-    docstring) -- so a spaces-only bracket ref like "[[   ]]" is NOT
-    dropped there, and ref_title can still be blank-once-stripped here.
-    get_or_create_page would raise BlankTitleError for that, which this
-    function catches and swallows: per extract()'s own docstring, a title
-    that normalizes to blank "is not a reference at all", so the fix is to
-    index nothing, the same as if extract() had dropped it -- not to
-    invent a fallback page (a phantom backlink onto some sentinel page
-    would be wrong, unlike the ops path's page_title fallback, where the
-    op itself needs *some* page to land on)."""
+
+    refs.extract() now filters blank titles itself, including plain-space
+    `[[   ]]`, while still leaving valid padded nonblank titles byte-exact.
+    The BlankTitleError catch remains defense in depth at the store boundary:
+    if a caller ever hands us a blank title anyway, index nothing rather than
+    inventing a fallback page for a non-reference.
+    """
     try:
         page = get_or_create_page(db, ref_title, now_ms)
     except BlankTitleError:

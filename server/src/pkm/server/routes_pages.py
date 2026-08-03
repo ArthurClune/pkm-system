@@ -81,18 +81,19 @@ def _fetch_ancestors(db: sqlite3.Connection, uids: list[str]) -> dict[str, list[
         return {}
     marks = ",".join("?" * len(uids))
     rows = db.execute(
-        f"""WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth) AS (
-              SELECT uid, uid, parent_uid, text, 0 FROM blocks
+        f"""WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth, path) AS (
+              SELECT uid, uid, parent_uid, text, 0, ',' || uid || ',' FROM blocks
                WHERE uid IN ({marks})
               UNION ALL
-              SELECT a.start_uid, b.uid, b.parent_uid, b.text, a.depth + 1
+              SELECT a.start_uid, b.uid, b.parent_uid, b.text, a.depth + 1,
+                     a.path || b.uid || ','
                 FROM anc a JOIN blocks b ON b.uid = a.parent_uid
-               WHERE a.depth < 100
+               WHERE instr(a.path, ',' || b.uid || ',') = 0
             )
-            SELECT start_uid, text, depth FROM anc WHERE depth > 0
-             ORDER BY start_uid, depth DESC""", uids).fetchall()
+            SELECT start_uid, text, depth FROM anc
+             WHERE depth > 0 ORDER BY start_uid, depth DESC""", uids).fetchall()
     out: dict[str, list[str]] = {}
-    for r in rows:  # depth DESC = root first
+    for r in rows:  # depth only orders root-first; UID_RE excludes commas.
         out.setdefault(r["start_uid"], []).append(r["text"])
     return out
 

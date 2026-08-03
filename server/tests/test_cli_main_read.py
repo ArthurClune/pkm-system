@@ -315,6 +315,58 @@ def test_get_section_missing_lists_headings(run):
     assert "Papers" in err
 
 
+def _seed_section_levels(pkm_client) -> None:
+    """A page with the document-order collisions --section needs to
+    disambiguate: a plain "Notes" block, an H3 "Notes", and two
+    duplicate H2 "Notes" blocks."""
+    pkm_client.post_ops([
+        {"op": "create_page", "page_title": "Section Levels"},
+        {"op": "create", "uid": "seclvlplain1", "page_title": "Section Levels",
+         "parent_uid": None, "order_idx": 0, "text": "Notes"},
+        {"op": "create", "uid": "seclvlh3aaaa", "page_title": "Section Levels",
+         "parent_uid": None, "order_idx": 1, "text": "Notes", "heading": 3},
+        {"op": "create", "uid": "seclvlh2first", "page_title": "Section Levels",
+         "parent_uid": None, "order_idx": 2, "text": "Notes", "heading": 2},
+        {"op": "create", "uid": "seclvlh2second", "page_title": "Section Levels",
+         "parent_uid": None, "order_idx": 3, "text": "Notes", "heading": 2},
+    ], batch_id="cli-get-section-levels-0001")
+
+
+def test_get_section_marked_spec_selects_matching_level(run, pkm_client):
+    _seed_section_levels(pkm_client)
+    code, out, _ = run(
+        "get", "Section Levels", "--section", "## Notes", "--uids")
+    assert code == 0
+    assert "^seclvlh2first" in out
+    assert "^seclvlh2second" not in out
+
+
+def test_get_section_marked_spec_selects_different_level_same_text(
+        run, pkm_client):
+    _seed_section_levels(pkm_client)
+    code, out, _ = run(
+        "get", "Section Levels", "--section", "### Notes", "--uids")
+    assert code == 0
+    assert "^seclvlh3aaaa" in out
+
+
+def test_get_section_bare_spec_ignores_heading_level(run, pkm_client):
+    _seed_section_levels(pkm_client)
+    code, out, _ = run("get", "Section Levels", "--section", "Notes", "--uids")
+    assert code == 0
+    assert "^seclvlplain1" in out
+
+
+def test_get_section_missing_level_lists_marked_headings_in_document_order(
+        run, pkm_client):
+    _seed_section_levels(pkm_client)
+    code, _, err = run("get", "Section Levels", "--section", "# Notes")
+    assert code == 1
+    headings = err[err.index("headings: ") + len("headings: "):].strip()
+    headings = headings.rstrip(")").split(", ")
+    assert headings == ["### Notes", "## Notes", "## Notes"]
+
+
 def test_get_depth_clips_and_filters_json(run):
     code, out, _ = run("get", "Machine Learning", "--depth", "1", "--json")
     assert code == 0

@@ -636,3 +636,55 @@ describe("focused search stays inside narrow phone viewports (pkm-vszf)", () => 
       .toContain("outline: 2px solid var(--color-link);");
   });
 });
+
+describe("block stamps (pkm-4ler)", () => {
+  const BANDS = ["week", "month", "year", "older"] as const;
+
+  test("the four age-band tokens exist in all three theme blocks", () => {
+    const blocks = [
+      ruleFor(":root"),
+      ruleFor(':root:not([data-theme="light"])'),
+      ruleFor(':root[data-theme="dark"]'),
+    ];
+    for (const body of blocks) {
+      for (const band of BANDS) {
+        expect(body).toMatch(new RegExp(`--color-stamp-${band}: #[0-9a-fA-F]{6};`));
+      }
+    }
+  });
+
+  test("light and dark values differ for every band", () => {
+    const light = ruleFor(":root");
+    const dark = ruleFor(':root[data-theme="dark"]');
+    for (const band of BANDS) {
+      const pattern = new RegExp(`--color-stamp-${band}: (#[0-9a-fA-F]{6});`);
+      expect(light.match(pattern)?.[1]).not.toBe(dark.match(pattern)?.[1]);
+    }
+  });
+
+  test("each band class fills with its own token", () => {
+    for (const band of BANDS) {
+      expect(rulesFor(`.block-stamp-${band}`))
+        .toContain(`background: var(--color-stamp-${band});`);
+    }
+  });
+
+  test("the cell is a fixed-width right-aligned column that never wraps", () => {
+    const body = rulesFor(".block-stamp");
+    // Fixed width, not content width: the stamps must form a true column
+    // rather than tracking each row's text length.
+    expect(body).toMatch(/flex: 0 0 \d+px;/);
+    expect(body).toContain("text-align: right;");
+    expect(body).toContain("white-space: nowrap;");
+  });
+
+  test("the column is hidden on phones", () => {
+    expect(mediaRulesFor("(max-width: 600px)", ".block-stamp"))
+      .toContain("display: none;");
+  });
+
+  test("the page-menu checkmark reserves its width like BlockMenu's", () => {
+    expect(rulesFor(".top-bar-menu-check")).toContain("display: inline-block;");
+    expect(rulesFor(".top-bar-menu-check")).toContain("width: 1.25em;");
+  });
+});

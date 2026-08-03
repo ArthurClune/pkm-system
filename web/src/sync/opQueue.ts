@@ -285,14 +285,21 @@ function createReplicaQueue(replica: Replica,
     };
   };
 
-  const rememberPoisonMark = (event: PoisonEvent): void => {
+  /** Returns true only for a genuinely new intent. A mark RPC that throws
+   * leaves the row deliverable, so an outside resume can hand the same batch
+   * out for a second rejection; the retained intent is what keeps the effects
+   * that must happen once per batch — notably the lane decrement — idempotent
+   * across those repeats. */
+  const rememberPoisonMark = (event: PoisonEvent): boolean => {
     const key = `${event.rowId}\u0000${event.batchId}`;
     const retained = new Map(poisonMarkIntents.map((intent) =>
       [`${intent.rowId}\u0000${intent.batchId}`, intent]));
+    const isNew = !retained.has(key);
     retained.set(key, event);
     poisonMarkIntents = [...retained.values()].sort((a, b) =>
       a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
     writePoisonMarkIntents(poisonMarkIntents);
+    return isNew;
   };
 
   const markRetainedPoison = async (): Promise<readonly PoisonEvent[]> => {
@@ -400,13 +407,18 @@ function createReplicaQueue(replica: Replica,
           // is stale before it begins its next POST.
           dispatch({ type: "pause" });
           poisonPending.emit(undefined);
-          rememberPoisonMark(event);
+          const firstRejection = rememberPoisonMark(event);
           finishDelivery(batch.batch_id, { status: "failed", error });
           finishObservedUnidentified({ status: "failed", error });
           // Terminal for this batch: it is never POSTed again (the barrier
           // holds until the repair, and marking is retried, never delivery), so
-          // it stops standing ahead of a retained entry from here.
-          durableBatchSettled();
+          // it stops standing ahead of a retained entry from here. Keyed to a
+          // new mark intent so it counts once per batch: markPoisoned below can
+          // throw, and the still-unmarked row is then handed out again by an
+          // outside resume, taking the same 4xx. A second decrement would put
+          // the head's count below the batches actually ahead of it and let the
+          // retained op overtake one of them (pkm-yavj).
+          if (firstRejection) durableBatchSettled();
           try {
             await markRetainedPoison();
           } catch (rpcError: unknown) {
@@ -453,15 +465,21 @@ function createReplicaQueue(replica: Replica,
         // silently: kick() only records it by setting drainAgain when
         // drainRun is still set, and nothing else re-checks that flag once
         // runDrain has returned. Re-check it here, mirroring the legacy
-        // queue's missedKick handling -- but only for a "drained" outcome.
-        // A blocked outcome's reason (offline/recovering/disposed/
-        // retryable) still holds regardless of any kick that arrived during
-        // cleanup, so redraining immediately would just repeat the same
-        // block; worse, since drain() lets late callers share this very
-        // promise, an unawaited background redrain kicked off here would
-        // race those callers, who would observe the stale blocked result
-        // instead of the redrain's outcome.
-        const missedKick = outcome.status === "drained" && drainAgain;
+        // queue's missedKick handling.
+        //
+        // A blocked outcome is not automatically dead: the very event that
+        // kicked may be what lifted the block (setOnline(true) racing a drain
+        // concluding offline, resume() racing one concluding recovering), and
+        // dropping the kick then leaves delivery waiting for whatever kicks
+        // the queue next — the user's next edit, or another reconnect
+        // (pkm-v5x5). So redrain only once the queue is no longer terminally
+        // blocked: a still-offline queue would just repeat the same block, and
+        // a retryable outcome already owns an armed timer that must keep its
+        // backoff rather than being pre-empted by an immediate retry.
+        // Late callers sharing this promise still observe the blocked outcome
+        // that was true when it settled, not the redrain's.
+        const missedKick = drainAgain && (outcome.status === "drained"
+          || (terminalReason(qstate) === null && !qstate.retryScheduled));
         drainAgain = false;
         drainRun = null;
         if (missedKick) kick();

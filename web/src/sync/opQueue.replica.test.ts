@@ -1268,6 +1268,91 @@ async () => {
   expect(outcomes).toBe(1);
 });
 
+test("a reconnect landing on a blocked drain redrains without a further kick",
+async () => {
+  // pkm-v5x5: setOnline(true) can arrive while a drain is already concluding
+  // "offline". Its kick is only recorded on the in-flight run, so dropping it
+  // would leave the batch waiting for whatever kicks the queue next — the
+  // user's next edit, or another reconnect.
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const held = deferred<void>();
+  let counts = 0;
+  const replica = memReplica();
+  replica.pendingCount = async () => {
+    counts += 1;
+    // hold the offline drain inside the report it is already committed to
+    if (counts === 1) await held.promise;
+    return replica.rows.filter((row) => !row.poisoned).length;
+  };
+  const drains: string[] = [];
+  const q = createOpQueue(replica, () => undefined,
+                          (outcome) => drains.push(outcome.status));
+  q.setOnline(false);
+
+  const ticket = q.enqueue([op("u1")]); // its own kick starts the offline drain
+  await vi.waitFor(() => { expect(counts).toBe(1); });
+  expect(bodies).toEqual([]);
+
+  q.setOnline(true); // the reconnect races that drain's blocked conclusion
+  held.resolve();
+
+  await vi.waitFor(() => { expect(bodies).toHaveLength(1); });
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+  expect(drains).toEqual(["blocked", "drained"]);
+});
+
+test("a failed poison mark cannot decrement the lane twice for one batch",
+async () => {
+  // pkm-yavj: the lane is decremented before the mark RPC, so a mark that
+  // throws leaves the row deliverable and an outside resume hands the same
+  // batch out again. Counting it twice would drop the head's count below the
+  // batches genuinely ahead of it, letting the retained op overtake one.
+  const { bodies } = fetchSeq([
+    () => jsonResponse({ detail: "bad op" }, 400),
+    () => jsonResponse({ detail: "bad op" }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  let markAttempts = 0;
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  replica.markPoisoned = async (id) => {
+    markAttempts += 1;
+    if (markAttempts === 1) throw new Error("worker disappeared");
+    replica.rows.find((row) => row.id === id)!.poisoned = true;
+    return { pending: replica.rows.filter((row) => !row.poisoned).length };
+  };
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(false);
+
+  q.enqueue([op("rejected")]);  // row 1: rejected, and its mark fails
+  q.enqueue([op("durable")]);   // row 2: still genuinely ahead of the lane
+  await q.settled();
+  replica.enqueue = async () => { throw new Error(CANTOPEN); };
+  const retained = q.enqueue([op("retained")]);  // two durable batches ahead
+  await q.settled();
+  replica.enqueue = durableEnqueue;
+
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering",
+  });
+  expect(markAttempts).toBe(1); // the mark threw: row 1 is still deliverable
+
+  // an outside resume (SyncProvider's legacy repair, replicaSync) lifts the
+  // barrier, and nextBatch hands the unmarked row out for a second rejection
+  q.resume("recovery");
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering",
+  });
+
+  q.resume("recovery");
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect(bodies.map((b) => (b.body as { ops: unknown[] }).ops)).toEqual([
+    [op("rejected")], [op("rejected")], [op("durable")], [op("retained")],
+  ]);
+  await expect(retained.delivered).resolves.toEqual({ status: "delivered" });
+});
+
 test.each([
   ["offline", (q: ReturnType<typeof createOpQueue>) => q.setOnline(false)],
   ["recovering", (q: ReturnType<typeof createOpQueue>) => q.pause("recovery")],

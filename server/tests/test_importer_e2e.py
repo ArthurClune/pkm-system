@@ -247,6 +247,15 @@ def test_rerun_replaces_database(tmp_path):
                        ).fetchone()[0] == 0
 
 
+def _seed_published_sentinels(out: Path) -> tuple[bytes, str]:
+    out.mkdir()
+    database = b"published-database-sentinel"
+    report = "published-report-sentinel"
+    (out / "pkm.sqlite3").write_bytes(database)
+    (out / "import-report.txt").write_text(report, encoding="utf-8")
+    return database, report
+
+
 def test_report_failure_leaves_existing_database_untouched(tmp_path, monkeypatch):
     # The report must be fully written before the database is published: a
     # failure while rendering/writing it (disk full, permissions, ...) must
@@ -267,6 +276,76 @@ def test_report_failure_leaves_existing_database_untouched(tmp_path, monkeypatch
     assert (out / "pkm.sqlite3").read_bytes() == original_db
     assert (out / "import-report.txt").read_text() == original_report
     assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
+def test_publication_failure_removes_both_temps_and_preserves_outputs(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "data"
+    original_db, original_report = _seed_published_sentinels(out)
+    real_replace = run_module.os.replace
+
+    def fail_database_replace(src, dst):
+        if Path(src).name == "pkm.sqlite3.tmp":
+            raise OSError("simulated database publication failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(run_module.os, "replace", fail_database_replace)
+
+    with pytest.raises(OSError, match="simulated database publication failure"):
+        main([str(FIXTURE), "--out", str(out)])
+
+    assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
+def test_database_build_failure_leaves_self_healing_database_temp(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "data"
+    original_db, original_report = _seed_published_sentinels(out)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(run_module, "DDL", "this is not valid SQL")
+        with pytest.raises(sqlite3.OperationalError):
+            main([str(FIXTURE), "--out", str(out)])
+
+    assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+    assert main([str(FIXTURE), "--out", str(out)]) == 0
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
+def test_asset_copy_failure_leaves_self_healing_database_temp(
+    tmp_path, monkeypatch
+):
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    original_db, original_report = _seed_published_sentinels(out)
+
+    def fail_copy(_src, _dst):
+        raise OSError("simulated asset copy failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(run_module.shutil, "copyfile", fail_copy)
+        with pytest.raises(OSError, match="simulated asset copy failure"):
+            main([str(FIXTURE), "--files", str(files), "--out", str(out)])
+
+    assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
 
 
 def test_duplicate_content_assets_do_not_crash(tmp_path):

@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:50:33Z
-updated_at: 2026-08-03T13:10:28Z
+updated_at: 2026-08-03T13:22:51Z
 parent: pkm-ulae
 ---
 
@@ -17,7 +17,7 @@ Server-side traversal is now complete and cycle-safe (pkm-2fw1) and blank titles
 - web/src/replica/localOps.ts:69-76 subtreeUids still has s.depth < 100 and relies on that cap as its only cycle stop, so offline deep moves/deletes diverge from server semantics despite the file's "mirrors ops_apply" claim
 - TS extractRefs blank-ref parity: server-side ref indexing now skips blank [[   ]] refs; the web replica's reindex would still locally mint a "   " page — grammar/fixture alignment is cross-stack work
 
-- [ ] Align localOps.ts subtree traversal with the server's cycle-safe complete traversal
+- [x] Align localOps.ts subtree traversal with the server's cycle-safe complete traversal
 - [x] Decide read-path ancestors cap (removed; traversal is complete and cycle-safe)
 - [ ] Align TS extractRefs blank-ref handling with server extract() + BlankTitleError skip
 

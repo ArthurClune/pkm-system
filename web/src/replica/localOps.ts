@@ -92,15 +92,16 @@ const requireBlock = (db: ReplicaDb, uid: string): BlockInfo => {
   return info;
 };
 
-const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
+export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
   db.select<{ uid: string }>(
-    `WITH RECURSIVE sub(uid, depth) AS (
-       SELECT uid, 0 FROM blocks WHERE uid = ?
+    `WITH RECURSIVE sub(uid, path, depth) AS (
+       SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
        UNION ALL
-       SELECT b.uid, s.depth + 1 FROM sub s
-         JOIN blocks b ON b.parent_uid = s.uid
-        WHERE s.depth < 100
-     ) SELECT uid FROM sub ORDER BY depth DESC`, [uid]).map((r) => r.uid);
+       SELECT b.uid, s.path || b.uid || ',', s.depth + 1
+         FROM sub s JOIN blocks b ON b.parent_uid = s.uid
+        WHERE instr(s.path, ',' || b.uid || ',') = 0
+     )
+     SELECT uid FROM sub ORDER BY depth DESC`, [uid]).map((r) => r.uid);
 
 function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
   switch (op.op) {

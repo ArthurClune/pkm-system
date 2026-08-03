@@ -24,7 +24,10 @@ function deferred<T>() {
 function reserveOutlineEditor(title: string): () => void {
   const handle = acquireOutlineSession(title, null);
   const lease = handle.claimEditor(Symbol(`test-reservation:${title}`));
-  if (!lease.granted) throw new Error(`Could not reserve editor for ${title}`);
+  if (!lease.granted) {
+    handle.release();
+    throw new Error(`Could not reserve editor for ${title}`);
+  }
   return () => {
     lease.release();
     handle.release();

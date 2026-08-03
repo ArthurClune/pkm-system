@@ -1,11 +1,11 @@
 ---
 # pkm-l457
 title: Release outline test session handles when lease claims fail
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-08-01T20:00:12Z
-updated_at: 2026-08-01T20:00:12Z
+updated_at: 2026-08-03T15:38:10Z
 ---
 
 ## Context
@@ -16,7 +16,7 @@ Follow-up from the final review of pkm-6phf. The local `reserveOutlineEditor()` 
 
 ## Acceptance criteria
 
-- [ ] Every `reserveOutlineEditor()` helper releases its acquired session handle before throwing on an ungranted lease
-- [ ] Existing successful reservation and `finally` cleanup behavior remains unchanged
-- [ ] Focused EditablePage, EditableSidebarPanel, and EditableBlockTree DnD suites pass
-- [ ] Web typecheck and lint pass
+- [x] Every `reserveOutlineEditor()` helper releases its acquired session handle before throwing on an ungranted lease
+- [x] Existing successful reservation and `finally` cleanup behavior remains unchanged
+- [x] Focused EditablePage, EditableSidebarPanel, and EditableBlockTree DnD suites pass
+- [x] Web typecheck and lint pass

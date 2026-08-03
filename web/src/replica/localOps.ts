@@ -162,10 +162,15 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
       return;
     }
     case "set_collapsed": {
-      const info = requireBlock(db, op.uid);
-      db.exec("UPDATE blocks SET collapsed = ?, updated_at = ? WHERE uid = ?",
-              [op.collapsed ? 1 : 0, nowMs, op.uid]);
-      touchPage(db, info.page_id, nowMs);
+      // Collapse/expand is not a real change (bean pkm-r7k8): unlike the
+      // other cases here, it must not bump the block's updated_at or its
+      // page's — otherwise a UI-only toggle would pollute "last changed"
+      // and reorder recency-sorted page lists. requireBlock still runs so
+      // a set_collapsed on an unknown uid fails the same way every other
+      // op here does.
+      requireBlock(db, op.uid);
+      db.exec("UPDATE blocks SET collapsed = ? WHERE uid = ?",
+              [op.collapsed ? 1 : 0, op.uid]);
       return;
     }
     case "set_heading": {

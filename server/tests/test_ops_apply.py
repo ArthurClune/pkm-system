@@ -107,6 +107,51 @@ def test_move_reparents_and_shifts(db):
                       ).fetchone()[0] == 1
 
 
+def test_set_collapsed_does_not_bump_block_or_page_updated_at(db):
+    # pkm-r7k8: give the block and page a known "before" so unchanged-ness
+    # is provable, not just "still NULL".
+    db.execute("UPDATE blocks SET updated_at = ? WHERE uid = 'uid_b2'", (1_000,))
+    db.execute("UPDATE pages SET updated_at = ? WHERE id = 1", (1_000,))
+    db.commit()
+
+    apply_batch(db, _batch(
+        {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
+    ), NOW)
+    db.commit()
+
+    row = db.execute("SELECT collapsed, updated_at FROM blocks"
+                     " WHERE uid='uid_b2'").fetchone()
+    assert row["collapsed"] == 1                # the toggle did apply...
+    assert row["updated_at"] == 1_000            # ...but not a "real" change
+    assert db.execute("SELECT updated_at FROM pages WHERE id=1"
+                      ).fetchone()[0] == 1_000
+
+    # contrast: a real edit on the same block/page DOES bump both.
+    apply_batch(db, _batch(
+        {"op": "update_text", "uid": "uid_b2", "text": "Papers (renamed)"},
+    ), NOW)
+    db.commit()
+    assert db.execute("SELECT updated_at FROM blocks WHERE uid='uid_b2'"
+                      ).fetchone()[0] == NOW
+    assert db.execute("SELECT updated_at FROM pages WHERE id=1"
+                      ).fetchone()[0] == NOW
+
+
+def test_set_collapsed_still_journals_a_change_but_no_page_touch(db):
+    # The AFTER UPDATE trigger fires on every column change regardless of
+    # whether updated_at moved, so collapse-only batches still sync -- but
+    # unlike update_text (test above), no page row is touched either.
+    before = db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+    apply_batch(db, _batch(
+        {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
+    ), NOW)
+    db.commit()
+    rows = db.execute("SELECT kind, entity_id FROM changes WHERE seq > ?",
+                      (before,)).fetchall()
+    assert ("block", "uid_b2") in {(r["kind"], r["entity_id"]) for r in rows}
+    assert not any(r["kind"] == "page" for r in rows)
+
+
 def test_create_broadcast_uses_the_stored_page_title(db):
     title = "Paper/Levels of AGI:\nthe Path to AGI"
     broadcast = apply_batch(db, _batch(

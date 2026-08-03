@@ -100,10 +100,12 @@ def test_plan_delete_and_collapse():
                    OpContext(block=BlockInfo("uid_b2", 1, None),
                              subtree=("uid_b3", "uid_b2"))) == (
         DeleteBlocks(("uid_b3", "uid_b2")), TouchPage(1))
+    # pkm-r7k8: collapse/expand is not a real change -- no TouchPage, unlike
+    # every other op planned here.
     assert plan_op(0, SetCollapsedOp(op="set_collapsed", uid="uid_b2",
                                      collapsed=True),
                    OpContext(block=BlockInfo("uid_b2", 1, None))) == (
-        SetCollapsed("uid_b2", True), TouchPage(1))
+        SetCollapsed("uid_b2", True),)
 
 
 def test_plan_set_heading():

@@ -133,6 +133,8 @@ erDiagram
         int heading
         int collapsed
         text view_type "numbered | document"
+        int created_at
+        int updated_at "last real change (see write path)"
     }
     refs {
         text src_block_uid PK
@@ -173,7 +175,14 @@ Around that base model:
 - **Schema migrations.** No framework. Additive tables and indexes are
   replayable `IF NOT EXISTS` statements in `schema.py`; additive columns are
   guarded `PRAGMA` checks in `db._ensure_schema_migrations` (currently
-  `blocks.view_type`). Client replicas rebootstrap on a schema-hash change.
+  `blocks.view_type` and the three `assets` description columns). One *data*
+  backfill runs alongside them: blocks the Roam import left with a NULL
+  `created_at` (old blocks carrying no `:create/time`) take
+  `MIN(page.created_at, block.updated_at)`, so a filled-in `created_at` can
+  never postdate the block's own last edit. It is a plain
+  `WHERE created_at IS NULL` update — re-running is a no-op — and it fires the
+  block triggers, so replicas pick the values up through ordinary sync.
+  Client replicas rebootstrap on a schema-hash change.
   This startup work does **not** run the existing-data title migration; title
   activation is the explicit audited operator path described below.
 
@@ -206,6 +215,17 @@ Key mechanics:
 - **Refs re-derivation.** Every text change emits `ReindexRefs`: delete the
   block's refs, re-extract with `refs.py`, get-or-create referenced pages,
   re-insert.
+- **Timestamps: what counts as a change.** Blocks and pages both carry
+  `created_at`/`updated_at` in epoch milliseconds, and the block-level values
+  are genuine all the way back to the import — `parse_export.py` copies each
+  Roam block's `:create/time` and `:edit/time`. `blocks.updated_at` is meant
+  to answer "when was this block last really changed", so `set_collapsed`
+  stamps neither the block's `updated_at` nor its page's: collapsing a subtree
+  is a view-state toggle, frequent enough that counting it would drown the
+  signal and churn the recently-changed page ordering. `update_text`, `move`,
+  `set_heading` and `set_view_type` all do bump both. The change journal is
+  trigger-driven and independent of this — a collapse still journals its block
+  row, so the toggle still reaches other clients.
 - **Conflict handling: per-block last-write-wins, with preservation.**
   `update_text` carries an optional `base_text_hash`, the sha256 of the text
   the edit was based on. It is a *text* hash rather than a version counter,

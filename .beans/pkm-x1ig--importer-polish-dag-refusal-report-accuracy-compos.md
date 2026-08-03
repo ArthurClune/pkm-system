@@ -1,11 +1,11 @@
 ---
 # pkm-x1ig
 title: 'Importer polish: DAG refusal, report accuracy, composition tests'
-status: in-progress
+status: completed
 type: task
 priority: low
 created_at: 2026-07-31T19:02:40Z
-updated_at: 2026-08-03T13:44:53Z
+updated_at: 2026-08-03T13:47:14Z
 parent: pkm-ulae
 ---
 
@@ -27,4 +27,8 @@ Added deterministic duplicate-UID and multi-parent refusal before title sanitiza
 - [x] Move shared title audit/apply activation after successful asset copying with an ordering regression test
 - [x] Characterize second report-publication replacement failure and named-temp cleanup
 - [x] Use six-plus-character UIDs in the raw multi-parent e2e fixture
-- [ ] Re-review the complete lane and record a clean verdict
+- [x] Re-review the complete lane and record a clean verdict
+
+## Final Review Fix Summary
+
+Moved title audit/apply activation after successful linked-asset copying, added real shell-ordering and second-publication-replacement regressions, corrected raw multi-parent fixture UIDs, and completed a clean full-lane re-review with all four independent findings addressed.

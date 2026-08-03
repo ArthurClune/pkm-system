@@ -111,15 +111,15 @@ MULTI_PARENT_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinali
   [1 :node/title "Tree" 1]
   [1 :block/children 2 1]
   [1 :block/children 3 1]
-  [2 :block/uid "left" 1]
+  [2 :block/uid "left-uid" 1]
   [2 :block/string "left" 1]
   [2 :block/order 0 1]
   [2 :block/children 4 1]
-  [3 :block/uid "right" 1]
+  [3 :block/uid "right-uid" 1]
   [3 :block/string "right" 1]
   [3 :block/order 1 1]
   [3 :block/children 4 1]
-  [4 :block/uid "shared" 1]
+  [4 :block/uid "shared-uid" 1]
   [4 :block/string "shared" 1]
   [4 :block/order 0 1]
  ]}"""
@@ -297,6 +297,31 @@ def test_publication_failure_removes_both_temps_and_preserves_outputs(
         main([str(FIXTURE), "--out", str(out)])
 
     assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
+def test_report_publication_failure_keeps_published_database_and_old_report(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "data"
+    original_db, original_report = _seed_published_sentinels(out)
+    real_replace = run_module.os.replace
+
+    def fail_report_replace(src, dst):
+        if Path(src).name == "import-report.txt.tmp":
+            raise OSError("simulated report publication failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(run_module.os, "replace", fail_report_replace)
+
+    with pytest.raises(OSError, match="simulated report publication failure"):
+        main([str(FIXTURE), "--out", str(out)])
+
+    assert (out / "pkm.sqlite3").read_bytes() != original_db
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute("SELECT count(*) FROM pages").fetchone()[0] > 0
     assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
     assert not (out / "pkm.sqlite3.tmp").exists()
     assert not (out / "import-report.txt.tmp").exists()
@@ -694,6 +719,32 @@ def test_import_marks_ordinary_database_active(tmp_path):
     assert con.execute("SELECT title FROM pages").fetchall() == [("Solo",)]
 
 
+def test_title_activation_runs_after_all_linked_assets_are_copied(
+    tmp_path, monkeypatch
+):
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    expected_assets = {
+        hashlib.sha256(payload).hexdigest(): payload
+        for payload in (b"PNGDATA", b"PDFDATA")
+    }
+    real_audit = run_module.audit_title_migration
+
+    def audit_after_assets(con):
+        for sha, payload in expected_assets.items():
+            assert (out / "assets" / sha[:2] / sha).read_bytes() == payload
+        return real_audit(con)
+
+    monkeypatch.setattr(run_module, "audit_title_migration", audit_after_assets)
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute(
+        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
+    ).fetchone()[0] == "1"
+
+
 @pytest.mark.parametrize(
     ("raw", "original_title", "reason"),
     [
@@ -747,7 +798,7 @@ def test_title_syntax_refusal_precedes_output_directory_creation(tmp_path):
         ),
         (
             MULTI_PARENT_EXPORT,
-            "block with multiple parents 'shared': "
+            "block with multiple parents 'shared-uid': "
             "pages[0] 'Tree'.children[0].children[0]; "
             "pages[0] 'Tree'.children[1].children[0]",
         ),

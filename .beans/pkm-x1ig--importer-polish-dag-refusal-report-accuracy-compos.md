@@ -1,11 +1,11 @@
 ---
 # pkm-x1ig
 title: 'Importer polish: DAG refusal, report accuracy, composition tests'
-status: completed
+status: in-progress
 type: task
 priority: low
 created_at: 2026-07-31T19:02:40Z
-updated_at: 2026-08-03T13:30:45Z
+updated_at: 2026-08-03T13:44:53Z
 parent: pkm-ulae
 ---
 
@@ -21,3 +21,10 @@ Follow-up bundle from the pkm-ulae import-branch final review (pkm-j58o + pkm-eu
 ## Summary of Changes
 
 Added deterministic duplicate-UID and multi-parent refusal before title sanitization or filesystem work; shared fixed-point Mermaid preservation across fresh imports and SQLite migration with descendant-keyed deduplicated reports; corrected orphan-derived implicit page counts; pinned report/publication versus early self-healing temp boundaries; documented the exact importer pipeline while preserving title sanitization, temporary-database title audit/apply activation, and database-then-report publication order.
+
+## Independent Final Review Follow-ups
+
+- [x] Move shared title audit/apply activation after successful asset copying with an ordering regression test
+- [x] Characterize second report-publication replacement failure and named-temp cleanup
+- [x] Use six-plus-character UIDs in the raw multi-parent e2e fixture
+- [ ] Re-review the complete lane and record a clean verdict

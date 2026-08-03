@@ -113,7 +113,6 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     tmp = out / "pkm.sqlite3.tmp"
     tmp.unlink(missing_ok=True)
-    blocked_migration: BlockedTitleMigration | None = None
     con = sqlite3.connect(tmp)
     con.row_factory = sqlite3.Row
     try:
@@ -129,18 +128,8 @@ def main(argv: list[str] | None = None) -> int:
             " VALUES (?,?,?,?,NULL)",
             [(a.sha256, a.filename, a.mime, a.size) for a in unique_assets.values()])
         con.commit()
-        try:
-            plan = audit_title_migration(con)
-            apply_title_migration(con, plan.digest, now_ms=int(time.time() * 1000))
-        except BlockedTitleMigration as exc:
-            blocked_migration = exc
     finally:
         con.close()
-
-    if blocked_migration is not None:
-        tmp.unlink(missing_ok=True)
-        print(f"error: import refused: {blocked_migration}", file=sys.stderr)
-        return 2
 
     # An existing destination is verified (size, then sha256 if the size
     # already matches) rather than trusted just because it's present --
@@ -164,8 +153,25 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copyfile(src, dest_tmp)
         os.replace(dest_tmp, dest)
 
+    blocked_migration: BlockedTitleMigration | None = None
+    con = sqlite3.connect(tmp)
+    con.row_factory = sqlite3.Row
+    try:
+        try:
+            plan = audit_title_migration(con)
+            apply_title_migration(con, plan.digest, now_ms=int(time.time() * 1000))
+        except BlockedTitleMigration as exc:
+            blocked_migration = exc
+    finally:
+        con.close()
+
+    if blocked_migration is not None:
+        tmp.unlink(missing_ok=True)
+        print(f"error: import refused: {blocked_migration}", file=sys.stderr)
+        return 2
+
     # All fallible preflight work (parsing, row-building, populating the
-    # tmp db, copying assets, rendering and writing the report) must
+    # tmp db, copying assets, title activation, rendering and writing the report) must
     # complete before either atomic swap below. If any of it raises, the
     # existing pkm.sqlite3 and import-report.txt are untouched -- a report
     # failure must never hide behind an already-published database.

@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from pkm.assets_core import asset_needs_repair, sha256_hex
-from pkm.edn import parse_edn
+from pkm.edn import EdnError, parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
 from pkm.importer.parse_export import parse_export
@@ -63,7 +63,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     sys.setrecursionlimit(20000)  # deep outlines recurse in tree assembly
-    export = parse_export(parse_edn(export_path.read_text(encoding="utf-8")))
+    export_text = export_path.read_text(encoding="utf-8")
+    try:
+        parsed = parse_edn(export_text)
+    except EdnError as exc:
+        print(
+            f"error: malformed export at offset {exc.offset}: {exc.detail}",
+            file=sys.stderr,
+        )
+        return 2
+    export = parse_export(parsed)
     try:
         sanitized_import = sanitize_export_titles(export)
     except ImportTitleError as exc:

@@ -344,6 +344,22 @@ def test_missing_export_file_reports_friendly_error(tmp_path, capsys):
     assert f"error: export file not found: {missing}" in captured.err
 
 
+def test_malformed_export_reports_friendly_error_before_output(tmp_path, capsys):
+    malformed = tmp_path / "malformed.edn"
+    malformed.write_text('"\\/"', encoding="utf-8")
+    out = tmp_path / "data"
+
+    rc = main([str(malformed), "--out", str(out)])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "error: malformed export at offset 1: unsupported escape '\\/'\n"
+    )
+    assert not out.exists()
+
+
 def test_missing_files_dir_warns_and_continues(tmp_path, capsys):
     missing_files = tmp_path / "no-such-files-dir"
     out = tmp_path / "data"

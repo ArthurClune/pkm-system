@@ -1,11 +1,11 @@
 ---
 # pkm-5h2k
 title: 'Importer CLI: friendly error for malformed EDN exports'
-status: in-progress
+status: completed
 type: task
 priority: low
 created_at: 2026-08-01T08:28:01Z
-updated_at: 2026-08-03T13:01:44Z
+updated_at: 2026-08-03T13:07:21Z
 parent: pkm-ulae
 ---
 
@@ -19,5 +19,9 @@ This matters more than before: pkm-r72f made the parser strict, so previously si
 
 ## Tasks
 
-- [ ] Wrap the importer CLI's parse call: `error: malformed export at offset N` + exit 2
-- [ ] Consider whether `\/` should be tolerated (Logseq-compat) or stay strict; check a real export
+- [x] Wrap the importer CLI's parse call: `error: malformed export at offset N` + exit 2
+- [x] Keep `\/` strict per importer requirements; regression coverage confirms refusal
+
+## Summary of Changes
+
+Structured every EDN parser failure with a zero-based character offset and stable detail, retained strict rejection of `\/`, and converted malformed importer input into an exact friendly exit-2 diagnostic before output creation.

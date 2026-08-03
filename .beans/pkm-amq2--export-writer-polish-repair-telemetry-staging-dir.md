@@ -1,11 +1,11 @@
 ---
 # pkm-amq2
 title: 'Export writer polish: repair telemetry, staging-dir sweep, warning docs'
-status: in-progress
+status: completed
 type: task
 priority: low
 created_at: 2026-08-01T12:52:43Z
-updated_at: 2026-08-03T13:10:31Z
+updated_at: 2026-08-03T13:12:26Z
 parent: pkm-ulae
 ---
 
@@ -24,3 +24,10 @@ Three writer.py-local polish items from the ulae-medium-exports final review:
 - [x] Add disjoint assets_repaired telemetry to export_graph and backup output
 - [x] Sweep abandoned staging entries before last-good mutation with no-follow handling
 - [x] Document the successful-publication warning lifetime and repeat case
+
+## Summary of Changes
+
+- Added disjoint export telemetry: fresh transfers increment only `assets_copied`, successful corrupt replacements increment only `assets_repaired`, and missing-source repairs increment neither transfer counter.
+- Sweeps abandoned `.export-staging-*` entries before last-good mutation, unlinking symlinks without following targets, recursively removing directories, accepting disappearance, and propagating other errors.
+- Documented single-writer cleanup invariants and successful-publication versus pre-publication warning lifetime in writer and backend architecture docs.
+- Verified 82 focused tests pass; pyrefly reports 0 errors; ruff is clean.

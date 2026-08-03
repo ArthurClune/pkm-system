@@ -49,8 +49,12 @@ def _audit_payload(plan) -> dict:
             for group in plan.groups
         ],
         "blockers": [
-            {"page_id": page.page_id, "title": page.title}
-            for page in plan.blockers
+            {
+                "page_id": blocker.page_id,
+                "title": blocker.title,
+                "reason": blocker.reason,
+            }
+            for blocker in plan.blockers
         ],
     }
 

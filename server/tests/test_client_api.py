@@ -375,7 +375,9 @@ def test_audit_title_migration_uses_the_canonicalization_route_and_validates_res
             "inbound_ref_count": 4,
             "sidebar_count": 2,
         }],
-        "blockers": [{"page_id": 19, "title": "   "}],
+        "blockers": [
+            {"page_id": 19, "title": "Bad #Title", "reason": "forbidden_syntax"}
+        ],
     }
     seen: dict[str, object] = {}
 
@@ -403,7 +405,8 @@ def test_audit_title_migration_uses_the_canonicalization_route_and_validates_res
     }
     assert audit.digest == payload["digest"]
     assert audit.groups[0].survivor.page_id == 10
-    assert audit.blockers[0].title == "   "
+    assert audit.blockers[0].title == "Bad #Title"
+    assert audit.blockers[0].reason == "forbidden_syntax"
 
 
 def test_apply_title_migration_posts_the_audit_digest_and_validates_response(

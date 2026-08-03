@@ -16,6 +16,7 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      PagePayload, QueryPayload, SearchPayload,
                                      TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
+                                     TitleMigrationBlocker,
                                      TitleMigrationPage)
 
 _REF_TOKEN = re.compile(r"\(\(([\w-]+)\)\)")
@@ -142,8 +143,14 @@ def render_assets(payload: AssetSearchPayload) -> str:
     return "\n\n".join(parts)
 
 
-def _render_migration_page(page: TitleMigrationPage) -> str:
+def _render_migration_page(
+    page: TitleMigrationPage | TitleMigrationBlocker,
+) -> str:
     return f'[{page.page_id}] "{page.title}"'
+
+
+def _render_migration_blocker(blocker: TitleMigrationBlocker) -> str:
+    return f'{_render_migration_page(blocker)} ({blocker.reason})'
 
 
 def _title_migration_state(payload: TitleMigrationAuditPayload) -> str:
@@ -196,8 +203,8 @@ def render_title_migration_audit(payload: TitleMigrationAuditPayload) -> str:
             )
     if payload.blockers:
         lines.extend(["", "## Blockers"])
-        lines.extend(f"- {_render_migration_page(page)}"
-                     for page in payload.blockers)
+        lines.extend(f"- {_render_migration_blocker(blocker)}"
+                     for blocker in payload.blockers)
     if not payload.groups and not payload.blockers:
         lines.extend([
             "",

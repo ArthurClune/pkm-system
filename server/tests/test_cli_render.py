@@ -233,7 +233,9 @@ def test_render_title_migration_audit_includes_state_group_details_and_merge_ord
                 "sidebar_count": 1,
             },
         ],
-        "blockers": [{"page_id": 19, "title": "   "}],
+        "blockers": [
+            {"page_id": 19, "title": "Bad #Title", "reason": "forbidden_syntax"}
+        ],
     })
     assert render_title_migration_audit(payload) == (
         "# Title migration audit\n"
@@ -264,7 +266,7 @@ def test_render_title_migration_audit_includes_state_group_details_and_merge_ord
         "- [14] \"Beta \" -> [13] \" Beta \"\n"
         "\n"
         "## Blockers\n"
-        "- [19] \"   \"\n"
+        "- [19] \"Bad #Title\" (forbidden_syntax)\n"
     )
 
 

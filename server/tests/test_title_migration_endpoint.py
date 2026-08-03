@@ -123,7 +123,7 @@ def test_title_migration_audit_returns_truthful_payload_without_side_effects(
     assert r.status_code == 200
     assert r.json() == {
         "active": False,
-        "digest": "76737aabf05749402ed3d78b010ba025df16cfd6e4c8d7a2780214adff51a6f3",
+        "digest": "d621560f1350eda15118dbd597ccd82bb80bc18ddbc646fc4165fe332dabb647",
         "groups": [
             {
                 "canonical_title": "Acme",
@@ -156,17 +156,27 @@ def test_title_migration_audit_returns_truthful_payload_without_side_effects(
     assert _state(seeded_config.db_path) == before
 
 
-def test_title_migration_audit_surfaces_all_space_blockers(client, seeded_config):
+def test_title_migration_audit_surfaces_reasoned_blockers(client, seeded_config):
     _seed_migration_graph(seeded_config.db_path)
     con = sqlite3.connect(seeded_config.db_path)
-    con.execute("INSERT INTO pages(id, title) VALUES (?, ?)", (18, "   "))
+    con.executemany(
+        "INSERT INTO pages(id, title) VALUES (?, ?)",
+        [(18, "   "), (19, "Bad #Title")],
+    )
     con.commit()
     con.close()
 
     r = client.get("/api/migrations/title-canonicalization")
 
     assert r.status_code == 200
-    assert r.json()["blockers"] == [{"page_id": 18, "title": "   "}]
+    assert r.json()["blockers"] == [
+        {"page_id": 18, "title": "   ", "reason": "all_space"},
+        {
+            "page_id": 19,
+            "title": "Bad #Title",
+            "reason": "forbidden_syntax",
+        },
+    ]
 
 
 class _CountingConnection:
@@ -305,7 +315,7 @@ def test_title_migration_apply_returns_409_for_blocked_migration(client, seeded_
     )
 
     assert r.status_code == 409
-    assert r.json() == {"detail": "title migration is blocked by all-space titles"}
+    assert r.json() == {"detail": "title migration is blocked by invalid titles"}
 
 
 def test_title_migration_apply_returns_409_for_already_active_database(

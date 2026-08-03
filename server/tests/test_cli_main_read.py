@@ -361,21 +361,45 @@ def test_migrate_titles_audits_by_default_and_renders_human_output(
     assert err == ""
     assert out.startswith("# Title migration audit\n")
     assert "state: ready\n" in out
-    assert "digest: 76737aabf05749402ed3d78b010ba025df16cfd6e4c8d7a2780214adff51a6f3\n" in out
+    assert "digest: d621560f1350eda15118dbd597ccd82bb80bc18ddbc646fc4165fe332dabb647\n" in out
     assert "- [11] \" Acme\" -> [10] \"Acme\"\n" in out
     assert "- [14] \"Beta \" -> [13] \" Beta \"\n" in out
 
 
 def test_migrate_titles_json_audit_uses_the_validated_payload(run, seeded_config):
     _seed_migration_graph(seeded_config.db_path)
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute("INSERT INTO pages(id, title) VALUES (18, 'Bad #Title')")
+    con.commit()
+    con.close()
 
     code, out, err = run("migrate-titles", "--json")
 
     assert code == 0
     assert err == ""
     payload = json.loads(out)
-    assert payload["digest"] == "76737aabf05749402ed3d78b010ba025df16cfd6e4c8d7a2780214adff51a6f3"
     assert payload["groups"][0]["survivor"] == {"page_id": 10, "title": "Acme"}
+    assert payload["blockers"] == [
+        {
+            "page_id": 18,
+            "title": "Bad #Title",
+            "reason": "forbidden_syntax",
+        }
+    ]
+
+
+def test_migrate_titles_audit_renders_blocker_reason(run, seeded_config):
+    _seed_migration_graph(seeded_config.db_path)
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute("INSERT INTO pages(id, title) VALUES (18, 'Bad #Title')")
+    con.commit()
+    con.close()
+
+    code, out, err = run("migrate-titles")
+
+    assert code == 0
+    assert err == ""
+    assert '- [18] "Bad #Title" (forbidden_syntax)\n' in out
 
 
 def test_migrate_titles_apply_requires_a_digest_value(capsys):

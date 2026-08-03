@@ -285,6 +285,12 @@ class TitleMigrationPage(BaseModel):
     title: str
 
 
+class TitleMigrationBlocker(BaseModel):
+    page_id: int
+    title: str
+    reason: Literal["all_space", "forbidden_syntax"]
+
+
 class TitleMigrationGroup(BaseModel):
     canonical_title: str
     survivor: TitleMigrationPage
@@ -299,7 +305,7 @@ class TitleMigrationAuditPayload(BaseModel):
     active: bool
     digest: str
     groups: list[TitleMigrationGroup]
-    blockers: list[TitleMigrationPage]
+    blockers: list[TitleMigrationBlocker]
 
 
 class TitleMigrationApplyRequest(BaseModel):

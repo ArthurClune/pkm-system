@@ -1356,7 +1356,19 @@ export interface components {
             /** Groups */
             groups: components["schemas"]["TitleMigrationGroup"][];
             /** Blockers */
-            blockers: components["schemas"]["TitleMigrationPage"][];
+            blockers: components["schemas"]["TitleMigrationBlocker"][];
+        };
+        /** TitleMigrationBlocker */
+        TitleMigrationBlocker: {
+            /** Page Id */
+            page_id: number;
+            /** Title */
+            title: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "all_space" | "forbidden_syntax";
         };
         /** TitleMigrationGroup */
         TitleMigrationGroup: {

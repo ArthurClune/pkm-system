@@ -3444,7 +3444,7 @@
           },
           "blockers": {
             "items": {
-              "$ref": "#/components/schemas/TitleMigrationPage"
+              "$ref": "#/components/schemas/TitleMigrationBlocker"
             },
             "type": "array",
             "title": "Blockers"
@@ -3458,6 +3458,33 @@
           "blockers"
         ],
         "title": "TitleMigrationAuditPayload"
+      },
+      "TitleMigrationBlocker": {
+        "properties": {
+          "page_id": {
+            "type": "integer",
+            "title": "Page Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "all_space",
+              "forbidden_syntax"
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page_id",
+          "title",
+          "reason"
+        ],
+        "title": "TitleMigrationBlocker"
       },
       "TitleMigrationGroup": {
         "properties": {

@@ -141,9 +141,50 @@ def test_audit_inventories_only_migration_rows_without_side_effects():
         8,
         3,
     )
-    assert plan.digest == "6e315eba00d731a0765d07495d9022196c869d49d22eb49ce10d2c7d517583c8"
+    assert plan.digest == "b8a4254873c0d7635b5a2c0c9b00ae50544f94887365255b8ed63683fcd4801f"
     assert _state(db) == before
     assert database_generation(db) == generation
+    assert db.in_transaction is False
+
+
+def test_audit_inventories_every_invalid_title_as_reasoned_blocker():
+    """Mutation caught: select only padded migration candidates and clean twins."""
+    db = _database()
+    db.executemany(
+        "INSERT INTO pages(id, title) VALUES (?, ?)",
+        [
+            (1, "Bad #Title"),
+            (2, "Bad [[Title"),
+            (3, "Bad Title]]"),
+            (4, " Bad #Title "),
+            (5, "   "),
+            (6, "Valid"),
+        ],
+    )
+    db.commit()
+    before = _state(db)
+
+    plan = audit_title_migration(db)
+
+    assert [(page.page_id, page.title) for page in plan.pages] == [
+        (1, "Bad #Title"),
+        (2, "Bad [[Title"),
+        (3, "Bad Title]]"),
+        (4, " Bad #Title "),
+        (5, "   "),
+    ]
+    assert [
+        (blocker.page_id, blocker.title, blocker.reason)
+        for blocker in plan.blockers
+    ] == [
+        (5, "   ", "all_space"),
+        (4, " Bad #Title ", "forbidden_syntax"),
+        (1, "Bad #Title", "forbidden_syntax"),
+        (3, "Bad Title]]", "forbidden_syntax"),
+        (2, "Bad [[Title", "forbidden_syntax"),
+    ]
+    assert plan.groups == ()
+    assert _state(db) == before
     assert db.in_transaction is False
 
 
@@ -300,77 +341,6 @@ def test_apply_merges_rewrites_reindexes_and_activates_in_one_immediate_transact
     assert db.in_transaction is False
 
 
-def test_nested_final_orphan_sidebar_identity_is_inventoried_and_digested():
-    """Mutation caught: omit the nested final title from sidebar inventory."""
-    db = _database()
-    db.executemany(
-        "INSERT INTO pages(id, title) VALUES (?, ?)",
-        [(1, " Outer [[ Inner ]] "), (2, " Inner ")],
-    )
-    db.execute(
-        "INSERT INTO sidebar_entries(id, title, order_idx) "
-        "VALUES (9, 'Outer [[Inner]]', 3)"
-    )
-    db.commit()
-
-    plan = audit_title_migration(db)
-
-    assert [
-        (sidebar.sidebar_id, sidebar.title, sidebar.order_idx)
-        for sidebar in plan.sidebars
-    ] == [(9, "Outer [[Inner]]", 3)]
-    db.execute("UPDATE sidebar_entries SET order_idx=4 WHERE id=9")
-    db.commit()
-    with pytest.raises(StaleTitleMigration):
-        apply_title_migration(db, plan.digest, now_ms=10_001)
-
-
-def test_apply_canonicalizes_nested_sources_without_recreating_padded_pages():
-    """Mutation caught: suppress inner rewrite or reindex before activation."""
-    db = _database()
-    db.executemany(
-        "INSERT INTO pages(id, title) VALUES (?, ?)",
-        [
-            (1, " Outer [[ Inner ]] "),
-            (2, " Inner "),
-            (3, "Watcher"),
-        ],
-    )
-    db.execute(
-        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text) "
-        "VALUES ('nested-watcher', 3, NULL, 0, '[[ Outer [[ Inner ]] ]]')"
-    )
-    db.executemany(
-        "INSERT INTO refs(src_block_uid, target_page_id, kind) VALUES (?, ?, 'link')",
-        [("nested-watcher", 1), ("nested-watcher", 2)],
-    )
-    db.commit()
-    plan = audit_title_migration(db)
-    audited_digest = plan.digest
-
-    outcome = apply_title_migration(db, audited_digest, now_ms=10_001)
-
-    assert outcome.digest == audited_digest
-    assert plain_space_title_canonicalization_active(db) is True
-    assert [tuple(row) for row in db.execute(
-        "SELECT id, title FROM pages ORDER BY id"
-    )] == [
-        (1, "Outer [[Inner]]"),
-        (2, "Inner"),
-        (3, "Watcher"),
-    ]
-    assert db.execute(
-        "SELECT text FROM blocks WHERE uid='nested-watcher'"
-    ).fetchone()[0] == "[[Outer [[Inner]]]]"
-    assert [tuple(row) for row in db.execute(
-        "SELECT target_page_id, kind FROM refs "
-        "WHERE src_block_uid='nested-watcher' ORDER BY target_page_id, kind"
-    )] == [(1, "link"), (2, "link")]
-    assert db.execute(
-        "SELECT count(*) FROM pages WHERE title != rtrim(ltrim(title, ' '), ' ')"
-    ).fetchone()[0] == 0
-
-
 def test_apply_rejects_stale_digest_without_mutation():
     """Mutation caught: trust the audit digest without re-inventory under write lock."""
     db = _database()
@@ -386,19 +356,29 @@ def test_apply_rejects_stale_digest_without_mutation():
     assert db.in_transaction is False
 
 
-def test_apply_rejects_all_space_blocker_without_mutation():
-    """Mutation caught: silently drop or invent a title for an all-space page."""
+@pytest.mark.parametrize(
+    ("title", "reason"),
+    [("   ", "all_space"), ("Bad #Title", "forbidden_syntax")],
+)
+def test_apply_rejects_invalid_title_blocker_without_mutation(title, reason):
+    """Mutation caught: mutate migration state before either blocker refusal."""
     db = _database()
     _seed_migration_graph(db)
-    db.execute("INSERT INTO pages(id, title) VALUES (9, '   ')")
+    db.execute("INSERT INTO pages(id, title) VALUES (9, ?)", (title,))
     db.commit()
     plan = audit_title_migration(db)
     before = _state(db)
 
-    with pytest.raises(BlockedTitleMigration) as raised:
+    with pytest.raises(
+        BlockedTitleMigration,
+        match="title migration is blocked by invalid titles",
+    ) as raised:
         apply_title_migration(db, plan.digest, now_ms=10_002)
 
-    assert [(page.page_id, page.title) for page in raised.value.blockers] == [(9, "   ")]
+    assert [
+        (blocker.page_id, blocker.title, blocker.reason)
+        for blocker in raised.value.blockers
+    ] == [(9, title, reason)]
     assert _state(db) == before
     assert plain_space_title_canonicalization_active(db) is False
 
@@ -421,7 +401,7 @@ def test_apply_rejects_already_active_database_without_rotation():
 
 
 def test_apply_rolls_back_all_effects_when_rewrite_fails(monkeypatch):
-    """Mutation caught: commit page merges before final block rewrite/activation."""
+    """Mutation caught: activate before rewrite/reindex or commit partial writes."""
     db = _database()
     _seed_migration_graph(db)
     plan = audit_title_migration(db)
@@ -442,7 +422,7 @@ def test_apply_rolls_back_all_effects_when_rewrite_fails(monkeypatch):
     with pytest.raises(RuntimeError, match="injected rewrite failure"):
         apply_title_migration(db, plan.digest, now_ms=10_004)
 
-    assert activation_seen_during_reindex == [True]
+    assert activation_seen_during_reindex == [False]
     assert _state(db) == before
     assert plain_space_title_canonicalization_active(db) is False
     assert db.in_transaction is False

@@ -5,13 +5,13 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from pkm.refs import canonicalize_title
-from pkm.rename import rewrite_title_refs_map
+from pkm.refs import canonicalize_title, title_syntax_reason
 from pkm.title_migration import (
     InventoryBlock,
     InventoryPage,
     InventoryRef,
     InventorySidebar,
+    TitleMigrationBlocker,
     TitleMigrationInventory,
     TitleMigrationPlan,
     build_title_migration_plan,
@@ -47,8 +47,8 @@ class StaleTitleMigration(RuntimeError):
 
 
 class BlockedTitleMigration(RuntimeError):
-    def __init__(self, blockers: tuple[InventoryPage, ...]) -> None:
-        super().__init__("title migration is blocked by all-space titles")
+    def __init__(self, blockers: tuple[TitleMigrationBlocker, ...]) -> None:
+        super().__init__("title migration is blocked by invalid titles")
         self.blockers = blockers
 
 
@@ -68,22 +68,24 @@ def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventor
         for row in page_rows
         if row["title"] != canonicalize_title(row["title"], plain_space=True)
     ]
-    boundary_replacements = {
-        row["title"]: canonicalize_title(row["title"], plain_space=True)
+    canonical_titles = {
+        canonicalize_title(row["title"], plain_space=True)
         for row in candidate_rows
         if canonicalize_title(row["title"], plain_space=True) != ""
     }
-    canonical_titles = set(boundary_replacements.values())
-    final_titles = {
-        rewrite_title_refs_map(title, boundary_replacements)
-        for title in canonical_titles
-    }
+    forbidden_rows = [
+        row
+        for row in page_rows
+        if title_syntax_reason(
+            canonicalize_title(row["title"], plain_space=True)
+        ) is not None
+    ]
     selected_rows = [
         row
         for row in page_rows
         if row in candidate_rows
         or row["title"] in canonical_titles
-        or row["title"] in final_titles
+        or row in forbidden_rows
     ]
     page_ids = {row["id"] for row in selected_rows}
     page_titles = {row["title"] for row in selected_rows}
@@ -110,9 +112,7 @@ def _inventory_title_migration(db: sqlite3.Connection) -> TitleMigrationInventor
         for row in db.execute(
             "SELECT id, title, order_idx FROM sidebar_entries"
         ).fetchall()
-        if row["title"] in page_titles
-        or row["title"] in canonical_titles
-        or row["title"] in final_titles
+        if row["title"] in page_titles or row["title"] in canonical_titles
     ]
 
     return TitleMigrationInventory(
@@ -200,7 +200,7 @@ def apply_title_migration(
 
         pages_retitled = 0
         for group in plan.groups:
-            if group.survivor.title != group.canonical_title:
+            if not group.has_clean_twin:
                 retitle_page_without_rewrite(
                     db,
                     group.survivor.page_id,
@@ -226,14 +226,10 @@ def apply_title_migration(
                 db, source_id, target_id, old_title, new_title, now_ms
             )
 
-        # Reindex must already use the post-activation title rule. This flag is
-        # still transaction-local until COMMIT, and every BaseException below
-        # rolls it back with page/text/ref changes, so partial activation is
-        # never externally visible.
-        set_plain_space_title_canonicalization(db, active=True)
         blocks_rewritten = rewrite_snapshotted_blocks(
             db, snapshots, replacements, now_ms
         )
+        set_plain_space_title_canonicalization(db, active=True)
         generation = rotate_database_generation(db)
         outcome = TitleMigrationOutcome(
             digest=plan.digest,

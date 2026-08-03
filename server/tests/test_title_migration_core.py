@@ -77,12 +77,21 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
     seen_canonicals: list[str] = []
     for page in pages:
         canonical = page.title.strip(" ")
-        if page.title == canonical:
-            continue
         if canonical == "":
-            blockers.append({"page_id": page.page_id, "title": page.title})
+            blockers.append({
+                "page_id": page.page_id,
+                "reason": "all_space",
+                "title": page.title,
+            })
             continue
-        if canonical not in seen_canonicals:
+        if "#" in canonical or "[[" in canonical or "]]" in canonical:
+            blockers.append({
+                "page_id": page.page_id,
+                "reason": "forbidden_syntax",
+                "title": page.title,
+            })
+            continue
+        if page.title != canonical and canonical not in seen_canonicals:
             seen_canonicals.append(canonical)
 
     for canonical in sorted(seen_canonicals):
@@ -118,7 +127,14 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
 
     payload = {
         "active": inventory.active,
-        "blockers": sorted(blockers, key=lambda blocker: (blocker["title"], blocker["page_id"])),
+        "blockers": sorted(
+            blockers,
+            key=lambda blocker: (
+                blocker["title"],
+                blocker["page_id"],
+                blocker["reason"],
+            ),
+        ),
         "blocks": [
             {
                 "order_idx": block.order_idx,
@@ -157,7 +173,7 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
             }
             for sidebar in sidebars
         ],
-        "version": 1,
+        "version": 2,
     }
     encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -196,7 +212,10 @@ def test_build_title_migration_plan_groups_padded_titles_deterministically():
     assert lower.survivor == InventoryPage(page_id=8, title=" acme")
     assert lower.sources == ()
 
-    assert plan.blockers == (InventoryPage(page_id=6, title=" "),)
+    assert [
+        (blocker.page_id, blocker.title, blocker.reason)
+        for blocker in plan.blockers
+    ] == [(6, " ", "all_space")]
     assert plan.replacements == {
         " Acme": "Acme",
         "Acme ": "Acme",
@@ -224,7 +243,10 @@ def test_build_title_migration_plan_normalizes_control_whitespace_before_plain_s
     assert lower.sources == (InventoryPage(page_id=6, title=" \nacme\t "),)
     assert lower.has_clean_twin is True
 
-    assert plan.blockers == (InventoryPage(page_id=3, title=" \n\t "),)
+    assert [
+        (blocker.page_id, blocker.title, blocker.reason)
+        for blocker in plan.blockers
+    ] == [(3, " \n\t ", "all_space")]
     assert plan.replacements == {
         " \nAcme\t ": "Acme",
         " \nacme\t ": "acme",
@@ -239,7 +261,9 @@ def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_
 
     payload = {
         "active": False,
-        "blockers": [{"page_id": 3, "title": " \n\t "}],
+        "blockers": [
+            {"page_id": 3, "reason": "all_space", "title": " \n\t "}
+        ],
         "blocks": [],
         "counts": {
             "blockers": 1,
@@ -284,7 +308,7 @@ def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_
             {"source": " \nacme\t ", "target": "acme"},
         ],
         "sidebars": [],
-        "version": 1,
+        "version": 2,
     }
 
     expected_digest = hashlib.sha256(
@@ -292,6 +316,53 @@ def test_build_title_migration_plan_digest_tracks_control_whitespace_groups_and_
     ).hexdigest()
 
     assert plan.digest == expected_digest
+
+
+def test_build_title_migration_plan_classifies_and_orders_invalid_title_blockers():
+    """Mutation caught: ignore unpadded syntax or group a padded forbidden title."""
+    plan = build_title_migration_plan(
+        _inventory(
+            InventoryPage(page_id=9, title="   "),
+            InventoryPage(page_id=6, title="Bad #Title"),
+            InventoryPage(page_id=5, title="Bad [[Title"),
+            InventoryPage(page_id=4, title="Bad Title]]"),
+            InventoryPage(page_id=3, title=" Bad #Title "),
+            InventoryPage(page_id=2, title="Valid"),
+            InventoryPage(page_id=1, title="Valid "),
+        )
+    )
+
+    assert [group.canonical_title for group in plan.groups] == ["Valid"]
+    assert plan.replacements == {"Valid ": "Valid"}
+    assert [
+        (blocker.page_id, blocker.title, blocker.reason)
+        for blocker in plan.blockers
+    ] == [
+        (9, "   ", "all_space"),
+        (3, " Bad #Title ", "forbidden_syntax"),
+        (6, "Bad #Title", "forbidden_syntax"),
+        (4, "Bad Title]]", "forbidden_syntax"),
+        (5, "Bad [[Title", "forbidden_syntax"),
+    ]
+
+
+def test_build_title_migration_plan_digest_changes_when_blocker_changes_or_is_added():
+    baseline = build_title_migration_plan(
+        _inventory(InventoryPage(page_id=1, title="   "))
+    ).digest
+
+    changed = build_title_migration_plan(
+        _inventory(InventoryPage(page_id=1, title="Bad #Title"))
+    ).digest
+    added = build_title_migration_plan(
+        _inventory(
+            InventoryPage(page_id=1, title="   "),
+            InventoryPage(page_id=2, title="Bad #Title"),
+        )
+    ).digest
+
+    assert changed != baseline
+    assert added != baseline
 
 
 def test_build_title_migration_plan_digest_is_canonical_and_order_independent():

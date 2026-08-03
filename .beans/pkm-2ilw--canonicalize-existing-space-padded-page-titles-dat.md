@@ -1,11 +1,11 @@
 ---
 # pkm-2ilw
 title: Canonicalize existing space-padded page titles (data migration)
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-03T12:27:34Z
+updated_at: 2026-08-03T12:52:04Z
 parent: pkm-ulae
 ---
 
@@ -129,7 +129,7 @@ The approved 2026-08-02 requirements revision supersedes the nested-title closur
 - [x] Enforce equivalent TypeScript/offline validation using shared fixtures
 - [x] Regenerate contracts and update README, PKM skill, architecture docs, and bean history
 - [x] Run focused gates and disposable-port-18974 lifecycle verification without production access
-- [ ] Pass fresh task reviews and final whole-title-lane review
+- [x] Pass fresh task reviews and final whole-title-lane review
 
 ## Task 1: restore opaque rename behavior and add Python title predicate
 
@@ -159,3 +159,13 @@ Reconciled README, PKM skill, backend architecture, sync/offline architecture, g
 Replaced stale nested-closure history with the shipped strict title-syntax invariant, documented import-only recursive marker sanitization and reasoned migration blockers, and preserved the forced equal-cursor notification and fail-closed authoritative broadcast outcomes. The final whole-title-lane review remains pending, so this bean remains in progress.
 
 Production title migration/inventory was NOT executed.
+
+## Final Revised Title-Lane Review
+
+Fresh whole-lane review of `9770753..561b1c2` against the original title plan, approved revised title-syntax design, focused follow-up plan, handoff, code, generated contracts, documentation, and beans found no Critical or Important issues. Three non-blocking test-sensitivity improvements remain deferred: independently distinguish planner survivor/source ordering, assert reset metadata non-mutation directly, and add a direct legacy-forbidden server-read regression.
+
+Fresh controller verification after review: server 1368 passed with 96.69% coverage; pyrefly reported zero errors; ruff passed; focused web verification passed 7 files / 193 tests; TypeScript, ESLint, and the 140-module FCIS check passed. The disposable CLI lifecycle had already passed against guarded temporary data/config at exactly http://127.0.0.1:18974 with process/temp cleanup.
+
+## Summary of Changes
+
+Revised the title-integrity lane to reject unsupported `#`, `[[`, and `]]` syntax across normal server and offline writes before mutation; restore opaque one-pass rename mappings and boundary-space-only migration planning; expose digest-bearing `all_space` and `forbidden_syntax` blockers; sanitize imported title markup recursively before row/output work with deterministic collision merges and preserved blocks, orphans, refs, and reporting; retain forced equal-cursor generation notification and fail-closed authoritative broadcasts; regenerate API contracts; and align README, PKM skill, architecture, and operator guidance. Production title migration/inventory was NOT executed.

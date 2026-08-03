@@ -402,7 +402,8 @@ count-down is keyed to the batch and must stay so: a rejected batch whose
 durable poison mark failed is still deliverable, so an outside resume can hand
 it out for a second rejection, and counting it twice would drop the count below
 the batches genuinely ahead of the entry. A retained op cannot overtake an
-older batch, and a batch persisted after it waits its turn. Two things can still delay an entry past a newer batch, and
+older batch, and a batch persisted after it waits its turn. Two things can
+still delay an entry past a newer batch, and
 both self-correct: a `pendingCount` that was already stale when the entry was
 appended, and batches a rebase flushed away. Both reconcile the same way —
 observing an empty durable queue clears every count, which is also what stops

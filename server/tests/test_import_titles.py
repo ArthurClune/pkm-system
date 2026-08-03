@@ -9,6 +9,7 @@ from pkm.importer.titles import (
     sanitize_export_titles,
     sanitize_import_title,
 )
+from pkm.refs import extract
 
 
 @pytest.mark.parametrize(
@@ -46,6 +47,16 @@ def test_sanitize_import_title_refuses_malformed_bracket_syntax(
     assert caught.value.reason == "malformed_syntax"
     assert caught.value.original_title == original
     assert caught.value.location == "page[0]"
+
+
+def test_sanitize_import_title_refuses_syntax_created_by_hash_removal() -> None:
+    original = "[#["
+    with pytest.raises(ImportTitleError) as caught:
+        sanitize_import_title(original, location="page[3]")
+
+    assert caught.value.reason == "malformed_syntax"
+    assert caught.value.original_title == original
+    assert caught.value.location == "page[3]"
 
 
 @pytest.mark.parametrize("original", ["#", "[[#]]", "\t\n\r\f\v"])
@@ -158,6 +169,44 @@ def test_sanitize_export_titles_rewrites_page_and_orphan_refs_once() -> None:
             locations=("block uid-root", "block uid-child"),
             merged=False,
         ),
+    )
+
+
+def test_sanitize_export_titles_rewrites_extractor_normalized_targets() -> None:
+    child = _block("uid-child", "unchanged child")
+    export = Export(
+        pages=(
+            Page(
+                "Source",
+                1,
+                2,
+                (
+                    _block(
+                        "uid-source",
+                        "  Bad#Title:: value and [[Bad\n#Title]] tail",
+                        children=(child,),
+                    ),
+                ),
+            ),
+        ),
+        orphan_block_count=0,
+        skipped_entities=0,
+        attr_counts={},
+    )
+
+    result = sanitize_export_titles(export)
+
+    rebuilt = result.export.pages[0].children[0]
+    assert rebuilt.text == "  BadTitle:: value and [[Bad Title]] tail"
+    assert rebuilt.uid == "uid-source"
+    assert rebuilt.children == (child,)
+    assert tuple((ref.title, ref.kind) for ref in extract(rebuilt.text).refs) == (
+        ("BadTitle", "attribute"),
+        ("Bad Title", "link"),
+    )
+    assert result.title_changes == (
+        ImportTitleChange("Bad #Title", "Bad Title", ("block uid-source",), False),
+        ImportTitleChange("Bad#Title", "BadTitle", ("block uid-source",), False),
     )
 
 

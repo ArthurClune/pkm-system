@@ -70,11 +70,28 @@ TITLE_SYNTAX_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType
   [21 :block/order 0 1]
  ]}"""
 
+EXTRACTOR_NORMALIZATION_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Source" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-source" 1]
+  [2 :block/string "  Bad#Title:: value and [[Bad
+#Title]] tail" 1]
+  [2 :block/order 0 1]
+  [2 :block/children 3 1]
+  [3 :block/uid "uid-child" 1]
+  [3 :block/string "unchanged child" 1]
+  [3 :block/order 0 1]
+ ]}"""
+
 MALFORMED_TITLE_EXPORT = """#datascript/DB {:schema {}
  :datoms [[1 :node/title "Bad [[Title" 1]]}"""
 
 BLANK_MARKER_TITLE_EXPORT = """#datascript/DB {:schema {}
  :datoms [[1 :node/title "[[#]]" 1]]}"""
+
+POST_SANITIZATION_MALFORMED_TITLE_EXPORT = """#datascript/DB {:schema {}
+ :datoms [[1 :node/title "[#[" 1]]}"""
 
 
 def _setup_files(tmp_path: Path) -> Path:
@@ -508,6 +525,35 @@ def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
     ) in report
 
 
+def test_import_rewrites_every_extracted_title_before_rows(tmp_path):
+    export_file = _write_export(
+        tmp_path, "extractor-normalization.edn", EXTRACTOR_NORMALIZATION_EXPORT
+    )
+    out = tmp_path / "data"
+
+    assert main([str(export_file), "--out", str(out)]) == 0
+
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    page_ids = {
+        title: page_id
+        for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
+    }
+    assert page_ids.keys() == {"Source", "BadTitle", "Bad Title"}
+    assert all(title_syntax_reason(title) is None for title in page_ids)
+    assert con.execute(
+        "SELECT text FROM blocks WHERE uid='uid-source'"
+    ).fetchone()[0] == "  BadTitle:: value and [[Bad Title]] tail"
+    assert con.execute(
+        "SELECT parent_uid, text FROM blocks WHERE uid='uid-child'"
+    ).fetchone() == ("uid-source", "unchanged child")
+    assert [tuple(row) for row in con.execute(
+        "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY kind"
+    )] == [
+        ("uid-source", page_ids["BadTitle"], "attribute"),
+        ("uid-source", page_ids["Bad Title"], "link"),
+    ]
+
+
 def test_import_marks_ordinary_database_active(tmp_path):
     export_file = _write_export(tmp_path, "ordinary.edn", ORDINARY_EXPORT)
     out = tmp_path / "data"
@@ -527,6 +573,7 @@ def test_import_marks_ordinary_database_active(tmp_path):
     [
         (MALFORMED_TITLE_EXPORT, "Bad [[Title", "malformed_syntax"),
         (BLANK_MARKER_TITLE_EXPORT, "[[#]]", "blank"),
+        (POST_SANITIZATION_MALFORMED_TITLE_EXPORT, "[#[", "malformed_syntax"),
     ],
 )
 def test_title_syntax_refusal_preserves_published_output(

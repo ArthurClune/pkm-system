@@ -6,7 +6,15 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pkm.importer.parse_export import Block, Export, Page
-from pkm.refs import extract, is_blank_title, normalize_title, title_syntax_reason
+from pkm.refs import (
+    _ATTRIBUTE,
+    _scan_brackets,
+    _strip_code,
+    extract,
+    is_blank_title,
+    normalize_title,
+    title_syntax_reason,
+)
 from pkm.rename import rewrite_title_refs_map
 
 ImportTitleErrorReason = Literal["malformed_syntax", "blank"]
@@ -101,7 +109,12 @@ def sanitize_import_title(title: str, *, location: str) -> str:
     result = normalize_title(without_brackets.replace("#", ""))
     if is_blank_title(result):
         raise ImportTitleError(title, location=location, reason="blank")
-    assert title_syntax_reason(result) is None
+    if title_syntax_reason(result) is not None:
+        raise ImportTitleError(
+            title,
+            location=location,
+            reason="malformed_syntax",
+        )
     return result
 
 
@@ -125,10 +138,33 @@ def _walk_block(block: Block) -> tuple[Block, ...]:
     )
 
 
+def _rewrite_import_title_refs(text: str, title_map: dict[str, str]) -> str:
+    """Adapt extractor-normalized targets to the opaque rename helper."""
+    clean = _strip_code(text)
+    replacements = dict(title_map)
+    for raw_title, _ in _scan_brackets(clean):
+        normalized_title = normalize_title(raw_title)
+        if normalized_title in title_map:
+            replacements[raw_title] = title_map[normalized_title]
+
+    attribute_start = len(clean) - len(clean.lstrip())
+    attribute = _ATTRIBUTE.match(clean[attribute_start:])
+    if attribute is None:
+        return rewrite_title_refs_map(text, replacements)
+
+    raw_title = attribute.group(1).strip()
+    normalized_title = normalize_title(raw_title)
+    if normalized_title in title_map:
+        replacements[raw_title] = title_map[normalized_title]
+    return text[:attribute_start] + rewrite_title_refs_map(
+        text[attribute_start:], replacements
+    )
+
+
 def _rewrite_block(block: Block, title_map: dict[str, str]) -> Block:
     return Block(
         uid=block.uid,
-        text=rewrite_title_refs_map(block.text, title_map),
+        text=_rewrite_import_title_refs(block.text, title_map),
         heading=block.heading,
         view_type=block.view_type,
         open=block.open,

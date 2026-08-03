@@ -313,18 +313,253 @@ fresh SDD workspace.
 - Existing all-space blockers, atomic rollback, zero-group forced generation
   pull, fail-closed broadcasts, and importer publication ordering remain green.
 
+## Wider `pkm-mk87` coordinator scope
+
+`pkm-mk87` coordinates every open direct follow-up under `pkm-ulae`. The work
+is intentionally split into four implementation lanes plus central integration.
+The title lane is only the first lane.
+
+### Four lane plans
+
+| Lane | Plan | Scope | Current state |
+|---|---|---|---|
+| Title integrity | `docs/superpowers/plans/2026-08-02-pkm-title-integrity.md` | Audit/apply migration, activation metadata, API/CLI, online/offline title parity, read normalization, broadcasts, importer activation, docs | Implemented on `pkm-mk87-title-integrity`, but blocked pending the revised forbidden-title invariant and selective nested-closure revert |
+| Traversal/ref/section parity | `docs/superpowers/plans/2026-08-02-pkm-traversal-ref-section-parity.md` | Uncapped cycle-safe server/local traversal, Python/TS blank-ref parity, level-aware `pkm get --section`, docs | Not started; must branch from the post-title integration baseline |
+| Importer follow-ups | `docs/superpowers/plans/2026-08-02-pkm-importer-followups.md` | Structured EDN errors, friendly refusal, duplicate/DAG preflight, global Mermaid preservation, implicit counts, temp cleanup boundaries, docs | Not started; must branch from the post-title integration baseline and preserve title-lane import activation/sanitization ordering |
+| Export writer polish | `docs/superpowers/plans/2026-08-02-pkm-export-writer-polish.md` | Disjoint copy/repair telemetry, abandoned staging cleanup without symlink following, warning-lifetime docs | Not started; must branch from the post-title integration baseline |
+
+### Seven target child beans
+
+| Bean | Owning lane(s) | Required outcome | Current title-branch state |
+|---|---|---|---|
+| `pkm-2ilw` | Title | Safe title migration and post-activation creation invariant | Currently completed on title branch, but must be reopened for forbidden-title validation/import sanitization and completed again |
+| `pkm-xo6w` | Title | Client/server/CLI/MCP read normalization and truthful backlink metadata | Completed on title branch |
+| `pkm-8kw2` | Title + parity | Authoritative broadcast plus server/local traversal and blank-ref parity | In progress; broadcast complete, three parity items remain unchecked |
+| `pkm-dzgw` | Parity | Marked section specs honor heading level; bare text remains lenient | Not started |
+| `pkm-5h2k` | Importer | Friendly structured malformed-EDN CLI error while retaining strict `\/` rejection | Not started |
+| `pkm-x1ig` | Importer | DAG/duplicate refusal, global Mermaid safety, report/count/temp-boundary accuracy | Not started |
+| `pkm-amq2` | Export | Repair telemetry, no-follow staging cleanup, warning documentation | Not started |
+
+The integration branch’s bean files still reflect the pre-implementation plan
+until lane commits are merged. Inspect bean status in the owning lane before
+assuming an item is undone or complete.
+
+## Integration-plan task status
+
+The central plan is
+`docs/superpowers/plans/2026-08-02-pkm-ulae-followup-integration.md`.
+
+| Integration task | State |
+|---|---|
+| Task 1 — commit/review plan set | Complete at `9770753` |
+| Task 2 — execute and merge title first | In progress and blocked; title lane is at `3f2fc3b`, unmerged, with the approved revised design documented here |
+| Task 3 — create/execute parity, importer, export lanes | Not started |
+| Task 4 — merge remaining lanes with `--no-ff` | Not started |
+| Task 5 — architecture and cross-file review | Not started centrally; title docs were updated only in the title lane |
+| Task 6 — full server/web verification | Not started on the merged integration tree |
+| Task 7 — final review and bean/coordinator completion | Not started |
+
+The integration SDD ledger is ignored at:
+
+```text
+.superpowers/sdd/2026-08-02-pkm-ulae-followup-integration/progress.md
+```
+
+It records Task 1 complete and Task 2 blocked at the title final re-review.
+
+## Cross-lane overlap and conflict rules
+
+### Title versus parity
+
+Both lanes touch:
+
+- `server/src/pkm/refs.py`
+- `server/src/pkm/server/routes_pages.py`
+- `web/src/replica/localOps.ts`
+- `README.md`
+- `.claude/skills/pkm/SKILL.md`
+- `docs/architecture/backend.md`
+- `docs/architecture/sync-and-offline.md`
+- `pkm-8kw2`
+
+Therefore parity must start from the final merged title baseline. Preserve title
+activation/read/validation behavior while adding visited-path traversal,
+blank-ref filtering, and section semantics around it. `pkm-8kw2` must retain
+the authoritative-broadcast summary and add the three parity outcomes before
+completion.
+
+### Title versus importer
+
+Both lanes touch `server/src/pkm/importer/run.py`, importer E2E tests, and
+backend architecture docs. The final importer order must be:
+
+```text
+verify export file
+-> strict EDN parse
+-> parse_export
+-> structural preflight
+-> import-only title sanitization
+-> linked-file indexing / row derivation / global Mermaid plan
+-> temporary database and assets
+-> title audit/apply activation
+-> report and publication
+```
+
+Structural refusal must occur before filesystem/output work. Title
+sanitization must occur before rows are created. The shared title audit/apply
+step must remain after database build and before publication. Do not duplicate
+migration logic in the importer lane.
+
+### Title versus export
+
+Runtime overlap should be minimal. The main shared file is
+`docs/architecture/backend.md`. Preserve both title/importer invariants and
+export telemetry/cleanup semantics in their correct sections.
+
+### Generated API artifacts
+
+Title syntax blocker reasons will change the HTTP schema, so regenerate:
+
+- `web/src/api/openapi.json`
+- `web/src/api/types.d.ts`
+
+The parity/importer/export plans do not otherwise require API schema changes.
+After all lane merges, regenerate once from the merged server and require
+`server/tests/test_openapi_sync.py` to prove no manual generated edits remain.
+
+### Documentation and beans
+
+Resolve overlapping README, PKM skill, architecture, and bean edits only on the
+integration branch after lane merges. Retain all non-conflicting invariants; do
+not choose one lane’s version wholesale. Invoke `superpowers:writing-skills`
+before any further PKM skill edit.
+
+## Remaining integration sequence
+
+Follow this order exactly:
+
+1. Review the revised title-syntax spec and write a focused implementation plan.
+2. Resume `pkm-mk87-title-integrity`; reopen `pkm-2ilw`.
+3. Selectively revert only the failed nested-closure changes from `3f2fc3b`.
+4. Implement strict title validation, import sanitization, and migration blocker
+   reasons with TDD and per-task reviews.
+5. Run title focused gates and disposable-port-18974 verification.
+6. Run a fresh whole-title-lane review; resolve all load-bearing findings.
+7. Merge `pkm-mk87-title-integrity` into `pkm-mk87-ulae-followups` with
+   `git merge --no-ff`.
+8. Create `pkm-mk87-parity`, `pkm-mk87-importer`, and `pkm-mk87-export` from
+   that post-title integration HEAD.
+9. Execute those three independent lanes in parallel, each with its own
+   worktree, SDD ledger, TDD cycles, task reviews, and focused gates.
+10. Merge parity, importer, then export with `git merge --no-ff`.
+11. Resolve overlap centrally and rerun affected title/other-lane focused tests
+    after each merge.
+12. Regenerate OpenAPI/types once from merged code and inspect the generated
+    diff.
+13. Perform architecture, stale-count/enumeration, FCIS, README, skill, and
+    bean consistency review.
+14. Run full verification, final spec review, final code-quality review, bean
+    completion, and coordinator completion.
+
+## Focused gates for the remaining lanes
+
+### Parity
+
+- Server ancestor, refs, blank-title, section-render/CLI/help tests.
+- Web local subtree, local ancestor, grammar refs, replica refs tests.
+- Server pyrefly/ruff; web typecheck/lint/FCIS.
+
+### Importer
+
+- EDN, structure preflight, importer E2E, Mermaid planner/migration, rows, and
+  report tests.
+- Server pyrefly and ruff.
+- Explicitly re-run title import sanitization/activation tests after merge.
+
+### Export
+
+- Assets core, export writer, and backup CLI tests.
+- Server pyrefly and ruff.
+
+## Final merged verification
+
+Run from the integration worktree, sequentially as documented:
+
+```bash
+cd server && uv run pytest -q
+cd server && uv run pyrefly check
+cd server && uv run ruff check
+cd web && pnpm verify
+```
+
+Expected conditions:
+
+- server coverage remains at least 95%;
+- pyrefly reports zero errors;
+- ruff passes;
+- web typecheck, lint, FCIS, unit coverage, build, and all Playwright tests pass;
+- web verification runs alone rather than concurrently with server pytest;
+- generated OpenAPI/types match the merged live schema;
+- shell/bean/report evidence contains no production migration and no test use of
+  port `8974`.
+
+Also repeat the supported CLI migration lifecycle only against disposable data,
+a disposable CLI config, and exactly `http://127.0.0.1:18974`. Confirm stable
+audit, stale refusal, apply, activation, generation change, canonical behavior,
+and complete process/temp cleanup.
+
+## Architecture and documentation completion
+
+Before checking the coordinator documentation item:
+
+- verify every API row/model against code and generated OpenAPI;
+- verify title validation, activation transaction, forced generation pull,
+  importer preflight/sanitization/publication, Mermaid transitivity, export
+  telemetry/cleanup, section matching, blank-ref filtering, and cycle-safe local
+  traversal against merged runtime code;
+- search stale route/tool/count/depth/temp-file/asset-count claims;
+- audit every changed runtime file’s FCIS declaration and actual boundary;
+- run the web FCIS checker;
+- ensure README and PKM skill use the final CLI syntax and safety rules.
+
+Architecture docs describe merged code, never planned behavior.
+
+## Bean and coordinator completion
+
+Before completing `pkm-mk87`, run:
+
+```bash
+beans show --json pkm-2ilw pkm-amq2 pkm-8kw2 pkm-dzgw pkm-5h2k pkm-xo6w pkm-x1ig
+```
+
+Every child must:
+
+- have status `completed`;
+- contain no unchecked checklist items;
+- include `## Summary of Changes`;
+- accurately state verification and any production-safety facts.
+
+Then update `pkm-mk87`:
+
+- check all seven child completion items;
+- check architecture review;
+- check full server/web verification;
+- check final review;
+- append a summary with child outcomes and final test counts;
+- state exactly: production title migration not executed;
+- mark completed only when no unchecked item remains.
+
+Commit all final bean/docs changes. Final status must be clean on
+`pkm-mk87-ulae-followups`, and merge commits must preserve every lane with
+`--no-ff`.
+
 ## Integration status
 
-No title merge has occurred. The integration branch remains at the plan commit,
-apart from this handover/spec documentation. The parity/importer/export lanes
-have not been created or executed. This preserves the required order:
-
-1. finish and review title integrity;
-2. merge title with `--no-ff`;
-3. branch the three remaining lanes from the post-title integration baseline;
-4. merge each with `--no-ff`;
-5. full architecture/generated review, server/web verification, final review,
-   seven child beans, then `pkm-mk87`.
+No title merge has occurred. The integration branch contains the original
+approved plan set plus this handover/revised design documentation. The
+parity/importer/export branches and worktrees have not been created or executed.
+This preserves the required title-first dependency and leaves the wider sweep
+ready for a new session to resume without guessing.
 
 ## Safety reminders
 

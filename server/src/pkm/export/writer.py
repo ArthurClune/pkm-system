@@ -1,6 +1,15 @@
 # pattern: Imperative Shell
 """Write the full markdown + assets export for a graph database.
 
+Each export directory has exactly one writer. At run start, after ensuring
+that directory exists but before writing `.gitignore` or mutating any
+last-good tree, the writer removes every abandoned `.export-staging-*`
+entry. Matching symlinks are unlinked without following their targets;
+real directories are removed recursively. An entry disappearing during
+cleanup is success, while every other cleanup error aborts the run. The
+single-writer invariant is why cleanup needs neither a lock nor an age
+heuristic.
+
 Rendering and asset staging happen entirely in a scratch directory beside
 the live one; the last good export is only replaced once a full new export
 is ready, via atomic directory renames (see `_publish_dir`). A crash or
@@ -28,9 +37,9 @@ never the thing that gets committed to the export's git history.
 *.md files are wholly regenerated every run (git still diffs minimally
 because unchanged content is byte-identical). The asset mirror is
 incremental: content-hashed files never change, so an asset already present
-in the export is hardlinked into the new tree instead of re-copied; only
-new hashes are actually copied from the live store, and vanished hashes are
-simply left out of the new tree (pruned).
+in the export is hardlinked into the new tree instead of re-copied; fresh
+hashes are copied from the live store, and vanished hashes are simply left
+out of the new tree (pruned).
 
 An asset already present is only hardlinked after it passes verification
 against the assets row's known sha256/size (pkm-x3l7): a cheap stat-based
@@ -43,7 +52,9 @@ assets_dir)` lands. Hashing the whole previously-present set every run
 costs a full read of each file, but at this graph's scale (order ~1e3
 images) that's a low-single-digit-second tax on a nightly job, not
 something worth a sampling scheme -- see assets_core.asset_needs_repair
-for where the size check saves a read outright.
+for where the size check saves a read outright. A successful fresh transfer
+increments only `assets_copied`; a successful corrupt replacement increments
+only `assets_repaired`.
 
 If a file that fails verification also has no live-store source to
 repair from, it can't be silently dropped the same way a DB row whose
@@ -52,8 +63,12 @@ file was never captured at import time is (that's ordinary, expected
 provably wrong, and there's nothing left to repair it from. That case
 gets its own `assets_missing_source_on_repair` count plus a `pkm.export`
 warning naming the sha, instead of disappearing into `assets_pruned`
-(its sha is still `wanted`, so it isn't pruned either) with zero
-signal."""
+(its sha is still `wanted`, so it isn't pruned either) with zero signal. No
+transfer occurred, so neither transfer counter increments. A successful
+assets publication drops this corrupt residue from the new tree, making the
+warning normally a one-successful-run event. If the run fails after warning
+but before assets publication, the old corrupt tree may remain active and
+the warning may repeat on the next run."""
 from __future__ import annotations
 
 import logging

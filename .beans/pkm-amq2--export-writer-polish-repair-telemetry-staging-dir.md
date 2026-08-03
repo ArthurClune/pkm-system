@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: low
 created_at: 2026-08-01T12:52:43Z
-updated_at: 2026-08-03T13:07:52Z
+updated_at: 2026-08-03T13:10:31Z
 parent: pkm-ulae
 ---
 
@@ -17,10 +17,10 @@ Three writer.py-local polish items from the ulae-medium-exports final review:
 
 1. **`assets_repaired` telemetry**: `assets_copied` conflates fresh copies with corruption repairs. A distinct repair count in the nightly backup log line is a disk-health signal worth seeing separately (a nonzero value means bytes on disk failed SHA verification).
 2. **Sweep abandoned staging dirs**: `export_graph`'s `finally` removes only the current run's `.export-staging-*` dir; a kill-9 leaves one behind forever (gitignored, mostly hardlinks, small but accumulating for a recurring crasher). Sweep `export_dir.glob(".export-staging-*")` at the top of each run. Also closes the vanishingly-unlikely case of a partially-removed staging dir being rglob'd into /api/export.zip.
-3. **Docstring note**: the corrupt-existing + missing-source warning fires exactly once ever (the asset then drops out of the tree and later runs take the silent residue branch) — note the one-shot nature where the counter is documented.
+3. **Docstring note**: after successful assets publication, corrupt-existing + missing-source residue drops from the tree and later runs take the silent missing-residue branch; a failure before assets publication can leave the corrupt prior tree active and repeat the warning.
 
 ## Tasks
 
 - [x] Add disjoint assets_repaired telemetry to export_graph and backup output
 - [x] Sweep abandoned staging entries before last-good mutation with no-follow handling
-- [ ] Document the one-shot missing-source warning
+- [x] Document the successful-publication warning lifetime and repeat case

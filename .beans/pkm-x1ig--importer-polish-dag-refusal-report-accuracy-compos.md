@@ -1,11 +1,11 @@
 ---
 # pkm-x1ig
 title: 'Importer polish: DAG refusal, report accuracy, composition tests'
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-07-31T19:02:40Z
-updated_at: 2026-07-31T19:02:40Z
+updated_at: 2026-08-03T13:01:44Z
 parent: pkm-ulae
 ---
 

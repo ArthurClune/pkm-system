@@ -1,11 +1,11 @@
 ---
 # pkm-5h2k
 title: 'Importer CLI: friendly error for malformed EDN exports'
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-08-01T08:28:01Z
-updated_at: 2026-08-01T08:28:01Z
+updated_at: 2026-08-03T13:01:44Z
 parent: pkm-ulae
 ---
 

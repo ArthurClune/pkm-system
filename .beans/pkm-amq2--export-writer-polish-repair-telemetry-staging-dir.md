@@ -1,11 +1,11 @@
 ---
 # pkm-amq2
 title: 'Export writer polish: repair telemetry, staging-dir sweep, warning docs'
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-08-01T12:52:43Z
-updated_at: 2026-08-01T12:52:43Z
+updated_at: 2026-08-03T13:04:07Z
 parent: pkm-ulae
 ---
 
@@ -21,6 +21,6 @@ Three writer.py-local polish items from the ulae-medium-exports final review:
 
 ## Tasks
 
-- [ ] Add assets_repaired to export_graph's counts and the backup log line
+- [x] Add disjoint assets_repaired telemetry to export_graph and backup output
 - [ ] Sweep abandoned .export-staging-* dirs at run start, with a test
 - [ ] Document the one-shot missing-source warning

@@ -51,7 +51,8 @@ def test_export_writes_pages_journal_assets(graph):
     db, live_assets, export, sha = graph
     counts = export_graph(db, live_assets, export)
     assert counts == {"pages": 1, "journal": 1, "assets_copied": 1,
-                      "assets_pruned": 0, "assets_missing_source_on_repair": 0}
+                      "assets_repaired": 0, "assets_pruned": 0,
+                      "assets_missing_source_on_repair": 0}
     page = (export / "pages" / "Alpha.md").read_text()
     assert f"  - ![pic](../assets/{sha}/pic.png)" in page
     journal = (export / "journal" / "2026-07-07.md").read_text()
@@ -199,7 +200,8 @@ def test_recovers_from_an_abandoned_stale_dir(graph):
     counts = export_graph(db, live_assets, export)
 
     assert counts == {"pages": 1, "journal": 1, "assets_copied": 0,
-                      "assets_pruned": 0, "assets_missing_source_on_repair": 0}
+                      "assets_repaired": 0, "assets_pruned": 0,
+                      "assets_missing_source_on_repair": 0}
     assert not (export / "pages.stale").exists()
     assert (export / "pages" / "Alpha.md").is_file()
 
@@ -219,7 +221,8 @@ def test_recovers_from_a_crash_between_the_two_publish_renames(graph):
     counts = export_graph(db, live_assets, export)
 
     assert counts == {"pages": 1, "journal": 1, "assets_copied": 0,
-                      "assets_pruned": 0, "assets_missing_source_on_repair": 0}
+                      "assets_repaired": 0, "assets_pruned": 0,
+                      "assets_missing_source_on_repair": 0}
     assert not (export / "pages.stale").exists()
     assert (export / "pages" / "Alpha.md").is_file()
 
@@ -236,7 +239,8 @@ def test_repairs_truncated_existing_asset_from_live_store(graph):
 
     counts = export_graph(db, live_assets, export)
 
-    assert counts["assets_copied"] == 1  # re-copied, not hardlinked
+    assert counts["assets_copied"] == 0
+    assert counts["assets_repaired"] == 1  # re-copied, not hardlinked
     assert (export / "assets" / sha / "pic.png").read_bytes() == b"png"
 
 
@@ -252,7 +256,8 @@ def test_repairs_same_size_corrupted_existing_asset_from_live_store(graph):
 
     counts = export_graph(db, live_assets, export)
 
-    assert counts["assets_copied"] == 1
+    assert counts["assets_copied"] == 0
+    assert counts["assets_repaired"] == 1
     assert (export / "assets" / sha / "pic.png").read_bytes() == b"png"
 
 
@@ -274,9 +279,19 @@ def test_corrupt_existing_asset_with_missing_live_source_is_surfaced(
         counts = export_graph(db, live_assets, export)
 
     assert counts["assets_copied"] == 0
+    assert counts["assets_repaired"] == 0
     assert counts["assets_missing_source_on_repair"] == 1
     assert not (export / "assets" / sha).exists()
     assert sha in caplog.text
+
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        next_counts = export_graph(db, live_assets, export)
+
+    assert next_counts["assets_copied"] == 0
+    assert next_counts["assets_repaired"] == 0
+    assert next_counts["assets_missing_source_on_repair"] == 0
+    assert sha not in caplog.text
 
 
 def test_valid_existing_asset_is_still_hardlinked_not_recopied(graph):
@@ -341,7 +356,8 @@ def test_cross_subtree_publish_failure_recovers_on_next_run(graph, monkeypatch):
     counts = export_graph(db, live_assets, export)
 
     assert counts == {"pages": 2, "journal": 1, "assets_copied": 0,
-                      "assets_pruned": 0, "assets_missing_source_on_repair": 0}
+                      "assets_repaired": 0, "assets_pruned": 0,
+                      "assets_missing_source_on_repair": 0}
     assert not (export / "journal.stale").exists()
     assert (export / "journal" / "2026-07-07.md").is_file()
     assert (export / "pages" / "Beta.md").is_file()

@@ -63,7 +63,8 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from pkm.assets_core import asset_needs_repair, sha256_hex
+from pkm.assets_core import (
+    asset_needs_repair, classify_export_asset_transfer, sha256_hex)
 from pkm.contracts.daily import date_for_title
 from pkm.export.markdown import page_filename, render_page
 from pkm.filenames import safe_filename
@@ -109,7 +110,8 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         if row is not None:
             uid_to_text[uid] = row["text"]
 
-    counts = {"pages": 0, "journal": 0, "assets_copied": 0, "assets_pruned": 0,
+    counts = {"pages": 0, "journal": 0, "assets_copied": 0,
+             "assets_repaired": 0, "assets_pruned": 0,
              "assets_missing_source_on_repair": 0}
     rendered: dict[tuple[str, str], str] = {}  # (kind, filename) -> body
     taken: set[str] = set()
@@ -173,7 +175,8 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
                 continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
-            counts["assets_copied"] += 1
+            transfer = classify_export_asset_transfer(was_present)
+            counts[f"assets_{transfer}"] += 1
 
         # Publish only now that every render and copy above has succeeded.
         # Each call is atomic on its own, but the three together are not

@@ -49,6 +49,17 @@ def test_backup_creates_snapshot_export_and_commit(data_dir, tmp_path):
     assert git_commits(backups / "export") == 1
 
 
+def test_backup_output_reports_copy_and_repair_counts(data_dir, tmp_path, capsys):
+    backups = tmp_path / "backups"
+
+    assert main(["--data-dir", str(data_dir),
+                 "--backups-dir", str(backups)]) == 0
+
+    output = capsys.readouterr().out
+    assert "'assets_copied': 0" in output
+    assert "'assets_repaired': 0" in output
+
+
 def test_second_run_with_no_changes_commits_nothing(data_dir, tmp_path):
     backups = tmp_path / "backups"
     main(["--data-dir", str(data_dir), "--backups-dir", str(backups)])

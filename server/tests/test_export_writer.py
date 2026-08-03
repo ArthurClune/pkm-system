@@ -1,5 +1,6 @@
 import hashlib
 import os
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -185,6 +186,80 @@ def test_asset_copy_failure_preserves_previous_export(graph, monkeypatch):
         export_graph(db, live_assets, export)
 
     assert _snapshot(export) == before
+
+
+def test_removes_abandoned_staging_directory(graph):
+    db, live_assets, export, _ = graph
+    abandoned = export / ".export-staging-abandoned"
+    abandoned.mkdir(parents=True)
+    (abandoned / "partial.md").write_text("partial")
+
+    export_graph(db, live_assets, export)
+
+    assert not abandoned.exists()
+    assert list(export.glob(".export-staging-*")) == []
+
+
+def test_removes_abandoned_staging_symlink_without_following(graph, tmp_path):
+    db, live_assets, export, _ = graph
+    external = tmp_path / "external"
+    external.mkdir()
+    marker = external / "keep.txt"
+    marker.write_text("keep")
+    staging_link = export / ".export-staging-link"
+    export.mkdir()
+    staging_link.symlink_to(external, target_is_directory=True)
+
+    export_graph(db, live_assets, export)
+
+    assert not staging_link.is_symlink()
+    assert marker.read_text() == "keep"
+
+
+def test_staging_cleanup_treats_disappearance_as_success(graph, monkeypatch):
+    db, live_assets, export, _ = graph
+    abandoned = export / ".export-staging-vanishing"
+    abandoned.mkdir(parents=True)
+    real_rmtree = shutil.rmtree
+
+    def vanish_then_report_missing(path, *args, **kwargs):
+        if Path(path) == abandoned:
+            real_rmtree(path)
+            raise FileNotFoundError(path)
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("pkm.export.writer.shutil.rmtree",
+                        vanish_then_report_missing)
+
+    counts = export_graph(db, live_assets, export)
+
+    assert counts["pages"] == 1
+    assert not abandoned.exists()
+
+
+def test_staging_cleanup_error_precedes_last_good_mutation(graph, monkeypatch):
+    db, live_assets, export, _ = graph
+    export_graph(db, live_assets, export)
+    (export / ".gitignore").write_text("sentinel", encoding="utf-8")
+    abandoned = export / ".export-staging-blocked"
+    abandoned.mkdir()
+    (abandoned / "partial.md").write_text("partial", encoding="utf-8")
+    before = _snapshot(export)
+    real_rmtree = shutil.rmtree
+
+    def deny_abandoned_cleanup(path, *args, **kwargs):
+        if Path(path) == abandoned:
+            raise PermissionError(path)
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("pkm.export.writer.shutil.rmtree",
+                        deny_abandoned_cleanup)
+
+    with pytest.raises(PermissionError):
+        export_graph(db, live_assets, export)
+
+    assert _snapshot(export) == before
+    assert (export / ".gitignore").read_text(encoding="utf-8") == "sentinel"
 
 
 def test_recovers_from_an_abandoned_stale_dir(graph):

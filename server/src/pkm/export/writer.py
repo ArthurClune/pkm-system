@@ -75,6 +75,17 @@ logger = logging.getLogger("pkm.export")
 GITIGNORE = "assets/\n.export-staging-*/\n"
 
 
+def _remove_abandoned_staging(export_dir: Path) -> None:
+    for entry in export_dir.glob(".export-staging-*"):
+        try:
+            if entry.is_symlink():
+                entry.unlink()
+            else:
+                shutil.rmtree(entry)
+        except FileNotFoundError:
+            pass
+
+
 def _publish_dir(staged: Path, target: Path) -> None:
     """Atomically replace `target`'s contents with `staged`'s.
 
@@ -100,6 +111,7 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
     journal_dir = export_dir / "journal"
     assets_dir = export_dir / "assets"
     export_dir.mkdir(parents=True, exist_ok=True)
+    _remove_abandoned_staging(export_dir)
     (export_dir / ".gitignore").write_text(GITIGNORE, encoding="utf-8")
 
     texts = [r["text"] for r in db.execute("SELECT text FROM blocks")]

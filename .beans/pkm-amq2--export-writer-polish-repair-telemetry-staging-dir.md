@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: low
 created_at: 2026-08-01T12:52:43Z
-updated_at: 2026-08-03T13:04:07Z
+updated_at: 2026-08-03T13:07:52Z
 parent: pkm-ulae
 ---
 
@@ -22,5 +22,5 @@ Three writer.py-local polish items from the ulae-medium-exports final review:
 ## Tasks
 
 - [x] Add disjoint assets_repaired telemetry to export_graph and backup output
-- [ ] Sweep abandoned .export-staging-* dirs at run start, with a test
+- [x] Sweep abandoned staging entries before last-good mutation with no-follow handling
 - [ ] Document the one-shot missing-source warning

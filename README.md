@@ -16,6 +16,8 @@ An outliner-style notes app in the Roam mould:
 - **`{{[[query]]}}` blocks** (`and`/`or`/`not` over page refs)
 - **Images and PDFs** stored and served locally, content-addressed
 - **Live sync** between open clients over a WebSocket (desktop + iPad)
+- **An in-app LLM assistant** that can read and (with your confirmation)
+  write your notes (see [Assistant](#assistant))
 - **Offline editing**: an installable PWA with a local replica — read, edit
   and search your whole graph with no connection; changes sync back on
   reconnect (see [Offline](#offline))
@@ -54,7 +56,25 @@ to today's daily note instead of vanishing.
 **Limits to know about:** the first visit (and login) needs a connection; the
 replica is per-browser, so a new device or a cleared browser profile starts
 online; and if the device runs out of local storage while offline, editing
-pauses (with a visible reason) rather than risking a silently lost change.
+pauses, with a visible reason, rather than risking the loss of a change.
+
+## Assistant
+
+`Cmd/Ctrl+J` opens a chat panel backed by a Claude agent. Pick a model
+(`sonnet` by default, or `opus`/`haiku`) and ask it to find, summarise or
+write notes.
+
+The agent runs on the server, not in the browser, and it has no general
+tools — only the eleven `pkm` verbs, which reach your graph through the same
+HTTP API every other client uses. Reads happen without asking. Every write
+pauses for an Allow/Deny card in the chat that shows exactly which operations
+it wants to apply. Conversations are held in memory only, so a reload starts
+a new one.
+
+The assistant needs a logged-in Claude subscription on the machine running
+the server; if it is missing, the assistant reports an error in the chat and
+the rest of the app is unaffected. Setup is in
+[deploy/README.md](deploy/README.md#assistant-prerequisites).
 
 ## Why
 
@@ -73,7 +93,7 @@ single-user graph never uses) for:
   into this app either.
 
 The **[design document](docs/design.md)** gives the high-level architecture
-and the load-bearing decisions, linking through to the detailed specs and
+and the key decisions, linking through to the detailed specs and
 implementation plans.
 
 ## Repository layout
@@ -128,16 +148,17 @@ uv run python -m pkm.importer.run /path/to/export.edn \
   --files /path/to/linked-files --out ../data
 ```
 
-Each run builds a fresh database and atomically swaps it in, ending with a
-report of everything imported (and anything unrecognised — nothing is
-silently dropped). Before creating rows, it recursively removes balanced
-`[[`/`]]` markers and `#` markers from page and ref-derived titles, merges
-resulting collisions deterministically, and reports every changed spelling and
-merge. Malformed marker syntax or a title made blank by sanitization refuses
-the import before output creation. Before publication it then reuses the
-title-migration audit/apply path on the temporary database, so padded clean
-twins are merged and title canonicalization is active from first use. It's
-safe to re-run.
+Each run builds a fresh database and atomically swaps it in, so re-running is
+always safe. It ends with a report of everything imported, and of anything
+unrecognised: nothing is dropped without being reported.
+
+Titles are cleaned up on the way in. Balanced `[[`/`]]` markers and `#`
+markers are removed from page and ref-derived titles, collisions are merged,
+and every changed spelling and merge appears in the report. Malformed marker
+syntax, or a title left blank by that cleanup, aborts the import before any
+output is created. Fresh databases also arrive with title canonicalization
+already active — see [docs/cli.md](docs/cli.md#one-time-title-canonicalization)
+for what that means.
 
 ### Regenerating the local data
 
@@ -176,127 +197,21 @@ pnpm gen-types     # regenerate TS API types from the server's OpenAPI schema
 To serve the built SPA from the backend itself (no Vite), build it and set
 `web_dist` in `config.json` (the setup script's `--web-dist` flag does this).
 
-## CLI and MCP access
+## Agent access (CLI and MCP)
 
-LLM agents (and humans) can drive the PKM from the command line or over MCP.
-Both talk to the running server's HTTP API and share one login:
+The `pkm` CLI and an MCP server let scripts and LLM agents read and write the
+graph from outside the browser. Both talk to the running server's HTTP API and
+share one login:
 
     cd server && uv run pkm login --url http://127.0.0.1:8974
 
-This stores a year-long session token in `~/.config/pkm-cli/config.json`
-(override the path with `PKM_CLI_CONFIG`; point at another server per-call
-with `PKM_URL`).
-
-CLI quick reference (`uv run pkm <cmd> --help` for details — every verb's
-`--help` is self-sufficient, with argument forms and examples):
-
-    pkm get "Page Title" | today | <uid>     # markdown; --uids / --json
-    pkm get "Page" --resolve-refs            # inline ((uid)) refs, cycle-safe
-    pkm get "Page" --section "## H" [--depth N]   # subtree only (pages only)
-    pkm get "Page" --section "H"             # ...at any heading level
-    pkm todos [-p "Page"]
-    pkm save [-p "Page"] [--parent "## H"|"((uid))"] [--todo] "text" | -
-    pkm update <uid> "new text" | -D | -T
-    pkm search "term" [--limit N] [--exact] [--compact]
-    pkm refs "Page" / pkm query "{and: [[A]] [[B]]}" [--expand]
-    pkm upload file.png [-p "Page"] [--no-block]
-    pkm batch < commands.json                # atomic multi-op transaction
-    pkm migrate-titles [--json]              # side-effect-free audit
-    pkm migrate-titles --apply DIGEST        # explicit audited apply
-
-Notes: `pkm save` with no `-p` targets today's daily note (pages are created
-if missing); multi-line text is an outline (2-space indent = nesting). A
-line starting `# `/`## `/`### ` is stored as a heading block at that
-level (1-3) rather than as literal text — on `save`, `batch`, and
-`update` alike; `#Tag` and `#### ` and deeper stay literal.
-`--json` is available on the read verbs and printed minified (single line,
-no indent — cheaper for machine consumers); `pkm login --password-stdin`
-suits scripts. `search --exact` matches whole words only (no prefix
-wildcard); `--compact` prints titles/uids without snippets; the default
-`--limit` is 10. `query --expand` also matches one hop of transitivity
-([[X]] matches blocks referencing a page that itself references X); when a
-query's total is 0, the response (and rendered output) also reports a
-per-operand block count so you can tell a typo'd `[[Page]]` from operands
-that simply don't intersect. `pkm refs` follows every server page rather than
-silently stopping at the route's 100-group cap, retries if concurrent writes
-shift pagination, and reports the first response's actual `limit` in JSON
-instead of synthesizing a limit from the aggregate group count.
-
-### One-time title integrity activation
-
-Existing leading/trailing ASCII-space titles require a deliberate,
-audit-first data migration. Normal server startup only replays schema setup;
-it **never** audits or applies this migration. Production activation is a
-separate later operator action and must not be inferred from a deploy or
-restart.
-
-For an approved target, set both the config and URL explicitly rather than
-inheriting the normal CLI defaults:
-
-```bash
-PKM_CLI_CONFIG=/explicit/target-config.json PKM_URL=https://explicit-target \
-  uv run --project server pkm migrate-titles
-PKM_CLI_CONFIG=/explicit/target-config.json PKM_URL=https://explicit-target \
-  uv run --project server pkm migrate-titles --apply <audit-digest>
-```
-
-The audit is side-effect-free and prints a stable 64-hex digest plus each
-canonical group, survivor/source merge plan, counts, and every blocker with an
-`all_space` or `forbidden_syntax` reason. Review it before apply. Apply requires
-that exact digest; database changes that affect the plan make it stale, and
-stale, blocked, or already-active applies are refused. Migration mappings remove
-boundary U+0020 only; replacement values are opaque and are inserted once,
-never rescanned as another source. Success retitles/merges pages, rewrites
-inbound references and sidebar identities, activates boundary-U+0020
-canonicalization, and rotates the sync generation in one transaction. Do not
-run either production command unless production was explicitly requested and
-both variables were deliberately configured; take the normal operational
-backup first.
-
-Control whitespace in titles is always normalized on creation and on the
-page/unlinked/export plus CLI/MCP read paths. After that normalization, normal
-writes reject titles containing `#`, `[[`, or `]]`. Explicit and ref-derived
-titles are preflighted across the whole op batch, and offline queueing uses the
-same rule before optimistic or durable mutation. Activation additionally
-removes leading/trailing ordinary spaces online and offline; internal ordinary
-spaces and NBSP remain byte-exact.
-
-`pkm batch` applies a JSON array of `{command, params}` objects in one
-transaction. Commands: `create` (page, text, parent?, index?, as?), `todo`
-(like create, `{{TODO}}`-prefixed), `update` (uid, text), `move` (uid,
-page, parent?, index?), `delete` (uid), `outline` (page, parent?, items —
-nested string arrays). `index` inserts `create`/`todo`/`move` at that exact
-position instead of appending. `as` names a created block so later commands
-can use it as `"parent": "{{alias}}"` and, for `update`/`move`/`delete`,
-as `"uid": "{{alias}}"` too; a `"## Heading"` parent is matched on the page
-or created once per batch — repeating the same `"## Heading"` spec across
-commands reuses the heading already created:
-
-    [{"command": "create",
-      "params": {"page": "AI", "parent": "## Meetings", "text": "notes"}},
-     {"command": "create",
-      "params": {"page": "AI", "parent": "## Meetings", "text": "more notes"}}]
-
-MCP (stdio) server for Claude Code — from the repo root:
+For Claude Code, add the MCP server from the repository root:
 
     claude mcp add pkm -- uv run --project server pkm-mcp
 
-or in `.mcp.json`:
-
-    {"mcpServers": {"pkm": {"command": "uv",
-                            "args": ["run", "--project", "server", "pkm-mcp"]}}}
-
-For Claude Desktop, use the same command/args in
-`claude_desktop_config.json` under `mcpServers`, but `--project` must be
-an absolute path to the repo's `server/` directory (e.g.
-`"args": ["run", "--project", "/absolute/path/to/pkm/server", "pkm-mcp"]`).
-Run `pkm login` once first — the MCP server reads the same config file.
-
-The MCP server exposes eleven tools mirroring the CLI: `get_page`, `get_block`,
-`search`, `query`, `backlinks`, `todos`, `search_assets`, `save_note`,
-`update_block`, `batch` (same command format as `pkm batch`), and
-`upload_asset`. Reads return markdown annotated with `^uid` markers that the
-write tools accept.
+The full command reference, the `pkm batch` command language, MCP setup for
+other clients, and the one-time title-canonicalization procedure are in
+**[docs/cli.md](docs/cli.md)**. Every verb's `--help` is self-sufficient.
 
 ## Deployment
 
@@ -313,6 +228,8 @@ backup and restore procedures.
   backend + API, frontend, and the sync/offline protocol
 - **[Design document](docs/design.md)** — high-level architecture and key
   decisions, linking to the detailed specs and plans in `docs/superpowers/`
+- **[CLI and MCP reference](docs/cli.md)** — every `pkm` verb, the batch
+  command language, MCP setup, title canonicalization
 - **[Deployment guide](deploy/README.md)** — install, update, backups, restore,
   troubleshooting
 - `docs/superpowers/plans/` — the implementation plans each phase was built

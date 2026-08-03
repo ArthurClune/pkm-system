@@ -1,25 +1,26 @@
 # Sync and offline architecture
 
-This doc describes the full path an edit takes — from a keystroke, through
-the browser's durable queue and replica, to the server and back out to other
-clients — and how the system behaves offline. It spans both codebases; see
-[backend.md](backend.md) and [frontend.md](frontend.md) for the module maps.
+This doc follows the full path an edit takes: from a keystroke, through the
+browser's durable queue and replica, to the server, and back out to other
+clients. It also covers how the system behaves offline. It spans both
+codebases; [backend.md](backend.md) and [frontend.md](frontend.md) have the
+module maps.
 
-The authoritative design (with rejected alternatives) is
+The authoritative design, with the rejected alternatives, is
 [`docs/superpowers/specs/2026-07-12-offline-editing-design.md`](../superpowers/specs/2026-07-12-offline-editing-design.md).
 
 ## The model in one paragraph
 
-**Server-authoritative, no CRDTs.** SQLite on the server is the single
-source of truth; clients apply edits optimistically and send op batches to
-`POST /api/ops`. Down-sync is *pull-based*: an append-only change journal
-(populated by SQLite triggers) gives every change a monotonic `seq`, clients
+**Server-authoritative, no CRDTs.** SQLite on the server is the single source
+of truth. Clients apply edits optimistically and send op batches to
+`POST /api/ops`. Down-sync is *pull-based*: an append-only change journal,
+populated by SQLite triggers, gives every change a monotonic `seq`; clients
 keep a cursor, and `GET /api/sync/changes?since=` returns everything after
-it. The WebSocket only *nudges* — it announces real journal seqs, can force a
+it. The WebSocket only *nudges*. It announces real journal seqs, can force a
 pull for committed metadata-only generation changes, and echoes applied
 batches, but correctness never depends on receiving a frame. Offline is a
 cache, not a fork: each browser holds a sqlite-wasm replica plus a durable
-queue of unacknowledged batches; batch ids make replays idempotent, and
+queue of unacknowledged batches. Batch ids make replays idempotent, and
 per-block last-write-wins with `[[conflict]]` preservation resolves
 collisions at push time.
 
@@ -57,15 +58,16 @@ sequenceDiagram
     B->>B: apply to replica, advance cursor,<br/>refetch visible views
 ```
 
-Two things are deliberate here:
+Two choices here are worth spelling out:
 
-- **The HTTP response body is ignored.** Success is the 2xx; the client's
-  own state comes from the follow-up changes pull, the same path every other
-  client uses. There is one way state flows down, not two.
+- **The HTTP response body is ignored.** Success is the 2xx. The client's own
+  state comes from the follow-up changes pull, the same path every other
+  client uses. State flows down one way, not two.
 - **Incoming WS op echoes are not written to the replica.** A tab drops its
-  own echoes (matching `client_id`) and uses others only to update live
-  views; the authoritative apply is always the cursor pull that the `seq`
-  nudge triggers. A lost frame therefore costs latency, never correctness.
+  own echoes, matched by `client_id`, and uses other tabs' echoes only to
+  update live views. The authoritative apply is always the cursor pull that
+  the `seq` nudge triggers. A lost frame therefore costs latency, never
+  correctness.
 
 ## The changes feed
 
@@ -74,36 +76,43 @@ Two things are deliberate here:
 read transaction:
 
 - `next_since` advances to the last raw row *scanned*, not the last distinct
-  entity — so an entity whose older row shares a window with someone else's
-  newer row can't be skipped.
+  entity. Otherwise an entity whose older row shares a window with someone
+  else's newer row could be skipped.
 - Within the window, `(kind, entity_id)` pairs are deduped in insertion
-  order, then hydrated: blocks ship with their refs, plus any "dependency
-  pages" those refs target, so a window boundary can't deliver a block whose
+  order, then hydrated. Blocks ship with their refs, plus any "dependency
+  pages" those refs target, so a window boundary cannot deliver a block whose
   target page the client has never seen. Entities that no longer exist ship
   as tombstones.
+- Hydration is batched, not per-id. `sync_core.chunk_ids` splits the window's
+  ids into groups of at most 500 — comfortably under SQLite's historic
+  999-parameter cap — so blocks, refs, pages and sidebar entries each cost a
+  chunk-bounded number of `WHERE x IN (...)` statements instead of two per id.
+  `sync_core.hydrate_in_order` then puts the id-keyed results back into the
+  caller's original order and drops ids nothing was found for, which is what
+  reproduces the old per-id loop's ordering and its "missing row → tombstone"
+  semantics. Both helpers are pure; the queries and dict-building stay in
+  `routes_sync.py`. Response shapes are unchanged.
 - The client loops `pull → apply → cursor = next_since` until
-  `next_since >= latest_seq` (`web/src/sync/replicaSync.ts`; the cursor
-  persists in the replica's `sync_client_meta` table).
+  `next_since >= latest_seq` (`web/src/sync/replicaSync.ts`). The cursor
+  persists in the replica's `sync_client_meta` table.
 
 Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
-`reset: true` (the client's cursor is ahead of the journal — the DB was
-rebuilt) or a changed `generation` token. Both mean "this is a different
+`reset: true` (the client's cursor is ahead of the journal, so the database
+was rebuilt) or a changed `generation` token. Both mean "this is a different
 database; your cursor is meaningless".
 
 ## Title activation across online and offline paths
 
 Snapshot and changes payloads both carry the required
 `plain_space_title_canonicalization` boolean alongside `generation`. This is a
-server-owned rollout switch, not a client preference: normal server startup
+server-owned rollout switch, not a client preference. Normal server startup
 does not change it, so an unactivated database stays inactive, and startup
 never runs the padded-title data migration. A later explicit audited apply
 sets the flag and rotates the server generation in the same transaction.
-Fresh importer databases reuse
-that audit/apply path on their temporary database before publication, so they
-arrive active rather than waiting for startup.
+Fresh importer databases run that same audit/apply path against their
+temporary database before publication, so they arrive active.
 
-The server and replica deliberately make the same decision at their I/O
-boundaries:
+Server and replica make the same decision at their I/O boundaries:
 
 | State | Online server/API | Offline replica |
 |---|---|---|
@@ -111,166 +120,174 @@ boundaries:
 | Inactive | Preserve leading/trailing ordinary U+0020 exactly, allowing legacy padded rows to resolve to themselves | Persist `"0"`; preserve boundary ordinary spaces and keep queued wire operations unchanged |
 | Active | Strip only boundary U+0020 on creation/read; keep internal ordinary spaces and NBSP exact | Persist `"1"`; strip boundary U+0020 before local page lookup/creation and optimistic replay |
 
-Before normal local application, `findOpTitleViolation()` preflights every
-explicit page target and ref-derived title in the complete op batch. A `#`,
-`[[`, or `]]` violation therefore refuses the whole gesture before optimistic
-mutation. `enqueueBatch()` repeats that preflight before its transaction, so no
-`pending_ops` row or partial optimistic state is persisted. The offline
-`POST /api/pages` shim returns 422 before creating its negative page or queued
-`create_page` op. Authoritative snapshot/feed payloads are not user writes and
-remain accepted.
+Before applying anything locally, `findOpTitleViolation()` checks every
+explicit page target and ref-derived title in the whole op batch. A `#`, `[[`
+or `]]` violation refuses the whole gesture before any optimistic mutation.
+`enqueueBatch()` repeats that check before its transaction, so no
+`pending_ops` row or partial optimistic state is persisted either. The
+offline `POST /api/pages` shim returns 422 before creating its negative page
+or queueing a `create_page` op. Authoritative snapshot and feed payloads are
+not user writes, and remain accepted.
 
-The replica persists an accepted flag in `sync_client_meta` in the same
+The replica persists the accepted flag in `sync_client_meta` in the same
 transaction as the accepted payload, **before** reconciling and replaying
-pending optimistic batches. That order is load-bearing: after activation it
-first canonicalizes negative-id pages created under the inactive rule. It
-remaps their blocks and refs onto a canonical authoritative page from the
-accepted feed when one exists, or retitles the negative page in place
-otherwise. It then replays the unchanged durable wire operations under the
-new rule, so neither padded-page residue nor optimistic user state is lost.
+pending optimistic batches. That order matters. After activation the replica
+first canonicalizes negative-id pages created under the inactive rule: their
+blocks and refs move onto a canonical authoritative page from the accepted
+feed if one exists, and otherwise the negative page is retitled in place.
+Only then does it replay the unchanged durable wire operations under the new
+rule. Neither padded-page residue nor optimistic user state is lost.
 
-Activation's generation rotation intentionally forces a full rebootstrap. A
-client that receives the first post-migration changes payload sees the new
-generation and returns `needs-bootstrap` **before** mutating cursor,
-generation, or activation metadata; the snapshot then installs the canonical
-server graph and metadata together and replays pending intent. The apply
-route sends one forced seq frame after commit:
-`{type:"seq", seq:<actual journal max>, force:true, generation:<new token>}`.
-A current client pulls even when that real seq equals its cursor, discovers
-the generation mismatch, and reboots immediately. The force bit never changes
-or fabricates the cursor, so the next ordinary higher-seq frame remains
-observable. Reconnect pull plus the feed's generation check remain the
-correctness mechanism if the best-effort frame is lost.
+Activation's generation rotation forces a full rebootstrap. A client that
+receives the first post-migration changes payload sees the new generation and
+returns `needs-bootstrap` **before** touching its cursor, generation or
+activation metadata. The snapshot then installs the canonical server graph
+and metadata together, and replays pending intent. The apply route sends one
+forced seq frame after commit:
 
-Applied-op echoes also use authoritative stored titles: create, create-page,
-and moves with a resolved page target replace the caller spelling with the
-title of the page row the server actually changed (blank fallback, control
-normalization, and active boundary stripping included). Same-page moves with
-no `page_title` remain null. If that authoritative row cannot be loaded,
-broadcast assembly fails closed and the op transaction rolls back rather than
-sending caller spelling. Other tabs therefore refetch the authoritative page
-key while still relying on the journal pull for state.
+    {type:"seq", seq:<actual journal max>, force:true, generation:<new token>}
+
+A current client pulls even when that real seq equals its cursor, finds the
+generation mismatch, and reboots immediately. The force bit never changes or
+fabricates the cursor, so the next ordinary higher-seq frame is still
+observable. If that best-effort frame is lost, the reconnect pull plus the
+feed's generation check are still the correctness mechanism.
+
+Applied-op echoes also carry authoritative stored titles. For `create`,
+`create_page` and moves with a resolved page target, the caller's spelling is
+replaced with the title of the page row the server actually changed —
+including the blank-title fallback, control normalization, and boundary
+stripping when active. Same-page moves with no `page_title` stay null. If
+that authoritative row cannot be loaded, broadcast assembly fails closed: the
+op transaction rolls back rather than sending caller spelling. Other tabs
+therefore refetch the authoritative page key, while still relying on the
+journal pull for state.
 
 ## Post-commit nudges
 
-Every route whose commit touches a changes-journaled table (`blocks`,
-`pages`, or `sidebar_entries` — the three with triggers in `schema.py`
-`SERVER_DDL`) must send a WS `{type:"seq", seq}` nudge immediately after
-that commit, so connected replicas know to pull the new window. A committed
-metadata/generation change that may leave `changes.seq` unchanged must send
-the same frame with `force:true` and the new `generation`; `seq` is still the
-actual journal maximum, never a synthetic future value. Nudges are
-a latency optimization, never a correctness dependency — see "An online
-edit, end to end" above). `notify.py` provides `commit_and_nudge_threadpool`
-for sync-def routes (hopping back to the event loop via
-`anyio.from_thread.run`) so a route has one line to remember instead of
-two; async routes call `db.commit()` then `await nudge(request, db)`
-directly. Routes whose commit and
-nudge can't be adjacent — `delete_asset` commits before best-effort
-unlinking the file, and `POST /api/ops` broadcasts the applied-op echo
-between the commit and the seq nudge — call `db.commit()` and
-`nudge`/`nudge_threadpool` separately instead. Most routes nudge
-unconditionally after every commit (harmless even when nothing changed);
-`cleanup_journal` is the one exception, guarding the nudge on `deleted`
-being non-empty, because it runs on every journal page load and a no-op
-run (the common case) never advances `changes.seq`.
+Three tables have change-journal triggers in `schema.py`'s `SERVER_DDL`:
+`blocks`, `pages` and `sidebar_entries`. Every route whose commit touches one
+of them must send a WS `{type:"seq", seq}` nudge immediately after that
+commit, so connected replicas know to pull the new window. A committed
+metadata or generation change that may leave `changes.seq` unchanged must
+send the same frame with `force:true` and the new `generation`; `seq` is
+still the actual journal maximum, never a synthetic future value. Nudges are
+a latency optimization, never a correctness dependency (see "An online edit,
+end to end" above).
 
-Nothing enforces this automatically: a new route that writes to a
-journaled table without calling one of these helpers is a silent gap, the
-kind that let `/api/journal/cleanup` (bean pkm-getl) delete pages and
-advance `changes.seq` for years without ever nudging — replicas kept
-showing deleted daily pages until an unrelated mutation happened to nudge
-them. `server/tests/test_journal_advancing_contract.py` enumerates every
-journal-advancing route and asserts each one emits a seq nudge; a route
-that starts writing to `blocks`/`pages`/`sidebar_entries` needs a case
-added there, or it ships with the same silent gap.
+`notify.py` provides `commit_and_nudge_threadpool` for sync-def routes,
+hopping back to the event loop via `anyio.from_thread.run`, so such a route
+has one line to remember instead of two. Async routes call `db.commit()` then
+`await nudge(request, db)` directly. Routes whose commit and nudge cannot be
+adjacent call `db.commit()` and `nudge`/`nudge_threadpool` separately:
+`delete_asset` commits before best-effort unlinking of the file, and
+`POST /api/ops` broadcasts the applied-op echo between the commit and the seq
+nudge. Most routes nudge unconditionally after every commit, which is
+harmless even when nothing changed. `cleanup_journal` is the one exception:
+it guards the nudge on `deleted` being non-empty, because it runs on every
+journal page load and a no-op run — the common case — never advances
+`changes.seq`.
 
-Asset routes are a partial, not blanket, exception: `assets` itself has no
-changes-journal trigger, so `upload_asset` (writes only `assets`) correctly
-sends no nudge. `delete_asset` is different — when the deleted asset has
-referencing blocks, it strips the reference token from each one and either
-`UPDATE`s or `DELETE`s the block (`routes_assets.py` ~184-188), which *is*
-a `blocks` write and does advance `changes.seq`. In that branch the nudge
-is load-bearing, exactly like every other journal-advancing route, not
-incidental surplus — `delete_asset` is listed in
-`test_journal_advancing_contract.py` with a referencing-block scenario for
-this reason. Only the orphan-delete branch (no referencing blocks, so the
-commit touches `assets` alone) sends a nudge that changes nothing.
+Nothing enforces this automatically. A new route that writes to a journalled
+table without calling one of these helpers is a silent gap. That is how
+`/api/journal/cleanup` came to delete pages and advance `changes.seq` for
+years without ever nudging: replicas kept showing deleted daily pages until
+an unrelated mutation happened to nudge them.
+`server/tests/test_journal_advancing_contract.py` enumerates every
+journal-advancing route and asserts each one emits a seq nudge. A route that
+starts writing to `blocks`, `pages` or `sidebar_entries` needs a case added
+there, or it ships with the same gap.
 
-### Hub fan-out: concurrent, per-client ordered (pkm-nn57)
+Asset routes are a partial exception, not a blanket one. The `assets` table
+has no change-journal trigger, so `upload_asset`, which writes only `assets`,
+correctly sends no nudge. `delete_asset` is different. When the deleted asset
+has referencing blocks, it strips the reference token from each one and
+either `UPDATE`s or `DELETE`s the block (`routes_assets.py` ~184-188), which
+is a `blocks` write and does advance `changes.seq`. In that branch the nudge
+is required, exactly like every other journal-advancing route, which is why
+`delete_asset` is listed in `test_journal_advancing_contract.py` with a
+referencing-block scenario. Only the orphan-delete branch — no referencing
+blocks, so the commit touches `assets` alone — sends a nudge that changes
+nothing.
 
-`Hub.broadcast()` (`ws.py`) hands each frame to a small bounded
-per-client queue (`QUEUE_SIZE`) and returns without waiting on any
-client's network send. Each connection has its own "drain" task that is
-the sole consumer of that client's queue, sending one frame at a time
-with a `SEND_TIMEOUT`-bounded `send_json`. This gives two properties at
-once: fan-out across clients is fully concurrent (a stalled client no
-longer adds its timeout to every other client's delivery, or to the
-write path that called `broadcast()` — previously a sequential
-await-with-timeout loop meant N stalled clients cost N seconds), while
-delivery to any one client stays strictly in the order `broadcast()` was
-called, because a single-consumer FIFO queue can't reorder its own
-items. A client is disconnected outright — never buffered without bound
-or waited on further — if its queue fills up (it isn't draining fast
-enough) or a send doesn't complete within `SEND_TIMEOUT`. Disconnecting
-also closes the socket (best-effort, errors swallowed): the connection
-can still be alive at the transport level even though the Hub has given
-up on it, and without an actual close the web client's `onclose` handler
-never fires, so it would otherwise sit wedged until a tab reload instead
-of reconnecting and resyncing from its cursor — which is the correctness
-mechanism here regardless of nudge delivery (see above). This is
-proportionate for a single-user server with a handful of connected
-replicas, not a design
-meant to scale to many concurrent connections — there is deliberately no
-separate cap on total connection count, since the per-client queue bound
-and send timeout already bound the cost that matters at this scale.
+### Hub fan-out: concurrent, per-client ordered
+
+`Hub.broadcast()` (`ws.py`) hands each frame to a small bounded per-client
+queue (`QUEUE_SIZE`) and returns without waiting on any client's network
+send. Each connection has its own drain task, the sole consumer of that
+client's queue, sending one frame at a time with a `SEND_TIMEOUT`-bounded
+`send_json`.
+
+That gives two properties at once. Fan-out across clients is fully
+concurrent: a stalled client no longer adds its timeout to every other
+client's delivery, or to the write path that called `broadcast()`. (The
+previous sequential await-with-timeout loop meant N stalled clients cost N
+seconds.) And delivery to any one client stays strictly in `broadcast()`
+call order, because a single-consumer FIFO queue cannot reorder its own
+items.
+
+A client is disconnected outright, never buffered without bound or waited on
+further, if its queue fills up or a send does not complete within
+`SEND_TIMEOUT`. Disconnecting also closes the socket, best-effort with errors
+swallowed. The connection can still be alive at the transport level even
+though the Hub has given up on it, and without an actual close the web
+client's `onclose` handler never fires — so it would sit wedged until a tab
+reload instead of reconnecting and resyncing from its cursor, which is the
+correctness mechanism here regardless of nudge delivery.
+
+This is sized for a single-user server with a handful of connected replicas,
+not for many concurrent connections. There is no separate cap on total
+connection count, because the per-client queue bound and the send timeout
+already bound the cost that matters at this scale.
 
 ## Offline editing and reconnect
 
 While disconnected, reads and search are served from the replica through the
-local API shim, and edits keep enqueueing durably (each op optimistically
-applied to the replica under a per-op SAVEPOINT; `base_text_hash` — the
-sha256 of the text the edit was based on — is captured *before* the apply).
+local API shim, and edits keep enqueueing durably. Each op is optimistically
+applied to the replica under its own SAVEPOINT, and `base_text_hash` — the
+sha256 of the text the edit was based on — is captured *before* that apply.
 The header shows "Offline — N changes pending".
 
-Every shim response builder declares a **generated** return type (`PagePayload`,
-`JournalPayload`, `SearchPayload`, …) rather than `unknown` (pkm-60bf), so a
-server-side field rename the shim does not follow fails `pnpm typecheck`
-instead of surfacing as a wrong-shaped payload the first time a user goes
-offline. `shim_parity.json` pins recorded *values* for a handful of requests;
-the return types pin the *shape* of every builder, including branches no
-fixture exercises. `localApi/payloadTypes.test.ts` guards the declarations
-themselves against being widened back.
+Every shim response builder declares a **generated** return type
+(`PagePayload`, `JournalPayload`, `SearchPayload`, …) rather than `unknown`.
+A server-side field rename the shim does not follow therefore fails
+`pnpm typecheck`, instead of surfacing as a wrong-shaped payload the first
+time a user goes offline. `shim_parity.json` pins recorded *values* for a
+handful of requests; the return types pin the *shape* of every builder,
+including branches no fixture exercises. `localApi/payloadTypes.test.ts`
+guards the declarations themselves against being widened back.
 
-Being precise about what that does and does not cover, because the difference
-is easy to lose: `ReplicaDb.select<T>` **asserts** its type argument
-(`selectObjects(...) as T[]`) — it cannot check a database row against a type.
-So a builder that passed a generated model straight to `select<T>` would look
-annotated while checking nothing. Every query that feeds a response therefore
-names a *local row* type and maps into a checked object literal
-(`rows.map((row): PageMeta => ({ … }))`); that map, plus the payload envelope
-the builder returns, is what the compiler actually verifies. What remains
-unchecked is the row type against the real SQL — a renamed *column* is still a
-runtime failure, which is what `shim_parity.json` is for.
+What that does and does not cover is easy to lose sight of.
+`ReplicaDb.select<T>` **asserts** its type argument
+(`selectObjects(...) as T[]`); it cannot check a database row against a type.
+A builder that passed a generated model straight to `select<T>` would look
+annotated while checking nothing. So every query feeding a response names a
+*local row* type and maps into a checked object literal —
+`rows.map((row): PageMeta => ({ … }))`. That map, plus the payload envelope
+the builder returns, is what the compiler verifies. What stays unchecked is
+the row type against the real SQL: a renamed *column* is still a runtime
+failure, which is what `shim_parity.json` is for.
 
-Two replica reads walk the block tree recursively, and both are **uncapped and
-cycle-safe** rather than depth-limited (pkm-8kw2): `localApi/tree.ts`'s
-ancestor CTE, which builds the breadcrumb trails the shim's payloads carry,
-and `localOps.ts::subtreeUids`, which enumerates a subtree for optimistic
-delete/move. Each carries a `path` column of `,uid,uid,…,` and recurses only
-while `instr(path, ',' || b.uid || ',') = 0`, so a trail or subtree is
-complete however deep it goes, and a parent cycle in a damaged replica
-terminates at the repeat instead of running away. This mirrors the server's
-`_fetch_ancestors` exactly — see
+Two replica reads walk the block tree recursively, and both are **uncapped
+and cycle-safe** rather than depth-limited: `localApi/tree.ts`'s ancestor
+CTE, which builds the breadcrumb trails the shim's payloads carry, and
+`localOps.ts::subtreeUids`, which enumerates a subtree for an optimistic
+delete or move. Each carries a `path` column of `,uid,uid,…,` and recurses
+only while `instr(path, ',' || b.uid || ',') = 0`. A trail or subtree is
+therefore complete however deep it goes, and a parent cycle in a damaged
+replica terminates at the repeat instead of running away.
+
+This mirrors the server's `_fetch_ancestors` exactly — see
 [backend.md](backend.md#breadcrumbs-and-recursive-traversal) — and the
-mirroring is the point: a breadcrumb read offline must return the same trail
-as the same read online, so all three statements change together or not at
-all. Both previously stopped at `depth < 100`, which truncated a breadcrumb
-trail silently on the read path and, worse, let `subtreeUids` under-report a
-subtree on the *write* path: an optimistic `delete` left descendants below
-depth 100 in the replica with their parent gone, and a cross-page `move` left
-them holding the old `page_id`, so the replica disagreed with the server about
-which page owned them until the next full resync.
+mirroring is the requirement: a breadcrumb read offline must return the same
+trail as the same read online, so all three statements change together or not
+at all. Both replica reads previously stopped at `depth < 100`. On the read
+path that truncated a breadcrumb trail without saying so. On the write path
+it was worse: `subtreeUids` under-reported a subtree, so an optimistic
+`delete` left descendants below depth 100 in the replica with their parent
+gone, and a cross-page `move` left them holding the old `page_id`. The
+replica then disagreed with the server about which page owned them until the
+next full resync.
 
 ```mermaid
 sequenceDiagram
@@ -297,7 +314,7 @@ sequenceDiagram
 ```
 
 The reconnect ordering in `SyncProvider` is fixed: **drain the queue first,
-then pull, then refetch views** — so the pull observes the server state that
+then pull, then refetch views.** The pull then observes server state that
 already includes this client's own offline edits.
 
 Conflict resolution happens entirely server-side at push time
@@ -311,92 +328,103 @@ Conflict resolution happens entirely server-side at push time
 | Block was deleted meanwhile | Edit appended to **today's daily page** as `[[conflict]] (original block deleted) …` |
 | No hash sent (legacy/CLI callers) | Unconditional last-write-wins |
 
-Nothing is silently discarded; conflict blocks are ordinary blocks, so they
-arrive at every client via the normal feed and are findable via search and
-the `[[conflict]]` page's backlinks.
+Nothing is discarded. Conflict blocks are ordinary blocks, so they reach
+every client through the normal feed, and they are findable through search
+and the `[[conflict]]` page's backlinks.
 
 ## The replica and its recovery invariants
 
-The replica is a real SQLite database (sqlite-wasm) running in a dedicated
-worker on the OPFS SAHPool VFS — one file, `/pkm-replica.sqlite3`, holding
-both the graph copy (the server's `BASE_DDL`, replicated via the generated
+The replica is a real SQLite database (sqlite-wasm) in a dedicated worker on
+the OPFS SAHPool VFS. One file, `/pkm-replica.sqlite3`, holds both the graph
+copy (the server's `BASE_DDL`, replicated via the generated
 `web/src/replica/baseSchema.gen.ts`) and the client-only tables
 (`pending_ops`, `sync_client_meta`).
 
 The guiding invariant: **the replica is a cache; the queue is the user's
 intent.** A snapshot can always be re-fetched; an unflushed pending op
-cannot. Consequences (`web/src/replica/client.ts`, `recoveryGate.ts`,
-`web/src/sync/opQueue.ts`):
+cannot. What follows from that (`web/src/replica/client.ts`,
+`recoveryGate.ts`, `web/src/sync/opQueue.ts`):
 
-- Optimistic local application is best-effort — an op that can't apply
+- Optimistic local application is best-effort. An op that cannot apply
   locally is skipped, never dropped from the queue.
 - Every database-mutating RPC passes through a worker-owned FIFO recovery
   gate. Recovery fingerprints the durable pending rows before starting and
   re-checks them immediately before the destructive step, aborting
-  non-destructively if they changed — no acknowledged enqueue can be erased.
+  non-destructively if they changed. No acknowledged enqueue can be erased.
 - After every snapshot or feed window, pending batches are re-applied on top
   (`reapplyPending`), so later edits don't capture stale base hashes.
-- A rejected batch (4xx) is marked *poisoned* and delivery pauses;
-  `SyncProvider` runs an authoritative snapshot repair that reapplies the
-  non-poisoned batches, drops the poisoned row, and resumes — failure stays
-  visible with a Retry.
+- A rejected batch (4xx) is marked *poisoned* and delivery pauses.
+  `SyncProvider` then runs an authoritative snapshot repair: reapply the
+  non-poisoned batches, drop the poisoned row, resume. Failure stays visible,
+  with a Retry.
 
-**Opening the replica can transiently fail, and that is not a sync problem**
-(`replica/openRetry.ts`, pkm-c9hp). The SAHPool VFS takes an exclusive
-`SyncAccessHandle` per pooled file, and a given OPFS file backs only *one*
-open handle at a time. On a page reload — a user's F5, or Playwright
+### Opening the replica can fail, and that is a storage problem, not a sync problem
+
+Two failures happen when a replica worker starts, not during sync. Both are
+races between an outgoing worker and its replacement, and both fixes live in
+pure policy modules: `replica/openRetry.ts` and `replica/poolCapacity.ts`.
+
+**The open can throw.** The SAHPool VFS takes an exclusive
+`SyncAccessHandle` per pooled file, and an OPFS file backs only one open
+handle at a time. On a page reload — a user pressing F5, or Playwright
 navigating with a full document load — the fresh replica worker calls
 `installOpfsSAHPoolVfs` before the terminating worker has released its
 handles, and sqlite-wasm throws "Access Handles cannot be created if there is
-another open Access Handle". The fix is a bounded retry around the open, in a
-pure policy module.
+another open Access Handle". The fix is a bounded retry around the open.
 
-The same race has a second, quieter outcome: the install can *succeed* with a
-pool too small to write (`replica/poolCapacity.ts`, pkm-ndcu). The SAHPool
-VFS is a fixed pool of pre-opened OPFS files and **every** file SQLite opens
-claims a slot — the database, its rollback journal, any temp file.
+**The open can also succeed with a pool too small to write.** The SAHPool
+VFS is a fixed pool of pre-opened OPFS files, and *every* file SQLite opens
+claims a slot: the database, its rollback journal, any temp file.
 `installOpfsSAHPoolVfs` sizes the pool from whatever it finds in its opaque
-directory and only falls back to the default capacity of 6 when it finds
-*nothing*, so a worker that enumerates that directory while a sibling worker
-is still creating the pool files can come up with a capacity of one. The
-database file then takes the only slot and every write transaction fails —
-for the life of that worker, since nothing grows the pool afterwards — with
-`SQLITE_CANTOPEN` (the VFS swallows its own "SAH pool is full" message).
-Reads keep working, so the damage is invisible until the first edit. The fix
+directory, and falls back to the default capacity of 6 only when it finds
+nothing. A worker that enumerates that directory while a sibling worker is
+still creating the pool files can therefore come up with a capacity of one.
+The database file takes the only slot, and every write transaction then fails
+with `SQLITE_CANTOPEN` for the life of that worker, since nothing grows the
+pool afterwards. The VFS swallows its own "SAH pool is full" message, and
+reads keep working, so the damage is invisible until the first edit. The fix
 is to top the pool up to `MIN_POOL_CAPACITY` immediately after the install,
-before the database is opened; `addCapacity` creates fresh randomly-named
+before the database is opened. `addCapacity` creates fresh randomly-named
 files, so it never contends with handles the outgoing worker still holds.
 
-Both failures can hit an *enqueue*, and there `opQueue` treats them like quota
-exhaustion: "cannot persist locally right now" is not a server rejection, so
-firing `onDesync` — whose authoritative repair would wipe the active outline
-back to the edit-less server state and detach the editor mid-keystroke — is
-the wrong answer. Instead the ops join an **ordered in-memory fallback lane**
-(pkm-49eh) and are delivered by the ordinary drain, so they stay under the
-same connectivity, backoff and recovery-barrier policy as durable rows. Each
-entry records how many durable batches were queued ahead of it and is posted
-only once each of those has reached a terminal state — delivered, or poisoned
-and therefore never deliverable — so a retained op does not overtake an older
-batch, and a batch persisted after it waits its turn. Two things can still
-delay an entry past a newer batch, and both self-correct: a `pendingCount`
-that was already stale when the entry was appended, and batches a rebase
-flushed away. The reconciliation for both is that observing an empty durable
-queue clears every count, which is also what stops the lane waiting forever on
-a predecessor that will never arrive. An entry's `batch_id` is minted once so a
-retry re-POSTs a byte-identical payload; it counts towards "N changes
-pending"; and it is retained until it is delivered, the server rejects it with
-a 4xx (the one discard the queue makes on its own, which raises the repair
-barrier and calls `onDesync`), or the queue is disposed. Before pkm-49eh these
-ops were POSTed inline from `enqueue()`, which offline meant they were neither
-persisted nor retryable. Worth knowing because the pre-fix symptom of the
-*classification* half was a **"Server rejected a change"** banner, which reads
-like a server-side rejection or a `resyncSeq` bug and cost a misdirected
-investigation: when that banner appears, check the storage layer first. The
-classifier is a deny-nothing whitelist, so any *new* local-storage error shape
-reintroduces the wipe — extend it rather than adding another symptom fix.
+**Either failure can hit an enqueue**, and `opQueue` treats both like quota
+exhaustion. "Cannot persist locally right now" is not a server rejection, so
+firing `onDesync` is the wrong answer: its authoritative repair would wipe
+the active outline back to the edit-less server state and detach the editor
+mid-keystroke. Instead the ops join an **ordered in-memory fallback lane**
+and are delivered by the ordinary drain, under the same connectivity, backoff
+and recovery-barrier policy as durable rows.
 
-Three distinct triggers cause a rebootstrap, all funnelled through the same
-recovery coordinator:
+The lane preserves order. Each entry records how many durable batches were
+queued ahead of it, and is posted only once each of those has reached a
+terminal state: delivered, or poisoned and therefore never deliverable. A
+retained op cannot overtake an older batch, and a batch persisted after it
+waits its turn. Two things can still delay an entry past a newer batch, and
+both self-correct: a `pendingCount` that was already stale when the entry was
+appended, and batches a rebase flushed away. Both reconcile the same way —
+observing an empty durable queue clears every count, which is also what stops
+the lane waiting forever on a predecessor that will never arrive.
+
+An entry's `batch_id` is minted once, so a retry re-POSTs a byte-identical
+payload. It counts towards "N changes pending". It is retained until it is
+delivered, until the server rejects it with a 4xx (the one discard the queue
+makes on its own, which raises the repair barrier and calls `onDesync`), or
+until the queue is disposed. Before this lane existed, these ops were POSTed
+inline from `enqueue()`, which offline meant they were neither persisted nor
+retryable.
+
+One diagnostic note, because it cost a misdirected investigation once. The
+symptom of a misclassified storage error is a **"Server rejected a change"**
+banner, which reads like a server-side rejection or a `resyncSeq` bug. When
+that banner appears, check the storage layer first. The classifier is a
+whitelist that denies nothing, so any *new* local-storage error shape
+reintroduces the wipe: extend the classifier rather than adding another
+symptom fix.
+
+### Rebootstrap triggers
+
+Three triggers cause a rebootstrap, all funnelled through the same recovery
+coordinator:
 
 | Trigger | Detected by | Kind |
 |---|---|---|
@@ -406,32 +434,32 @@ recovery coordinator:
 
 ## Ancillary details
 
-- **Socket** (`web/src/sync/socket.ts`): fixed 2 s reconnect interval (no
-  backoff), 30 s ping keepalive. `resyncSeq` — a React counter bumped on
-  reconnect-after-gap or repair — is what makes visible views refetch; it is
-  separate from the replica's persisted cursor.
-- **Connectivity vs delivery health are reported independently**: the app
-  can be online but with delivery blocked (poisoned batch), and the UI says
+- **Socket** (`web/src/sync/socket.ts`): fixed 2 s reconnect interval, no
+  backoff, with a 30 s ping keepalive. `resyncSeq` — a React counter bumped
+  on reconnect-after-gap or repair — is what makes visible views refetch. It
+  is separate from the replica's persisted cursor.
+- **Connectivity and delivery health are reported independently.** The app
+  can be online with delivery blocked by a poisoned batch, and the UI says
   which.
 - **Online-only features** degrade explicitly rather than queueing: asset
-  upload, sidebar edits, page deletion, and `{{[[query]]}}` blocks say
-  "online only" when offline. The `/files` browser and the LLM assistant are
-  online-only wholesale — neither `/api/assets/*` nor `/api/assistant/*` has
-  an offline shim, and both are orthogonal to sync (the assistant reaches the
-  graph server-side, through the API, not through the replica).
-- **Service worker**: precaches the app shell (so a cold offline start
-  boots) and keeps a bounded runtime cache of recently viewed assets;
-  Mermaid's chunk family is deliberately precached so diagrams render
-  offline (enforced by a build budget + an offline Playwright test).
-- **`pkm` CLI / MCP writes** ride the same path: fresh `batch_id` per
-  command, `base_text_hash` on updates — so agent edits get the same
+  upload, sidebar edits, page deletion and `{{[[query]]}}` blocks say "online
+  only" when offline. The `/files` browser and the LLM assistant are
+  online-only wholesale. Neither `/api/assets/*` nor `/api/assistant/*` has
+  an offline shim, and both are orthogonal to sync — the assistant reaches
+  the graph server-side, through the API, not through the replica.
+- **Service worker**: precaches the app shell, so a cold offline start boots,
+  and keeps a bounded runtime cache of recently viewed assets. Mermaid's
+  chunk family is precached on purpose so diagrams render offline, enforced
+  by a build budget and an offline Playwright test.
+- **`pkm` CLI and MCP writes** ride the same path: a fresh `batch_id` per
+  command, and `base_text_hash` on updates. Agent edits get the same
   idempotency and conflict preservation as browser edits.
 
 ## Why it's debuggable
 
-Everything stateful is inspectable SQLite: the journal is rows in the server
-DB, the queue is rows in the replica DB, and the only moving parts are a
-cursor, a generation token, the title-canonicalization activation flag, and
-content hashes. There are no vector clocks
-and no merge machinery; every failure mode reduces to "pull the feed again"
-or "re-snapshot and replay the queue".
+Everything stateful is inspectable SQLite. The journal is rows in the server
+database; the queue is rows in the replica database. The only moving parts
+are a cursor, a generation token, the title-canonicalization flag, and
+content hashes. There are no vector clocks and no merge machinery, and every
+failure mode reduces to "pull the feed again" or "re-snapshot and replay the
+queue".

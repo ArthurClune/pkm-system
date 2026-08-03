@@ -142,7 +142,7 @@ and from it `web/src/api/types.d.ts`. Server route/model changes therefore
 require regenerating both (`pkm.server.openapi_dump`, `pnpm gen-types`) and
 committing them with the change.
 
-## Load-bearing decisions
+## Key decisions
 
 Condensed from [`docs/design.md`](../design.md), which has the full list and
 links to the specs:

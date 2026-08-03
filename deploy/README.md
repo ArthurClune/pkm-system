@@ -89,7 +89,7 @@ derived from what's in `backups/` (`data/`).
 
 ## Image descriptions (optional)
 
-LLM image descriptions (pkm-zc0c) are off until an OpenAI key is available.
+LLM image descriptions are off until an OpenAI key is available.
 No plist edits needed — drop the key into a file and restart:
 
 ```bash
@@ -110,7 +110,7 @@ up the key.
 
 ## Assistant prerequisites
 
-The embedded assistant (pkm-wn2s) spawns the `claude` CLI via the Claude
+The embedded assistant spawns the `claude` CLI via the Claude
 Agent SDK. The launchd service user therefore needs:
 
 - the Claude Agent SDK's bundled `claude` binary (no separate node or CLI install required); a system `claude` install only matters if the SDK's `cli_path` is explicitly overridden

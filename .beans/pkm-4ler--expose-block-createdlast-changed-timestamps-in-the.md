@@ -5,7 +5,7 @@ status: completed
 type: feature
 priority: normal
 created_at: 2026-08-01T18:38:10Z
-updated_at: 2026-08-03T19:40:46Z
+updated_at: 2026-08-03T19:56:11Z
 blocked_by:
     - pkm-r7k8
 ---
@@ -58,7 +58,9 @@ margin column, tinted by age, behind a "Show timestamps" item in the page menu
 - Preference: blockStampsPref.ts (Core) + useBlockStampsPref.ts (Shell) +
   BlockStampsContext, provided by App.tsx.
 - The column is a PROP from PageView only: journal and sidebar stay bare.
-- Four --color-stamp-* tokens in all three theme blocks; hidden below 600px.
+- Three --color-stamp-* tokens (week/month/year) in all three theme blocks; the older band is deliberately unfilled (no token, no fill rule). Hidden below 600px.
+
+Visual pass against the running app (2026-08-03): Arthur judged the four-band tint backwards for a mature database, where most rows are "older" -- the commonest rows shouldn't carry the most ink. Decision: drop the older-band fill, keep the other three bands and the stampBand/class plumbing unchanged.
 - Docs: frontend.md module map, styling section, and two invariant notes.
 
 Out of scope (as designed): bullet hover tooltips, a block-menu info entry,

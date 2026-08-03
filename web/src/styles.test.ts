@@ -638,9 +638,9 @@ describe("focused search stays inside narrow phone viewports (pkm-vszf)", () => 
 });
 
 describe("block stamps (pkm-4ler)", () => {
-  const BANDS = ["week", "month", "year", "older"] as const;
+  const BANDS = ["week", "month", "year"] as const;
 
-  test("the four age-band tokens exist in all three theme blocks", () => {
+  test("the three tinted age-band tokens exist in all three theme blocks", () => {
     const blocks = [
       ruleFor(":root"),
       ruleFor(':root:not([data-theme="light"])'),
@@ -653,7 +653,7 @@ describe("block stamps (pkm-4ler)", () => {
     }
   });
 
-  test("light and dark values differ for every band", () => {
+  test("light and dark values differ for every tinted band", () => {
     const light = ruleFor(":root");
     const dark = ruleFor(':root[data-theme="dark"]');
     for (const band of BANDS) {
@@ -662,11 +662,23 @@ describe("block stamps (pkm-4ler)", () => {
     }
   });
 
-  test("each band class fills with its own token", () => {
+  test("each tinted band class fills with its own token", () => {
     for (const band of BANDS) {
       expect(rulesFor(`.block-stamp-${band}`))
         .toContain(`background: var(--color-stamp-${band});`);
     }
+  });
+
+  // The user's verdict on the running app: in a mature database most rows
+  // are "older", so painting ink behind the commonest rows is backwards --
+  // only genuinely recent-ish material should carry a tint. This must stay
+  // true even if someone reaches for a fourth token again later.
+  test("the older band is deliberately left untinted", () => {
+    expect(styles).not.toMatch(/--color-stamp-older\s*:/);
+    expect(styles).not.toMatch(/\.block-stamp-older\s*\{[^}]*background\s*:/);
+    // .block-stamp's own body is what makes an unstyled older cell render
+    // with no fill at all.
+    expect(rulesFor(".block-stamp")).toContain("background: none;");
   });
 
   test("the cell is a fixed-width right-aligned column that never wraps", () => {

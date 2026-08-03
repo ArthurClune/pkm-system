@@ -43,14 +43,16 @@
    * white pane and left the outline structureless (pkm-9kye) */
   --color-bullet: #d2e0ea;
   --color-bullet-ring: #c6d7e3;
-  /* block stamp bands (pkm-4ler): warm for fresh, cooling to a barely-there
-   * tint for old. The strongest colour lands on the rare recent rows, so a
-   * page of entirely old material reads as almost untinted. Solid fills, not
-   * alpha, so they stay predictable over .block-row:hover and .focused. */
+  /* block stamp bands (pkm-4ler): warm for fresh, cooling toward neutral as
+   * material ages. Only week/month/year get a fill -- older has no token and
+   * renders unfilled (see .block-stamp below), because in a mature database
+   * most rows are old, so the commonest rows should carry no ink; tint is
+   * reserved for the rare recent rows that are actually worth flagging.
+   * Solid fills, not alpha, so they stay predictable over .block-row:hover
+   * and .focused. */
   --color-stamp-week: #f7c9a6;
   --color-stamp-month: #fae3cf;
   --color-stamp-year: #e4ebf1;
-  --color-stamp-older: #f1f4f7;
   --color-error: #c23030;
   /* solid-fill variant of --color-error. The dark --color-error is tuned for
    * error *text* on a dark background; as a button fill behind white text it
@@ -118,7 +120,6 @@
     --color-stamp-week: #4d3526;
     --color-stamp-month: #38302a;
     --color-stamp-year: #2b333a;
-    --color-stamp-older: #252b31;
     --color-error: #ff6b6b;
     --color-error-fill: #a83a3a;
     --color-highlight-bg: #ff913c48;
@@ -172,7 +173,6 @@
   --color-stamp-week: #4d3526;
   --color-stamp-month: #38302a;
   --color-stamp-year: #2b333a;
-  --color-stamp-older: #252b31;
   --color-error: #ff6b6b;
   --color-error-fill: #a83a3a;
   --color-highlight-bg: #ff913c48;
@@ -507,7 +507,8 @@ button { font: inherit; }
 .block-stamp-week { background: var(--color-stamp-week); }
 .block-stamp-month { background: var(--color-stamp-month); }
 .block-stamp-year { background: var(--color-stamp-year); }
-.block-stamp-older { background: var(--color-stamp-older); }
+/* .block-stamp-older intentionally has no fill: .block-stamp's own
+ * background: none above is what renders it unfilled (pkm-4ler). */
 /* all clearly below the 28px page title so the page keeps one visual root */
 h1.block-text, .block-input.heading-1 { font-size: 1.4rem; font-weight: 600; }
 h2.block-text, .block-input.heading-2 { font-size: 1.25rem; font-weight: 600; }

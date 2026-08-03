@@ -539,14 +539,17 @@ The radius steps are assigned by *role*, not by size, and the comments in
 | `--radius-card` | 6px | embedded content |
 | `--radius-panel` | 8px | floating menus, dropdowns, the main pane |
 
-Block stamps (pkm-4ler) add four band tokens — `--color-stamp-week`,
-`-month`, `-year`, `-older` — declared in all three theme blocks. They run
-warm-for-fresh to a barely-there cool tint for old, deliberately: the
-strongest colour then lands on the rare recent rows, and a page of entirely
-old material reads as almost untinted. They are solid fills, not alpha, so a
-band stays predictable over `.block-row:hover` and `.block-row.focused`.
-`.block-stamp` is the control class; below the 600px breakpoint the whole
-column is `display: none`.
+Block stamps (pkm-4ler) add three band tokens — `--color-stamp-week`,
+`-month`, `-year` — declared in all three theme blocks, warm-for-fresh
+cooling toward neutral as material ages. The fourth band, `older`, is
+deliberately unfilled: `stampBand` still returns `"older"` and the row still
+carries a `.block-stamp-older` class, but no token and no background rule
+back it, so it renders as plain text. In a mature database most rows are
+"older" -- painting ink behind the commonest rows would be backwards, so the
+strongest colour is reserved for the rare recent rows worth flagging. The
+three tints are solid fills, not alpha, so a band stays predictable over
+`.block-row:hover` and `.block-row.focused`. `.block-stamp` is the control
+class; below the 600px breakpoint the whole column is `display: none`.
 
 Theming is three-way: light by default, OS dark via
 `@media (prefers-color-scheme: dark)` (which works with zero JS), and an

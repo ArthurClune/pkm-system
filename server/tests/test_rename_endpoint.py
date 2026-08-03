@@ -1,5 +1,7 @@
 import sqlite3
 
+import pytest
+
 from pkm.server.db import open_db
 from pkm.server.store import (
     append_page_without_rewrite,
@@ -12,6 +14,28 @@ def _rename(client, title, new_title, allow_merge=False):
     return client.post(f"/api/page/{title}/rename",
                        json={"new_title": new_title,
                              "allow_merge": allow_merge})
+
+
+def _write_state(config):
+    queries = {
+        "pages": "SELECT * FROM pages ORDER BY id",
+        "blocks": "SELECT * FROM blocks ORDER BY uid",
+        "refs": (
+            "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
+        ),
+        "sidebar_entries": "SELECT * FROM sidebar_entries ORDER BY id",
+        "pages_fts": "SELECT rowid, * FROM pages_fts ORDER BY rowid",
+        "blocks_fts": "SELECT rowid, * FROM blocks_fts ORDER BY rowid",
+        "changes": "SELECT * FROM changes ORDER BY seq",
+    }
+    con = sqlite3.connect(config.db_path)
+    try:
+        return {
+            table: con.execute(query).fetchall()
+            for table, query in queries.items()
+        }
+    finally:
+        con.close()
 
 
 def test_rename_updates_title_and_referencing_text(client):
@@ -193,6 +217,34 @@ def test_allow_merge_without_collision_is_plain_rename(client):
     r = _rename(client, "AI", "Fresh Title", allow_merge=True)
     assert r.status_code == 200
     assert r.json()["result"] == "renamed"
+
+
+def test_rename_forbidden_hash_title_is_rejected_before_any_mutation(
+        client, seeded_config):
+    client.post("/api/sidebar", json={"title": "Machine Learning"})
+    before = _write_state(seeded_config)
+
+    response = _rename(client, "Machine Learning", "New #Old", allow_merge=True)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "unsupported page-title syntax: 'New #Old'"
+    )
+    assert _write_state(seeded_config) == before
+
+
+@pytest.mark.parametrize(
+    "new_title",
+    ["Project [[Acme", "Project Acme]]", "Project [[Acme]]"],
+)
+def test_rename_new_title_with_brackets_422(client, new_title):
+    response = _rename(client, "AI", new_title)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        f"unsupported page-title syntax: {new_title!r}"
+    )
+    assert client.get("/api/page/AI").status_code == 200
 
 
 def test_rename_new_title_with_open_brackets_422(client):

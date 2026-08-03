@@ -146,6 +146,40 @@ def test_post_ops_accepts_hand_written_op_mappings(pkm_client):
     assert ack.applied == 1
 
 
+def test_post_ops_propagates_indexed_forbidden_reference_server_error(
+        pkm_client):
+    with pytest.raises(ApiError) as exc:
+        pkm_client.post_ops(
+            [
+                CreateOp(
+                    op="create",
+                    uid="atomicclient1",
+                    page_title="AI",
+                    parent_uid=None,
+                    order_idx=1,
+                    text="first mutation",
+                ),
+                CreateOp(
+                    op="create",
+                    uid="atomicclient2",
+                    page_title="AI",
+                    parent_uid=None,
+                    order_idx=2,
+                    text="[[New #Old]]",
+                ),
+            ],
+            batch_id="cli-forbidden-ref-0001",
+        )
+
+    assert (exc.value.status, exc.value.message) == (
+        400,
+        "op 1: unsupported reference title syntax: 'New #Old'",
+    )
+    with pytest.raises(ApiError) as missing:
+        pkm_client.get_block("atomicclient1")
+    assert missing.value.status == 404
+
+
 def test_post_ops_rejects_malformed_op_locally(pkm_client):
     with pytest.raises(ApiError) as e:
         pkm_client.post_ops([{"op": "create", "uid": "x!"}],  # missing fields

@@ -86,6 +86,19 @@ def test_save_note_returns_uids_and_writes(tools, pkm_client):
     assert any(n.text == "hello from mcp" for n in page.blocks)
 
 
+def test_save_note_propagates_forbidden_page_title_server_error(
+        tools, pkm_client):
+    with pytest.raises(ApiError) as exc:
+        tools.save_note("must not land", page="New #Old")
+
+    assert str(exc.value) == (
+        "400: op 0: unsupported page_title title syntax: 'New #Old'"
+    )
+    with pytest.raises(ApiError) as missing:
+        pkm_client.get_page("New #Old")
+    assert missing.value.status == 404
+
+
 def test_missing_page_error_has_one_status_prefix(tools):
     with pytest.raises(ApiError) as exc:
         tools.get_page("No Such Page")
@@ -140,6 +153,23 @@ def test_batch(tools, pkm_client):
         {"command": "create", "params": {"page": "AI", "text": "b2"}},
     ])
     assert out == "applied 2 ops"
+
+
+def test_batch_propagates_indexed_forbidden_reference_server_error(
+        tools, pkm_client):
+    commands = [
+        {"command": "create", "params": {"page": "AI", "text": "first"}},
+        {"command": "create",
+         "params": {"page": "AI", "text": "[[New #Old]]"}},
+    ]
+
+    with pytest.raises(ApiError) as exc:
+        tools.batch(commands)
+
+    assert str(exc.value) == (
+        "400: op 1: unsupported reference title syntax: 'New #Old'"
+    )
+    assert all(node.text != "first" for node in pkm_client.get_page("AI").blocks)
 
 
 def test_save_note_empty_text_on_new_page_leaves_no_page_behind(tools, pkm_client):

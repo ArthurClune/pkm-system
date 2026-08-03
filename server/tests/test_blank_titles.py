@@ -65,9 +65,12 @@ replica keying its refetch on the broadcast `page_title` would look for
 finding the real "Untitled" page, diverging until the next resync.
 """
 import sqlite3
+from datetime import date
 
 import pytest
 
+from pkm.contracts.daily import title_for_date
+from pkm.server import store
 from pkm.server.store import BlankTitleError, get_or_create_page, fetch_page
 
 CONTROL_ONLY = "\n\t"          # contains a control ws char
@@ -75,6 +78,13 @@ SPACES_ONLY = "   "            # plain spaces only, no control char
 CONTROL_ONLY_2 = " \n "        # a *different* string, also control-bearing
 WHITESPACE_ONLY = CONTROL_ONLY  # kept for the tests below that don't care which
 FALLBACK_TITLE = "Untitled"
+FORBIDDEN_TITLES = (
+    "#",
+    "Project #Acme",
+    "Project [[Acme",
+    "Project Acme]]",
+    "Project [[Acme]]",
+)
 
 _batch_counter = 0
 
@@ -116,6 +126,30 @@ def test_get_or_create_page_raises_on_control_whitespace_only_title(tmp_path):
     with pytest.raises(BlankTitleError):
         get_or_create_page(db, CONTROL_ONLY, 123)
     assert fetch_page(db, "") is None
+    db.close()
+
+
+@pytest.mark.parametrize("title", FORBIDDEN_TITLES)
+def test_get_or_create_page_rejects_forbidden_title_before_creating(
+        tmp_path, title):
+    db = _fresh_db(tmp_path)
+
+    with pytest.raises(ValueError, match="unsupported page-title syntax") as exc:
+        get_or_create_page(db, title, 123)
+
+    assert type(exc.value) is store.ForbiddenTitleError
+    assert exc.value.title == title
+    assert fetch_page(db, title) is None
+    db.close()
+
+
+def test_get_or_create_page_allows_generated_daily_title(tmp_path):
+    db = _fresh_db(tmp_path)
+    title = title_for_date(date.today())
+
+    page = get_or_create_page(db, title, 123)
+
+    assert page["title"] == title
     db.close()
 
 
@@ -204,6 +238,20 @@ def test_move_op_cross_page_whitespace_only_title_does_not_wedge(
     assert _blank_titles(seeded_config) == []
     body = client.get(f"/api/page/{FALLBACK_TITLE}").json()
     assert any("Machine Learning" in b["text"] for b in body["blocks"])
+
+
+@pytest.mark.parametrize("title", FORBIDDEN_TITLES)
+def test_post_pages_route_rejects_forbidden_title_without_creating_page(
+        client, seeded_config, title):
+    before = _titles(seeded_config)
+
+    response = client.post("/api/pages", json={"title": title})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        f"unsupported page-title syntax: {title!r}"
+    )
+    assert _titles(seeded_config) == before
 
 
 def test_post_pages_route_still_rejects_whitespace_only_title(client):

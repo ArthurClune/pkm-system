@@ -6,9 +6,16 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Mapping, Sequence
 
-from pkm.refs import canonicalize_title, extract, is_blank_title
+from pkm.refs import (canonicalize_title, extract, is_blank_title,
+                      title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
+
+
+class ForbiddenTitleError(ValueError):
+    def __init__(self, title: str) -> None:
+        super().__init__(f"unsupported page-title syntax: {title!r}")
+        self.title = title
 
 
 class BlankTitleError(ValueError):
@@ -47,6 +54,8 @@ def get_or_create_page(db: sqlite3.Connection, title: str,
     )
     if is_blank_title(title):
         raise BlankTitleError(title)
+    if title_syntax_reason(title) is not None:
+        raise ForbiddenTitleError(title)
     page = fetch_page(db, title)
     if page is not None:
         return page

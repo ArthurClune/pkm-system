@@ -12,9 +12,10 @@ from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OpBatch, UpdateTextOp)
 from pkm.refs import extract
 from pkm.server.ops_core import (BlockInfo, DeleteBlocks, Effect, InsertBlock,
-                                 OpContext, ReindexRefs, SetCollapsed,
+                                 OpContext, OpError, ReindexRefs, SetCollapsed,
                                  SetHeading, SetPageId, SetParent, SetViewType,
-                                 ShiftSiblings, TouchPage, UpdateText, plan_op)
+                                 ShiftSiblings, TouchPage, UpdateText,
+                                 find_op_title_violation, plan_op)
 from pkm.server.store import BlankTitleError, get_or_create_page, index_ref
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
@@ -236,6 +237,12 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
                 now_ms: int) -> list[dict]:
     """Apply a batch inside the caller's transaction and return the ops as
     they should be broadcast (see _broadcast_op)."""
+    violation = find_op_title_violation(batch.ops)
+    if violation is not None:
+        raise OpError(
+            violation.op_index,
+            f"unsupported {violation.source} title syntax: {violation.title!r}",
+        )
     broadcast_ops: list[dict] = []
     for index, op in enumerate(batch.ops):
         ctx = _context_for(db, op, now_ms)

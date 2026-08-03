@@ -1,5 +1,7 @@
 import sqlite3
 
+import pytest
+
 from pkm.contracts.ops import text_hash
 
 
@@ -104,6 +106,99 @@ def test_delete_subtree_via_endpoint(client):
     assert [b["text"] for b in page["blocks"]] == ["Tags:: #AI"]
     assert client.get("/api/search",
                       params={"q": "Papers"}).json()["blocks"] == []
+
+
+def _write_state(config):
+    queries = {
+        "pages": "SELECT * FROM pages ORDER BY id",
+        "blocks": "SELECT * FROM blocks ORDER BY uid",
+        "refs": (
+            "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
+        ),
+        "pages_fts": "SELECT rowid, * FROM pages_fts ORDER BY rowid",
+        "blocks_fts": "SELECT rowid, * FROM blocks_fts ORDER BY rowid",
+        "changes": "SELECT * FROM changes ORDER BY seq",
+        "applied_batches": "SELECT * FROM applied_batches ORDER BY batch_id",
+    }
+    con = sqlite3.connect(config.db_path)
+    try:
+        return {
+            table: con.execute(query).fetchall()
+            for table, query in queries.items()
+        }
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize(
+    ("invalid_op", "source", "title"),
+    [
+        (
+            {"op": "create_page", "page_title": "New #Old"},
+            "page_title",
+            "New #Old",
+        ),
+        (
+            {"op": "create", "uid": "atomicbad02",
+             "page_title": "New #Old", "parent_uid": None,
+             "order_idx": 0, "text": "plain"},
+            "page_title",
+            "New #Old",
+        ),
+        (
+            {"op": "move", "uid": "uid_b4", "parent_uid": None,
+             "order_idx": 0, "page_title": "New #Old"},
+            "page_title",
+            "New #Old",
+        ),
+        (
+            {"op": "create", "uid": "atomicbad03", "page_title": "AI",
+             "parent_uid": None, "order_idx": 0,
+             "text": "[[Safe Ref]] then [[New #Old]]"},
+            "reference",
+            "New #Old",
+        ),
+        (
+            {"op": "update_text", "uid": "uid_b4",
+             "text": "[[Safe Ref]] then [[New #Old]]"},
+            "reference",
+            "New #Old",
+        ),
+        (
+            {"op": "create", "uid": "atomicbad04", "page_title": "AI",
+             "parent_uid": None, "order_idx": 0,
+             "text": "[[Outer [[New #Old]]]]"},
+            "reference",
+            "Outer [[New #Old]]",
+        ),
+    ],
+    ids=[
+        "create_page",
+        "create",
+        "move",
+        "create_ref",
+        "update_ref",
+        "nested_ref",
+    ],
+)
+def test_forbidden_title_in_second_op_refuses_complete_batch_before_mutation(
+        client, seeded_config, invalid_op, source, title):
+    before = _write_state(seeded_config)
+
+    response = _post(
+        client,
+        {"op": "create", "uid": "atomicgood1",
+         "page_title": "Atomic First Page", "parent_uid": None,
+         "order_idx": 0, "text": "[[Atomic Safe Ref]]"},
+        invalid_op,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "index": 1,
+        "reason": f"unsupported {source} title syntax: {title!r}",
+    }
+    assert _write_state(seeded_config) == before
 
 
 def test_batch_is_atomic_and_reports_index(client):

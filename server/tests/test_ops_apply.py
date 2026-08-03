@@ -1,7 +1,7 @@
 import pytest
 
 from pkm.contracts.ops import OpBatch, text_hash
-from pkm.server import ops_apply
+from pkm.server import ops_apply, ops_core
 from pkm.server.db import open_db
 from pkm.server.ops_apply import _parent_chain, _subtree_deepest_first, apply_batch
 from pkm.server.ops_core import OpError
@@ -330,6 +330,112 @@ def test_conflict_sibling_uid_retries_until_alphanumeric_first_char(
         "SELECT uid FROM blocks WHERE text = '[[conflict]] Tags:: #AI'"
     ).fetchone()
     assert row["uid"] == "goodstart123"
+
+
+@pytest.mark.parametrize(
+    ("op", "source", "title"),
+    [
+        (
+            {"op": "create_page", "page_title": "New #Old"},
+            "page_title",
+            "New #Old",
+        ),
+        (
+            {"op": "create", "uid": "syntax01", "page_title": "New #Old",
+             "parent_uid": None, "order_idx": 0, "text": "plain"},
+            "page_title",
+            "New #Old",
+        ),
+        (
+            {"op": "move", "uid": "uid_b4", "parent_uid": None,
+             "order_idx": 0, "page_title": "New #Old"},
+            "page_title",
+            "New #Old",
+        ),
+        (
+            {"op": "create", "uid": "syntax02", "page_title": "AI",
+             "parent_uid": None, "order_idx": 0,
+             "text": "[[Safe Ref]] then [[New #Old]]"},
+            "reference",
+            "New #Old",
+        ),
+        (
+            {"op": "update_text", "uid": "uid_b4",
+             "text": "[[Safe Ref]] then [[New #Old]]"},
+            "reference",
+            "New #Old",
+        ),
+    ],
+    ids=["create_page", "create", "move", "create_ref", "update_ref"],
+)
+def test_find_op_title_violation_covers_every_title_source(op, source, title):
+    violation = ops_core.find_op_title_violation(_batch(op).ops)
+
+    assert violation is not None
+    assert (
+        violation.op_index,
+        violation.source,
+        violation.title,
+        violation.reason,
+    ) == (0, source, title, "forbidden_syntax")
+
+
+def test_find_op_title_violation_checks_explicit_title_before_text_refs():
+    violation = ops_core.find_op_title_violation(_batch(
+        {"op": "create", "uid": "syntax03", "page_title": "Bad #Page",
+         "parent_uid": None, "order_idx": 0, "text": "[[Bad #Ref]]"},
+    ).ops)
+
+    assert violation is not None
+    assert (violation.source, violation.title) == ("page_title", "Bad #Page")
+
+
+def test_find_op_title_violation_rejects_outer_nested_ref_first():
+    violation = ops_core.find_op_title_violation(_batch(
+        {"op": "create", "uid": "syntax04", "page_title": "AI",
+         "parent_uid": None, "order_idx": 0,
+         "text": "[[Outer [[New #Old]]]]"},
+    ).ops)
+
+    assert violation is not None
+    assert (violation.source, violation.title) == (
+        "reference",
+        "Outer [[New #Old]]",
+    )
+
+
+def test_apply_batch_preflights_every_op_before_context_or_mutation(db):
+    before = {
+        "pages": db.execute("SELECT * FROM pages ORDER BY id").fetchall(),
+        "blocks": db.execute("SELECT * FROM blocks ORDER BY uid").fetchall(),
+        "refs": db.execute(
+            "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
+        ).fetchall(),
+        "changes": db.execute("SELECT * FROM changes ORDER BY seq").fetchall(),
+    }
+
+    with pytest.raises(OpError) as exc:
+        apply_batch(db, _batch(
+            {"op": "create", "uid": "atomicgood1",
+             "page_title": "Atomic First Page", "parent_uid": None,
+             "order_idx": 0, "text": "[[Atomic Safe Ref]]"},
+            {"op": "update_text", "uid": "uid_b4",
+             "text": "[[New #Old]]"},
+        ), NOW)
+
+    assert (exc.value.index, exc.value.reason) == (
+        1,
+        "unsupported reference title syntax: 'New #Old'",
+    )
+    after = {
+        "pages": db.execute("SELECT * FROM pages ORDER BY id").fetchall(),
+        "blocks": db.execute("SELECT * FROM blocks ORDER BY uid").fetchall(),
+        "refs": db.execute(
+            "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"
+        ).fetchall(),
+        "changes": db.execute("SELECT * FROM changes ORDER BY seq").fetchall(),
+    }
+    assert after == before
 
 
 def test_op_error_index_reports_failing_op(db):

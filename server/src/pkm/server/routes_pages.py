@@ -14,7 +14,7 @@ from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     BlockPayload, BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
     JournalPayload, PageMeta, PagePayload, RenamePageResponse)
-from pkm.refs import canonicalize_title, is_blank_title
+from pkm.refs import canonicalize_title, is_blank_title, title_syntax_reason
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.backlinks import group_backlinks
@@ -22,9 +22,9 @@ from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
-from pkm.server.store import (BlankTitleError, delete_page_rows, fetch_page,
-                              get_or_create_page, merge_page_rows,
-                              rename_page_rows)
+from pkm.server.store import (BlankTitleError, ForbiddenTitleError,
+                              delete_page_rows, fetch_page, get_or_create_page,
+                              merge_page_rows, rename_page_rows)
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
 
@@ -211,6 +211,8 @@ def create_page(request: Request, body: CreatePageRequest,
     except BlankTitleError:
         raise HTTPException(status_code=422,
                             detail="title must not be blank") from None
+    except ForbiddenTitleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     notify.commit_and_nudge_threadpool(request, db)
     return dict(page)
 
@@ -249,10 +251,11 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
     if is_blank_title(new_title):
         raise HTTPException(status_code=422,
                             detail="title must not be blank")
-    if "[[" in new_title or "]]" in new_title:
-        raise HTTPException(status_code=422,
-                            detail="bracket sequences ([[ or ]]) are not"
-                                    " allowed in titles")
+    if title_syntax_reason(new_title) is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unsupported page-title syntax: {new_title!r}",
+        )
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")

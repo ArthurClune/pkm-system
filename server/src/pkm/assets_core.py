@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import PurePosixPath
+from typing import Literal
 
 # Office + JSON mimes that count as "document" alongside text/*. Keep in
 # step with ALLOWED_UPLOAD_MIME in routes_assets.py.
@@ -69,6 +70,12 @@ def sha256_hex(data: bytes) -> str:
     """The digest callers compare against a content-addressed asset's
     known sha256."""
     return hashlib.sha256(data).hexdigest()
+
+
+def classify_export_asset_transfer(
+        destination_was_present: bool) -> Literal["copied", "repaired"]:
+    """Classify a successful export transfer by its prior destination."""
+    return "repaired" if destination_was_present else "copied"
 
 
 def asset_needs_repair(expected_sha256: str, expected_size: int,

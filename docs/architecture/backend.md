@@ -496,14 +496,27 @@ an already-published database.
   — a cheap stat first, a full hash only once the size already matches)
   before being hardlinked into the new tree; a mismatch is transparently
   re-copied from the live store instead, so a truncated or corrupted file
-  from a past export doesn't survive forever (pkm-x3l7). If that repair
-  source is itself missing too, the asset is dropped from this export
-  with a `pkm.export` warning and its own `assets_missing_source_on_repair`
-  count, rather than disappearing into the ordinary "missing asset" case
-  silently. Markdown files are rewritten byte-identically when unchanged,
-  so the git diff of a nightly export is minimal. Rendering and asset
-  copying happen into a scratch `.export-staging-*` directory beside the
-  live one; the previous `pages/`, `journal/`, and `assets/` are only
+  from a past export doesn't survive forever (pkm-x3l7). A successful fresh
+  transfer increments only `assets_copied`; a successful corrupt replacement
+  increments only `assets_repaired`. If that repair source is itself missing,
+  no transfer occurs: the asset is dropped from this export with a
+  `pkm.export` warning and its own `assets_missing_source_on_repair` count,
+  rather than disappearing into the ordinary "missing asset" case silently.
+  Successful assets publication drops the corrupt residue, so the warning is
+  normally a one-successful-run event. A failure after the warning but before
+  assets publication may leave the old corrupt tree active and repeat the
+  warning on the next run.
+
+  The export directory has one writer. Before writing `.gitignore`, rendering,
+  creating this run's staging tree, or publishing a last-good subtree, each run
+  sweeps abandoned `.export-staging-*` entries. Matching symlinks are unlinked
+  without following their targets; real directories are removed recursively.
+  Disappearance during cleanup is success, while every other error aborts the
+  run. The single-writer invariant requires neither a lock nor an age
+  heuristic. Markdown files are rewritten byte-identically when unchanged, so
+  the git diff of a nightly export is minimal. Rendering and asset copying
+  happen into a scratch `.export-staging-*` directory beside the live one;
+  the previous `pages/`, `journal/`, and `assets/` are only
   replaced (via `_publish_dir`'s atomic directory rename) once a full new
   export is ready, so a rendering, disk, or asset-copy failure *before
   publishing starts* leaves the last known-good export byte-identical
@@ -555,8 +568,10 @@ an already-published database.
   online SQLite `.backup()` snapshot from a read-only connection into
   `backups/sqlite/pkm-YYYY-MM-DD.sqlite3` (pruned by `rotation.py`: newest 14
   dailies + the latest of each month forever), then runs the markdown export
-  **from that same snapshot** and git-commits it. The live DB is never opened
-  for writing; any failure exits non-zero.
+  **from that same snapshot** and git-commits it. Its success line renders the
+  complete generic export-count dictionary, including `assets_copied`,
+  `assets_repaired`, and `assets_missing_source_on_repair`. The live DB is never
+  opened for writing; any failure exits non-zero.
 
 ## CLI and MCP server
 

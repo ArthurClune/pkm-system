@@ -33,12 +33,18 @@ depth — this doc covers them only from the UI side.
 
 ```
 main.tsx / App.tsx     Shell   Entry + top-level tree: SyncProvider > DndProvider >
-                               SidebarContext > (left nav, TopBar, routes, sidebar stack)
+                               SidebarContext > BlockStampsContext > (left nav,
+                               TopBar, routes, sidebar stack)
 routeMeta.ts           Core    Route paths + top-bar label/browser-title table, one
                                entry per static route; TopBar, App.tsx's routing,
                                and useRouteTitle.ts (Shell, the single title effect)
                                all consume it, so /page/* and the not-found
                                catch-all are the only routes without a fixed label
+blockStampsPref.ts     Core    "Show timestamps" preference (localStorage key +
+                               guard + toggle); useBlockStampsPref.ts (Shell)
+                               owns the single instance, shared through
+                               BlockStampsContext so TopBar's checkmark and
+                               PageView's column cannot disagree
 api/                   client.ts (fetch wrapper + offline gateway),
                        typedClient.ts (path/method-aware wrapper over it),
                        generated openapi.json + types.d.ts, type-only
@@ -61,7 +67,9 @@ outline/               The editor engine. It owns its own contract: handlers.ts
                        keyEdits.ts, slashCommands.ts, autocomplete.ts,
                        refAtCaret.ts, blockSelection.ts, history.ts,
                        paste.ts (outline paste), calendar.ts (/date month grid),
-                       missingPage.ts (the missing-page policy)
+                       missingPage.ts (the missing-page policy),
+                       blockStamps.ts (margin-column dates, age bands, and
+                       which ops count as a change)
                        Shells: useOutline.ts (the hook), outlineSessions.ts
                        (per-title shared store), useOutlinePageLoad.ts (the
                        shared page-load controller), undoManager.ts,
@@ -375,6 +383,22 @@ Editing mechanics to know before touching `outline/`:
 - Phones get a bottom **Composer** (append-to-daily-note) instead of full
   outline editing.
 
+**The stamp cell lives inside `.block-row`.** It is the row's last flex child,
+after `.block-text` or, when the block is focused, after `BlockInput`'s
+textarea. Both facts are load-bearing: `.block-children` indents from the left
+only, so every row in a page already shares a right edge and the cells form a
+true column at any nesting depth; and because the cell is a sibling of the
+textarea rather than of the row, focusing a block cannot shift it. The flag
+reaches it as a **prop** from `PageView` alone — `EditableBlockTree` must never
+read `BlockStampsContext` itself, or the journal scroll and sidebar panels
+would grow the column too.
+
+**`set_collapsed` must not stamp.** `opBumpsUpdatedAt` (outline/blockStamps.ts)
+is the single statement of pkm-r7k8's rule that collapsing is a view toggle,
+not a change. `transitionOutline` uses it to decide which uids to stamp, and a
+test in `replica/localOps.test.ts` asserts the replica's own writes agree
+op-for-op — so the displayed date and the stored date cannot drift apart.
+
 ## Rendering pipeline (read path)
 
 Block text is raw Roam-flavoured markdown; rendering is a two-stage pure
@@ -514,6 +538,15 @@ The radius steps are assigned by *role*, not by size, and the comments in
 | `--radius-control` | 4px | inline code, block rows, badges, thumbs |
 | `--radius-card` | 6px | embedded content |
 | `--radius-panel` | 8px | floating menus, dropdowns, the main pane |
+
+Block stamps (pkm-4ler) add four band tokens — `--color-stamp-week`,
+`-month`, `-year`, `-older` — declared in all three theme blocks. They run
+warm-for-fresh to a barely-there cool tint for old, deliberately: the
+strongest colour then lands on the rare recent rows, and a page of entirely
+old material reads as almost untinted. They are solid fills, not alpha, so a
+band stays predictable over `.block-row:hover` and `.block-row.focused`.
+`.block-stamp` is the control class; below the 600px breakpoint the whole
+column is `display: none`.
 
 Theming is three-way: light by default, OS dark via
 `@media (prefers-color-scheme: dark)` (which works with zero JS), and an

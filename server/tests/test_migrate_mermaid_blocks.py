@@ -1,6 +1,7 @@
 import sqlite3
 
-from pkm.importer.migrate_mermaid_blocks import main
+from pkm.importer.mermaid_preservation import PreservedRef
+from pkm.importer.migrate_mermaid_blocks import _print_preserved, main, plan_migration
 from pkm.server.db import init_db, open_db
 
 PAGES = [
@@ -64,6 +65,34 @@ def _rows(db_path):
     return blocks, refs
 
 
+def _make_nested_db(tmp_path):
+    db_path = tmp_path / "nested.sqlite3"
+    init_db(db_path)
+    con = open_db(db_path)
+    con.executemany("INSERT INTO pages VALUES (?,?,?,?)", PAGES)
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        [
+            ("outer-component-uid", 1, None, 0, "{{[[mermaid]]}}", None, 0, None, None),
+            ("inner-component-uid", 1, "outer-component-uid", 0, "{{[[mermaid]]}}", None, 0, None, None),
+            ("nested-line-uid", 1, "inner-component-uid", 0, "flowchart TB", None, 0, None, None),
+            ("nested-citer-uid", 1, "outer-component-uid", 1, "see ((nested-line-uid))", None, 0, None, None),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO refs VALUES (?,?,?)",
+        [
+            ("outer-component-uid", 2, "link"),
+            ("inner-component-uid", 2, "link"),
+        ],
+    )
+    con.commit()
+    con.close()
+    return db_path
+
+
 def test_dry_run_reports_but_does_not_write(tmp_path, capsys):
     db_path = _make_db(tmp_path)
     before_blocks, before_refs = _rows(db_path)
@@ -92,7 +121,7 @@ def test_dry_run_reports_affected_uids_and_inbound_refs_for_preserved_descendant
     # the referenced descendant and its inbound referrer are both named
     preserved_line = next(line for line in lines if "uid_ref_line2" in line)
     assert "uid_citer" in preserved_line
-    assert "uid_ref_component" in preserved_line  # names which component it's under
+    assert "uid_ref_component" not in preserved_line
     # the component whose descendant is referenced must not be listed among
     # the blocks that would be converted -- only its unreferenced siblings are
     assert "  uid_component" in lines
@@ -141,6 +170,34 @@ def test_migration_preserves_component_with_externally_referenced_descendant(tmp
     assert blocks["uid_ref_line2"]["parent_uid"] == "uid_ref_component"
     # the referencing block is of course untouched too
     assert blocks["uid_citer"]["text"] == "see ((uid_ref_line2)) for detail"
+
+
+def test_nested_migration_protects_inner_and_outer_with_one_report_row(tmp_path):
+    db_path = _make_nested_db(tmp_path)
+    con = open_db(db_path)
+
+    plan = plan_migration(con)
+
+    candidate_uids = {uid for uid, _ in plan.candidates}
+    assert "inner-component-uid" not in candidate_uids
+    assert "outer-component-uid" not in candidate_uids
+    assert plan.preserved == (
+        PreservedRef("nested-line-uid", ("nested-citer-uid",)),
+    )
+    con.close()
+
+    assert main(["--db", str(db_path)]) == 0
+    blocks, _ = _rows(db_path)
+    assert blocks["outer-component-uid"]["text"] == "{{[[mermaid]]}}"
+    assert blocks["inner-component-uid"]["text"] == "{{[[mermaid]]}}"
+    assert blocks["inner-component-uid"]["parent_uid"] == "outer-component-uid"
+    assert blocks["nested-line-uid"]["parent_uid"] == "inner-component-uid"
+
+
+def test_print_preserved_is_silent_when_empty(capsys):
+    _print_preserved(())
+
+    assert capsys.readouterr().out == ""
 
 
 def test_migration_still_converts_subtree_with_only_internal_references(tmp_path):

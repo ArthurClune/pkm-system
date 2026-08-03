@@ -44,6 +44,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pkm.importer.mermaid import convert_to_fence, is_mermaid_trigger
+from pkm.importer.mermaid_preservation import (
+    PreservedRef,
+    plan_mermaid_preservation,
+)
 from pkm.refs import extract
 
 MERMAID_PAGE_TITLE = "mermaid"
@@ -58,21 +62,11 @@ class _Node:
 
 
 @dataclass(frozen=True)
-class Preserved:
-    """A mermaid-component descendant left in place -- uid, text and
-    position all untouched -- because a block outside its own subtree
-    still holds an inbound ((uid)) reference to it."""
-    component_uid: str
-    descendant_uid: str
-    source_uids: tuple[str, ...]
-
-
-@dataclass(frozen=True)
 class Plan:
     """What plan_migration() decided. Read-only: callers own any
     transaction around applying `candidates`."""
     candidates: tuple[tuple[str, str], ...]  # (uid, fence_text): safe to convert
-    preserved: tuple[Preserved, ...]  # left alone, and why
+    preserved: tuple[PreservedRef, ...]  # left alone, and why
 
 
 def _load_subtree(con: sqlite3.Connection, parent_uid: str) -> tuple[_Node, ...]:
@@ -112,35 +106,31 @@ def _all_block_ref_sources(con: sqlite3.Connection) -> dict[str, set[str]]:
 
 
 def plan_migration(con: sqlite3.Connection) -> Plan:
-    """Decide which mermaid component blocks are safe to flatten and which
-    must stay nested because an inbound ((uid)) reference from outside the
-    subtree targets one of their descendants. Read-only: callers own any
-    transaction around the writes."""
+    """Plan globally safe Mermaid conversions from database-backed inputs."""
     ref_sources = _all_block_ref_sources(con)
-    candidates: list[tuple[str, str]] = []
-    preserved: list[Preserved] = []
-    for uid, text in con.execute("SELECT uid, text FROM blocks").fetchall():
+    candidate_fences: list[tuple[str, str]] = []
+    component_descendants: dict[str, set[str]] = {}
+    rows = con.execute("SELECT uid, text FROM blocks ORDER BY rowid").fetchall()
+    for uid, text in rows:
         if not is_mermaid_trigger(text):
             continue  # skip the tree fetch below for the common case
         children = _load_subtree(con, uid)
         fence = convert_to_fence(text, children)
         if fence is None:
             continue
-        subtree = _subtree_uids(con, uid)
-        in_subtree = subtree | {uid}
-        referenced = [
-            (descendant_uid, tuple(sorted(external)))
-            for descendant_uid in sorted(subtree)
-            if (external := ref_sources.get(descendant_uid, set()) - in_subtree)
-        ]
-        if referenced:
-            preserved.extend(
-                Preserved(uid, descendant_uid, sources)
-                for descendant_uid, sources in referenced
-            )
-        else:
-            candidates.append((uid, fence))
-    return Plan(candidates=tuple(candidates), preserved=tuple(preserved))
+        candidate_fences.append((uid, fence))
+        component_descendants[uid] = _subtree_uids(con, uid)
+
+    preservation_plan = plan_mermaid_preservation(
+        component_descendants,
+        ref_sources,
+    )
+    candidates = tuple(
+        candidate
+        for candidate in candidate_fences
+        if candidate[0] not in preservation_plan.preserved_component_uids
+    )
+    return Plan(candidates=candidates, preserved=preservation_plan.preserved_refs)
 
 
 def convert_candidates(con: sqlite3.Connection,
@@ -166,12 +156,14 @@ def convert_candidates(con: sqlite3.Connection,
             )
 
 
-def _print_preserved(preserved: tuple[Preserved, ...]) -> None:
+def _print_preserved(preserved: tuple[PreservedRef, ...]) -> None:
+    if not preserved:
+        return
     print(f"mermaid migration: {len(preserved)} referenced descendant(s) "
           f"preserved, not flattened:")
-    for p in preserved:
-        print(f"  {p.descendant_uid} (in {p.component_uid}) <- referenced by "
-              f"{', '.join(p.source_uids)}")
+    for ref in preserved:
+        print(f"  {ref.descendant_uid} <- referenced by "
+              f"{', '.join(ref.source_uids)}")
 
 
 def main(argv: list[str] | None = None) -> int:

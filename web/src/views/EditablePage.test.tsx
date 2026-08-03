@@ -3,8 +3,8 @@ import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
-import { block, makeSync, stubFetch, type SyncFake } from "../test-helpers";
-import { acquireOutlineSession } from "../outline/outlineSessions";
+import { block, makeSync, reserveOutlineEditor, stubFetch,
+         type SyncFake } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { EditablePage } from "./EditablePage";
 
@@ -26,19 +26,6 @@ function mount(sync = makeSync(), initial = [
 function focusBlock(text: string): HTMLTextAreaElement {
   fireEvent.click(screen.getByText(text));
   return screen.getByRole("textbox") as HTMLTextAreaElement;
-}
-
-function reserveOutlineEditor(title: string): () => void {
-  const handle = acquireOutlineSession(title, null);
-  const lease = handle.claimEditor(Symbol(`test-reservation:${title}`));
-  if (!lease.granted) {
-    handle.release();
-    throw new Error(`Could not reserve editor for ${title}`);
-  }
-  return () => {
-    lease.release();
-    handle.release();
-  };
 }
 
 test("typing flushes one update_text op after the debounce", () => {

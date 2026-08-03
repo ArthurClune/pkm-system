@@ -4,9 +4,8 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
 import { DndProvider } from "../dnd/DndContext";
-import { acquireOutlineSession } from "../outline/outlineSessions";
 import { EditablePage } from "../views/EditablePage";
-import { block, makeSync } from "../test-helpers";
+import { block, makeSync, reserveOutlineEditor } from "../test-helpers";
 
 // jsdom has no DataTransfer: minimal stub
 function dt() {
@@ -15,19 +14,6 @@ function dt() {
     setData: (k: string, v: string) => { data[k] = v; },
     getData: (k: string) => data[k] ?? "",
     effectAllowed: "", dropEffect: "",
-  };
-}
-
-function reserveOutlineEditor(title: string): () => void {
-  const handle = acquireOutlineSession(title, null);
-  const lease = handle.claimEditor(Symbol(`test-reservation:${title}`));
-  if (!lease.granted) {
-    handle.release();
-    throw new Error(`Could not reserve editor for ${title}`);
-  }
-  return () => {
-    lease.release();
-    handle.release();
   };
 }
 

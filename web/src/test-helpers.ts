@@ -1,9 +1,27 @@
 import { vi } from "vitest";
+import { acquireOutlineSession } from "./outline/outlineSessions";
 import type { BlockOp } from "./api/ops";
 import type { BlockNode, PagePayload } from "./api/payloads";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
 import type { WriteTicket } from "./sync/opQueue";
+
+/** Hold the outline editor for `title` so a test's own mount cannot win the
+ * lease, and return the release. Sessions are global to the module, so the
+ * handle is released before throwing on an ungranted lease (pkm-l457):
+ * leaking it would cascade into every later test in the process. */
+export function reserveOutlineEditor(title: string): () => void {
+  const handle = acquireOutlineSession(title, null);
+  const lease = handle.claimEditor(Symbol(`test-reservation:${title}`));
+  if (!lease.granted) {
+    handle.release();
+    throw new Error(`Could not reserve editor for ${title}`);
+  }
+  return () => {
+    lease.release();
+    handle.release();
+  };
+}
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

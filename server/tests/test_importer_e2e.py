@@ -7,6 +7,7 @@ import pytest
 import pkm.importer.run as run_module
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 from pkm.importer.run import main
+from pkm.refs import title_syntax_reason
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_export.edn"
 
@@ -42,25 +43,38 @@ ORDINARY_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db
   [2 :block/order 0 1]
  ]}"""
 
-ALL_SPACE_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+TITLE_SYNTAX_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
  :datoms [
-  [1 :node/title "   " 1]
+  [1 :node/title "#Project" 1]
+  [1 :create/time 100 1]
+  [1 :edit/time 101 1]
   [1 :block/children 2 1]
-  [2 :block/uid "uid-space" 1]
-  [2 :block/string "blocked" 1]
+  [2 :block/uid "uid-dirty-root" 1]
+  [2 :block/string "[[Outer [[Inner]]]] [[Topic #One]] #Tag #[[Tag]] [[#Project]]" 1]
   [2 :block/order 0 1]
- ]}"""
-
-NESTED_MIGRATION_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
- :datoms [
-  [1 :node/title " Outer [[ Inner ]] " 1]
-  [10 :node/title " Inner " 1]
+  [2 :block/children 3 1]
+  [3 :block/uid "uid-dirty-child" 1]
+  [3 :block/string "keep ((uid-clean-root))" 1]
+  [3 :block/order 0 1]
+  [10 :node/title "Project" 1]
+  [10 :create/time 200 1]
+  [10 :edit/time 201 1]
+  [10 :block/children 11 1]
+  [11 :block/uid "uid-clean-root" 1]
+  [11 :block/string "clean root" 1]
+  [11 :block/order 0 1]
   [20 :node/title "Watcher" 1]
   [20 :block/children 21 1]
-  [21 :block/uid "uid-nested-watcher" 1]
-  [21 :block/string "[[ Outer [[ Inner ]] ]]" 1]
+  [21 :block/uid "uid-watcher" 1]
+  [21 :block/string "[[#Project]]" 1]
   [21 :block/order 0 1]
  ]}"""
+
+MALFORMED_TITLE_EXPORT = """#datascript/DB {:schema {}
+ :datoms [[1 :node/title "Bad [[Title" 1]]}"""
+
+BLANK_MARKER_TITLE_EXPORT = """#datascript/DB {:schema {}
+ :datoms [[1 :node/title "[[#]]" 1]]}"""
 
 
 def _setup_files(tmp_path: Path) -> Path:
@@ -430,9 +444,8 @@ def test_import_canonicalizes_padded_titles_before_publication(tmp_path):
     ]
 
 
-def test_import_canonicalizes_nested_sources_before_publication(tmp_path):
-    """Mutation caught: publish after nested reindex recreates a padded page."""
-    export_file = _write_export(tmp_path, "nested-migration.edn", NESTED_MIGRATION_EXPORT)
+def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
+    export_file = _write_export(tmp_path, "title-syntax.edn", TITLE_SYNTAX_EXPORT)
     out = tmp_path / "data"
 
     rc = main([str(export_file), "--out", str(out)])
@@ -446,20 +459,53 @@ def test_import_canonicalizes_nested_sources_before_publication(tmp_path):
         title: page_id
         for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
     }
-    assert page_ids.keys() == {"Outer [[Inner]]", "Inner", "Watcher"}
+    assert page_ids.keys() == {
+        "Project",
+        "Watcher",
+        "Outer Inner",
+        "Topic One",
+        "Tag",
+    }
+    assert all(title_syntax_reason(title) is None for title in page_ids)
     assert con.execute(
-        "SELECT text FROM blocks WHERE uid='uid-nested-watcher'"
-    ).fetchone()[0] == "[[Outer [[Inner]]]]"
+        "SELECT created_at, updated_at FROM pages WHERE title='Project'"
+    ).fetchone() == (200, 201)
     assert [tuple(row) for row in con.execute(
-        "SELECT target_page_id, kind FROM refs "
-        "WHERE src_block_uid='uid-nested-watcher' ORDER BY target_page_id, kind"
-    )] == sorted([
-        (page_ids["Outer [[Inner]]"], "link"),
-        (page_ids["Inner"], "link"),
-    ])
+        "SELECT uid, parent_uid, order_idx, text FROM blocks "
+        "WHERE page_id=? ORDER BY CASE WHEN parent_uid IS NULL THEN order_idx ELSE 99 END",
+        (page_ids["Project"],),
+    )] == [
+        ("uid-clean-root", None, 0, "clean root"),
+        (
+            "uid-dirty-root",
+            None,
+            1,
+            "[[Outer Inner]] [[Topic One]] #Tag #[[Tag]] [[Project]]",
+        ),
+        ("uid-dirty-child", "uid-dirty-root", 0, "keep ((uid-clean-root))"),
+    ]
     assert con.execute(
-        "SELECT count(*) FROM pages WHERE title != rtrim(ltrim(title, ' '), ' ')"
-    ).fetchone()[0] == 0
+        "SELECT text FROM blocks WHERE uid='uid-watcher'"
+    ).fetchone()[0] == "[[Project]]"
+    assert [tuple(row) for row in con.execute(
+        "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"
+    )] == sorted([
+        ("uid-dirty-root", page_ids["Outer Inner"], "link"),
+        ("uid-dirty-root", page_ids["Topic One"], "link"),
+        ("uid-dirty-root", page_ids["Tag"], "tag"),
+        ("uid-dirty-root", page_ids["Project"], "link"),
+        ("uid-watcher", page_ids["Project"], "link"),
+    ])
+
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
+    assert "title spellings sanitized: 3" in report
+    assert (
+        '  "#Project" -> "Project" '
+        "(merged; page[0], block uid-dirty-root, block uid-watcher)"
+    ) in report
+    assert (
+        '  "Outer [[Inner]]" -> "Outer Inner" (block uid-dirty-root)'
+    ) in report
 
 
 def test_import_marks_ordinary_database_active(tmp_path):
@@ -476,11 +522,18 @@ def test_import_marks_ordinary_database_active(tmp_path):
     assert con.execute("SELECT title FROM pages").fetchall() == [("Solo",)]
 
 
-def test_all_space_import_refuses_without_replacing_published_output(
-    tmp_path, capsys
+@pytest.mark.parametrize(
+    ("raw", "original_title", "reason"),
+    [
+        (MALFORMED_TITLE_EXPORT, "Bad [[Title", "malformed_syntax"),
+        (BLANK_MARKER_TITLE_EXPORT, "[[#]]", "blank"),
+    ],
+)
+def test_title_syntax_refusal_preserves_published_output(
+    tmp_path, capsys, raw, original_title, reason
 ):
     baseline_export = _write_export(tmp_path, "baseline.edn", ORDINARY_EXPORT)
-    blocked_export = _write_export(tmp_path, "blocked.edn", ALL_SPACE_EXPORT)
+    blocked_export = _write_export(tmp_path, "blocked.edn", raw)
     out = tmp_path / "data"
 
     assert main([str(baseline_export), "--out", str(out)]) == 0
@@ -491,7 +544,21 @@ def test_all_space_import_refuses_without_replacing_published_output(
 
     assert rc == 2
     captured = capsys.readouterr()
-    assert "title migration is blocked by all-space titles" in captured.err
+    assert (
+        f"error: import refused at page[0]: {reason}: {original_title!r}"
+        in captured.err
+    )
     assert (out / "pkm.sqlite3").read_bytes() == original_db
     assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
     assert not (out / "pkm.sqlite3.tmp").exists()
+
+
+def test_title_syntax_refusal_precedes_output_directory_creation(tmp_path):
+    blocked_export = _write_export(
+        tmp_path, "malformed.edn", MALFORMED_TITLE_EXPORT
+    )
+    out = tmp_path / "new-data"
+
+    assert main([str(blocked_export), "--out", str(out)]) == 2
+
+    assert not out.exists()

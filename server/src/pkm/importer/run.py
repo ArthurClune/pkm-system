@@ -19,6 +19,7 @@ from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
 from pkm.importer.parse_export import parse_export
 from pkm.importer.report import ImportReport, render
 from pkm.importer.rows import to_rows
+from pkm.importer.titles import ImportTitleError, sanitize_export_titles
 from pkm.schema import DDL
 from pkm.server.title_migration import (
     BlockedTitleMigration,
@@ -63,6 +64,15 @@ def main(argv: list[str] | None = None) -> int:
 
     sys.setrecursionlimit(20000)  # deep outlines recurse in tree assembly
     export = parse_export(parse_edn(export_path.read_text(encoding="utf-8")))
+    try:
+        sanitized_import = sanitize_export_titles(export)
+    except ImportTitleError as exc:
+        print(
+            f"error: import refused at {exc.location}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+    export = sanitized_import.export
 
     files_dir = Path(args.files) if args.files else None
     if files_dir is not None and (
@@ -159,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             assets_used=len(used),
             missing_asset_urls=tuple(sorted(missing)),
             attr_counts=export.attr_counts,
+            title_changes=sanitized_import.title_changes,
             recovery_page_title=rows.recovery_page_title,
             mermaid_preserved_refs=rows.mermaid_preserved_refs,
         )

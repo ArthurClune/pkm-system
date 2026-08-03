@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 _CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
@@ -53,6 +54,16 @@ def normalize_title(title: str) -> str:
 def canonicalize_title(title: str, *, plain_space: bool) -> str:
     normalized = normalize_title(title)
     return normalized.strip(" ") if plain_space else normalized
+
+
+TitleSyntaxReason = Literal["forbidden_syntax"]
+
+
+def title_syntax_reason(title: str) -> TitleSyntaxReason | None:
+    normalized = normalize_title(title)
+    if "#" in normalized or "[[" in normalized or "]]" in normalized:
+        return "forbidden_syntax"
+    return None
 
 
 def is_blank_title(title: str) -> bool:

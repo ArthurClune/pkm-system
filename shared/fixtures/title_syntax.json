@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"name": "plain", "title": "Acme", "reason": null},
+    {"name": "single-open-bracket", "title": "Project [Acme]", "reason": null},
+    {"name": "single-close-bracket", "title": "Project ]Acme[", "reason": null},
+    {"name": "hash", "title": "Project #Acme", "reason": "forbidden_syntax"},
+    {"name": "empty-hash", "title": "#", "reason": "forbidden_syntax"},
+    {"name": "open-pair", "title": "Project [[Acme", "reason": "forbidden_syntax"},
+    {"name": "close-pair", "title": "Project Acme]]", "reason": "forbidden_syntax"},
+    {"name": "balanced-ref", "title": "Project [[Acme]]", "reason": "forbidden_syntax"},
+    {"name": "nested-ref", "title": "Outer [[Inner [[Leaf]]]]", "reason": "forbidden_syntax"},
+    {"name": "control-plus-hash", "title": "Project\n#Acme", "reason": "forbidden_syntax"}
+  ]
+}

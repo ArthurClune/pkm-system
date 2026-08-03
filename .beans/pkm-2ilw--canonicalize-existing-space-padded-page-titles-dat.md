@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-03T08:48:06Z
+updated_at: 2026-08-03T10:02:44Z
 parent: pkm-ulae
 ---
 
@@ -123,7 +123,7 @@ Nested source targets now resolve to one final canonical spelling while preservi
 
 The approved 2026-08-02 requirements revision supersedes the nested-title closure portion of the prior final-review fix wave. The forced equal-cursor sync notification and fail-closed authoritative broadcasts remain required.
 
-- [ ] Restore opaque one-pass rename replacements and remove nested migration closure logic
+- [x] Restore opaque one-pass rename replacements and remove nested migration closure logic
 - [ ] Reject `#`, `[[`, and `]]` at every normal Python/server title boundary with atomic ref-derived and batch refusal
 - [ ] Report `all_space` and `forbidden_syntax` migration blockers through digest, API, and CLI
 - [ ] Sanitize imported title markup recursively before row creation, merge collisions deterministically, and report changes
@@ -131,3 +131,14 @@ The approved 2026-08-02 requirements revision supersedes the nested-title closur
 - [ ] Regenerate contracts and update README, PKM skill, architecture docs, and bean history
 - [ ] Run focused gates and disposable-port-18974 lifecycle verification without production access
 - [ ] Pass fresh task reviews and final whole-title-lane review
+
+## Task 1: restore opaque rename behavior and add Python title predicate
+
+- [x] Add `shared/fixtures/title_syntax.json` with Python-facing forbidden-title cases
+- [x] Add pure `pkm.refs.title_syntax_reason()` returning `"forbidden_syntax" | None`
+- [x] Restore opaque one-pass `rewrite_title_refs_map()` replacement semantics and remove the recursive mapped-target regression test
+- [x] Run focused refs/rename tests plus full server pytest, pyrefly, and ruff
+
+## Task 1 Summary of Changes
+
+Added the shared title-syntax fixture and pure Python predicate for later boundary consumers, and restored `rewrite_title_refs_map()` to the reviewed one-pass opaque replacement behavior so replacement values are never rescanned for further rewrites. Captured RED for the missing predicate import and the recursive replacement regression before the minimal GREEN changes.

@@ -424,7 +424,9 @@ flowchart TD
     R --> H["atomic os.replace: db, then report"]
 ```
 
-Before row construction or filesystem work, `importer/titles.py` recursively
+After the export is read and parsed, and before linked-file indexing, row
+construction, output-directory creation, temporary database work, asset
+copying, report writing, or publication, `importer/titles.py` recursively
 removes balanced `[[`/`]]` markers and `#` markers from every explicit and
 ref-derived title, rewrites refs with the resulting map, and merges collisions
 in stable source order while preferring an already-clean spelling as survivor.

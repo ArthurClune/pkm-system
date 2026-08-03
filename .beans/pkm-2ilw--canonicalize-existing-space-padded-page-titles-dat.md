@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-03T12:16:43Z
+updated_at: 2026-08-03T12:27:34Z
 parent: pkm-ulae
 ---
 
@@ -144,7 +144,7 @@ Added the shared title-syntax fixture and pure Python predicate for later bounda
 
 ## Revised Tasks 2-4 Summary of Changes
 
-Rejected forbidden explicit and reference-derived titles before any server operation-batch mutation; restored boundary-space-only migration planning with digest-bearing `all_space`/`forbidden_syntax` blockers and generated API/CLI contracts; and added pure recursive import sanitization before row/filesystem work with deterministic collision merges, preserved page/orphan block trees and refs, truthful reporting, and typed refusal. The human-approved coupled review required one importer fix round for extractor-normalized targets and hash-removal marker formation; the scoped re-review found both addressed. Full server verification after the fix: 1368 passed, coverage 96.69%; pyrefly reported zero errors and ruff passed.
+Rejected forbidden explicit and reference-derived titles before any server operation-batch mutation; restored boundary-space-only migration planning with digest-bearing `all_space`/`forbidden_syntax` blockers and generated API/CLI contracts; and added pure recursive import sanitization after export read/parse and before linked-file indexing, row construction, output-directory creation, temporary database work, asset copying, report writing, and publication with deterministic collision merges, preserved page/orphan block trees and refs, truthful reporting, and typed refusal. The human-approved coupled review required one importer fix round for extractor-normalized targets and hash-removal marker formation; the scoped re-review found both addressed. Full server verification after the fix: 1368 passed, coverage 96.69%; pyrefly reported zero errors and ruff passed.
 
 ## Revised Task 5 Summary of Changes
 

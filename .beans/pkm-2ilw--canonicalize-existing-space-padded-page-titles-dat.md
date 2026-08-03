@@ -1,11 +1,11 @@
 ---
 # pkm-2ilw
 title: Canonicalize existing space-padded page titles (data migration)
-status: completed
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-02T21:47:49Z
+updated_at: 2026-08-03T08:48:06Z
 parent: pkm-ulae
 ---
 
@@ -118,3 +118,16 @@ Implemented deterministic title-migration planning and digesting; atomic audit/a
 ## Final review fix summary
 
 Nested source targets now resolve to one final canonical spelling while preserving the chosen outer page identity; activation is set before reindex inside the same rollback-protected transaction, so ref resolution cannot recreate deleted padded pages. Title activation broadcasts a forced WebSocket seq frame containing the actual journal maximum and new generation, allowing already-current replicas to pull and rebootstrap without mutating or inventing cursor values. Applied-page broadcasts raise on an unreachable authoritative-title lookup failure instead of retaining caller spelling, while same-page null semantics remain unchanged. All verification used only in-memory or pytest temporary data; no production PKM data/config or port 8974 was used.
+
+## Revised title-syntax invariant
+
+The approved 2026-08-02 requirements revision supersedes the nested-title closure portion of the prior final-review fix wave. The forced equal-cursor sync notification and fail-closed authoritative broadcasts remain required.
+
+- [ ] Restore opaque one-pass rename replacements and remove nested migration closure logic
+- [ ] Reject `#`, `[[`, and `]]` at every normal Python/server title boundary with atomic ref-derived and batch refusal
+- [ ] Report `all_space` and `forbidden_syntax` migration blockers through digest, API, and CLI
+- [ ] Sanitize imported title markup recursively before row creation, merge collisions deterministically, and report changes
+- [ ] Enforce equivalent TypeScript/offline validation using shared fixtures
+- [ ] Regenerate contracts and update README, PKM skill, architecture docs, and bean history
+- [ ] Run focused gates and disposable-port-18974 lifecycle verification without production access
+- [ ] Pass fresh task reviews and final whole-title-lane review

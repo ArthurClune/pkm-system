@@ -5,7 +5,7 @@ status: completed
 type: feature
 priority: normal
 created_at: 2026-08-01T18:38:10Z
-updated_at: 2026-08-03T19:25:32Z
+updated_at: 2026-08-03T19:40:46Z
 blocked_by:
     - pkm-r7k8
 ---
@@ -51,7 +51,10 @@ margin column, tinted by age, behind a "Show timestamps" item in the page menu
   opBumpsUpdatedAt, bumpedUids.
 - `transitionOutline` stamps updated_at on the uids a batch changed, from an
   nowMs supplied by outlineSessions -- so an edited row's date is honest
-  without a reload, and remote edits stamp exactly like local ones.
+  without a reload for same-page edits, and remote edits stamp exactly like
+  local ones (narrow exceptions: cross-page drag-and-drop and an
+  authoritative-repair rebase can briefly show a stale date -- see Known
+  transient staleness below).
 - Preference: blockStampsPref.ts (Core) + useBlockStampsPref.ts (Shell) +
   BlockStampsContext, provided by App.tsx.
 - The column is a PROP from PageView only: journal and sidebar stay bare.
@@ -61,3 +64,32 @@ margin column, tinted by age, behind a "Show timestamps" item in the page menu
 Out of scope (as designed): bullet hover tooltips, a block-menu info entry,
 recency search/filter, stamps on search results or backlinks, and surfacing
 which created_at values are pkm-r7k8 page-level approximations.
+
+
+## Known transient staleness (whole-branch review, 2026-08-03)
+
+Three narrow cases where a displayed stamp is briefly stale. None judged
+worth a code change; recorded so they aren't rediscovered as bugs.
+
+- **Cross-page drag-and-drop bypasses the stamping path.** `DndContext.tsx`'s
+  cross-page drop moves a subtree via `insertSubtreeLocal` ->
+  `publishBlocks`, which dispatches a `local-tree` event -- and
+  `transitionOutline` does not stamp `local-tree` (only `local-ops` and
+  `remote-ops` call `stampBumped`). The `move` ops go straight to
+  `sync.enqueue` and never through the stamping path. So a block dropped
+  onto another page keeps its old date on the destination until the write
+  settles and the authoritative read lands, even though the server does
+  bump `updated_at` for a `SetParent` effect (`ops_apply.py`). Same-page
+  drops are unaffected (they go through `applyLocal`, which does stamp).
+- **`authoritative-repair` replay drops stamps.** The rebase path replays
+  local ops with a bare `applyOps` (no `stampBumped` call), so a rebase
+  onto server blocks shows the server's older date for one cycle. Self-heals
+  on the next authoritative read.
+- **New spurious `revision` bumps.** `withBlocks` compares trees by
+  `JSON.stringify`, so a batch that changes nothing but now stamps
+  `updated_at` advances `revision` where it previously did not -- reachable
+  by clicking an already-checked heading/view-type item in the block menu,
+  since `setHeading`/`setViewType` emit their op unconditionally once the
+  target uid is found, with no guard against the value already matching.
+  Consequence is an extra authoritative round trip, no data loss, and it
+  arguably matches the server, which bumps `updated_at` for that op too.

@@ -153,8 +153,6 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         for i, child in enumerate(p.children):
             walk(child, pid, None, i)
 
-    implicit_page_count = len(pages) - explicit  # snapshot before the recovery page
-
     recovery_page_title = None
     if export.orphan_blocks:
         recovery_page_title = RECOVERY_PAGE_TITLE
@@ -165,6 +163,10 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         recovery_pid = page_id(recovery_page_title)
         for i, orphan in enumerate(export.orphan_blocks):
             walk(orphan, recovery_pid, None, i)
+
+    implicit_page_count = (
+        len(pages) - explicit - (1 if recovery_page_title is not None else 0)
+    )
 
     return Rows(pages=pages, blocks=blocks, refs=refs,
                 implicit_page_count=implicit_page_count,

@@ -20,9 +20,11 @@ async function createAndVisitPage(page: Page, title: string) {
   await expect(page.locator("h1.page-title")).toHaveText(title);
 }
 
+/* The item's label flips with the preference, so match either wording -- this
+ * helper is used to turn stamps both on and off. */
 async function toggleStamps(page: Page) {
   await page.getByRole("button", { name: "Page menu" }).click();
-  await page.getByRole("menuitemcheckbox", { name: /Show timestamps/ }).click();
+  await page.getByRole("menuitem", { name: /(Show|Hide) timestamps/ }).click();
   await page.keyboard.press("Escape");
 }
 
@@ -50,8 +52,8 @@ test("the page menu toggles a stamp column that survives a reload", async ({ pag
   await expect(page.locator("h1.page-title")).toHaveText(title);
   await expect(page.locator(".block-stamp").first()).toBeVisible();
 
-  // The menu item reflects the stored preference after the reload.
+  // The menu item reflects the stored preference after the reload: with stamps
+  // on, it offers the way back out.
   await page.getByRole("button", { name: "Page menu" }).click();
-  await expect(page.getByRole("menuitemcheckbox", { name: /Show timestamps/ }))
-    .toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("menuitem", { name: "Hide timestamps" })).toBeVisible();
 });

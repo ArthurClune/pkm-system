@@ -40,11 +40,11 @@ routeMeta.ts           Core    Route paths + top-bar label/browser-title table, 
                                and useRouteTitle.ts (Shell, the single title effect)
                                all consume it, so /page/* and the not-found
                                catch-all are the only routes without a fixed label
-blockStampsPref.ts     Core    "Show timestamps" preference (localStorage key +
+blockStampsPref.ts     Core    Block-timestamps preference (localStorage key +
                                guard + toggle); useBlockStampsPref.ts (Shell)
                                owns the single instance, shared through
-                               BlockStampsContext so TopBar's checkmark and
-                               PageView's column cannot disagree
+                               BlockStampsContext so the page menu's Show/Hide
+                               label and PageView's column cannot disagree
 api/                   client.ts (fetch wrapper + offline gateway),
                        typedClient.ts (path/method-aware wrapper over it),
                        generated openapi.json + types.d.ts, type-only
@@ -392,6 +392,25 @@ textarea rather than of the row, focusing a block cannot shift it. The flag
 reaches it as a **prop** from `PageView` alone — `EditableBlockTree` must never
 read `BlockStampsContext` itself, or the journal scroll and sidebar panels
 would grow the column too.
+
+**The page menu flips a label instead of showing a checkmark.** The timestamps
+item is a plain `role="menuitem"` reading "Show timestamps" or "Hide
+timestamps", and `.top-bar-menu` has no reserved-width check span — BlockMenu's
+`.block-menu-item-check` idiom indents the label in both states, which in a menu
+this narrow wrapped the label onto two lines while every sibling item sat flush
+at the padding edge. Keep the two idioms apart: an item whose state is in its
+text must not also claim `menuitemcheckbox`, or the label and the announced
+checked state say the same thing twice. A `styles.test.ts` case asserts the
+slot's absence.
+
+Related, and the deeper cause of that wrap: **`.top-bar-menu`'s items must keep
+`white-space: nowrap`.** The menu is absolutely positioned inside a
+button-sized relative parent, so its shrink-to-fit width resolves against
+roughly 30px of available space and lands at min-content — the widest single
+*word*. Without nowrap, any two-word label wraps as soon as the text outgrows
+the 160px `min-width` (a larger font size, browser zoom, or simply a longer
+label); nowrap makes min-content equal max-content so the box widens to its
+longest label instead. New menu items therefore cost width, not height.
 
 **`set_collapsed` must not stamp.** `opBumpsUpdatedAt` (outline/blockStamps.ts)
 is the single statement of pkm-r7k8's rule that collapsing is a view toggle,

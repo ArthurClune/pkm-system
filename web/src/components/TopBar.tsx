@@ -97,15 +97,18 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
               <li role="none">
                 {/* A setting, not a destination: flipping it leaves the menu
                     open so the effect is visible behind it and a change of
-                    mind is one more click, not four. Checkmark idiom matches
-                    BlockMenu's (.block-menu-item-check). */}
-                <button type="button" role="menuitemcheckbox"
-                        aria-checked={stamps}
-                        onClick={toggleStamps}>
-                  <span className="top-bar-menu-check" aria-hidden="true">
-                    {stamps ? "✓" : ""}
-                  </span>
-                  Show timestamps
+                    mind is one more click, not four.
+
+                    The label names the action, rather than a checkmark naming
+                    the state: BlockMenu's reserved-slot idiom
+                    (.block-menu-item-check) indents the label in both states,
+                    which in a menu this narrow wrapped "Show timestamps" onto
+                    two lines while every sibling item sat flush. A flipped
+                    label needs no slot, so all four items share one left edge.
+                    Hence role=menuitem, not menuitemcheckbox -- there is no
+                    checked state to announce once the text carries it. */}
+                <button type="button" role="menuitem" onClick={toggleStamps}>
+                  {stamps ? "Hide timestamps" : "Show timestamps"}
                 </button>
               </li>
               <li role="none">

@@ -235,29 +235,33 @@ function renderTopBarWithStamps(stamps: boolean, toggle = vi.fn()) {
   return { toggle };
 }
 
-it("offers a 'Show timestamps' checkbox item that reflects the preference", () => {
+// The label carries the state, so it names the action available now, not the
+// state you are in: off -> "Show timestamps", on -> "Hide timestamps". Asserting
+// the opposite label is absent is the part that matters -- a reserved checkmark
+// slot would leave both readings plausible.
+it("labels the timestamps item 'Show timestamps' when the preference is off", () => {
   renderTopBarWithStamps(false);
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
-  const item = screen.getByRole("menuitemcheckbox", { name: /Show timestamps/ });
-  expect(item).toHaveAttribute("aria-checked", "false");
+  expect(screen.getByRole("menuitem", { name: "Show timestamps" })).toBeInTheDocument();
+  expect(screen.queryByRole("menuitem", { name: "Hide timestamps" })).toBeNull();
 });
 
-it("shows the item checked when the preference is on", () => {
+it("labels the timestamps item 'Hide timestamps' when the preference is on", () => {
   renderTopBarWithStamps(true);
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
-  expect(screen.getByRole("menuitemcheckbox", { name: /Show timestamps/ }))
-    .toHaveAttribute("aria-checked", "true");
+  expect(screen.getByRole("menuitem", { name: "Hide timestamps" })).toBeInTheDocument();
+  expect(screen.queryByRole("menuitem", { name: "Show timestamps" })).toBeNull();
 });
 
 it("flipping the item toggles the preference and leaves the menu open", () => {
   const { toggle } = renderTopBarWithStamps(false);
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
-  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /Show timestamps/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Show timestamps" }));
   expect(toggle).toHaveBeenCalledTimes(1);
-  // A checkbox item is a setting, not a destination: closing the menu on
-  // every flip would make "try it and put it back" a four-click round trip.
-  expect(screen.getByRole("menuitemcheckbox", { name: /Show timestamps/ }))
-    .toBeInTheDocument();
+  // A setting, not a destination: closing the menu on every flip would make
+  // "try it and put it back" a four-click round trip. (The label stays "Show"
+  // here only because `toggle` is a mock -- the preference never changes.)
+  expect(screen.getByRole("menuitem", { name: "Show timestamps" })).toBeInTheDocument();
 });
 
 it("does not offer the timestamps item off /page/* routes", () => {

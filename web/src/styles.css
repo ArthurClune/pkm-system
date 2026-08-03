@@ -452,15 +452,23 @@ button { font: inherit; }
  * here since this selector didn't previously set font-weight at all, so the
  * anchor rendered bold next to the buttons' inherited normal weight
  * (pkm-ciy8) -- pin it explicitly rather than relying on non-override. */
+/* nowrap is load-bearing, not cosmetic. The menu is absolutely positioned
+ * inside a button-sized relative parent, so its shrink-to-fit width resolves
+ * against ~30px of available space: without this it sits at min-content --
+ * the widest single WORD -- and any two-word label wraps once the text outgrows
+ * min-width (larger font size, browser zoom, a longer label). nowrap makes
+ * min-content equal max-content, so the box widens to its longest label
+ * instead and every item stays on one line. */
 .top-bar-menu button, .top-bar-menu a { display: block; width: 100%; text-align: left;
   background: none; border: none; padding: 6px 12px; cursor: pointer; color: var(--color-text);
-  font-weight: normal; text-decoration: none; box-sizing: border-box; }
+  font-weight: normal; text-decoration: none; box-sizing: border-box; white-space: nowrap; }
 .top-bar-menu button:hover, .top-bar-menu a:hover { background: var(--color-selected-bg); }
 .top-bar-menu button:focus-visible, .top-bar-menu a:focus-visible {
   outline: 2px solid var(--color-link); outline-offset: 1px; }
-/* Same reserved-width checkmark idiom as BlockMenu's .block-menu-item-check,
- * so a checked and an unchecked item keep their labels on one line. */
-.top-bar-menu-check { display: inline-block; width: 1.25em; }
+/* No reserved checkmark slot here (unlike BlockMenu's .block-menu-item-check):
+ * this menu is narrow enough that a 1.25em indent wrapped "Show timestamps"
+ * onto two lines. The timestamps item flips its label instead, so every item
+ * starts at the padding edge. */
 
 /* outline */
 /* line-height set here (not on .block-text) so the edit-mode textarea

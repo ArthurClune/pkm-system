@@ -50,7 +50,8 @@ pkm/
 │                               daily.py (date <-> "July 8th, 2026" titles)
 │
 ├── server/              The FastAPI app (details below)
-├── importer/            Roam EDN import pipeline
+├── importer/            Roam EDN import pipeline: run.py Shell; preflight.py and
+│                        mermaid_preservation.py Core validation/planning
 ├── export/              Markdown export (markdown.py Core render, writer.py Shell)
 ├── backup/              Nightly backup job (__main__.py Shell, rotation.py Core)
 ├── cli/                 `pkm` CLI (main.py Shell; build.py/render.py Core planners)
@@ -412,27 +413,38 @@ used for a brand-new hash (pkm-x3l7).
 
 ```mermaid
 flowchart TD
-    A["export.edn"] --> B["edn.py — parse EDN (Core)"]
+    A["verify export.edn exists"] --> B["edn.py — strict EDN parse (Core)"]
     B --> C["parse_export.py — datoms → page/block trees (Core)"]
-    F["linked-files dir"] --> G["hash + index files (sha256)"]
-    C --> D["rows.py — trees → SQL rows, implicit pages, refs (Core)"]
-    G --> D
-    D -- "firebase URLs → /assets/… (assets.py)<br/>mermaid component blocks → fenced (mermaid.py)<br/>orphan subtrees → recovery page" --> D
+    C --> P["preflight.py — duplicate UID / multi-parent refusal (Core)"]
+    P --> T["titles.py — import-only sanitization (Core)"]
+    F["linked-files dir"] --> G["index files + transform asset URLs"]
+    T --> G
+    G --> D["rows.py + mermaid_preservation.py<br/>rows, refs, global Mermaid plan (Core)"]
     D --> E["write pkm.sqlite3.tmp + copy assets"]
     E --> M["audit + apply shared title migration on tmp DB"]
     M --> R["render + write import-report.txt.tmp (Core render, Shell write)"]
-    R --> H["atomic os.replace: db, then report"]
+    R --> H["atomic os.replace: database, then report"]
 ```
 
-After the export is read and parsed, and before linked-file indexing, row
-construction, output-directory creation, temporary database work, asset
-copying, report writing, or publication, `importer/titles.py` recursively
-removes balanced `[[`/`]]` markers and `#` markers from every explicit and
-ref-derived title, rewrites refs with the resulting map, and merges collisions
-in stable source order while preferring an already-clean spelling as survivor.
-The report deterministically lists each changed spelling, all locations, and
-whether it merged. Malformed marker syntax or a result made blank by
-sanitization refuses before output-directory creation.
+The EDN parser is strict. Malformed input returns exit 2 with
+`error: malformed export at offset N: DETAIL`, where `N` is a zero-based
+Python character offset; the EDN-unsupported solidus escape `\/` remains
+invalid rather than being accepted as JSON/Logseq compatibility.
+`parse_export()` then builds the transport-neutral trees. Before title
+sanitization, linked-file indexing, output-directory creation, SQLite, assets,
+or report work, `preflight.py` traverses every page and orphan subtree and
+refuses duplicate block UIDs or one block entity reached through multiple
+parents. It selects the lexicographically first offending UID and reports all
+sorted structural locations, so the diagnostic is deterministic.
+
+Only after structural preflight, and still before linked-file indexing and row
+construction, `importer/titles.py` recursively removes balanced `[[`/`]]`
+markers and `#` markers from every explicit and ref-derived title, rewrites
+refs with the resulting map, and merges collisions in stable source order while
+preferring an already-clean spelling as survivor. The report deterministically
+lists each changed spelling, all locations, and whether it merged. Malformed
+marker syntax or a result made blank by sanitization refuses before
+output-directory creation.
 
 Before either `os.replace`, the importer also runs the same shared
 `audit_title_migration()` / `apply_title_migration()` shell used by the
@@ -447,14 +459,19 @@ database/report untouched.
 Roam block uids, ordering and timestamps are preserved, so every existing
 `((block ref))` and daily-note link keeps resolving. Mermaid conversion
 (above) is the one place this could otherwise fail silently — flattening a
-component block's descendants into a single fenced block drops their rows
-— so both `rows.py` and the one-off `migrate_mermaid_blocks.py` migration
-check, before flattening, whether any descendant that would be dropped is
-still targeted by an inbound `((uid))` from outside the subtree; if so,
-that whole subtree is left as ordinary nested blocks instead (uid/text/
-children intact) and the skip is reported (`Rows.mermaid_preserved_refs`,
-surfaced in the import report; `migrate_mermaid_blocks.py`'s `Plan.preserved`,
-printed by both `--dry-run` and a normal run before any deletion happens).
+component block's descendants into a single fenced block drops their rows.
+Both fresh row derivation and the one-off `migrate_mermaid_blocks.py` migration
+gather every candidate and call the same `mermaid_preservation.py` core before
+flattening. A candidate is directly protected when an inbound `((uid))` from
+outside its subtree targets a descendant; protection then reaches a fixed point
+by protecting every candidate ancestor that contains a protected component.
+This prevents an outer flatten from deleting a nested component that was kept.
+Protected components remain ordinary nested blocks with uid/text/children
+intact. Reports are keyed by descendant UID, deduplicate that descendant across
+components, and union/sort source UIDs (`Rows.mermaid_preserved_refs`, surfaced
+in the import report; migration `Plan.preserved`, printed by `--dry-run` and a
+normal run before deletion). Migration prints no preserved section when the
+plan has no such rows.
 
 Blocks with a `:block/uid` and `:block/string` that Roam's export leaves
 unreachable from any page (`parse_export.py`'s `Export.orphan_blocks`) are
@@ -476,13 +493,23 @@ that could root a non-cycle branch first and later re-attach it a second
 time under its real parent (a real `blocks.uid` primary-key collision, not
 just a documentation nicety). Only entities with no `:block/string` at all
 (`skipped_entities` — no text to reconstruct even from a subtree) are still
-just counted, never appearing on the recovery page themselves. The
-report is fully rendered and written to a `.tmp` file, and only then is the
-database swapped in, followed by the report itself — if any preflight step
-(row-building, populating the tmp db, copying assets, rendering the report)
-raises, both `.tmp` files are removed and the existing database and report
-are left exactly as they were; a report failure can no longer hide behind
-an already-published database.
+just counted, never appearing on the recovery page themselves. Implicit-page
+counting happens after orphan rows have been walked, so pages referenced only
+by orphan text are included; the recovery page itself is subtracted from the
+implicit total.
+
+Temporary-file cleanup follows stage boundaries rather than claiming a single
+universal rule. The importer removes stale `pkm.sqlite3.tmp` at the start of a
+new output build, so an early database-build or asset-copy failure may leave
+that self-healing temp in place; `import-report.txt.tmp` does not exist yet.
+Once report rendering/writing/publication begins, any exception removes both
+remaining named temps. A report render/write failure, or failure of the first
+(database) `os.replace`, therefore leaves the published database and report
+unchanged. Publication remains two ordered atomic replacements — database
+first, report second — not one transaction across both files; if the second
+replace itself fails, the new database may already be published while the old
+report remains, and the next successful run repairs the pair. In every case,
+remaining named temps from the report/publication phase are removed.
 
 ## Export and backup
 

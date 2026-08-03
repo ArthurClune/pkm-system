@@ -20,6 +20,7 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      TitleMigrationPage)
 
 _REF_TOKEN = re.compile(r"\(\(([\w-]+)\)\)")
+_SECTION_MARKER = re.compile(r"^(#{1,3}) (.*)$")
 
 RefMap = Mapping[str, BlockRefText]
 
@@ -233,15 +234,21 @@ def render_title_migration_apply(payload: TitleMigrationApplyResponse) -> str:
 
 def select_section(blocks: Sequence[BlockNode],
                    spec: str) -> list[BlockNode]:
-    """The subtree rooted at the first block whose text equals `spec`
-    ('## Heading' or bare text). Raises RenderError naming the page's
-    headings when nothing matches."""
-    text = re.sub(r"^#{1,3} ", "", spec)
+    """The subtree rooted at the first block matching `spec`. A marked
+    spec ('## Heading') matches that exact heading level and text; bare
+    text matches regardless of heading level. Ties (duplicate text, or a
+    bare spec matching several levels) resolve to the first match in
+    document order. Raises RenderError listing the page's marked
+    headings (with their level markers) when nothing matches."""
+    marked = _SECTION_MARKER.fullmatch(spec)
+    heading = len(marked.group(1)) if marked else None
+    text = marked.group(2) if marked else spec
     for n in _walk(blocks):
-        if n.text == text:
+        if n.text == text and (heading is None or n.heading == heading):
             return [n]
-    headings = ", ".join(n.text for n in _walk(blocks) if n.heading)
-    raise RenderError(f"no block titled {text!r} on the page"
+    headings = ", ".join(f"{'#' * n.heading} {n.text}"
+                         for n in _walk(blocks) if n.heading)
+    raise RenderError(f"no block titled {spec!r} on the page"
                       f" (headings: {headings or 'none'})")
 
 

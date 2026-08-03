@@ -60,8 +60,10 @@ e.g. pkm get -- -abc123wxyz9
 flags:
   --uids           annotate each block with a trailing ^uid marker
   --resolve-refs   inline ((uid)) block refs as "text" ((uid))
-  --section "## Heading"   only the subtree under that heading/block
-                            (pages only, not a bare uid target)
+  --section "## Heading"   marked spec matches that heading level and
+                            exact text; bare text matches regardless of
+                            heading, taking the first match in document
+                            order (pages only, not a bare uid target)
   --depth N        clip nesting below N levels deep
   --json           raw JSON payload instead of rendered markdown
 
@@ -494,7 +496,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--resolve-refs", action="store_true",
                    help="inline ((uid)) block refs as '\"text\" ((uid))'")
     p.add_argument("--section", default=None, metavar='"## Heading"',
-                   help="only the subtree under this heading/block text")
+                   help="only the subtree under this heading/block text --"
+                        " marked specs match level and exact text, bare"
+                        " text matches regardless of heading")
     p.add_argument("--depth", type=int, default=None,
                    help="clip nesting deeper than N levels")
     _common(p)

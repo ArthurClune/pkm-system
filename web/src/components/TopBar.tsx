@@ -2,7 +2,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { apiDelete } from "../api/typedClient";
-import { SidebarContext } from "../contexts";
+import { BlockStampsContext, SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
 import { PAGE_ROUTE_PREFIX, ROUTES, routeMetaFor } from "../routeMeta";
 import { useConfirm } from "./ConfirmDialog";
@@ -30,6 +30,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   // labelled here but not there, or vice versa.
   const barLabel = title ?? routeMetaFor(pathname)?.label ?? null;
   const { openInSidebar } = useContext(SidebarContext);
+  const { stamps, toggle: toggleStamps } = useContext(BlockStampsContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
@@ -93,6 +94,20 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
           </button>
           {menuOpen && (
             <ul className="top-bar-menu" role="menu">
+              <li role="none">
+                {/* A setting, not a destination: flipping it leaves the menu
+                    open so the effect is visible behind it and a change of
+                    mind is one more click, not four. Checkmark idiom matches
+                    BlockMenu's (.block-menu-item-check). */}
+                <button type="button" role="menuitemcheckbox"
+                        aria-checked={stamps}
+                        onClick={toggleStamps}>
+                  <span className="top-bar-menu-check" aria-hidden="true">
+                    {stamps ? "✓" : ""}
+                  </span>
+                  Show timestamps
+                </button>
+              </li>
               <li role="none">
                 <button type="button" role="menuitem"
                         onClick={() => { openInSidebar(title); setMenuOpen(false); }}>

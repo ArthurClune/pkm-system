@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
-import { SidebarContext } from "../contexts";
+import { BlockStampsContext, SidebarContext } from "../contexts";
 import { stubFetch } from "../test-helpers";
 import { TopBar } from "./TopBar";
 
@@ -217,4 +217,50 @@ it("shows the search shortcut hint inside the search pill (pkm-absu)", () => {
   const hint = container.querySelector("kbd.top-bar-search-hint");
   expect(hint).not.toBeNull();
   expect(hint!.textContent).toMatch(/U$/);
+});
+
+function renderTopBarWithStamps(stamps: boolean, toggle = vi.fn()) {
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/AWS"]}>
+      <BlockStampsContext.Provider value={{ stamps, toggle }}>
+        <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
+          <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
+        </SidebarContext.Provider>
+      </BlockStampsContext.Provider>
+      <Routes>
+        <Route path="/page/*" element={<p>page view here</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  return { toggle };
+}
+
+it("offers a 'Show timestamps' checkbox item that reflects the preference", () => {
+  renderTopBarWithStamps(false);
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  const item = screen.getByRole("menuitemcheckbox", { name: /Show timestamps/ });
+  expect(item).toHaveAttribute("aria-checked", "false");
+});
+
+it("shows the item checked when the preference is on", () => {
+  renderTopBarWithStamps(true);
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  expect(screen.getByRole("menuitemcheckbox", { name: /Show timestamps/ }))
+    .toHaveAttribute("aria-checked", "true");
+});
+
+it("flipping the item toggles the preference and leaves the menu open", () => {
+  const { toggle } = renderTopBarWithStamps(false);
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /Show timestamps/ }));
+  expect(toggle).toHaveBeenCalledTimes(1);
+  // A checkbox item is a setting, not a destination: closing the menu on
+  // every flip would make "try it and put it back" a four-click round trip.
+  expect(screen.getByRole("menuitemcheckbox", { name: /Show timestamps/ }))
+    .toBeInTheDocument();
+});
+
+it("does not offer the timestamps item off /page/* routes", () => {
+  renderTopBar("/current-work");
+  expect(screen.queryByRole("button", { name: "Page menu" })).toBeNull();
 });

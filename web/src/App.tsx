@@ -9,11 +9,12 @@ import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { TopBar } from "./components/TopBar";
-import { SidebarContext } from "./contexts";
+import { BlockStampsContext, SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
 import { pagePath } from "./paths";
 import { ROUTES } from "./routeMeta";
 import { SyncProvider } from "./sync/SyncProvider";
+import { useBlockStampsPref } from "./useBlockStampsPref";
 import { useRouteTitle } from "./useRouteTitle";
 import { useSidebarCollapsed } from "./useSidebarCollapsed";
 import { CurrentWork } from "./views/CurrentWork";
@@ -45,6 +46,9 @@ export function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapsed();
+  const { stamps, toggle: toggleStamps } = useBlockStampsPref();
+  const blockStampsApi = useMemo(
+    () => ({ stamps, toggle: toggleStamps }), [stamps, toggleStamps]);
   const [stack, setStack] = useState<SidebarEntry[]>([]);
   // Session-only, unlike the left nav's persisted collapse: the panel stack
   // itself resets on reload, so a persisted hidden flag would only ever
@@ -132,6 +136,7 @@ export function App() {
     <SyncProvider>
       <DndProvider>
         <SidebarContext.Provider value={sidebarApi}>
+        <BlockStampsContext.Provider value={blockStampsApi}>
           <div className="app-shell" ref={appShellRef}>
             <div className="app-banner-stack" ref={bannerStackRef}>
               <OfflineIndicator />
@@ -217,6 +222,7 @@ export function App() {
               )}
             </div>
           </div>
+        </BlockStampsContext.Provider>
         </SidebarContext.Provider>
       </DndProvider>
     </SyncProvider>

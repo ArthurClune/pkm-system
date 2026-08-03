@@ -695,8 +695,18 @@ describe("block stamps (pkm-4ler)", () => {
       .toContain("display: none;");
   });
 
-  test("the page-menu checkmark reserves its width like BlockMenu's", () => {
-    expect(rulesFor(".top-bar-menu-check")).toContain("display: inline-block;");
-    expect(rulesFor(".top-bar-menu-check")).toContain("width: 1.25em;");
+  // Deliberately no reserved-checkmark slot in this menu (BlockMenu keeps its
+  // own): a 1.25em indent wrapped "Show timestamps" onto two lines while every
+  // sibling sat flush, so the item flips its label instead. A rule reappearing
+  // here would mean the two idioms had been mixed back together.
+  test("the page menu reserves no checkmark slot", () => {
+    expect(() => rulesFor(".top-bar-menu-check")).toThrow(/Missing CSS rule/);
+  });
+
+  // The menu shrink-to-fits against a button-sized parent, so its width sits at
+  // min-content -- the widest word -- unless the items refuse to wrap.
+  test("page-menu items never wrap their labels", () => {
+    expect(rulesFor(".top-bar-menu button, .top-bar-menu a"))
+      .toContain("white-space: nowrap;");
   });
 });

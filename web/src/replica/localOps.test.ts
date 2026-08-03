@@ -173,6 +173,22 @@ describe("applyLocalOps", () => {
     expect(refs.map((r) => r.target_page_id)).toContain(brandNew.id);
   });
 
+  test("create skips blank refs while still indexing nonblank refs in the same block", () => {
+    applyLocalOps(t.db, [{
+      op: "create", uid: "uid_blank_ref", page_title: "AI", parent_uid: null,
+      order_idx: 1, text: "skip [[   ]] but keep [[Valid Page]]",
+    }], 99);
+
+    expect(rows("SELECT title FROM pages WHERE title = 'Untitled'")).toEqual([]);
+    expect(rows<{ title: string }>(
+      "SELECT title FROM pages WHERE trim(title) = ''",
+    )).toEqual([]);
+    expect(rows<{ kind: string; title: string }>(
+      "SELECT r.kind, p.title FROM refs r JOIN pages p ON p.id = r.target_page_id" +
+      " WHERE r.src_block_uid = 'uid_blank_ref' ORDER BY p.title, r.kind",
+    )).toEqual([{ kind: "link", title: "Valid Page" }]);
+  });
+
   test("update_text rewrites text and refs; FTS sees the new text", () => {
     applyLocalOps(t.db, [
       { op: "update_text", uid: "uid_r1", text: "now mentions [[ML]]" },

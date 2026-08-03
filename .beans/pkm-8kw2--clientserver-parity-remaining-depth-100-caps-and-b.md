@@ -1,11 +1,11 @@
 ---
 # pkm-8kw2
 title: 'Client/server parity: remaining depth-100 caps and blank-ref handling'
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-07-31T16:50:33Z
-updated_at: 2026-08-03T13:22:51Z
+updated_at: 2026-08-03T13:44:12Z
 parent: pkm-ulae
 ---
 
@@ -19,7 +19,7 @@ Server-side traversal is now complete and cycle-safe (pkm-2fw1) and blank titles
 
 - [x] Align localOps.ts subtree traversal with the server's cycle-safe complete traversal
 - [x] Decide read-path ancestors cap (removed; traversal is complete and cycle-safe)
-- [ ] Align TS extractRefs blank-ref handling with server extract() + BlankTitleError skip
+- [x] Align Python/TS extractors and local indexing for blank references
 
 Additional item from ops-branch re-review (pre-existing): _broadcast_op relays a control-whitespace page_title verbatim while the server stores the normalized form ("Foo\nBar" stored as "Foo Bar" but broadcast raw) — same replica-divergence shape as the blank-title case fixed in pkm-1rb5. Broadcasting the resolved/normalized title would cover both.
 
@@ -28,7 +28,8 @@ Additional item from ops-branch re-review (pre-existing): _broadcast_op relays a
 ## Summary of Changes
 
 - Broadcast ops now use the authoritative stored page title from the applied page row for create, create_page, and move operations, covering blank fallback, control-whitespace normalization, activation-time padding canonicalization, and cross-page moves while preserving same-page null broadcasts. An unreachable authoritative-row lookup now fails closed instead of retaining caller spelling.
+- Blank references are now dropped in both pure extractors before local/server ref indexing, preserving byte-exact nonblank padding, regenerating the shared parity fixture, and covering the local replica so `[[   ]]` is ignored while valid refs in the same block still index.
 
 ## Task 10 status review
 
-Only the authoritative title-broadcast item is complete. The subtree traversal, ancestor cap, and blank-ref parity items intentionally remain unchecked, and this bean remains in progress for the later parity lane.
+All parity items from this bean are now complete, and the task is ready to close.

@@ -304,6 +304,16 @@
       "text": "[[\n]] references nothing",
       "refs": [],
       "block_refs": []
+    },
+    {
+      "text": "skip [[   ]] but keep [[ Valid ]]",
+      "refs": [
+        {
+          "title": " Valid ",
+          "kind": "link"
+        }
+      ],
+      "block_refs": []
     }
   ]
 }

@@ -3,12 +3,12 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
 import {
-  acquireOutlineSession,
   isOutlineEditorActive,
   isOutlineSessionActive,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
+import { block, jsonResponse, makeSync, pagePayload, reserveOutlineEditor,
+         stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
 import { PageView } from "../views/PageView";
@@ -19,19 +19,6 @@ function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
-}
-
-function reserveOutlineEditor(title: string): () => void {
-  const handle = acquireOutlineSession(title, null);
-  const lease = handle.claimEditor(Symbol(`test-reservation:${title}`));
-  if (!lease.granted) {
-    handle.release();
-    throw new Error(`Could not reserve editor for ${title}`);
-  }
-  return () => {
-    lease.release();
-    handle.release();
-  };
 }
 
 function mount(sync = makeSync(), title = "Paper",

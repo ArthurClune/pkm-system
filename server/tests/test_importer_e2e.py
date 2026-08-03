@@ -7,8 +7,122 @@ import pytest
 import pkm.importer.run as run_module
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 from pkm.importer.run import main
+from pkm.refs import title_syntax_reason
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_export.edn"
+
+MERGE_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Acme" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-clean-root" 1]
+  [2 :block/string "clean root" 1]
+  [2 :block/order 0 1]
+  [10 :node/title " Acme " 1]
+  [10 :block/children 11 1]
+  [11 :block/uid "uid-padded-root" 1]
+  [11 :block/string "self [[ Acme ]] and [[Other]]" 1]
+  [11 :block/order 0 1]
+  [11 :block/children 12 1]
+  [12 :block/uid "uid-padded-child" 1]
+  [12 :block/string "nested child" 1]
+  [12 :block/order 0 1]
+  [20 :node/title "Watcher" 1]
+  [20 :block/children 21 1]
+  [21 :block/uid "uid-watcher" 1]
+  [21 :block/string "[[Acme]] and [[ Acme ]]" 1]
+  [21 :block/order 0 1]
+ ]}"""
+
+ORDINARY_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Solo" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-solo" 1]
+  [2 :block/string "hello" 1]
+  [2 :block/order 0 1]
+ ]}"""
+
+TITLE_SYNTAX_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "#Project" 1]
+  [1 :create/time 100 1]
+  [1 :edit/time 101 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-dirty-root" 1]
+  [2 :block/string "[[Outer [[Inner]]]] [[Topic #One]] #Tag #[[Tag]] [[#Project]]" 1]
+  [2 :block/order 0 1]
+  [2 :block/children 3 1]
+  [3 :block/uid "uid-dirty-child" 1]
+  [3 :block/string "keep ((uid-clean-root))" 1]
+  [3 :block/order 0 1]
+  [10 :node/title "Project" 1]
+  [10 :create/time 200 1]
+  [10 :edit/time 201 1]
+  [10 :block/children 11 1]
+  [11 :block/uid "uid-clean-root" 1]
+  [11 :block/string "clean root" 1]
+  [11 :block/order 0 1]
+  [20 :node/title "Watcher" 1]
+  [20 :block/children 21 1]
+  [21 :block/uid "uid-watcher" 1]
+  [21 :block/string "[[#Project]]" 1]
+  [21 :block/order 0 1]
+ ]}"""
+
+EXTRACTOR_NORMALIZATION_EXPORT = """#datascript/DB {:schema {:block/children {:db/valueType :db.type/ref, :db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Source" 1]
+  [1 :block/children 2 1]
+  [2 :block/uid "uid-source" 1]
+  [2 :block/string "  Bad#Title:: value and [[Bad
+#Title]] tail" 1]
+  [2 :block/order 0 1]
+  [2 :block/children 3 1]
+  [3 :block/uid "uid-child" 1]
+  [3 :block/string "unchanged child" 1]
+  [3 :block/order 0 1]
+ ]}"""
+
+MALFORMED_TITLE_EXPORT = """#datascript/DB {:schema {}
+ :datoms [[1 :node/title "Bad [[Title" 1]]}"""
+
+BLANK_MARKER_TITLE_EXPORT = """#datascript/DB {:schema {}
+ :datoms [[1 :node/title "[[#]]" 1]]}"""
+
+POST_SANITIZATION_MALFORMED_TITLE_EXPORT = """#datascript/DB {:schema {}
+ :datoms [[1 :node/title "[#[" 1]]}"""
+
+DUPLICATE_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Tree" 1]
+  [1 :block/children 2 1]
+  [1 :block/children 3 1]
+  [2 :block/uid "duplicate" 1]
+  [2 :block/string "first" 1]
+  [2 :block/order 0 1]
+  [3 :block/uid "duplicate" 1]
+  [3 :block/string "second" 1]
+  [3 :block/order 1 1]
+ ]}"""
+
+MULTI_PARENT_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Tree" 1]
+  [1 :block/children 2 1]
+  [1 :block/children 3 1]
+  [2 :block/uid "left-uid" 1]
+  [2 :block/string "left" 1]
+  [2 :block/order 0 1]
+  [2 :block/children 4 1]
+  [3 :block/uid "right-uid" 1]
+  [3 :block/string "right" 1]
+  [3 :block/order 1 1]
+  [3 :block/children 4 1]
+  [4 :block/uid "shared-uid" 1]
+  [4 :block/string "shared" 1]
+  [4 :block/order 0 1]
+ ]}"""
 
 
 def _setup_files(tmp_path: Path) -> Path:
@@ -133,6 +247,15 @@ def test_rerun_replaces_database(tmp_path):
                        ).fetchone()[0] == 0
 
 
+def _seed_published_sentinels(out: Path) -> tuple[bytes, str]:
+    out.mkdir()
+    database = b"published-database-sentinel"
+    report = "published-report-sentinel"
+    (out / "pkm.sqlite3").write_bytes(database)
+    (out / "import-report.txt").write_text(report, encoding="utf-8")
+    return database, report
+
+
 def test_report_failure_leaves_existing_database_untouched(tmp_path, monkeypatch):
     # The report must be fully written before the database is published: a
     # failure while rendering/writing it (disk full, permissions, ...) must
@@ -153,6 +276,101 @@ def test_report_failure_leaves_existing_database_untouched(tmp_path, monkeypatch
     assert (out / "pkm.sqlite3").read_bytes() == original_db
     assert (out / "import-report.txt").read_text() == original_report
     assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
+def test_publication_failure_removes_both_temps_and_preserves_outputs(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "data"
+    original_db, original_report = _seed_published_sentinels(out)
+    real_replace = run_module.os.replace
+
+    def fail_database_replace(src, dst):
+        if Path(src).name == "pkm.sqlite3.tmp":
+            raise OSError("simulated database publication failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(run_module.os, "replace", fail_database_replace)
+
+    with pytest.raises(OSError, match="simulated database publication failure"):
+        main([str(FIXTURE), "--out", str(out)])
+
+    assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
+def test_report_publication_failure_keeps_published_database_and_old_report(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "data"
+    original_db, original_report = _seed_published_sentinels(out)
+    real_replace = run_module.os.replace
+
+    def fail_report_replace(src, dst):
+        if Path(src).name == "import-report.txt.tmp":
+            raise OSError("simulated report publication failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(run_module.os, "replace", fail_report_replace)
+
+    with pytest.raises(OSError, match="simulated report publication failure"):
+        main([str(FIXTURE), "--out", str(out)])
+
+    assert (out / "pkm.sqlite3").read_bytes() != original_db
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute("SELECT count(*) FROM pages").fetchone()[0] > 0
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
+def test_database_build_failure_leaves_self_healing_database_temp(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "data"
+    original_db, original_report = _seed_published_sentinels(out)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(run_module, "DDL", "this is not valid SQL")
+        with pytest.raises(sqlite3.OperationalError):
+            main([str(FIXTURE), "--out", str(out)])
+
+    assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+    assert main([str(FIXTURE), "--out", str(out)]) == 0
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+
+def test_asset_copy_failure_leaves_self_healing_database_temp(
+    tmp_path, monkeypatch
+):
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    original_db, original_report = _seed_published_sentinels(out)
+
+    def fail_copy(_src, _dst):
+        raise OSError("simulated asset copy failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(run_module.shutil, "copyfile", fail_copy)
+        with pytest.raises(OSError, match="simulated asset copy failure"):
+            main([str(FIXTURE), "--files", str(files), "--out", str(out)])
+
+    assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()
 
 
 def test_duplicate_content_assets_do_not_crash(tmp_path):
@@ -261,6 +479,22 @@ def test_missing_export_file_reports_friendly_error(tmp_path, capsys):
     assert f"error: export file not found: {missing}" in captured.err
 
 
+def test_malformed_export_reports_friendly_error_before_output(tmp_path, capsys):
+    malformed = tmp_path / "malformed.edn"
+    malformed.write_text('"\\/"', encoding="utf-8")
+    out = tmp_path / "data"
+
+    rc = main([str(malformed), "--out", str(out)])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "error: malformed export at offset 1: unsupported escape '\\/'\n"
+    )
+    assert not out.exists()
+
+
 def test_missing_files_dir_warns_and_continues(tmp_path, capsys):
     missing_files = tmp_path / "no-such-files-dir"
     out = tmp_path / "data"
@@ -325,3 +559,278 @@ def test_overlong_filename_import_produces_bounded_asset_row(tmp_path):
     assert filename.endswith(".png")
     assert len(filename.encode("utf-8")) <= 200
     assert filename != overlong_name
+
+
+def _write_export(tmp_path: Path, name: str, raw: str) -> Path:
+    export_file = tmp_path / name
+    export_file.write_text(raw, encoding="utf-8")
+    return export_file
+
+
+def test_import_canonicalizes_padded_titles_before_publication(tmp_path):
+    export_file = _write_export(tmp_path, "merge.edn", MERGE_EXPORT)
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 0
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute(
+        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
+    ).fetchone()[0] == "1"
+    page_ids = {
+        title: page_id
+        for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
+    }
+    assert page_ids.keys() == {"Acme", "Watcher", "Other"}
+    assert [tuple(row) for row in con.execute(
+        "SELECT uid, page_id, parent_uid, order_idx, text FROM blocks ORDER BY uid"
+    )] == [
+        ("uid-clean-root", page_ids["Acme"], None, 0, "clean root"),
+        (
+            "uid-padded-child",
+            page_ids["Acme"],
+            "uid-padded-root",
+            0,
+            "nested child",
+        ),
+        (
+            "uid-padded-root",
+            page_ids["Acme"],
+            None,
+            1,
+            "self [[Acme]] and [[Other]]",
+        ),
+        ("uid-watcher", page_ids["Watcher"], None, 0, "[[Acme]] and [[Acme]]"),
+    ]
+    assert [tuple(row) for row in con.execute(
+        "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"
+    )] == [
+        ("uid-padded-root", page_ids["Acme"], "link"),
+        ("uid-padded-root", page_ids["Other"], "link"),
+        ("uid-watcher", page_ids["Acme"], "link"),
+    ]
+
+
+def test_import_sanitizes_title_syntax_before_rows_and_reports_merges(tmp_path):
+    export_file = _write_export(tmp_path, "title-syntax.edn", TITLE_SYNTAX_EXPORT)
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 0
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute(
+        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
+    ).fetchone()[0] == "1"
+    page_ids = {
+        title: page_id
+        for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
+    }
+    assert page_ids.keys() == {
+        "Project",
+        "Watcher",
+        "Outer Inner",
+        "Topic One",
+        "Tag",
+    }
+    assert all(title_syntax_reason(title) is None for title in page_ids)
+    assert con.execute(
+        "SELECT created_at, updated_at FROM pages WHERE title='Project'"
+    ).fetchone() == (200, 201)
+    assert [tuple(row) for row in con.execute(
+        "SELECT uid, parent_uid, order_idx, text FROM blocks "
+        "WHERE page_id=? ORDER BY CASE WHEN parent_uid IS NULL THEN order_idx ELSE 99 END",
+        (page_ids["Project"],),
+    )] == [
+        ("uid-clean-root", None, 0, "clean root"),
+        (
+            "uid-dirty-root",
+            None,
+            1,
+            "[[Outer Inner]] [[Topic One]] #Tag #[[Tag]] [[Project]]",
+        ),
+        ("uid-dirty-child", "uid-dirty-root", 0, "keep ((uid-clean-root))"),
+    ]
+    assert con.execute(
+        "SELECT text FROM blocks WHERE uid='uid-watcher'"
+    ).fetchone()[0] == "[[Project]]"
+    assert [tuple(row) for row in con.execute(
+        "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY 1, 2, 3"
+    )] == sorted([
+        ("uid-dirty-root", page_ids["Outer Inner"], "link"),
+        ("uid-dirty-root", page_ids["Topic One"], "link"),
+        ("uid-dirty-root", page_ids["Tag"], "tag"),
+        ("uid-dirty-root", page_ids["Project"], "link"),
+        ("uid-watcher", page_ids["Project"], "link"),
+    ])
+
+    report = (out / "import-report.txt").read_text(encoding="utf-8")
+    assert "title spellings sanitized: 3" in report
+    assert (
+        '  "#Project" -> "Project" '
+        "(merged; page[0], block uid-dirty-root, block uid-watcher)"
+    ) in report
+    assert (
+        '  "Outer [[Inner]]" -> "Outer Inner" (block uid-dirty-root)'
+    ) in report
+
+
+def test_import_rewrites_every_extracted_title_before_rows(tmp_path):
+    export_file = _write_export(
+        tmp_path, "extractor-normalization.edn", EXTRACTOR_NORMALIZATION_EXPORT
+    )
+    out = tmp_path / "data"
+
+    assert main([str(export_file), "--out", str(out)]) == 0
+
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    page_ids = {
+        title: page_id
+        for page_id, title in con.execute("SELECT id, title FROM pages ORDER BY id")
+    }
+    assert page_ids.keys() == {"Source", "BadTitle", "Bad Title"}
+    assert all(title_syntax_reason(title) is None for title in page_ids)
+    assert con.execute(
+        "SELECT text FROM blocks WHERE uid='uid-source'"
+    ).fetchone()[0] == "  BadTitle:: value and [[Bad Title]] tail"
+    assert con.execute(
+        "SELECT parent_uid, text FROM blocks WHERE uid='uid-child'"
+    ).fetchone() == ("uid-source", "unchanged child")
+    assert [tuple(row) for row in con.execute(
+        "SELECT src_block_uid, target_page_id, kind FROM refs ORDER BY kind"
+    )] == [
+        ("uid-source", page_ids["BadTitle"], "attribute"),
+        ("uid-source", page_ids["Bad Title"], "link"),
+    ]
+
+
+def test_import_marks_ordinary_database_active(tmp_path):
+    export_file = _write_export(tmp_path, "ordinary.edn", ORDINARY_EXPORT)
+    out = tmp_path / "data"
+
+    rc = main([str(export_file), "--out", str(out)])
+
+    assert rc == 0
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute(
+        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
+    ).fetchone()[0] == "1"
+    assert con.execute("SELECT title FROM pages").fetchall() == [("Solo",)]
+
+
+def test_title_activation_runs_after_all_linked_assets_are_copied(
+    tmp_path, monkeypatch
+):
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    expected_assets = {
+        hashlib.sha256(payload).hexdigest(): payload
+        for payload in (b"PNGDATA", b"PDFDATA")
+    }
+    real_audit = run_module.audit_title_migration
+
+    def audit_after_assets(con):
+        for sha, payload in expected_assets.items():
+            assert (out / "assets" / sha[:2] / sha).read_bytes() == payload
+        return real_audit(con)
+
+    monkeypatch.setattr(run_module, "audit_title_migration", audit_after_assets)
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    con = sqlite3.connect(out / "pkm.sqlite3")
+    assert con.execute(
+        "SELECT value FROM sync_meta WHERE key='plain_space_title_canonicalization'"
+    ).fetchone()[0] == "1"
+
+
+@pytest.mark.parametrize(
+    ("raw", "original_title", "reason"),
+    [
+        (MALFORMED_TITLE_EXPORT, "Bad [[Title", "malformed_syntax"),
+        (BLANK_MARKER_TITLE_EXPORT, "[[#]]", "blank"),
+        (POST_SANITIZATION_MALFORMED_TITLE_EXPORT, "[#[", "malformed_syntax"),
+    ],
+)
+def test_title_syntax_refusal_preserves_published_output(
+    tmp_path, capsys, raw, original_title, reason
+):
+    baseline_export = _write_export(tmp_path, "baseline.edn", ORDINARY_EXPORT)
+    blocked_export = _write_export(tmp_path, "blocked.edn", raw)
+    out = tmp_path / "data"
+
+    assert main([str(baseline_export), "--out", str(out)]) == 0
+    original_db = (out / "pkm.sqlite3").read_bytes()
+    original_report = (out / "import-report.txt").read_text(encoding="utf-8")
+
+    rc = main([str(blocked_export), "--out", str(out)])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert (
+        f"error: import refused at page[0]: {reason}: {original_title!r}"
+        in captured.err
+    )
+    assert (out / "pkm.sqlite3").read_bytes() == original_db
+    assert (out / "import-report.txt").read_text(encoding="utf-8") == original_report
+    assert not (out / "pkm.sqlite3.tmp").exists()
+
+
+def test_title_syntax_refusal_precedes_output_directory_creation(tmp_path):
+    blocked_export = _write_export(
+        tmp_path, "malformed.edn", MALFORMED_TITLE_EXPORT
+    )
+    out = tmp_path / "new-data"
+
+    assert main([str(blocked_export), "--out", str(out)]) == 2
+
+    assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    ("raw", "detail"),
+    [
+        (
+            DUPLICATE_UID_EXPORT,
+            "duplicate block UID 'duplicate': "
+            "pages[0] 'Tree'.children[0]; pages[0] 'Tree'.children[1]",
+        ),
+        (
+            MULTI_PARENT_EXPORT,
+            "block with multiple parents 'shared-uid': "
+            "pages[0] 'Tree'.children[0].children[0]; "
+            "pages[0] 'Tree'.children[1].children[0]",
+        ),
+    ],
+)
+def test_invalid_tree_refuses_before_sanitization_or_linked_file_work(
+    tmp_path, monkeypatch, capsys, raw, detail
+):
+    export_file = _write_export(tmp_path, "invalid-tree.edn", raw)
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    out.mkdir()
+    database = out / "pkm.sqlite3"
+    report = out / "import-report.txt"
+    database.write_bytes(b"database-sentinel")
+    report.write_text("report-sentinel", encoding="utf-8")
+
+    def unexpected_work(*_args, **_kwargs):
+        raise AssertionError("structural refusal happened too late")
+
+    monkeypatch.setattr(run_module, "sanitize_export_titles", unexpected_work)
+    monkeypatch.setattr(run_module, "_index_files", unexpected_work)
+
+    rc = main(
+        [str(export_file), "--files", str(files), "--out", str(out)]
+    )
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"error: invalid export structure: {detail}\n"
+    assert database.read_bytes() == b"database-sentinel"
+    assert report.read_text(encoding="utf-8") == "report-sentinel"
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()

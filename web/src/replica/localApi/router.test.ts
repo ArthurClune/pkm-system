@@ -2,12 +2,25 @@
 // Edge cases beyond the parity fixture (which pins happy-path responses):
 // error statuses, daily auto-creation, the POST create-page path and its
 // enqueued op, and unmatched routes reporting handled:false.
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "vitest";
 import { titleForDate } from "../daily";
+import { setPlainSpaceTitleCanonicalization } from "../meta";
 import { openTestDb, type TestDb } from "../testDb";
 import { handleLocalApi, type LocalApiResult } from "./router";
 
 const NOW = 1752403200000; // 2025-07-13 (mid-day UTC, same day in local time)
+
+interface TitleSyntaxCase {
+  name: string;
+  title: string;
+  reason: "forbidden_syntax" | null;
+}
+
+const forbiddenTitleCases = (JSON.parse(readFileSync(new URL(
+  "../../../../shared/fixtures/title_syntax.json", import.meta.url,
+), "utf-8")) as { cases: TitleSyntaxCase[] }).cases
+  .filter((c) => c.reason === "forbidden_syntax");
 
 let t: TestDb;
 beforeEach(async () => {
@@ -35,6 +48,30 @@ describe("unmatched routes", () => {
   test("POST /api/pages without deps is not handled", () => {
     expect(call("POST", "/api/pages", { title: "X" }))
       .toEqual({ handled: false });
+  });
+});
+
+describe("activation-aware title reads", () => {
+  test("inactive page lookup preserves exact boundary U+0020", () => {
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, '  Exact Page  ')");
+
+    expectStatus(call("GET", "/api/page/%20%20Exact%20Page%20%20"), 200);
+    expectStatus(call("GET", "/api/page/Exact%20Page"), 404);
+  });
+
+  test("active page and unlinked lookup canonicalize boundary U+0020", () => {
+    setPlainSpaceTitleCanonicalization(t.db, true);
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'Canonical Read')");
+
+    expectStatus(call("GET", "/api/page/%20%20Canonical%20Read%20%20"), 200);
+    expectStatus(
+      call("GET", "/api/unlinked?title=%20%20Canonical%20Read%20%20"), 200);
+  });
+
+  test("page lookup always normalizes control whitespace", () => {
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'Control Title')");
+
+    expectStatus(call("GET", "/api/page/Control%0ATitle"), 200);
   });
 });
 
@@ -268,19 +305,47 @@ describe("titles", () => {
 });
 
 describe("create page", () => {
-  test("creates a local negative-id page and enqueues create_page", () => {
+  test.each(forbiddenTitleCases)(
+    "rejects shared forbidden title case $name before local or durable creation",
+    ({ title }) => {
+      const result = call("POST", "/api/pages", { title }, {
+        newBatchId: () => "batch-forbidden",
+      });
+
+      expectStatus(result, 422);
+      expect(t.db.select("SELECT id, title FROM pages WHERE id < 0")).toEqual([]);
+      expect(t.db.select("SELECT * FROM pending_ops")).toEqual([]);
+    },
+  );
+
+  test("preserves exact boundary U+0020 while inactive", () => {
     const body = expectStatus(
       call("POST", "/api/pages", { title: "  Fresh Page  " },
            { newBatchId: () => "batch-1" }), 200,
     ) as { id: number; title: string };
-    expect(body.title).toBe("Fresh Page");
+    expect(body.title).toBe("  Fresh Page  ");
     expect(body.id).toBeLessThan(0);
     const rows = t.db.select<{ batch_id: string; ops_json: string }>(
       "SELECT batch_id, ops_json FROM pending_ops");
     expect(rows).toHaveLength(1);
     expect(rows[0].batch_id).toBe("batch-1");
     expect(JSON.parse(rows[0].ops_json)).toEqual(
-      [{ op: "create_page", page_title: "Fresh Page" }]);
+      [{ op: "create_page", page_title: "  Fresh Page  " }]);
+  });
+
+  test("active POST returns and enqueues the canonical title", () => {
+    setPlainSpaceTitleCanonicalization(t.db, true);
+
+    const body = expectStatus(
+      call("POST", "/api/pages", { title: "  Active Post  " },
+           { newBatchId: () => "batch-active" }), 200,
+    ) as { id: number; title: string };
+    expect(body.title).toBe("Active Post");
+    expect(body.id).toBeLessThan(0);
+    const queued = t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops");
+    expect(JSON.parse(queued[0].ops_json)).toEqual(
+      [{ op: "create_page", page_title: "Active Post" }]);
   });
 
   test("normalizes a multi-line title, like the server does (pkm-hjhy)", () => {

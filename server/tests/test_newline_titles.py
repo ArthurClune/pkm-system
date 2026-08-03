@@ -75,6 +75,49 @@ def test_create_op_with_a_multiline_page_title_is_normalized(client,
     assert _control_char_titles(seeded_config) == []
 
 
+def test_create_op_broadcast_uses_the_normalized_page_title(client):
+    with client.websocket_connect("/api/ws") as ws:
+        r = _post_ops(client, {"op": "create", "uid": "nlbroadcast1",
+                               "page_title": MULTILINE, "parent_uid": None,
+                               "order_idx": 0, "text": "body text"})
+        assert r.status_code == 200
+        assert ws.receive_json()["ops"] == [{
+            "op": "create",
+            "uid": "nlbroadcast1",
+            "page_title": NORMALIZED,
+            "parent_uid": None,
+            "order_idx": 0,
+            "text": "body text",
+            "heading": None,
+            "view_type": None,
+        }]
+
+
+def test_create_page_broadcast_uses_the_normalized_page_title(client):
+    with client.websocket_connect("/api/ws") as ws:
+        r = _post_ops(client, {"op": "create_page", "page_title": MULTILINE})
+        assert r.status_code == 200
+        assert ws.receive_json()["ops"] == [{
+            "op": "create_page",
+            "page_title": NORMALIZED,
+        }]
+
+
+def test_move_op_broadcast_uses_the_normalized_page_title(client):
+    with client.websocket_connect("/api/ws") as ws:
+        r = _post_ops(client, {"op": "move", "uid": "uid_b1",
+                               "parent_uid": None, "order_idx": 0,
+                               "page_title": MULTILINE})
+        assert r.status_code == 200
+        assert ws.receive_json()["ops"] == [{
+            "op": "move",
+            "uid": "uid_b1",
+            "parent_uid": None,
+            "order_idx": 0,
+            "page_title": NORMALIZED,
+        }]
+
+
 def test_create_page_endpoint_normalizes(client, seeded_config):
     r = client.post("/api/pages", json={"title": MULTILINE})
     assert r.status_code == 200

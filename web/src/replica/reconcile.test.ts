@@ -29,7 +29,8 @@ beforeEach(async () => {
 });
 
 const feed = (over: Partial<Changes>): Changes => ({
-  reset: false, generation: "gen-1", next_since: 11, latest_seq: 11,
+  reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+  next_since: 11, latest_seq: 11,
   pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
 });
 

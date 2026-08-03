@@ -31,6 +31,7 @@ tokens, sign cookies, or read the DB as a workaround.
     pkm get today --uids          # ^uid markers — fetch these before updating
     pkm get "Page" --resolve-refs # inline ((uid)) refs as "text" ((uid)), cycle-safe
     pkm get "Page" --section "## H" [--depth N]   # subtree only (pages only); --depth also clips uid targets
+    pkm get "Page" --section "H"   # bare = that text at ANY level; "## H" = H2 only
     pkm search "term" [--limit N]  # default limit 10
     pkm search "term" --exact      # whole-word match, no prefix wildcard
     pkm search "term" --compact    # titles + "[page] ^uid" only, no snippets
@@ -89,6 +90,47 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   created block so later commands can target it as `"parent": "{{name}}"`
   or, for `update`/`move`/`delete`, as `"uid": "{{name}}"`; repeated
   `"## Heading"` parents on the same page resolve to one heading.
+
+## Title syntax
+
+After control-whitespace normalization, normal API, CLI, MCP, and offline
+writes reject page titles containing `#`, `[[`, or `]]`. This includes explicit
+page targets and titles extracted from block refs: an op batch or offline queue
+request is preflighted as a whole and refused before optimistic, durable, or
+server mutation.
+
+Roam import is the only sanitizing path. Before creating rows, it recursively
+removes balanced `[[`/`]]` and `#` title markers, rewrites ref-derived titles,
+and reports deterministic collision merges. Malformed marker syntax or a title
+made blank by sanitization refuses the import before output creation; normal
+writes never sanitize forbidden syntax into a different title.
+
+## Title migration (operator-only)
+
+Existing leading/trailing plain-space titles are migrated only by an explicit,
+audit-first operator command. Server startup never audits or applies this data
+migration.
+
+Never run either command against production unless your partner explicitly asks
+for that production action. Deliberately set **both** `PKM_CLI_CONFIG` and
+`PKM_URL` for the intended server; do not inherit the normal CLI config or URL.
+For an approved target:
+
+    PKM_CLI_CONFIG=/explicit/config.json PKM_URL=https://explicit-host \
+      uv run --project server pkm migrate-titles
+    PKM_CLI_CONFIG=/explicit/config.json PKM_URL=https://explicit-host \
+      uv run --project server pkm migrate-titles --apply <audit-digest>
+
+The first command is side-effect-free: review its groups, survivor/source merge
+plan, and reasoned blockers (`all_space` or `forbidden_syntax`), then retain its
+64-hex digest. Apply has no implicit/default mode and requires that exact
+digest. A database change that alters the audited plan makes the digest stale
+and refuses the apply; re-audit instead of bypassing it. Blockers also refuse
+the whole apply. Migration mappings remove boundary plain spaces only, and
+their replacement values are opaque rather than recursively rescanned. A
+successful apply is one transaction: it retitles/merges pages, rewrites inbound
+refs, activates boundary-plain-space canonicalization, and rotates the sync
+generation.
 
 ## Gotchas
 

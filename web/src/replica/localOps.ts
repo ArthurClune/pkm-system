@@ -10,12 +10,41 @@
 
 import type { BlockOp } from "../api/ops";
 import type { ReplicaDb } from "./db";
+import { plainSpaceTitleCanonicalizationActive } from "./meta";
 import { extractRefs } from "./refs";
+import { canonicalizeTitle, findOpTitleViolation,
+         type OpTitleViolation, titleSyntaxReason } from "./titles";
 
-export class LocalOpError extends Error {}
+export class LocalOpError extends Error {
+  readonly opIndex?: number;
+  readonly source?: OpTitleViolation["source"];
+  readonly title?: string;
+
+  constructor(message: string, violation?: OpTitleViolation) {
+    super(message);
+    this.name = "LocalOpError";
+    if (violation !== undefined) {
+      this.opIndex = violation.opIndex;
+      this.source = violation.source;
+      this.title = violation.title;
+    }
+  }
+}
+
+const titleViolationError = (violation: OpTitleViolation): LocalOpError =>
+  new LocalOpError(
+    `unsupported ${violation.source} title syntax: ${JSON.stringify(violation.title)}`,
+    violation,
+  );
 
 export function getOrCreateLocalPage(db: ReplicaDb, title: string,
                                      nowMs: number): number {
+  title = canonicalizeTitle(
+    title, plainSpaceTitleCanonicalizationActive(db));
+  if (title.trim().length === 0) title = "Untitled";
+  if (titleSyntaxReason(title) !== null) {
+    throw new LocalOpError(`unsupported page title syntax: ${JSON.stringify(title)}`);
+  }
   const existing = db.select<{ id: number }>(
     "SELECT id FROM pages WHERE title = ?", [title]);
   if (existing.length > 0) return existing[0].id;
@@ -63,15 +92,16 @@ const requireBlock = (db: ReplicaDb, uid: string): BlockInfo => {
   return info;
 };
 
-const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
+export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
   db.select<{ uid: string }>(
-    `WITH RECURSIVE sub(uid, depth) AS (
-       SELECT uid, 0 FROM blocks WHERE uid = ?
+    `WITH RECURSIVE sub(uid, path, depth) AS (
+       SELECT uid, ',' || uid || ',', 0 FROM blocks WHERE uid = ?
        UNION ALL
-       SELECT b.uid, s.depth + 1 FROM sub s
-         JOIN blocks b ON b.parent_uid = s.uid
-        WHERE s.depth < 100
-     ) SELECT uid FROM sub ORDER BY depth DESC`, [uid]).map((r) => r.uid);
+       SELECT b.uid, s.path || b.uid || ',', s.depth + 1
+         FROM sub s JOIN blocks b ON b.parent_uid = s.uid
+        WHERE instr(s.path, ',' || b.uid || ',') = 0
+     )
+     SELECT uid FROM sub ORDER BY depth DESC`, [uid]).map((r) => r.uid);
 
 function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
   switch (op.op) {
@@ -161,6 +191,8 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
  * local apply as best-effort cache maintenance, never as durability. */
 export function applyLocalOps(db: ReplicaDb, ops: BlockOp[],
                               nowMs: number): void {
+  const violation = findOpTitleViolation(ops);
+  if (violation !== null) throw titleViolationError(violation);
   db.transaction(() => {
     for (const op of ops) applyOne(db, op, nowMs);
   });

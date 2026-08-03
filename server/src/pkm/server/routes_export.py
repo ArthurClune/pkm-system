@@ -32,12 +32,14 @@ from pkm.export.resolve import (
     BLOCK_REF_MAX_DEPTH, QUERY_MAX_DEPTH, QueryResult, QueryResultGroup,
     QueryResultItem, find_query_macros, render_page_resolved)
 from pkm.export.writer import export_graph
+from pkm.refs import canonicalize_title
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
 from pkm.server.query import (
     QUERY_SOURCE_FILTER, parse_query, plan_sql, QueryParseError)
 from pkm.server.store import fetch_page
+from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from pkm.server.tempfile_response import CleanupFileResponse
 from pkm.server.tree import build_tree, collect_block_ref_uids
 
@@ -137,6 +139,10 @@ def _gather_resolution_data(
 @router.get("/api/export/page/{title:path}")
 def export_page_markdown(title: str,
                          db: sqlite3.Connection = Depends(get_db)) -> Response:
+    title = canonicalize_title(
+        title,
+        plain_space=plain_space_title_canonicalization_active(db),
+    )
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")

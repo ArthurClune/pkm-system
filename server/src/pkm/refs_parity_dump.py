@@ -45,6 +45,7 @@ CASES = [
     "#[[Multi\nLine Tag]]",
     "[[Padded  Title]] keeps its double space",
     "[[\n]] references nothing",
+    "skip [[   ]] but keep [[ Valid ]]",
 ]
 
 

@@ -1383,6 +1383,60 @@
         }
       }
     },
+    "/api/migrations/title-canonicalization": {
+      "get": {
+        "summary": "Audit Title Canonicalization",
+        "operationId": "audit_title_canonicalization_api_migrations_title_canonicalization_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TitleMigrationAuditPayload"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Apply Title Canonicalization",
+        "operationId": "apply_title_canonicalization_api_migrations_title_canonicalization_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TitleMigrationApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TitleMigrationApplyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/assistant/conversations": {
       "post": {
         "summary": "Create Conversation",
@@ -2127,6 +2181,10 @@
             "type": "string",
             "title": "Generation"
           },
+          "plain_space_title_canonicalization": {
+            "type": "boolean",
+            "title": "Plain Space Title Canonicalization"
+          },
           "next_since": {
             "type": "integer",
             "title": "Next Since"
@@ -2167,6 +2225,7 @@
         "type": "object",
         "required": [
           "generation",
+          "plain_space_title_canonicalization",
           "next_since",
           "latest_seq",
           "pages",
@@ -3062,6 +3121,10 @@
             "type": "string",
             "title": "Generation"
           },
+          "plain_space_title_canonicalization": {
+            "type": "boolean",
+            "title": "Plain Space Title Canonicalization"
+          },
           "seq": {
             "type": "integer",
             "title": "Seq"
@@ -3091,6 +3154,7 @@
         "type": "object",
         "required": [
           "generation",
+          "plain_space_title_canonicalization",
           "seq",
           "pages",
           "blocks",
@@ -3303,6 +3367,187 @@
           "entity_id"
         ],
         "title": "SyncTombstone"
+      },
+      "TitleMigrationApplyRequest": {
+        "properties": {
+          "audit_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Audit Digest"
+          }
+        },
+        "type": "object",
+        "required": [
+          "audit_digest"
+        ],
+        "title": "TitleMigrationApplyRequest"
+      },
+      "TitleMigrationApplyResponse": {
+        "properties": {
+          "digest": {
+            "type": "string",
+            "title": "Digest"
+          },
+          "groups_applied": {
+            "type": "integer",
+            "title": "Groups Applied"
+          },
+          "pages_retitled": {
+            "type": "integer",
+            "title": "Pages Retitled"
+          },
+          "pages_merged": {
+            "type": "integer",
+            "title": "Pages Merged"
+          },
+          "blocks_moved": {
+            "type": "integer",
+            "title": "Blocks Moved"
+          },
+          "blocks_rewritten": {
+            "type": "integer",
+            "title": "Blocks Rewritten"
+          },
+          "generation": {
+            "type": "string",
+            "title": "Generation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "digest",
+          "groups_applied",
+          "pages_retitled",
+          "pages_merged",
+          "blocks_moved",
+          "blocks_rewritten",
+          "generation"
+        ],
+        "title": "TitleMigrationApplyResponse"
+      },
+      "TitleMigrationAuditPayload": {
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "digest": {
+            "type": "string",
+            "title": "Digest"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/TitleMigrationGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/TitleMigrationBlocker"
+            },
+            "type": "array",
+            "title": "Blockers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "active",
+          "digest",
+          "groups",
+          "blockers"
+        ],
+        "title": "TitleMigrationAuditPayload"
+      },
+      "TitleMigrationBlocker": {
+        "properties": {
+          "page_id": {
+            "type": "integer",
+            "title": "Page Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "all_space",
+              "forbidden_syntax"
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page_id",
+          "title",
+          "reason"
+        ],
+        "title": "TitleMigrationBlocker"
+      },
+      "TitleMigrationGroup": {
+        "properties": {
+          "canonical_title": {
+            "type": "string",
+            "title": "Canonical Title"
+          },
+          "survivor": {
+            "$ref": "#/components/schemas/TitleMigrationPage"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/TitleMigrationPage"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "has_clean_twin": {
+            "type": "boolean",
+            "title": "Has Clean Twin"
+          },
+          "block_count": {
+            "type": "integer",
+            "title": "Block Count"
+          },
+          "inbound_ref_count": {
+            "type": "integer",
+            "title": "Inbound Ref Count"
+          },
+          "sidebar_count": {
+            "type": "integer",
+            "title": "Sidebar Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "canonical_title",
+          "survivor",
+          "sources",
+          "has_clean_twin",
+          "block_count",
+          "inbound_ref_count",
+          "sidebar_count"
+        ],
+        "title": "TitleMigrationGroup"
+      },
+      "TitleMigrationPage": {
+        "properties": {
+          "page_id": {
+            "type": "integer",
+            "title": "Page Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page_id",
+          "title"
+        ],
+        "title": "TitleMigrationPage"
       },
       "TitlesPayload": {
         "properties": {

@@ -101,6 +101,39 @@ def test_sync_requires_auth(anon_client):
     assert anon_client.get("/api/sync/snapshot").status_code in (401, 403)
 
 
+def test_activation_and_rotated_generation_match_across_all_sync_payloads(client):
+    before_snapshot = client.get("/api/sync/snapshot").json()
+    before_changes = _drain(client)
+    before_reset = _drain(client, since=10_000_000)
+
+    assert before_snapshot["plain_space_title_canonicalization"] is False
+    assert before_changes["plain_space_title_canonicalization"] is False
+    assert before_reset["plain_space_title_canonicalization"] is False
+    assert {
+        before_snapshot["generation"], before_changes["generation"],
+        before_reset["generation"],
+    } == {before_snapshot["generation"]}
+
+    audit = client.get("/api/migrations/title-canonicalization").json()
+    applied = client.post(
+        "/api/migrations/title-canonicalization",
+        json={"audit_digest": audit["digest"]},
+    )
+    assert applied.status_code == 200
+
+    after_snapshot = client.get("/api/sync/snapshot").json()
+    after_changes = _drain(client)
+    after_reset = _drain(client, since=10_000_000)
+    assert after_snapshot["plain_space_title_canonicalization"] is True
+    assert after_changes["plain_space_title_canonicalization"] is True
+    assert after_reset["plain_space_title_canonicalization"] is True
+    assert {
+        after_snapshot["generation"], after_changes["generation"],
+        after_reset["generation"], applied.json()["generation"],
+    } == {after_snapshot["generation"]}
+    assert after_snapshot["generation"] != before_snapshot["generation"]
+
+
 def test_generation_echoed_and_stable_across_endpoints(client):
     """pkm-o9o5: both sync endpoints echo the database's generation token
     so a client can detect a rebuilt database and re-bootstrap."""

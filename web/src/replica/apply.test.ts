@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import { getMeta } from "./meta";
-import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
+import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 
 const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
@@ -16,7 +16,7 @@ const page = (id: number, title: string) =>
   ({ id, title, created_at: 1, updated_at: 1 });
 
 const SNAP: Snapshot = {
-  generation: "gen-1", seq: 10,
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: 10,
   pages: [page(1, "Machine Learning"), page(2, "AI")],
   blocks: [
     block("uid_b1", 1, { text: "links [[AI]]", refs: [{ target_page_id: 2, kind: "link" }] }),
@@ -27,7 +27,8 @@ const SNAP: Snapshot = {
 };
 
 const emptyFeed = (over: Partial<Changes> = {}): Changes => ({
-  reset: false, generation: "gen-1", next_since: 10, latest_seq: 10,
+  reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+  next_since: 10, latest_seq: 10,
   pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
 });
 
@@ -47,6 +48,22 @@ const ftsHits = (term: string): string[] =>
     " WHERE blocks_fts MATCH ?", [term]).map((r) => r.uid);
 
 describe("applySnapshot", () => {
+  test("accepts authoritative page titles with forbidden local-write syntax", () => {
+    applySnapshot(t.db, {
+      ...SNAP,
+      pages: [page(30, "Authoritative #Page")],
+      blocks: [],
+      sidebar: [{ id: 30, title: "Authoritative #Page", order_idx: 0 }],
+    });
+
+    expect(t.db.select("SELECT id, title FROM pages")).toEqual([
+      { id: 30, title: "Authoritative #Page" },
+    ]);
+    expect(t.db.select("SELECT id, title FROM sidebar_entries")).toEqual([
+      { id: 30, title: "Authoritative #Page" },
+    ]);
+  });
+
   test("populates graph, refs, sidebar, FTS, cursor and generation", () => {
     expect(count("SELECT COUNT(*) AS n FROM pages")).toBe(2);
     expect(count("SELECT COUNT(*) AS n FROM blocks")).toBe(3);
@@ -167,9 +184,27 @@ describe("applySnapshot", () => {
       .toEqual([{ parent_uid: null, order_idx: 1 }]);
   });
 
+  test("persists activation before replaying pending ops", () => {
+    t.db.exec(
+      "INSERT INTO pending_ops(batch_id, ops_json) VALUES (?, ?)",
+      ["pending-snapshot-title", JSON.stringify([
+        { op: "create_page", page_title: "  Snapshot Pending  " },
+      ])],
+    );
+
+    applySnapshot(t.db, {
+      ...SNAP,
+      plain_space_title_canonicalization: true,
+    }, 6);
+
+    expect(getMeta(t.db, "plain_space_title_canonicalization")).toBe("1");
+    expect(t.db.select("SELECT title FROM pages WHERE title LIKE '%Pending%'"))
+      .toEqual([{ title: "Snapshot Pending" }]);
+  });
+
   test("re-bootstrap wipes stale rows first", () => {
     applySnapshot(t.db, {
-      generation: "gen-2", seq: 4,
+      generation: "gen-2", plain_space_title_canonicalization: true, seq: 4,
       pages: [page(7, "Fresh")], blocks: [block("uid_new1", 7)],
       sidebar: [],
     });
@@ -183,6 +218,89 @@ describe("applySnapshot", () => {
 });
 
 describe("applyChanges", () => {
+  test("accepts authoritative feed page titles with forbidden local-write syntax", () => {
+    expect(applyChanges(t.db, emptyFeed({
+      next_since: 11,
+      latest_seq: 11,
+      pages: [page(31, "Authoritative [[Feed]]")],
+      sidebar: [{ id: 31, title: "Authoritative [[Feed]]", order_idx: 0 }],
+    }))).toEqual({ status: "applied", cursor: 11 });
+
+    expect(t.db.select("SELECT id, title FROM pages WHERE id = 31")).toEqual([
+      { id: 31, title: "Authoritative [[Feed]]" },
+    ]);
+    expect(t.db.select("SELECT id, title FROM sidebar_entries WHERE id = 31"))
+      .toEqual([{ id: 31, title: "Authoritative [[Feed]]" }]);
+  });
+
+  test("activation reconciles already-applied pending page targets before replay", () => {
+    enqueueBatch(t.db, [
+      { op: "create_page", page_title: "  New Page Target  " },
+    ], 5, "pending-create-page");
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_pending1", page_title: "  Created Block Target  ",
+        parent_uid: null, order_idx: 0, text: "pending create" },
+    ], 5, "pending-create");
+    enqueueBatch(t.db, [
+      { op: "move", uid: "uid_b2", parent_uid: null, order_idx: 0,
+        page_title: "  Moved Block Target  " },
+    ], 5, "pending-move");
+
+    expect(t.db.select(
+      "SELECT id, title FROM pages WHERE id < 0 ORDER BY title"))
+      .toEqual([
+        { id: -2, title: "  Created Block Target  " },
+        { id: -3, title: "  Moved Block Target  " },
+        { id: -1, title: "  New Page Target  " },
+      ]);
+    expect(t.db.select(
+      "SELECT uid, page_id FROM blocks" +
+      " WHERE uid IN ('uid_pending1', 'uid_b2', 'uid_b3') ORDER BY uid"))
+      .toEqual([
+        { uid: "uid_b2", page_id: -3 },
+        { uid: "uid_b3", page_id: -3 },
+        { uid: "uid_pending1", page_id: -2 },
+      ]);
+    const wireOpsBefore = allBatches(t.db).map((batch) => batch.ops);
+    expect(wireOpsBefore).toEqual([
+      [{ op: "create_page", page_title: "  New Page Target  " }],
+      [{ op: "create", uid: "uid_pending1", page_title: "  Created Block Target  ",
+        parent_uid: null, order_idx: 0, text: "pending create" }],
+      [{ op: "move", uid: "uid_b2", parent_uid: null, order_idx: 0,
+        page_title: "  Moved Block Target  " }],
+    ]);
+
+    expect(applyChanges(t.db, emptyFeed({
+      next_since: 11,
+      latest_seq: 11,
+      plain_space_title_canonicalization: true,
+      pages: [
+        page(10, "New Page Target"),
+        page(11, "Created Block Target"),
+        page(12, "Moved Block Target"),
+      ],
+    }), 6)).toEqual({ status: "applied", cursor: 11 });
+
+    expect(getMeta(t.db, "plain_space_title_canonicalization")).toBe("1");
+    expect(t.db.select(
+      "SELECT id, title FROM pages WHERE title LIKE '%Target%' ORDER BY id"))
+      .toEqual([
+        { id: 10, title: "New Page Target" },
+        { id: 11, title: "Created Block Target" },
+        { id: 12, title: "Moved Block Target" },
+      ]);
+    expect(t.db.select("SELECT id, title FROM pages WHERE id < 0")).toEqual([]);
+    expect(t.db.select(
+      "SELECT uid, page_id FROM blocks" +
+      " WHERE uid IN ('uid_pending1', 'uid_b2', 'uid_b3') ORDER BY uid"))
+      .toEqual([
+        { uid: "uid_b2", page_id: 12 },
+        { uid: "uid_b3", page_id: 12 },
+        { uid: "uid_pending1", page_id: 11 },
+      ]);
+    expect(allBatches(t.db).map((batch) => batch.ops)).toEqual(wireOpsBefore);
+  });
+
   test("feed windows preserve optimistically-applied pending state", () => {
     // a feed window can deliver a block's OLDER server row while a newer
     // local update_text is still queued; letting the row win would revert
@@ -285,10 +403,16 @@ describe("applyChanges", () => {
     expect(count("SELECT COUNT(*) AS n FROM blocks")).toBe(3);
   });
 
-  test("a generation flip requests a re-bootstrap (rebuilt database)", () => {
-    const feed = emptyFeed({ generation: "gen-2" });
+  test("a generation flip requests a re-bootstrap without partial metadata", () => {
+    const feed = emptyFeed({
+      generation: "gen-2",
+      plain_space_title_canonicalization: true,
+      next_since: 99,
+    });
     expect(applyChanges(t.db, feed)).toEqual({ status: "needs-bootstrap" });
-    expect(getMeta(t.db, "cursor")).toBe("10"); // untouched
+    expect(getMeta(t.db, "cursor")).toBe("10");
+    expect(getMeta(t.db, "generation")).toBe("gen-1");
+    expect(getMeta(t.db, "plain_space_title_canonicalization")).toBe("0");
   });
 
   test("an empty feed just advances the cursor", () => {

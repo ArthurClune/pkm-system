@@ -34,6 +34,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pkm.server.config import Config
+from pkm.server.db import open_db
+from pkm.server.title_migration import audit_title_migration
 from pkm.contracts.daily import title_for_date
 
 # conftest seeds this fixed daily title (page id 3); routes below must
@@ -160,6 +162,86 @@ def _delete_asset_with_referencing_block_action(
     return r
 
 
+def _seed_title_migration_graph(config: Config) -> None:
+    con = sqlite3.connect(config.db_path)
+    con.executemany(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        [
+            (10, "Acme", 10, 11),
+            (11, " Acme", 20, 21),
+            (12, "Acme ", 30, 31),
+            (13, " Beta ", 40, 41),
+            (14, "Beta ", 50, 51),
+            (15, "Inbound", 60, 61),
+            (16, "Unrelated", 70, 71),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, collapsed) "
+        "VALUES (?, ?, ?, ?, ?, 0)",
+        [
+            ("target-root", 10, None, 0, "target"),
+            ("source-leading", 11, None, 0, "self [[ Acme]] and [[Unrelated]]"),
+            ("child-leading", 11, "source-leading", 0, "child"),
+            ("source-trailing", 12, None, 0, "trailing"),
+            ("beta-first", 13, None, 0, "beta first"),
+            ("beta-second", 14, None, 0, "beta second"),
+            (
+                "inbound",
+                15,
+                None,
+                0,
+                "[[ Acme]] + [[Acme ]] + [[ Beta ]] + [[Beta ]] + [[Unrelated]]",
+            ),
+            ("inbound-two", 15, None, 1, "again [[ Acme]]"),
+            ("unrelated-root", 16, None, 0, "untouched"),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO refs(src_block_uid, target_page_id, kind) VALUES (?, ?, ?)",
+        [
+            ("source-leading", 11, "link"),
+            ("source-leading", 16, "link"),
+            ("beta-first", 16, "link"),
+            ("inbound", 11, "link"),
+            ("inbound", 12, "link"),
+            ("inbound", 13, "link"),
+            ("inbound", 14, "link"),
+            ("inbound", 16, "link"),
+            ("inbound-two", 11, "link"),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (?, ?, ?)",
+        [
+            (10, "Acme", 0),
+            (11, " Acme", 1),
+            (12, "Beta ", 2),
+            (13, "Unrelated", 3),
+        ],
+    )
+    con.commit()
+    con.close()
+
+
+def _title_migration_apply_setup(
+        _client: TestClient, config: Config, ctx: dict) -> None:
+    _seed_title_migration_graph(config)
+    db = open_db(config.db_path)
+    try:
+        ctx["digest"] = audit_title_migration(db).digest
+    finally:
+        db.close()
+
+
+def _title_migration_apply_action(
+        client: TestClient, _config: Config, ctx: dict):
+    return client.post(
+        "/api/migrations/title-canonicalization",
+        json={"audit_digest": ctx["digest"]},
+    )
+
+
 # Every journal-advancing route (see module docstring). Adding a route here
 # is the enforcement: a new route that writes to blocks/pages/sidebar_entries
 # without a corresponding case is an uncovered contract violation.
@@ -181,6 +263,8 @@ JOURNAL_ADVANCING_ROUTES: list[tuple[str, Callable, Callable]] = [
     ("DELETE /api/assets/{sha256} (with referencing block)",
      _delete_asset_with_referencing_block_setup,
      _delete_asset_with_referencing_block_action),
+    ("POST /api/migrations/title-canonicalization",
+     _title_migration_apply_setup, _title_migration_apply_action),
 ]
 
 
@@ -201,3 +285,53 @@ def test_journal_advancing_route_emits_seq_nudge(name, setup, action, client,
         else:
             raise AssertionError(f"{name}: no seq nudge in {frames}")
         assert frames[-1]["seq"] > 0
+
+
+def test_zero_group_title_activation_forces_an_equal_cursor_replica_pull(
+        client, seeded_config):
+    """Mutation caught: send an ordinary equal-cursor seq after metadata rotation."""
+    audit = client.get("/api/migrations/title-canonicalization").json()
+    assert audit["groups"] == []
+
+    db = open_db(seeded_config.db_path)
+    try:
+        latest_seq = db.execute(
+            "SELECT COALESCE(MAX(seq), 0) FROM changes"
+        ).fetchone()[0]
+        old_generation = db.execute(
+            "SELECT value FROM sync_meta WHERE key='db_generation'"
+        ).fetchone()[0]
+    finally:
+        db.close()
+
+    with client.websocket_connect("/api/ws") as ws:
+        response = client.post(
+            "/api/migrations/title-canonicalization",
+            json={"audit_digest": audit["digest"]},
+        )
+        assert response.status_code == 200, response.text
+        frame = ws.receive_json()
+
+    applied = response.json()
+    assert applied["groups_applied"] == 0
+    assert applied["generation"] != old_generation
+    assert frame == {
+        "type": "seq",
+        "seq": latest_seq,
+        "force": True,
+        "generation": applied["generation"],
+    }
+
+    db = open_db(seeded_config.db_path)
+    try:
+        assert db.execute(
+            "SELECT COALESCE(MAX(seq), 0) FROM changes"
+        ).fetchone()[0] == latest_seq
+    finally:
+        db.close()
+
+    changes = client.get(f"/api/sync/changes?since={latest_seq}").json()
+    assert changes["next_since"] == latest_seq
+    assert changes["latest_seq"] == latest_seq
+    assert changes["generation"] == applied["generation"]
+    assert changes["plain_space_title_canonicalization"] is True

@@ -456,7 +456,7 @@ export function SyncProvider({ children, replica }: {
         if (batch.client_id === clientId) return; // our own echo
         subsRef.current.forEach((fn) => fn(batch));
       },
-      onSeq: (frame) => replicaSync?.onSeq(frame.seq),
+      onSeq: (frame) => replicaSync?.onSeq(frame.seq, frame.force === true),
       onStatus: (up) => {
         // Drive the queue's connectivity synchronously here (not via a status
         // effect, which would race child refetch effects): the pump must be

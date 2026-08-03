@@ -1,5 +1,6 @@
 import hashlib
 import os
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -51,7 +52,8 @@ def test_export_writes_pages_journal_assets(graph):
     db, live_assets, export, sha = graph
     counts = export_graph(db, live_assets, export)
     assert counts == {"pages": 1, "journal": 1, "assets_copied": 1,
-                      "assets_pruned": 0, "assets_missing_source_on_repair": 0}
+                      "assets_repaired": 0, "assets_pruned": 0,
+                      "assets_missing_source_on_repair": 0}
     page = (export / "pages" / "Alpha.md").read_text()
     assert f"  - ![pic](../assets/{sha}/pic.png)" in page
     journal = (export / "journal" / "2026-07-07.md").read_text()
@@ -186,6 +188,80 @@ def test_asset_copy_failure_preserves_previous_export(graph, monkeypatch):
     assert _snapshot(export) == before
 
 
+def test_removes_abandoned_staging_directory(graph):
+    db, live_assets, export, _ = graph
+    abandoned = export / ".export-staging-abandoned"
+    abandoned.mkdir(parents=True)
+    (abandoned / "partial.md").write_text("partial")
+
+    export_graph(db, live_assets, export)
+
+    assert not abandoned.exists()
+    assert list(export.glob(".export-staging-*")) == []
+
+
+def test_removes_abandoned_staging_symlink_without_following(graph, tmp_path):
+    db, live_assets, export, _ = graph
+    external = tmp_path / "external"
+    external.mkdir()
+    marker = external / "keep.txt"
+    marker.write_text("keep")
+    staging_link = export / ".export-staging-link"
+    export.mkdir()
+    staging_link.symlink_to(external, target_is_directory=True)
+
+    export_graph(db, live_assets, export)
+
+    assert not staging_link.is_symlink()
+    assert marker.read_text() == "keep"
+
+
+def test_staging_cleanup_treats_disappearance_as_success(graph, monkeypatch):
+    db, live_assets, export, _ = graph
+    abandoned = export / ".export-staging-vanishing"
+    abandoned.mkdir(parents=True)
+    real_rmtree = shutil.rmtree
+
+    def vanish_then_report_missing(path, *args, **kwargs):
+        if Path(path) == abandoned:
+            real_rmtree(path)
+            raise FileNotFoundError(path)
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("pkm.export.writer.shutil.rmtree",
+                        vanish_then_report_missing)
+
+    counts = export_graph(db, live_assets, export)
+
+    assert counts["pages"] == 1
+    assert not abandoned.exists()
+
+
+def test_staging_cleanup_error_precedes_last_good_mutation(graph, monkeypatch):
+    db, live_assets, export, _ = graph
+    export_graph(db, live_assets, export)
+    (export / ".gitignore").write_text("sentinel", encoding="utf-8")
+    abandoned = export / ".export-staging-blocked"
+    abandoned.mkdir()
+    (abandoned / "partial.md").write_text("partial", encoding="utf-8")
+    before = _snapshot(export)
+    real_rmtree = shutil.rmtree
+
+    def deny_abandoned_cleanup(path, *args, **kwargs):
+        if Path(path) == abandoned:
+            raise PermissionError(path)
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr("pkm.export.writer.shutil.rmtree",
+                        deny_abandoned_cleanup)
+
+    with pytest.raises(PermissionError):
+        export_graph(db, live_assets, export)
+
+    assert _snapshot(export) == before
+    assert (export / ".gitignore").read_text(encoding="utf-8") == "sentinel"
+
+
 def test_recovers_from_an_abandoned_stale_dir(graph):
     # If a process died after both renames in _publish_dir landed but
     # before the final "<name>.stale" cleanup ran, `target` already holds
@@ -199,7 +275,8 @@ def test_recovers_from_an_abandoned_stale_dir(graph):
     counts = export_graph(db, live_assets, export)
 
     assert counts == {"pages": 1, "journal": 1, "assets_copied": 0,
-                      "assets_pruned": 0, "assets_missing_source_on_repair": 0}
+                      "assets_repaired": 0, "assets_pruned": 0,
+                      "assets_missing_source_on_repair": 0}
     assert not (export / "pages.stale").exists()
     assert (export / "pages" / "Alpha.md").is_file()
 
@@ -219,7 +296,8 @@ def test_recovers_from_a_crash_between_the_two_publish_renames(graph):
     counts = export_graph(db, live_assets, export)
 
     assert counts == {"pages": 1, "journal": 1, "assets_copied": 0,
-                      "assets_pruned": 0, "assets_missing_source_on_repair": 0}
+                      "assets_repaired": 0, "assets_pruned": 0,
+                      "assets_missing_source_on_repair": 0}
     assert not (export / "pages.stale").exists()
     assert (export / "pages" / "Alpha.md").is_file()
 
@@ -236,7 +314,8 @@ def test_repairs_truncated_existing_asset_from_live_store(graph):
 
     counts = export_graph(db, live_assets, export)
 
-    assert counts["assets_copied"] == 1  # re-copied, not hardlinked
+    assert counts["assets_copied"] == 0
+    assert counts["assets_repaired"] == 1  # re-copied, not hardlinked
     assert (export / "assets" / sha / "pic.png").read_bytes() == b"png"
 
 
@@ -252,7 +331,8 @@ def test_repairs_same_size_corrupted_existing_asset_from_live_store(graph):
 
     counts = export_graph(db, live_assets, export)
 
-    assert counts["assets_copied"] == 1
+    assert counts["assets_copied"] == 0
+    assert counts["assets_repaired"] == 1
     assert (export / "assets" / sha / "pic.png").read_bytes() == b"png"
 
 
@@ -274,9 +354,19 @@ def test_corrupt_existing_asset_with_missing_live_source_is_surfaced(
         counts = export_graph(db, live_assets, export)
 
     assert counts["assets_copied"] == 0
+    assert counts["assets_repaired"] == 0
     assert counts["assets_missing_source_on_repair"] == 1
     assert not (export / "assets" / sha).exists()
     assert sha in caplog.text
+
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        next_counts = export_graph(db, live_assets, export)
+
+    assert next_counts["assets_copied"] == 0
+    assert next_counts["assets_repaired"] == 0
+    assert next_counts["assets_missing_source_on_repair"] == 0
+    assert sha not in caplog.text
 
 
 def test_valid_existing_asset_is_still_hardlinked_not_recopied(graph):
@@ -341,7 +431,8 @@ def test_cross_subtree_publish_failure_recovers_on_next_run(graph, monkeypatch):
     counts = export_graph(db, live_assets, export)
 
     assert counts == {"pages": 2, "journal": 1, "assets_copied": 0,
-                      "assets_pruned": 0, "assets_missing_source_on_repair": 0}
+                      "assets_repaired": 0, "assets_pruned": 0,
+                      "assets_missing_source_on_repair": 0}
     assert not (export / "journal.stale").exists()
     assert (export / "journal" / "2026-07-07.md").is_file()
     assert (export / "pages" / "Beta.md").is_file()

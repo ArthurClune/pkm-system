@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Union
+from typing import Literal, Union
 
 from pkm.contracts.ops import (UID_RE, BlockOp, CreateOp, CreatePageOp,
                                DeleteOp, MoveOp, OpBatch, SetCollapsedOp,
                                SetHeadingOp, UpdateTextOp, ViewType,
                                text_hash)
+from pkm.refs import TitleSyntaxReason, extract, title_syntax_reason
 
 
 def batch_request_hash(batch: OpBatch) -> str:
@@ -43,6 +45,39 @@ class OpError(ValueError):
         super().__init__(f"op {index}: {reason}")
         self.index = index
         self.reason = reason
+
+
+@dataclass(frozen=True)
+class OpTitleViolation:
+    op_index: int
+    source: Literal["page_title", "reference"]
+    title: str
+    reason: TitleSyntaxReason
+
+
+def find_op_title_violation(
+    ops: Sequence[BlockOp],
+) -> OpTitleViolation | None:
+    for op_index, op in enumerate(ops):
+        page_title: str | None = None
+        if isinstance(op, (CreateOp, CreatePageOp)):
+            page_title = op.page_title
+        elif isinstance(op, MoveOp):
+            page_title = op.page_title
+        if page_title is not None:
+            reason = title_syntax_reason(page_title)
+            if reason is not None:
+                return OpTitleViolation(
+                    op_index, "page_title", page_title, reason
+                )
+        if isinstance(op, (CreateOp, UpdateTextOp)):
+            for ref in extract(op.text).refs:
+                reason = title_syntax_reason(ref.title)
+                if reason is not None:
+                    return OpTitleViolation(
+                        op_index, "reference", ref.title, reason
+                    )
+    return None
 
 
 @dataclass(frozen=True)

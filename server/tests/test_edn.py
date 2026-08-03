@@ -51,6 +51,40 @@ def test_errors():
         parse_edn('{[1] "v"}')
 
 
+@pytest.mark.parametrize(
+    ("source", "detail", "offset"),
+    [
+        ("", "unexpected end of input", 0),
+        ("{", "unterminated map", 1),
+        ("[", "unterminated sequence", 1),
+        ('"unterminated', "unterminated string", 13),
+        ("{:a}", "map has odd number of forms", 3),
+        ('{[1] "value"}', "unhashable map key", 1),
+        ('"\\/"', "unsupported escape '\\/'", 1),
+        ('"\\u12"', "invalid unicode escape", 3),
+        ('"\\ud83d"', "lone surrogate escape", 1),
+        ("\\notachar", "unsupported character literal '\\notachar'", 1),
+        (")", "unexpected character", 0),
+        ("[1]  trailing", "trailing data", 5),
+    ],
+)
+def test_structured_errors(source: str, detail: str, offset: int):
+    with pytest.raises(EdnError) as raised:
+        parse_edn(source)
+
+    assert raised.value.detail == detail
+    assert raised.value.offset == offset
+    assert str(raised.value) == f"{detail} at offset {offset}"
+
+
+def test_solidus_escape_stays_invalid_with_backslash_offset():
+    with pytest.raises(EdnError) as raised:
+        parse_edn('"\\/"')
+
+    assert raised.value.detail == "unsupported escape '\\/'"
+    assert raised.value.offset == 1
+
+
 def test_unknown_string_escape_raises():
     with pytest.raises(EdnError):
         parse_edn('"\\z"')

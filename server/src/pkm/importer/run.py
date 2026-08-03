@@ -9,16 +9,24 @@ import os
 import shutil
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 from pkm.assets_core import asset_needs_repair, sha256_hex
-from pkm.edn import parse_edn
+from pkm.edn import EdnError, parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
 from pkm.importer.parse_export import parse_export
+from pkm.importer.preflight import ImportStructureError, validate_export_structure
 from pkm.importer.report import ImportReport, render
 from pkm.importer.rows import to_rows
+from pkm.importer.titles import ImportTitleError, sanitize_export_titles
 from pkm.schema import DDL
+from pkm.server.title_migration import (
+    BlockedTitleMigration,
+    apply_title_migration,
+    audit_title_migration,
+)
 
 
 def _index_files(files_dir: Path) -> tuple[dict[str, Asset], dict[str, Path]]:
@@ -56,7 +64,30 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     sys.setrecursionlimit(20000)  # deep outlines recurse in tree assembly
-    export = parse_export(parse_edn(export_path.read_text(encoding="utf-8")))
+    export_text = export_path.read_text(encoding="utf-8")
+    try:
+        parsed = parse_edn(export_text)
+    except EdnError as exc:
+        print(
+            f"error: malformed export at offset {exc.offset}: {exc.detail}",
+            file=sys.stderr,
+        )
+        return 2
+    export = parse_export(parsed)
+    try:
+        validate_export_structure(export)
+    except ImportStructureError as exc:
+        print(f"error: invalid export structure: {exc}", file=sys.stderr)
+        return 2
+    try:
+        sanitized_import = sanitize_export_titles(export)
+    except ImportTitleError as exc:
+        print(
+            f"error: import refused at {exc.location}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+    export = sanitized_import.export
 
     files_dir = Path(args.files) if args.files else None
     if files_dir is not None and (
@@ -83,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     tmp = out / "pkm.sqlite3.tmp"
     tmp.unlink(missing_ok=True)
     con = sqlite3.connect(tmp)
+    con.row_factory = sqlite3.Row
     try:
         con.executescript(DDL)
         con.executemany("INSERT INTO pages VALUES (?,?,?,?)", rows.pages)
@@ -121,8 +153,25 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copyfile(src, dest_tmp)
         os.replace(dest_tmp, dest)
 
+    blocked_migration: BlockedTitleMigration | None = None
+    con = sqlite3.connect(tmp)
+    con.row_factory = sqlite3.Row
+    try:
+        try:
+            plan = audit_title_migration(con)
+            apply_title_migration(con, plan.digest, now_ms=int(time.time() * 1000))
+        except BlockedTitleMigration as exc:
+            blocked_migration = exc
+    finally:
+        con.close()
+
+    if blocked_migration is not None:
+        tmp.unlink(missing_ok=True)
+        print(f"error: import refused: {blocked_migration}", file=sys.stderr)
+        return 2
+
     # All fallible preflight work (parsing, row-building, populating the
-    # tmp db, copying assets, rendering and writing the report) must
+    # tmp db, copying assets, title activation, rendering and writing the report) must
     # complete before either atomic swap below. If any of it raises, the
     # existing pkm.sqlite3 and import-report.txt are untouched -- a report
     # failure must never hide behind an already-published database.
@@ -141,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
             assets_used=len(used),
             missing_asset_urls=tuple(sorted(missing)),
             attr_counts=export.attr_counts,
+            title_changes=sanitized_import.title_changes,
             recovery_page_title=rows.recovery_page_title,
             mermaid_preserved_refs=rows.mermaid_preserved_refs,
         )

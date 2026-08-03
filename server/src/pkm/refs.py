@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 _CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
@@ -50,22 +51,29 @@ def normalize_title(title: str) -> str:
     return _WS_RUN.sub(" ", title).strip()
 
 
-def is_blank_title(title: str) -> bool:
-    """True when `title` has nothing in it but whitespace once normalized --
-    the same test store.get_or_create_page uses to decide whether to raise
-    BlankTitleError. Exposed as a pure predicate so callers that need to
-    know this WITHOUT calling get_or_create_page (e.g. ops_apply's
-    broadcast-payload enrichment, which must tell whether a page_title fell
-    back to the "Untitled" sentinel without re-deriving the check by hand)
-    don't have to duplicate normalize-then-strip inline.
+def canonicalize_title(title: str, *, plain_space: bool) -> str:
+    normalized = normalize_title(title)
+    return normalized.strip(" ") if plain_space else normalized
 
-    Deliberately NOT the same test extract()'s own "drop a blank ref" check
-    uses (`if norm := normalize_title(title)`) -- that one only catches a
-    title normalize_title collapses all the way to "" itself (control
-    whitespace only), so a plain-spaces-only ref title like "   " survives
-    it. This function additionally strips, so it also catches that case;
-    callers that need the two to agree (both ref-index call sites, pkm-1rb5
-    final review) call THIS function to decide whether to skip a ref."""
+
+TitleSyntaxReason = Literal["forbidden_syntax"]
+
+
+def title_syntax_reason(title: str) -> TitleSyntaxReason | None:
+    normalized = normalize_title(title)
+    if "#" in normalized or "[[" in normalized or "]]" in normalized:
+        return "forbidden_syntax"
+    return None
+
+
+def is_blank_title(title: str) -> bool:
+    """True when `title` has nothing in it but whitespace once normalized.
+
+    This is the shared blank-title predicate for both the pure extractor and
+    the store boundary: control whitespace still collapses first, then plain
+    leading/trailing U+0020 decides blankness without changing any nonblank
+    padded title byte-for-byte.
+    """
     return not normalize_title(title).strip()
 
 
@@ -121,16 +129,18 @@ def extract(text: str) -> ParsedRefs:
     # _ATTRIBUTE only ever has to match once, at a fixed start position --
     # see the comment on _ATTRIBUTE for why folding this into the regex
     # itself is quadratic on pathological input.
-    # Every title goes through normalize_title, and one that normalizes to
-    # empty is not a reference at all (`[[]]` and `[[\n]]` used to mint a
-    # blank-titled page). Hashtag titles cannot hold whitespace, so the
-    # call is a no-op there -- applied anyway to keep the rule uniform.
+    # Every title goes through normalize_title, and one that is blank once
+    # normalized is not a reference at all (`[[]]`, `[[\n]]`, and `[[   ]]`
+    # used to mint blank-titled pages). Hashtag titles cannot hold
+    # whitespace, so the call is a no-op there -- applied anyway to keep
+    # the rule uniform.
     if m := _ATTRIBUTE.match(clean.lstrip()):
         if title := normalize_title(m.group(1).strip()):
             refs.append(Ref(title, "attribute"))
     for title, is_tag in _scan_brackets(clean):
-        if norm := normalize_title(title):
-            refs.append(Ref(norm, "tag" if is_tag else "link"))
+        normalized = normalize_title(title)
+        if not is_blank_title(normalized):
+            refs.append(Ref(normalized, "tag" if is_tag else "link"))
     for m in _HASHTAG.finditer(clean):
         if title := normalize_title(m.group(1)):
             refs.append(Ref(title, "tag"))

@@ -110,13 +110,14 @@ export function fetchAncestors(db: ReplicaDb,
   if (uids.length === 0) return out;
   const marks = uids.map(() => "?").join(",");
   const rows = db.select<{ start_uid: string; text: string; depth: number }>(
-    `WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth) AS (
-       SELECT uid, uid, parent_uid, text, 0 FROM blocks
+    `WITH RECURSIVE anc(start_uid, uid, parent_uid, text, depth, path) AS (
+       SELECT uid, uid, parent_uid, text, 0, ',' || uid || ',' FROM blocks
         WHERE uid IN (${marks})
        UNION ALL
-       SELECT a.start_uid, b.uid, b.parent_uid, b.text, a.depth + 1
+       SELECT a.start_uid, b.uid, b.parent_uid, b.text, a.depth + 1,
+              a.path || b.uid || ','
          FROM anc a JOIN blocks b ON b.uid = a.parent_uid
-        WHERE a.depth < 100
+        WHERE instr(a.path, ',' || b.uid || ',') = 0
      )
      SELECT start_uid, text, depth FROM anc WHERE depth > 0
       ORDER BY start_uid, depth DESC`, uids);

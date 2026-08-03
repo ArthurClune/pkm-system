@@ -1,8 +1,12 @@
-from pkm.cli.render import (render_assets, render_backlinks, render_block,
-                            render_groups, render_page, render_search)
+from pkm.cli.render import (clip_depth, render_assets, render_backlinks,
+                            render_block, render_groups, render_page,
+                            render_search, render_title_migration_apply,
+                            render_title_migration_audit)
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
                                      BlockNode, BlockPayload, GroupsPayload,
-                                     PagePayload, QueryPayload, SearchPayload)
+                                     PagePayload, QueryPayload, SearchPayload,
+                                     TitleMigrationApplyResponse,
+                                     TitleMigrationAuditPayload)
 
 
 def _node(uid, text, children=(), heading=None) -> BlockNode:
@@ -202,16 +206,179 @@ def test_render_assets_empty():
         "no assets found"
 
 
-def test_select_section_and_clip_depth():
-    import pytest
+def test_render_title_migration_audit_includes_state_group_details_and_merge_order():
+    payload = TitleMigrationAuditPayload.model_validate({
+        "active": False,
+        "digest": "7" * 64,
+        "groups": [
+            {
+                "canonical_title": "Acme",
+                "survivor": {"page_id": 10, "title": "Acme"},
+                "sources": [
+                    {"page_id": 11, "title": " Acme"},
+                    {"page_id": 12, "title": "Acme "},
+                ],
+                "has_clean_twin": True,
+                "block_count": 4,
+                "inbound_ref_count": 4,
+                "sidebar_count": 2,
+            },
+            {
+                "canonical_title": "Beta",
+                "survivor": {"page_id": 13, "title": " Beta "},
+                "sources": [{"page_id": 14, "title": "Beta "}],
+                "has_clean_twin": False,
+                "block_count": 2,
+                "inbound_ref_count": 2,
+                "sidebar_count": 1,
+            },
+        ],
+        "blockers": [
+            {"page_id": 19, "title": "Bad #Title", "reason": "forbidden_syntax"}
+        ],
+    })
+    assert render_title_migration_audit(payload) == (
+        "# Title migration audit\n"
+        "\n"
+        "state: blocked\n"
+        "digest: " + "7" * 64 + "\n"
+        "groups: 2\n"
+        "blockers: 1\n"
+        "\n"
+        "## Acme\n"
+        "survivor: [10] \"Acme\"\n"
+        "sources:\n"
+        "- [11] \" Acme\"\n"
+        "- [12] \"Acme \"\n"
+        "has clean twin: yes\n"
+        "counts: 4 blocks, 4 inbound refs, 2 sidebar entries\n"
+        "merge order:\n"
+        "- [11] \" Acme\" -> [10] \"Acme\"\n"
+        "- [12] \"Acme \" -> [10] \"Acme\"\n"
+        "\n"
+        "## Beta\n"
+        "survivor: [13] \" Beta \"\n"
+        "sources:\n"
+        "- [14] \"Beta \"\n"
+        "has clean twin: no\n"
+        "counts: 2 blocks, 2 inbound refs, 1 sidebar entry\n"
+        "merge order:\n"
+        "- [14] \"Beta \" -> [13] \" Beta \"\n"
+        "\n"
+        "## Blockers\n"
+        "- [19] \"Bad #Title\" (forbidden_syntax)\n"
+    )
 
-    from pkm.cli.render import RenderError, clip_depth, select_section
+
+def test_render_title_migration_audit_empty_explains_that_only_a_reviewed_audit_can_be_applied():
+    payload = TitleMigrationAuditPayload(
+        active=False,
+        digest="1" * 64,
+        groups=[],
+        blockers=[],
+    )
+    assert render_title_migration_audit(payload) == (
+        "# Title migration audit\n"
+        "\n"
+        "state: clean\n"
+        "digest: " + "1" * 64 + "\n"
+        "groups: 0\n"
+        "blockers: 0\n"
+        "\n"
+        "No padded plain-space titles need migration.\n"
+        "Apply mode is disabled until you provide an audit digest explicitly.\n"
+    )
+
+
+def test_render_title_migration_audit_active_empty_says_apply_is_unavailable_because_it_is_already_active():
+    payload = TitleMigrationAuditPayload(
+        active=True,
+        digest="2" * 64,
+        groups=[],
+        blockers=[],
+    )
+    assert render_title_migration_audit(payload) == (
+        "# Title migration audit\n"
+        "\n"
+        "state: active\n"
+        "digest: " + "2" * 64 + "\n"
+        "groups: 0\n"
+        "blockers: 0\n"
+        "\n"
+        "No padded plain-space titles need migration.\n"
+        "Migration is already active; apply mode is unavailable.\n"
+    )
+
+
+def test_render_title_migration_apply_includes_applied_counts_and_generation():
+    payload = TitleMigrationApplyResponse(
+        digest="8" * 64,
+        groups_applied=2,
+        pages_retitled=1,
+        pages_merged=3,
+        blocks_moved=4,
+        blocks_rewritten=3,
+        generation="0123456789abcdef0123456789abcdef",
+    )
+    assert render_title_migration_apply(payload) == (
+        "# Title migration applied\n"
+        "\n"
+        "digest: " + "8" * 64 + "\n"
+        "groups applied: 2\n"
+        "pages retitled: 1\n"
+        "pages merged: 3\n"
+        "blocks moved: 4\n"
+        "blocks rewritten: 3\n"
+        "generation: 0123456789abcdef0123456789abcdef\n"
+    )
+
+
+def test_clip_depth_preserves_original_and_copies_requested_depth():
     blocks = PAGE.blocks
-    [sec] = select_section(blocks, "## Papers")
-    assert sec.uid == "u2"
-    assert select_section(blocks, "Papers")[0].uid == "u2"
-    with pytest.raises(RenderError, match="Papers"):
-        select_section(blocks, "## Missing")
     clipped = clip_depth(blocks, 1)
     assert clipped[1].children == []
     assert PAGE.blocks[1].children  # original not mutated
+
+
+def _section_blocks() -> list[BlockNode]:
+    """Document-order collisions on the text "Notes": a plain block, an
+    H3, then two duplicate H2s -- exercises level-aware matching plus
+    document-order tie-breaking for both bare and marked specs."""
+    return [
+        _node("plain", "Notes"),
+        _node("h3", "Notes", heading=3),
+        _node("h2a", "Notes", heading=2, children=[_node("h2a-child", "first")]),
+        _node("h2b", "Notes", heading=2, children=[_node("h2b-child", "second")]),
+        _node("papers", "Papers", heading=2),
+    ]
+
+
+def test_select_section_marked_spec_matches_heading_level_and_text():
+    from pkm.cli.render import select_section
+    [sec] = select_section(_section_blocks(), "## Notes")
+    assert sec.uid == "h2a"
+
+
+def test_select_section_marked_spec_selects_different_level_same_text():
+    from pkm.cli.render import select_section
+    [sec] = select_section(_section_blocks(), "### Notes")
+    assert sec.uid == "h3"
+
+
+def test_select_section_bare_spec_is_heading_agnostic_and_picks_first_in_document_order():
+    from pkm.cli.render import select_section
+    [sec] = select_section(_section_blocks(), "Notes")
+    assert sec.uid == "plain"
+
+
+def test_select_section_miss_lists_available_marked_headings_in_document_order():
+    import pytest
+
+    from pkm.cli.render import RenderError, select_section
+    with pytest.raises(RenderError) as exc_info:
+        select_section(_section_blocks(), "# Notes")
+    message = str(exc_info.value)
+    headings = message[message.index("headings: ") + len("headings: "):
+                       -1].split(", ")
+    assert headings == ["### Notes", "## Notes", "## Notes", "## Papers"]
+    assert "## Papers" in message

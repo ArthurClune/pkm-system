@@ -34,7 +34,8 @@ pkm/
 ├── schema.py            Core   Single source of DDL: BASE_DDL (replicated to clients)
 │                               + SERVER_DDL (journal, idempotency) = DDL
 ├── refs.py              Core   Ref grammar: [[links]], #tags, attr::, ((refs)), {{embeds}}
-├── rename.py            Core   rewrite_title_refs() for page rename/merge
+├── rename.py            Core   one-pass, opaque-value title-ref rewrite for page rename/merge
+├── title_migration.py   Core   boundary-space grouping, blockers, survivor plan + digest
 ├── todo.py              Core   {{TODO}}/{{DONE}} marker parsing (mirrors web/src/grammar/todo.ts)
 ├── filenames.py         Core   safe_filename() shared by upload + export
 ├── assets_core.py       Core   Asset-browser helpers: reference-token stripping,
@@ -49,7 +50,8 @@ pkm/
 │                               daily.py (date <-> "July 8th, 2026" titles)
 │
 ├── server/              The FastAPI app (details below)
-├── importer/            Roam EDN import pipeline
+├── importer/            Roam EDN import pipeline: run.py Shell; preflight.py and
+│                        mermaid_preservation.py Core validation/planning
 ├── export/              Markdown export (markdown.py Core render, writer.py Shell)
 ├── backup/              Nightly backup job (__main__.py Shell, rotation.py Core)
 ├── cli/                 `pkm` CLI (main.py Shell; build.py/render.py Core planners)
@@ -80,7 +82,8 @@ Inside `pkm/server/`:
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
 | `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
 | `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
-| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_export.py` | Shell | The HTTP surface (table below) |
+| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below), including the authenticated title-canonicalization audit/apply operator route |
+| `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply and durable activation/generation accessors |
 | `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py` |
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
@@ -163,12 +166,17 @@ Around that base model:
     automatically journalled. Cascade deletes journal correctly *only*
     because `recursive_triggers=ON`.
   - `applied_batches(batch_id, request_hash, response)` — op idempotency.
-  - `sync_meta` — holds a random `db_generation` token; a rebuilt database
-    gets a new token and clients rebootstrap.
-- **Migrations.** No framework. Additive tables/indexes are replayable
+  - `sync_meta` — durable server sync/title metadata. Today it holds the
+    random `db_generation` token (a rebuilt database gets a new one and
+    clients rebootstrap) plus `plain_space_title_canonicalization`, the
+    rollout flag for stripping leading/trailing plain spaces from
+    canonicalized page titles.
+- **Schema migrations.** No framework. Additive tables/indexes are replayable
   `IF NOT EXISTS` statements in `schema.py`; additive columns are guarded
   `PRAGMA` checks in `db._ensure_schema_migrations` (currently
   `blocks.view_type`). Client replicas rebootstrap on schema-hash change.
+  This startup work does **not** run the existing-data title migration; title
+  activation is the explicit audited operator path described below.
 
 ## The write path
 
@@ -303,6 +311,9 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll) |
 | POST | `/api/journal/cleanup` | Prune empty daily pages (spares today + referenced blocks) |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
+| **Migrations** | | |
+| GET | `/api/migrations/title-canonicalization` | Side-effect-free `TitleMigrationAuditPayload`: `active`, digest, grouped survivor/source plans and counts, and blockers whose `reason` is `all_space` or `forbidden_syntax` |
+| POST | `/api/migrations/title-canonicalization` | `TitleMigrationApplyRequest.audit_digest` (required 64 lowercase hex) → `TitleMigrationApplyResponse` with digest, applied/retitled/merged/moved/rewritten counts, and new `generation`; 409 on stale, blocked, or already-active databases |
 | **Search & queries** | | |
 | GET | `/api/search?q` | FTS5 search over pages + blocks |
 | GET | `/api/query?expr` | `{{[[query]]}}` evaluation (`and`/`or`/`not` over refs) |
@@ -311,11 +322,12 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | **Sidebar** | | |
 | GET / POST / PUT / DELETE | `/api/sidebar`… | Pinned pages: list / pin / reorder (permutation-validated) / unpin |
 | **Sync** (see [sync-and-offline.md](sync-and-offline.md)) | | |
-| GET | `/api/sync/snapshot` | Full graph bootstrap + `seq` + `generation` |
-| GET | `/api/sync/changes?since&limit` | Windowed incremental change feed |
-| WS | `/api/ws` | Push nudges: applied-op broadcasts + `seq` hints |
+| GET | `/api/sync/snapshot` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation |
+| GET | `/api/sync/changes?since&limit` | Windowed incremental feed with the same generation/activation metadata |
+| WS | `/api/ws` | Push nudges: applied-op broadcasts + real `seq` hints; title generation rotation adds `force:true,generation` without fabricating a cursor |
 | **Assistant** (SSE — see [Embedded assistant](#embedded-assistant-pkmassistant)) | | |
 | POST | `/api/assistant/conversations` | Create a conversation (`model`: `sonnet` default / `opus` / `haiku`); 409 over the 3-conversation cap |
+| POST | `/api/assistant/conversations/{id}` | Beacon cleanup close (`navigator.sendBeacon`): delete the conversation, shut down its harness, and return `AssistantAck` |
 | POST | `/api/assistant/conversations/{id}/messages` | Send one user turn → SSE stream of `text_delta` / `tool_started` / `tool_finished` / `confirm_request` / `turn_done` / `error` events; 409 while a turn is in flight |
 | POST | `/api/assistant/conversations/{id}/confirm` | Answer a pending write confirmation (`tool_use_id`, `allow`) |
 | DELETE | `/api/assistant/conversations/{id}` | Close the conversation and shut down its harness |
@@ -330,6 +342,30 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | **Export** | | |
 | GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
 | GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
+
+### Breadcrumbs and recursive traversal
+
+`routes_pages.py::_fetch_ancestors` builds the breadcrumb trail behind
+`GET /api/block/{uid}` and (via `backlinks.py`) every backlink group. It walks
+parents with a recursive CTE, and its termination condition is a **visited
+path, not a depth limit**: the CTE carries `path` as `,uid,uid,…,` and the
+recursive arm keeps a row only while `instr(a.path, ',' || b.uid || ',') = 0`.
+
+That shape is load-bearing in two directions, and both were previously wrong
+in the same statement (pkm-8kw2). It is *complete* — the old `depth < 100`
+guard silently truncated a breadcrumb trail at 100 levels, which is a wrong
+answer rather than a slow one, and Arthur's standing rule is no silent
+truncation of user-visible output. And it is *cycle-safe* — a parent cycle
+(which the write path forbids but a corrupted or hand-edited database can
+still hold) would otherwise recurse until SQLite gave up; a visited-path guard
+stops at the repeat instead. The comma delimiters are what make the `instr`
+test exact: `UID_RE` is `^[a-zA-Z0-9_-]{6,32}$`, so no uid can contain a
+comma, and `,abc,` therefore cannot match a fragment of a neighbouring uid.
+
+Both replica mirrors of this traversal use the identical guard — see
+[sync-and-offline.md](sync-and-offline.md). When editing any of the three,
+change them together: the whole point is that an offline read and a server
+read return the same trail.
 
 ### Assets
 
@@ -401,28 +437,65 @@ used for a brand-new hash (pkm-x3l7).
 
 ```mermaid
 flowchart TD
-    A["export.edn"] --> B["edn.py — parse EDN (Core)"]
+    A["verify export.edn exists"] --> B["edn.py — strict EDN parse (Core)"]
     B --> C["parse_export.py — datoms → page/block trees (Core)"]
-    F["linked-files dir"] --> G["hash + index files (sha256)"]
-    C --> D["rows.py — trees → SQL rows, implicit pages, refs (Core)"]
-    G --> D
-    D -- "firebase URLs → /assets/… (assets.py)<br/>mermaid component blocks → fenced (mermaid.py)<br/>orphan subtrees → recovery page" --> D
+    C --> P["preflight.py — duplicate UID / multi-parent refusal (Core)"]
+    P --> T["titles.py — import-only sanitization (Core)"]
+    F["linked-files dir"] --> G["index files + transform asset URLs"]
+    T --> G
+    G --> D["rows.py + mermaid_preservation.py<br/>rows, refs, global Mermaid plan (Core)"]
     D --> E["write pkm.sqlite3.tmp + copy assets"]
-    E --> R["render + write import-report.txt.tmp (Core render, Shell write)"]
-    R --> H["atomic os.replace: db, then report"]
+    E --> M["audit + apply shared title migration on tmp DB"]
+    M --> R["render + write import-report.txt.tmp (Core render, Shell write)"]
+    R --> H["atomic os.replace: database, then report"]
 ```
+
+The EDN parser is strict. Malformed input returns exit 2 with
+`error: malformed export at offset N: DETAIL`, where `N` is a zero-based
+Python character offset; the EDN-unsupported solidus escape `\/` remains
+invalid rather than being accepted as JSON/Logseq compatibility.
+`parse_export()` then builds the transport-neutral trees. Before title
+sanitization, linked-file indexing, output-directory creation, SQLite, assets,
+or report work, `preflight.py` traverses every page and orphan subtree and
+refuses duplicate block UIDs or one block entity reached through multiple
+parents. It selects the lexicographically first offending UID and reports all
+sorted structural locations, so the diagnostic is deterministic.
+
+Only after structural preflight, and still before linked-file indexing and row
+construction, `importer/titles.py` recursively removes balanced `[[`/`]]`
+markers and `#` markers from every explicit and ref-derived title, rewrites
+refs with the resulting map, and merges collisions in stable source order while
+preferring an already-clean spelling as survivor. The report deterministically
+lists each changed spelling, all locations, and whether it merged. Malformed
+marker syntax or a result made blank by sanitization refuses before
+output-directory creation.
+
+Before either `os.replace`, the importer also runs the same shared
+`audit_title_migration()` / `apply_title_migration()` shell used by the
+operator route against the temporary database it just built. That keeps fresh
+imports on the post-migration title rule immediately (`sync_meta`
+`plain_space_title_canonicalization = '1'`) and merges any imported clean/
+padded twins with the normal stable block/ref rewrite path before the swap. If
+that audit finds a blocker, the importer refuses the run, prints the friendly
+title-migration error, deletes the temp DB, and leaves the already-published
+database/report untouched.
 
 Roam block uids, ordering and timestamps are preserved, so every existing
 `((block ref))` and daily-note link keeps resolving. Mermaid conversion
 (above) is the one place this could otherwise fail silently — flattening a
-component block's descendants into a single fenced block drops their rows
-— so both `rows.py` and the one-off `migrate_mermaid_blocks.py` migration
-check, before flattening, whether any descendant that would be dropped is
-still targeted by an inbound `((uid))` from outside the subtree; if so,
-that whole subtree is left as ordinary nested blocks instead (uid/text/
-children intact) and the skip is reported (`Rows.mermaid_preserved_refs`,
-surfaced in the import report; `migrate_mermaid_blocks.py`'s `Plan.preserved`,
-printed by both `--dry-run` and a normal run before any deletion happens).
+component block's descendants into a single fenced block drops their rows.
+Both fresh row derivation and the one-off `migrate_mermaid_blocks.py` migration
+gather every candidate and call the same `mermaid_preservation.py` core before
+flattening. A candidate is directly protected when an inbound `((uid))` from
+outside its subtree targets a descendant; protection then reaches a fixed point
+by protecting every candidate ancestor that contains a protected component.
+This prevents an outer flatten from deleting a nested component that was kept.
+Protected components remain ordinary nested blocks with uid/text/children
+intact. Reports are keyed by descendant UID, deduplicate that descendant across
+components, and union/sort source UIDs (`Rows.mermaid_preserved_refs`, surfaced
+in the import report; migration `Plan.preserved`, printed by `--dry-run` and a
+normal run before deletion). Migration prints no preserved section when the
+plan has no such rows.
 
 Blocks with a `:block/uid` and `:block/string` that Roam's export leaves
 unreachable from any page (`parse_export.py`'s `Export.orphan_blocks`) are
@@ -444,13 +517,23 @@ that could root a non-cycle branch first and later re-attach it a second
 time under its real parent (a real `blocks.uid` primary-key collision, not
 just a documentation nicety). Only entities with no `:block/string` at all
 (`skipped_entities` — no text to reconstruct even from a subtree) are still
-just counted, never appearing on the recovery page themselves. The
-report is fully rendered and written to a `.tmp` file, and only then is the
-database swapped in, followed by the report itself — if any preflight step
-(row-building, populating the tmp db, copying assets, rendering the report)
-raises, both `.tmp` files are removed and the existing database and report
-are left exactly as they were; a report failure can no longer hide behind
-an already-published database.
+just counted, never appearing on the recovery page themselves. Implicit-page
+counting happens after orphan rows have been walked, so pages referenced only
+by orphan text are included; the recovery page itself is subtracted from the
+implicit total.
+
+Temporary-file cleanup follows stage boundaries rather than claiming a single
+universal rule. The importer removes stale `pkm.sqlite3.tmp` at the start of a
+new output build, so an early database-build or asset-copy failure may leave
+that self-healing temp in place; `import-report.txt.tmp` does not exist yet.
+Once report rendering/writing/publication begins, any exception removes both
+remaining named temps. A report render/write failure, or failure of the first
+(database) `os.replace`, therefore leaves the published database and report
+unchanged. Publication remains two ordered atomic replacements — database
+first, report second — not one transaction across both files; if the second
+replace itself fails, the new database may already be published while the old
+report remains, and the next successful run repairs the pair. In every case,
+remaining named temps from the report/publication phase are removed.
 
 ## Export and backup
 
@@ -464,14 +547,27 @@ an already-published database.
   — a cheap stat first, a full hash only once the size already matches)
   before being hardlinked into the new tree; a mismatch is transparently
   re-copied from the live store instead, so a truncated or corrupted file
-  from a past export doesn't survive forever (pkm-x3l7). If that repair
-  source is itself missing too, the asset is dropped from this export
-  with a `pkm.export` warning and its own `assets_missing_source_on_repair`
-  count, rather than disappearing into the ordinary "missing asset" case
-  silently. Markdown files are rewritten byte-identically when unchanged,
-  so the git diff of a nightly export is minimal. Rendering and asset
-  copying happen into a scratch `.export-staging-*` directory beside the
-  live one; the previous `pages/`, `journal/`, and `assets/` are only
+  from a past export doesn't survive forever (pkm-x3l7). A successful fresh
+  transfer increments only `assets_copied`; a successful corrupt replacement
+  increments only `assets_repaired`. If that repair source is itself missing,
+  no transfer occurs: the asset is dropped from this export with a
+  `pkm.export` warning and its own `assets_missing_source_on_repair` count,
+  rather than disappearing into the ordinary "missing asset" case silently.
+  Successful assets publication drops the corrupt residue, so the warning is
+  normally a one-successful-run event. A failure after the warning but before
+  assets publication may leave the old corrupt tree active and repeat the
+  warning on the next run.
+
+  The export directory has one writer. Before writing `.gitignore`, rendering,
+  creating this run's staging tree, or publishing a last-good subtree, each run
+  sweeps abandoned `.export-staging-*` entries. Matching symlinks are unlinked
+  without following their targets; real directories are removed recursively.
+  Disappearance during cleanup is success, while every other error aborts the
+  run. The single-writer invariant requires neither a lock nor an age
+  heuristic. Markdown files are rewritten byte-identically when unchanged, so
+  the git diff of a nightly export is minimal. Rendering and asset copying
+  happen into a scratch `.export-staging-*` directory beside the live one;
+  the previous `pages/`, `journal/`, and `assets/` are only
   replaced (via `_publish_dir`'s atomic directory rename) once a full new
   export is ready, so a rendering, disk, or asset-copy failure *before
   publishing starts* leaves the last known-good export byte-identical
@@ -523,8 +619,10 @@ an already-published database.
   online SQLite `.backup()` snapshot from a read-only connection into
   `backups/sqlite/pkm-YYYY-MM-DD.sqlite3` (pruned by `rotation.py`: newest 14
   dailies + the latest of each month forever), then runs the markdown export
-  **from that same snapshot** and git-commits it. The live DB is never opened
-  for writing; any failure exits non-zero.
+  **from that same snapshot** and git-commits it. Its success line renders the
+  complete generic export-count dictionary, including `assets_copied`,
+  `assets_repaired`, and `assets_missing_source_on_repair`. The live DB is never
+  opened for writing; any failure exits non-zero.
 
 ## CLI and MCP server
 
@@ -572,6 +670,24 @@ and broadcasts as the web client.
   rule, so a heading resolves to the same parent whether it came from
   the fetched page or from earlier in the batch.
   `cli/render.py` (Core) renders API payloads to terminal markdown.
+- `pkm get --section SPEC` (`render.py::select_section`) has two modes, and
+  which one applies is decided by the spec's own syntax rather than by a
+  flag. A *marked* spec (`## Notes`, one space after one to three `#`)
+  selects the first block in document order whose heading level **and** text
+  both match — the same level-and-text rule `--parent` uses, so the two
+  specs can't disagree about which `Notes` they mean. A *bare* spec
+  (`Notes`) selects the first block with that exact text at any level,
+  including a plain non-heading block; this is the lenient form kept for
+  callers that don't know or care how a section is marked up (pkm-dzgw:
+  before this, the marker was stripped and both forms behaved as bare, so
+  `--section "## Notes"` could silently return an H3 or a plain block).
+  Blank-vs-heading is the only leniency — text still matches exactly, and
+  a miss raises `RenderError` listing the page's headings *with* their level
+  markers, so the error text tells you which spelling to ask for next. The
+  `{1,3}` bound on the marker matches the app's whole heading domain
+  (`HEADING_COMMANDS` in `web/src/outline/slashCommands.ts` offers h1-h3
+  only); a `####` spec is therefore read as bare text, which still finds the
+  block by exact text whatever its level.
 - Text is the source of truth for a block's heading level on every CLI/MCP
   write: `split_heading` runs in `_Planner.creates` (the one call site every
   create path funnels through) and in `plan_update`, so `## X` is never
@@ -644,6 +760,9 @@ and broadcasts as the web client.
   first page: the route caps a single response at 100 groups, but the
   CLI/MCP wording promises the complete backlink list, and Arthur's
   standing rule is no silent truncation of user-visible output (pkm-3cyg).
+  The aggregate `Backlinks.limit` is the first response's observed,
+  server-clamped page size (or 0 only if no response established one), never
+  the final number of groups synthesized as a fake request limit.
   The route sorts backlink sources by `(updated_at DESC, title)`, which is
   only stable across `get_backlinks`'s sequential requests if no source
   page's `updated_at` changes mid-fetch (e.g. a concurrent write from
@@ -677,7 +796,7 @@ threat model: [`docs/SECURITY.md`](../SECURITY.md).
 | File | Pattern | Role |
 |---|---|---|
 | `events.py` | Core | The event union routes and the web UI speak (`TextDelta`, `ToolStarted`/`ToolFinished`, `ConfirmRequest`, `TurnDone`, `ErrorEvent`) + `encode_sse()`. Nothing engine-specific leaks upward |
-| `policy.py` | Core | The tool gate (six read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` default / `opus` / `haiku`), tool-activity summaries and write-op previews, and the system prompt |
+| `policy.py` | Core | The tool gate (seven read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` default / `opus` / `haiku`), tool-activity summaries and write-op previews, and the system prompt |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend (or the test double) plugs into |
 | `service.py` | Shell | In-memory conversation registry: 3-conversation cap, lazy 15-minute idle reap, per-conversation lock (a second concurrent turn is a 409); `close_all()` runs on app-lifespan shutdown |
 | `claude_engine.py` | Shell | The Claude Agent SDK adapter — the only engine today |
@@ -869,41 +988,70 @@ Daily pages are special throughout: titles use Roam's ordinal format
 (`July 8th, 2026`, `daily.py`) for import compatibility, they are
 auto-created on read, and they cannot be renamed.
 
-**Page titles are normalised where they are born, and never rejected**
-(`refs.normalize_title`, pkm-hjhy). Starlette compiles `{title:path}` to `.*`
-without `re.DOTALL`, so a title containing a newline cannot be routed at all:
-six such pages existed, appeared in search, and 404'd on every URL naming them
-— unopenable and undeletable. Normalisation therefore sits at the creation
-paths (`refs.extract()`, so a `[[ref]]` spanning a line break cannot mint one,
-and `store.get_or_create_page()`, which every writer funnels through) rather
-than at routes that can never match the bad value. Two properties to preserve:
+## Title integrity and one-time activation
 
-- **Deliberately narrow.** Whitespace is collapsed only when the title holds a
-  *control* character; a title with plain spaces is returned byte for byte, so
-  existing pages like `Two  Spaces` are not collateral damage.
-- **Normalise, never 422.** A permanent rejection wedges an offline client's
-  durable op queue — it retries that op forever and every later change queues
-  behind it. Anything accepting a title from outside normalises, not validates.
+Title canonicalization has two layers (`refs.canonicalize_title`): control
+whitespace is always normalized, while leading/trailing ordinary U+0020 is
+removed only after the durable `plain_space_title_canonicalization` flag is
+active. A control character causes ASCII-whitespace runs to collapse to one
+space and trims their boundary; titles containing only ordinary spaces stay
+byte-exact while inactive so legacy padded rows still resolve. Activation adds
+only boundary-U+0020 stripping: internal ordinary spaces and NBSP remain
+unchanged.
 
-One title is never mintable, though: one that is nothing but whitespace once
-normalised (a whitespace-only string passes ops' `page_title` `min_length=1`
-check untouched, and — since `normalize_title` only acts on *control*
-whitespace, per the narrowness rule above — a plain-spaces-only string like
-`"   "` comes back byte for byte, not collapsed to `""` by `normalize_title`
-itself). `get_or_create_page()` tests for this with `.strip()`, but —
-important, pkm-1rb5 review round 2 — that `.strip()` is used **only** to
-decide blankness, never to canonicalise what gets stored or looked up. A
-title that is merely *padded* (e.g. `" EvilCorp"`: real content, just a
-leading space — production has pages exactly like this, minted back when
-refs/ops never stripped) is not blank, and keeps matching itself byte for
-byte exactly as it did before this function's blank check existed. An
-earlier version of this fix stripped the stored/looked-up title too, which
-silently split every such page in two: a ref or op naming the padded title
-again missed the exact-match row and minted a fresh, empty page under the
-stripped variant instead of reusing the real one. Canonicalising *existing*
-padded titles (merging `" EvilCorp"` into `"EvilCorp"`) is a separate,
-deliberately-deferred piece of work — it needs a data migration with merge
-handling, not a lookup-time change — and is out of scope here.
+The flag defaults to `"0"` for an existing or newly initialized database.
+`create_app()`/`init_db()` replay schema setup at startup but never audit or
+apply the existing-data migration. Activating an existing deployment,
+including production, is a deliberate later operator action: run
+`pkm migrate-titles` against an explicitly configured target, review the
+result, then provide its digest to `pkm migrate-titles --apply DIGEST`. A deploy or
+restart alone cannot change title identity.
+
+The operator path is split along FCIS boundaries:
+
+- `pkm/title_migration.py` is the pure deterministic planner. It normalizes
+  control whitespace and removes boundary ordinary U+0020 only, groups padded
+  titles by that canonical spelling, chooses an existing clean twin when
+  present (otherwise the lowest padded page id), lists source pages in stable
+  id order, counts affected blocks/inbound refs/sidebar entries, and reports
+  `all_space` and `forbidden_syntax` blockers. Replacement values are opaque:
+  `rename.rewrite_title_refs_map()` inserts each mapped value once and never
+  rescans it as another source. The plan's SHA-256 digest covers active state
+  and the exact relevant page, block, ref, sidebar, group, blocker, and
+  replacement snapshots, so repeated unchanged audits are stable.
+- `server/title_migration.py::audit_title_migration()` owns a read transaction
+  and always rolls it back. The authenticated GET route exposes concrete
+  `TitleMigrationAuditPayload`/group/page models; it has no side effects.
+- Apply requires a 64-lowercase-hex `audit_digest`, takes `BEGIN IMMEDIATE`,
+  re-inventories under that writer reservation, and refuses stale digests,
+  either blocker reason, or an already-active database (HTTP 409). It then
+  retitles or merges in stable order, moves blocks, rewrites each snapshotted
+  inbound block and rebuilds refs, reconciles sidebar identities, activates
+  boundary-space canonicalization, and rotates `db_generation` in that same
+  transaction. Any error or interruption rolls all row and metadata changes
+  back before they can become visible. The route emits one post-commit forced
+  seq frame containing the real journal maximum and new generation, then
+  returns the applied counts plus that generation.
+
+The successful generation rotation is part of activation, not bookkeeping:
+connected browser replicas see a generation mismatch, reject that changes
+payload without partially accepting its cursor/activation state, and
+rebootstrap from a snapshot before replaying pending intent. See
+[sync-and-offline.md](sync-and-offline.md#title-activation-across-online-and-offline-paths).
+
+**Online title boundaries.** Every creation path funnels through
+`store.get_or_create_page()`, which consults the activation flag. After control
+normalization, normal page creation and rename reject any title containing
+`#`, `[[`, or `]]`. `POST /api/ops` preflights both explicit `page_title`
+fields and ref-derived titles across the complete batch, so a violation refuses
+before any page, block, ref, journal, or idempotency mutation. CLI and MCP
+writes share that op path. The page and unlinked read routes use the same
+activation-aware canonicalization, as does single-page export.
+`PkmClient.get_page`, `get_backlinks`, and `get_page_blocks` normalize control
+whitespace before constructing the URL, so CLI/MCP callers can read a title
+using the spelling they originally wrote; the server adds boundary-space
+stripping once active. Browser offline reads and creates mirror this gate
+rather than activating ahead of the server.
 
 Unlike a normalised-but-nonempty title, a blank one is permanently
 unreachable — no `[[link]]` resolves to it, no route can name it — so
@@ -918,33 +1066,53 @@ already titled `"Untitled"` (a user typed it on purpose), blank-title ops
 deposit onto that same page rather than a dedicated sentinel — an accepted
 trade-off: the fallback is deliberately an ordinary, addressable title going
 through the normal get_or_create path, not a reserved one, so it can collide
-with real user content. The broadcast to remote clients (`ops_apply.py`'s
-`_broadcast_op()`) is enriched to carry that same resolved `"Untitled"`
-title rather than the raw blank one — a remote replica keys its refetch on
-the broadcast `page_title`, so relaying the original blank string verbatim
-would send it looking for (and minting its own local page under) a title
-the server never actually used.
+with real user content.
 
-**Ref indexing (not just page creation) needs the same blankness check, but
-answers it differently.** `refs.extract()`'s own "drop a blank ref" filter
-(`if norm := normalize_title(title)`) reuses the narrow `normalize_title`,
-so it has the identical gap: a spaces-only bracket ref like `[[   ]]`
-survives it as `Ref(title="   ")`. Both places that resolve an extracted
-`Ref` onto a page (`ops_apply.py`'s `ReindexRefs` handling and
-`store.py`'s `rewrite_referencing_blocks`, used by rename/merge) go through
-`store.index_ref()`, which catches `BlankTitleError` and skips the ref
-entirely — no page created, no `refs` row inserted, no fallback. This is
-deliberately different from the ops `page_title` fallback: an op needs
-*some* page to land its content on, but a ref with a blank-normalizing
-title is not a reference at all (same reasoning as `extract()`'s own
-docstring), so indexing it onto `"Untitled"` would fabricate a phantom
-backlink. Before this fix, the two call sites called `get_or_create_page`
-directly, so a spaces-only ref in ordinary block text (typed via the
-editor's `[[` autopair, then just spaces) raised `BlankTitleError` with
-nothing above it to catch it — an uncaught HTTP 500 on the ops path
-(`routes_ops.py` catches only `OpError`) and on rename (which catches only
-`sqlite3.IntegrityError`), worse than either the pre-pkm-1rb5 silent
-blank-page creation or the 422 pkm-hjhy explicitly forbids on the ops path.
+**Broadcasts carry authoritative title identity.** After each `create`,
+`create_page`, or `move` with a resolved page target,
+`ops_apply._broadcast_op()` reads the applied page row and replaces the
+caller's `page_title` with that stored title;
+this covers the `"Untitled"` fallback, control-whitespace normalization, and
+post-activation boundary-space stripping. A same-page move with no
+`page_title` remains null. If an applied-page row lookup ever violates its
+normally unreachable invariant, broadcast assembly raises and the owning op
+transaction rolls back rather than emitting caller spelling. Remote replicas
+therefore refetch the page the server actually mutated rather than keying
+local state by a raw caller spelling the server did not store.
+
+**Ref indexing (not just page creation) needs the same blankness check, and
+it is now made in the pure extractor on both sides.** `refs.is_blank_title()`
+— normalize, then strip — is the one blankness predicate, and
+`refs.extract()`'s bracket branch calls it, so `[[]]`, `[[\n]]` *and* the
+plain-spaces `[[   ]]` are all dropped before anything downstream sees a
+`Ref` (pkm-8kw2). `web/src/grammar/refs.ts::extractRefs` filters on
+`r.title.trim() === ""` for the same reason, and the shared fixtures pin the
+pair together: `shared/fixtures/ref_grammar.json` and
+`shared/fixtures/refs_parity.json` both carry
+`skip [[   ]] but keep [[ Valid ]]`, which is the case that distinguishes
+"blank once stripped" (dropped) from "padded but nonblank" (kept byte-exact,
+` Valid `, since a nonblank padded title must never be silently trimmed).
+The other two branches need no change: an attribute name is `.strip()`ed
+before normalizing, and hashtag titles cannot hold whitespace at all.
+
+`store.index_ref()` still catches `BlankTitleError` and skips the ref
+entirely — no page created, no `refs` row inserted, no fallback — but that
+catch is now defense in depth at the store boundary rather than the only
+guard. Both places that resolve an extracted `Ref` onto a page
+(`ops_apply.py`'s `ReindexRefs` handling and `store.py`'s
+`rewrite_referencing_blocks`, used by rename/merge) go through it. Keep it:
+the deliberate behaviour on a blank title is to index *nothing*, which is
+the opposite of the ops `page_title` fallback. An op needs *some* page to
+land its content on, but a ref with a blank-normalizing title is not a
+reference at all, so resolving it onto `"Untitled"` would fabricate a
+phantom backlink. Before pkm-1rb5 the two call sites called
+`get_or_create_page` directly, so a spaces-only ref in ordinary block text
+(typed via the editor's `[[` autopair, then just spaces) raised
+`BlankTitleError` with nothing above it to catch it — an uncaught HTTP 500
+on the ops path (`routes_ops.py` catches only `OpError`) and on rename
+(which catches only `sqlite3.IntegrityError`), worse than either the silent
+blank-page creation before it or the 422 pkm-hjhy explicitly forbids on the
+ops path.
 
 ## Logging and observability
 

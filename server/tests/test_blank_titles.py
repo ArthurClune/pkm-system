@@ -65,9 +65,12 @@ replica keying its refetch on the broadcast `page_title` would look for
 finding the real "Untitled" page, diverging until the next resync.
 """
 import sqlite3
+from datetime import date
 
 import pytest
 
+from pkm.contracts.daily import title_for_date
+from pkm.server import store
 from pkm.server.store import BlankTitleError, get_or_create_page, fetch_page
 
 CONTROL_ONLY = "\n\t"          # contains a control ws char
@@ -75,6 +78,13 @@ SPACES_ONLY = "   "            # plain spaces only, no control char
 CONTROL_ONLY_2 = " \n "        # a *different* string, also control-bearing
 WHITESPACE_ONLY = CONTROL_ONLY  # kept for the tests below that don't care which
 FALLBACK_TITLE = "Untitled"
+FORBIDDEN_TITLES = (
+    "#",
+    "Project #Acme",
+    "Project [[Acme",
+    "Project Acme]]",
+    "Project [[Acme]]",
+)
 
 _batch_counter = 0
 
@@ -116,6 +126,30 @@ def test_get_or_create_page_raises_on_control_whitespace_only_title(tmp_path):
     with pytest.raises(BlankTitleError):
         get_or_create_page(db, CONTROL_ONLY, 123)
     assert fetch_page(db, "") is None
+    db.close()
+
+
+@pytest.mark.parametrize("title", FORBIDDEN_TITLES)
+def test_get_or_create_page_rejects_forbidden_title_before_creating(
+        tmp_path, title):
+    db = _fresh_db(tmp_path)
+
+    with pytest.raises(ValueError, match="unsupported page-title syntax") as exc:
+        get_or_create_page(db, title, 123)
+
+    assert type(exc.value) is store.ForbiddenTitleError
+    assert exc.value.title == title
+    assert fetch_page(db, title) is None
+    db.close()
+
+
+def test_get_or_create_page_allows_generated_daily_title(tmp_path):
+    db = _fresh_db(tmp_path)
+    title = title_for_date(date.today())
+
+    page = get_or_create_page(db, title, 123)
+
+    assert page["title"] == title
     db.close()
 
 
@@ -206,6 +240,20 @@ def test_move_op_cross_page_whitespace_only_title_does_not_wedge(
     assert any("Machine Learning" in b["text"] for b in body["blocks"])
 
 
+@pytest.mark.parametrize("title", FORBIDDEN_TITLES)
+def test_post_pages_route_rejects_forbidden_title_without_creating_page(
+        client, seeded_config, title):
+    before = _titles(seeded_config)
+
+    response = client.post("/api/pages", json={"title": title})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        f"unsupported page-title syntax: {title!r}"
+    )
+    assert _titles(seeded_config) == before
+
+
 def test_post_pages_route_still_rejects_whitespace_only_title(client):
     """The interactive HTTP route keeps its explicit 4xx (unlike ops)."""
     r = client.post("/api/pages", json={"title": WHITESPACE_ONLY})
@@ -213,12 +261,157 @@ def test_post_pages_route_still_rejects_whitespace_only_title(client):
 
 
 def test_post_pages_route_rejects_spaces_only_title_too(client):
-    """Symmetry check (finding 2): the route already strips before calling
-    the store (`body.title.strip()`), so this passed before the fix and
-    must keep passing after it -- the fix only needed to change the ops
-    path, which does not pre-strip."""
+    """Symmetry check: the interactive route rejects plain-space blankness
+    in either activation mode instead of applying the ops fallback policy."""
     r = client.post("/api/pages", json={"title": SPACES_ONLY})
     assert r.status_code == 422
+
+
+def test_post_pages_gates_boundary_spaces_without_weakening_blank_rejection(
+        client, seeded_config):
+    inactive_title = "  Inactive POST Boundary  "
+    inactive = client.post("/api/pages", json={"title": inactive_title})
+
+    assert inactive.status_code == 200
+    assert inactive.json()["title"] == inactive_title
+    assert inactive_title in _titles(seeded_config)
+    assert "Inactive POST Boundary" not in _titles(seeded_config)
+    assert client.post("/api/pages", json={"title": SPACES_ONLY}).status_code == 422
+
+    audit = client.get("/api/migrations/title-canonicalization").json()
+    applied = client.post(
+        "/api/migrations/title-canonicalization",
+        json={"audit_digest": audit["digest"]},
+    )
+    assert applied.status_code == 200
+
+    active_title = "  Active POST Boundary  "
+    active = client.post("/api/pages", json={"title": active_title})
+
+    assert active.status_code == 200
+    assert active.json()["title"] == "Active POST Boundary"
+    titles = _titles(seeded_config)
+    assert inactive_title not in titles
+    assert "Inactive POST Boundary" in titles
+    assert active_title not in titles
+    assert "Active POST Boundary" in titles
+    assert client.post("/api/pages", json={"title": SPACES_ONLY}).status_code == 422
+
+
+def test_all_creation_boundaries_preserve_plain_space_before_activation(
+        client, seeded_config):
+    posted = client.post("/api/pages", json={"title": "  Pre Post  "})
+    assert _post_ops(
+        client, {"op": "create_page", "page_title": "  Pre Create Page  "}
+    ).status_code == 200
+    assert _post_ops(
+        client,
+        {"op": "create", "uid": "precreate01", "page_title": "  Pre Create  ",
+         "parent_uid": None, "order_idx": 0, "text": "body"},
+    ).status_code == 200
+    assert _post_ops(
+        client,
+        {"op": "move", "uid": "uid_b4", "parent_uid": None,
+         "order_idx": 0, "page_title": "  Pre Move  "},
+    ).status_code == 200
+    renamed = client.post(
+        "/api/page/Machine Learning/rename",
+        json={"new_title": "  Pre Rename  ", "allow_merge": False},
+    )
+
+    assert posted.json()["title"] == "  Pre Post  "
+    assert renamed.json() == {"result": "renamed", "title": "  Pre Rename  "}
+    exact = {"  Pre Post  ", "  Pre Create Page  ", "  Pre Create  ",
+             "  Pre Move  ", "  Pre Rename  "}
+    titles = set(_titles(seeded_config))
+    assert exact <= titles
+    assert not {title.strip() for title in exact} & titles
+
+
+def test_all_creation_boundaries_canonicalize_plain_space_after_activation(
+        client, seeded_config):
+    audit = client.get("/api/migrations/title-canonicalization").json()
+    applied = client.post(
+        "/api/migrations/title-canonicalization",
+        json={"audit_digest": audit["digest"]},
+    )
+    assert applied.status_code == 200
+
+    assert client.post("/api/pages", json={"title": "  Post Route  "}).json()[
+        "title"
+    ] == "Post Route"
+    assert _post_ops(
+        client, {"op": "create_page", "page_title": "  Create Page Op  "}
+    ).status_code == 200
+    assert _post_ops(
+        client,
+        {"op": "create", "uid": "activecreate1", "page_title": "  Create Op  ",
+         "parent_uid": None, "order_idx": 0, "text": "body"},
+    ).status_code == 200
+    assert _post_ops(
+        client,
+        {"op": "move", "uid": "uid_b4", "parent_uid": None,
+         "order_idx": 0, "page_title": "  Move Op  "},
+    ).status_code == 200
+    renamed = client.post(
+        "/api/page/Machine Learning/rename",
+        json={"new_title": "  Rename Route  ", "allow_merge": False},
+    )
+
+    assert renamed.json() == {"result": "renamed", "title": "Rename Route"}
+    titles = _titles(seeded_config)
+    assert {"Post Route", "Create Page Op", "Create Op", "Move Op", "Rename Route"} <= set(titles)
+    assert not any(title.startswith(" ") or title.endswith(" ") for title in titles)
+
+
+def test_ops_broadcast_the_canonical_title_after_activation(client):
+    audit = client.get("/api/migrations/title-canonicalization").json()
+    applied = client.post(
+        "/api/migrations/title-canonicalization",
+        json={"audit_digest": audit["digest"]},
+    )
+    assert applied.status_code == 200
+
+    with client.websocket_connect("/api/ws") as ws:
+        assert _post_ops(
+            client,
+            {"op": "create_page", "page_title": "  Create Page Op  "},
+        ).status_code == 200
+        assert ws.receive_json()["ops"] == [{
+            "op": "create_page",
+            "page_title": "Create Page Op",
+        }]
+
+    with client.websocket_connect("/api/ws") as ws:
+        assert _post_ops(
+            client,
+            {"op": "create", "uid": "activecast01", "page_title": "  Create Op  ",
+             "parent_uid": None, "order_idx": 0, "text": "body"},
+        ).status_code == 200
+        assert ws.receive_json()["ops"] == [{
+            "op": "create",
+            "uid": "activecast01",
+            "page_title": "Create Op",
+            "parent_uid": None,
+            "order_idx": 0,
+            "text": "body",
+            "heading": None,
+            "view_type": None,
+        }]
+
+    with client.websocket_connect("/api/ws") as ws:
+        assert _post_ops(
+            client,
+            {"op": "move", "uid": "uid_b4", "parent_uid": None,
+             "order_idx": 0, "page_title": "  Move Op  "},
+        ).status_code == 200
+        assert ws.receive_json()["ops"] == [{
+            "op": "move",
+            "uid": "uid_b4",
+            "parent_uid": None,
+            "order_idx": 0,
+            "page_title": "Move Op",
+        }]
 
 
 def test_padded_title_is_preserved_and_reused_exactly(tmp_path):

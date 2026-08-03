@@ -15,7 +15,8 @@ source of truth; clients apply edits optimistically and send op batches to
 `POST /api/ops`. Down-sync is *pull-based*: an append-only change journal
 (populated by SQLite triggers) gives every change a monotonic `seq`, clients
 keep a cursor, and `GET /api/sync/changes?since=` returns everything after
-it. The WebSocket only *nudges* — it announces new seqs and echoes applied
+it. The WebSocket only *nudges* — it announces real journal seqs, can force a
+pull for committed metadata-only generation changes, and echoes applied
 batches, but correctness never depends on receiving a frame. Offline is a
 cache, not a fork: each browser holds a sqlite-wasm replica plus a durable
 queue of unacknowledged batches; batch ids make replays idempotent, and
@@ -28,9 +29,9 @@ collisions at push time.
 |---|---|---|
 | Change journal | `server/src/pkm/schema.py` (`changes` table), triggers | Every row mutation gets a `seq`; populated by row-level triggers, so *any* write path is journalled automatically |
 | Windowed feed | `server/.../routes_sync.py`, `sync_core.py` | `changes?since=` dedupes a window of raw journal rows; `snapshot` bootstraps |
-| Generation token | `sync_meta.db_generation` | Random token minted per database; a rebuilt DB (importer swap) changes it, forcing clients to rebootstrap |
+| Sync metadata | `sync_meta` (`db_generation`, `plain_space_title_canonicalization`) | Durable server-only switches: the generation token forces client rebootstrap after importer swaps, and the title-canonicalization flag gates stripping leading/trailing plain spaces |
 | Idempotent writes | `routes_ops.py`, `applied_batches` table | Same `batch_id` + same payload hash → replay stored ack; different payload → 409 |
-| WS hub | `server/.../ws.py`, `notify.py` | Post-commit push of `{type:"seq",seq}` + applied-op echoes; 1 s send timeout, stalled clients dropped |
+| WS hub | `server/.../ws.py`, `notify.py` | Post-commit push of `{type:"seq",seq}`; metadata-only generation rotation adds `force:true,generation`; applied-op echoes; 1 s send timeout, stalled clients dropped |
 | Replica | `web/src/replica/` (worker, OPFS) | sqlite-wasm copy of the graph (BASE_DDL only) in a worker on the OPFS SAHPool VFS |
 | Op queue | `web/src/sync/opQueue.ts`, `web/src/replica/queue.ts` | Durable `pending_ops` rows in the replica DB; optimistic local apply; drain-on-reconnect |
 | Sync orchestration | `web/src/sync/SyncProvider.tsx`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncSeq`) |
@@ -89,12 +90,76 @@ Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
 rebuilt) or a changed `generation` token. Both mean "this is a different
 database; your cursor is meaningless".
 
+## Title activation across online and offline paths
+
+Snapshot and changes payloads both carry the required
+`plain_space_title_canonicalization` boolean alongside `generation`. This is a
+server-owned rollout switch, not a client preference: normal server startup
+does not change it, so an unactivated database stays inactive, and startup
+never runs the padded-title data migration. A later explicit audited apply
+sets the flag and rotates the server generation in the same transaction.
+Fresh importer databases reuse
+that audit/apply path on their temporary database before publication, so they
+arrive active rather than waiting for startup.
+
+The server and replica deliberately make the same decision at their I/O
+boundaries:
+
+| State | Online server/API | Offline replica |
+|---|---|---|
+| Always | Normalize control whitespace in title creation and page/unlinked read lookup; after normalization reject `#`, `[[`, and `]]` in normal writes | `canonicalizeTitle` applies the same normalization to local creation and reads; local writes use the same forbidden-syntax predicate |
+| Inactive | Preserve leading/trailing ordinary U+0020 exactly, allowing legacy padded rows to resolve to themselves | Persist `"0"`; preserve boundary ordinary spaces and keep queued wire operations unchanged |
+| Active | Strip only boundary U+0020 on creation/read; keep internal ordinary spaces and NBSP exact | Persist `"1"`; strip boundary U+0020 before local page lookup/creation and optimistic replay |
+
+Before normal local application, `findOpTitleViolation()` preflights every
+explicit page target and ref-derived title in the complete op batch. A `#`,
+`[[`, or `]]` violation therefore refuses the whole gesture before optimistic
+mutation. `enqueueBatch()` repeats that preflight before its transaction, so no
+`pending_ops` row or partial optimistic state is persisted. The offline
+`POST /api/pages` shim returns 422 before creating its negative page or queued
+`create_page` op. Authoritative snapshot/feed payloads are not user writes and
+remain accepted.
+
+The replica persists an accepted flag in `sync_client_meta` in the same
+transaction as the accepted payload, **before** reconciling and replaying
+pending optimistic batches. That order is load-bearing: after activation it
+first canonicalizes negative-id pages created under the inactive rule. It
+remaps their blocks and refs onto a canonical authoritative page from the
+accepted feed when one exists, or retitles the negative page in place
+otherwise. It then replays the unchanged durable wire operations under the
+new rule, so neither padded-page residue nor optimistic user state is lost.
+
+Activation's generation rotation intentionally forces a full rebootstrap. A
+client that receives the first post-migration changes payload sees the new
+generation and returns `needs-bootstrap` **before** mutating cursor,
+generation, or activation metadata; the snapshot then installs the canonical
+server graph and metadata together and replays pending intent. The apply
+route sends one forced seq frame after commit:
+`{type:"seq", seq:<actual journal max>, force:true, generation:<new token>}`.
+A current client pulls even when that real seq equals its cursor, discovers
+the generation mismatch, and reboots immediately. The force bit never changes
+or fabricates the cursor, so the next ordinary higher-seq frame remains
+observable. Reconnect pull plus the feed's generation check remain the
+correctness mechanism if the best-effort frame is lost.
+
+Applied-op echoes also use authoritative stored titles: create, create-page,
+and moves with a resolved page target replace the caller spelling with the
+title of the page row the server actually changed (blank fallback, control
+normalization, and active boundary stripping included). Same-page moves with
+no `page_title` remain null. If that authoritative row cannot be loaded,
+broadcast assembly fails closed and the op transaction rolls back rather than
+sending caller spelling. Other tabs therefore refetch the authoritative page
+key while still relying on the journal pull for state.
+
 ## Post-commit nudges
 
 Every route whose commit touches a changes-journaled table (`blocks`,
 `pages`, or `sidebar_entries` — the three with triggers in `schema.py`
 `SERVER_DDL`) must send a WS `{type:"seq", seq}` nudge immediately after
-that commit, so connected replicas know to pull the new window (nudges are
+that commit, so connected replicas know to pull the new window. A committed
+metadata/generation change that may leave `changes.seq` unchanged must send
+the same frame with `force:true` and the new `generation`; `seq` is still the
+actual journal maximum, never a synthetic future value. Nudges are
 a latency optimization, never a correctness dependency — see "An online
 edit, end to end" above). `notify.py` provides `commit_and_nudge_threadpool`
 for sync-def routes (hopping back to the event loop via
@@ -187,6 +252,25 @@ names a *local row* type and maps into a checked object literal
 the builder returns, is what the compiler actually verifies. What remains
 unchecked is the row type against the real SQL — a renamed *column* is still a
 runtime failure, which is what `shim_parity.json` is for.
+
+Two replica reads walk the block tree recursively, and both are **uncapped and
+cycle-safe** rather than depth-limited (pkm-8kw2): `localApi/tree.ts`'s
+ancestor CTE, which builds the breadcrumb trails the shim's payloads carry,
+and `localOps.ts::subtreeUids`, which enumerates a subtree for optimistic
+delete/move. Each carries a `path` column of `,uid,uid,…,` and recurses only
+while `instr(path, ',' || b.uid || ',') = 0`, so a trail or subtree is
+complete however deep it goes, and a parent cycle in a damaged replica
+terminates at the repeat instead of running away. This mirrors the server's
+`_fetch_ancestors` exactly — see
+[backend.md](backend.md#breadcrumbs-and-recursive-traversal) — and the
+mirroring is the point: a breadcrumb read offline must return the same trail
+as the same read online, so all three statements change together or not at
+all. Both previously stopped at `depth < 100`, which truncated a breadcrumb
+trail silently on the read path and, worse, let `subtreeUids` under-report a
+subtree on the *write* path: an optimistic `delete` left descendants below
+depth 100 in the replica with their parent gone, and a cross-page `move` left
+them holding the old `page_id`, so the replica disagreed with the server about
+which page owned them until the next full resync.
 
 ```mermaid
 sequenceDiagram
@@ -317,7 +401,7 @@ recovery coordinator:
 | Trigger | Detected by | Kind |
 |---|---|---|
 | App deploy changed the client schema | `SCHEMA_VERSION` = sha256(base + client DDL) vs stored value | `reset` (rebuild file) |
-| Server DB rebuilt (importer swap) | `generation` token mismatch in any feed payload | `rebase` (flush queue, re-snapshot) |
+| Server DB rebuilt or title activation rotated generation | `generation` token mismatch in any feed payload; a forced WS frame makes metadata-only rotation pull immediately | `rebase` (flush queue, re-snapshot) |
 | Cursor ahead of journal | `reset: true` from the feed | `rebase` |
 
 ## Ancillary details
@@ -347,6 +431,7 @@ recovery coordinator:
 
 Everything stateful is inspectable SQLite: the journal is rows in the server
 DB, the queue is rows in the replica DB, and the only moving parts are a
-cursor, a generation token, and content hashes. There are no vector clocks
+cursor, a generation token, the title-canonicalization activation flag, and
+content hashes. There are no vector clocks
 and no merge machinery; every failure mode reduces to "pull the feed again"
 or "re-snapshot and replay the queue".

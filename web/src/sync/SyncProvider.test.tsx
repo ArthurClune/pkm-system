@@ -187,6 +187,104 @@ test("a WS seq nudge beyond the cursor pulls the changes feed", async () => {
   expect(changeCalls).toEqual(["/api/sync/changes?since=9"]);
 });
 
+test("a forced equal-cursor generation nudge immediately reboots an active replica without moving its cursor", async () => {
+  let localGeneration = "g1";
+  let localActivation = false;
+  let localCursor = 9;
+  let committedSnapshot: {
+    generation: string;
+    plain_space_title_canonicalization: boolean;
+    seq: number;
+  } | null = null;
+  const replica = fakeReplicaForProvider();
+  replica.init = async () => ({
+    ok: true, empty: false, cursor: localCursor, schemaMismatch: false,
+    pendingBatches: [],
+  });
+  replica.applyChanges = async (changes) => {
+    if (changes.generation !== localGeneration) {
+      return { status: "needs-bootstrap" };
+    }
+    localCursor = changes.next_since;
+    return { status: "applied", cursor: localCursor };
+  };
+  replica.commitRecovery = async (_token, input) => {
+    committedSnapshot = input.snapshot;
+    localGeneration = input.snapshot.generation;
+    localActivation = input.snapshot.plain_space_title_canonicalization;
+    localCursor = input.snapshot.seq;
+  };
+
+  let changesCalls = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith("/api/sync/changes")) {
+      changesCalls += 1;
+      if (changesCalls === 1) {
+        return jsonResponse({
+          ...EMPTY_FEED,
+          generation: "g1",
+          plain_space_title_canonicalization: false,
+          next_since: 9,
+          latest_seq: 9,
+        });
+      }
+      if (changesCalls === 2) {
+        return jsonResponse({
+          ...EMPTY_FEED,
+          generation: "g2",
+          plain_space_title_canonicalization: true,
+          next_since: 9,
+          latest_seq: 9,
+        });
+      }
+      return jsonResponse({
+        ...EMPTY_FEED,
+        generation: "g2",
+        plain_space_title_canonicalization: true,
+        next_since: 10,
+        latest_seq: 10,
+      });
+    }
+    if (url === "/api/sync/snapshot") {
+      return jsonResponse({
+        ...SNAPSHOT,
+        generation: "g2",
+        plain_space_title_canonicalization: true,
+        seq: 9,
+      });
+    }
+    if (url === "/api/ops") return jsonResponse({ ok: true });
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+
+  render(<SyncProvider replica={replica}><div /></SyncProvider>);
+  await act(async () => {
+    lastWs().open();
+    await vi.waitFor(() => expect(changesCalls).toBe(1));
+  });
+
+  await act(async () => {
+    lastWs().message({ type: "seq", seq: 9, force: true, generation: "g2" });
+    await vi.waitFor(() => expect(committedSnapshot).not.toBeNull());
+  });
+
+  expect(committedSnapshot).toMatchObject({
+    generation: "g2",
+    plain_space_title_canonicalization: true,
+    seq: 9,
+  });
+  expect(localGeneration).toBe("g2");
+  expect(localActivation).toBe(true);
+  expect(localCursor).toBe(9);
+
+  await act(async () => {
+    lastWs().message({ type: "seq", seq: 10 });
+    await vi.waitFor(() => expect(localCursor).toBe(10));
+  });
+  expect(changesCalls).toBe(3);
+});
+
 test("without a replica the provider reports no-replica mode", async () => {
   stubFetch([["/api/ops", { ok: true }]]);
   function Mode() {

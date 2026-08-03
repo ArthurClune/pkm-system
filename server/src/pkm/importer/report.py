@@ -2,13 +2,17 @@
 """Import report: everything the importer saw, kept, ignored, or missed."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from pkm.importer.parse_export import CONSUMED_ATTRS
+from pkm.importer.titles import ImportTitleChange
 
 
 @dataclass(frozen=True)
 class ImportReport:
+    """Counts and deterministic diagnostics produced by one import."""
+
     pages: int
     implicit_pages: int
     blocks: int
@@ -21,6 +25,7 @@ class ImportReport:
     assets_used: int
     missing_asset_urls: tuple[str, ...]
     attr_counts: dict[str, int]
+    title_changes: tuple[ImportTitleChange, ...]
     # Set exactly when orphan_blocks > 0: the page they were recovered to
     # (see pkm.importer.rows.RECOVERY_PAGE_TITLE), so the report says where
     # they landed instead of implying they were dropped.
@@ -33,6 +38,7 @@ class ImportReport:
 
 
 def render(r: ImportReport) -> str:
+    """Render an import report as stable human-readable text."""
     ignored = {a: n for a, n in sorted(r.attr_counts.items())
                if a not in CONSUMED_ATTRS}
     lines = [
@@ -40,6 +46,20 @@ def render(r: ImportReport) -> str:
         f"pages: {r.pages} ({r.implicit_pages} implicit)",
         f"blocks: {r.blocks}",
         f"refs: {r.refs}",
+    ]
+    if r.title_changes:
+        lines.append(f"title spellings sanitized: {len(r.title_changes)}")
+        for change in r.title_changes:
+            merge_prefix = "merged; " if change.merged else ""
+            locations = ", ".join(change.locations)
+            lines.append(
+                f"  {json.dumps(change.original_title, ensure_ascii=False)} -> "
+                f"{json.dumps(change.sanitized_title, ensure_ascii=False)} "
+                f"({merge_prefix}{locations})"
+            )
+    else:
+        lines.append("title spellings sanitized: none")
+    lines += [
         (f"orphan blocks (unreachable from any page, recovered to "
          f"'{r.recovery_page_title}'): {r.orphan_blocks}"
          if r.orphan_blocks and r.recovery_page_title

@@ -181,6 +181,8 @@ CREATE TABLE IF NOT EXISTS sync_meta(
 );
 INSERT OR IGNORE INTO sync_meta(key, value)
   SELECT 'db_generation', lower(hex(randomblob(16)));
+INSERT OR IGNORE INTO sync_meta(key, value)
+VALUES ('plain_space_title_canonicalization', '0');
 """
 
 DDL = BASE_DDL + SERVER_DDL

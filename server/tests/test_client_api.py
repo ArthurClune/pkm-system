@@ -104,6 +104,20 @@ def test_get_page_quotes_title(pkm_client):
     assert page.page.title == "July 7th, 2026"
 
 
+def test_get_page_finds_a_page_whose_title_holds_control_whitespace(
+        pkm_client):
+    pkm_client.post_ops(
+        [CreatePageOp(op="create_page", page_title="Ctrl\tTitle"),
+         CreateOp(op="create", uid="ctrlwsread001", page_title="Ctrl\tTitle",
+                  parent_uid=None, order_idx=0, text="read me")],
+        batch_id="ctrl-ws-read-0001")
+
+    page = pkm_client.get_page("Ctrl\tTitle")
+
+    assert page.page.title == "Ctrl Title"
+    assert [block.text for block in page.blocks] == ["read me"]
+
+
 def test_search_query_todos(pkm_client):
     assert pkm_client.search("Papers").blocks
     assert pkm_client.run_query("{and: [[Paper]]}").total == 1
@@ -130,6 +144,40 @@ def test_post_ops_accepts_hand_written_op_mappings(pkm_client):
                                 "order_idx": 1, "text": "hand written"}],
                               batch_id="cli-batch-0001c")
     assert ack.applied == 1
+
+
+def test_post_ops_propagates_indexed_forbidden_reference_server_error(
+        pkm_client):
+    with pytest.raises(ApiError) as exc:
+        pkm_client.post_ops(
+            [
+                CreateOp(
+                    op="create",
+                    uid="atomicclient1",
+                    page_title="AI",
+                    parent_uid=None,
+                    order_idx=1,
+                    text="first mutation",
+                ),
+                CreateOp(
+                    op="create",
+                    uid="atomicclient2",
+                    page_title="AI",
+                    parent_uid=None,
+                    order_idx=2,
+                    text="[[New #Old]]",
+                ),
+            ],
+            batch_id="cli-forbidden-ref-0001",
+        )
+
+    assert (exc.value.status, exc.value.message) == (
+        400,
+        "op 1: unsupported reference title syntax: 'New #Old'",
+    )
+    with pytest.raises(ApiError) as missing:
+        pkm_client.get_block("atomicclient1")
+    assert missing.value.status == 404
 
 
 def test_post_ops_rejects_malformed_op_locally(pkm_client):
@@ -201,6 +249,34 @@ def test_get_page_blocks_finds_a_page_whose_title_holds_control_whitespace(
     assert [b.text for b in blocks] == ["already here"]
 
 
+def test_get_backlinks_finds_a_page_whose_title_holds_control_whitespace(
+        pkm_client):
+    pkm_client.post_ops(
+        [CreatePageOp(op="create_page", page_title="Ctrl\tTitle"),
+         CreateOp(op="create", uid="ctrlwslink001", page_title="Ctrl Source",
+                  parent_uid=None, order_idx=0, text="See [[Ctrl Title]]")],
+        batch_id="ctrl-ws-backlinks-0001")
+
+    result = pkm_client.get_backlinks("Ctrl\tTitle")
+
+    assert result.total_pages == 1
+    assert [(group.page_title, [item.text for item in group.items])
+            for group in result.groups] == [
+                ("Ctrl Source", ["See [[Ctrl Title]]"]),
+            ]
+
+
+def test_get_backlinks_preserves_the_first_server_limit_metadata(
+        pkm_client, seed_backlinks):
+    seed_backlinks(101)
+
+    result = pkm_client.get_backlinks("Machine Learning", page_size=1000)
+
+    assert result.total_pages == 102
+    assert len(result.groups) == 102
+    assert result.limit == 100
+
+
 def test_get_backlinks_fetches_every_group_beyond_the_single_page_cap(
         pkm_client, seed_backlinks):
     # routes_pages.py caps a single /api/page response to 100 backlink
@@ -226,7 +302,7 @@ def test_get_backlinks_no_backlinks_makes_one_request(pkm_client, monkeypatch):
     monkeypatch.setattr(pkm_client._http, "request", spy)
     result = pkm_client.get_backlinks("July 7th, 2026")
     assert len(calls) == 1  # no extra round trip once total_pages is 0
-    assert result == Backlinks(groups=[], total_pages=0, offset=0, limit=0)
+    assert result == Backlinks(groups=[], total_pages=0, offset=0, limit=100)
 
 
 def test_get_backlinks_restarts_when_source_order_shifts_mid_fetch(
@@ -283,6 +359,114 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
     monkeypatch.setattr(pkm_client, "get_page", flaky_get_page)
     with pytest.raises(ApiError, match="reorder"):
         pkm_client.get_backlinks("whatever", page_size=1)
+
+
+def test_audit_title_migration_uses_the_canonicalization_route_and_validates_response(
+        pkm_client, monkeypatch):
+    payload = {
+        "active": False,
+        "digest": "7" * 64,
+        "groups": [{
+            "canonical_title": "Acme",
+            "survivor": {"page_id": 10, "title": "Acme"},
+            "sources": [{"page_id": 11, "title": " Acme"}],
+            "has_clean_twin": True,
+            "block_count": 4,
+            "inbound_ref_count": 4,
+            "sidebar_count": 2,
+        }],
+        "blockers": [
+            {"page_id": 19, "title": "Bad #Title", "reason": "forbidden_syntax"}
+        ],
+    }
+    seen: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+        text = repr(payload)
+
+        def json(self):
+            return payload
+
+    def spy(method, path, **kw):
+        seen["method"] = method
+        seen["path"] = path
+        seen["kw"] = kw
+        return _Response()
+
+    monkeypatch.setattr(pkm_client._http, "request", spy)
+
+    audit = pkm_client.audit_title_migration()
+
+    assert seen == {
+        "method": "GET",
+        "path": "/api/migrations/title-canonicalization",
+        "kw": {"headers": pkm_client._headers},
+    }
+    assert audit.digest == payload["digest"]
+    assert audit.groups[0].survivor.page_id == 10
+    assert audit.blockers[0].title == "Bad #Title"
+    assert audit.blockers[0].reason == "forbidden_syntax"
+
+
+def test_apply_title_migration_posts_the_audit_digest_and_validates_response(
+        pkm_client, monkeypatch):
+    payload = {
+        "digest": "8" * 64,
+        "groups_applied": 2,
+        "pages_retitled": 1,
+        "pages_merged": 3,
+        "blocks_moved": 4,
+        "blocks_rewritten": 3,
+        "generation": "0123456789abcdef0123456789abcdef",
+    }
+    seen: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+        text = repr(payload)
+
+        def json(self):
+            return payload
+
+    def spy(method, path, **kw):
+        seen["method"] = method
+        seen["path"] = path
+        seen["kw"] = kw
+        return _Response()
+
+    monkeypatch.setattr(pkm_client._http, "request", spy)
+
+    result = pkm_client.apply_title_migration("0" * 64)
+
+    assert seen == {
+        "method": "POST",
+        "path": "/api/migrations/title-canonicalization",
+        "kw": {
+            "headers": pkm_client._headers,
+            "json": {"audit_digest": "0" * 64},
+        },
+    }
+    assert result.groups_applied == 2
+    assert result.generation == payload["generation"]
+
+
+def test_apply_title_migration_rejects_a_malformed_digest_before_http(
+        pkm_client, monkeypatch):
+    called = False
+
+    def fail_if_called(method, path, **kw):
+        nonlocal called
+        called = True
+        raise AssertionError("HTTP should not run for an invalid digest")
+
+    monkeypatch.setattr(pkm_client._http, "request", fail_if_called)
+
+    with pytest.raises(ApiError) as e:
+        pkm_client.apply_title_migration("not-a-sha256")
+
+    assert e.value.status == 422
+    assert called is False
 
 
 def test_unauthenticated_client_gets_login_hint(anon_client):

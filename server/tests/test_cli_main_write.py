@@ -48,6 +48,20 @@ def test_save_creates_missing_page(run, pkm_client):
     assert "first note" in _page_texts(pkm_client, "Brand New Page")
 
 
+def test_save_propagates_forbidden_page_title_server_error(run, pkm_client):
+    code, out, err = run("save", "-p", "New #Old", "must not land")
+
+    assert code == 1
+    assert out == ""
+    assert (
+        "400: op 0: unsupported page_title title syntax: 'New #Old'"
+        in err
+    )
+    with pytest.raises(ApiError) as missing:
+        pkm_client.get_page("New #Old")
+    assert missing.value.status == 404
+
+
 def test_save_stdin_outline_nests(run, pkm_client):
     code, out, _ = run("save", "-p", "AI", "-",
                        stdin="- [[Henderson]]\n  detail line\n")
@@ -202,6 +216,25 @@ def test_batch_atomic_create_with_alias(run, pkm_client):
     page = pkm_client.get_page("AI")
     mtg = next(n for n in page.blocks if n.text == "[[Meeting]] notes")
     assert [c.text for c in mtg.children] == ["Attendees", "Actions"]
+
+
+def test_batch_propagates_indexed_forbidden_reference_server_error(
+        run, pkm_client):
+    commands = [
+        {"command": "create", "params": {"page": "AI", "text": "first"}},
+        {"command": "create",
+         "params": {"page": "AI", "text": "[[New #Old]]"}},
+    ]
+
+    code, out, err = run("batch", stdin=json.dumps(commands))
+
+    assert code == 1
+    assert out == ""
+    assert (
+        "400: op 1: unsupported reference title syntax: 'New #Old'"
+        in err
+    )
+    assert "first" not in _page_texts(pkm_client, "AI")
 
 
 def test_save_empty_text_on_new_page_leaves_no_page_behind(run, pkm_client):

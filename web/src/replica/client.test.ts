@@ -17,7 +17,7 @@ function deferred<T = void>() {
 }
 
 const SNAP: Snapshot = {
-  generation: "gen-1", seq: 5,
+  generation: "gen-1", plain_space_title_canonicalization: false, seq: 5,
   pages: [{ id: 1, title: "AI", created_at: 1, updated_at: 1 }],
   blocks: [{ uid: "uid_b1", page_id: 1, parent_uid: null, order_idx: 0,
              text: "hello", heading: null, view_type: null, collapsed: 0, created_at: 1,
@@ -56,13 +56,14 @@ test("applyChanges round-trips through the port", async () => {
   await replica.init();
   await replica.applySnapshot(SNAP);
   const result = await replica.applyChanges({
-    reset: false, generation: "gen-1", next_since: 6, latest_seq: 6,
-    pages: [], blocks: [], sidebar: [],
+    reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+    next_since: 6, latest_seq: 6, pages: [], blocks: [], sidebar: [],
     tombstones: [{ kind: "block", entity_id: "uid_b1" }],
   });
   expect(result).toEqual({ status: "applied", cursor: 6 });
   const gone = await replica.applyChanges({
-    reset: false, generation: "gen-2", next_since: 0, latest_seq: 0,
+    reset: false, generation: "gen-2", plain_space_title_canonicalization: false,
+    next_since: 0, latest_seq: 0,
     pages: [], blocks: [], sidebar: [], tombstones: [],
   });
   expect(gone).toEqual({ status: "needs-bootstrap" });
@@ -82,8 +83,8 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
   await replica.deleteBatch(batch.id); // its POST was acknowledged meanwhile
 
   const result = await replica.applyChanges({
-    reset: false, generation: "gen-1", next_since: 6, latest_seq: 6,
-    pages: [],
+    reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+    next_since: 6, latest_seq: 6, pages: [],
     blocks: [{ ...SNAP.blocks[0], text: "hello" }],
     sidebar: [], tombstones: [],
   }, pendingAtDispatch);

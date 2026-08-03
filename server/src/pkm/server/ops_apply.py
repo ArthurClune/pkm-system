@@ -162,9 +162,11 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         db.executemany("DELETE FROM blocks WHERE uid = ?",
                        [(u,) for u in eff.uids])
     elif isinstance(eff, SetCollapsed):
+        # pkm-r7k8: collapse/expand is UI state, not a real change -- no
+        # updated_at bump (contrast every other branch here).
         db.execute(
-            "UPDATE blocks SET collapsed = ?, updated_at = ? WHERE uid = ?",
-            (int(eff.collapsed), now_ms, eff.uid))
+            "UPDATE blocks SET collapsed = ? WHERE uid = ?",
+            (int(eff.collapsed), eff.uid))
     elif isinstance(eff, SetHeading):
         db.execute(
             "UPDATE blocks SET heading = ?, updated_at = ? WHERE uid = ?",

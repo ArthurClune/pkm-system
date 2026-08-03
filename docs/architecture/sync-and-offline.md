@@ -248,6 +248,14 @@ applied to the replica under its own SAVEPOINT, and `base_text_hash` — the
 sha256 of the text the edit was based on — is captured *before* that apply.
 The header shows "Offline — N changes pending".
 
+That optimistic apply must reproduce the server's timestamp rules, not just
+its row contents: `localOps.ts` mirrors the server in leaving both
+`blocks.updated_at` and `pages.updated_at` alone for `set_collapsed` (see
+[backend.md](backend.md#the-write-path)), while every real change stamps
+both. If only one side excluded collapse, a collapse made offline would
+reorder the replica's recently-changed lists and then silently un-reorder them
+on the next resync.
+
 Every shim response builder declares a **generated** return type
 (`PagePayload`, `JournalPayload`, `SearchPayload`, …) rather than `unknown`.
 A server-side field rename the shim does not follow therefore fails

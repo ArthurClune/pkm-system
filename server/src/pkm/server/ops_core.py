@@ -263,8 +263,10 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
     if isinstance(op, DeleteOp):
         return (DeleteBlocks(ctx.subtree), TouchPage(ctx.block.page_id))
     if isinstance(op, SetCollapsedOp):
-        return (SetCollapsed(op.uid, op.collapsed),
-                TouchPage(ctx.block.page_id))
+        # pkm-r7k8: collapse/expand is UI state, not a real change -- no
+        # TouchPage, so it doesn't bump the page's updated_at and pollute
+        # "last changed" (unlike every other op planned here).
+        return (SetCollapsed(op.uid, op.collapsed),)
     if isinstance(op, SetHeadingOp):
         return (SetHeading(op.uid, op.heading), TouchPage(ctx.block.page_id))
     # SetViewTypeOp (the discriminated union admits nothing else)

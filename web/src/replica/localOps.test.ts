@@ -21,8 +21,10 @@ const rows = <T>(sql: string): T[] => t.db.select<T>(sql);
 const blockRow = (uid: string) =>
   rows<{ page_id: number; parent_uid: string | null; order_idx: number;
          text: string; collapsed: number; heading: number | null;
-         view_type: "numbered" | "document" | null }>(
-    `SELECT page_id, parent_uid, order_idx, text, collapsed, heading, view_type
+         view_type: "numbered" | "document" | null;
+         updated_at: number | null }>(
+    `SELECT page_id, parent_uid, order_idx, text, collapsed, heading, view_type,
+            updated_at
      FROM blocks WHERE uid = '${uid}'`)[0];
 
 const replicaState = () => ({
@@ -249,13 +251,29 @@ describe("applyLocalOps", () => {
     )).toEqual([{ n: 0 }]);
   });
 
-  test("set_collapsed and set_heading update flags", () => {
+  test("set_collapsed flips the flag without bumping updated_at anywhere;" +
+       " set_heading still bumps both", () => {
+    t.db.exec("UPDATE blocks SET updated_at = 10 WHERE uid IN ('uid_r1', 'uid_r2')");
+    t.db.exec("UPDATE pages SET updated_at = 10 WHERE id = 1");
+
+    // Collapse/expand is not a real change (bean pkm-r7k8): it must not
+    // touch the block's own updated_at, nor its page's — otherwise a
+    // collapse toggle would reorder "recently touched" page lists.
     applyLocalOps(t.db, [
       { op: "set_collapsed", uid: "uid_r2", collapsed: true },
-      { op: "set_heading", uid: "uid_r1", heading: 2 },
     ], 99);
     expect(blockRow("uid_r2").collapsed).toBe(1);
+    expect(blockRow("uid_r2").updated_at).toBe(10);
+    expect(rows("SELECT updated_at FROM pages WHERE id = 1"))
+      .toEqual([{ updated_at: 10 }]);
+
+    applyLocalOps(t.db, [
+      { op: "set_heading", uid: "uid_r1", heading: 2 },
+    ], 199);
     expect(blockRow("uid_r1").heading).toBe(2);
+    expect(blockRow("uid_r1").updated_at).toBe(199);
+    expect(rows("SELECT updated_at FROM pages WHERE id = 1"))
+      .toEqual([{ updated_at: 199 }]);
   });
 
   test("set_view_type updates persistent metadata", () => {

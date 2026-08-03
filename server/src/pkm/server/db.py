@@ -32,6 +32,27 @@ def _ensure_schema_migrations(con: sqlite3.Connection) -> None:
             con.execute(f"ALTER TABLE assets ADD COLUMN {col} {decl}")
 
 
+def _backfill_created_at(con: sqlite3.Connection) -> None:
+    """pkm-r7k8: fill NULL blocks.created_at from the block's page, for
+    blocks that predate created_at existing (old Roam imports lacking
+    :create/time). MIN() of the page's created_at and the block's own
+    updated_at, because a merged/moved block can sit on a page created
+    after the block was last edited -- taking the page's value alone could
+    then mint a created_at *after* updated_at, which no genuine "created"
+    timestamp should ever be. COALESCE covers pages whose own created_at is
+    NULL, falling back to the block's updated_at so the UPDATE can never
+    write NULL back. Plain `WHERE created_at IS NULL` makes this a no-op
+    on any later run, and it is a normal UPDATE -- the blocks_chg_au
+    trigger fires as usual, so replicas pick the backfilled values up
+    through ordinary sync."""
+    con.execute(
+        "UPDATE blocks SET created_at = MIN("
+        "  COALESCE((SELECT created_at FROM pages WHERE pages.id = blocks.page_id),"
+        "           updated_at),"
+        "  updated_at)"
+        " WHERE created_at IS NULL AND updated_at IS NOT NULL")
+
+
 def init_db(path: Path) -> None:
     """One-time, idempotent database setup: switch to WAL journal mode and
     apply the base schema. Call this once at process startup (serve
@@ -49,13 +70,16 @@ def init_db(path: Path) -> None:
     database the importer already built (same DDL, so this is a no-op),
     and a pre-pkm-lhzd already-populated database missing a table added
     since (e.g. sidebar_entries or blocks.view_type), which picks it up
-    with no manual migration step."""
+    with no manual migration step. Then _backfill_created_at() fills any
+    NULL blocks.created_at left by old Roam imports (pkm-r7k8); like the
+    migrations above it is guarded to be a no-op past the first run."""
     con = sqlite3.connect(path)
     try:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA recursive_triggers=ON")
         con.executescript(DDL)
         _ensure_schema_migrations(con)
+        _backfill_created_at(con)
         con.commit()
     finally:
         con.close()

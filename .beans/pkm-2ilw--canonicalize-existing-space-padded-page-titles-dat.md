@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-03T12:05:31Z
+updated_at: 2026-08-03T12:16:43Z
 parent: pkm-ulae
 ---
 
@@ -107,17 +107,16 @@ Reused the shared title-migration audit/apply shell against importer-built tempo
 
 Implemented deterministic title-migration planning and digesting; atomic audit/apply with merge, reference/sidebar reconciliation, activation, generation rotation, authenticated API and typed CLI; activation-aware online/offline title boundaries and pending replay reconciliation; authoritative title broadcasts; importer reuse before publication; control-whitespace read normalization; and truthful complete backlink pagination. Documented the complete operator and architecture contracts and verified the focused/generated gates plus an isolated CLI migration lifecycle. Production title migration/inventory was NOT executed; all Task 10 runtime verification used disposable data, a disposable CLI config, and http://127.0.0.1:18974.
 
-## Final review fix wave
+## Superseded final review fix wave
 
-- [x] Canonicalize overlapping nested migration sources in pure rewrite, atomic apply, and importer publication without residual padded identities
-- [x] Reindex under transaction-local post-activation semantics and preserve rollback/digest behavior
-- [x] Force an immediate equal-cursor pull after metadata-only generation rotation without fabricating a journal sequence
-- [x] Fail closed when an applied-page broadcast cannot load its authoritative stored title
-- [x] Update sync/backend architecture invariants and run focused server/web/type/lint gates
+- [x] Supersede nested migration closure with boundary-space-only migration mappings and opaque one-pass replacement values
+- [x] Preserve immediate equal-cursor pulls after metadata-only generation rotation without fabricating a journal sequence
+- [x] Preserve fail-closed applied-page broadcasts when the authoritative stored title cannot be loaded
+- [x] Reconcile sync/backend architecture invariants and rerun focused server/web/type/lint gates
 
-## Final review fix summary
+## Superseded final review fix summary
 
-Nested source targets now resolve to one final canonical spelling while preserving the chosen outer page identity; activation is set before reindex inside the same rollback-protected transaction, so ref resolution cannot recreate deleted padded pages. Title activation broadcasts a forced WebSocket seq frame containing the actual journal maximum and new generation, allowing already-current replicas to pull and rebootstrap without mutating or inventing cursor values. Applied-page broadcasts raise on an unreachable authoritative-title lookup failure instead of retaining caller spelling, while same-page null semantics remain unchanged. All verification used only in-memory or pytest temporary data; no production PKM data/config or port 8974 was used.
+The approved strict title-syntax revision supersedes the former nested source-target closure and activation-before-reindex description: normal writes reject title markers, imports sanitize balanced markers recursively, and migration audit/apply blocks unsupported legacy syntax. Title activation still broadcasts a forced WebSocket seq frame containing the actual journal maximum and new generation, allowing already-current replicas to pull and rebootstrap without mutating or inventing cursor values. Applied-page broadcasts still raise on an unreachable authoritative-title lookup failure instead of retaining caller spelling, while same-page null semantics remain unchanged. The retained behaviors remain covered by focused tests; no production PKM data/config or port 8974 was used.
 
 ## Revised title-syntax invariant
 
@@ -128,8 +127,8 @@ The approved 2026-08-02 requirements revision supersedes the nested-title closur
 - [x] Report `all_space` and `forbidden_syntax` migration blockers through digest, API, and CLI
 - [x] Sanitize imported title markup recursively before row creation, merge collisions deterministically, and report changes
 - [x] Enforce equivalent TypeScript/offline validation using shared fixtures
-- [ ] Regenerate contracts and update README, PKM skill, architecture docs, and bean history
-- [ ] Run focused gates and disposable-port-18974 lifecycle verification without production access
+- [x] Regenerate contracts and update README, PKM skill, architecture docs, and bean history
+- [x] Run focused gates and disposable-port-18974 lifecycle verification without production access
 - [ ] Pass fresh task reviews and final whole-title-lane review
 
 ## Task 1: restore opaque rename behavior and add Python title predicate
@@ -150,3 +149,13 @@ Rejected forbidden explicit and reference-derived titles before any server opera
 ## Revised Task 5 Summary of Changes
 
 Added shared-fixture TypeScript title-syntax parity and operation preflight; rejected complete local and durable queue batches before optimistic or pending-row mutation; adapted local page creation to 422 before negative-page/queue creation; and preserved authoritative snapshot/feed acceptance. Verification: 113 focused and 1861 full web unit tests passed; typecheck, lint, and FCIS checks passed. Task review approved with no findings.
+
+## Revised Task 6 Verification Evidence
+
+Reconciled README, PKM skill, backend architecture, sync/offline architecture, generated OpenAPI route/model text, CLI help, and bean history against the shipped strict title-syntax behavior. The recorded skill RED was followed by a fresh-agent GREEN retrieval/application scenario using only the updated skill. Consolidated gates passed: 465 focused server tests, pyrefly, ruff, 193 focused web tests, TypeScript typecheck, ESLint, and the 140-module FCIS check. A disposable CLI lifecycle at exactly http://127.0.0.1:18974 verified stable audit, `forbidden_syntax` blocker visibility and blocked apply, disposable-only blocker removal, stale digest refusal, fresh apply, activation/generation change, canonical create/read, and forbidden create/rename/ref-derived op refusal. The server process, temporary data/config, and lifecycle script were removed; port 8974 was not used. Equal-cursor behavior was not manually reproduced; `test_zero_group_title_activation_forces_an_equal_cursor_replica_pull` passed in the focused server gate.
+
+## Summary of Changes
+
+Replaced stale nested-closure history with the shipped strict title-syntax invariant, documented import-only recursive marker sanitization and reasoned migration blockers, and preserved the forced equal-cursor notification and fail-closed authoritative broadcast outcomes. The final whole-title-lane review remains pending, so this bean remains in progress.
+
+Production title migration/inventory was NOT executed.

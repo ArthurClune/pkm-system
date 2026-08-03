@@ -90,6 +90,20 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   or, for `update`/`move`/`delete`, as `"uid": "{{name}}"`; repeated
   `"## Heading"` parents on the same page resolve to one heading.
 
+## Title syntax
+
+After control-whitespace normalization, normal API, CLI, MCP, and offline
+writes reject page titles containing `#`, `[[`, or `]]`. This includes explicit
+page targets and titles extracted from block refs: an op batch or offline queue
+request is preflighted as a whole and refused before optimistic, durable, or
+server mutation.
+
+Roam import is the only sanitizing path. Before creating rows, it recursively
+removes balanced `[[`/`]]` and `#` title markers, rewrites ref-derived titles,
+and reports deterministic collision merges. Malformed marker syntax or a title
+made blank by sanitization refuses the import before output creation; normal
+writes never sanitize forbidden syntax into a different title.
+
 ## Title migration (operator-only)
 
 Existing leading/trailing plain-space titles are migrated only by an explicit,
@@ -107,13 +121,15 @@ For an approved target:
       uv run --project server pkm migrate-titles --apply <audit-digest>
 
 The first command is side-effect-free: review its groups, survivor/source merge
-plan, and all-space blockers, then retain its 64-hex digest. Apply has no
-implicit/default mode and requires that exact digest. A database change that
-alters the audited plan makes the digest stale and refuses the apply; re-audit
-instead of bypassing it.
-Blockers also refuse the whole apply. A successful apply is one transaction:
-it retitles/merges pages, rewrites inbound refs, activates boundary-plain-space
-canonicalization, and rotates the sync generation.
+plan, and reasoned blockers (`all_space` or `forbidden_syntax`), then retain its
+64-hex digest. Apply has no implicit/default mode and requires that exact
+digest. A database change that alters the audited plan makes the digest stale
+and refuses the apply; re-audit instead of bypassing it. Blockers also refuse
+the whole apply. Migration mappings remove boundary plain spaces only, and
+their replacement values are opaque rather than recursively rescanned. A
+successful apply is one transaction: it retitles/merges pages, rewrites inbound
+refs, activates boundary-plain-space canonicalization, and rotates the sync
+generation.
 
 ## Gotchas
 

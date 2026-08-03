@@ -130,10 +130,14 @@ uv run python -m pkm.importer.run /path/to/export.edn \
 
 Each run builds a fresh database and atomically swaps it in, ending with a
 report of everything imported (and anything unrecognised — nothing is
-silently dropped). Before publication it reuses the title-migration audit/apply
-path on the temporary database, so padded clean twins are merged and title
-canonicalization is active from first use; an all-space title refuses the
-import before either the database or report is swapped. It's safe to re-run.
+silently dropped). Before creating rows, it recursively removes balanced
+`[[`/`]]` markers and `#` markers from page and ref-derived titles, merges
+resulting collisions deterministically, and reports every changed spelling and
+merge. Malformed marker syntax or a title made blank by sanitization refuses
+the import before output creation. Before publication it then reuses the
+title-migration audit/apply path on the temporary database, so padded clean
+twins are merged and title canonicalization is active from first use. It's
+safe to re-run.
 
 ### Regenerating the local data
 
@@ -236,10 +240,12 @@ PKM_CLI_CONFIG=/explicit/target-config.json PKM_URL=https://explicit-target \
 ```
 
 The audit is side-effect-free and prints a stable 64-hex digest plus each
-canonical group, survivor/source merge plan, counts, and any all-space
-blockers. Review it before apply. Apply requires that exact digest; database
-changes that affect the plan make it stale, and stale, blocked, or
-already-active applies are refused. Success retitles/merges pages, rewrites
+canonical group, survivor/source merge plan, counts, and every blocker with an
+`all_space` or `forbidden_syntax` reason. Review it before apply. Apply requires
+that exact digest; database changes that affect the plan make it stale, and
+stale, blocked, or already-active applies are refused. Migration mappings remove
+boundary U+0020 only; replacement values are opaque and are inserted once,
+never rescanned as another source. Success retitles/merges pages, rewrites
 inbound references and sidebar identities, activates boundary-U+0020
 canonicalization, and rotates the sync generation in one transaction. Do not
 run either production command unless production was explicitly requested and
@@ -247,9 +253,12 @@ both variables were deliberately configured; take the normal operational
 backup first.
 
 Control whitespace in titles is always normalized on creation and on the
-page/unlinked/export plus CLI/MCP read paths. Activation additionally removes
-leading/trailing ordinary spaces online and offline; internal ordinary spaces
-and NBSP remain byte-exact.
+page/unlinked/export plus CLI/MCP read paths. After that normalization, normal
+writes reject titles containing `#`, `[[`, or `]]`. Explicit and ref-derived
+titles are preflighted across the whole op batch, and offline queueing uses the
+same rule before optimistic or durable mutation. Activation additionally
+removes leading/trailing ordinary spaces online and offline; internal ordinary
+spaces and NBSP remain byte-exact.
 
 `pkm batch` applies a JSON array of `{command, params}` objects in one
 transaction. Commands: `create` (page, text, parent?, index?, as?), `todo`

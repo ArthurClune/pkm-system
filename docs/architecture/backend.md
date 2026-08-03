@@ -34,8 +34,8 @@ pkm/
 ├── schema.py            Core   Single source of DDL: BASE_DDL (replicated to clients)
 │                               + SERVER_DDL (journal, idempotency) = DDL
 ├── refs.py              Core   Ref grammar: [[links]], #tags, attr::, ((refs)), {{embeds}}
-├── rename.py            Core   rewrite_title_refs() for page rename/merge
-├── title_migration.py   Core   deterministic padded-title grouping, survivor plan + digest
+├── rename.py            Core   one-pass, opaque-value title-ref rewrite for page rename/merge
+├── title_migration.py   Core   boundary-space grouping, blockers, survivor plan + digest
 ├── todo.py              Core   {{TODO}}/{{DONE}} marker parsing (mirrors web/src/grammar/todo.ts)
 ├── filenames.py         Core   safe_filename() shared by upload + export
 ├── assets_core.py       Core   Asset-browser helpers: reference-token stripping,
@@ -311,7 +311,7 @@ FastAPI's `/docs` and `/redoc` are disabled.
 | POST | `/api/journal/cleanup` | Prune empty daily pages (spares today + referenced blocks) |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
 | **Migrations** | | |
-| GET | `/api/migrations/title-canonicalization` | Side-effect-free `TitleMigrationAuditPayload`: `active`, digest, grouped survivor/source plans and counts, and all-space blockers |
+| GET | `/api/migrations/title-canonicalization` | Side-effect-free `TitleMigrationAuditPayload`: `active`, digest, grouped survivor/source plans and counts, and blockers whose `reason` is `all_space` or `forbidden_syntax` |
 | POST | `/api/migrations/title-canonicalization` | `TitleMigrationApplyRequest.audit_digest` (required 64 lowercase hex) → `TitleMigrationApplyResponse` with digest, applied/retitled/merged/moved/rewritten counts, and new `generation`; 409 on stale, blocked, or already-active databases |
 | **Search & queries** | | |
 | GET | `/api/search?q` | FTS5 search over pages + blocks |
@@ -424,15 +424,23 @@ flowchart TD
     R --> H["atomic os.replace: db, then report"]
 ```
 
-Before either `os.replace`, the importer runs the same shared
+Before row construction or filesystem work, `importer/titles.py` recursively
+removes balanced `[[`/`]]` markers and `#` markers from every explicit and
+ref-derived title, rewrites refs with the resulting map, and merges collisions
+in stable source order while preferring an already-clean spelling as survivor.
+The report deterministically lists each changed spelling, all locations, and
+whether it merged. Malformed marker syntax or a result made blank by
+sanitization refuses before output-directory creation.
+
+Before either `os.replace`, the importer also runs the same shared
 `audit_title_migration()` / `apply_title_migration()` shell used by the
 operator route against the temporary database it just built. That keeps fresh
 imports on the post-migration title rule immediately (`sync_meta`
 `plain_space_title_canonicalization = '1'`) and merges any imported clean/
 padded twins with the normal stable block/ref rewrite path before the swap. If
-that audit finds an all-space title blocker, the importer refuses the run,
-prints the friendly title-migration error, deletes the temp DB, and leaves the
-already-published database/report untouched.
+that audit finds a blocker, the importer refuses the run, prints the friendly
+title-migration error, deletes the temp DB, and leaves the already-published
+database/report untouched.
 
 Roam block uids, ordering and timestamps are preserved, so every existing
 `((block ref))` and daily-note link keeps resolving. Mermaid conversion
@@ -915,32 +923,29 @@ restart alone cannot change title identity.
 
 The operator path is split along FCIS boundaries:
 
-- `pkm/title_migration.py` is the pure deterministic planner. It groups padded
-  titles by canonical spelling, simultaneously rewrites nested source titles
-  inside enclosing titles, chooses an existing final clean twin when present
-  (otherwise preserves an intermediate clean identity or the lowest padded
-  page id), lists source pages in stable id order, counts affected
-  blocks/inbound refs/sidebar entries, and reports all-space pages as blockers.
-  Thus `[[ Outer [[ Inner ]] ]]` canonicalizes to `[[Outer [[Inner]]]]` when
-  both identities are sources without minting a second outer identity. Its
-  SHA-256 digest covers the active state and the exact
-  relevant page, block, ref, sidebar, group and replacement snapshots, so
-  repeated unchanged audits are stable.
+- `pkm/title_migration.py` is the pure deterministic planner. It normalizes
+  control whitespace and removes boundary ordinary U+0020 only, groups padded
+  titles by that canonical spelling, chooses an existing clean twin when
+  present (otherwise the lowest padded page id), lists source pages in stable
+  id order, counts affected blocks/inbound refs/sidebar entries, and reports
+  `all_space` and `forbidden_syntax` blockers. Replacement values are opaque:
+  `rename.rewrite_title_refs_map()` inserts each mapped value once and never
+  rescans it as another source. The plan's SHA-256 digest covers active state
+  and the exact relevant page, block, ref, sidebar, group, blocker, and
+  replacement snapshots, so repeated unchanged audits are stable.
 - `server/title_migration.py::audit_title_migration()` owns a read transaction
   and always rolls it back. The authenticated GET route exposes concrete
   `TitleMigrationAuditPayload`/group/page models; it has no side effects.
 - Apply requires a 64-lowercase-hex `audit_digest`, takes `BEGIN IMMEDIATE`,
   re-inventories under that writer reservation, and refuses stale digests,
-  all-space blockers, or an already-active database (HTTP 409). It then
-  retitles or merges in stable order, moves blocks, sets activation before
-  rewriting each snapshotted inbound block and rebuilding refs, reconciles
-  sidebar identities, and rotates `db_generation` in that same transaction.
-  Setting activation before reindex is transaction-local and load-bearing:
-  every final ref resolves under post-activation canonical semantics, while
-  any error or interruption rolls the flag and all row changes back before
-  they can become visible. The route emits one post-commit forced seq frame
-  containing the real journal maximum and new generation, then returns the
-  applied counts plus that generation.
+  either blocker reason, or an already-active database (HTTP 409). It then
+  retitles or merges in stable order, moves blocks, rewrites each snapshotted
+  inbound block and rebuilds refs, reconciles sidebar identities, activates
+  boundary-space canonicalization, and rotates `db_generation` in that same
+  transaction. Any error or interruption rolls all row and metadata changes
+  back before they can become visible. The route emits one post-commit forced
+  seq frame containing the real journal maximum and new generation, then
+  returns the applied counts plus that generation.
 
 The successful generation rotation is part of activation, not bookkeeping:
 connected browser replicas see a generation mismatch, reject that changes
@@ -949,13 +954,18 @@ rebootstrap from a snapshot before replaying pending intent. See
 [sync-and-offline.md](sync-and-offline.md#title-activation-across-online-and-offline-paths).
 
 **Online title boundaries.** Every creation path funnels through
-`store.get_or_create_page()`, which consults the activation flag. The page and
-unlinked read routes use the same activation-aware canonicalization, as does
-single-page export. `PkmClient.get_page`, `get_backlinks`, and
-`get_page_blocks` normalize control whitespace before constructing the URL,
-so CLI/MCP callers can read a title using the spelling they originally wrote;
-the server adds boundary-space stripping once active. Browser offline reads
-and creates mirror this gate rather than activating ahead of the server.
+`store.get_or_create_page()`, which consults the activation flag. After control
+normalization, normal page creation and rename reject any title containing
+`#`, `[[`, or `]]`. `POST /api/ops` preflights both explicit `page_title`
+fields and ref-derived titles across the complete batch, so a violation refuses
+before any page, block, ref, journal, or idempotency mutation. CLI and MCP
+writes share that op path. The page and unlinked read routes use the same
+activation-aware canonicalization, as does single-page export.
+`PkmClient.get_page`, `get_backlinks`, and `get_page_blocks` normalize control
+whitespace before constructing the URL, so CLI/MCP callers can read a title
+using the spelling they originally wrote; the server adds boundary-space
+stripping once active. Browser offline reads and creates mirror this gate
+rather than activating ahead of the server.
 
 Unlike a normalised-but-nonempty title, a blank one is permanently
 unreachable — no `[[link]]` resolves to it, no route can name it — so

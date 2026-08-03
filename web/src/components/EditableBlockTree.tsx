@@ -15,6 +15,8 @@ import { decideSelectionKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
 import { findNode } from "../outline/tree";
+import { formatStamp, formatStampTitle, stampBand,
+         stampTs } from "../outline/blockStamps";
 import { BlockInput } from "./BlockInput";
 import { BlockMenu } from "./BlockMenu";
 import { InlineSegments } from "./InlineSegments";
@@ -32,11 +34,19 @@ interface TreeProps {
   handlers: OutlineHandlers;
   readOnly: boolean;
   fallback?: boolean;
+  /** Render the last-changed margin column (bean pkm-4ler). A PROP, never a
+   * context read: only PageView passes it, which is exactly what keeps the
+   * journal scroll and sidebar panels bare. */
+  stamps?: boolean;
 }
 
 export function EditableBlockTree({ blocks, focus, selection = null, handlers,
-                                    readOnly, fallback = false }: TreeProps) {
+                                    readOnly, fallback = false,
+                                    stamps = false }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
+  // One instant for the whole tree, so two rows a millisecond either side of
+  // a band edge can't be tinted inconsistently within a single paint.
+  const nowMs = Date.now();
   // The /upload file picker (pkm-gbsb): owned by the tree root, not the
   // focus-scoped BlockInput. The native dialog taking focus blurs the
   // textarea, which unmounts BlockInput while the dialog is still open; a
@@ -134,6 +144,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                        fallback={fallback} onRequestUpload={requestUpload}
                        viewMode="document" number={index + 1}
                        openMenuUid={menu?.uid ?? null}
+                       stamps={stamps} nowMs={nowMs}
                        onOpenMenu={(uid, x, y, viewMode, trigger) =>
                          setMenu({ uid, x, y, viewMode, trigger })} />
       ))}
@@ -202,9 +213,23 @@ function focusInSubtree(node: BlockNode, focusUid: string | null): boolean {
   return node.children.some((child) => focusInSubtree(child, focusUid));
 }
 
+/** The margin cell: always rendered when the column is on, even with no
+ * timestamp to show. A missing span would let that row's text claim the
+ * gutter and break the column's alignment. */
+function BlockStamp({ node, nowMs }: { node: BlockNode; nowMs: number }) {
+  const ts = stampTs(node);
+  if (ts === null) return <span className="block-stamp" />;
+  return (
+    <span className={`block-stamp block-stamp-${stampBand(nowMs, ts)}`}
+          title={formatStampTitle(ts)}>
+      {formatStamp(ts)}
+    </span>
+  );
+}
+
 function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                          onRequestUpload, viewMode, number, openMenuUid,
-                         onOpenMenu }: {
+                         stamps, nowMs, onOpenMenu }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
@@ -215,6 +240,8 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
   viewMode: EffectiveBlockView;
   number: number;
   openMenuUid: string | null;
+  stamps: boolean;
+  nowMs: number;
   onOpenMenu: (uid: string, x: number, y: number,
                viewMode: EffectiveBlockView, trigger: HTMLElement) => void;
 }) {
@@ -307,6 +334,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                 </BlockEditContext.Provider>}
           </WrapperTag>
         )}
+        {stamps && <BlockStamp node={node} nowMs={nowMs} />}
       </div>
       {hasChildren && !showTable && (tableRows !== null || !node.collapsed) && (
         <div className={`block-children ${childrenView}-view`}>
@@ -316,6 +344,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                            fallback={fallback} onRequestUpload={onRequestUpload}
                            viewMode={childrenView} number={index + 1}
                            openMenuUid={openMenuUid}
+                           stamps={stamps} nowMs={nowMs}
                            onOpenMenu={onOpenMenu} />
           ))}
         </div>

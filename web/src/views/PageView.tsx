@@ -1,10 +1,11 @@
 // pattern: Imperative Shell
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { BacklinksSection } from "../components/BacklinksSection";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { PageTitle } from "../components/PageTitle";
 import { UnlinkedSection } from "../components/UnlinkedSection";
+import { BlockStampsContext } from "../contexts";
 import { titleFromPathname } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { substituteMissingDaily } from "../outline/missingPage";
@@ -17,6 +18,7 @@ export function PageView() {
   const { payload, error, reload } =
     useOutlinePageLoad(title, substituteMissingDaily);
   const [linkedRefreshGeneration, setLinkedRefreshGeneration] = useState(0);
+  const { stamps } = useContext(BlockStampsContext);
 
   const onLinked = useCallback(() => {
     setLinkedRefreshGeneration((generation) => generation + 1);
@@ -45,7 +47,7 @@ export function PageView() {
       <article className="page">
         <PageTitle title={payload.page.title} />
         <EditablePage key={payload.page.title} title={payload.page.title}
-                      initial={payload.blocks} composer />
+                      initial={payload.blocks} composer stamps={stamps} />
       </article>
       <BacklinksSection
         key={`bl-${title}`}

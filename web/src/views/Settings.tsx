@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useEffect, useState } from "react";
-import { apiFetch } from "../api/client";
+import { apiGet } from "../api/typedClient";
 import type { DescribeStatusPayload } from "../api/payloads";
 
 interface SettingsSection {
@@ -14,7 +14,7 @@ function ImageDescriptionsStatus() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<DescribeStatusPayload>("/api/assets/describe-status")
+    apiGet("/api/assets/describe-status")
       .then((s) => { if (!cancelled) setStatus(s); })
       .catch(() => { if (!cancelled) setStatus("error"); });
     return () => { cancelled = true; };

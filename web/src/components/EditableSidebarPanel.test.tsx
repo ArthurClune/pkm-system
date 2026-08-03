@@ -75,7 +75,7 @@ test("a title change cannot mount the previous payload under the new title", asy
 
   view.rerender(tree("Beta"));
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/Beta", undefined,
+    "/api/page/Beta", { method: "GET" },
   ));
   expect(screen.queryByText("alpha tree")).not.toBeInTheDocument();
   expect(screen.getByText("Loading…")).toBeInTheDocument();

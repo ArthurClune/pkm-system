@@ -23,7 +23,9 @@ it.each([
   ["/current-work", "Current Work — pkm"],
   ["/help", "Keyboard shortcuts — pkm"],
   ["/files", "Files — pkm"],
+  ["/files/", "Files — pkm"],
   ["/settings", "Settings — pkm"],
+  ["/settings/", "Settings — pkm"],
 ])("sets the browser title for %s", (path, expected) => {
   renderAt(path);
   expect(document.title).toBe(expected);

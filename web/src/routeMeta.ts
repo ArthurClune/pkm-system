@@ -54,5 +54,6 @@ export const ROUTE_META: Readonly<Record<string, RouteMeta>> = {
 export const DYNAMIC_ROUTES: readonly RoutePath[] = [ROUTES.page, ROUTES.notFound];
 
 export function routeMetaFor(pathname: string): RouteMeta | undefined {
-  return ROUTE_META[pathname];
+  const canonical = pathname === "/" ? pathname : pathname.replace(/\/+$/, "");
+  return ROUTE_META[canonical];
 }

@@ -1,5 +1,5 @@
 // Clickable bare /assets/<sha>/<filename> URLs -- pkm-gdi5. Click resolves
-// the sha to the block that references it (GET /api/search?exact=1) and
+// the sha to the block that references it (GET /api/search?exact=true) and
 // opens THAT block; no hit (or a failed lookup) falls back to opening the
 // raw asset in a new tab.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -53,7 +53,7 @@ it("click resolves the referencing block and navigates to it", async () => {
   await waitFor(() =>
     expect(screen.getByTestId("loc")).toHaveTextContent("/page/Charts#blk1"));
   const [reqUrl] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-  expect(String(reqUrl)).toBe(`/api/search?q=${SHA}&exact=1`);
+  expect(String(reqUrl)).toBe(`/api/search?q=${SHA}&exact=true`);
 });
 
 it("shift-click resolves the referencing block and opens it in the sidebar", async () => {

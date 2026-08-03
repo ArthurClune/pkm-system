@@ -1,5 +1,5 @@
 // Flat, type-aware ESLint config (config file: exempt from the FCIS header
-// rule). Enforces exactly two rule families, no more:
+// rule). Enforces exactly three policy families, no more:
 //   * React Hooks correctness (rules-of-hooks, exhaustive-deps) so hook
 //     dependency arrays cannot silently drift out of sync with the effect
 //     body -- this is what lets Task 10 delete every exhaustive-deps
@@ -8,6 +8,8 @@
 //     of bug the offline sync + concurrency shells are most exposed to:
 //     floated promises, promise-valued void callbacks (e.g. React event
 //     handlers), thrown non-Errors, and untyped caught errors.
+//   * API-boundary import control: concrete JSON requests use typedClient;
+//     raw apiFetch stays at the transport boundary.
 // reportUnusedDisableDirectives is an error so a stale suppression can never
 // linger: the "zero exhaustive-deps suppressions" invariant is enforced by
 // tooling, not by convention.
@@ -33,8 +35,8 @@ export default tseslint.config(
   },
   // base only: registers the typescript-eslint parser + plugin so the
   // @typescript-eslint/* rules below resolve, WITHOUT pulling in any of the
-  // recommended rule sets (that would be rule sprawl beyond the two named
-  // families this task is scoped to).
+  // recommended rule sets (that would be rule sprawl beyond the three named
+  // policy families this task is scoped to).
   tseslint.configs.base,
   {
     files: ["src/**/*.{ts,tsx}", "tooling/**/*.{ts,tsx}"],
@@ -64,6 +66,25 @@ export default tseslint.config(
       "@typescript-eslint/no-misused-promises": "error",
       "@typescript-eslint/only-throw-error": "error",
       "@typescript-eslint/use-unknown-in-catch-callback-variable": "error",
+      "no-restricted-imports": ["error", {
+        patterns: [{
+          group: ["**/api/client"],
+          importNames: ["apiFetch"],
+          message:
+            "Use apiGet/apiPost/apiPut/apiDelete from api/typedClient; "
+            + "raw apiFetch is reserved for transport boundaries.",
+        }],
+      }],
+    },
+  },
+  {
+    files: [
+      "src/api/typedClient.ts",
+      "src/sync/assets.ts",
+      "src/sync/SyncProvider.tsx",
+    ],
+    rules: {
+      "no-restricted-imports": "off",
     },
   },
 );

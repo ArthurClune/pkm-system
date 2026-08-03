@@ -50,7 +50,7 @@ test("batches several unknown uids into one request", async () => {
   });
   expect(fetchMock).toHaveBeenCalledTimes(1);
   const url = String(fetchMock.mock.calls[0][0]);
-  expect(url).toContain("uids=ref_cc3,ref_dd4");
+  expect(url).toContain("uids=ref_cc3%2Cref_dd4");
 });
 
 test("a uid the server doesn't know is fetched once, not in a loop", async () => {

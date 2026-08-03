@@ -4,12 +4,12 @@
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState } from "react";
-import { ApiError, apiFetch } from "../api/client";
-import type { PagePayload, BlockNode } from "../api/payloads";
+import { ApiError } from "../api/client";
+import { apiGet } from "../api/typedClient";
+import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
-import { encodeTitle } from "../paths";
 import { dateForTitle } from "../replica/daily";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
@@ -91,9 +91,9 @@ export function useOutline(
     const unsubscribe = handle.subscribe(adoptShared);
     const removeLoader = handle.setAuthoritativeLoader(async () => {
       try {
-        const page = await apiFetch<PagePayload>(
-          `/api/page/${encodeTitle(pageTitle)}`,
-        );
+        const page = await apiGet("/api/page/{title}", {
+          path: { title: pageTitle },
+        });
         return page.blocks;
       } catch (e: unknown) {
         // A missing (non-today) daily 404s (pkm-fy52: today-only
@@ -240,9 +240,9 @@ export function useOutline(
     const handle = sessionRef.current;
     if (!handle) return;
     void handle.requestAuthoritative(async () => {
-      const page = await apiFetch<PagePayload>(
-        `/api/page/${encodeTitle(pageTitle)}`,
-      );
+      const page = await apiGet("/api/page/{title}", {
+        path: { title: pageTitle },
+      });
       return page.blocks;
     })
       .catch(() => undefined); // next resync will repair

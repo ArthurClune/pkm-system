@@ -57,7 +57,7 @@ it("fetches and renders a page, resolving block refs from the payload", async ()
   expect(await screen.findByRole("heading", { name: "Generative Models" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Paper" })).toBeInTheDocument();
   expect(screen.getByText("the referenced text")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/Generative%20Models", undefined);
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Generative%20Models", { method: "GET" });
 });
 
 it("keeps literal slashes in namespace titles", async () => {
@@ -66,7 +66,7 @@ it("keeps literal slashes in namespace titles", async () => {
   ]);
   renderAt("/page/AWS/SCP");
   expect(await screen.findByRole("heading", { name: "AWS/SCP" })).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/AWS/SCP", undefined);
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/AWS/SCP", { method: "GET" });
 });
 
 it("links with the canonical payload title and refreshes backlinks", async () => {
@@ -103,7 +103,7 @@ it("links with the canonical payload title and refreshes backlinks", async () =>
     op: "update_text", uid: "uid_unlinked", text: "[[ACME]] mention",
   });
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/ACME?bl_offset=0&bl_limit=20", undefined,
+    "/api/page/ACME?bl_offset=0&bl_limit=20", { method: "GET" },
   ));
   expect(await screen.findByRole("link", { name: "Source" })).toBeInTheDocument();
 });
@@ -862,7 +862,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
 
     view.rerender(tree(true));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/journal?days=5", undefined,
+      "/api/journal?days=5", { method: "GET" },
     ));
     await act(async () => {
       journal.resolve(jsonResponse({
@@ -977,7 +977,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
     await vi.waitFor(() => expect(parentCalls).toBe(2));
     view.rerender(tree(true));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/journal?days=5", undefined,
+      "/api/journal?days=5", { method: "GET" },
     ));
 
     await act(async () => {
@@ -1102,7 +1102,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
     await vi.waitFor(() => expect(parentCalls).toBe(2));
     view.rerender(tree(true));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/journal?days=5", undefined,
+      "/api/journal?days=5", { method: "GET" },
     ));
 
     view.rerender(tree(false));

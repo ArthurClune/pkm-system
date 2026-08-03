@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 import { useContext, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { apiFetch } from "../api/client";
+import { apiDelete } from "../api/typedClient";
 import { SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
 import { PAGE_ROUTE_PREFIX, ROUTES, routeMetaFor } from "../routeMeta";
@@ -42,7 +42,7 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
     if (!ok) return;
     let deleted = true;
     try {
-      await apiFetch(`/api/page/${encodeTitle(title)}`, { method: "DELETE" });
+      await apiDelete("/api/page/{title}", { path: { title } });
     } catch {
       deleted = false;
     }

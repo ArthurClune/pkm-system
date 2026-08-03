@@ -1,10 +1,10 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { apiFetch } from "../api/client";
-import type { BacklinkGroup, Backlinks, BlockRefText, PagePayload } from "../api/payloads";
+import { apiGet } from "../api/typedClient";
+import type { BacklinkGroup, Backlinks, BlockRefText } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
-import { encodeTitle } from "../paths";
+
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, toggleChip,
          type FilterState } from "./backlinkFilter";
 import { mergeGroups } from "./groups";
@@ -34,9 +34,10 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   const fullyLoaded = !hasMore;
 
   const fetchBatch = useCallback((offset: number, limit: number) =>
-    apiFetch<PagePayload>(
-      `/api/page/${encodeTitle(title)}?bl_offset=${offset}&bl_limit=${limit}`,
-    ), [title]);
+    apiGet("/api/page/{title}", {
+      path: { title },
+      query: { bl_offset: offset, bl_limit: limit },
+    }), [title]);
 
   const loadMore = async () => {
     if (refreshInFlight.current) return;

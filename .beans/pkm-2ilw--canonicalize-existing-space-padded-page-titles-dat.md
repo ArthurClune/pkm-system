@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-03T10:02:44Z
+updated_at: 2026-08-03T11:53:31Z
 parent: pkm-ulae
 ---
 
@@ -124,9 +124,9 @@ Nested source targets now resolve to one final canonical spelling while preservi
 The approved 2026-08-02 requirements revision supersedes the nested-title closure portion of the prior final-review fix wave. The forced equal-cursor sync notification and fail-closed authoritative broadcasts remain required.
 
 - [x] Restore opaque one-pass rename replacements and remove nested migration closure logic
-- [ ] Reject `#`, `[[`, and `]]` at every normal Python/server title boundary with atomic ref-derived and batch refusal
-- [ ] Report `all_space` and `forbidden_syntax` migration blockers through digest, API, and CLI
-- [ ] Sanitize imported title markup recursively before row creation, merge collisions deterministically, and report changes
+- [x] Reject `#`, `[[`, and `]]` at every normal Python/server title boundary with atomic ref-derived and batch refusal
+- [x] Report `all_space` and `forbidden_syntax` migration blockers through digest, API, and CLI
+- [x] Sanitize imported title markup recursively before row creation, merge collisions deterministically, and report changes
 - [ ] Enforce equivalent TypeScript/offline validation using shared fixtures
 - [ ] Regenerate contracts and update README, PKM skill, architecture docs, and bean history
 - [ ] Run focused gates and disposable-port-18974 lifecycle verification without production access
@@ -142,3 +142,7 @@ The approved 2026-08-02 requirements revision supersedes the nested-title closur
 ## Task 1 Summary of Changes
 
 Added the shared title-syntax fixture and pure Python predicate for later boundary consumers, and restored `rewrite_title_refs_map()` to the reviewed one-pass opaque replacement behavior so replacement values are never rescanned for further rewrites. Captured RED for the missing predicate import and the recursive replacement regression before the minimal GREEN changes.
+
+## Revised Tasks 2-4 Summary of Changes
+
+Rejected forbidden explicit and reference-derived titles before any server operation-batch mutation; restored boundary-space-only migration planning with digest-bearing `all_space`/`forbidden_syntax` blockers and generated API/CLI contracts; and added pure recursive import sanitization before row/filesystem work with deterministic collision merges, preserved page/orphan block trees and refs, truthful reporting, and typed refusal. The human-approved coupled review required one importer fix round for extractor-normalized targets and hash-removal marker formation; the scoped re-review found both addressed. Full server verification after the fix: 1368 passed, coverage 96.69%; pyrefly reported zero errors and ruff passed.

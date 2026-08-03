@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import type { UpdateTextOp } from "../api/ops";
+import type { BlockOp, UpdateTextOp } from "../api/ops";
+import { LocalOpError } from "./localOps";
 import * as queue from "./queue";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
          pendingCount } from "./queue";
@@ -17,7 +18,42 @@ beforeEach(async () => {
     " VALUES ('uid_q1', 1, NULL, 0, 'original text')");
 });
 
+const durableAndOptimisticState = () => ({
+  pending: t.db.select("SELECT * FROM pending_ops ORDER BY id"),
+  pages: t.db.select("SELECT * FROM pages ORDER BY id"),
+  blocks: t.db.select("SELECT * FROM blocks ORDER BY uid"),
+  refs: t.db.select(
+    "SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"),
+  sidebar: t.db.select("SELECT * FROM sidebar_entries ORDER BY id"),
+  metadata: t.db.select("SELECT * FROM sync_client_meta ORDER BY key"),
+});
+
 describe("enqueueBatch", () => {
+  test.each([
+    ["explicit page title", { op: "create_page", page_title: "Queue #Bad" },
+      "page_title", "Queue #Bad"],
+    ["extracted reference", { op: "update_text", uid: "uid_q1",
+      text: "[[Queue #Bad Ref]]" }, "reference", "Queue #Bad Ref"],
+  ] as const)("refuses a full batch atomically for a later forbidden %s",
+    (_name, invalidOp, source, title) => {
+      const before = durableAndOptimisticState();
+      let thrown: unknown;
+
+      try {
+        enqueueBatch(t.db, [
+          { op: "update_text", uid: "uid_q1", text: "would partially apply" },
+          invalidOp as BlockOp,
+        ], 99, "batch-invalid");
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(LocalOpError);
+      expect(thrown).toMatchObject({ opIndex: 1, source, title });
+      expect(durableAndOptimisticState()).toEqual(before);
+      expect(pendingCount(t.db)).toBe(0);
+    });
+
   test("persists wire JSON with batch_id and captures base_text_hash", () => {
     const res = enqueueBatch(t.db, [
       { op: "update_text", uid: "uid_q1", text: "edited once" },

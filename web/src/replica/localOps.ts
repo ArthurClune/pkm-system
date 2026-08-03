@@ -12,15 +12,39 @@ import type { BlockOp } from "../api/ops";
 import type { ReplicaDb } from "./db";
 import { plainSpaceTitleCanonicalizationActive } from "./meta";
 import { extractRefs } from "./refs";
-import { canonicalizeTitle } from "./titles";
+import { canonicalizeTitle, findOpTitleViolation,
+         type OpTitleViolation, titleSyntaxReason } from "./titles";
 
-export class LocalOpError extends Error {}
+export class LocalOpError extends Error {
+  readonly opIndex?: number;
+  readonly source?: OpTitleViolation["source"];
+  readonly title?: string;
+
+  constructor(message: string, violation?: OpTitleViolation) {
+    super(message);
+    this.name = "LocalOpError";
+    if (violation !== undefined) {
+      this.opIndex = violation.opIndex;
+      this.source = violation.source;
+      this.title = violation.title;
+    }
+  }
+}
+
+const titleViolationError = (violation: OpTitleViolation): LocalOpError =>
+  new LocalOpError(
+    `unsupported ${violation.source} title syntax: ${JSON.stringify(violation.title)}`,
+    violation,
+  );
 
 export function getOrCreateLocalPage(db: ReplicaDb, title: string,
                                      nowMs: number): number {
   title = canonicalizeTitle(
     title, plainSpaceTitleCanonicalizationActive(db));
   if (title.trim().length === 0) title = "Untitled";
+  if (titleSyntaxReason(title) !== null) {
+    throw new LocalOpError(`unsupported page title syntax: ${JSON.stringify(title)}`);
+  }
   const existing = db.select<{ id: number }>(
     "SELECT id FROM pages WHERE title = ?", [title]);
   if (existing.length > 0) return existing[0].id;
@@ -166,6 +190,8 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
  * local apply as best-effort cache maintenance, never as durability. */
 export function applyLocalOps(db: ReplicaDb, ops: BlockOp[],
                               nowMs: number): void {
+  const violation = findOpTitleViolation(ops);
+  if (violation !== null) throw titleViolationError(violation);
   db.transaction(() => {
     for (const op of ops) applyOne(db, op, nowMs);
   });

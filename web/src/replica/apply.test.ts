@@ -48,6 +48,22 @@ const ftsHits = (term: string): string[] =>
     " WHERE blocks_fts MATCH ?", [term]).map((r) => r.uid);
 
 describe("applySnapshot", () => {
+  test("accepts authoritative page titles with forbidden local-write syntax", () => {
+    applySnapshot(t.db, {
+      ...SNAP,
+      pages: [page(30, "Authoritative #Page")],
+      blocks: [],
+      sidebar: [{ id: 30, title: "Authoritative #Page", order_idx: 0 }],
+    });
+
+    expect(t.db.select("SELECT id, title FROM pages")).toEqual([
+      { id: 30, title: "Authoritative #Page" },
+    ]);
+    expect(t.db.select("SELECT id, title FROM sidebar_entries")).toEqual([
+      { id: 30, title: "Authoritative #Page" },
+    ]);
+  });
+
   test("populates graph, refs, sidebar, FTS, cursor and generation", () => {
     expect(count("SELECT COUNT(*) AS n FROM pages")).toBe(2);
     expect(count("SELECT COUNT(*) AS n FROM blocks")).toBe(3);
@@ -202,6 +218,21 @@ describe("applySnapshot", () => {
 });
 
 describe("applyChanges", () => {
+  test("accepts authoritative feed page titles with forbidden local-write syntax", () => {
+    expect(applyChanges(t.db, emptyFeed({
+      next_since: 11,
+      latest_seq: 11,
+      pages: [page(31, "Authoritative [[Feed]]")],
+      sidebar: [{ id: 31, title: "Authoritative [[Feed]]", order_idx: 0 }],
+    }))).toEqual({ status: "applied", cursor: 11 });
+
+    expect(t.db.select("SELECT id, title FROM pages WHERE id = 31")).toEqual([
+      { id: 31, title: "Authoritative [[Feed]]" },
+    ]);
+    expect(t.db.select("SELECT id, title FROM sidebar_entries WHERE id = 31"))
+      .toEqual([{ id: 31, title: "Authoritative [[Feed]]" }]);
+  });
+
   test("activation reconciles already-applied pending page targets before replay", () => {
     enqueueBatch(t.db, [
       { op: "create_page", page_title: "  New Page Target  " },

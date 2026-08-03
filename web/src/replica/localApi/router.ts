@@ -11,7 +11,7 @@ import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { plainSpaceTitleCanonicalizationActive } from "../meta";
 import { enqueueBatch } from "../queue";
-import { canonicalizeTitle } from "../titles";
+import { canonicalizeTitle, titleSyntaxReason } from "../titles";
 import { escapeFtsQuery } from "./fts";
 import { journalPayload } from "./journal";
 import { currentWorkPayload, fetchPage, pagePayload, unlinked } from "./pages";
@@ -95,6 +95,9 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
       plainSpaceTitleCanonicalizationActive(db),
     );
     if (title.trim().length === 0) return err(422, "title must not be blank");
+    if (titleSyntaxReason(title) !== null) {
+      return err(422, `unsupported page-title syntax: ${JSON.stringify(title)}`);
+    }
     // local negative id now; the durable create_page op carries the title
     // to the server (get_or_create there — spec section 1)
     getOrCreateLocalPage(db, title, req.nowMs);

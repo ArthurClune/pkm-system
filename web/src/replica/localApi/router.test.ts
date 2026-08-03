@@ -2,6 +2,7 @@
 // Edge cases beyond the parity fixture (which pins happy-path responses):
 // error statuses, daily auto-creation, the POST create-page path and its
 // enqueued op, and unmatched routes reporting handled:false.
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "vitest";
 import { titleForDate } from "../daily";
 import { setPlainSpaceTitleCanonicalization } from "../meta";
@@ -9,6 +10,17 @@ import { openTestDb, type TestDb } from "../testDb";
 import { handleLocalApi, type LocalApiResult } from "./router";
 
 const NOW = 1752403200000; // 2025-07-13 (mid-day UTC, same day in local time)
+
+interface TitleSyntaxCase {
+  name: string;
+  title: string;
+  reason: "forbidden_syntax" | null;
+}
+
+const forbiddenTitleCases = (JSON.parse(readFileSync(new URL(
+  "../../../../shared/fixtures/title_syntax.json", import.meta.url,
+), "utf-8")) as { cases: TitleSyntaxCase[] }).cases
+  .filter((c) => c.reason === "forbidden_syntax");
 
 let t: TestDb;
 beforeEach(async () => {
@@ -293,6 +305,19 @@ describe("titles", () => {
 });
 
 describe("create page", () => {
+  test.each(forbiddenTitleCases)(
+    "rejects shared forbidden title case $name before local or durable creation",
+    ({ title }) => {
+      const result = call("POST", "/api/pages", { title }, {
+        newBatchId: () => "batch-forbidden",
+      });
+
+      expectStatus(result, 422);
+      expect(t.db.select("SELECT id, title FROM pages WHERE id < 0")).toEqual([]);
+      expect(t.db.select("SELECT * FROM pending_ops")).toEqual([]);
+    },
+  );
+
   test("preserves exact boundary U+0020 while inactive", () => {
     const body = expectStatus(
       call("POST", "/api/pages", { title: "  Fresh Page  " },

@@ -11,8 +11,9 @@
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import type { PendingBatch, PoisonedBatch } from "./client";
 import type { ReplicaDb } from "./db";
-import { applyLocalOps } from "./localOps";
+import { applyLocalOps, LocalOpError } from "./localOps";
 import { sha256Hex } from "./sha256";
+import { findOpTitleViolation } from "./titles";
 
 const currentText = (db: ReplicaDb, uid: string): string | null => {
   const rows = db.select<{ text: string }>(
@@ -25,6 +26,13 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
   pending: number;
   batchId?: string;
 } {
+  const violation = findOpTitleViolation(ops);
+  if (violation !== null) {
+    throw new LocalOpError(
+      `unsupported ${violation.source} title syntax: ${JSON.stringify(violation.title)}`,
+      violation,
+    );
+  }
   if (ops.length > 0) {
     db.transaction(() => {
       const augmented: BlockOp[] = [];

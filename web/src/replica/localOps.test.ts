@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import { applyLocalOps, getOrCreateLocalPage } from "./localOps";
+import type { BlockOp } from "../api/ops";
+import { applyLocalOps, getOrCreateLocalPage, LocalOpError } from "./localOps";
 import { setPlainSpaceTitleCanonicalization } from "./meta";
 import { openTestDb, type TestDb } from "./testDb";
 
@@ -23,6 +24,14 @@ const blockRow = (uid: string) =>
          view_type: "numbered" | "document" | null }>(
     `SELECT page_id, parent_uid, order_idx, text, collapsed, heading, view_type
      FROM blocks WHERE uid = '${uid}'`)[0];
+
+const replicaState = () => ({
+  pages: rows("SELECT * FROM pages ORDER BY id"),
+  blocks: rows("SELECT * FROM blocks ORDER BY uid"),
+  refs: rows("SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"),
+  sidebar: rows("SELECT * FROM sidebar_entries ORDER BY id"),
+  metadata: rows("SELECT * FROM sync_client_meta ORDER BY key"),
+});
 
 describe("getOrCreateLocalPage", () => {
   test("preserves boundary U+0020 while inactive and always normalizes control whitespace", () => {
@@ -53,9 +62,60 @@ describe("getOrCreateLocalPage", () => {
     expect(p1).not.toBe(p2);
     expect(getOrCreateLocalPage(t.db, "Offline One", 9)).toBe(p1);
   });
+
+  test("defensively rejects forbidden titles before creating a page", () => {
+    const before = replicaState();
+
+    expect(() => getOrCreateLocalPage(t.db, "Control\n#Title", 5))
+      .toThrow(LocalOpError);
+    expect(replicaState()).toEqual(before);
+  });
 });
 
 describe("applyLocalOps", () => {
+  test.each([
+    ["create_page target", { op: "create_page", page_title: "Bad #Page" }],
+    ["create target", { op: "create", uid: "uid_bad1",
+      page_title: "Bad [[Page", parent_uid: null, order_idx: 0, text: "plain" }],
+    ["move target", { op: "move", uid: "uid_r1", page_title: "Bad Page]]",
+      parent_uid: null, order_idx: 0 }],
+    ["create reference", { op: "create", uid: "uid_bad2", page_title: "AI",
+      parent_uid: null, order_idx: 0, text: "[[Bad #Ref]]" }],
+    ["update reference", { op: "update_text", uid: "uid_r1",
+      text: "[[Bad #Ref]]" }],
+  ] as const)("rejects a forbidden %s before mutation", (_name, op) => {
+    const before = replicaState();
+
+    expect(() => applyLocalOps(t.db, [op as BlockOp], 99))
+      .toThrow(LocalOpError);
+    expect(replicaState()).toEqual(before);
+  });
+
+  test.each([
+    ["explicit page title", { op: "create_page", page_title: "Atomic #Bad" },
+      "page_title", "Atomic #Bad"],
+    ["extracted reference", { op: "update_text", uid: "uid_r2",
+      text: "[[Atomic #Bad Ref]]" }, "reference", "Atomic #Bad Ref"],
+  ] as const)("preflights a full batch before a later forbidden %s",
+    (_name, invalidOp, source, title) => {
+      t.db.exec("INSERT INTO sidebar_entries(id, title, order_idx) VALUES (1, 'AI', 0)");
+      const before = replicaState();
+
+      let thrown: unknown;
+      try {
+        applyLocalOps(t.db, [
+          { op: "update_text", uid: "uid_r1", text: "would partially apply" },
+          invalidOp as BlockOp,
+        ], 99);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(LocalOpError);
+      expect(thrown).toMatchObject({ opIndex: 1, source, title });
+      expect(replicaState()).toEqual(before);
+    });
+
   test("create shifts following siblings and reindexes refs", () => {
     applyLocalOps(t.db, [{
       op: "create", uid: "uid_new1", page_title: "AI", parent_uid: null,

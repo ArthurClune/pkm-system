@@ -43,6 +43,16 @@
    * white pane and left the outline structureless (pkm-9kye) */
   --color-bullet: #d2e0ea;
   --color-bullet-ring: #c6d7e3;
+  /* block stamp bands (pkm-4ler): warm for fresh, cooling toward neutral as
+   * material ages. Only week/month/year get a fill -- older has no token and
+   * renders unfilled (see .block-stamp below), because in a mature database
+   * most rows are old, so the commonest rows should carry no ink; tint is
+   * reserved for the rare recent rows that are actually worth flagging.
+   * Solid fills, not alpha, so they stay predictable over .block-row:hover
+   * and .focused. */
+  --color-stamp-week: #f7c9a6;
+  --color-stamp-month: #fae3cf;
+  --color-stamp-year: #e4ebf1;
   --color-error: #c23030;
   /* solid-fill variant of --color-error. The dark --color-error is tuned for
    * error *text* on a dark background; as a button fill behind white text it
@@ -105,6 +115,11 @@
     --color-tag: #6f80a0;
     --color-bullet: #39434d;
     --color-bullet-ring: #4a5866;
+    /* a notch less saturated than the light warms, so they read as tint
+     * rather than brown */
+    --color-stamp-week: #4d3526;
+    --color-stamp-month: #38302a;
+    --color-stamp-year: #2b333a;
     --color-error: #ff6b6b;
     --color-error-fill: #a83a3a;
     --color-highlight-bg: #ff913c48;
@@ -153,6 +168,11 @@
   --color-tag: #6f80a0;
   --color-bullet: #39434d;
   --color-bullet-ring: #4a5866;
+  /* a notch less saturated than the light warms, so they read as tint
+   * rather than brown */
+  --color-stamp-week: #4d3526;
+  --color-stamp-month: #38302a;
+  --color-stamp-year: #2b333a;
   --color-error: #ff6b6b;
   --color-error-fill: #a83a3a;
   --color-highlight-bg: #ff913c48;
@@ -438,6 +458,9 @@ button { font: inherit; }
 .top-bar-menu button:hover, .top-bar-menu a:hover { background: var(--color-selected-bg); }
 .top-bar-menu button:focus-visible, .top-bar-menu a:focus-visible {
   outline: 2px solid var(--color-link); outline-offset: 1px; }
+/* Same reserved-width checkmark idiom as BlockMenu's .block-menu-item-check,
+ * so a checked and an unchecked item keep their labels on one line. */
+.top-bar-menu-check { display: inline-block; width: 1.25em; }
 
 /* outline */
 /* line-height set here (not on .block-text) so the edit-mode textarea
@@ -471,6 +494,21 @@ button { font: inherit; }
 .block-text { flex: 1; margin: 0; font-weight: normal; min-width: 0; overflow-wrap: break-word; }
 .block-text.quote-block { border-left: 3px solid var(--color-border-strong);
   color: var(--color-text-muted); padding-left: 12px; }
+/* Last-changed margin column (pkm-4ler). Lives INSIDE .block-row, after
+ * .block-text and after the focused row's textarea, which is what makes the
+ * column align across every nesting depth (.block-children indents from the
+ * left only) and what stops the cell shifting when a row gains focus.
+ * .block-text is flex:1, so the text column gives up exactly this width --
+ * no --pane-width or .main-pane change is needed. */
+.block-stamp { flex: 0 0 56px; margin-left: 10px; padding: 0 4px;
+  border-radius: var(--radius-control); font-size: 11px; text-align: right;
+  white-space: nowrap; color: var(--color-text-muted); background: none;
+  user-select: none; }
+.block-stamp-week { background: var(--color-stamp-week); }
+.block-stamp-month { background: var(--color-stamp-month); }
+.block-stamp-year { background: var(--color-stamp-year); }
+/* .block-stamp-older intentionally has no fill: .block-stamp's own
+ * background: none above is what renders it unfilled (pkm-4ler). */
 /* all clearly below the 28px page title so the page keeps one visual root */
 h1.block-text, .block-input.heading-1 { font-size: 1.4rem; font-weight: 600; }
 h2.block-text, .block-input.heading-2 { font-size: 1.25rem; font-weight: 600; }
@@ -749,6 +787,9 @@ mark.highlight { background: var(--color-highlight-bg); }
    * the themed ring the field family carries everywhere else comes back. */
   .search-field { min-width: 0; }
   .top-bar-search-input:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+  /* A ~68px gutter is too much of a phone line, and the page-menu toggle is
+   * a desktop affordance (pkm-4ler). */
+  .block-stamp { display: none; }
 }
 
 /* --- plan 5: carry-forwards --- */

@@ -636,3 +636,67 @@ describe("focused search stays inside narrow phone viewports (pkm-vszf)", () => 
       .toContain("outline: 2px solid var(--color-link);");
   });
 });
+
+describe("block stamps (pkm-4ler)", () => {
+  const BANDS = ["week", "month", "year"] as const;
+
+  test("the three tinted age-band tokens exist in all three theme blocks", () => {
+    const blocks = [
+      ruleFor(":root"),
+      ruleFor(':root:not([data-theme="light"])'),
+      ruleFor(':root[data-theme="dark"]'),
+    ];
+    for (const body of blocks) {
+      for (const band of BANDS) {
+        expect(body).toMatch(new RegExp(`--color-stamp-${band}: #[0-9a-fA-F]{6};`));
+      }
+    }
+  });
+
+  test("light and dark values differ for every tinted band", () => {
+    const light = ruleFor(":root");
+    const dark = ruleFor(':root[data-theme="dark"]');
+    for (const band of BANDS) {
+      const pattern = new RegExp(`--color-stamp-${band}: (#[0-9a-fA-F]{6});`);
+      expect(light.match(pattern)?.[1]).not.toBe(dark.match(pattern)?.[1]);
+    }
+  });
+
+  test("each tinted band class fills with its own token", () => {
+    for (const band of BANDS) {
+      expect(rulesFor(`.block-stamp-${band}`))
+        .toContain(`background: var(--color-stamp-${band});`);
+    }
+  });
+
+  // The user's verdict on the running app: in a mature database most rows
+  // are "older", so painting ink behind the commonest rows is backwards --
+  // only genuinely recent-ish material should carry a tint. This must stay
+  // true even if someone reaches for a fourth token again later.
+  test("the older band is deliberately left untinted", () => {
+    expect(styles).not.toMatch(/--color-stamp-older\s*:/);
+    expect(styles).not.toMatch(/\.block-stamp-older\s*\{[^}]*background\s*:/);
+    // .block-stamp's own body is what makes an unstyled older cell render
+    // with no fill at all.
+    expect(rulesFor(".block-stamp")).toContain("background: none;");
+  });
+
+  test("the cell is a fixed-width right-aligned column that never wraps", () => {
+    const body = rulesFor(".block-stamp");
+    // Fixed width, not content width: the stamps must form a true column
+    // rather than tracking each row's text length.
+    expect(body).toMatch(/flex: 0 0 \d+px;/);
+    expect(body).toContain("text-align: right;");
+    expect(body).toContain("white-space: nowrap;");
+  });
+
+  test("the column is hidden on phones", () => {
+    expect(mediaRulesFor("(max-width: 600px)", ".block-stamp"))
+      .toContain("display: none;");
+  });
+
+  test("the page-menu checkmark reserves its width like BlockMenu's", () => {
+    expect(rulesFor(".top-bar-menu-check")).toContain("display: inline-block;");
+    expect(rulesFor(".top-bar-menu-check")).toContain("width: 1.25em;");
+  });
+});

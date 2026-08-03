@@ -34,3 +34,16 @@ export interface BlockEditApi {
 }
 
 export const BlockEditContext = createContext<BlockEditApi | null>(null);
+
+/** Whether main-pane pages render the block-stamp margin column (pkm-4ler),
+ * plus the toggle TopBar's page menu drives. One provider in App.tsx so the
+ * menu's checkmark and PageView's column always agree. */
+export interface BlockStampsApi {
+  stamps: boolean;
+  toggle: () => void;
+}
+
+export const BlockStampsContext = createContext<BlockStampsApi>({
+  stamps: false,
+  toggle: () => undefined,
+});

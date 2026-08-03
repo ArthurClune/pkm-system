@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { expect, test, vi } from "vitest";
 import { block } from "../test-helpers";
+import type { BlockNode } from "../api/payloads";
 import type { OutlineHandlers } from "../outline/handlers";
 import { EditableBlockTree } from "./EditableBlockTree";
 
@@ -714,4 +715,88 @@ test("an unfocused valid Roam table with a heading renders inside div.block-text
   expect(blockText?.tagName).toBe("DIV");
   expect(rendered.closest(".block-text")).toBe(blockText);
   expect(rendered.closest("h1, h2, h3")).toBeNull();
+});
+
+// --- block-stamp margin column (bean pkm-4ler) ---
+
+const DAY = 24 * 60 * 60 * 1000;
+
+function mountStamped(blocks: BlockNode[], stamps: boolean) {
+  return render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={blocks} focus={null} handlers={handlers()}
+                         readOnly={false} stamps={stamps} />
+    </MemoryRouter>);
+}
+
+test("renders no stamp column unless asked (journal and sidebar mounts)", () => {
+  const view = mountStamped([block("s1", "text", { updated_at: Date.now() })],
+                            false);
+  expect(view.container.querySelector(".block-stamp")).toBeNull();
+});
+
+test("renders the stamp cell with the age band of updated_at", () => {
+  const now = Date.now();
+  const view = mountStamped([
+    block("s1", "this week", { updated_at: now - 2 * DAY, order_idx: 0 }),
+    block("s2", "this month", { updated_at: now - 20 * DAY, order_idx: 1 }),
+    block("s3", "this year", { updated_at: now - 200 * DAY, order_idx: 2 }),
+    block("s4", "ancient", { updated_at: now - 900 * DAY, order_idx: 3 }),
+  ], true);
+  const bandOf = (uid: string) =>
+    view.container.querySelector(`[data-uid="${uid}"] .block-stamp`)?.className;
+
+  expect(bandOf("s1")).toContain("block-stamp-week");
+  expect(bandOf("s2")).toContain("block-stamp-month");
+  expect(bandOf("s3")).toContain("block-stamp-year");
+  expect(bandOf("s4")).toContain("block-stamp-older");
+});
+
+test("shows created_at when updated_at is missing, with a full hover title", () => {
+  const created = new Date(2026, 7, 3, 14, 22).getTime();
+  const view = mountStamped(
+    [block("s1", "text", { created_at: created, updated_at: null })], true);
+  const cell = view.container.querySelector(".block-stamp")!;
+
+  expect(cell).toHaveTextContent("3 Aug 26");
+  expect(cell).toHaveAttribute("title", "3 August 2026, 14:22");
+});
+
+test("keeps an empty cell when the block has no timestamps at all", () => {
+  const view = mountStamped(
+    [block("s1", "text", { created_at: null, updated_at: null })], true);
+  const cell = view.container.querySelector(".block-stamp")!;
+
+  // Present but blank: omitting it would let this row's text run wider than
+  // its neighbours' and break the column.
+  expect(cell).not.toBeNull();
+  expect(cell.textContent).toBe("");
+  expect(cell.className).toBe("block-stamp");
+  expect(cell).not.toHaveAttribute("title");
+});
+
+test("stamps nested rows too, as the last child of their own row", () => {
+  const now = Date.now();
+  const view = mountStamped([block("p1", "parent", {
+    updated_at: now,
+    children: [block("c1", "child", { updated_at: now - 200 * DAY })],
+  })], true);
+  const childRow = view.container.querySelector('[data-uid="c1"]')!;
+
+  expect(childRow.lastElementChild).toHaveClass("block-stamp");
+  expect(childRow.lastElementChild).toHaveClass("block-stamp-year");
+});
+
+test("the stamp stays the row's last child while the block is focused", () => {
+  const now = Date.now();
+  const view = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={[block("s1", "text", { updated_at: now })]}
+                         focus={{ uid: "s1", cursor: 0 }} handlers={handlers()}
+                         readOnly={false} stamps />
+    </MemoryRouter>);
+  const row = view.container.querySelector('[data-uid="s1"]')!;
+
+  expect(row.querySelector("textarea")).not.toBeNull();
+  expect(row.lastElementChild).toHaveClass("block-stamp");
 });

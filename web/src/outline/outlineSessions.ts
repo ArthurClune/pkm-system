@@ -696,7 +696,7 @@ export function acquireOutlineSession(
     applyLocal: (ticket, ops) => {
       if (released) return;
       applyTransition(session, transitionOutline(session.state, {
-        type: "local-ops", ticketId: ticket.id, ops,
+        type: "local-ops", ticketId: ticket.id, ops, nowMs: Date.now(),
       }));
       trackWrite(session, ticket);
     },
@@ -716,7 +716,7 @@ export function acquireOutlineSession(
         op.page_title === session.title &&
         !findNode(session.snapshot.blocks, op.uid));
       applyTransition(session, transitionOutline(session.state, {
-        type: "remote-ops", ops: batch.ops,
+        type: "remote-ops", ops: batch.ops, nowMs: Date.now(),
       }));
       return { applied: true, needsAuthoritative };
     },

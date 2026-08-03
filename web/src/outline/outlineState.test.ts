@@ -19,13 +19,13 @@ describe("outline causality", () => {
   it("increments revision only for state-changing local and remote ops", () => {
     const initial = createOutlineState("Page", [block("u1", "old")]);
     const local = transitionOutline(initial, {
-      type: "local-ops", ticketId: "write-1", ops: [update("local")],
+      type: "local-ops", ticketId: "write-1", nowMs: 0, ops: [update("local")],
     }).state;
     const unrelated = transitionOutline(local, {
-      type: "remote-ops", ops: [{ op: "delete", uid: "another-page" }],
+      type: "remote-ops", nowMs: 0, ops: [{ op: "delete", uid: "another-page" }],
     }).state;
     const remote = transitionOutline(unrelated, {
-      type: "remote-ops", ops: [update("remote")],
+      type: "remote-ops", nowMs: 0, ops: [update("remote")],
     }).state;
 
     expect(local.revision).toBe(1);
@@ -54,7 +54,7 @@ describe("outline causality", () => {
       createOutlineState("Page", [block("u1", "old")]),
     );
     const edited = transitionOutline(started.state, {
-      type: "local-ops", ticketId: "write-1", ops: [update("local")],
+      type: "local-ops", ticketId: "write-1", nowMs: 0, ops: [update("local")],
     }).state;
 
     const result = transitionOutline(edited, {
@@ -72,7 +72,7 @@ describe("outline causality", () => {
       createOutlineState("Page", [block("u1", "old")]),
     );
     const remote = transitionOutline(started.state, {
-      type: "remote-ops", ops: [update("remote")],
+      type: "remote-ops", nowMs: 0, ops: [update("remote")],
     }).state;
 
     const result = transitionOutline(remote, {
@@ -133,7 +133,8 @@ describe("outline causality", () => {
   it("never adopts a pre-delivery response dispatched after the local edit", () => {
     const edited = transitionOutline(
       createOutlineState("Page", [block("u1", "old")]),
-      { type: "local-ops", ticketId: "write-1", ops: [update("local")] },
+      { type: "local-ops", ticketId: "write-1", nowMs: 0,
+        ops: [update("local")] },
     ).state;
     const started = beginAuthoritativeRead(edited);
     const deferred = transitionOutline(started.state, {
@@ -199,7 +200,7 @@ describe("outline causality", () => {
       createOutlineState("Page", [block("u1", "old")]),
     );
     const edited = transitionOutline(started.state, {
-      type: "local-ops", ticketId: "write-1", ops: [update("local")],
+      type: "local-ops", ticketId: "write-1", nowMs: 0, ops: [update("local")],
     }).state;
     const deferred = transitionOutline(edited, {
       type: "authoritative", token: started.token,
@@ -225,11 +226,11 @@ describe("outline causality", () => {
       block("u1", "old"), block("u2", "old other", { order_idx: 1 }),
     ]);
     const rejected = transitionOutline(initial, {
-      type: "local-ops", ticketId: "rejected",
+      type: "local-ops", ticketId: "rejected", nowMs: 0,
       ops: [{ op: "update_text", uid: "u2", text: "rejected local" }],
     }).state;
     const later = transitionOutline(rejected, {
-      type: "local-ops", ticketId: "later",
+      type: "local-ops", ticketId: "later", nowMs: 0,
       ops: [{ op: "update_text", uid: "u1", text: "later local" }],
     }).state;
     const rejectedSettled = transitionOutline(later, {
@@ -256,7 +257,7 @@ describe("outline causality", () => {
       createOutlineState("Page", [block("u1", "old")]),
     );
     const advanced = transitionOutline(started.state, {
-      type: "remote-ops", ops: [update("remote advance")],
+      type: "remote-ops", nowMs: 0, ops: [update("remote advance")],
     }).state;
 
     const stale = transitionOutline(advanced, {
@@ -283,7 +284,7 @@ describe("outline causality", () => {
       }],
     } as Parameters<typeof transitionOutline>[1]).state;
     const childEdit = transitionOutline(moveTracked, {
-      type: "local-ops", ticketId: "edit",
+      type: "local-ops", ticketId: "edit", nowMs: 0,
       ops: [{ op: "update_text", uid: "child", text: "later child edit" }],
     }).state;
     const started = beginAuthoritativeRead(childEdit);
@@ -385,5 +386,67 @@ describe("outline causality", () => {
     } as Parameters<typeof transitionOutline>[1]);
 
     expect(findNode(repaired.state.blocks, "moved")).toBeNull();
+  });
+});
+
+describe("block stamps (pkm-4ler)", () => {
+  const tree = () => [
+    block("u1", "one", { order_idx: 0, created_at: 100, updated_at: 200 }),
+    block("u2", "two", { order_idx: 1, created_at: 100, updated_at: 200,
+      children: [block("u2c", "child", { created_at: 100, updated_at: 200 })] }),
+  ];
+  const NOW = 9_000_000;
+
+  it("stamps the blocks a local batch changed and leaves the rest alone", () => {
+    const state = transitionOutline(createOutlineState("Page", tree()), {
+      type: "local-ops", ticketId: "w1", nowMs: NOW,
+      ops: [{ op: "update_text", uid: "u2c", text: "edited" }],
+    }).state;
+
+    expect(findNode(state.blocks, "u2c")?.updated_at).toBe(NOW);
+    expect(findNode(state.blocks, "u1")?.updated_at).toBe(200);
+    expect(findNode(state.blocks, "u2")?.updated_at).toBe(200);
+  });
+
+  it("stamps a block the batch created, so a new row shows today", () => {
+    const state = transitionOutline(createOutlineState("Page", tree()), {
+      type: "local-ops", ticketId: "w1", nowMs: NOW,
+      ops: [{ op: "create", uid: "u3", page_title: "Page", parent_uid: null,
+              order_idx: 2, text: "fresh" }],
+    }).state;
+
+    expect(findNode(state.blocks, "u3")?.updated_at).toBe(NOW);
+  });
+
+  it("does not stamp for a collapse-only batch (pkm-r7k8)", () => {
+    const state = transitionOutline(createOutlineState("Page", tree()), {
+      type: "local-ops", ticketId: "w1", nowMs: NOW,
+      ops: [{ op: "set_collapsed", uid: "u2", collapsed: true }],
+    }).state;
+
+    expect(findNode(state.blocks, "u2")?.updated_at).toBe(200);
+    expect(findNode(state.blocks, "u2")?.collapsed).toBe(true);
+  });
+
+  it("stamps remote batches exactly as local ones", () => {
+    const state = transitionOutline(createOutlineState("Page", tree()), {
+      type: "remote-ops", nowMs: NOW,
+      ops: [{ op: "set_heading", uid: "u1", heading: 2 }],
+    }).state;
+
+    expect(findNode(state.blocks, "u1")?.updated_at).toBe(NOW);
+  });
+
+  it("ignores ops for blocks that are not on this page or were deleted", () => {
+    const state = transitionOutline(createOutlineState("Page", tree()), {
+      type: "remote-ops", nowMs: NOW,
+      ops: [
+        { op: "update_text", uid: "elsewhere", text: "other page" },
+        { op: "delete", uid: "u1" },
+      ],
+    }).state;
+
+    expect(findNode(state.blocks, "u1")).toBeNull();
+    expect(state.blocks.map((b) => b.uid)).toEqual(["u2"]);
   });
 });

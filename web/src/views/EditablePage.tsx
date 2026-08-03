@@ -17,10 +17,14 @@ import { useOutline } from "../outline/useOutline";
  * second live editor would never learn about edits flushed through the
  * first, and the two would silently diverge. A per-title session shares each
  * flushed tree and grants exactly one editor lease after commit. */
-export function EditablePage({ title, initial, composer = false }: {
+export function EditablePage({ title, initial, composer = false,
+                              stamps = false }: {
   title: string;
   initial: BlockNode[];
   composer?: boolean;
+  /** Show the last-changed margin column (pkm-4ler). Only the main-pane
+   * PageView passes this; the journal scroll and sidebar panels omit it. */
+  stamps?: boolean;
 }) {
   const ownerRef = useRef(Symbol(`editor:${title}`));
   // useOutline acquires and claims in one layout effect. That keeps render
@@ -82,7 +86,7 @@ export function EditablePage({ title, initial, composer = false }: {
         <EditableBlockTree blocks={outline.blocks} focus={outline.focus}
                            selection={outline.selection} handlers={handlers}
                            readOnly={outline.readOnly || !ownsEditor}
-                           fallback={!ownsEditor} />
+                           fallback={!ownsEditor} stamps={stamps} />
       )}
       {ownsEditor && indicator && (
         <div className="drop-indicator"

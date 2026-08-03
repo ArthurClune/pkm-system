@@ -10,6 +10,7 @@ import {
 import { SyncContext } from "../sync/SyncProvider";
 import { block, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
+import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
 import { PageView } from "./PageView";
 
@@ -1324,4 +1325,56 @@ it("a parent resync response dispatched before a local split cannot erase it", a
   });
   expect(document.querySelectorAll(".block-row")).toHaveLength(2);
   expect(document.querySelector(".block-input")).toHaveValue("");
+});
+
+it("shows the stamp column on a page but not in the journal or a sidebar panel", async () => {
+  const blocks = [block("uid_s1", "stamped", { updated_at: Date.now() })];
+  stubFetch([
+    ["/api/page/Stamps", pagePayload("Stamps", blocks)],
+    ["/api/journal/cleanup", { deleted: [] }],
+    ["/api/journal", { days: [{ date: "2026-08-03", title: "Stamps",
+                               exists: true, blocks }] }],
+  ]);
+  vi.stubGlobal("IntersectionObserver", NoopIntersectionObserver);
+  const stampsOn = { stamps: true, toggle: vi.fn() };
+
+  const page = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Stamps"]}>
+      <SyncContext.Provider value={makeSync()}>
+        <BlockStampsContext.Provider value={stampsOn}>
+          <Routes><Route path="/page/*" element={<PageView />} /></Routes>
+        </BlockStampsContext.Provider>
+      </SyncContext.Provider>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("stamped")).toBeInTheDocument();
+  expect(page.container.querySelector(".block-stamp")).not.toBeNull();
+  page.unmount();
+
+  // Same preference, same page: the sidebar panel and the journal scroll
+  // mount EditablePage WITHOUT the flag, so they stay bare by construction.
+  const panel = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={makeSync()}>
+        <BlockStampsContext.Provider value={stampsOn}>
+          <EditableSidebarPanel title="Stamps" />
+        </BlockStampsContext.Provider>
+      </SyncContext.Provider>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("stamped")).toBeInTheDocument();
+  expect(panel.container.querySelector(".block-stamp")).toBeNull();
+  panel.unmount();
+
+  const journal = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={makeSync()}>
+        <BlockStampsContext.Provider value={stampsOn}>
+          <Journal />
+        </BlockStampsContext.Provider>
+      </SyncContext.Provider>
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("stamped")).toBeInTheDocument();
+  expect(journal.container.querySelector(".block-stamp")).toBeNull();
 });

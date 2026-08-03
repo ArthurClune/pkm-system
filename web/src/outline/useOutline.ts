@@ -3,11 +3,12 @@
 // debounce, and the wiring between pure edit commands, the op queue, and
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
-         useState } from "react";
+         useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
 import { apiGet } from "../api/typedClient";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
+import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
 import { dateForTitle } from "../replica/daily";
@@ -49,6 +50,10 @@ export interface Outline {
   /** Most recent /upload, paste, or drag-drop failure, if any (pkm-gbsb). */
   uploadError: string | null;
   dismissUploadError(): void;
+  /** In-app confirm dialog (pkm-2jaz): render this once in the owning
+   * component's tree. Backs onDeleteBlockSelection's large-selection prompt —
+   * window.confirm is suppressed by iPadOS Safari in standalone mode. */
+  dialog: ReactNode;
 }
 
 export function useOutline(
@@ -57,6 +62,7 @@ export function useOutline(
   editorOwner?: symbol,
 ): Outline {
   const sync = useSync();
+  const { confirm, dialog } = useConfirm();
   const [blocks, setBlocks] = useState(initial);
   const [session, setSession] = useState<OutlineSessionHandle | null>(null);
   const [ownsEditor, setOwnsEditor] = useState(false);
@@ -400,17 +406,21 @@ export function useOutline(
     },
     // Backspace/Delete while a block selection is active (pkm-q89w): delete
     // every selected block as a set, confirming first for a large selection.
+    // The confirm (pkm-2jaz) goes through the app's own dialog rather than
+    // window.confirm, which iPadOS Safari can suppress in standalone mode.
     onDeleteBlockSelection: () => {
       if (!selection) return;
       const uids = selectedUids(blocksRef.current, selection);
       if (uids.length === 0) return;
-      if (needsDeleteConfirmation(uids.length)
-          && !window.confirm(
-            `Delete ${uids.length} blocks? This cannot be undone.`)) {
-        return;
-      }
-      setSelection(null);
-      run((b) => deleteSelection(b, pageTitle, selectedUids(b, selection)));
+      void (async () => {
+        if (needsDeleteConfirmation(uids.length)
+            && !(await confirm(
+              `Delete ${uids.length} blocks? This cannot be undone.`))) {
+          return;
+        }
+        setSelection(null);
+        run((b) => deleteSelection(b, pageTitle, selectedUids(b, selection)));
+      })();
     },
     // overridden by EditablePage (which knows the drag-source page title);
     // kept here only so this object satisfies OutlineHandlers on its own.
@@ -420,7 +430,7 @@ export function useOutline(
     // flushPending, including this outline's.
     onUndo: () => { performUndo(sync); },
     onRedo: () => { performRedo(sync); },
-  }), [run, flushNow, pageTitle, selection, sync]);
+  }), [run, flushNow, pageTitle, selection, sync, confirm]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({
     moveTo: (uids, target) => run((b) =>
@@ -476,5 +486,6 @@ export function useOutline(
     appendBlock,
     uploadError,
     dismissUploadError: () => setUploadError(null),
+    dialog,
   };
 }

@@ -91,6 +91,7 @@ export function EditablePage({ title, initial, composer = false }: {
       {ownsEditor && composer && (
         <Composer onSend={outline.appendBlock} readOnly={outline.readOnly} />
       )}
+      {outline.dialog}
     </div>
   );
 }

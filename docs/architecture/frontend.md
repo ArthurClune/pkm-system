@@ -562,6 +562,27 @@ than silently inheriting a look, or silently getting none.
 colour. Reusing one red for both made dark-theme Delete buttons read as
 coral: two colour tokens for two jobs.
 
+### Confirmations
+
+Every confirmation prompt goes through `useConfirm`
+(`web/src/components/ConfirmDialog.tsx`), which returns
+`{ confirm(message, options?): Promise<boolean>, dialog: ReactNode }`. There are
+no `window.confirm` call sites left in `web/src`, and new ones must not appear:
+iPadOS Safari has suppressed `window.confirm` in standalone (installed PWA)
+mode, which silently turns a guarded destructive action into either a no-op or
+an unguarded one depending on what it returns.
+
+The cost of the hook is that the owning component must render `dialog`
+somewhere in its tree, or `confirm()`'s promise never settles and the action
+hangs instead of prompting. Hooks that expose a confirm-backed handler
+therefore re-export `dialog` to their caller — `useOutline` does this for the
+large-selection delete prompt, and `EditablePage` renders it.
+
+Because the prompt is now asynchronous where `window.confirm` blocked the main
+thread, remote sync batches can land while a dialog is open. Handlers must
+re-derive what they act on after the await rather than closing over uids
+captured before it.
+
 ### Focus and interactive affordances
 
 One ring, everywhere a control can be focused:

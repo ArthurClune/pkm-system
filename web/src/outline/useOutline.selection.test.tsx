@@ -1,7 +1,7 @@
 // pkm-q89w: multi-block selection move + delete, wired through useOutline's
 // handlers (the imperative half — confirm() gating and op dispatch — of the
 // pure moveSelectionUp/moveSelectionDown/deleteSelection in edits.ts).
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
@@ -16,7 +16,7 @@ function Harness({ pageTitle, initial, onReady }: {
 }) {
   const outline = useOutline(pageTitle, initial);
   useEffect(() => onReady(outline));
-  return null;
+  return <>{outline.dialog}</>;
 }
 
 function setup(sync: SyncFake, pageTitle: string, initial: BlockNode[]) {
@@ -54,7 +54,7 @@ const crossParentTree = () => [
 ];
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 it("onMoveSelectionUp moves every selected block as a group, not just one", () => {
@@ -174,8 +174,7 @@ it("onSelectBlock selects exactly that block and ends editing (pkm-am54)", () =>
 });
 
 it("deleting 5 or fewer selected blocks proceeds without confirmation", () => {
-  const confirmSpy = vi.fn(() => false); // if this got called, the test should fail below
-  vi.stubGlobal("confirm", confirmSpy);
+  const confirmSpy = vi.spyOn(window, "confirm"); // if this got called, the test should fail below
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
   act(() => getOutline().handlers.onStartBlockSelection("a", "down")); // a, b selected
@@ -183,6 +182,7 @@ it("deleting 5 or fewer selected blocks proceeds without confirmation", () => {
   act(() => getOutline().handlers.onDeleteBlockSelection());
 
   expect(confirmSpy).not.toHaveBeenCalled();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(sync.sent).toEqual([
     [{ op: "delete", uid: "a" }, { op: "delete", uid: "b" }],
   ]);
@@ -195,9 +195,11 @@ function sixBlocks() {
     block(uid, uid, { order_idx: i }));
 }
 
-it("deleting more than 5 selected blocks requires confirmation, and honours cancel", () => {
-  const confirmSpy = vi.fn((_message?: string) => false);
-  vi.stubGlobal("confirm", confirmSpy);
+// pkm-2jaz: window.confirm is suppressed by iPadOS Safari in standalone/PWA
+// mode, so the large-selection prompt goes through the app's own useConfirm
+// dialog (a real, awaited DOM dialog) rather than window.confirm.
+it("deleting more than 5 selected blocks requires confirmation via the in-app dialog, and honours cancel", async () => {
+  const confirmSpy = vi.spyOn(window, "confirm");
   const sync = makeSync();
   const getOutline = setup(sync, "Page", sixBlocks());
   act(() => getOutline().handlers.onStartBlockSelection("a", "down"));
@@ -208,16 +210,21 @@ it("deleting more than 5 selected blocks requires confirmation, and honours canc
 
   act(() => getOutline().handlers.onDeleteBlockSelection());
 
-  expect(confirmSpy).toHaveBeenCalledTimes(1);
-  expect(confirmSpy.mock.calls[0][0]).toMatch(/6 blocks/);
+  const dialog = screen.getByRole("alertdialog");
+  expect(dialog).toHaveTextContent("Delete 6 blocks? This cannot be undone.");
+  expect(confirmSpy).not.toHaveBeenCalled(); // never touches window.confirm
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  });
+
   // cancelled: nothing sent, nothing deleted, selection untouched
   expect(sync.sent).toEqual([]);
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(sixBlocks().map((b) => b.uid));
   expect(getOutline().selection).toEqual({ anchor: "a", head: "f" });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
-it("deleting more than 5 selected blocks proceeds once confirmed", () => {
-  vi.stubGlobal("confirm", vi.fn(() => true));
+it("deleting more than 5 selected blocks proceeds once confirmed in the dialog", async () => {
   const sync = makeSync();
   const getOutline = setup(sync, "Page", sixBlocks());
   act(() => getOutline().handlers.onStartBlockSelection("a", "down"));
@@ -226,6 +233,9 @@ it("deleting more than 5 selected blocks proceeds once confirmed", () => {
   }
 
   act(() => getOutline().handlers.onDeleteBlockSelection());
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+  });
 
   expect(sync.sent).toEqual([
     "abcdef".split("").map((uid) => ({ op: "delete", uid })),

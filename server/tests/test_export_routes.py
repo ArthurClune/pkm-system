@@ -7,9 +7,11 @@ The single-page route (pkm-kplp) is the end-user export: it resolves
 pkm.export.resolve -- unlike the whole-db zip (pkm-uvqf), which reuses the
 nightly backup's Core renderer unchanged (raw query command, one-level,
 parens-wrapped ref resolution)."""
+import sqlite3
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -83,6 +85,77 @@ def test_export_page_markdown_resolves_block_refs(client):
 
 def test_export_page_markdown_404s_for_missing_page(client):
     assert client.get("/api/export/page/No Such Page").status_code == 404
+
+
+def test_export_page_markdown_normalizes_routable_control_whitespace(
+        client, seeded_config):
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (99, "Ctrl Title", 100, 100),
+    )
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("uid_ctrl_export", 99, None, 0, "export body", None, 0, None, None),
+    )
+    con.commit()
+    con.close()
+
+    r = client.get(f"/api/export/page/{quote('Ctrl\tTitle', safe='/')}")
+
+    assert r.status_code == 200
+    assert r.text.startswith("# Ctrl Title\n")
+    assert "export body" in r.text
+
+
+def test_export_page_markdown_canonicalizes_padded_title_when_plain_space_migration_is_active(
+        client, seeded_config):
+    canonical = "Legacy Export"
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (99, canonical, 100, 100),
+    )
+    con.execute(
+        "UPDATE sync_meta SET value = '1'"
+        " WHERE key = 'plain_space_title_canonicalization'"
+    )
+    con.commit()
+    con.close()
+
+    r = client.get(f"/api/export/page/{quote(f' {canonical} ', safe='/')}")
+
+    assert r.status_code == 200
+    assert r.headers["content-disposition"] == (
+        'attachment; filename="Legacy Export.md"'
+    )
+    assert r.text.startswith("# Legacy Export\n")
+
+
+def test_export_page_markdown_preserves_inactive_padded_exact_reads(
+        client, seeded_config):
+    padded = " Legacy Export "
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO pages(id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (99, padded, 100, 100),
+    )
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("uid_ctrl_export", 99, None, 0, "export body", None, 0, None, None),
+    )
+    con.commit()
+    con.close()
+
+    exact = client.get(f"/api/export/page/{quote(padded, safe='/')}")
+    stripped = client.get(f"/api/export/page/{quote(padded.strip(), safe='/')}")
+
+    assert exact.status_code == 200
+    assert exact.text.splitlines()[0] == f"# {padded}"
+    assert "export body" in exact.text
+    assert stripped.status_code == 404
 
 
 def test_export_page_markdown_requires_auth(anon_client):

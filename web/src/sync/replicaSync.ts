@@ -24,8 +24,9 @@ export interface ReplicaSync {
   /** Idempotent: first call initializes (+ bootstrap/recovery as needed);
    * later calls catch up the feed. Call on every reconnect. */
   start(): Promise<void>;
-  /** WS nudge: pull if the journal moved past our cursor. */
-  onSeq(seq: number): void;
+  /** WS nudge: pull if the journal moved past our cursor, or unconditionally
+   * for a committed metadata/generation frame whose real seq may be equal. */
+  onSeq(seq: number, force?: boolean): void;
   /** Resolves when no pull is in flight (tests, reconnect ordering). */
   idle(): Promise<void>;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
@@ -342,14 +343,14 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       starting ??= doStart().finally(() => { starting = null; });
       await starting;
     },
-    onSeq(seq) {
+    onSeq(seq, force = false) {
       if (pulling) {
-        // a window is in flight; its server-side latest_seq may predate
-        // this nudge, so ask for one trailing pull instead of dropping it
+        // a window is in flight; its server-side latest_seq or metadata may
+        // predate this nudge, so ask for one trailing pull instead of dropping it
         again = true;
         return;
       }
-      if (!started || seq <= cursor) return;
+      if (!started || (!force && seq <= cursor)) return;
       void pull();
     },
     idle() {

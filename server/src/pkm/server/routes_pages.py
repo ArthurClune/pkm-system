@@ -14,7 +14,7 @@ from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
     BlockPayload, BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
     JournalPayload, PageMeta, PagePayload, RenamePageResponse)
-from pkm.refs import normalize_title
+from pkm.refs import canonicalize_title, is_blank_title, title_syntax_reason
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.backlinks import group_backlinks
@@ -22,15 +22,23 @@ from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
 from pkm.server.db import get_db
 from pkm.server.fts import phrase_query
-from pkm.server.store import (BlankTitleError, delete_page_rows, fetch_page,
-                              get_or_create_page, merge_page_rows,
-                              rename_page_rows)
+from pkm.server.store import (BlankTitleError, ForbiddenTitleError,
+                              delete_page_rows, fetch_page, get_or_create_page,
+                              merge_page_rows, rename_page_rows)
+from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from pkm.server.tree import build_tree, collect_block_ref_uids, find_node
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
                " created_at, updated_at, view_type")
+
+
+def _read_title(db: sqlite3.Connection, title: str) -> str:
+    return canonicalize_title(
+        title,
+        plain_space=plain_space_title_canonicalization_active(db),
+    )
 
 
 class CreatePageRequest(BaseModel):
@@ -166,6 +174,7 @@ def get_block(uid: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
 def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 20,
              db: sqlite3.Connection = Depends(get_db)) -> dict:
     bl_limit = max(1, min(bl_limit, 100))
+    title = _read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
         # Only TODAY auto-creates on read (journal semantics). Auto-creating
@@ -198,10 +207,12 @@ def create_page(request: Request, body: CreatePageRequest,
     # interactive, so it turns that into an explicit 422 rather than the
     # ops path's fallback-title recovery (ops_apply.py).
     try:
-        page = get_or_create_page(db, body.title.strip(), int(time.time() * 1000))
+        page = get_or_create_page(db, body.title, int(time.time() * 1000))
     except BlankTitleError:
         raise HTTPException(status_code=422,
                             detail="title must not be blank") from None
+    except ForbiddenTitleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     notify.commit_and_nudge_threadpool(request, db)
     return dict(page)
 
@@ -233,14 +244,18 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
     # normalized here as well as in get_or_create_page: the merge branch
     # below compares and reports new_title directly, so it has to be the
     # title that actually lands in the row.
-    new_title = normalize_title(body.new_title.strip())
-    if not new_title:
+    new_title = canonicalize_title(
+        body.new_title,
+        plain_space=plain_space_title_canonicalization_active(db),
+    )
+    if is_blank_title(new_title):
         raise HTTPException(status_code=422,
                             detail="title must not be blank")
-    if "[[" in new_title or "]]" in new_title:
-        raise HTTPException(status_code=422,
-                            detail="bracket sequences ([[ or ]]) are not"
-                                    " allowed in titles")
+    if title_syntax_reason(new_title) is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unsupported page-title syntax: {new_title!r}",
+        )
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")
@@ -282,6 +297,7 @@ def rename_page(request: Request, title: str, body: RenamePageRequest,
 def get_unlinked(title: str, limit: int = 20, offset: int = 0,
                  db: sqlite3.Connection = Depends(get_db)) -> dict:
     limit = max(1, min(limit, 100))
+    title = _read_title(db, title)
     page = fetch_page(db, title)
     if page is None:
         raise HTTPException(status_code=404, detail="page not found")

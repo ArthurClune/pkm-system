@@ -9,11 +9,13 @@ import {
 } from "./replicaSync";
 
 const SNAP: Snapshot = {
-  generation: "gen-1", seq: 5, pages: [], blocks: [], sidebar: [],
+  generation: "gen-1", plain_space_title_canonicalization: false,
+  seq: 5, pages: [], blocks: [], sidebar: [],
 };
 
 const feed = (over: Partial<Changes> = {}): Changes => ({
-  reset: false, generation: "gen-1", next_since: 5, latest_seq: 5,
+  reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+  next_since: 5, latest_seq: 5,
   pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
 });
 

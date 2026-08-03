@@ -10,6 +10,8 @@ import type { BacklinkGroup, BlockGroup, CurrentWorkPage, CurrentWorkPayload,
 import { titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
+import { plainSpaceTitleCanonicalizationActive } from "../meta";
+import { canonicalizeTitle } from "../titles";
 import { phraseQuery } from "./fts";
 import { BLOCK_COLS, type BlockRow, blockRefTexts, buildTree,
          fetchAncestors } from "./tree";
@@ -26,7 +28,11 @@ interface PageRow {
   updated_at: number | null;
 }
 
+const localTitle = (db: ReplicaDb, title: string): string =>
+  canonicalizeTitle(title, plainSpaceTitleCanonicalizationActive(db));
+
 const fetchPage = (db: ReplicaDb, title: string): PageMeta | null => {
+  title = localTitle(db, title);
   const rows = db.select<PageRow>(
     "SELECT id, title, created_at, updated_at FROM pages WHERE title = ?",
     [title]);
@@ -96,6 +102,7 @@ function backlinks(db: ReplicaDb, pageId: number, offset: number, limit: number)
 /** null = page not found (and not a daily title): the caller 404s. */
 export function pagePayload(db: ReplicaDb, title: string, blOffset: number,
                             blLimit: number, nowMs: number): PagePayload | null {
+  title = localTitle(db, title);
   const limit = Math.max(1, Math.min(blLimit, 100));
   let page = fetchPage(db, title);
   if (page === null) {
@@ -121,6 +128,7 @@ export function pagePayload(db: ReplicaDb, title: string, blOffset: number,
 
 export function unlinked(db: ReplicaDb, title: string, limit: number,
                          offset: number): GroupsPayload | null {
+  title = localTitle(db, title);
   const lim = Math.max(1, Math.min(limit, 100));
   const page = fetchPage(db, title);
   if (page === null) return null;

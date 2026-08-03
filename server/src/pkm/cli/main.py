@@ -18,7 +18,9 @@ from pydantic import BaseModel
 from pkm.cli.build import BuildError
 from pkm.cli.render import (RenderError, clip_depth, render_assets,
                             render_backlinks, render_block, render_groups,
-                            render_page, render_search, select_section)
+                            render_page, render_search,
+                            render_title_migration_apply,
+                            render_title_migration_audit, select_section)
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
@@ -283,6 +285,23 @@ scan requires the server to have image descriptions enabled
 (OPENAI_API_KEY set); when disabled it prints the reason and exits 1.
 """
 
+_MIGRATE_TITLES_EPILOG = """\
+audit by default: title canonicalization is reviewed first and the
+digest is printed for any later apply step.
+It does not run automatically on startup; operators must invoke it
+manually after reviewing the audit.
+
+flags:
+  --apply DIGEST   apply exactly the audited plan for DIGEST
+  --json           raw JSON payload instead of human output
+
+examples:
+  pkm migrate-titles
+  pkm migrate-titles --json
+  pkm migrate-titles --apply DIGEST
+  pkm migrate-titles --apply DIGEST --json
+"""
+
 
 def _login_http(url: str) -> httpx2.Client:
     return httpx2.Client(base_url=url)  # seam: tests inject a TestClient
@@ -435,6 +454,16 @@ def cmd_assets(args: argparse.Namespace, client: PkmClient) -> int:
     return 0
 
 
+def cmd_migrate_titles(args: argparse.Namespace, client: PkmClient) -> int:
+    if args.apply is None:
+        payload = client.audit_title_migration()
+        _emit(payload, render_title_migration_audit(payload), args.json)
+        return 0
+    payload = client.apply_title_migration(args.apply)
+    _emit(payload, render_title_migration_apply(payload), args.json)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pkm", description="CLI for the PKM server")
@@ -533,6 +562,12 @@ def build_parser() -> argparse.ArgumentParser:
         .add_argument("--force", action="store_true",
                       help="also retry previously failed images")
 
+    p = _add("migrate-titles", "audit or apply the title migration",
+             _MIGRATE_TITLES_EPILOG)
+    p.add_argument("--apply", metavar="DIGEST", default=None,
+                   help="apply exactly the audited plan for DIGEST")
+    _common(p)
+
     return parser
 
 
@@ -541,6 +576,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, PkmClient], int]] = {
     "query": cmd_query, "todos": cmd_todos,
     "save": cmd_save, "update": cmd_update, "upload": cmd_upload,
     "batch": cmd_batch, "assets": cmd_assets,
+    "migrate-titles": cmd_migrate_titles,
 }
 
 

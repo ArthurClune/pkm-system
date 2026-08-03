@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
-import { applyLocalOps, getOrCreateLocalPage } from "./localOps";
+import type { BlockOp } from "../api/ops";
+import { applyLocalOps, getOrCreateLocalPage, LocalOpError } from "./localOps";
+import { setPlainSpaceTitleCanonicalization } from "./meta";
 import { openTestDb, type TestDb } from "./testDb";
 
 let t: TestDb;
@@ -23,7 +25,34 @@ const blockRow = (uid: string) =>
     `SELECT page_id, parent_uid, order_idx, text, collapsed, heading, view_type
      FROM blocks WHERE uid = '${uid}'`)[0];
 
+const replicaState = () => ({
+  pages: rows("SELECT * FROM pages ORDER BY id"),
+  blocks: rows("SELECT * FROM blocks ORDER BY uid"),
+  refs: rows("SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"),
+  sidebar: rows("SELECT * FROM sidebar_entries ORDER BY id"),
+  metadata: rows("SELECT * FROM sync_client_meta ORDER BY key"),
+});
+
 describe("getOrCreateLocalPage", () => {
+  test("preserves boundary U+0020 while inactive and always normalizes control whitespace", () => {
+    const padded = getOrCreateLocalPage(t.db, "  Offline Padded  ", 5);
+    const control = getOrCreateLocalPage(t.db, "Control\nTitle", 5);
+
+    expect(rows("SELECT title FROM pages WHERE id = " + padded))
+      .toEqual([{ title: "  Offline Padded  " }]);
+    expect(rows("SELECT title FROM pages WHERE id = " + control))
+      .toEqual([{ title: "Control Title" }]);
+  });
+
+  test("canonicalizes creation and lookup while active", () => {
+    setPlainSpaceTitleCanonicalization(t.db, true);
+
+    const created = getOrCreateLocalPage(t.db, "  Active Page  ", 5);
+    expect(getOrCreateLocalPage(t.db, "Active Page", 9)).toBe(created);
+    expect(rows("SELECT id, title FROM pages WHERE title LIKE '%Active%'"))
+      .toEqual([{ id: created, title: "Active Page" }]);
+  });
+
   test("returns existing pages and mints distinct negative ids for new ones", () => {
     expect(getOrCreateLocalPage(t.db, "AI", 5)).toBe(1);
     const p1 = getOrCreateLocalPage(t.db, "Offline One", 5);
@@ -33,9 +62,60 @@ describe("getOrCreateLocalPage", () => {
     expect(p1).not.toBe(p2);
     expect(getOrCreateLocalPage(t.db, "Offline One", 9)).toBe(p1);
   });
+
+  test("defensively rejects forbidden titles before creating a page", () => {
+    const before = replicaState();
+
+    expect(() => getOrCreateLocalPage(t.db, "Control\n#Title", 5))
+      .toThrow(LocalOpError);
+    expect(replicaState()).toEqual(before);
+  });
 });
 
 describe("applyLocalOps", () => {
+  test.each([
+    ["create_page target", { op: "create_page", page_title: "Bad #Page" }],
+    ["create target", { op: "create", uid: "uid_bad1",
+      page_title: "Bad [[Page", parent_uid: null, order_idx: 0, text: "plain" }],
+    ["move target", { op: "move", uid: "uid_r1", page_title: "Bad Page]]",
+      parent_uid: null, order_idx: 0 }],
+    ["create reference", { op: "create", uid: "uid_bad2", page_title: "AI",
+      parent_uid: null, order_idx: 0, text: "[[Bad #Ref]]" }],
+    ["update reference", { op: "update_text", uid: "uid_r1",
+      text: "[[Bad #Ref]]" }],
+  ] as const)("rejects a forbidden %s before mutation", (_name, op) => {
+    const before = replicaState();
+
+    expect(() => applyLocalOps(t.db, [op as BlockOp], 99))
+      .toThrow(LocalOpError);
+    expect(replicaState()).toEqual(before);
+  });
+
+  test.each([
+    ["explicit page title", { op: "create_page", page_title: "Atomic #Bad" },
+      "page_title", "Atomic #Bad"],
+    ["extracted reference", { op: "update_text", uid: "uid_r2",
+      text: "[[Atomic #Bad Ref]]" }, "reference", "Atomic #Bad Ref"],
+  ] as const)("preflights a full batch before a later forbidden %s",
+    (_name, invalidOp, source, title) => {
+      t.db.exec("INSERT INTO sidebar_entries(id, title, order_idx) VALUES (1, 'AI', 0)");
+      const before = replicaState();
+
+      let thrown: unknown;
+      try {
+        applyLocalOps(t.db, [
+          { op: "update_text", uid: "uid_r1", text: "would partially apply" },
+          invalidOp as BlockOp,
+        ], 99);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(LocalOpError);
+      expect(thrown).toMatchObject({ opIndex: 1, source, title });
+      expect(replicaState()).toEqual(before);
+    });
+
   test("create shifts following siblings and reindexes refs", () => {
     applyLocalOps(t.db, [{
       op: "create", uid: "uid_new1", page_title: "AI", parent_uid: null,
@@ -108,6 +188,38 @@ describe("applyLocalOps", () => {
     expect(blockRow("uid_r1").view_type).toBe("numbered");
     expect(blockRow("uid_r1").text).toBe("first");
     expect(blockRow("uid_r1").parent_uid).toBeNull();
+  });
+
+  test("blank op titles use the server fallback instead of minting blank pages", () => {
+    applyLocalOps(t.db, [
+      { op: "create_page", page_title: "   " },
+      { op: "create", uid: "uid_blank", page_title: "\n\t",
+        parent_uid: null, order_idx: 0, text: "fallback" },
+    ], 99);
+
+    expect(rows("SELECT title FROM pages WHERE trim(title) = ''")).toEqual([]);
+    const untitled = rows<{ id: number }>(
+      "SELECT id FROM pages WHERE title = 'Untitled'");
+    expect(untitled).toHaveLength(1);
+    expect(blockRow("uid_blank").page_id).toBe(untitled[0].id);
+  });
+
+  test("active create, create_page and cross-page move share canonical page ids", () => {
+    setPlainSpaceTitleCanonicalization(t.db, true);
+    applyLocalOps(t.db, [
+      { op: "create_page", page_title: "  Shared Target  " },
+      { op: "create", uid: "uid_active", page_title: " Shared Target ",
+        parent_uid: null, order_idx: 0, text: "active" },
+      { op: "move", uid: "uid_r2", parent_uid: null, order_idx: 1,
+        page_title: "  Shared Target " },
+    ], 99);
+
+    const target = rows<{ id: number }>(
+      "SELECT id FROM pages WHERE title = 'Shared Target'");
+    expect(target).toHaveLength(1);
+    expect(blockRow("uid_active").page_id).toBe(target[0].id);
+    expect(blockRow("uid_r2").page_id).toBe(target[0].id);
+    expect(blockRow("uid_r2c").page_id).toBe(target[0].id);
   });
 
   test("create_page is a local get-or-create (idempotent, negative id)", () => {

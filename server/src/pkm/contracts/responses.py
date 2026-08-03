@@ -1,8 +1,8 @@
 # pattern: Functional Core
-"""Pydantic models describing the JSON read responses. Declared as
-`response_model=` on the read routes so the shapes reach OpenAPI and, from
-there, web/src/api/types.d.ts. The routes still return plain dicts of the same
-shape; these models are the contract, not a payload redesign.
+"""Pydantic models describing the JSON route contracts. Most are declared as
+`response_model=` on read routes so the shapes reach OpenAPI and, from there,
+web/src/api/types.d.ts. The routes still return plain dicts of the same shape;
+these models are the contract, not a payload redesign.
 
 They are also what `PkmClient` validates every response with, so a payload
 that drifts from this file fails on the client with a named field rather
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from pkm.contracts.ops import ViewType
 
@@ -245,6 +245,7 @@ class SyncTombstone(BaseModel):
 class ChangesPayload(BaseModel):
     reset: bool = False
     generation: str
+    plain_space_title_canonicalization: bool
     next_since: int
     latest_seq: int
     pages: list[SyncPage]
@@ -263,6 +264,7 @@ class BlockPayload(BaseModel):
 
 class SnapshotPayload(BaseModel):
     generation: str
+    plain_space_title_canonicalization: bool
     seq: int
     pages: list[SyncPage]
     blocks: list[SyncBlock]
@@ -276,6 +278,48 @@ class AssistantConversation(BaseModel):
 
 class AssistantAck(BaseModel):
     ok: bool = True
+
+
+class TitleMigrationPage(BaseModel):
+    page_id: int
+    title: str
+
+
+class TitleMigrationBlocker(BaseModel):
+    page_id: int
+    title: str
+    reason: Literal["all_space", "forbidden_syntax"]
+
+
+class TitleMigrationGroup(BaseModel):
+    canonical_title: str
+    survivor: TitleMigrationPage
+    sources: list[TitleMigrationPage]
+    has_clean_twin: bool
+    block_count: int
+    inbound_ref_count: int
+    sidebar_count: int
+
+
+class TitleMigrationAuditPayload(BaseModel):
+    active: bool
+    digest: str
+    groups: list[TitleMigrationGroup]
+    blockers: list[TitleMigrationBlocker]
+
+
+class TitleMigrationApplyRequest(BaseModel):
+    audit_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class TitleMigrationApplyResponse(BaseModel):
+    digest: str
+    groups_applied: int
+    pages_retitled: int
+    pages_merged: int
+    blocks_moved: int
+    blocks_rewritten: int
+    generation: str
 
 
 # -- Write acks ----------------------------------------------------------

@@ -13,7 +13,11 @@ from collections.abc import Iterator, Mapping, Sequence
 
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      BlockPayload, BlockRefText, GroupsPayload,
-                                     PagePayload, QueryPayload, SearchPayload)
+                                     PagePayload, QueryPayload, SearchPayload,
+                                     TitleMigrationApplyResponse,
+                                     TitleMigrationAuditPayload,
+                                     TitleMigrationBlocker,
+                                     TitleMigrationPage)
 
 _REF_TOKEN = re.compile(r"\(\(([\w-]+)\)\)")
 
@@ -137,6 +141,94 @@ def render_assets(payload: AssetSearchPayload) -> str:
             lines.append(f"  in [[{ref.page_title}]] (({ref.uid}))")
         parts.append("\n".join(lines))
     return "\n\n".join(parts)
+
+
+def _render_migration_page(
+    page: TitleMigrationPage | TitleMigrationBlocker,
+) -> str:
+    return f'[{page.page_id}] "{page.title}"'
+
+
+def _render_migration_blocker(blocker: TitleMigrationBlocker) -> str:
+    return f'{_render_migration_page(blocker)} ({blocker.reason})'
+
+
+def _title_migration_state(payload: TitleMigrationAuditPayload) -> str:
+    if payload.active:
+        return "active"
+    if payload.blockers:
+        return "blocked"
+    if payload.groups:
+        return "ready"
+    return "clean"
+
+
+def _count_label(n: int, singular: str, plural: str | None = None) -> str:
+    plural = plural or f"{singular}s"
+    label = singular if n == 1 else plural
+    return f"{n} {label}"
+
+
+def render_title_migration_audit(payload: TitleMigrationAuditPayload) -> str:
+    lines = [
+        "# Title migration audit",
+        "",
+        f"state: {_title_migration_state(payload)}",
+        f"digest: {payload.digest}",
+        f"groups: {len(payload.groups)}",
+        f"blockers: {len(payload.blockers)}",
+    ]
+    if payload.groups:
+        for group in payload.groups:
+            lines.extend([
+                "",
+                f"## {group.canonical_title}",
+                f"survivor: {_render_migration_page(group.survivor)}",
+                "sources:",
+            ])
+            lines.extend(f"- {_render_migration_page(page)}"
+                         for page in group.sources)
+            lines.extend([
+                f"has clean twin: {'yes' if group.has_clean_twin else 'no'}",
+                "counts: "
+                f"{_count_label(group.block_count, 'block')}, "
+                f"{_count_label(group.inbound_ref_count, 'inbound ref')}, "
+                f"{_count_label(group.sidebar_count, 'sidebar entry', 'sidebar entries')}",
+                "merge order:",
+            ])
+            lines.extend(
+                f"- {_render_migration_page(page)}"
+                f" -> {_render_migration_page(group.survivor)}"
+                for page in group.sources
+            )
+    if payload.blockers:
+        lines.extend(["", "## Blockers"])
+        lines.extend(f"- {_render_migration_blocker(blocker)}"
+                     for blocker in payload.blockers)
+    if not payload.groups and not payload.blockers:
+        lines.extend([
+            "",
+            "No padded plain-space titles need migration.",
+            "Migration is already active; apply mode is unavailable."
+            if payload.active else
+            "Apply mode is disabled until you provide an audit digest explicitly.",
+        ])
+    return "\n".join(lines) + "\n"
+
+
+def render_title_migration_apply(payload: TitleMigrationApplyResponse) -> str:
+    lines = [
+        "# Title migration applied",
+        "",
+        f"digest: {payload.digest}",
+        f"groups applied: {payload.groups_applied}",
+        f"pages retitled: {payload.pages_retitled}",
+        f"pages merged: {payload.pages_merged}",
+        f"blocks moved: {payload.blocks_moved}",
+        f"blocks rewritten: {payload.blocks_rewritten}",
+        f"generation: {payload.generation}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def select_section(blocks: Sequence[BlockNode],

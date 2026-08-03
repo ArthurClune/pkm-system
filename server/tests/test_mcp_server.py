@@ -25,6 +25,19 @@ def test_get_page_markdown_includes_uids(tools):
     assert "^uid_b1" in out
 
 
+def test_get_page_normalizes_control_whitespace_title(tools, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create_page", "page_title": "Ctrl\tTitle"},
+        {"op": "create", "uid": "mcpgetctrl01", "page_title": "Ctrl\tTitle",
+         "parent_uid": None, "order_idx": 0, "text": "mcp body"},
+    ], batch_id="mcp-get-ctrlws-0001")
+
+    out = tools.get_page("Ctrl\tTitle")
+
+    assert out.startswith("# Ctrl Title\n")
+    assert "mcp body" in out
+
+
 def test_get_block(tools):
     assert tools.get_block("uid_b3").startswith(
         "(in: Machine Learning > Papers)")
@@ -35,6 +48,19 @@ def test_search_query_backlinks_todos(tools):
     assert "(1 total)" in tools.query("{and: [[Paper]]}")
     assert tools.backlinks("Machine Learning").startswith("# Backlinks:")
     assert "(0 total)" in tools.todos()
+
+
+def test_backlinks_normalizes_control_whitespace_title(tools, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create_page", "page_title": "Ctrl\tTitle"},
+        {"op": "create", "uid": "mcprefsctrl1", "page_title": "Ctrl Source",
+         "parent_uid": None, "order_idx": 0, "text": "See [[Ctrl Title]]"},
+    ], batch_id="mcp-refs-ctrlws-0001")
+
+    out = tools.backlinks("Ctrl\tTitle")
+
+    assert "## Ctrl Source" in out
+    assert "See [[Ctrl Title]]" in out
 
 
 def test_backlinks_returns_every_group_beyond_the_single_page_cap(
@@ -58,6 +84,19 @@ def test_save_note_returns_uids_and_writes(tools, pkm_client):
     assert out.startswith("created ^")
     page = pkm_client.get_page("AI")
     assert any(n.text == "hello from mcp" for n in page.blocks)
+
+
+def test_save_note_propagates_forbidden_page_title_server_error(
+        tools, pkm_client):
+    with pytest.raises(ApiError) as exc:
+        tools.save_note("must not land", page="New #Old")
+
+    assert str(exc.value) == (
+        "400: op 0: unsupported page_title title syntax: 'New #Old'"
+    )
+    with pytest.raises(ApiError) as missing:
+        pkm_client.get_page("New #Old")
+    assert missing.value.status == 404
 
 
 def test_missing_page_error_has_one_status_prefix(tools):
@@ -114,6 +153,23 @@ def test_batch(tools, pkm_client):
         {"command": "create", "params": {"page": "AI", "text": "b2"}},
     ])
     assert out == "applied 2 ops"
+
+
+def test_batch_propagates_indexed_forbidden_reference_server_error(
+        tools, pkm_client):
+    commands = [
+        {"command": "create", "params": {"page": "AI", "text": "first"}},
+        {"command": "create",
+         "params": {"page": "AI", "text": "[[New #Old]]"}},
+    ]
+
+    with pytest.raises(ApiError) as exc:
+        tools.batch(commands)
+
+    assert str(exc.value) == (
+        "400: op 1: unsupported reference title syntax: 'New #Old'"
+    )
+    assert all(node.text != "first" for node in pkm_client.get_page("AI").blocks)
 
 
 def test_save_note_empty_text_on_new_page_leaves_no_page_behind(tools, pkm_client):

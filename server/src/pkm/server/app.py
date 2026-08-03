@@ -23,6 +23,7 @@ from pkm.server.db import init_db
 from pkm.server.request_log import RequestLogMiddleware
 from pkm.server.routes_assets import router as assets_router
 from pkm.server.routes_export import router as export_router
+from pkm.server.routes_migrations import router as migrations_router
 from pkm.server.routes_ops import router as ops_router
 from pkm.server.routes_pages import router as pages_router
 from pkm.server.routes_search import router as search_router
@@ -118,6 +119,7 @@ def create_app(
     app.include_router(assets_router)
     app.include_router(describe_router)
     app.include_router(export_router)
+    app.include_router(migrations_router)
     app.include_router(ws_router)
     app.include_router(assistant_router)
 

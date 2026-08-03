@@ -1,11 +1,11 @@
 ---
 # pkm-xo6w
 title: Normalize titles on client read paths (get/refs 404 on spellings save handles)
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-08-01T14:23:28Z
-updated_at: 2026-08-01T14:23:28Z
+updated_at: 2026-08-02T20:57:54Z
 parent: pkm-ulae
 ---
 
@@ -23,6 +23,13 @@ Related follow-up noted by the same review (fold in if touching get_backlinks an
 
 ## Tasks
 
-- [ ] Normalize titles in client read lookups (get_page, get_backlinks), with control-whitespace round-trip tests at client/CLI/MCP layers
-- [ ] Decide and document whether server GET routes normalize at the choke point (regen checklist if they do)
-- [ ] Tidy the synthesized limit field semantics if in the area
+- [x] Normalize titles in client read lookups (get_page, get_backlinks), with control-whitespace round-trip tests at client/CLI/MCP layers
+- [x] Decide and document whether server GET routes normalize at the choke point (regen checklist if they do)
+- [x] Tidy the synthesized limit field semantics if in the area
+
+## Summary of Changes
+
+- Normalized client read paths for control whitespace and added round-trip coverage across client, CLI, and MCP reads.
+- Canonicalized page, unlinked, and single-page export read choke points with activation-aware plain-space handling.
+- Preserved truthful observed backlink pagination metadata by carrying the first server response limit through the aggregate client result.
+- Production title migration/inventory was NOT executed; Task 10 migration verification used only disposable data/config on http://127.0.0.1:18974.

@@ -19,18 +19,14 @@ from pkm.contracts.responses import (ChangesPayload, SnapshotPayload,
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.sync_core import chunk_ids, dedupe_window, hydrate_in_order
+from pkm.server.sync_meta import (
+    database_generation,
+    plain_space_title_canonicalization_active,
+)
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 MAX_LIMIT = 5000
-
-
-def _generation(db: sqlite3.Connection) -> str:
-    """The database's generation token (pkm-o9o5). init_db() mints it at
-    process startup, so it always exists by the time a request runs."""
-    row = db.execute(
-        "SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()
-    return row["value"] if row is not None else ""
 
 
 def _blocks_by_uid(db: sqlite3.Connection,
@@ -131,16 +127,24 @@ def sync_changes(since: int = 0, limit: int = 1000,
     limit = max(1, min(limit, MAX_LIMIT))
     db.execute("BEGIN")  # one consistent read snapshot for scan + hydration
     try:
-        generation = _generation(db)
+        generation = database_generation(db)
+        plain_space_active = plain_space_title_canonicalization_active(db)
         latest = db.execute(
             "SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
         if since > latest:
             # cursor from a different/rebuilt database (importer swap):
             # the client must re-bootstrap from the snapshot
-            return ChangesPayload(reset=True, generation=generation,
-                                  next_since=0, latest_seq=latest,
-                                  pages=[], blocks=[], sidebar=[],
-                                  tombstones=[])
+            return ChangesPayload(
+                reset=True,
+                generation=generation,
+                plain_space_title_canonicalization=plain_space_active,
+                next_since=0,
+                latest_seq=latest,
+                pages=[],
+                blocks=[],
+                sidebar=[],
+                tombstones=[],
+            )
         rows = db.execute(
             "SELECT seq, kind, entity_id FROM changes WHERE seq > ?"
             " ORDER BY seq LIMIT ?", (since, limit)).fetchall()
@@ -164,6 +168,7 @@ def sync_changes(since: int = 0, limit: int = 1000,
             or (k == "sidebar" and int(e) not in present_sidebar)]
         return ChangesPayload(
             generation=generation,
+            plain_space_title_canonicalization=plain_space_active,
             next_since=win.next_since if rows else since,
             latest_seq=latest, pages=pages, blocks=blocks, sidebar=sidebar,
             tombstones=tombstones)
@@ -184,7 +189,15 @@ def sync_snapshot(db: sqlite3.Connection = Depends(get_db)
             "SELECT id, title, created_at, updated_at FROM pages")]
         sidebar = [SyncSidebarEntry(**dict(r)) for r in db.execute(
             "SELECT id, title, order_idx FROM sidebar_entries")]
-        return SnapshotPayload(generation=_generation(db), seq=seq,
-                               pages=pages, blocks=blocks, sidebar=sidebar)
+        return SnapshotPayload(
+            generation=database_generation(db),
+            plain_space_title_canonicalization=(
+                plain_space_title_canonicalization_active(db)
+            ),
+            seq=seq,
+            pages=pages,
+            blocks=blocks,
+            sidebar=sidebar,
+        )
     finally:
         db.rollback()

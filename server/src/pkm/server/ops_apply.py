@@ -10,11 +10,12 @@ from datetime import date
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OpBatch, UpdateTextOp)
-from pkm.refs import extract, is_blank_title
+from pkm.refs import extract
 from pkm.server.ops_core import (BlockInfo, DeleteBlocks, Effect, InsertBlock,
-                                 OpContext, ReindexRefs, SetCollapsed,
+                                 OpContext, OpError, ReindexRefs, SetCollapsed,
                                  SetHeading, SetPageId, SetParent, SetViewType,
-                                 ShiftSiblings, TouchPage, UpdateText, plan_op)
+                                 ShiftSiblings, TouchPage, UpdateText,
+                                 find_op_title_violation, plan_op)
 from pkm.server.store import BlankTitleError, get_or_create_page, index_ref
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
@@ -193,26 +194,42 @@ def _page_title(db: sqlite3.Connection, page_id: int) -> str | None:
     return row["title"] if row is not None else None
 
 
+def _require_page_title(db: sqlite3.Connection, page_id: int) -> str:
+    title = _page_title(db, page_id)
+    if title is None:
+        raise AssertionError(
+            f"authoritative page title missing after applied op: page_id={page_id}"
+        )
+    return title
+
+
+def _broadcast_page_title(db: sqlite3.Connection, op,
+                          ctx: OpContext) -> str | None:
+    if isinstance(op, (CreateOp, CreatePageOp)) and ctx.page_id is not None:
+        return _require_page_title(db, ctx.page_id)
+    if not isinstance(op, MoveOp) or ctx.block is None:
+        return None
+    row = db.execute("SELECT page_id FROM blocks WHERE uid = ?",
+                     (op.uid,)).fetchone()
+    if row is None:
+        raise AssertionError(
+            f"applied move block missing before broadcast: uid={op.uid}"
+        )
+    if op.page_title is None and row["page_id"] == ctx.block.page_id:
+        return None
+    return _require_page_title(db, row["page_id"])
+
+
 def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:
-    """The op as broadcast to remote clients. Identical to the request wire
-    form, except:
-    - a parent-based cross-page move that omitted page_title is enriched
-      with the resolved target title: without it the source can't drop the
-      block (its parent isn't in the source tree) and the target's refetch
-      has no page_title to key on, leaving both views stale.
-    - a create/create_page/move whose page_title normalized to blank was
-      actually resolved to UNTITLED_PAGE_TITLE server-side (_resolve_page);
-      broadcasting the raw blank string instead would send a remote
-      replica looking for (and mint its own local page under) a title the
-      server never actually used, diverging until the next resync."""
+    """The op as broadcast to remote clients.
+
+    For create/create_page and any move that lands on a different page, the
+    broadcast page_title comes from the authoritative stored page row the op
+    actually applied to, not from the caller's spelling."""
     d = op.model_dump()
-    if (isinstance(op, MoveOp) and op.page_title is None
-            and ctx.parent is not None and ctx.block is not None
-            and ctx.parent.page_id != ctx.block.page_id):
-        d["page_title"] = _page_title(db, ctx.parent.page_id)
-    elif (isinstance(op, (CreateOp, CreatePageOp, MoveOp))
-            and op.page_title is not None and is_blank_title(op.page_title)):
-        d["page_title"] = UNTITLED_PAGE_TITLE
+    title = _broadcast_page_title(db, op, ctx)
+    if title is not None:
+        d["page_title"] = title
     return d
 
 
@@ -220,6 +237,12 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
                 now_ms: int) -> list[dict]:
     """Apply a batch inside the caller's transaction and return the ops as
     they should be broadcast (see _broadcast_op)."""
+    violation = find_op_title_violation(batch.ops)
+    if violation is not None:
+        raise OpError(
+            violation.op_index,
+            f"unsupported {violation.source} title syntax: {violation.title!r}",
+        )
     broadcast_ops: list[dict] = []
     for index, op in enumerate(batch.ops):
         ctx = _context_for(db, op, now_ms)

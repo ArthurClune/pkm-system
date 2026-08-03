@@ -93,6 +93,37 @@ BLANK_MARKER_TITLE_EXPORT = """#datascript/DB {:schema {}
 POST_SANITIZATION_MALFORMED_TITLE_EXPORT = """#datascript/DB {:schema {}
  :datoms [[1 :node/title "[#[" 1]]}"""
 
+DUPLICATE_UID_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Tree" 1]
+  [1 :block/children 2 1]
+  [1 :block/children 3 1]
+  [2 :block/uid "duplicate" 1]
+  [2 :block/string "first" 1]
+  [2 :block/order 0 1]
+  [3 :block/uid "duplicate" 1]
+  [3 :block/string "second" 1]
+  [3 :block/order 1 1]
+ ]}"""
+
+MULTI_PARENT_EXPORT = """#datascript/DB {:schema {:block/children {:db/cardinality :db.cardinality/many}}
+ :datoms [
+  [1 :node/title "Tree" 1]
+  [1 :block/children 2 1]
+  [1 :block/children 3 1]
+  [2 :block/uid "left" 1]
+  [2 :block/string "left" 1]
+  [2 :block/order 0 1]
+  [2 :block/children 4 1]
+  [3 :block/uid "right" 1]
+  [3 :block/string "right" 1]
+  [3 :block/order 1 1]
+  [3 :block/children 4 1]
+  [4 :block/uid "shared" 1]
+  [4 :block/string "shared" 1]
+  [4 :block/order 0 1]
+ ]}"""
+
 
 def _setup_files(tmp_path: Path) -> Path:
     files = tmp_path / "files"
@@ -625,3 +656,51 @@ def test_title_syntax_refusal_precedes_output_directory_creation(tmp_path):
     assert main([str(blocked_export), "--out", str(out)]) == 2
 
     assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    ("raw", "detail"),
+    [
+        (
+            DUPLICATE_UID_EXPORT,
+            "duplicate block UID 'duplicate': "
+            "pages[0] 'Tree'.children[0]; pages[0] 'Tree'.children[1]",
+        ),
+        (
+            MULTI_PARENT_EXPORT,
+            "block with multiple parents 'shared': "
+            "pages[0] 'Tree'.children[0].children[0]; "
+            "pages[0] 'Tree'.children[1].children[0]",
+        ),
+    ],
+)
+def test_invalid_tree_refuses_before_sanitization_or_linked_file_work(
+    tmp_path, monkeypatch, capsys, raw, detail
+):
+    export_file = _write_export(tmp_path, "invalid-tree.edn", raw)
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    out.mkdir()
+    database = out / "pkm.sqlite3"
+    report = out / "import-report.txt"
+    database.write_bytes(b"database-sentinel")
+    report.write_text("report-sentinel", encoding="utf-8")
+
+    def unexpected_work(*_args, **_kwargs):
+        raise AssertionError("structural refusal happened too late")
+
+    monkeypatch.setattr(run_module, "sanitize_export_titles", unexpected_work)
+    monkeypatch.setattr(run_module, "_index_files", unexpected_work)
+
+    rc = main(
+        [str(export_file), "--files", str(files), "--out", str(out)]
+    )
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"error: invalid export structure: {detail}\n"
+    assert database.read_bytes() == b"database-sentinel"
+    assert report.read_text(encoding="utf-8") == "report-sentinel"
+    assert not (out / "pkm.sqlite3.tmp").exists()
+    assert not (out / "import-report.txt.tmp").exists()

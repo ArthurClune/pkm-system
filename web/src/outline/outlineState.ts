@@ -7,6 +7,7 @@ import type { BlockOp } from "../api/ops";
 import type { FocusTarget } from "./edits";
 import type { TextSelection } from "./keyEdits";
 import { applyOps, findNode, insertSubtree } from "./tree";
+import { bumpedUids } from "./blockStamps";
 
 export interface ReadToken {
   requestId: number;
@@ -35,9 +36,10 @@ export interface OutlineState {
 }
 
 export type OutlineEvent =
-  | { type: "local-ops"; ticketId: string; ops: readonly BlockOp[] }
+  | { type: "local-ops"; ticketId: string; ops: readonly BlockOp[];
+      nowMs: number }
   | { type: "local-tree"; blocks: BlockNode[] }
-  | { type: "remote-ops"; ops: readonly BlockOp[] }
+  | { type: "remote-ops"; ops: readonly BlockOp[]; nowMs: number }
   | { type: "write-started"; ticketId: string; scope: readonly string[];
       replay?: readonly OutlineReplayAction[]; ops?: readonly BlockOp[] }
   | { type: "write-replay"; ticketId: string;
@@ -154,6 +156,23 @@ function replayActions(
   return replayed;
 }
 
+/** Stamp updated_at on the blocks a batch changed (bean pkm-4ler). Runs on
+ * the tree AFTER applyOps, so a uid the batch deleted, or an op aimed at
+ * another page, is skipped simply by not being here. The clock arrives with
+ * the event: this module stays pure, and a remote edit stamps exactly like a
+ * local one because both flow through here. */
+function stampBumped(blocks: BlockNode[], ops: readonly BlockOp[],
+                     nowMs: number): BlockNode[] {
+  const bumped = new Set(bumpedUids(ops));
+  if (bumped.size === 0) return blocks;
+  const walk = (nodes: BlockNode[]): BlockNode[] => nodes.map((n) => ({
+    ...n,
+    updated_at: bumped.has(n.uid) ? nowMs : n.updated_at,
+    children: walk(n.children),
+  }));
+  return walk(blocks);
+}
+
 export function transitionOutline(
   state: OutlineState,
   event: OutlineEvent,
@@ -165,10 +184,12 @@ export function transitionOutline(
     relevantWriteReplays.set(event.ticketId, [{
       type: "ops", ops: [...event.ops],
     }]);
+    const applied = stampBumped(
+      applyOps(state.blocks, [...event.ops], state.title),
+      event.ops, event.nowMs);
     return {
       state: {
-        ...withBlocks(state,
-          applyOps(state.blocks, [...event.ops], state.title)),
+        ...withBlocks(state, applied),
         relevantWrites,
         relevantWriteReplays,
       },
@@ -180,8 +201,9 @@ export function transitionOutline(
   }
   if (event.type === "remote-ops") {
     return {
-      state: withBlocks(state,
-        applyOps(state.blocks, [...event.ops], state.title)),
+      state: withBlocks(state, stampBumped(
+        applyOps(state.blocks, [...event.ops], state.title),
+        event.ops, event.nowMs)),
       effects: [],
     };
   }

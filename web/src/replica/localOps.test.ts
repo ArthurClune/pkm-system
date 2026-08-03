@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
+import { opBumpsUpdatedAt } from "../outline/blockStamps";
 import { applyLocalOps, getOrCreateLocalPage, LocalOpError, subtreeUids } from "./localOps";
 import { setPlainSpaceTitleCanonicalization } from "./meta";
 import { openTestDb, type TestDb } from "./testDb";
@@ -342,5 +343,23 @@ describe("applyLocalOps", () => {
     ], 12345);
     expect(rows("SELECT updated_at FROM pages WHERE id = 1"))
       .toEqual([{ updated_at: 12345 }]);
+  });
+});
+
+describe("opBumpsUpdatedAt agrees with what the replica actually writes (pkm-4ler)", () => {
+  const ops: Array<[string, BlockOp]> = [
+    ["update_text", { op: "update_text", uid: "uid_r1", text: "changed" }],
+    ["move", { op: "move", uid: "uid_r1", parent_uid: null, order_idx: 5 }],
+    ["set_heading", { op: "set_heading", uid: "uid_r1", heading: 2 }],
+    ["set_view_type",
+     { op: "set_view_type", uid: "uid_r1", view_type: "numbered" }],
+    ["set_collapsed", { op: "set_collapsed", uid: "uid_r1", collapsed: true }],
+  ];
+
+  test.each(ops)("%s", (_label, op) => {
+    t.db.exec("UPDATE blocks SET updated_at = 111 WHERE uid = 'uid_r1'");
+    applyLocalOps(t.db, [op], 999);
+    const after = blockRow("uid_r1").updated_at;
+    expect(after === 999).toBe(opBumpsUpdatedAt(op));
   });
 });

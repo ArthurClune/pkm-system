@@ -1,5 +1,16 @@
 # Handover: pkm-mk87 title integrity and revised title syntax
 
+> **SUPERSEDED 2026-08-03 — this document describes a state that no longer
+> exists.** It was written while the title lane was blocked, and its status
+> tables say the title lane is unmerged and the parity/importer/export lanes do
+> not exist. All four lanes have since been implemented, reviewed and merged
+> `--no-ff`, `main` has been merged in, and `pkm-mk87` is complete. Read it only
+> as the record of *why* the nested-title closure approach was abandoned in
+> favour of rejecting `#`/`[[`/`]]` in page titles — that reasoning is still
+> accurate and still worth having. For what shipped, read
+> `docs/architecture/backend.md` and `docs/architecture/sync-and-offline.md`;
+> for how the sweep was executed, read the coordinator bean `pkm-mk87`.
+
 **Date:** 2026-08-02
 
 **Integration branch:** `pkm-mk87-ulae-followups` at `9770753` before this handover commit

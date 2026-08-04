@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T10:46:28Z
-updated_at: 2026-08-04T12:00:36Z
+updated_at: 2026-08-04T12:08:05Z
 ---
 
 Found while fixing pkm-wi25.
@@ -83,3 +83,10 @@ Re-verified: `pnpm verify` exit 0 -- 1968 tests, coverage 97.69% stmts / 93.14% 
 ## Still open for a decision (not fixed here)
 
 Committing to online-only is **silent**: `no-replica` maps to no `problem`, so no banner renders and `resetReplica` is unreachable. Before this branch, the same transient contention produced a `poison-discovery` banner WITH a Retry that could restore full offline capability once the other tab closed. So this fix trades a visible-but-wedged session for a working-but-silently-degraded one: the user loses offline editing for the session with no notice and no affordance. Needs Arthur's call on whether to surface it.
+
+
+## Residual-risk correction (adversarial review, follow-up)
+
+The spec's original residual-risk statement -- that a poisoned row with no localStorage intent needs "a crash between marking and repair" -- was too narrow, and is corrected in the spec. The window opens when *marking* succeeds (opQueue.ts:330 clears the intent) and closes only when the row is deleted (SyncProvider.tsx:283). Between them sits `rebaseAuthoritative("poison")`, including a full /api/sync/snapshot download. Any non-success route leaves the row poisoned with no intent: a failed snapshot fetch (likeliest -- poison is caused by a server 4xx, so the population is exactly clients the server just rejected), a throw partway through the deleteBatch loop (no per-row error handling), a worker-side snapshot apply failure, or the tab closing mid-download. And there is NO automatic retry: after repair-failed, repairRunRef clears and only the banner's manual Retry re-arms.
+
+Why this does not change the verdict on this branch: the latch bounds it. With the database shut for the session, the durable queue behind that poisoned row is never read and never drained; only this session's in-memory fallback ops are delivered, and those were made against server state. The residual exposure is that a LATER session which does open the DB flushes that stale queue, whose unguarded delete/move/insert ops are LWW. That hazard pre-exists this change; this change means more of the user's work sits in its path.

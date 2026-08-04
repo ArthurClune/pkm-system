@@ -59,9 +59,29 @@ are no intents (`opQueue.ts:305-308`), so the usual wedge point is
 `poisonedBatches()`, not `retryPoisonMarks()`.
 
 Because marking clears the localStorage intent once the DB becomes the source
-of truth (`opQueue.ts:327-331`), the genuinely dangerous state — a poisoned row
-we cannot see and hold no intent for — requires a previous session to have
-crashed between marking and repairing, *and* the replica to be unopenable now.
+of truth (`opQueue.ts:327-331`), the dangerous state is a poisoned row we cannot
+see and hold no intent for.
+
+**Corrected (adversarial review):** this spec originally called that state a
+"crash between marking and repairing", which is far too narrow. The window opens
+when *marking* succeeds and closes only when the row is deleted at
+`SyncProvider.tsx:283` — and in between sits `rebaseAuthoritative("poison")`, a
+multi-RPC operation including a **full `/api/sync/snapshot` download**. Every
+non-success route out of that window leaves the row poisoned with no intent:
+a failed snapshot fetch (the likeliest, since poison is *caused* by a server 4xx,
+so the affected population is exactly clients the server just rejected, and a
+5xx / restart / dropped connection / expired auth seconds later does it); a
+throw partway through the `deleteBatch` loop, which has no per-row error
+handling, leaving later rows poisoned; a worker-side failure applying the
+snapshot; or the tab closing mid-download.
+
+Decisively, **there is no automatic retry** — after `repair-failed`,
+`repairRunRef` clears and nothing re-arms. The only retry is the user clicking
+Retry in the banner. Ignore it and close the tab, and the poisoned row is
+durable into the next session with its intent already gone. So the precondition
+is "a rejection whose repair failed once and was never retried" — uncommon but
+entirely ordinary, and it composes with the reload that a stuck banner
+naturally invites.
 
 ## Decision
 
@@ -225,10 +245,21 @@ unit tests. Full `pnpm verify` still gates the branch.
 ## Residual risk
 
 A *stale* holder — a crashed tab or OS-level lock with no live owner — means
-nobody repairs a hidden poisoned row, and this change would post ahead of it.
-That needs a prior crash between marking and repair plus a dead-but-locking
-holder. Accepted, and consistent with the risk the OPFS-unavailable path
-already takes.
+nobody repairs a hidden poisoned row. Per the correction above, reaching that
+state needs an incomplete, never-retried repair rather than a crash, which is
+more likely than first stated.
+
+What bounds the damage is the **latch**: with the database shut for the session,
+the durable queue behind that poisoned row is never read and never drained. Only
+this session's own in-memory fallback ops are delivered, and those were made
+against server state (reads are online-only when there is no replica). The
+residual exposure is therefore not "we post ahead of poison in this session" but
+that a *later* session which does open the DB will flush that stale queue, whose
+unguarded `delete` / `move` / `insert` ops are last-write-wins and could clobber
+what this session wrote. That hazard pre-exists this change; what this change
+adds is that the user keeps working in between, so there is more of their work
+in the clobber's path. Tracked with the two-tab interleaving question rather
+than fixed here.
 
 ## Docs
 

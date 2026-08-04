@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: low
 created_at: 2026-08-04T11:52:14Z
-updated_at: 2026-08-04T12:00:36Z
+updated_at: 2026-08-04T12:08:05Z
 ---
 
 Found in review of pkm-bjae. Pre-existing mechanics, but that fix makes them the steady state of a normally-working session instead of a symptom of a wedge, which is why they are worth addressing now.
@@ -34,3 +34,10 @@ Both point the same way: tell `opQueue` the replica is unavailable (retain uncon
 pkm-bjae's fix depends on the latched open preserving the ORIGINAL error identity for exactly this reason. That is fragile: it means the whitelist, not the no-replica state, decides whether writes survive. Giving opQueue an explicit no-replica mode fixes all three symptoms at once.
 
 [ ] Cover: an unopenable replica whose failure is NOT whitelisted must still retain ops, not fire onDesync
+
+
+## Premise note (important if actioning this bean)
+
+Symptom 1's premise -- "the worker memoises the rejected dbPromise, so there is no repeated OPFS open, but drain() never returns `drained`" -- is true **only because pkm-bjae latches the failed open** (commit 0156328 removed the `dbPromise = null` from init()'s catch). Before that commit the premise was false in a way that mattered: the viability probe destroyed the memo, so the drain that `resume("recovery")` kicks performed a genuinely fresh open with a fresh retry budget, succeeded in the reload race, and drained the stale durable queue including batches behind an unrepaired poisoned row.
+
+So do not "fix" this bean by re-arming the open to make drain() succeed. The forever-failing drain is the SAFE behaviour; the goal is to stop asking the dead replica at all (an explicit no-replica mode in opQueue), not to make the asking work.

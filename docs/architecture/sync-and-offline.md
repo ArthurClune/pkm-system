@@ -527,7 +527,13 @@ fresh worker and runs poison discovery in the correct order.
 exist and cannot be repaired; delivering past it would post ahead of a batch
 the server already refused. That path keeps its barrier and its "Checking
 rejected changes failed: …" Retry banner, and it is the remaining case where
-accepted edits can sit undelivered in memory.
+*the queue's own policy* holds accepted edits undelivered in memory while the
+socket is up. It is not the only way they can sit there: an online-only session
+that loses connectivity has lane ops accepted while it was connected and no
+durable queue to put them in, which is what the banner two paragraphs above
+warns about. The difference matters when reading a report of lost edits — one
+resolves by clearing the barrier, the other only by reconnecting before the tab
+is closed.
 
 **The lane matches the durable path's policy *and* its payload.** It used to
 match only the policy: `base_text_hash` was stamped inside the worker

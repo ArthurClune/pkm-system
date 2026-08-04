@@ -1254,9 +1254,9 @@ without saying so. The other two branches need no change: an attribute name is
 `.strip()`ed before normalizing, and hashtag titles cannot hold whitespace at
 all.
 
-`store.index_ref()` still catches `BlankTitleError` and skips the ref
+`store.index_ref()` also catches `BlankTitleError` and skips the ref
 entirely: no page created, no `refs` row inserted, no fallback. That catch is
-now defense in depth at the store boundary rather than the only guard. Both
+defense in depth at the store boundary, not the only guard. Both
 places that resolve an extracted `Ref` onto a page go through it —
 `ops_apply.py`'s `ReindexRefs` handling, and `store.py`'s
 `rewrite_referencing_blocks`, used by rename and merge.

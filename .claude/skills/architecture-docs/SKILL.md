@@ -107,7 +107,14 @@ the bean id, or the test that pins the behaviour, or an em dash. `overview.md` h
 no such section and should not gain one: it summarises the others rather than
 owning any mechanism, so it has no failures of its own to record.
 
-Two things are *not* incidents, and neither earns a row:
+**The test for whether something is an incident:** does it describe a state of
+the code that no longer exists, or a mechanism that is still true today? "Handlers
+used to race the PRAGMA setup" is the first, and moves. "`send()` no-ops once the
+client disconnects" is the second, and stays — even though both read like war
+stories. Discovery context ("found in a live smoke test") does not make a
+rationale into an incident.
+
+Two more things are *not* incidents, and neither earns a row:
 
 - **Provenance.** A bean tag marking which work introduced a feature, with no
   failure attached ("Block stamps (pkm-4ler) add three band tokens"), is not a
@@ -138,7 +145,9 @@ longest prose sentences and any identifiers dropped since `HEAD`.
 
 **Re-run it after your edits and read the count, not just the list.** It shows
 the longest five by default (`--all` for the rest), so clearing those five is not
-the same as being done — splitting one sentence often pushes another over.
+the same as being done — splitting one sentence often lengthens another. Any 40+
+word sentence your edit introduced is marked `NEW` and always listed, wherever it
+ranks.
 
 Docs-only commits need no test run. The commit message should say what was
 **corrected** (a claim that was wrong) versus **restructured** (no claim

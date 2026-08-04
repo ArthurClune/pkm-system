@@ -43,6 +43,39 @@ it.
 Draw it from the code, not from the prose being replaced. A retry loop drawn
 around the wrong call is worse than the paragraph it replaced.
 
+## Write plain sentences
+
+**One idea per sentence.** A sentence that needs a third comma-clause, an
+em-dash aside and a colon to land is three sentences. This one is the failure to
+watch for, because each clause is individually correct and the whole is
+unreadable:
+
+> `opQueue` treats a failed replica RPC as "could not persist locally right now",
+> which is what it does with every local write failure, and retains the op unless
+> the replica rejected the op itself. That rule is a one-item blocklist on
+> `ReplicaError.rejected` — an op the server would refuse too, e.g. unsupported
+> reference title syntax — and deliberately not a check on the availability type:
+> a starved pool's `SQLITE_CANTOPEN` is neither `unusable` nor `unreachable`, so
+> a type check would fall through to `onDesync`, whose authoritative repair wipes
+> the active outline back to the edit-less server state and detaches the editor
+> mid-keystroke.
+
+Rewritten as one claim per sentence, in the order a reader needs them: what the
+rule is, what it is not, why not, what the consequence would be.
+
+Also:
+
+- **Name things the way the code names them.** `ReplicaAvailability` has two
+  values; it is not "the availability fact" with "evidentiary weight". Invented
+  terms of art make a reader learn vocabulary that no grep will find.
+- **Say the thing instead of introducing it.** "Two choices worth spelling out",
+  "the subtlety is that", "two things invisible from the shapes" — delete the
+  frame and keep the content.
+- **Cut intensifiers.** "deliberately", "precisely", "definitively", "exactly
+  this" rarely survive contact with a specific reason. Assert intent only where a
+  reader would otherwise suspect a bug, and then give the reason.
+- **Prefer the plain verb.** "X catches that" over "which is what X is for".
+
 ## Make emphasis scarce
 
 When every paragraph opens with a bolded thesis, nothing is emphasised and a
@@ -75,10 +108,12 @@ node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/<file>.md
 
 Every mermaid block parses under the project's own mermaid; links and heading
 anchors resolve, including inbound anchors from sibling docs (a renamed heading
-breaks those silently); identifiers dropped since `HEAD` are listed for
-judgement. Docs-only commits need no test run. The commit message should say
-what was **corrected** (a claim that was wrong) versus **restructured** (no
-claim changed).
+breaks those silently). It also prints, for judgement rather than pass/fail, the
+longest prose sentences and any identifiers dropped since `HEAD`.
+
+Docs-only commits need no test run. The commit message should say what was
+**corrected** (a claim that was wrong) versus **restructured** (no claim
+changed).
 
 ## Common mistakes
 
@@ -87,5 +122,7 @@ claim changed).
 | Adding a diagram beside the prose it replaces | diagram lands, section barely shrinks | the diagram or the paragraph, not both |
 | Restructuring instead of clarifying | four new headings over the same paragraphs | change the shape of the material, not its subdivisions |
 | An enumeration inside a sentence | twelve shortcuts, comma-separated, with parenthetical caveats | a table — or a link to the doc that already has one |
+| Stacking clauses onto a correct sentence | two subclauses, an em-dash aside and a colon, all accurate | one claim per sentence, in the order a reader needs them |
+| Inventing a term of art | "the availability fact", "evidentiary weight" | the name the code uses |
 | Propagating a local formatting tic | "gave it a bold lead like its siblings" | fix the pattern rather than conform to it |
 | Trusting the bean or plan | doc describes intended behaviour | verify against the code; it is what shipped |

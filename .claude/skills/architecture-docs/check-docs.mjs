@@ -3,14 +3,17 @@
 //
 //   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/frontend.md
 //
-// Three things, none of which a read-through reliably catches:
+// Four things, none of which a read-through reliably catches:
 //
 //  1. mermaid   — every ```mermaid block parses under the project's OWN mermaid
 //                 (web/node_modules), so a diagram cannot ship broken.
 //  2. links     — relative links resolve, and heading anchors exist. Includes
 //                 INBOUND anchors from sibling docs: renaming a heading breaks
 //                 another doc's deep link with no other symptom.
-//  3. names     — the set of `inline-code` identifiers dropped since HEAD. A
+//  3. sentences — the longest prose sentences, printed for judgement. One idea
+//                 per sentence is the aim; several 50-word sentences in a row is
+//                 what to look at, not any single number.
+//  4. names     — the set of `inline-code` identifiers dropped since HEAD. A
 //                 clarity pass is meant to delete sentences, not the
 //                 CONSTANT_NAMES and function names agents grep for. Dropped
 //                 names are printed for judgement, not failed on: rewording
@@ -104,6 +107,34 @@ function checkInbound(file, text) {
   }
 }
 
+// ------------------------------------------------------------- sentences ---
+
+// The longest prose sentences, for judgement — not a pass/fail on length. A long
+// sentence is sometimes right (a quoted banner string, a list of four names);
+// several long ones in a row is the thing to look at. Code blocks, tables and
+// headings are excluded; bullets count as their own units.
+function reportSentences(file, text) {
+  const prose = text
+    .replace(/```[\s\S]*?```/g, "")
+    .split("\n").filter((l) => !l.trim().startsWith("|") && !l.startsWith("#"))
+    .join("\n")
+    .replace(/\n\s*[-*] /g, "\n\n");
+  const sentences = prose
+    .split(/(?<=[.:])\s+(?=[A-Z`*])|\n\n/)
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (sentences.length === 0) return;
+  const longest = sentences
+    .map((s) => ({ s, n: s.split(" ").length }))
+    .sort((a, b) => b.n - a.n).slice(0, 5);
+  console.log(`\n      ${file}: longest sentences — read these and decide whether `
+    + `each is one idea:`);
+  for (const { s, n } of longest) {
+    console.log(`        ${String(n).padStart(3)}w  ${s.slice(0, 96)}${s.length > 96 ? "…" : ""}`);
+  }
+  console.log("");
+}
+
 // ------------------------------------------------------------------ names ---
 
 const identifiers = (text) => new Set(
@@ -134,5 +165,6 @@ for (const file of targets) {
   checkLinks(file, text);
   checkInbound(file, text);
   checkNames(file, text);
+  reportSentences(file, text);
 }
 process.exit(failures === 0 ? 0 : 1);

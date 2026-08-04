@@ -255,6 +255,13 @@ export function BlockInput({ node, cursor, handlers, readOnly,
           el.setSelectionRange(el.selectionStart, el.value.length, "forward");
         }
         return;
+      case "select-range":
+        // Shift+Cmd+Left/Right (pkm-jgtn): line-wise selection over logical
+        // lines; the policy computed the exact range from the draft.
+        e.preventDefault();
+        el.setSelectionRange(decision.selStart, decision.selEnd,
+                             decision.direction);
+        return;
       case "select-whole-block":
         e.preventDefault();
         handlers.onSelectBlock(node.uid);

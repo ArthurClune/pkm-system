@@ -303,10 +303,14 @@ Editing mechanics to know before touching `outline/`:
   semantic decision the shell executes. New shortcuts are added in the policy
   (and its table-driven `META_WRAP_EDITS` for Cmd-letter wraps), not as
   ad-hoc event handlers. The current surface: Cmd-K link, Cmd-B/I, Cmd-Enter
-  TODO cycle, Ctrl+Alt+0–3 headings, Tab/Shift-Tab indent (multi-block
-  aware), Alt-Arrow and Shift-Cmd-Arrow moves, Shift-Arrow multi-block
-  selection, slash commands, and Cmd-Z / Shift-Cmd-Z undo/redo (`history.ts`
-  + `undoManager.ts`).
+  TODO cycle, Cmd+Alt+0–3 headings, Tab/Shift-Tab indent (multi-block
+  aware), Alt-Arrow and Shift-Cmd-Up/Down moves, Shift-Cmd-Left/Right
+  line-wise selection (logical lines, one more line per press — pkm-jgtn),
+  Shift-Arrow multi-block selection (started from the block's edge whether
+  the caret is collapsed or a text selection can no longer grow within the
+  block; Shift+Arrow must never reach the boundary-arrow block navigation,
+  which would silently drop the selection), slash commands, and Cmd-Z /
+  Shift-Cmd-Z undo/redo (`history.ts` + `undoManager.ts`).
 
   A multi-block *selection* is keyed by the second policy function,
   `decideSelectionKey`. With no focused textarea the tree container itself

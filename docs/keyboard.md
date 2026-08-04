@@ -41,7 +41,9 @@ native).
 
 | Shortcut | Action |
 |---|---|
-| Shift+arrows | Native text selection within the block |
+| Shift+arrows | Native text selection within the block (at the block's first/last line it becomes a block selection — see below) |
+| Shift+Cmd+← | Select to the start of the current line; each further press adds the whole line above |
+| Shift+Cmd+→ | Select to the end of the current line; each further press adds the whole line below |
 | Ctrl+Cmd+← | Select from the caret to the start of the block (the whole block text, not just the current display line); further presses change nothing |
 | Ctrl+Cmd+→ | Select from the caret to the end of the block; further presses change nothing |
 
@@ -50,7 +52,7 @@ native).
 | Shortcut | Action |
 |---|---|
 | Ctrl+Cmd+↑ or Ctrl+Cmd+↓ | Select the whole current block; each further press extends the selection one block up/down |
-| Shift+↑ at the block's first line / Shift+↓ at its last line | Start a block selection: the current block plus its neighbour |
+| Shift+↑ at the block's first line / Shift+↓ at its last line | Start a block selection: the current block plus its neighbour. Also works with text selected — once the selection can't grow further within the block, the next Shift+↑/↓ turns it into a block selection |
 
 See "While blocks are selected" below for what you can do next.
 

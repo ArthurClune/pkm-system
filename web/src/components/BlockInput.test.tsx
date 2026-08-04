@@ -722,6 +722,47 @@ test("Shift+Arrow inside a multi-line block extends text, not blocks (pkm-9b8n)"
   expect(h.onStartBlockSelection).not.toHaveBeenCalled();
 });
 
+test("Shift+ArrowUp with text selected starts a block selection, not a focus move (pkm-jgtn)", () => {
+  const h = handlers();
+  mount(h, 0);
+  const ta = focusedTextarea();
+  ta.setSelectionRange(2, 7);
+  fireEvent.keyDown(ta, { key: "ArrowUp", shiftKey: true });
+  expect(h.onStartBlockSelection).toHaveBeenCalledWith("u1", "up");
+  expect(h.onArrow).not.toHaveBeenCalled();
+});
+
+test("Shift+Cmd+ArrowLeft selects line-wise: to the line start, then a line per press (pkm-jgtn)", () => {
+  const h = handlers();
+  mount(h, 0);
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "line1\nline2" } });
+  ta.setSelectionRange(8, 8); // mid "line2"
+  expect(fireEvent.keyDown(ta, {
+    key: "ArrowLeft", shiftKey: true, metaKey: true,
+  })).toBe(false); // preventDefault: we own the selection, not the browser
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([6, 8]);
+  fireEvent.keyDown(ta, { key: "ArrowLeft", shiftKey: true, metaKey: true });
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([0, 8]);
+  // at the block start: nothing left to add
+  fireEvent.keyDown(ta, { key: "ArrowLeft", shiftKey: true, metaKey: true });
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([0, 8]);
+});
+
+test("Shift+Cmd+ArrowRight selects line-wise downward (pkm-jgtn)", () => {
+  const h = handlers();
+  mount(h, 0);
+  const ta = focusedTextarea();
+  fireEvent.change(ta, { target: { value: "line1\nline2" } });
+  ta.setSelectionRange(2, 2); // mid "line1"
+  expect(fireEvent.keyDown(ta, {
+    key: "ArrowRight", shiftKey: true, metaKey: true,
+  })).toBe(false);
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([2, 5]);
+  fireEvent.keyDown(ta, { key: "ArrowRight", shiftKey: true, metaKey: true });
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([2, 11]);
+});
+
 test("Ctrl+Cmd+ArrowLeft selects to the block start and stays there (pkm-am54)", () => {
   const h = handlers();
   mount(h, 5);

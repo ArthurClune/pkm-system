@@ -48,6 +48,11 @@ export type KeyDecision =
   | { type: "navigate-ref"; title: string; sidebar: boolean }
   | { type: "start-block-selection"; dir: "up" | "down" }
   | { type: "select-to-block-edge"; edge: "start" | "end" }
+  /** Replace the textarea selection with this exact range (pkm-jgtn:
+   * line-wise Shift+Cmd+Left/Right). direction matches setSelectionRange's,
+   * so the moving end stays the one further presses keep extending. */
+  | { type: "select-range"; selStart: number; selEnd: number;
+      direction: "backward" | "forward" }
   | { type: "select-whole-block" }
   | { type: "set-heading"; heading: number | null }
   | { type: "key-edit"; edit: TextSelection }
@@ -64,6 +69,17 @@ export type KeyDecision =
 
 const NONE: KeyDecision = { type: "none" };
 const NONE_SELECTION: SelectionKeyDecision = { type: "none" };
+
+/** Offset of the first character of the LOGICAL line containing `pos`. */
+const lineStartAt = (text: string, pos: number): number =>
+  pos <= 0 ? 0 : text.lastIndexOf("\n", pos - 1) + 1;
+
+/** Offset just past the last character of the logical line containing `pos`
+ * (i.e. the index of its "\n", or text.length on the final line). */
+const lineEndAt = (text: string, pos: number): number => {
+  const nl = text.indexOf("\n", pos);
+  return nl < 0 ? text.length : nl;
+};
 
 export type AutocompleteKeyAction = "move-up" | "move-down" | "pick" | "close";
 
@@ -163,11 +179,37 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
     if (i.readOnly) return NONE;
     return i.key === "ArrowUp" ? { type: "move-subtree-up" } : { type: "move-subtree-down" };
   }
-  // Plain Shift+Arrow at the block's vertical edge (collapsed caret) starts a
-  // multi-block selection; copying is read-only-safe so this precedes the cut.
-  // Meta/Ctrl variants are excluded: Ctrl+Shift+Up is native
-  // select-to-paragraph-start and must stay with the platform.
-  if (i.shiftKey && !i.metaKey && !i.ctrlKey && caretOnly
+  // Shift+Cmd+Left/Right select line-wise (pkm-jgtn): first press selects to
+  // the start/end of the LOGICAL line (like Ctrl+Cmd+Left/Right, not the
+  // display line the native binding stops at), and each further press adds
+  // one whole line — native's "select to line start" is a dead end on the
+  // second press. Selection is read-only-safe, hence before the cutoff.
+  if (i.shiftKey && i.metaKey && !i.ctrlKey && !i.altKey
+      && (i.key === "ArrowLeft" || i.key === "ArrowRight")) {
+    if (i.key === "ArrowLeft") {
+      const start = lineStartAt(i.draft, pos);
+      const target = start < pos ? start
+        : start > 0 ? lineStartAt(i.draft, start - 1) : null;
+      if (target === null) return NONE;
+      return { type: "select-range", selStart: target, selEnd: i.selEnd,
+               direction: "backward" };
+    }
+    const end = lineEndAt(i.draft, i.selEnd);
+    const target = end > i.selEnd ? end
+      : end < i.draft.length ? lineEndAt(i.draft, end + 1) : null;
+    if (target === null) return NONE;
+    return { type: "select-range", selStart: pos, selEnd: target,
+             direction: "forward" };
+  }
+  // Plain Shift+Up/Down at the block's vertical edge starts a multi-block
+  // selection; copying is read-only-safe so this precedes the cut. The edge
+  // is measured at the end that would move (selStart going up, selEnd going
+  // down), so a live text selection escalates to a block selection the
+  // moment it can no longer grow within the block (pkm-jgtn) — it must never
+  // fall into the boundary-arrow rules, which would drop it. Meta/Ctrl
+  // variants are excluded: Ctrl+Shift+Up is native select-to-paragraph-start
+  // and must stay with the platform.
+  if (i.shiftKey && !i.metaKey && !i.ctrlKey
       && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
     const up = i.key === "ArrowUp";
     const atEdge = up ? !i.draft.slice(0, pos).includes("\n")
@@ -221,11 +263,13 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   if (i.key === "Backspace" && pos === 0 && caretOnly) {
     return { type: "backspace-at-start" };
   }
-  // Boundary arrows move focus between blocks — but only unmodified (plus
-  // the documented Shift fall-through above): Meta/Ctrl/Alt arrows are native
-  // text navigation (Cmd-Left = caret to line start, ...) and hijacking them
-  // into block navigation would preventDefault the native behaviour.
-  if (i.metaKey || i.ctrlKey || i.altKey) return NONE;
+  // Boundary arrows move focus between blocks — but only unmodified:
+  // Meta/Ctrl/Alt arrows are native text navigation (Cmd-Left = caret to
+  // line start, ...) and Shift arrows are selection (native within the
+  // block, block selection at the edges above) — hijacking any of them into
+  // block navigation would preventDefault the native behaviour or silently
+  // drop a live selection (pkm-jgtn).
+  if (i.metaKey || i.ctrlKey || i.altKey || i.shiftKey) return NONE;
   // The logical-newline check alone can't see soft-wrapping: a block with no
   // "\n" at all still spans several VISUAL lines, and the caret should move
   // up/down within it before focus jumps to the neighbouring block. The

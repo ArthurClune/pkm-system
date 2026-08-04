@@ -66,23 +66,26 @@ export interface SyncTransition {
 }
 
 /** Editing is always allowed when connected (server-authoritative). Offline it
- * is allowed only with a ready replica that can still persist; quota exhaustion
- * offline freezes the editor so an edit cannot be silently lost. */
+ * is allowed only with a ready replica.
+ *
+ * A third input, `quotaExhausted`, used to freeze the editor offline once local
+ * storage was full, on the reasoning that a further edit could be silently
+ * lost. It was unreachable: the flag behind it could never be set, because the
+ * opfs-sahpool VFS reports an exhausted disk as an undifferentiated
+ * SQLITE_IOERR (pkm-avag). An exhausted disk now behaves like every other
+ * failure to persist locally — the op is retained in the fallback lane and
+ * delivered when the socket allows. */
 export function computeEditability(
   status: SyncStatus,
   replicaMode: ReplicaMode,
-  quotaExhausted: boolean,
 ): { canEdit: boolean; readOnlyReason?: string } {
-  const canEdit = status === "connected"
-    || (replicaMode === "ready" && !quotaExhausted);
+  const canEdit = status === "connected" || replicaMode === "ready";
   if (canEdit) return { canEdit: true, readOnlyReason: undefined };
-  const readOnlyReason = quotaExhausted
-    ? "local storage is full — reconnect to sync"
-    : replicaMode === "recovery-failed"
-      ? "local data recovery failed — reconnect to continue"
-      : replicaMode === "stalled"
-        ? "local data is stale — reset local data to recover"
-        : "offline — this graph is not yet available locally";
+  const readOnlyReason = replicaMode === "recovery-failed"
+    ? "local data recovery failed — reconnect to continue"
+    : replicaMode === "stalled"
+      ? "local data is stale — reset local data to recover"
+      : "offline — this graph is not yet available locally";
   return { canEdit: false, readOnlyReason };
 }
 

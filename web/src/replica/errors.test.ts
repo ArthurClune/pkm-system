@@ -3,16 +3,12 @@ import { availabilityOf, isSessionFatal, ReplicaError,
          ReplicaUnavailableError, RpcLifecycleError } from "./errors";
 
 describe("ReplicaError flags", () => {
-  test("both flags default to false", () => {
-    const error = new ReplicaError("boom");
-    expect(error.quota).toBe(false);
-    expect(error.rejected).toBe(false);
+  test("rejected defaults to false", () => {
+    expect(new ReplicaError("boom").rejected).toBe(false);
   });
 
-  test("flags are carried independently", () => {
-    expect(new ReplicaError("full", { quota: true }).quota).toBe(true);
+  test("rejected is carried", () => {
     expect(new ReplicaError("bad title", { rejected: true }).rejected).toBe(true);
-    expect(new ReplicaError("full", { quota: true }).rejected).toBe(false);
   });
 
   test("an unavailable error is still a ReplicaError", () => {
@@ -58,6 +54,6 @@ describe("isSessionFatal", () => {
   });
 
   test("a non-availability error is never session-fatal", () => {
-    expect(isSessionFatal(new ReplicaError("disk full", { quota: true }))).toBe(false);
+    expect(isSessionFatal(new ReplicaError("disk I/O error"))).toBe(false);
   });
 });

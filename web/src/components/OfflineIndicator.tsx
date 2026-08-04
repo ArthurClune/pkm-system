@@ -46,18 +46,27 @@ export function OfflineIndicator() {
       // reopening mid-session could flush a previous session's stale durable
       // queue on top of those writes. A fresh page load gets a fresh worker
       // and runs startup's poison discovery in the right order.
-      // Copy deliberately does NOT promise the changes are being saved: this
-      // problem is a ReplicaUnavailableError (SyncProvider only raises
-      // replica-unavailable for availabilityOf(error) === "unusable"), which
-      // is never `rejected`, so opQueue always retains here. But retained
-      // lane ops are only "still being saved" while this online-only session
-      // stays online — there is no beforeunload anywhere in the app, so if
-      // connectivity drops before they deliver, anything that reloads the
-      // page (the button below asks first; a browser refresh or tab close
-      // would not) discards them unseen. Whether the copy should say so is a
-      // product decision for Arthur — see pkm-9x6u.
+      // The second sentence turns on connectivity, because the truth does
+      // (pkm-s1m8). This problem is a ReplicaUnavailableError (SyncProvider
+      // only raises replica-unavailable for availabilityOf(error) ===
+      // "unusable"), which is never `rejected`, so opQueue always retains
+      // here — but retained ops live in the in-memory fallback lane, and
+      // there is no beforeunload anywhere in the app. So "still being saved"
+      // is true while the socket is up and delivering, and false the moment
+      // it is not: a refresh or a closed tab then takes them unseen (the
+      // button below asks first; the browser's own controls do not). Offline
+      // with nothing pending there is neither a promise to make nor a loss to
+      // warn about, so the first sentence stands alone.
       <div className="ws-banner" role="status">
         Working online only — offline editing is unavailable for now.
+        {status === "connected"
+          ? " Your changes are still being saved to the server."
+          : pending > 0
+            ? ` You are offline: ${pending} unsent change`
+              + `${pending === 1 ? " exists" : "s exist"} only in memory here. `
+              + `Reloading or closing this tab discards ${
+                pending === 1 ? "it" : "them"}.`
+            : null}
         <button type="button" onClick={() => { void reloadForOnlineOnly(); }}>
           Reload
         </button>

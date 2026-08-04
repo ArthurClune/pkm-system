@@ -21,57 +21,47 @@ const withProblem = (problem: SyncProblem | undefined) => ({ problem });
 
 describe("computeEditability", () => {
   it("allows editing while connected", () => {
-    expect(computeEditability("connected", "starting", false)).toEqual({
+    expect(computeEditability("connected", "starting")).toEqual({
       canEdit: true, readOnlyReason: undefined,
     });
   });
 
-  it("allows offline editing with a ready replica and free storage", () => {
-    expect(computeEditability("reconnecting", "ready", false)).toEqual({
+  it("allows offline editing with a ready replica, even if writes may fail", () => {
+    // There is no storage-exhaustion read-only mode: an exhausted disk is
+    // indistinguishable from any other SQLITE_IOERR (pkm-avag), so a write that
+    // cannot be persisted is retained by the op queue rather than refused here.
+    expect(computeEditability("reconnecting", "ready")).toEqual({
       canEdit: true, readOnlyReason: undefined,
-    });
-  });
-
-  it("freezes the editor when local storage is full offline", () => {
-    expect(computeEditability("reconnecting", "ready", true)).toEqual({
-      canEdit: false,
-      readOnlyReason: "local storage is full — reconnect to sync",
     });
   });
 
   it("explains a failed recovery", () => {
-    expect(computeEditability("reconnecting", "recovery-failed", false)).toEqual({
+    expect(computeEditability("reconnecting", "recovery-failed")).toEqual({
       canEdit: false,
       readOnlyReason: "local data recovery failed — reconnect to continue",
     });
   });
 
   it("explains a graph not yet available locally", () => {
-    expect(computeEditability("reconnecting", "starting", false)).toEqual({
+    expect(computeEditability("reconnecting", "starting")).toEqual({
       canEdit: false,
       readOnlyReason: "offline — this graph is not yet available locally",
     });
   });
 
   it("explains a stalled replica offline", () => {
-    expect(computeEditability("reconnecting", "stalled", false)).toEqual({
+    expect(computeEditability("reconnecting", "stalled")).toEqual({
       canEdit: false,
       readOnlyReason: "local data is stale — reset local data to recover",
     });
   });
 
   it("still allows connected editing while stalled (server-authoritative)", () => {
-    expect(computeEditability("connected", "stalled", false)).toEqual({
+    expect(computeEditability("connected", "stalled")).toEqual({
       canEdit: true, readOnlyReason: undefined,
     });
   });
 
-  it("quota exhaustion still wins over a stalled replica", () => {
-    expect(computeEditability("reconnecting", "stalled", true)).toEqual({
-      canEdit: false,
-      readOnlyReason: "local storage is full — reconnect to sync",
-    });
-  });
 });
 
 describe("transitionSync mode-ready resync", () => {

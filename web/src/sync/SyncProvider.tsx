@@ -127,7 +127,6 @@ export function SyncProvider({ children, replica }: {
   const [replicaState, setReplicaState] =
     useState<ReplicaState>({ mode: "starting" });
   const [pending, setPending] = useState(0);
-  const [quotaExhausted, setQuotaExhausted] = useState(false);
   const [problem, setProblem] = useState<SyncProblem>();
   const subsRef = useRef(new Set<(b: WsBatch) => void>());
   const everConnectedRef = useRef(false);
@@ -214,9 +213,6 @@ export function SyncProvider({ children, replica }: {
   useEffect(() => {
     const offs = [
       queue.onPending((n) => { if (mountedRef.current) setPending(n); }),
-      queue.onQuota(() => {
-        if (mountedRef.current) setQuotaExhausted(true);
-      }),
       queue.onPoisonMarkFailed(({ event, error }) => {
         repairTargetsRef.current = [event];
         repairSucceededRef.current = false;
@@ -537,12 +533,10 @@ export function SyncProvider({ children, replica }: {
   }, [queue, replicaSync]);
 
   // Connected: editing always allowed (server-authoritative, as before).
-  // Offline: allowed only with a ready replica that can still persist —
-  // quota exhaustion offline means an edit could be silently lost, so the
-  // editor is frozen with a reason instead (spec section 6). The rule lives
-  // in the syncState core.
+  // Offline: allowed only with a ready replica, otherwise the editor is frozen
+  // with a reason (spec section 6). The rule lives in the syncState core.
   const { canEdit, readOnlyReason } =
-    computeEditability(status, replicaState.mode, quotaExhausted);
+    computeEditability(status, replicaState.mode);
 
   const api = useMemo<Sync>(() => ({
     status,

@@ -103,7 +103,6 @@ export interface OpQueue {
   onPoisonPending(fn: () => void): () => void;
   onPoisonMarkFailed(fn: (failure: PoisonMarkFailure) => void): () => void;
   onPoison(fn: (event: PoisonEvent) => void): () => void;
-  onQuota(fn: (e: unknown) => void): () => void;
   /** Retained mark intents, including reload fallback metadata. */
   poisonMarkIntents(): readonly PoisonEvent[];
   /** Retry only durable poison marking. Never performs an ops POST. */
@@ -141,8 +140,8 @@ function postOps(ops: BlockOp[], batchId: string): Promise<unknown> {
   });
 }
 
-/** An enqueue whose ops could not be persisted locally (quota, OPFS
- * access-handle contention, exhausted SAH pool). Retained in FIFO order and
+/** An enqueue whose ops could not be persisted locally (a full disk, OPFS
+ * access-handle contention, an exhausted SAH pool). Retained in FIFO order and
  * delivered by drain() under the same connectivity/retry/recovery policy as
  * durable rows — never POSTed from enqueue() (pkm-49eh). */
 interface FallbackEntry {
@@ -174,7 +173,6 @@ function createReplicaQueue(replica: Replica,
   const poisonPending = listeners<void>();
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
-  const quota = listeners<unknown>();
   const deliveries = new Map<string, (outcome: DeliveryOutcome) => void>();
   const unidentifiedDeliveries: Array<{
     position: number;
@@ -625,8 +623,13 @@ function createReplicaQueue(replica: Replica,
           // wasm init failure, OPFS unavailable in private browsing, a dead
           // worker's RpcLifecycleError — lost the edit AND rebased the outline
           // (pkm-9x6u). A one-item blocklist is the honest rule.
+          //
+          // A `quota` flag was also emitted here, to drive an offline
+          // read-only mode. Nothing could ever set it — the opfs-sahpool VFS
+          // reports an exhausted disk as a bare SQLITE_IOERR (pkm-avag) — so
+          // storage exhaustion arrives, correctly, as one more "could not
+          // persist locally right now" and is retained like the rest.
           noteReplicaFailure(error);
-          if (replicaError?.quota === true) quota.emit(error);
           if (qstate.disposed) {
             resolveDelivery({
               status: "failed", error: new Error("op queue disposed"),
@@ -695,7 +698,6 @@ function createReplicaQueue(replica: Replica,
     onPoisonPending: poisonPending.add,
     onPoisonMarkFailed: poisonMarkFailed.add,
     onPoison: poison.add,
-    onQuota: quota.add,
     poisonMarkIntents: () => [...poisonMarkIntents],
     retryPoisonMarks: markRetainedPoison,
   };
@@ -903,7 +905,6 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
     onPoisonPending: () => () => undefined,
     onPoisonMarkFailed: () => () => undefined,
     onPoison: () => () => undefined,
-    onQuota: () => () => undefined,
     poisonMarkIntents: () => [],
     retryPoisonMarks: async () => [],
   };

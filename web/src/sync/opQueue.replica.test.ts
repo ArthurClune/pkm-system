@@ -1,5 +1,6 @@
 // The replica-backed pump: durable batches with batch_id, poison handling,
-// quota degradation. The in-memory legacy path is covered in opQueue.test.ts.
+// retention of failed local persistence. The in-memory legacy path is covered
+// in opQueue.test.ts.
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { PendingBatch, Replica } from "../replica/client";
@@ -242,18 +243,20 @@ test("a slow drain POST does not delay persisting later edits", async () => {
   expect(replica.rows).toEqual([]); // both drained once the network freed up
 });
 
-test("quota-failed enqueue surfaces and is retained for ordered delivery", async () => {
+test("a disk-full enqueue is retained for ordered delivery", async () => {
+  // An exhausted disk reaches the queue as a bare SQLITE_IOERR — the
+  // opfs-sahpool VFS swallows the QuotaExceededError DOMException — so there
+  // is no storage-specific handling to test, only retention (pkm-avag).
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({
-    enqueue: async () => { throw new ReplicaError("disk full", { quota: true }); },
+    enqueue: async () => {
+      throw new ReplicaError("SQLITE_IOERR: disk I/O error");
+    },
   });
   const q = createOpQueue(replica, () => undefined);
-  const quotas: unknown[] = [];
-  q.onQuota((e) => quotas.push(e));
   q.enqueue([op("u1")]);
   await q.settled();
   await q.drain();
-  expect(quotas.length).toBe(1);
   // retained in memory, then delivered by the drain under queue policy
   const body = bodies[0].body as { client_id: string; batch_id?: string; ops: unknown[] };
   expect(body.client_id).toBe(clientId);

@@ -85,7 +85,6 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       // is display-only from here on.
       unavailable ??= new ReplicaUnavailableError(
         error instanceof Error ? error.message : String(error),
-        { quota: (error as { quota?: boolean } | null)?.quota === true },
       );
       throw unavailable;
     }

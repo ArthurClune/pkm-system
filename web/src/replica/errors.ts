@@ -10,8 +10,6 @@
 // fact; these types are how it travels.
 
 export interface ReplicaErrorFlags {
-  /** Local storage refused the write for want of space. */
-  quota?: boolean;
   /** The replica refused the OP ITSELF (unsupported title syntax), not the
    * storing of it. This is the ONLY replica failure that is terminal for an op:
    * the server would refuse it too, so retaining and retrying cannot help, and
@@ -19,14 +17,21 @@ export interface ReplicaErrorFlags {
   rejected?: boolean;
 }
 
+/** There was a `quota` flag here too, meant to mark "local storage refused the
+ * write for want of space" and to drive a read-only mode. NOTHING could ever
+ * set it (pkm-avag): the app runs on sqlite-wasm's opfs-sahpool VFS, whose
+ * `xWrite` catches the `QuotaExceededError` DOMException from
+ * `SyncAccessHandle.write()`, stores it on the pool's private `$error` and
+ * returns `SQLITE_IOERR` — so what reaches this module is a bare "disk I/O
+ * error", indistinguishable from any other write failure. Storage exhaustion
+ * is therefore handled the same way as every other failure to persist: the op
+ * is retained in the fallback lane and delivered online. */
 export class ReplicaError extends Error {
-  readonly quota: boolean;
   readonly rejected: boolean;
 
   constructor(message: string, flags: ReplicaErrorFlags = {}) {
     super(message);
     this.name = "ReplicaError";
-    this.quota = flags.quota === true;
     this.rejected = flags.rejected === true;
   }
 }

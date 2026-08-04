@@ -374,15 +374,17 @@ cannot. What follows from that (`web/src/replica/client.ts`,
   non-poisoned batches, drop the poisoned row, resume. Failure stays visible,
   with a Retry.
 
-### Opening the replica can fail, and that is a storage problem, not a sync problem
+**Opening the replica can fail, and that is a storage problem, not a sync
+problem.** The four subsections that follow are the whole path from "local
+storage failed" to what the user is told: the two ways the open fails, the
+availability fact they produce and who owns it, what the op queue and the UI do
+with it, and the in-memory lane that carries the user's writes in the meantime.
 
-This is the whole path from "local storage failed" to what the user is told.
-It starts with two failures that happen when a replica worker *starts*, not
-during sync — both races between an outgoing worker and its replacement, both
-fixed in pure policy modules (`replica/openRetry.ts`, `replica/poolCapacity.ts`)
-— and then follows what they produce: the availability fact and its owner, how
-the op queue and the UI act on it, and the in-memory lane that carries the
-user's writes in the meantime.
+### Two ways opening the replica fails
+
+Both happen when a replica worker *starts*, not during sync. Both are races
+between an outgoing worker and its replacement, and both fixes live in pure
+policy modules: `replica/openRetry.ts` and `replica/poolCapacity.ts`.
 
 **The open can throw.** The SAHPool VFS takes an exclusive
 `SyncAccessHandle` per pooled file, and an OPFS file backs only one open
@@ -400,9 +402,9 @@ handles being released. `SAH_POOL_INSTALL_OPTIONS` in `openRetry.ts` therefore
 passes `forceReinitIfPreviouslyFailed: true`, which sqlite-wasm documents for
 exactly this case. Dropping that flag makes a single contention failure
 permanent for the life of the worker (pkm-wi25), costing the local cache and
-offline reads for that session. It is no longer silent data loss: per the
-paragraph below, startup now falls back to online-only rather than holding its
-recovery barrier.
+offline reads for that session. It is no longer silent data loss: as the next
+subsection describes, startup now falls back to online-only rather than holding
+its recovery barrier.
 
 **The open can also succeed with a pool too small to write.** The SAHPool
 VFS is a fixed pool of pre-opened OPFS files, and *every* file SQLite opens
@@ -419,29 +421,7 @@ is to top the pool up to `MIN_POOL_CAPACITY` immediately after the install,
 before the database is opened. `addCapacity` creates fresh randomly-named
 files, so it never contends with handles the outgoing worker still holds.
 
-**Either failure can hit an enqueue**, and `opQueue` treats both as "could
-not persist locally right now" — what it does with every local write failure.
-That is not a server rejection, so firing `onDesync` is the wrong answer: its
-authoritative repair would wipe
-the active outline back to the edit-less server state and detach the editor
-mid-keystroke. Instead the ops join an **ordered in-memory fallback lane**
-and are delivered by the ordinary drain, under the same connectivity, backoff
-and recovery-barrier policy as durable rows.
-
-**An exhausted disk is not a distinguishable failure here, so there is no
-storage-full mode.** Before reaching for one, know that the signal does not
-exist: the opfs-sahpool VFS's `xWrite` catches the `QuotaExceededError`
-DOMException raised by `SyncAccessHandle.write()`, stores it on the pool's
-private `$error`, and returns `SQLITE_IOERR` — so what arrives on the main
-thread is a bare "disk I/O error", identical to any other write failure.
-`ReplicaError` carried a `quota` flag for years, and `computeEditability` had a
-read-only branch behind it, but nothing in `web/src` could ever set it
-(pkm-avag): every production site merely forwarded the flag, and only tests
-constructed one. Both are deleted. Storage exhaustion is handled by the rule
-above — the op is retained and delivered when the socket allows — and the only
-ways to recognise it would be matching the error message (the practice
-pkm-s7af removed) or estimating from `navigator.storage.estimate()`, whose
-numbers are deliberately padded.
+### The availability fact: two values, one owner
 
 **Startup must decide the replica is viable before it protects the replica's
 contents.** `SyncProvider`'s mount effect pauses the queue on the recovery
@@ -489,6 +469,31 @@ outright (`worker-error`, `message-error`, `disposed`) or a call times out.
 two-valued `ReplicaAvailability`, so the boolean-vs-two-valued mismatch is
 real, but confined to that one function.
 
+### What the queue and the UI do with it
+
+**Either open failure can hit an enqueue**, and `opQueue` treats both as "could
+not persist locally right now" — what it does with every local write failure.
+That is not a server rejection, so firing `onDesync` is the wrong answer: its
+authoritative repair would wipe the active outline back to the edit-less server
+state and detach the editor mid-keystroke. Instead the ops join an **ordered
+in-memory fallback lane** and are delivered by the ordinary drain, under the
+same connectivity, backoff and recovery-barrier policy as durable rows.
+
+**An exhausted disk is not a distinguishable failure here, so there is no
+storage-full mode.** Before reaching for one, know that the signal does not
+exist: the opfs-sahpool VFS's `xWrite` catches the `QuotaExceededError`
+DOMException raised by `SyncAccessHandle.write()`, stores it on the pool's
+private `$error`, and returns `SQLITE_IOERR` — so what arrives on the main
+thread is a bare "disk I/O error", identical to any other write failure.
+`ReplicaError` carried a `quota` flag for years, and `computeEditability` had a
+read-only branch behind it, but nothing in `web/src` could ever set it
+(pkm-avag): every production site merely forwarded the flag, and only tests
+constructed one. Both are deleted. Storage exhaustion is handled by the rule
+above — the op is retained and delivered when the socket allows — and the only
+ways to recognise it would be matching the error message (the practice
+pkm-s7af removed) or estimating from `navigator.storage.estimate()`, whose
+numbers are deliberately padded.
+
 **`opQueue` retains a failed replica RPC unless the replica rejected the op
 itself.** The rule is a one-item blocklist — retain everything except
 `ReplicaError.rejected` (an op the server would refuse too, e.g. unsupported
@@ -534,10 +539,12 @@ rejected changes failed: …" Retry banner, and it is the remaining case where
 *the queue's own policy* holds accepted edits undelivered in memory while the
 socket is up. It is not the only way they can sit there: an online-only session
 that loses connectivity has lane ops accepted while it was connected and no
-durable queue to put them in, which is what the banner two paragraphs above
-warns about. The difference matters when reading a report of lost edits — one
+durable queue to put them in, which is what the banner above warns about. The
+difference matters when reading a report of lost edits — one
 resolves by clearing the barrier, the other only by reconnecting before the tab
 is closed.
+
+### The in-memory fallback lane
 
 **The lane matches the durable path's policy *and* its payload.** It used to
 match only the policy: `base_text_hash` was stamped inside the worker

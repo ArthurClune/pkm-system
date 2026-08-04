@@ -261,6 +261,20 @@ it("no click anywhere in the viewer bubbles to an enclosing block's click-to-edi
   );
   await act(async () => {});
 
+  // Notes and Download are real anchors, and correctly left unprevented --
+  // a download link should do its native thing. But jsdom then tries a real
+  // navigation on a timer and logs "Not implemented: navigation" against
+  // whichever test happens to be running by then, not this one. pkm-10ah's
+  // App.test.tsx swallows the same noise with a document-level bubble
+  // listener, but that relies on the click reaching document at all; here it
+  // can't; the island's whole point (asserted below via onParentClick) is
+  // that every click stops propagation before it gets that far. Listening in
+  // the capture phase instead runs before that stopPropagation ever fires --
+  // capture travels root-to-target, ahead of any bubbling -- so it still
+  // catches the click and can pre-empt jsdom's navigation attempt.
+  const swallowNav = (e: Event) => e.preventDefault();
+  document.addEventListener("click", swallowNav, true);
+
   // inline footer: Download anchor click must not enter edit mode
   fireEvent.click(screen.getByRole("link", { name: "Notes" }));
   expect(onParentClick).not.toHaveBeenCalled();
@@ -286,6 +300,8 @@ it("no click anywhere in the viewer bubbles to an enclosing block's click-to-edi
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   expect(document.querySelector(".pdf-overlay")).toBeNull();
   expect(onParentClick).not.toHaveBeenCalled();
+
+  document.removeEventListener("click", swallowNav, true);
 });
 
 it("falls back to the download link when the document fails to load", async () => {

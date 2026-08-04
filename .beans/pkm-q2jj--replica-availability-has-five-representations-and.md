@@ -5,7 +5,7 @@ status: todo
 type: epic
 priority: normal
 created_at: 2026-08-04T12:53:17Z
-updated_at: 2026-08-04T13:04:10Z
+updated_at: 2026-08-04T13:31:59Z
 ---
 
 "Is the replica usable?" is currently encoded in five places, kept in sync by convention:
@@ -80,3 +80,33 @@ Next step: **writing-plans for this epic.** The design is approved; no implement
 ### Why this epic exists
 
 Two independent reviewers read the same memoisation mechanism, described it identically, and drew opposite conclusions about whether it was a virtue or a defect. That is the symptom of a missing concept, not of unreadable code — and cause sat three modules from effect.
+
+## PLAN WRITTEN (2026-08-04)
+
+docs/superpowers/plans/2026-08-04-replica-availability-single-owner.md — eight
+tasks, one per commit, in the design's order (61zt split across two: the
+ReplicaInit.ok sweep, then the markUnavailable/disabled deletion).
+
+Two design refinements found while writing it, recorded in the plan's
+"Findings" section and to be appended to the spec in Task 8:
+
+1. **The retain rule must be a one-item blocklist, not a two-value type check.**
+   isPoolExhausted (SQLITE_CANTOPEN) fires on writes to a successfully OPEN
+   database, so it is NOT an availability failure; retaining only on
+   unusable/unreachable would drop it through to onDesync and regress pkm-ndcu.
+   opQueue retains every replica failure EXCEPT one the replica reports as a
+   rejection of the op itself (LocalOpError -> a new `rejected` wire flag).
+   This is what pkm-9x6u's own scope correction asks for.
+2. **Only session-fatal evidence may latch an availability state.**
+   createRpcClient latches `terminal` for worker-error/message-error/disposed,
+   but a timeout rejects one request and leaves the client usable. Every level
+   retains; only permanent evidence caches a state. Hence isSessionFatal
+   alongside availabilityOf.
+
+Also decided: **ReplicaInit.ok is deleted** (representation #1 of the design's
+table). Once every handler rejects with the latch, an init() that resolves
+always has ok:true. Fixture churn is mechanical and typecheck finds every site.
+
+Third finding, recorded for pkm-imw4 rather than fixed: **nothing in web/src
+ever throws an error carrying quota:true** — the flag is set only by tests, so
+the quota -> onQuota -> read-only chain is unverifiable end-to-end today.

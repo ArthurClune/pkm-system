@@ -387,8 +387,10 @@ error instantly without touching OPFS, and the backoff can never observe the
 handles being released. `SAH_POOL_INSTALL_OPTIONS` in `openRetry.ts` therefore
 passes `forceReinitIfPreviouslyFailed: true`, which sqlite-wasm documents for
 exactly this case. Dropping that flag makes a single contention failure
-permanent for the life of the worker — and, per the paragraph below, silently
-undeliverable rather than merely uncached (pkm-wi25).
+permanent for the life of the worker (pkm-wi25), costing the local cache and
+offline reads for that session. It is no longer silent data loss: per the
+paragraph below, startup now falls back to online-only rather than holding its
+recovery barrier.
 
 **The open can also succeed with a pool too small to write.** The SAHPool
 VFS is a fixed pool of pre-opened OPFS files, and *every* file SQLite opens
@@ -413,17 +415,68 @@ mid-keystroke. Instead the ops join an **ordered in-memory fallback lane**
 and are delivered by the ordinary drain, under the same connectivity, backoff
 and recovery-barrier policy as durable rows.
 
-**That lane assumes the replica comes up eventually.** It is the enqueue that
-tolerates a temporarily unwritable replica, not startup: `SyncProvider`'s mount
-effect pauses the queue on the recovery barrier and holds it there until
-`queue.retryPoisonMarks()` and `replica.poisonedBatches()` have run, and both
-are replica RPCs. While the open cannot succeed at all, that gate never lifts,
-so the queue is never set online and the fallback lane is never drained. The
-UI shows "Checking rejected changes failed: …" with a Retry button, but the
-editor still accepts edits, and those edits live only in memory: a reload or a
-closed tab loses them. So a *permanently* unopenable replica is a
-durability hazard, not just a lost cache, and the pool's install options above
-are load-bearing for that reason.
+**Startup must decide the replica is viable before it protects the replica's
+contents.** `SyncProvider`'s mount effect pauses the queue on the recovery
+barrier and holds it until `queue.retryPoisonMarks()` and
+`replica.poisonedBatches()` have run — both replica RPCs. When the pool can
+never be opened, `poisonedBatches()` rejects, and for a long time that
+dead-ended startup with the barrier still held: the fallback lane was never
+drained, the editor kept accepting edits, and a reload or closed tab lost them
+(pkm-bjae). The online-only degradation that should have covered this
+(`init()` returning `ok: false`) was unreachable, because `init()` runs inside
+`start()` — the *last* thing startup does.
+
+So discovery failure now probes viability before concluding anything:
+`init()` is the one call that reports "no openable database" as a value rather
+than an exception. If it says the replica is not viable, startup calls
+`replicaSync.markUnavailable()` — committing the session to online-only, the
+same state as `ok: false` — and lifts the barrier, so the lane drains to the
+server. `markUnavailable()` exists rather than a second `start()` for a
+specific reason: were a later `init()` to succeed, the session would resume
+delivery with poison discovery *skipped*, which is the exact ordering hazard
+the barrier exists to prevent. Only an explicit `ok: false` lifts the barrier —
+a probe that *rejects* means we could not ask, not that there is no database,
+so it keeps the gate and its Retry banner.
+
+**Two invariants make that safe, and both are easy to break by accident.**
+First, `db()` is `dbPromise ??= deps.openDb()` (`workerHandlers.ts`), so one
+failed open is memoised and replayed to every handler; `init()`'s failure path
+must therefore *leave that rejection in place*. It originally cleared it, which
+re-armed the database the probe had just declared unopenable — and since
+`resume("recovery")` kicks a drain that calls `nextBatch()`, that drain got a
+fresh open, succeeded in the reload race, and delivered batches queued behind a
+poison row nobody had read. One failed open must mean online-only for the whole
+session; only `close()` re-arms. Second, latching preserves the memoised error's
+*identity*, which `opQueue`'s storage-error whitelist depends on to retain ops
+in the fallback lane instead of treating them as a desync.
+
+The session says so rather than degrading silently: startup raises a
+`replica-unavailable` problem, and `OfflineIndicator` renders "Working online
+only — offline editing is unavailable for now. Your changes are still being
+saved." The action is **Reload**, not Retry, and deliberately so. The failed
+open is latched for the session, and by the time the banner shows, the queue
+has already delivered online — so reopening mid-session could flush a previous
+session's stale durable queue on top of those writes. A fresh page load gets a
+fresh worker and runs poison discovery in the correct order.
+
+**One case deliberately still holds the gate.** Retained mark intents live in
+`localStorage`, not the replica, so they survive an unopenable database. When
+`retryPoisonMarks()` fails with intents present, a rejected batch is *known* to
+exist and cannot be repaired; delivering past it would post ahead of a batch
+the server already refused. That path keeps its barrier and its "Checking
+rejected changes failed: …" Retry banner, and it is the remaining case where
+accepted edits can sit undelivered in memory.
+
+**The lane matches the durable path's policy, not its payload.** `base_text_hash`
+is stamped inside the worker (`replica/queue.ts`, from `currentText`), so ops
+that never reach the database — every op in an online-only session — arrive at
+the server without one. The server then returns early into plain last-write-wins
+(`ops_core.py`, "check 3: legacy"), so `update_text` loses its conflict
+protection: a concurrent edit from another tab is overwritten rather than
+preserved as a `[[conflict]]` sibling, and editing a block another tab deleted
+400s, which makes the lane discard that entry. Stamping the hash on the main
+thread at op-construction time would fix it; the worker only fills it in when
+`undefined`.
 
 The lane preserves order. Each entry records how many durable batches were
 queued ahead of it, and is posted only once each of those has reached a

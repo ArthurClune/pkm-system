@@ -31,10 +31,12 @@
  * access to OPFS sync access handles on an initial attempt but permit it on a
  * second attempt", sqlite/sqlite-wasm#79).
  *
- * The cost of a dead replica is not just a missing cache: startup's rejected-
- * changes check fails, the op queue never leaves its startup pause, and edits
- * already accepted on screen sit in memory undelivered until the tab is
- * reloaded or closed, which loses them. */
+ * The cost of a dead replica is the local cache and offline reads: startup's
+ * rejected-changes check fails, and the session degrades to online-only
+ * delivery. It is no longer a durability hazard in the general case —
+ * pkm-bjae made startup fall back instead of holding its recovery barrier —
+ * but edits still strand in memory in the one case that barrier is retained
+ * for (a KNOWN-rejected batch that cannot be repaired; see pkm-tu5k). */
 export const SAH_POOL_INSTALL_OPTIONS = {
   name: "pkm-replica",
   forceReinitIfPreviouslyFailed: true,

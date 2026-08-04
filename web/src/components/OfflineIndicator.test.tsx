@@ -134,6 +134,70 @@ it("failed durable poison marking is visible and offers Retry", () => {
   expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
 });
 
+it("an online-only session says so and offers a Reload, not a Retry", async () => {
+  // pkm-bjae: this state was silent, so the user lost offline editing with no
+  // notice. Reload rather than Retry because the failed open is latched for
+  // the session and the queue has already delivered online.
+  const reload = vi.fn();
+  const original = globalThis.location;
+  Object.defineProperty(globalThis, "location", {
+    configurable: true, value: { ...original, reload },
+  });
+  try {
+    renderWith({
+      problem: {
+        kind: "replica-unavailable", error: "Access Handles cannot be created",
+      } as unknown as Sync["problem"],
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Working online only — offline editing is unavailable for now.");
+    // Must NOT promise the changes are being saved: that is only true for the
+    // error shapes opQueue retains for (pkm-9x6u).
+    expect(screen.getByRole("status")).not.toHaveTextContent("still being saved");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    // Nothing pending here, so Reload goes straight through.
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    await vi.waitFor(() => { expect(reload).toHaveBeenCalledTimes(1); });
+  } finally {
+    Object.defineProperty(globalThis, "location", {
+      configurable: true, value: original,
+    });
+  }
+});
+
+it("Reload confirms before discarding undelivered work", async () => {
+  // pkm-bjae review: location.reload() destroys the in-memory fallback lane,
+  // which in an online-only session is the ONLY place undelivered ops live,
+  // and there is no beforeunload anywhere in the app to catch it. The banner's
+  // own wording invites the click, so it must ask first — mirroring
+  // resetReplica's "N unsent changes" refusal.
+  const reload = vi.fn();
+  const original = globalThis.location;
+  Object.defineProperty(globalThis, "location", {
+    configurable: true, value: { ...original, reload },
+  });
+  try {
+    renderWith({
+      problem: {
+        kind: "replica-unavailable", error: "Access Handles cannot be created",
+      } as unknown as Sync["problem"],
+      pending: 2,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    // A confirmation naming the cost, and nothing destroyed until answered.
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      /2 unsent changes have not reached the server yet/);
+    expect(reload).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard and reload" }));
+    await vi.waitFor(() => { expect(reload).toHaveBeenCalledTimes(1); });
+  } finally {
+    Object.defineProperty(globalThis, "location", {
+      configurable: true, value: original,
+    });
+  }
+});
+
 it("failed startup poison discovery is visible and offers Retry", () => {
   const retryProblem = vi.fn(async () => undefined);
   renderWith({

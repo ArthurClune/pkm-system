@@ -1049,11 +1049,252 @@ async () => {
   expect(sync.problem).toMatchObject({
     kind: "poison-discovery", error: "poison discovery unavailable",
   });
-  expect(initCalls).toBe(0);
+  // init() IS called here now, as the viability probe that distinguishes an
+  // unopenable replica from this anomaly (pkm-bjae). Since it reports ok, the
+  // gate must stay up: exactly one call, because a start() would make it two.
+  expect(initCalls).toBe(1);
+  expect(sync.replicaMode).toBe("starting");
 
   await act(async () => { await sync.retryProblem(); });
   expect(discoveryCalls).toBe(2);
-  expect(initCalls).toBe(1);
+  // Retry must actually start syncing, not merely re-run discovery.
+  expect(initCalls).toBe(2);
+  expect(sync.replicaMode).toBe("ready");
+});
+
+// --- an unopenable replica must not hold the startup gate (pkm-bjae) ---
+
+/** A replica whose database can never be opened: every handler that reaches
+ * `db()` rejects, and only `init()` reports the failure as a value the way the
+ * real worker does (workerHandlers.ts). */
+function unopenableReplica(): Replica & { log: string[]; initCalls: () => number } {
+  const replica = fakeReplicaForProvider();
+  let initCalls = 0;
+  const dead = () => Promise.reject(new Error(
+    "Access Handles cannot be created if there is another open Access Handle",
+  ));
+  replica.init = async () => {
+    initCalls += 1;
+    return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
+             pendingBatches: [] };
+  };
+  replica.poisonedBatches = dead;
+  replica.pendingBatches = dead;
+  replica.pendingCount = dead;
+  replica.enqueue = dead;
+  replica.nextBatch = dead;
+  return Object.assign(replica, { initCalls: () => initCalls });
+}
+
+test("an unopenable replica delivers queued ops online instead of stranding them",
+async () => {
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+  await act(async () => {
+    sync.enqueue([{ op: "delete", uid: "typed-while-dead" }]);
+  });
+
+  await vi.waitFor(() => { expect(posts).toHaveLength(1); });
+  expect(sync.replicaMode).toBe("no-replica");
+  // and it says so, rather than degrading silently (pkm-bjae review)
+  expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
+});
+
+test("a replica that becomes openable later must not start syncing", async () => {
+  // Why startup calls markUnavailable() instead of awaiting start() and letting
+  // its own init() re-derive viability: if that second init() succeeded, the
+  // session would begin delivering with poison discovery SKIPPED — the exact
+  // ordering hazard the recovery barrier exists to prevent, reintroduced by
+  // the fix for it. replicaSync.test.ts covers the method in isolation, which
+  // does NOT catch a provider that stops calling it (pkm-bjae review).
+  const feeds: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/ops") return jsonResponse({ ok: true });
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) {
+      feeds.push(url);
+      return jsonResponse(EMPTY_FEED);
+    }
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  let calls = 0;
+  replica.init = async () => {
+    calls += 1;
+    // The pool frees up between the probe and any later start().
+    return calls === 1
+      ? { ok: false, empty: true, cursor: 0, schemaMismatch: false,
+          pendingBatches: [] }
+      : { ok: true, empty: false, cursor: 7, schemaMismatch: false,
+          pendingBatches: [] };
+  };
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+
+  // A reconnect issues start(); it must stay a no-op for the whole session.
+  await act(async () => { lastWs().drop(); await Promise.resolve(); });
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+
+  expect(sync.replicaMode).toBe("no-replica");
+  expect(feeds).toEqual([]);
+});
+
+/** Models the real worker's open memoisation (`workerHandlers.ts:63`): one
+ * failed open is cached and replayed to every handler, and — crucially — is
+ * NOT cleared by `init()` reporting `ok: false` (pkm-bjae). Contention here
+ * would clear after the first real attempt, so a worker that re-armed its open
+ * WOULD succeed on a second attempt; that this double never does is the
+ * property `workerHandlers.test.ts` pins directly ("a failed open stays
+ * latched"). This test guards the other half: that the provider does not reach
+ * the database by some other route once the barrier is lifted.
+ * `unopenableReplica()` above is permanently dead and cannot express the race
+ * at all. */
+function racingReplica(): Replica & { log: string[] } {
+  const log: string[] = [];
+  let state: "unopened" | "failed" | "open" = "unopened";
+  let contended = true;
+  const sah = () => new Error(
+    "Access Handles cannot be created if there is another open Access Handle");
+  const db = async (): Promise<void> => {
+    if (state === "open") return;
+    if (state === "failed") throw sah();       // memoised rejection, replayed
+    if (contended) { contended = false; state = "failed"; throw sah(); }
+    state = "open";
+  };
+  const rejected = { op: "delete", uid: "rejected" } as const;
+  const rows = [
+    { id: 7, batch_id: "rejected-last-session", ops: [rejected], poisoned: true },
+    { id: 8, batch_id: "queued-behind-poison",
+      ops: [{ op: "delete", uid: "behind" } as const], poisoned: false },
+  ];
+  const replica = fakeReplicaForProvider();
+  replica.init = async () => {
+    log.push("init");
+    try {
+      await db();
+    } catch {
+      // Deliberately does NOT reset `state`: the real worker leaves its
+      // memoised rejection in place so the database stays latched shut.
+      return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
+               pendingBatches: [] };
+    }
+    return { ok: true, empty: false, cursor: 5, schemaMismatch: false,
+             pendingBatches: [...rows] };
+  };
+  replica.poisonedBatches = async () => {
+    log.push("poisonedBatches");
+    await db();
+    return rows.filter((row) => row.poisoned).map((row) => ({
+      rowId: row.id, batchId: row.batch_id, ops: [...row.ops],
+      status: 400, message: "request failed: 400 /api/ops",
+    }));
+  };
+  replica.nextBatch = async () => {
+    log.push("nextBatch");
+    await db();
+    return rows.find((row) => !row.poisoned) ?? null;
+  };
+  replica.deleteBatch = async (id) => {
+    await db();
+    rows.splice(rows.findIndex((row) => row.id === id), 1);
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.pendingCount = async () => {
+    await db();
+    return rows.filter((row) => !row.poisoned).length;
+  };
+  return Object.assign(replica, { log });
+}
+
+test("a session that declared the replica unavailable must not drain a queue it never checked for poison",
+async () => {
+  // pkm-bjae review: init()'s failure path clears the worker's memoised open,
+  // so the probe RE-ARMS the database access it just reported impossible. The
+  // barrier then lifts and resume()'s kick drains through a database that now
+  // opens — delivering a batch queued behind an undiscovered poison row, which
+  // is precisely what the barrier exists to prevent.
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = racingReplica();
+  render(<SyncProvider replica={replica}><div /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+
+  expect(posts).not.toContain("queued-behind-poison");
+});
+
+test("a KNOWN-rejected batch still holds the gate when it cannot be repaired",
+async () => {
+  // The deliberate asymmetry (pkm-bjae): with no evidence of a rejected batch
+  // an unopenable replica falls back to online-only, but retained mark intents
+  // ARE evidence, and delivering past one would post ahead of a batch the
+  // server already rejected. This path keeps its gate and its Retry banner.
+  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+    version: 1,
+    intents: [{ rowId: 1, batchId: "bad-batch",
+                ops: [{ op: "delete", uid: "bad" }],
+                status: 400, message: "request failed: 400 /api/ops" }],
+  }));
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  replica.markPoisoned = async () => {
+    throw new Error("Access Handles cannot be created");
+  };
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+  await act(async () => {
+    sync.enqueue([{ op: "delete", uid: "typed-while-wedged" }]);
+  });
+  await act(async () => { await Promise.resolve(); });
+
+  expect(posts).toEqual([]);
+  expect(replica.initCalls()).toBe(0);
 });
 
 test("failed poison repair stays visible and Retry succeeds without reapplying it", async () => {

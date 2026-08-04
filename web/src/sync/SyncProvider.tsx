@@ -309,6 +309,34 @@ export function SyncProvider({ children, replica }: {
       discovered = await replicaRef.current!.poisonedBatches();
     } catch (error: unknown) {
       if (marked.length === 0) {
+        // Discovery reaching the database and failing may simply mean there is
+        // no openable database at all. init() is the one call that reports
+        // that as a value instead of throwing, so ask it before treating this
+        // as an unknown repairable state: with no replica there are no poison
+        // rows this gate could protect, and holding it would strand every
+        // accepted edit in the in-memory fallback lane until the tab closes
+        // (pkm-bjae).
+        // Only an explicit ok:false lifts the barrier. A probe that *rejects*
+        // (dead worker, broken RPC port, timeout) is not evidence that there is
+        // no database — only that we could not ask — so it keeps today's gate
+        // and its Retry banner rather than delivering past unread poison.
+        const probe = await replicaRef.current!.init().then(
+          (init) => (init.ok ? "viable" : "unopenable"),
+          () => "unknown",
+        );
+        if (probe === "unopenable") {
+          startupDiscoveringPoisonRef.current = false;
+          replicaSync!.markUnavailable();
+          queue.resume("recovery");
+          // Not silent: the user has lost offline editing for the session and
+          // gets no other signal, since "no-replica" raises no banner of its
+          // own (pkm-bjae review).
+          applySync({
+            type: "replica-unavailable",
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return;
+        }
         applySync({
           type: "poison-discovery-failed",
           error: error instanceof Error ? error.message : String(error),

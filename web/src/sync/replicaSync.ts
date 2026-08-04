@@ -29,6 +29,12 @@ export interface ReplicaSync {
   onSeq(seq: number, force?: boolean): void;
   /** Resolves when no pull is in flight (tests, reconnect ordering). */
   idle(): Promise<void>;
+  /** Commit this session to online-only because startup established that the
+   * replica cannot be opened. Mirrors the `init().ok === false` path, and must
+   * be used instead of relying on a later start() to re-derive it: if that
+   * start's init() happened to succeed, the session would resume delivery with
+   * poison discovery skipped (pkm-bjae). */
+  markUnavailable(): void;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
    * remains paused on return so the provider can delete the poison row, bump
    * view resync, and only then resume the queue. */
@@ -332,6 +338,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let starting: Promise<void> | null = null;
 
   return {
+    markUnavailable() {
+      disabled = true;
+      onState({ mode: "no-replica" });
+    },
     async start() {
       if (disabled) return;
       if (started) {
@@ -379,6 +389,14 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // pullLoop). Bail before touching the queue or acquiring a lease.
       if (authoritativeRepair === "poison") {
         throw new Error("rejected-batch repair in progress");
+      }
+      // A session committed to online-only must stay that way: this method
+      // sets started and forces mode "ready", which would revive syncing with
+      // poison discovery skipped. No UI path reaches this today (the reset
+      // control needs a stalled/recovery-failed mode, and neither can arise
+      // once disabled), so this guards a future UI change (pkm-bjae).
+      if (disabled) {
+        throw new Error("replica unavailable for this session");
       }
       queue.pause("recovery");
       let token: string | null = null;

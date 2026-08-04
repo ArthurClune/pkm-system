@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: normal
 created_at: 2026-08-04T12:20:27Z
-updated_at: 2026-08-04T12:20:27Z
+updated_at: 2026-08-04T12:25:31Z
 ---
 
 Found by adversarial review of pkm-bjae (verified by capturing the real POST body in a provider test).
@@ -33,3 +33,37 @@ Fix: stamp `base_text_hash` on the main thread at op-construction time (the edit
 [ ] Cover: an online-only session's update_text POST carries a hash
 [ ] Cover: two-tab concurrent edit yields a [[conflict]] sibling rather than a silent overwrite
 [ ] Update docs/architecture/sync-and-offline.md (the fallback-lane payload note added by pkm-bjae)
+
+
+## Ready-made repro (from the pkm-bjae adversarial review, run verbatim at 4fe2886)
+
+NOT committed as a test file: as written it passes (it only asserts one POST happened) and the missing hash shows in the logged body. To make it a real pin, change the final assertion to `expect(bodies[0].ops[0]).toHaveProperty("base_text_hash")`, which fails until the hash is stamped main-thread-side. Commit it green, with that assertion, as part of the fix.
+
+The open-failure message is deliberately the SAH-contention string, i.e. the *working* online-only path where the lane does deliver. That is what makes the missing hash a property of the fallback lane itself rather than a side effect of a broken session.
+
+```tsx
+const bodies: unknown[] = [];
+vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = String(input);
+  if (url === "/api/ops") { bodies.push(JSON.parse(String(init?.body))); return jsonResponse({ ok: true }); }
+  if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+  if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+  return jsonResponse({ detail: "not found" }, 404);
+}));
+// replica: init resolves { ok: false, ... }; every other handler rejects with
+// "Access Handles cannot be created if there is another open Access Handle"
+// (SyncProvider.test.tsx's unopenableReplica() already has this shape)
+render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+await act(async () => { lastWs().open(); await Promise.resolve(); });
+await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+await act(async () => {
+  sync.enqueue([{ op: "update_text", uid: "block-1", text: "edited online-only" }]);
+});
+await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+expect(bodies[0].ops[0]).toHaveProperty("base_text_hash");   // <- the pin
+```
+
+Observed body at 4fe2886 — note the absent hash:
+
+    {"client_id":"...","batch_id":"...",
+     "ops":[{"op":"update_text","uid":"block-1","text":"edited online-only"}]}

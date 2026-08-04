@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: normal
 created_at: 2026-08-04T11:52:14Z
-updated_at: 2026-08-04T12:20:27Z
+updated_at: 2026-08-04T12:25:31Z
 ---
 
 Found in review of pkm-bjae. Pre-existing mechanics, but that fix makes them the steady state of a normally-working session instead of a symptom of a wedge, which is why they are worth addressing now.
@@ -41,3 +41,58 @@ pkm-bjae's fix depends on the latched open preserving the ORIGINAL error identit
 Symptom 1's premise -- "the worker memoises the rejected dbPromise, so there is no repeated OPFS open, but drain() never returns `drained`" -- is true **only because pkm-bjae latches the failed open** (commit 0156328 removed the `dbPromise = null` from init()'s catch). Before that commit the premise was false in a way that mattered: the viability probe destroyed the memo, so the drain that `resume("recovery")` kicks performed a genuinely fresh open with a fresh retry budget, succeeded in the reload race, and drained the stale durable queue including batches behind an unrepaired poisoned row.
 
 So do not "fix" this bean by re-arming the open to make drain() succeed. The forever-failing drain is the SAFE behaviour; the goal is to stop asking the dead replica at all (an explicit no-replica mode in opQueue), not to make the asking work.
+
+
+## Ready-made repro (from the pkm-bjae adversarial review, run verbatim at 4fe2886)
+
+NOT committed as a test file: the second test asserts the CORRECT behaviour and therefore currently FAILS, which would break CI. Land it green as part of the fix (or `test.fails` with a reference to this bean in the meantime).
+
+Keep both tests together — the ONLY difference between them is the open error's *message*, which is what makes the diagnosis unambiguous.
+
+```tsx
+async function run(message: string) {
+  const posts: unknown[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") { posts.push(JSON.parse(String(init?.body))); return jsonResponse({ ok: true }); }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  // deadReplica(message): init resolves { ok: false, ... }, every other
+  // handler rejects with `message`
+  render(<SyncProvider replica={deadReplica(message)}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+  await act(async () => {
+    sync.enqueue([{ op: "update_text", uid: "u1", text: "typed while dead" }]);
+  });
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+  return { posts, sync };
+}
+
+test("SAH contention: edit reaches the server (the tested path)", async () => {
+  const { posts } = await run(
+    "Access Handles cannot be created if there is another open Access Handle");
+  expect(posts).toHaveLength(1);            // passes today
+});
+
+test("NON-whitelisted open failure: is the edit delivered?", async () => {
+  const { posts } = await run("OPFS is not available in this browser");
+  expect(posts).toHaveLength(1);            // FAILS today: []
+});
+```
+
+Observed at 4fe2886: `POSTS: []`, `PENDING: 0`, `canEdit: true`.
+
+**Do NOT pin the `problem` kind.** The reviewer observed `legacy-rejected`/`repaired` there, but only because the enqueue happened after `replicaMode === "no-replica"`, so `legacy-rejected` overwrote `replica-unavailable` — and pkm-bjae has since given `replica-unavailable` precedence-yielding behaviour, so that value will differ. The durable assertions are `POSTS: []` / `PENDING: 0` / `canEdit: true`.
+
+**Pre-existing, but by a different route.** At base `6bfc4d6` BOTH tests fail: the first times out in `waitFor` on `replicaMode === "no-replica"` — that is the wedge pkm-bjae fixed — rather than on the POST assertion. So base loses the edit via the wedge; post-pkm-bjae it is lost via `onDesync`. Same outcome, different mechanism.
+
+## Scope correction: an explicit no-replica mode is only HALF the fix
+
+The checklist above says "give opQueue a no-replica mode (set when SyncProvider calls markUnavailable)". That does not cover the `probe === "unknown"` branch. A worker whose module fails to load (a chunk 404 after a deploy against a stale index.html) or a 30s RPC timeout makes every call reject terminally via `RpcLifecycleError` (`web/src/replica/rpc.ts:93-117`) — `init()` included. The probe then returns `"unknown"`, the gate is RETAINED, `markUnavailable()` is never called, so no-replica mode is never set — and edits still take the unclassified-error drop path.
+
+So the condition to fix is broader: **retain ops on ANY unclassified replica error, not only while in a no-replica mode.** That closes both halves.
+
+[ ] Retain on any unclassified replica error, not just in no-replica mode (covers the "unknown"-probe / RpcLifecycleError path where markUnavailable is never called)

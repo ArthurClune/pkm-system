@@ -124,10 +124,20 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       });
     case "poison-discovery-failed":
       return problem(state, { kind: "poison-discovery", error: event.error });
-    case "replica-unavailable":
+    case "replica-unavailable": {
+      // A background "this session is online-only" report must not stomp a
+      // delivery problem the user can act on — overwriting a failed
+      // legacy-rejected repair would take its Retry with it, and retryProblem
+      // would no longer reach that repair at all (pkm-bjae review). Same
+      // precedence shape as replica-stalled below.
+      const current = state.problem;
+      if (current && current.kind !== "replica-unavailable") {
+        return { state, effects: [] };
+      }
       return problem(state, {
         kind: "replica-unavailable", error: event.error,
       });
+    }
     case "poison-discovery-cleared":
       return state.problem?.kind === "poison-discovery"
         ? problem(state, undefined) : { state, effects: [] };

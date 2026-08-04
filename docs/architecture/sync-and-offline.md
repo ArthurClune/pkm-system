@@ -467,6 +467,17 @@ the server already refused. That path keeps its barrier and its "Checking
 rejected changes failed: …" Retry banner, and it is the remaining case where
 accepted edits can sit undelivered in memory.
 
+**The lane matches the durable path's policy, not its payload.** `base_text_hash`
+is stamped inside the worker (`replica/queue.ts`, from `currentText`), so ops
+that never reach the database — every op in an online-only session — arrive at
+the server without one. The server then returns early into plain last-write-wins
+(`ops_core.py`, "check 3: legacy"), so `update_text` loses its conflict
+protection: a concurrent edit from another tab is overwritten rather than
+preserved as a `[[conflict]]` sibling, and editing a block another tab deleted
+400s, which makes the lane discard that entry. Stamping the hash on the main
+thread at op-construction time would fix it; the worker only fills it in when
+`undefined`.
+
 The lane preserves order. Each entry records how many durable batches were
 queued ahead of it, and is posted only once each of those has reached a
 terminal state: delivered, or poisoned and therefore never deliverable. That

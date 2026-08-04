@@ -3,9 +3,9 @@
 title: opQueue keeps routing writes through a dead replica in a no-replica session
 status: todo
 type: bug
-priority: low
+priority: normal
 created_at: 2026-08-04T11:52:14Z
-updated_at: 2026-08-04T12:08:05Z
+updated_at: 2026-08-04T12:20:27Z
 ---
 
 Found in review of pkm-bjae. Pre-existing mechanics, but that fix makes them the steady state of a normally-working session instead of a symptom of a wedge, which is why they are worth addressing now.

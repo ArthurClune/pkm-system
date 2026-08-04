@@ -103,6 +103,23 @@ The decision stands on its remaining ground: same-origin tabs contend for one
 OPFS pool, so a read-only policy would make a routinely-open second tab
 read-only as a matter of course.
 
+**The cost of that ground, found by the second adversarial pass.** In an
+online-only session *nothing* is conflict-guarded — including `update_text`,
+normally the one guarded op. `base_text_hash` is stamped inside the worker
+(`replica/queue.ts:41-47`, from `currentText(db, uid)`); no editor path supplies
+one, and the fallback lane posts `head.ops` verbatim. With the hash absent the
+server returns early at `ops_core.py:225` into plain LWW, so the other tab's
+concurrent edit to the same block is overwritten outright and the
+`[[conflict]]`-sibling preservation never runs. Editing a block the other tab
+deleted raises `OpError("block not found")` → HTTP 400, and a 4xx makes the
+fallback lane discard that entry.
+
+This is still a net improvement — the alternative today is that the second tab
+delivers nothing at all and loses everything on close — but it is the price of
+the two-tab argument and it is not free. Fixable by stamping `base_text_hash` on
+the main thread at op-construction time, which the worker already defers to
+(it only fills the hash in when `undefined`).
+
 Read-only was rejected. With two or more tabs open routinely (the primary
 user's normal pattern), tabs of the same origin contend for the same OPFS
 pool, so the non-owning tab would become read-only as a matter of course — a

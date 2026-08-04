@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T10:46:28Z
-updated_at: 2026-08-04T12:08:05Z
+updated_at: 2026-08-04T12:20:53Z
 ---
 
 Found while fixing pkm-wi25.
@@ -90,3 +90,19 @@ Committing to online-only is **silent**: `no-replica` maps to no `problem`, so n
 The spec's original residual-risk statement -- that a poisoned row with no localStorage intent needs "a crash between marking and repair" -- was too narrow, and is corrected in the spec. The window opens when *marking* succeeds (opQueue.ts:330 clears the intent) and closes only when the row is deleted (SyncProvider.tsx:283). Between them sits `rebaseAuthoritative("poison")`, including a full /api/sync/snapshot download. Any non-success route leaves the row poisoned with no intent: a failed snapshot fetch (likeliest -- poison is caused by a server 4xx, so the population is exactly clients the server just rejected), a throw partway through the deleteBatch loop (no per-row error handling), a worker-side snapshot apply failure, or the tab closing mid-download. And there is NO automatic retry: after repair-failed, repairRunRef clears and only the banner's manual Retry re-arms.
 
 Why this does not change the verdict on this branch: the latch bounds it. With the database shut for the session, the durable queue behind that poisoned row is never read and never drained; only this session's in-memory fallback ops are delivered, and those were made against server state. The residual exposure is that a LATER session which does open the DB flushes that stale queue, whose unguarded delete/move/insert ops are LWW. That hazard pre-exists this change; this change means more of the user's work sits in its path.
+
+
+## Second adversarial pass (2026-08-04) — verdict: safe to merge, one condition, now fixed
+
+The latch was attacked from six directions and held: every handler routes through the memoised `db()`, `close()` is the only re-arm and is immediately followed by `worker.terminate()`, `createReplica`/`new Worker` appear once each behind a guard, `resetLocalData` is guarded, and the offline gateway refuses when mode !== "ready". Ordering inside the lift also held (the block is synchronous; a concurrent connect's drain is blocked by `terminalReason` = "recovering"; double-clicking Retry converges on an idempotent path).
+
+Fixed on this branch in response:
+- **Reload could silently discard undelivered work.** `location.reload()` destroys the in-memory fallback lane -- the only place an online-only session's undelivered ops live -- and there is NO beforeunload anywhere in web/src. The banner's own wording invited the click. Now routed through `useConfirm` with the count ("N unsent changes have not reached the server yet. Reloading now discards them." / "Discard and reload"), mirroring resetReplica's refusal.
+- **Banner copy was false in some states.** "Your changes are still being saved" only holds for the error shapes opQueue retains for (quota / SAH contention / pool exhaustion). Outside that whitelist the ops are dropped, so the reassurance is removed; the copy now says only what is always true.
+- **`replica-unavailable` had no precedence rule.** It was the only problem event in syncState.ts that set unconditionally, so it stomped a failed `legacy-rejected` repair -- and with it the Retry that reaches repairLegacyRef, stranding that repair. It now yields to any other problem kind, matching replica-stalled.
+
+Recorded, not fixed here:
+- **pkm-4ubd (new):** in an online-only session NOTHING is conflict-guarded, including `update_text`. base_text_hash is stamped inside the worker, so fallback-lane ops arrive without it and the server falls through to plain LWW -- a concurrent edit from the replica-owning tab is overwritten instead of preserved as a `[[conflict]]` sibling. This is the cost of the two-tab argument that justifies the online-only decision.
+- **pkm-9x6u re-triaged low -> normal:** a non-whitelisted open failure still drops writes entirely (reproduced: POSTS [], PENDING 0, canEdit true, and the legacy repair wipes the active outline). Pre-existing, but this branch ships a banner adjacent to it, so the false-reassurance risk is higher.
+- **pkm-tu5k re-triaged low -> normal:** exit 1 is STICKY, not transient. The localStorage intent clears only after a successful markPoisoned against the database, so an unopenable profile is wedged in every future session with no escape.
+- The `"unknown"` probe branch (rejecting init keeps the gate) is reachable via a chunk-404-after-deploy, where Retry can never succeed. Left as-is: keeping the gate is correct, and the alternative is delivering past unread poison.

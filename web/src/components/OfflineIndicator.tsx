@@ -5,10 +5,27 @@
 // drains after reconnect, nothing when clean.
 import { useEffect, useState } from "react";
 import { useSync } from "../sync/SyncProvider";
+import { useConfirm } from "./ConfirmDialog";
 
 export function OfflineIndicator() {
   const { status, canEdit, pending, readOnlyReason, problem,
           retryProblem, dismissProblem, resetReplica } = useSync();
+  const { confirm, dialog } = useConfirm();
+
+  // A reload destroys the in-memory fallback lane, which in an online-only
+  // session is the only place undelivered ops live — and there is no
+  // beforeunload anywhere in the app to catch it. Ask first, the way
+  // resetReplica does (pkm-bjae review).
+  const reloadForOnlineOnly = async (): Promise<void> => {
+    if (pending > 0) {
+      const ok = await confirm(
+        `${pending} unsent change${pending === 1 ? "" : "s"} ` +
+        "have not reached the server yet. Reloading now discards them.",
+        { confirmLabel: "Discard and reload", danger: true });
+      if (!ok) return;
+    }
+    globalThis.location.reload();
+  };
   const [syncingAfterReconnect, setSyncingAfterReconnect] =
     useState(status !== "connected");
 
@@ -29,10 +46,13 @@ export function OfflineIndicator() {
       // reopening mid-session could flush a previous session's stale durable
       // queue on top of those writes. A fresh page load gets a fresh worker
       // and runs startup's poison discovery in the right order.
+      // Copy deliberately does NOT promise the changes are being saved: that
+      // is only true when the open failure is one opQueue retains for (quota /
+      // SAH contention / pool exhaustion). Outside that whitelist the ops are
+      // dropped, so the reassurance would be false — see pkm-9x6u.
       <div className="ws-banner" role="status">
-        Working online only — offline editing is unavailable for now. Your
-        changes are still being saved.
-        <button type="button" onClick={() => { globalThis.location.reload(); }}>
+        Working online only — offline editing is unavailable for now.
+        <button type="button" onClick={() => { void reloadForOnlineOnly(); }}>
           Reload
         </button>
       </div>
@@ -127,5 +147,5 @@ export function OfflineIndicator() {
       </div>
     );
   }
-  return <>{deliveryProblem}{connectivity}</>;
+  return <>{deliveryProblem}{connectivity}{dialog}</>;
 }

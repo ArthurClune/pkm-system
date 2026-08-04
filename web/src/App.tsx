@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { AssistantPanel } from "./assistant/AssistantPanel";
 import { MenuIcon } from "./components/icons";
+import { NavPageLink } from "./components/NavPageLink";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { UndoRedoKeys } from "./components/UndoRedoKeys";
 import { SidebarNav } from "./components/SidebarNav";
@@ -11,7 +12,6 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { TopBar } from "./components/TopBar";
 import { BlockStampsContext, SidebarContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
-import { pagePath } from "./paths";
 import { ROUTES } from "./routeMeta";
 import { SyncProvider } from "./sync/SyncProvider";
 import { useBlockStampsPref } from "./useBlockStampsPref";
@@ -165,10 +165,10 @@ export function App() {
                          className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
                   Current Work
                 </NavLink>
-                <NavLink to={pagePath("TODO")} onClick={() => setNavOpen(false)}
-                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
-                  TODO
-                </NavLink>
+                {/* A real page, unlike the routes around it, so shift-click
+                  * opens it in the sidebar rather than a second window. */}
+                <NavPageLink title="TODO" className="nav-link primary"
+                             onNavigate={() => setNavOpen(false)} />
                 <ThemeToggle />
                 <SidebarNav onNavigate={() => setNavOpen(false)} />
                 {/* "nav-section-start": closes off the pinned pages above with

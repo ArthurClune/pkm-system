@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "./router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -43,6 +43,39 @@ it("shift-click stacks sidebar panels newest-first; close removes one", async ()
   fireEvent.click(within(panels[0]).getByRole("button", { name: "close panel" }));
   expect(screen.queryByText("ai body")).toBeNull();
   expect(screen.getByText("paper body")).toBeInTheDocument();
+});
+
+it("shift-clicking the nav's TODO link opens it in the sidebar, not a new window (pkm-10ah)", async () => {
+  stubFetch([
+    ["/api/journal", { days: [] }],
+    ["/api/sidebar", { entries: [] }],
+    ["/api/page/TODO", pagePayload("TODO", [block("uid_t1", "todo body")])],
+  ]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  const link = screen.getByRole("link", { name: "TODO" });
+  const event = createEvent.click(link, { shiftKey: true });
+  fireEvent(link, event);
+  expect(await screen.findByText("todo body")).toBeInTheDocument();
+  expect(event.defaultPrevented).toBe(true);
+});
+
+it("leaves shift-click alone on nav destinations that aren't pages (pkm-10ah)", async () => {
+  stubFetch([["/api/journal", { days: [] }], ["/api/sidebar", { entries: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  // A sidebar panel renders a page by title; /files has no page behind it, so
+  // there is nothing to open and the browser's own shift-click stands.
+  // Read defaultPrevented from a document-level listener (it runs after
+  // React's, which is attached to the render container) and then prevent the
+  // default ourselves: left unprevented, jsdom asynchronously attempts a real
+  // navigation and logs "Not implemented" against whichever test is running by
+  // then.
+  let prevented: boolean | null = null;
+  const probe = (e: Event) => { prevented = e.defaultPrevented; e.preventDefault(); };
+  document.addEventListener("click", probe);
+  fireEvent.click(screen.getByRole("link", { name: "Files" }), { shiftKey: true });
+  document.removeEventListener("click", probe);
+  expect(prevented).toBe(false);
+  expect(screen.queryByRole("region")).toBeNull();
 });
 
 it("cmd-u focuses the top bar's search bar", async () => {

@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T10:46:28Z
-updated_at: 2026-08-04T12:20:53Z
+updated_at: 2026-08-04T12:22:23Z
 ---
 
 Found while fixing pkm-wi25.

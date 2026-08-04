@@ -1,11 +1,11 @@
 ---
 # pkm-bjae
 title: A permanently unopenable replica wedges startup and strands edits in memory
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T10:46:28Z
-updated_at: 2026-08-04T11:18:45Z
+updated_at: 2026-08-04T11:32:55Z
 ---
 
 Found while fixing pkm-wi25.
@@ -23,7 +23,27 @@ Worth deciding between:
 
 ## Checklist
 
-[ ] Decide the policy (drain-anyway vs refuse-edits vs warn-on-unload)
-[ ] Reproduce deterministically in a unit test against SyncProvider with a replica whose open always rejects
-[ ] Implement and cover
-[ ] Update docs/architecture/sync-and-offline.md (the paragraph pkm-wi25 added about this hazard)
+[x] Decide the policy (drain-anyway vs refuse-edits vs warn-on-unload)
+[x] Reproduce deterministically in a unit test against SyncProvider with a replica whose open always rejects
+[x] Implement and cover
+[x] Update docs/architecture/sync-and-offline.md (the paragraph pkm-wi25 added about this hazard)
+
+
+## Summary of Changes
+
+Policy: **online-only fallback, not read-only** (decided with Arthur 2026-08-04). The app already shipped this degradation for wasm/OPFS-unavailable via `init()` returning `ok: false`; this change makes it reachable rather than inventing a new policy. Read-only was rejected because same-origin tabs contend for one OPFS pool, so a routinely-open second tab would be read-only as a matter of course.
+
+Root cause of the unreachability: `init()` is the only handler that reports a `db()` failure as a value (workerHandlers.ts:170), but it runs inside `start()`, which is the LAST line of `continueStartup` (SyncProvider.tsx). `poisonedBatches()` queries the replica first with an uncaught `await db()` (workerHandlers.ts:218), so a permanent open failure dead-ended startup with `pause("recovery")` still held. Only the pause is durable -- `setOnline` self-corrects from socket status.
+
+Changes:
+- `sync/SyncProvider.tsx` -- on discovery failure with no mark intents, probe `init()` for viability; if not viable, `markUnavailable()` + `resume("recovery")` and return.
+- `sync/replicaSync.ts` -- new `markUnavailable()` (sets the session's permanent `disabled` flag + reports `no-replica`). Deliberately NOT `await start()`: if that start's `init()` happened to succeed, the session would resume delivery with poison discovery skipped -- reintroducing the ordering hazard as part of the fix.
+- `sync/SyncProvider.test.tsx` -- two new tests (online-only delivery; the exit-1 pin below). Also amended "startup discovery failure without fallback is visible and retryable": its `initCalls === 0` assertion was pinning "did not start syncing", which the probe changes without changing intent, so it now asserts one probe call plus no `applySnapshot`.
+- `sync/replicaSync.test.ts` -- `markUnavailable` is permanent even if a later `init()` would succeed.
+- `docs/architecture/sync-and-offline.md` -- rewrote the hazard paragraph pkm-wi25 added; it described the old dead-end behaviour.
+
+Deliberately out of scope, split to **pkm-tu5k**: when `retryPoisonMarks()` fails with intents present, a rejected batch is KNOWN to exist and the gate correctly stays up -- but edits still strand silently behind a banner that only says a check failed. A test pins that asymmetry so it cannot be "fixed" by accident.
+
+Residual risk accepted: a stale holder (crashed tab, OS-level lock) means nobody repairs a hidden poisoned row and this change posts ahead of it. Needs a prior crash between marking and repair; consistent with the risk the OPFS-unavailable path already takes.
+
+Verified: `cd web && pnpm verify` exit 0 -- 122 files / 1964 tests, coverage 97.69% stmts / 93.12% branch, 51/51 e2e, 0 jsdom warnings. Each new test was watched failing first; the two behaviour-pinning tests were proved to have teeth by temporarily breaking the code they guard.

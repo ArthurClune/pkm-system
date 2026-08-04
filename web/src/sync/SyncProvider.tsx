@@ -309,6 +309,21 @@ export function SyncProvider({ children, replica }: {
       discovered = await replicaRef.current!.poisonedBatches();
     } catch (error: unknown) {
       if (marked.length === 0) {
+        // Discovery reaching the database and failing may simply mean there is
+        // no openable database at all. init() is the one call that reports
+        // that as a value instead of throwing, so ask it before treating this
+        // as an unknown repairable state: with no replica there are no poison
+        // rows this gate could protect, and holding it would strand every
+        // accepted edit in the in-memory fallback lane until the tab closes
+        // (pkm-bjae).
+        const viable = await replicaRef.current!.init()
+          .then((init) => init.ok).catch(() => false);
+        if (!viable) {
+          startupDiscoveringPoisonRef.current = false;
+          replicaSync!.markUnavailable();
+          queue.resume("recovery");
+          return;
+        }
         applySync({
           type: "poison-discovery-failed",
           error: error instanceof Error ? error.message : String(error),

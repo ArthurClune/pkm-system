@@ -29,6 +29,12 @@ export interface ReplicaSync {
   onSeq(seq: number, force?: boolean): void;
   /** Resolves when no pull is in flight (tests, reconnect ordering). */
   idle(): Promise<void>;
+  /** Commit this session to online-only because startup established that the
+   * replica cannot be opened. Mirrors the `init().ok === false` path, and must
+   * be used instead of relying on a later start() to re-derive it: if that
+   * start's init() happened to succeed, the session would resume delivery with
+   * poison discovery skipped (pkm-bjae). */
+  markUnavailable(): void;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
    * remains paused on return so the provider can delete the poison row, bump
    * view resync, and only then resume the queue. */
@@ -332,6 +338,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let starting: Promise<void> | null = null;
 
   return {
+    markUnavailable() {
+      disabled = true;
+      onState({ mode: "no-replica" });
+    },
     async start() {
       if (disabled) return;
       if (started) {

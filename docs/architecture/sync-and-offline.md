@@ -413,17 +413,34 @@ mid-keystroke. Instead the ops join an **ordered in-memory fallback lane**
 and are delivered by the ordinary drain, under the same connectivity, backoff
 and recovery-barrier policy as durable rows.
 
-**That lane assumes the replica comes up eventually.** It is the enqueue that
-tolerates a temporarily unwritable replica, not startup: `SyncProvider`'s mount
-effect pauses the queue on the recovery barrier and holds it there until
-`queue.retryPoisonMarks()` and `replica.poisonedBatches()` have run, and both
-are replica RPCs. While the open cannot succeed at all, that gate never lifts,
-so the queue is never set online and the fallback lane is never drained. The
-UI shows "Checking rejected changes failed: …" with a Retry button, but the
-editor still accepts edits, and those edits live only in memory: a reload or a
-closed tab loses them. So a *permanently* unopenable replica is a
-durability hazard, not just a lost cache, and the pool's install options above
-are load-bearing for that reason.
+**Startup must decide the replica is viable before it protects the replica's
+contents.** `SyncProvider`'s mount effect pauses the queue on the recovery
+barrier and holds it until `queue.retryPoisonMarks()` and
+`replica.poisonedBatches()` have run — both replica RPCs. When the pool can
+never be opened, `poisonedBatches()` rejects, and for a long time that
+dead-ended startup with the barrier still held: the fallback lane was never
+drained, the editor kept accepting edits, and a reload or closed tab lost them
+(pkm-bjae). The online-only degradation that should have covered this
+(`init()` returning `ok: false`) was unreachable, because `init()` runs inside
+`start()` — the *last* thing startup does.
+
+So discovery failure now probes viability before concluding anything:
+`init()` is the one call that reports "no openable database" as a value rather
+than an exception. If it says the replica is not viable, startup calls
+`replicaSync.markUnavailable()` — committing the session to online-only, the
+same state as `ok: false` — and lifts the barrier, so the lane drains to the
+server. `markUnavailable()` exists rather than a second `start()` for a
+specific reason: were a later `init()` to succeed, the session would resume
+delivery with poison discovery *skipped*, which is the exact ordering hazard
+the barrier exists to prevent.
+
+**One case deliberately still holds the gate.** Retained mark intents live in
+`localStorage`, not the replica, so they survive an unopenable database. When
+`retryPoisonMarks()` fails with intents present, a rejected batch is *known* to
+exist and cannot be repaired; delivering past it would post ahead of a batch
+the server already refused. That path keeps its barrier and its "Checking
+rejected changes failed: …" Retry banner, and it is the remaining case where
+accepted edits can sit undelivered in memory.
 
 The lane preserves order. Each entry records how many durable batches were
 queued ahead of it, and is posted only once each of those has reached a

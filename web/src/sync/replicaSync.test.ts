@@ -118,6 +118,25 @@ test("no-replica init reports mode and never fetches", async () => {
   expect(fetchJson).not.toHaveBeenCalled();
 });
 
+test("markUnavailable is permanent even if a later init would succeed",
+async () => {
+  // pkm-bjae: startup calls this when it has established the replica cannot be
+  // opened. If a later start() were allowed to re-derive viability and happened
+  // to succeed, the session would begin delivering with poison discovery
+  // skipped — the ordering hazard the startup gate exists to prevent.
+  const replica = fakeReplica();
+  const fetchJson = vi.fn();
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  sync.markUnavailable();
+  expect(states.at(-1)).toEqual({ mode: "no-replica" });
+
+  await sync.start();
+  expect(fetchJson).not.toHaveBeenCalled();
+  expect(states.at(-1)).toEqual({ mode: "no-replica" });
+});
+
 test("a hydrated replica reaches ready with the network down (cold start offline)", async () => {
   // start() must not need the socket: a cold start offline serves the app
   // shell from the service worker and content from the replica

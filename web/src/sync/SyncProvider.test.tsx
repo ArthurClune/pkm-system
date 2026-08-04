@@ -1049,11 +1049,108 @@ async () => {
   expect(sync.problem).toMatchObject({
     kind: "poison-discovery", error: "poison discovery unavailable",
   });
-  expect(initCalls).toBe(0);
+  // init() IS called here now, as the viability probe that distinguishes an
+  // unopenable replica from this anomaly (pkm-bjae). Since it reports ok, the
+  // gate must stay up: what must not happen is starting to sync.
+  expect(initCalls).toBe(1);
+  expect(replica.log).not.toContain("applySnapshot");
 
   await act(async () => { await sync.retryProblem(); });
   expect(discoveryCalls).toBe(2);
-  expect(initCalls).toBe(1);
+});
+
+// --- an unopenable replica must not hold the startup gate (pkm-bjae) ---
+
+/** A replica whose database can never be opened: every handler that reaches
+ * `db()` rejects, and only `init()` reports the failure as a value the way the
+ * real worker does (workerHandlers.ts). */
+function unopenableReplica(): Replica & { log: string[]; initCalls: () => number } {
+  const replica = fakeReplicaForProvider();
+  let initCalls = 0;
+  const dead = () => Promise.reject(new Error(
+    "Access Handles cannot be created if there is another open Access Handle",
+  ));
+  replica.init = async () => {
+    initCalls += 1;
+    return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
+             pendingBatches: [] };
+  };
+  replica.poisonedBatches = dead;
+  replica.pendingBatches = dead;
+  replica.pendingCount = dead;
+  replica.enqueue = dead;
+  replica.nextBatch = dead;
+  return Object.assign(replica, { initCalls: () => initCalls });
+}
+
+test("an unopenable replica delivers queued ops online instead of stranding them",
+async () => {
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+  await act(async () => {
+    sync.enqueue([{ op: "delete", uid: "typed-while-dead" }]);
+  });
+
+  await vi.waitFor(() => { expect(posts).toHaveLength(1); });
+  expect(sync.replicaMode).toBe("no-replica");
+});
+
+test("a KNOWN-rejected batch still holds the gate when it cannot be repaired",
+async () => {
+  // The deliberate asymmetry (pkm-bjae): with no evidence of a rejected batch
+  // an unopenable replica falls back to online-only, but retained mark intents
+  // ARE evidence, and delivering past one would post ahead of a batch the
+  // server already rejected. This path keeps its gate and its Retry banner.
+  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+    version: 1,
+    intents: [{ rowId: 1, batchId: "bad-batch",
+                ops: [{ op: "delete", uid: "bad" }],
+                status: 400, message: "request failed: 400 /api/ops" }],
+  }));
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  replica.markPoisoned = async () => {
+    throw new Error("Access Handles cannot be created");
+  };
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+  await act(async () => {
+    sync.enqueue([{ op: "delete", uid: "typed-while-wedged" }]);
+  });
+  await act(async () => { await Promise.resolve(); });
+
+  expect(posts).toEqual([]);
+  expect(replica.initCalls()).toBe(0);
 });
 
 test("failed poison repair stays visible and Retry succeeds without reapplying it", async () => {

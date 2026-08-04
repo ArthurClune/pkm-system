@@ -6,9 +6,8 @@ import { ApiError } from "../api/client";
 import { apiPost } from "../api/typedClient";
 import type { BlockOp } from "../api/ops";
 import type { PoisonedBatch, Replica } from "../replica/client";
-import { isSahPoolContention } from "../replica/openRetry";
-import { isPoolExhausted } from "../replica/poolCapacity";
-import { ReplicaError } from "../replica/errors";
+import { availabilityOf, isSessionFatal, ReplicaError,
+         type ReplicaAvailability } from "../replica/errors";
 import { newUid } from "../uid";
 import { createQueueState, terminalReason, transitionQueue,
          type QueueEffect, type QueueEvent } from "./queueState";
@@ -185,6 +184,19 @@ function createReplicaQueue(replica: Replica,
   // Durable batches persisted since the last fallback entry was appended:
   // they sit BEHIND that entry and must not overtake it.
   let durableSinceFallback = 0;
+  // The availability fact, DERIVED from this queue's own failed RPCs and
+  // latched only on evidence that is itself permanent (the worker's latched
+  // open, or a terminally failed RPC client — never a timeout). The queue does
+  // not need telling by anyone: the single owner is the worker, and this is a
+  // local cache of what it said. Nothing here lifts the recovery barrier —
+  // that decision needs the stronger `unusable` evidence and belongs to
+  // startup (pkm-bjae).
+  let unavailable: ReplicaAvailability | null = null;
+  const noteReplicaFailure = (error: unknown): void => {
+    if (unavailable === null && isSessionFatal(error)) {
+      unavailable = availabilityOf(error);
+    }
+  };
 
   /** Durable rows plus retained in-memory entries: what the UI must show as
    * "changes pending", and what a blocked drain reports. */
@@ -255,10 +267,13 @@ function createReplicaQueue(replica: Replica,
   };
 
   const countPending = async (): Promise<number> => {
+    // Nothing to ask, and asking is what pkm-9x6u is about.
+    if (unavailable !== null) return pendingCount;
     try {
       pendingCount = await replica.pendingCount();
-    } catch {
+    } catch (error: unknown) {
       // The last observed count is still the best terminal diagnostic.
+      noteReplicaFailure(error);
     }
     return pendingCount;
   };
@@ -316,6 +331,10 @@ function createReplicaQueue(replica: Replica,
         }), event.batchId);
         if (result.matched !== false) matchedIntents.push(event);
       } catch (error: unknown) {
+        // Same fact, learned from a different call. An unmarkable intent still
+        // holds the gate: knowing the replica is gone does not make delivering
+        // past a KNOWN-rejected batch safe (pkm-tu5k).
+        noteReplicaFailure(error);
         poisonMarkFailed.emit({ event, error });
         throw error;
       }
@@ -337,6 +356,25 @@ function createReplicaQueue(replica: Replica,
     await settleAll();
     const initialBlock = terminalReason(qstate);
     if (initialBlock !== null) return blocked(initialBlock);
+
+    /** The durable queue is unreachable, so nothing durable can be delivered
+     * and nothing durable can still stand ahead of a retained entry. Returns
+     * the outcome to report, or null to keep looping (there is lane work, or a
+     * kick landed mid-drain).
+     *
+     * pendingCount is deliberately NOT zeroed: durable rows persisted before
+     * the replica died are genuinely undelivered and belong in the pending
+     * diagnostic. Outstanding delivery promises are deliberately left
+     * unsettled, exactly as they are today — dispose() is what settles them —
+     * because resolving them "delivered" would be a lie and resolving them
+     * "failed" would change what the outline session's replay does. */
+    const laneOnly = (): DrainOutcome | null => {
+      for (const entry of fallback) entry.durableAhead = 0;
+      durableSinceFallback = 0;
+      if (fallback.length > 0) return null;
+      if (drainAgain) return null;
+      return { status: "drained" };
+    };
 
     for (;;) {
       drainAgain = false;
@@ -369,11 +407,20 @@ function createReplicaQueue(replica: Replica,
         if (laneBlock !== null) return blocked(laneBlock);
         continue;
       }
+      if (unavailable !== null) {
+        const outcome = laneOnly();
+        if (outcome !== null) return outcome;
+        continue;
+      }
       let batch;
       try {
         batch = await replica.nextBatch();
       } catch (error: unknown) {
-        return failed(error);
+        noteReplicaFailure(error);
+        if (unavailable === null) return failed(error);
+        const outcome = laneOnly();
+        if (outcome !== null) return outcome;
+        continue;
       }
       if (batch === null) {
         pendingCount = 0;
@@ -432,6 +479,7 @@ function createReplicaQueue(replica: Replica,
       try {
         result = await replica.deleteBatch(batch.id);
       } catch (error: unknown) {
+        noteReplicaFailure(error);
         return failed(error);
       }
       pendingCount = result.pending;
@@ -545,61 +593,67 @@ function createReplicaQueue(replica: Replica,
           if (!qstate.disposed) kick();
         } catch (error: unknown) {
           resolve({ status: "failed", error });
-          const quotaExhausted = error instanceof ReplicaError && error.quota;
-          // Local storage being unavailable is NOT a server rejection: the
-          // replica is a cache, not the durability boundary. Quota exhaustion,
-          // OPFS access-handle contention (a reload/second tab racing the
-          // prior worker's SAH pool, pkm-c9hp) and an exhausted SAH pool with
-          // no slot for SQLite's rollback journal (pkm-ndcu) all mean "cannot
-          // persist locally right now" — never that the server refused the
-          // edit. Firing onDesync would be the wrong answer, because its
-          // authoritative repair would wipe the active outline to the
-          // (edit-less) server state and detach the editor mid-keystroke, so
-          // the ops are retained for ordered delivery by drain() rather than
-          // posted from here.
-          if (quotaExhausted || isSahPoolContention(error)
-              || isPoolExhausted(error)) {
-            if (quotaExhausted) quota.emit(error);
-            if (qstate.disposed) {
-              resolveDelivery({
-                status: "failed", error: new Error("op queue disposed"),
-              });
-              return;
-            }
-            // Retain the ops in an ordered in-memory lane and let drain()
-            // deliver them: that keeps offline state, backoff and the
-            // recovery barrier in force, and keeps these ops behind the
-            // durable batches that preceded them (pkm-49eh). countPending()
-            // may read a count that a concurrent drain is about to shrink. An
-            // over-count delays this entry, and until the durable queue is
-            // next observed empty (which clears every count) a batch persisted
-            // after it can go out first; what a stale count can never do is
-            // lose the ops, which is the property that matters here.
-            const durableAhead = fallback.length === 0
-              ? await countPending() : durableSinceFallback;
-            // countPending() is a worker RPC, so dispose() can have run its
-            // settle loop while it was in flight: an entry appended now would
-            // leave `delivered` pending forever, and every holder of that
-            // promise leaking with it.
-            if (qstate.disposed) {
-              resolveDelivery({
-                status: "failed", error: new Error("op queue disposed"),
-              });
-              return;
-            }
-            fallback.push({
-              batchId: newUid(),
-              ops,
-              durableAhead,
-              resolve: resolveDelivery,
-            });
-            durableSinceFallback = 0;
-            emitPending();
-            kick();
-          } else {
+          const replicaError = error instanceof ReplicaError ? error : null;
+          // The replica refused the OP, not the storing of it (unsupported
+          // title syntax): the server would refuse it too, so retaining and
+          // retrying can never help. The ONE case that still desyncs.
+          if (replicaError?.rejected === true) {
             resolveDelivery({ status: "failed", error });
             try { onDesync(error); } catch { /* listener isolation */ }
+            return;
           }
+          // Everything else means "could not persist locally right now", which
+          // is NEVER a server rejection: the replica is a cache, not the
+          // durability boundary. Firing onDesync would be the wrong answer,
+          // because its authoritative repair would wipe the active outline to
+          // the (edit-less) server state and detach the editor mid-keystroke.
+          // So the ops are retained for ordered delivery by drain().
+          //
+          // This used to be an allowlist of three error shapes, two of them
+          // matched by MESSAGE (quota / OPFS access-handle contention, pkm-c9hp
+          // / exhausted SAH pool, pkm-ndcu). Whether the user's writes survived
+          // therefore depended on string matching, and any unlisted shape — a
+          // wasm init failure, OPFS unavailable in private browsing, a dead
+          // worker's RpcLifecycleError — lost the edit AND rebased the outline
+          // (pkm-9x6u). A one-item blocklist is the honest rule.
+          noteReplicaFailure(error);
+          if (replicaError?.quota === true) quota.emit(error);
+          if (qstate.disposed) {
+            resolveDelivery({
+              status: "failed", error: new Error("op queue disposed"),
+            });
+            return;
+          }
+          // Retain the ops in an ordered in-memory lane and let drain()
+          // deliver them: that keeps offline state, backoff and the
+          // recovery barrier in force, and keeps these ops behind the
+          // durable batches that preceded them (pkm-49eh). countPending()
+          // may read a count that a concurrent drain is about to shrink. An
+          // over-count delays this entry, and until the durable queue is
+          // next observed empty (which clears every count) a batch persisted
+          // after it can go out first; what a stale count can never do is
+          // lose the ops, which is the property that matters here.
+          const durableAhead = fallback.length === 0
+            ? await countPending() : durableSinceFallback;
+          // countPending() is a worker RPC, so dispose() can have run its
+          // settle loop while it was in flight: an entry appended now would
+          // leave `delivered` pending forever, and every holder of that
+          // promise leaking with it.
+          if (qstate.disposed) {
+            resolveDelivery({
+              status: "failed", error: new Error("op queue disposed"),
+            });
+            return;
+          }
+          fallback.push({
+            batchId: newUid(),
+            ops,
+            durableAhead,
+            resolve: resolveDelivery,
+          });
+          durableSinceFallback = 0;
+          emitPending();
+          kick();
         }
       };
       persistChain = persistChain.then(persist, persist);

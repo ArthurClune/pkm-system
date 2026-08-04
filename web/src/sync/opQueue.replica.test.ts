@@ -3,7 +3,8 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { PendingBatch, Replica } from "../replica/client";
-import { ReplicaError } from "../replica/errors";
+import { ReplicaError, ReplicaUnavailableError,
+         RpcLifecycleError } from "../replica/errors";
 import { jsonResponse } from "../test-helpers";
 import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 
@@ -268,6 +269,10 @@ test("an OPFS access-handle contention enqueue failure is retained, not desynced
   // delivered online — through the drain, so it cannot overtake older batches
   // or ignore backoff — and onDesync (which would wipe the active outline)
   // must NOT fire (pkm-c9hp).
+  //
+  // The REASON this passes changed in pkm-s7af: it is no longer that this
+  // message is on a retention allowlist, but that the replica did not report
+  // the failure as a rejection of the op. The message is now incidental.
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({
     enqueue: async () => {
@@ -298,6 +303,12 @@ test("an exhausted SAH pool enqueue failure is retained, not desynced", async ()
   // deliver online — through the drain, so it cannot overtake older batches or
   // ignore backoff — and must NOT fire onDesync, whose repair wipes the active
   // outline and detaches the editor mid-keystroke.
+  //
+  // The REASON this passes changed in pkm-s7af: not "this message is on a
+  // retention allowlist" but "the replica did not report a rejection of the
+  // op". Note that this failure happens on a SUCCESSFULLY OPEN database, so it
+  // is not an availability failure at all — which is why the rule cannot be a
+  // check on the availability type.
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({
     enqueue: async () => {
@@ -342,17 +353,76 @@ test("a replica that REJECTS the op desyncs and is not retained", async () => {
   await expect(q.drain()).resolves.toEqual({ status: "drained" });
 });
 
-test("other replica enqueue failures report desync", async () => {
-  fetchSeq([() => jsonResponse({ ok: true })]);
+test("an unclassified replica enqueue failure is retained, not desynced", async () => {
+  // This test used to pin the opposite (`desyncs.length` 1). Retention was an
+  // allowlist of three error shapes, so an error carrying no flags at all fell
+  // through to onDesync; under the one-item blocklist it is retained, because a
+  // plain error is not the replica reporting that it refused the OP. Only that
+  // one report means the server would refuse it too — everything else means
+  // "could not persist locally", which is never grounds for wiping the active
+  // outline to server state (pkm-9x6u).
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({
     enqueue: async () => { throw new Error("worker crashed"); },
   });
   const desyncs: unknown[] = [];
   const q = createOpQueue(replica, (e) => desyncs.push(e));
-  q.enqueue([op("u1")]);
+  const ticket = q.enqueue([op("u1")]);
   await q.settled();
   await q.drain();
-  expect(desyncs.length).toBe(1);
+  expect(desyncs).toEqual([]);
+  expect((bodies[0].body as { ops: unknown[] }).ops).toEqual([op("u1")]);
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("a terminal RPC failure retains the op instead of desyncing", async () => {
+  // pkm-9x6u's second half: a dead worker or a module chunk 404 after a deploy
+  // makes every call reject with RpcLifecycleError, which no availability
+  // *mode* would ever see because markUnavailable is never reached.
+  fetchSeq([() => jsonResponse({ ok: true })]);
+  const desyncs: unknown[] = [];
+  const replica = memReplica();
+  replica.enqueue = () => Promise.reject(
+    new RpcLifecycleError("worker-error", "replica worker failed"));
+  replica.nextBatch = () => Promise.reject(
+    new RpcLifecycleError("worker-error", "replica worker failed"));
+  const queue = createOpQueue(replica, (e) => desyncs.push(e));
+  const ticket = queue.enqueue([{ op: "delete", uid: "u1" }]);
+  await ticket.settled;
+  expect(desyncs).toEqual([]);
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("an RPC timeout retains the op but does not latch the replica off", async () => {
+  // A timeout rejects one request and leaves the RPC client usable, so it must
+  // not be mistaken for a dead replica: the next drain still asks.
+  fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  let enqueues = 0;
+  replica.enqueue = () => {
+    enqueues += 1;
+    return Promise.reject(new RpcLifecycleError("timeout", "replica RPC enqueue timed out"));
+  };
+  let nextBatchCalls = 0;
+  replica.nextBatch = () => { nextBatchCalls += 1; return Promise.resolve(null); };
+  const queue = createOpQueue(replica, () => undefined);
+  await queue.enqueue([{ op: "delete", uid: "u1" }]).delivered;
+  await queue.drain();
+  expect(enqueues).toBe(1);
+  expect(nextBatchCalls).toBeGreaterThan(0);
+});
+
+test("a dead replica is asked once, then never again", async () => {
+  const replica = memReplica();
+  let nextBatchCalls = 0;
+  replica.nextBatch = () => {
+    nextBatchCalls += 1;
+    return Promise.reject(new ReplicaUnavailableError("no openable database"));
+  };
+  const queue = createOpQueue(replica, () => undefined);
+  await expect(queue.drain()).resolves.toEqual({ status: "drained" });
+  await expect(queue.drain()).resolves.toEqual({ status: "drained" });
+  expect(nextBatchCalls).toBe(1);
 });
 
 test("offline enqueue settles as persisted while drain reports blocked", async () => {

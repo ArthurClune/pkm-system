@@ -1,10 +1,11 @@
 ---
 # pkm-s7af
 title: Retain ops on any replica-unavailable error instead of matching messages
-status: todo
+status: completed
 type: task
+priority: normal
 created_at: 2026-08-04T12:54:38Z
-updated_at: 2026-08-04T12:54:38Z
+updated_at: 2026-08-04T15:19:12Z
 parent: pkm-q2jj
 ---
 

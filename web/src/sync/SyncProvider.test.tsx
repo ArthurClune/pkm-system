@@ -115,6 +115,7 @@ test("enqueue outside a provider throws instead of dropping writes", () => {
 // --- replica lifecycle (pkm-y8p0) ---
 
 import type { Replica } from "../replica/client";
+import { ReplicaUnavailableError } from "../replica/errors";
 
 function fakeReplicaForProvider(): Replica & { log: string[] } {
   const log: string[] = [];
@@ -1065,14 +1066,16 @@ async () => {
 // --- an unopenable replica must not hold the startup gate (pkm-bjae) ---
 
 /** A replica whose database can never be opened: every handler that reaches
- * `db()` rejects, and only `init()` reports the failure as a value the way the
- * real worker does (workerHandlers.ts). */
-function unopenableReplica(): Replica & { log: string[]; initCalls: () => number } {
+ * `db()` rejects with the worker's latched ReplicaUnavailableError, and only
+ * `init()` reports the failure as a value the way the real worker does
+ * (workerHandlers.ts). The message is a parameter because the open error's
+ * cause is exactly what must stop mattering (pkm-9x6u). */
+function unopenableReplica(
+  message = "Access Handles cannot be created if there is another open Access Handle",
+): Replica & { log: string[]; initCalls: () => number } {
   const replica = fakeReplicaForProvider();
   let initCalls = 0;
-  const dead = () => Promise.reject(new Error(
-    "Access Handles cannot be created if there is another open Access Handle",
-  ));
+  const dead = () => Promise.reject(new ReplicaUnavailableError(message));
   replica.init = async () => {
     initCalls += 1;
     return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
@@ -1114,6 +1117,73 @@ async () => {
   expect(sync.replicaMode).toBe("no-replica");
   // and it says so, rather than degrading silently (pkm-bjae review)
   expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
+});
+
+async function runDead(message: string) {
+  const posts: Array<{ ops: Array<Record<string, unknown>> }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      posts.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={unopenableReplica(message)}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+  await act(async () => {
+    sync.enqueue([{ op: "update_text", uid: "u1", text: "typed while dead" }]);
+  });
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+  return { posts, sync: () => sync };
+}
+
+test("an SAH-contention unopenable replica delivers the edit (pkm-9x6u)", async () => {
+  const { posts } = await runDead(
+    "Access Handles cannot be created if there is another open Access Handle");
+  expect(posts).toHaveLength(1);
+});
+
+test("a NON-whitelisted unopenable replica delivers the edit too (pkm-9x6u)", async () => {
+  // Before pkm-s7af this dropped the edit and fired onDesync, whose legacy
+  // repair additionally rebased the active outline to server state: the
+  // whitelist, not the availability state, decided whether writes survived.
+  // Deliberately does NOT pin sync.problem — a delivery problem can legitimately
+  // take precedence over the background replica-unavailable report.
+  const { posts } = await runDead("OPFS is not available in this browser");
+  expect(posts).toHaveLength(1);
+});
+
+test("a reconnect in a no-replica session still bumps resyncSeq (pkm-9x6u)", async () => {
+  // Every drain used to end in failed() -> a ~5s backoff, forever, because the
+  // loop fell through to replica.nextBatch() on a replica it already knew was
+  // dead. drain() therefore never returned "drained", so finishReconnect never
+  // ran and views were never told to refetch: changes made elsewhere while this
+  // tab was disconnected stayed invisible until the user navigated.
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/ops") return jsonResponse({ ok: true });
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+  const before = sync.resyncSeq;
+
+  await act(async () => { lastWs().drop(); await Promise.resolve(); });
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+  await vi.waitFor(() => { expect(sync.resyncSeq).toBeGreaterThan(before); });
 });
 
 test("a replica that becomes openable later must not start syncing", async () => {

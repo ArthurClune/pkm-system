@@ -1,11 +1,11 @@
 ---
 # pkm-9x6u
 title: opQueue keeps routing writes through a dead replica in a no-replica session
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T11:52:14Z
-updated_at: 2026-08-04T12:54:50Z
+updated_at: 2026-08-04T15:19:12Z
 parent: pkm-q2jj
 ---
 
@@ -97,3 +97,18 @@ The checklist above says "give opQueue a no-replica mode (set when SyncProvider 
 So the condition to fix is broader: **retain ops on ANY unclassified replica error, not only while in a no-replica mode.** That closes both halves.
 
 [ ] Retain on any unclassified replica error, not just in no-replica mode (covers the "unknown"-probe / RpcLifecycleError path where markUnavailable is never called)
+
+## Summary of Changes
+
+Closed by pkm-s7af. opQueue retains on every replica failure EXCEPT one the
+replica reports as a rejection of the op itself (LocalOpError -> the `rejected`
+wire flag), which deletes the isSahPoolContention/isPoolExhausted message
+matching from that path. Both halves are covered: the no-replica case and the
+RpcLifecycleError case an availability *mode* alone would have missed.
+
+The queue also latches its own derived view of availability from its own failed
+RPCs (session-fatal evidence only — never a timeout) and stops calling a dead
+replica: drain() now reports "drained" instead of arming a ~5s backoff forever,
+so finishReconnect runs and a reconnect bumps resyncSeq again. The forever-
+failing drain was safe, as this bean warned; the fix is to stop asking, not to
+make the asking work. The latched open was NOT re-armed.

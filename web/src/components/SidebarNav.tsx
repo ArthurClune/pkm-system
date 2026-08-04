@@ -1,10 +1,9 @@
 // pattern: Imperative Shell
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { NavLink } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { apiDelete, apiGet, apiPost, apiPut } from "../api/typedClient";
 import type { SidebarNavEntry } from "../api/payloads";
-import { pagePath } from "../paths";
+import { NavPageLink } from "./NavPageLink";
 
 type MutationState = "idle" | "running" | "failed";
 
@@ -124,10 +123,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         <ul className="nav-sidebar-entries">
           {entries.map((entry, i) => (
             <li key={entry.id} className="nav-sidebar-entry">
-              <NavLink to={pagePath(entry.title)} onClick={onNavigate}
-                       className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
-                {entry.title}
-              </NavLink>
+              <NavPageLink title={entry.title} className="nav-link" onNavigate={onNavigate} />
               {editing && (
                 <span className="nav-sidebar-entry-controls">
                   <button type="button" className="btn-secondary" aria-label={`Move ${entry.title} up`}

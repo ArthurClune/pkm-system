@@ -84,7 +84,7 @@ components/            ~45 files: the editor's own views (EditableBlockTree =
                        (InlineSegments, MathSpan, QueryBlock, BlockRef,
                        MermaidDiagram, PdfEmbed/PdfViewer,
                        PageLink, AssetImage, CodeBlock, BlueskyEmbed, roamTable…)
-                       + chrome (TopBar, SidebarNav/Panel, SearchBar,
+                       + chrome (TopBar, SidebarNav/Panel, NavPageLink, SearchBar,
                        OfflineIndicator, Composer, BacklinksSection,
                        JournalDayReferences, BlockMenu, DatePickerPopup…)
 sync/                  SyncProvider.tsx (global context), socket.ts (WS),
@@ -138,6 +138,15 @@ and the theme toggle.
 
 The right-hand sidebar is a session-only **stack**: shift-clicking any page
 link or ref pushes a `SidebarPanel` onto it.
+
+Every link that points at a page must opt into that contract explicitly —
+`PageLink` for inline links, `NavPageLink` for the left nav's pinned pages and
+TODO. react-router ignores modified clicks (`shouldProcessLinkClick` bails on
+`shiftKey`), so a `NavLink` without a `shiftKey` branch lets the browser's own
+shift-click open the whole app in a second window, which then warns about the
+same page being open twice (pkm-10ah). The nav's non-page destinations (Daily
+Notes, Current Work, Files, Settings) keep the native behaviour on purpose: a
+panel renders a page *by title*, and no page sits behind those routes.
 
 Three global keys: `Ctrl+Shift+D` jumps to today's daily note, `Cmd/Ctrl+/`
 toggles the sidebar, `Cmd/Ctrl+J` toggles the assistant panel.

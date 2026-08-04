@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
+import { SidebarContext } from "../contexts";
 import { defer, jsonResponse, stubFetch } from "../test-helpers";
 import { SidebarNav } from "./SidebarNav";
 
@@ -43,6 +44,28 @@ it("calls onNavigate when an entry link is clicked", async () => {
   const onNavigate = vi.fn();
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><SidebarNav onNavigate={onNavigate} /></MemoryRouter>);
   fireEvent.click(await screen.findByRole("link", { name: "AI" }));
+  expect(onNavigate).toHaveBeenCalledOnce();
+});
+
+it("shift-clicking an entry opens it in the sidebar and suppresses the browser's new window (pkm-10ah)", async () => {
+  stubFetch([["/api/sidebar", { entries: [{ id: 1, title: "AI" }] }]]);
+  const openInSidebar = vi.fn();
+  const onNavigate = vi.fn();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SidebarContext.Provider value={{ openInSidebar }}>
+        <SidebarNav onNavigate={onNavigate} />
+      </SidebarContext.Provider>
+    </MemoryRouter>,
+  );
+  const link = await screen.findByRole("link", { name: "AI" });
+  // react-router ignores modified clicks, so nothing but our own handler can
+  // preventDefault here -- an unprevented shift-click is the new window.
+  const event = createEvent.click(link, { shiftKey: true });
+  fireEvent(link, event);
+  expect(openInSidebar).toHaveBeenCalledWith("AI");
+  expect(event.defaultPrevented).toBe(true);
+  // The phone drawer still closes: the panel it reveals is behind it.
   expect(onNavigate).toHaveBeenCalledOnce();
 });
 

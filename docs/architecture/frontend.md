@@ -84,7 +84,8 @@ components/            ~45 files: the editor's own views (EditableBlockTree =
                        (InlineSegments, MathSpan, QueryBlock, BlockRef,
                        MermaidDiagram, PdfEmbed/PdfViewer,
                        PageLink, AssetImage, CodeBlock, BlueskyEmbed, roamTable…)
-                       + chrome (TopBar, SidebarNav/Panel, NavPageLink, SearchBar,
+                       + chrome (TopBar, SidebarNav/Panel, NavPageLink/
+                       NavRouteLink, SearchBar,
                        OfflineIndicator, Composer, BacklinksSection,
                        JournalDayReferences, BlockMenu, DatePickerPopup…)
 sync/                  SyncProvider.tsx (global context), socket.ts (WS),
@@ -139,14 +140,20 @@ and the theme toggle.
 The right-hand sidebar is a session-only **stack**: shift-clicking any page
 link or ref pushes a `SidebarPanel` onto it.
 
-Every link that points at a page must opt into that contract explicitly —
-`PageLink` for inline links, `NavPageLink` for the left nav's pinned pages and
-TODO. react-router ignores modified clicks (`shouldProcessLinkClick` bails on
-`shiftKey`), so a `NavLink` without a `shiftKey` branch lets the browser's own
-shift-click open the whole app in a second window, which then warns about the
-same page being open twice (pkm-10ah). The nav's non-page destinations (Daily
-Notes, Current Work, Files, Settings) keep the native behaviour on purpose: a
-panel renders a page *by title*, and no page sits behind those routes.
+**No link in the left nav may leave shift-click to the browser.** react-router
+ignores modified clicks (`shouldProcessLinkClick` bails on `shiftKey`), so a
+bare `NavLink` hands the shift-click to the browser, which opens the whole app
+in a second window — two live copies of the same page, which the sync layer
+then warns about (pkm-10ah). Both nav link components therefore handle it, and
+new nav links must use one of them rather than `NavLink` directly:
+
+- `NavPageLink` — destinations that *are* pages (the pinned entries, TODO):
+  opens the page in the sidebar, same contract as `PageLink` inline.
+- `NavRouteLink` — destinations that aren't (Daily Notes, Current Work, Files,
+  Settings): swallows the click and does nothing. A panel renders a page *by
+  title* and no page sits behind these routes, so there is nothing better to
+  offer; it also leaves `onNavigate` unfired, so a phone drawer stays open
+  rather than closing onto nothing.
 
 Three global keys: `Ctrl+Shift+D` jumps to today's daily note, `Cmd/Ctrl+/`
 toggles the sidebar, `Cmd/Ctrl+J` toggles the assistant panel.

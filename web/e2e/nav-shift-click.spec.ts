@@ -16,6 +16,25 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
+test("shift-clicking a non-page nav destination does nothing at all (pkm-10ah)",
+     async ({ page, context }) => {
+  await login(page);
+  await page.goto("/current-work");
+  await expect(page.locator(".top-bar-title")).toHaveText("Current Work");
+
+  const popups: Page[] = [];
+  context.on("page", (p) => popups.push(p));
+
+  // no page sits behind these, so the click is swallowed outright
+  for (const name of ["Daily Notes", "Files", "Settings"]) {
+    await page.locator("#left-nav").getByRole("link", { name }).click({ modifiers: ["Shift"] });
+    await expect(page).toHaveURL(/\/current-work$/);
+  }
+  await expect(page.locator(".top-bar-title")).toHaveText("Current Work");
+  await expect(page.locator(".sidebar-panel")).toHaveCount(0);
+  expect(popups).toHaveLength(0);
+});
+
 test("shift-clicking a pinned left-nav page opens the sidebar, not a second window (pkm-10ah)",
      async ({ page, context }) => {
   const title = `NavShiftClick${Date.now()}`;

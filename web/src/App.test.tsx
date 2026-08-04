@@ -59,23 +59,38 @@ it("shift-clicking the nav's TODO link opens it in the sidebar, not a new window
   expect(event.defaultPrevented).toBe(true);
 });
 
-it("leaves shift-click alone on nav destinations that aren't pages (pkm-10ah)", async () => {
+it("traps shift-click as a no-op on nav destinations that aren't pages (pkm-10ah)", async () => {
+  stubFetch([["/api/current-work", { sections: [
+    { id: "last-24-hours", title: "Last 24 hours", pages: [] },
+  ] }], ["/api/sidebar", { entries: [] }]]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/current-work"]}><App /></MemoryRouter>);
+  await screen.findByRole("heading", { name: "Current Work" });
+
+  // No page sits behind these routes, so a sidebar panel has nothing to show
+  // and shift-click has no useful meaning — but it must still be swallowed,
+  // or the browser opens the whole app in a second window.
+  for (const name of ["Daily Notes", "Current Work", "Files", "Settings"]) {
+    const link = screen.getByRole("link", { name });
+    const event = createEvent.click(link, { shiftKey: true });
+    fireEvent(link, event);
+    expect(event.defaultPrevented).toBe(true); // no second window
+    // and nothing else happened either: same route, no panel
+    expect(document.querySelector(".top-bar-title")).toHaveTextContent("Current Work");
+    expect(screen.queryByRole("region", { name: /^sidebar:/ })).toBeNull();
+  }
+});
+
+it("a trapped shift-click leaves the phone drawer open, having done nothing (pkm-10ah)", async () => {
   stubFetch([["/api/journal", { days: [] }], ["/api/sidebar", { entries: [] }]]);
-  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
-  // A sidebar panel renders a page by title; /files has no page behind it, so
-  // there is nothing to open and the browser's own shift-click stands.
-  // Read defaultPrevented from a document-level listener (it runs after
-  // React's, which is attached to the render container) and then prevent the
-  // default ourselves: left unprevented, jsdom asynchronously attempts a real
-  // navigation and logs "Not implemented" against whichever test is running by
-  // then.
-  let prevented: boolean | null = null;
-  const probe = (e: Event) => { prevented = e.defaultPrevented; e.preventDefault(); };
-  document.addEventListener("click", probe);
-  fireEvent.click(screen.getByRole("link", { name: "Files" }), { shiftKey: true });
-  document.removeEventListener("click", probe);
-  expect(prevented).toBe(false);
-  expect(screen.queryByRole("region")).toBeNull();
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "menu" }));
+  expect(container.querySelector(".left-nav")).toHaveClass("open");
+
+  fireEvent.click(screen.getByRole("link", { name: "Settings" }), { shiftKey: true });
+  // a plain click closes the drawer to reveal the route it opened; a swallowed
+  // one has nothing to reveal, so the drawer stays put
+  expect(container.querySelector(".left-nav")).toHaveClass("open");
 });
 
 it("cmd-u focuses the top bar's search bar", async () => {

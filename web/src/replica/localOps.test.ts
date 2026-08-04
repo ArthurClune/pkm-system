@@ -153,7 +153,7 @@ describe("applyLocalOps", () => {
       }
 
       expect(thrown).toBeInstanceOf(LocalOpError);
-      expect(thrown).toMatchObject({ opIndex: 1, source, title });
+      expect(thrown).toMatchObject({ opIndex: 1, source, title, rejected: true });
       expect(replicaState()).toEqual(before);
     });
 

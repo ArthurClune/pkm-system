@@ -10,7 +10,7 @@
 import { ApiError } from "../api/client";
 import type { Changes, Snapshot } from "../replica/apply";
 import type { PendingBatch, RecoveryCommit, Replica } from "../replica/client";
-import { ReplicaError } from "../replica/rpc";
+import { availabilityOf, ReplicaError } from "../replica/errors";
 import type { OpQueue } from "./opQueue";
 
 export type ReplicaState =
@@ -91,14 +91,19 @@ class PullStarvedError extends Error {}
 /** Network-down failures (dropped connection, DNS, an offline fetch) are not
  * wedged-replica symptoms -- the offline banner already owns network-down
  * UX, and counting them here would flip a whole offline session read-only
- * via computeEditability. Only failures that mean "the replica itself
- * cannot make progress" -- a rejected/failed API call, a replica-side RPC
- * error, or pull() starving on pending-batch churn -- count toward the
- * stall threshold; anything else still retries with backoff but is neither
- * counted nor reported as stalled. */
+ * via computeEditability. Availability failures are excluded for the same
+ * reason and more sharply: a session that reports `stalled` on top of
+ * `no-replica` is reporting a wedged replica it has already concluded does not
+ * exist, and computeEditability would take editing away for the rest of the
+ * session (pkm-y35i). Only failures that mean "the replica itself cannot make
+ * progress" -- a rejected/failed API call, a replica-side RPC error, or pull()
+ * starving on pending-batch churn -- count toward the stall threshold;
+ * anything else still retries with backoff but is neither counted nor reported
+ * as stalled. */
 const isStallShaped = (error: unknown): boolean =>
-  error instanceof ApiError || error instanceof ReplicaError ||
-  error instanceof PullStarvedError;
+  availabilityOf(error) === null &&
+  (error instanceof ApiError || error instanceof ReplicaError ||
+    error instanceof PullStarvedError);
 
 export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const { replica, fetchJson, clientId, onState } = deps;

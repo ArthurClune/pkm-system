@@ -3,7 +3,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { PendingBatch, Replica } from "../replica/client";
-import { ReplicaError } from "../replica/rpc";
+import { ReplicaError } from "../replica/errors";
 import { jsonResponse } from "../test-helpers";
 import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 
@@ -244,7 +244,7 @@ test("a slow drain POST does not delay persisting later edits", async () => {
 test("quota-failed enqueue surfaces and is retained for ordered delivery", async () => {
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica({
-    enqueue: async () => { throw new ReplicaError("disk full", true); },
+    enqueue: async () => { throw new ReplicaError("disk full", { quota: true }); },
   });
   const q = createOpQueue(replica, () => undefined);
   const quotas: unknown[] = [];

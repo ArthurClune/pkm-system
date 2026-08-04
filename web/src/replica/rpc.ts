@@ -1,7 +1,14 @@
 // pattern: Imperative Shell
 // MessagePort RPC transport and lifecycle shell: installs port handlers, owns
 // mutable request/timer state, posts messages, and disposes terminal resources.
-// Errors cross as {message, quota} so the storage-quota signal survives.
+// Errors cross as {message, quota, rejected, unavailable} so the storage-quota
+// signal, the op-rejected signal and the replica-unavailable signal all survive
+// the boundary; the taxonomy itself lives in ./errors.
+
+import { ReplicaError, ReplicaUnavailableError, RpcLifecycleError } from "./errors";
+
+export type { RpcLifecycleKind } from "./errors";
+export { ReplicaError, ReplicaUnavailableError, RpcLifecycleError } from "./errors";
 
 export interface PortLike {
   postMessage(msg: unknown): void;
@@ -24,34 +31,13 @@ interface RpcRequest { id: number; method: string; payload: unknown }
 interface RpcResponse {
   id: number;
   result?: unknown;
-  error?: { message: string; quota: boolean };
-}
-
-export class ReplicaError extends Error {
-  readonly quota: boolean;
-
-  constructor(message: string, quota: boolean) {
-    super(message);
-    this.quota = quota;
-  }
-}
-
-export type RpcLifecycleKind =
-  | "worker-error"
-  | "message-error"
-  | "timeout"
-  | "disposed";
-
-export class RpcLifecycleError extends Error {
-  readonly kind: RpcLifecycleKind;
-  override readonly cause: unknown;
-
-  constructor(kind: RpcLifecycleKind, message: string, cause?: unknown) {
-    super(message);
-    this.name = "RpcLifecycleError";
-    this.kind = kind;
-    this.cause = cause;
-  }
+  error?: {
+    message: string;
+    quota: boolean;
+    rejected: boolean;
+    /** The worker's latched openDb() failure. Only ever set worker-side. */
+    unavailable: boolean;
+  };
 }
 
 export type RpcHandlers = Record<string, (payload: unknown) => Promise<unknown>>;
@@ -70,6 +56,8 @@ export function serveRpc(port: PortLike, handlers: RpcHandlers): void {
         error: {
           message: e instanceof Error ? e.message : String(e),
           quota: Boolean((e as { quota?: boolean })?.quota),
+          rejected: Boolean((e as { rejected?: boolean })?.rejected),
+          unavailable: e instanceof ReplicaUnavailableError,
         },
       } as RpcResponse),
     );
@@ -105,8 +93,12 @@ export function createRpcClient(port: PortLike): RpcClient {
     if (!p) return;
     pending.delete(res.id);
     clearTimeout(p.timer);
-    if (res.error) p.reject(new ReplicaError(res.error.message, res.error.quota));
-    else p.resolve(res.result);
+    if (res.error) {
+      const flags = { quota: res.error.quota, rejected: res.error.rejected };
+      p.reject(res.error.unavailable
+        ? new ReplicaUnavailableError(res.error.message, flags)
+        : new ReplicaError(res.error.message, flags));
+    } else p.resolve(res.result);
   };
   port.onerror = (ev) => failTerminal(new RpcLifecycleError(
     "worker-error",

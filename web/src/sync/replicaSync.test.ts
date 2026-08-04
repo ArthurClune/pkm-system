@@ -2,10 +2,10 @@ import { expect, test, vi } from "vitest";
 import { ApiError } from "../api/client";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { PendingBatch, Replica, ReplicaInit } from "../replica/client";
-import { ReplicaError } from "../replica/rpc";
+import { ReplicaError, ReplicaUnavailableError } from "../replica/errors";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, ResetBlockedError, RETRY_BASE_MS,
-  RETRY_MAX_MS, type ReplicaState,
+  RETRY_MAX_MS, STALL_AFTER_FAILURES, type ReplicaState,
 } from "./replicaSync";
 
 const SNAP: Snapshot = {
@@ -789,7 +789,7 @@ test("pulls failing with ReplicaError still stall at 3 (pkm-80ds finding 2)", as
   try {
     const replica = fakeReplica();
     const fetchJson = vi.fn(async () => {
-      throw new ReplicaError("replica rpc failed", false);
+      throw new ReplicaError("replica rpc failed", {});
     });
     const { states, onState } = collector();
     const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
@@ -805,6 +805,27 @@ test("pulls failing with ReplicaError still stall at 3 (pkm-80ds finding 2)", as
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("an unavailable-shaped pull failure never stalls (pkm-y35i)", async () => {
+  // A session reporting `stalled` on top of `no-replica` lets computeEditability
+  // flip the whole session read-only, so an availability failure must not count
+  // toward the stall threshold — however many times it happens.
+  const states: ReplicaState[] = [];
+  const replica = fakeReplica();
+  replica.pendingBatches = () =>
+    Promise.reject(new ReplicaUnavailableError("no openable database"));
+  const fetchJson = vi.fn(async () => feed());
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1",
+    onState: (s) => states.push(s),
+  });
+  await sync.start();
+  for (let i = 0; i < STALL_AFTER_FAILURES + 2; i += 1) {
+    sync.onSeq(i + 100, true);
+    await sync.idle();
+  }
+  expect(states.filter((s) => s.mode === "stalled")).toEqual([]);
 });
 
 test("a mix of network and replica errors stalls only once 3 replica-shaped failures accrue (pkm-80ds finding 2)", async () => {
@@ -854,7 +875,7 @@ test("repeatedly-failing in-pull recovery with a stall-shaped underlying error s
     });
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/sync/snapshot") {
-        throw new ReplicaError("replica rpc failed", false);
+        throw new ReplicaError("replica rpc failed", {});
       }
       return feed();
     });

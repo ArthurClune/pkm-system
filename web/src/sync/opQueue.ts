@@ -8,7 +8,7 @@ import type { BlockOp } from "../api/ops";
 import type { PoisonedBatch, Replica } from "../replica/client";
 import { isSahPoolContention } from "../replica/openRetry";
 import { isPoolExhausted } from "../replica/poolCapacity";
-import { ReplicaError } from "../replica/rpc";
+import { ReplicaError } from "../replica/errors";
 import { newUid } from "../uid";
 import { createQueueState, terminalReason, transitionQueue,
          type QueueEffect, type QueueEvent } from "./queueState";

@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
+import { availabilityOf, ReplicaError, ReplicaUnavailableError,
+         RpcLifecycleError } from "./errors";
 import {
-  ReplicaError,
-  RpcLifecycleError,
   createRpcClient,
   serveRpc,
   type PortLike,
@@ -52,6 +52,36 @@ test("unknown method rejects", async () => {
   serveRpc(server, {});
   const rpc = createRpcClient(client);
   await expect(rpc.call("nope")).rejects.toThrow("unknown replica method: nope");
+});
+
+test("an unavailable handler error reconstructs as ReplicaUnavailableError", async () => {
+  // The wire flag is a boolean and the fact is two-valued, deliberately: only
+  // `unusable` crosses the wire. `unreachable` is what the client itself
+  // produces when nothing can cross.
+  const { server, client } = pair();
+  serveRpc(server, {
+    boom: () => Promise.reject(new ReplicaUnavailableError("no openable database")),
+  });
+  const rpc = createRpcClient(client);
+  const err = await rpc.call("boom").catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ReplicaUnavailableError);
+  expect((err as ReplicaUnavailableError).message).toBe("no openable database");
+  expect(availabilityOf(err)).toBe("unusable");
+});
+
+test("the rejected flag survives the wire", async () => {
+  // LocalOpError (unsupported title syntax) is the one replica failure the op
+  // queue must NOT retain; it travels as a flag, not as a message to match.
+  const { server, client } = pair();
+  serveRpc(server, {
+    boom: () => Promise.reject(new ReplicaError("bad title", { rejected: true })),
+  });
+  const rpc = createRpcClient(client);
+  const err = await rpc.call("boom").catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ReplicaError);
+  expect(err).not.toBeInstanceOf(ReplicaUnavailableError);
+  expect((err as ReplicaError).rejected).toBe(true);
+  expect((err as ReplicaError).quota).toBe(false);
 });
 
 class ControlledPort implements PortLike {

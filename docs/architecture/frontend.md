@@ -144,11 +144,9 @@ link or ref pushes a `SidebarPanel` onto it.
 
 **No link in the left nav may leave shift-click to the browser.** react-router
 ignores modified clicks (`shouldProcessLinkClick` bails on `shiftKey`), so a
-bare `NavLink` hands the shift-click to the browser instead. That opens the
-whole app in a second window — two live copies of the same page, which the
-sync layer then warns about (pkm-10ah). Both nav link components therefore
-handle it, and new nav links must use one of them rather than `NavLink`
-directly:
+bare `NavLink` hands the shift-click to the browser instead of opening the
+sidebar. Both nav link components therefore handle it, and new nav links must
+use one of them rather than `NavLink` directly:
 
 - `NavPageLink` — destinations that *are* pages (the pinned entries, TODO):
   opens the page in the sidebar, same contract as `PageLink` inline.
@@ -288,9 +286,9 @@ page is one textarea plus cheap static HTML.
 editor to do is the `OutlineHandlers` port in `outline/handlers.ts` — about
 thirty named callbacks (focus, draft, split/indent/move, selection, upload,
 paste, undo). `useOutline` implements it; `EditableBlockTree`,
-`EditableBlock` and `BlockInput` only call it. The port lives in `outline/`
-on purpose: it used to be declared in `EditableBlockTree.tsx`, which made the
-engine import a type from a component. It stays a plain callback interface
+`EditableBlock` and `BlockInput` only call it. The port lives in `outline/`,
+not in a component, so the engine never imports a type from UI code. It stays
+a plain callback interface
 rather than a command union plus dispatcher, because every member is already
 a distinct, individually-typed operation — a union would add a second name
 and a switch case per member without removing one.
@@ -331,7 +329,7 @@ Editing mechanics to know before touching `outline/`:
   | Trigger | Defence |
   |---|---|
   | Navigation the editor never sees: App's global `Ctrl-Shift-D` chord, browser back/forward | `useOutline` flushes on unmount — unmount-only on purpose (the callback is held in a ref, not a dep), enqueuing into the durable op queue after the outline's session handle is already released. Nothing is left to render into, and durability is the queue's job anyway |
-  | Navigation the editor starts itself: `Ctrl-O`/`Ctrl-Shift-O` over a `[[ref]]` (`ensureRefPageThenOpen`) | Calls `handlers.onFlushDraft()` explicitly, before both `POST /api/pages` and the navigation — the flush is what creates the ref's page row through the normal ops path, so the unmount defence alone would race it (pkm-hhbc emptied two real blocks in production before this was fixed) |
+  | Navigation the editor starts itself: `Ctrl-O`/`Ctrl-Shift-O` over a `[[ref]]` (`ensureRefPageThenOpen`) | Calls `handlers.onFlushDraft()` explicitly, before both `POST /api/pages` and the navigation — the flush is what creates the ref's page row through the normal ops path, so the unmount defence alone would race it |
 
   Clicking a rendered ref is not affected: only unfocused blocks render
   links, so reaching one blurs the textarea first. Tab hide, close and reload
@@ -346,15 +344,13 @@ Editing mechanics to know before touching `outline/`:
   [keyboard.md](../keyboard.md).
 - **A growing text selection escalates to a block selection at the block's
   edge**, whether the caret is collapsed or a text selection can no longer
-  grow within the block (pkm-jgtn). It must never fall through to the
-  boundary-arrow block-navigation branch instead, which would silently drop
-  the selection.
+  grow within the block. It must never fall through to the boundary-arrow
+  block-navigation branch instead, which would silently drop the selection.
 - **Creating, extending and copying a selection are read-only-safe; every
   mutating branch is gated on `!readOnly`** — indent/outdent (Tab/Shift-Tab),
   move (Shift+Cmd+Arrow), and delete (Backspace/Delete). `useOutline`'s
-  handlers do not re-check editability, so this gate is the only one: a
-  selection made while editable used to survive the switch to read-only and
-  stay deletable (pkm-rckh). A gated key resolves to `"none"`, which the
+  handlers do not re-check editability, so this gate is the only one. A
+  gated key resolves to `"none"`, which the
   shell leaves **uncancelled** rather than calling `preventDefault`, so a
   read-only Tab still moves focus out of the tree the way the platform
   intends.
@@ -600,7 +596,7 @@ The radius steps are assigned by *role*, not by size, and the comments in
 | `--radius-card` | 6px | embedded content |
 | `--radius-panel` | 8px | floating menus, dropdowns, the main pane |
 
-Block stamps (pkm-4ler) add three band tokens — `--color-stamp-week`,
+Block stamps add three band tokens — `--color-stamp-week`,
 `-month`, `-year` — declared in all three theme blocks, warm-for-fresh
 cooling toward neutral as material ages. The fourth band, `older`, is
 deliberately unfilled: `stampBand` still returns `"older"` and the row still
@@ -800,6 +796,18 @@ every matching rule, for classes styled in more than one place. Use
 `mediaRulesFor(query, selector)` for anything inside an `@media` block,
 since `ruleFor` stops at the first `}` — inside a media block, the end of
 its first nested rule.
+
+## When something looks wrong
+
+Each row is a failure this system has actually produced, and the invariant
+its fix installed. The bean has the full investigation.
+
+| Symptom | Cause | Ref |
+|---|---|---|
+| Shift-clicking a left-nav page link opens a second browser window instead of the sidebar | a bare `NavLink` let the browser's own shift-click run, since react-router ignores modified clicks; every left-nav link must go through `NavPageLink` or `NavRouteLink` | pkm-10ah |
+| Navigating to a freshly created `[[ref]]` with Ctrl-O/Ctrl-Shift-O leaves the source block empty, its typed text gone | the unmount-only draft flush raced `POST /api/pages`; `ensureRefPageThenOpen` must flush the draft explicitly before creating the page and navigating | pkm-hhbc |
+| Shift-Up/Down with a text selection active at a block's edge collapses the selection and jumps focus to the neighboring block | the boundary-arrow branch excluded Meta/Ctrl/Alt but not Shift, so a growing selection fell through to block navigation instead of escalating to a block selection | pkm-jgtn |
+| A multi-block selection made while editable stays deletable after the outline switches to read-only | Backspace/Delete invoked `onDeleteBlockSelection()` unconditionally; every mutating selection branch must gate on `!readOnly` | pkm-rckh |
 
 ## Testing and quality gates
 

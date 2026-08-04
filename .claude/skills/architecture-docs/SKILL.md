@@ -96,9 +96,28 @@ the signal it wanted a table.
 
 Prose states the **current** invariant, plus why it exists where someone could
 break it without noticing. How it used to fail — bean ids, "it used to", "for
-years", since-deleted flags — goes in one symptom → cause → ref table at the end
-of the doc, keyed by **what someone would observe**. That is how the content is
+years", since-deleted flags — goes in the doc's `## When something looks wrong`
+table, keyed by **what someone would observe**. That is how the content is
 queried, and it lets each invariant shrink to a sentence.
+
+`backend.md`, `frontend.md` and `sync-and-offline.md` each carry that section,
+with the same heading and the same `| Symptom | Cause | Ref |` columns, placed
+just before the closing section. Copy the one in `sync-and-offline.md`. `Ref` is
+the bean id, or the test that pins the behaviour, or an em dash. `overview.md` has
+no such section and should not gain one: it summarises the others rather than
+owning any mechanism, so it has no failures of its own to record.
+
+Two things are *not* incidents, and neither earns a row:
+
+- **Provenance.** A bean tag marking which work introduced a feature, with no
+  failure attached ("Block stamps (pkm-4ler) add three band tokens"), is not a
+  symptom. Drop the tag or leave it inline; don't invent a symptom for it.
+- **An incident already tabled in the doc that owns the mechanism.** One row, in
+  one doc — the same rule as for facts. A second row elsewhere is a duplicate
+  that will drift.
+
+**Never manufacture rows.** Four honest rows beat eight padded ones, and a doc
+with little history should end up with a short table.
 
 ## Keep the names
 

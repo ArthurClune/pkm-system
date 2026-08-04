@@ -262,3 +262,48 @@ async () => {
   await expect(handlers.poisonedBatches(undefined)).rejects.toThrow(/Access Handle/);
   expect(opens).toBe(1);
 });
+
+test("one failed open is replayed by EVERY handler, and opens only once", async () => {
+  // Characterisation for pkm-q2jj: today this holds because db() is
+  // `dbPromise ??= openDb()` and nothing clears the rejection. Task 3 replaces
+  // that implicit mechanism with an explicit latch; this test must not notice.
+  //
+  // init(), commitRecovery(), abortRecovery() and close() are deliberately
+  // excluded: init() catches the open failure itself and returns
+  // { ok: false } rather than rejecting (that is the other test's claim);
+  // commitRecovery takes a lease token and is covered by its own recovery
+  // tests; abortRecovery and close() never call db() at all on this path
+  // (abortRecovery only touches the in-memory recovery gate, and close()
+  // only clears dbPromise and calls the injected closeDb). prepareRecovery
+  // takes no required payload (its own tests call it with undefined) and
+  // does call db(), so it belongs in the list below.
+  let opens = 0;
+  const handlers = buildHandlers({
+    openDb: async () => {
+      opens += 1;
+      throw new Error("OPFS is not available in this browser");
+    },
+  });
+
+  const calls: Array<[string, unknown]> = [
+    ["enqueue", [{ op: "delete", uid: "uid_b1" }]],
+    ["nextBatch", undefined],
+    ["deleteBatch", 1],
+    ["markPoisoned", { id: 1, error: "e", batchId: "b" }],
+    ["applySnapshot", SNAP],
+    ["applyChanges", { feed: { reset: false, generation: "gen-1",
+      plain_space_title_canonicalization: false, next_since: 0, latest_seq: 0,
+      pages: [], blocks: [], sidebar: [], tombstones: [] },
+      expectedPendingIds: [] }],
+    ["pendingBatches", undefined],
+    ["poisonedBatches", undefined],
+    ["pendingCount", undefined],
+    ["localApi", { method: "GET", path: "/api/page/AI", nowMs: 1 }],
+    ["reset", undefined],
+    ["prepareRecovery", undefined],
+  ];
+  for (const [method, payload] of calls) {
+    await expect(handlers[method](payload), method).rejects.toThrow(/OPFS is not available/);
+  }
+  expect(opens).toBe(1);
+});

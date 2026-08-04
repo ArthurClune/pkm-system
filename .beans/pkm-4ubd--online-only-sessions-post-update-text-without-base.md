@@ -5,7 +5,8 @@ status: todo
 type: bug
 priority: normal
 created_at: 2026-08-04T12:20:27Z
-updated_at: 2026-08-04T12:25:31Z
+updated_at: 2026-08-04T12:54:50Z
+parent: pkm-q2jj
 ---
 
 Found by adversarial review of pkm-bjae (verified by capturing the real POST body in a provider test).

@@ -5,7 +5,8 @@ status: todo
 type: bug
 priority: normal
 created_at: 2026-08-04T11:52:14Z
-updated_at: 2026-08-04T12:25:31Z
+updated_at: 2026-08-04T12:54:50Z
+parent: pkm-q2jj
 ---
 
 Found in review of pkm-bjae. Pre-existing mechanics, but that fix makes them the steady state of a normally-working session instead of a symptom of a wedge, which is why they are worth addressing now.

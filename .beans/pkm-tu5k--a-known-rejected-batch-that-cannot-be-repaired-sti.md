@@ -5,7 +5,8 @@ status: todo
 type: bug
 priority: normal
 created_at: 2026-08-04T11:32:28Z
-updated_at: 2026-08-04T12:20:53Z
+updated_at: 2026-08-04T12:54:50Z
+parent: pkm-q2jj
 ---
 
 Split out of pkm-bjae, which fixed the common case (an unopenable replica now falls back to online-only). This is the remaining, deliberately-unfixed path.

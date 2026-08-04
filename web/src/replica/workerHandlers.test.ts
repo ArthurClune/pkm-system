@@ -327,9 +327,9 @@ async () => {
 
   const first = await handlers.pendingCount(undefined).catch((e: unknown) => e);
   expect(first).toBeInstanceOf(ReplicaUnavailableError);
-  // The original message is preserved deliberately: it is what the op queue's
-  // storage-error whitelist still matches on until pkm-s7af lands, and it is
-  // the only diagnostic a user-visible banner has.
+  // The original message is preserved deliberately: it is the only
+  // diagnostic a user-visible banner has. Retention itself no longer matches
+  // on it (pkm-s7af made that a type check on this class instead).
   expect((first as Error).message).toBe("OPFS is not available in this browser");
 
   // Same object, not a fresh one per call: the fact is latched, not re-derived.

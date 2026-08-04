@@ -35,6 +35,8 @@ For ALL code changes, use worktrees and branches to enable parallel sessions.
 
 Verify claims against the code, not against the bean or the plan -- the code is what shipped. Docs-only commits need no test run (nothing reads these files); the commit message should say what was corrected versus what was added.
 
+Invoke the `architecture-docs` skill for any edit to these files. Its point: prefer a diagram, a table, or a link to the doc that already owns the material over prose, and delete the prose that shape replaces.
+
 ### Testing
 
 Run these from the repo root before considering backend/frontend work verified:

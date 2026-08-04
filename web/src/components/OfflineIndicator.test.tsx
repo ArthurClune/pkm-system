@@ -151,9 +151,11 @@ it("an online-only session says so and offers a Reload, not a Retry", async () =
     });
     expect(screen.getByRole("status")).toHaveTextContent(
       "Working online only — offline editing is unavailable for now.");
-    // Must NOT promise the changes are being saved: that is only true for the
-    // error shapes opQueue retains for (pkm-9x6u).
-    expect(screen.getByRole("status")).not.toHaveTextContent("still being saved");
+    // Connected, so the reassurance is true and is given: opQueue retains every
+    // replica failure that raises this problem, and the socket is delivering
+    // (pkm-s1m8 — this used to assert the sentence was absent).
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Your changes are still being saved to the server.");
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     // Nothing pending here, so Reload goes straight through.
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
@@ -163,6 +165,62 @@ it("an online-only session says so and offers a Reload, not a Retry", async () =
       configurable: true, value: original,
     });
   }
+});
+
+it("warns instead of reassuring when an online-only session goes offline", () => {
+  // pkm-s1m8: the reassurance is true only while the socket is up. Offline,
+  // retained ops live in the in-memory fallback lane and there is no
+  // beforeunload anywhere in the app, so a refresh or a closed tab takes them
+  // silently — the one case where the user can still act on the warning.
+  renderWith({
+    status: "reconnecting",
+    canEdit: false,
+    problem: {
+      kind: "replica-unavailable", error: "Access Handles cannot be created",
+    } as unknown as Sync["problem"],
+    pending: 2,
+  });
+  // The problem banner renders before the connectivity banner.
+  const banner = screen.getAllByRole("status")[0];
+  expect(banner).toHaveTextContent(
+    "Working online only — offline editing is unavailable for now.");
+  expect(banner).toHaveTextContent(
+    "You are offline: 2 unsent changes exist only in memory here. "
+    + "Reloading or closing this tab discards them.");
+  expect(banner).not.toHaveTextContent("still being saved");
+});
+
+it("uses the singular for one unsent change in an offline online-only session", () => {
+  renderWith({
+    status: "reconnecting",
+    canEdit: false,
+    problem: {
+      kind: "replica-unavailable", error: "Access Handles cannot be created",
+    } as unknown as Sync["problem"],
+    pending: 1,
+  });
+  expect(screen.getAllByRole("status")[0]).toHaveTextContent(
+    "1 unsent change exists only in memory here. "
+    + "Reloading or closing this tab discards it.");
+});
+
+it("says nothing about safety when an offline online-only session is clean", () => {
+  // Nothing to lose and nothing to promise: a reassurance would be about
+  // future edits, which this session cannot make (the editor is frozen).
+  renderWith({
+    status: "reconnecting",
+    canEdit: false,
+    problem: {
+      kind: "replica-unavailable", error: "Access Handles cannot be created",
+    } as unknown as Sync["problem"],
+    pending: 0,
+  });
+  const banner = screen.getAllByRole("status")[0];
+  expect(banner).toHaveTextContent(
+    "Working online only — offline editing is unavailable for now.");
+  expect(banner).not.toHaveTextContent("still being saved");
+  expect(banner).not.toHaveTextContent("unsent change");
+  expect(banner).not.toHaveTextContent("discards");
 });
 
 it("Reload confirms before discarding undelivered work", async () => {

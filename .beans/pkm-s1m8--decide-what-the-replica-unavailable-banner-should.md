@@ -1,10 +1,11 @@
 ---
 # pkm-s1m8
 title: Decide what the replica-unavailable banner should say now that ops are always retained
-status: todo
+status: completed
 type: task
+priority: normal
 created_at: 2026-08-04T18:19:09Z
-updated_at: 2026-08-04T18:19:09Z
+updated_at: 2026-08-04T19:51:49Z
 ---
 
 A product decision, not a bug. No code is wrong today.
@@ -34,6 +35,36 @@ So the honest reassurance is conditional, and what to show is a judgement call a
 
 ## Checklist
 
-- [ ] Arthur decides which option
-- [ ] Implement the chosen copy (and update `OfflineIndicator.test.tsx:156`, which currently asserts the second sentence is absent)
-- [ ] Update `docs/architecture/sync-and-offline.md:493-496`, which quotes the rendered copy
+- [x] Arthur decides which option
+- [x] Implement the chosen copy (and update `OfflineIndicator.test.tsx:156`, which currently asserts the second sentence is absent)
+- [x] Update `docs/architecture/sync-and-offline.md:493-496`, which quotes the rendered copy
+
+
+## Summary of Changes
+
+**Decision: option 3 — conditional on connection state**, because the honest
+statement is itself conditional.
+
+`OfflineIndicator`'s replica-unavailable banner keeps its first sentence in every
+case and now adds a second one that follows the truth:
+
+- **Connected** — "Your changes are still being saved to the server." True
+  because this problem is only raised for an `unusable` replica, never a
+  `rejected` op, so `opQueue` retains every write, and the socket is delivering.
+- **Offline with unsent work** — "You are offline: N unsent change(s) exist only
+  in memory here. Reloading or closing this tab discards it/them." The one case
+  where the user can still act on the warning.
+- **Offline and clean** — neither sentence. Nothing to promise, nothing to lose,
+  and the editor is frozen anyway.
+
+`OfflineIndicator.test.tsx:156` now asserts the reassurance is *present* when
+connected, and three new cases cover the offline variants (plural, singular,
+clean). `docs/architecture/sync-and-offline.md` replaces its "deliberately
+without a second sentence" note with the rule and its reasoning.
+
+Verified: `pnpm verify` clean (typecheck, lint, FCIS, coverage, build, 51 e2e).
+
+Option 4's `beforeunload` guard was deliberately not taken here: it is the fix
+that would make the reassurance unconditional, so it belongs with the wider
+lane-loss problem. Filed as part of **pkm-0htf**, which also notes that this
+copy should be revisited if that guard lands.

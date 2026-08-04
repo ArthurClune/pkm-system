@@ -506,8 +506,15 @@ durable delivery spun forever instead (pkm-9x6u).
 
 The session says so rather than degrading silently: startup raises a
 `replica-unavailable` problem, and `OfflineIndicator` renders "Working online
-only — offline editing is unavailable for now." — deliberately without a
-second sentence promising the changes are being saved. The action is
+only — offline editing is unavailable for now.", followed by a second sentence
+that **turns on connectivity, because the truth does** (pkm-s1m8). Connected,
+it reassures — "Your changes are still being saved to the server." — which
+holds because this problem is only ever raised for an `unusable` replica,
+never a `rejected` op, so the queue retains every write. Offline with unsent
+work, it warns instead: those ops exist only in the in-memory fallback lane,
+and since there is no `beforeunload` anywhere in the app, a refresh or a closed
+tab takes them silently, so the banner says so. Offline with a clean queue,
+neither sentence applies and the first stands alone. The action is
 **Reload**, not Retry, and deliberately so. The failed
 open is latched for the session, and by the time the banner shows, the queue
 has already delivered online — so reopening mid-session could flush a previous

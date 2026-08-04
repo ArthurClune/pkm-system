@@ -119,17 +119,27 @@ function reportSentences(file, text) {
     .split("\n").filter((l) => !l.trim().startsWith("|") && !l.startsWith("#"))
     .join("\n")
     .replace(/\n\s*[-*] /g, "\n\n");
+  // A following sentence can start lowercase — iPadOS, macOS, jsdom, opQueue —
+  // so the lookahead allows any letter, and the abbreviations that would then
+  // split wrongly are masked first.
   const sentences = prose
-    .split(/(?<=[.:])\s+(?=[A-Z`*])|\n\n/)
-    .map((s) => s.replace(/\s+/g, " ").trim())
+    .replace(/\b(e\.g|i\.e|cf|vs|etc|approx)\./gi, "$1\u0001")
+    .split(/(?<=[.:])\s+(?=[A-Za-z`*])|\n\n/)
+    .map((s) => s.replace(/\u0001/g, ".").replace(/\s+/g, " ").trim())
     .filter(Boolean);
   if (sentences.length === 0) return;
-  const longest = sentences
+  const ranked = sentences
     .map((s) => ({ s, n: s.split(" ").length }))
-    .sort((a, b) => b.n - a.n).slice(0, 5);
-  console.log(`\n      ${file}: longest sentences — read these and decide whether `
-    + `each is one idea:`);
-  for (const { s, n } of longest) {
+    .sort((a, b) => b.n - a.n);
+  // Say how many are in the tail, not just show five of them. Showing a fixed
+  // top-5 with no total lets a reader fix those five and ship a doc that still
+  // has long sentences — including ones their own rewrites just created.
+  const tail = ranked.filter((r) => r.n >= 40).length;
+  const shown = process.argv.includes("--all") ? ranked.filter((r) => r.n >= 30) : ranked.slice(0, 5);
+  console.log(`\n      ${file}: ${tail} sentence(s) of ${sentences.length} run 40+ words`
+    + `${shown.length < tail ? `; longest ${shown.length} shown, pass --all for every 30+` : ""}.`
+    + `\n      Read them and decide whether each is one idea:`);
+  for (const { s, n } of shown) {
     console.log(`        ${String(n).padStart(3)}w  ${s.slice(0, 96)}${s.length > 96 ? "…" : ""}`);
   }
   console.log("");

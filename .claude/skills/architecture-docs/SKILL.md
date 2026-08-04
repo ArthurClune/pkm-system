@@ -30,9 +30,15 @@ history and rejected alternatives belong.
 | a decision with two or three outcomes | a table keyed by the condition | a paragraph per branch |
 | already owned by another doc | a link to it | a restatement that will drift |
 
-Ownership matters as much as shape: `docs/keyboard.md` owns the shortcut
-surface, `backend.md` the API reference, `docs/design.md` the rationale. A
-second copy in prose is worse than no copy, because it drifts silently.
+Ownership matters as much as shape: `docs/keyboard.md` owns the shortcut surface
+and the slash commands, `docs/cli.md` the CLI's user-facing syntax, `backend.md`
+the API reference, `docs/design.md` the rationale. A second copy in prose is
+worse than no copy, because it drifts silently.
+
+**Dedupe toward the doc that owns the mechanism, not away from it.** When two
+docs describe the same thing, the one whose subject implements it keeps the
+sentence and the other links. Server broadcast behaviour stays in `backend.md`
+even though the sync doc needs it too.
 
 **Prose earns its place** for what no shape carries: why a step exists, what
 breaks without it, who owns a value, which of two paths is authoritative, what
@@ -110,6 +116,10 @@ Every mermaid block parses under the project's own mermaid; links and heading
 anchors resolve, including inbound anchors from sibling docs (a renamed heading
 breaks those silently). It also prints, for judgement rather than pass/fail, the
 longest prose sentences and any identifiers dropped since `HEAD`.
+
+**Re-run it after your edits and read the count, not just the list.** It shows
+the longest five by default (`--all` for the rest), so clearing those five is not
+the same as being done — splitting one sentence often pushes another over.
 
 Docs-only commits need no test run. The commit message should say what was
 **corrected** (a claim that was wrong) versus **restructured** (no claim

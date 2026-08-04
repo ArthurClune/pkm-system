@@ -99,11 +99,11 @@ docs/     design.md, this directory, per-feature specs and plans, SECURITY.md
 
 ### Functional Core / Imperative Shell
 
-The whole codebase follows FCIS: pure logic (op planning, ref extraction,
-query evaluation, tree building, state transitions) lives in Functional Core
-files; I/O (routes, SQLite, WebSocket, workers, React effects) lives in thin
-Imperative Shell files that gather inputs, call the core, and persist
-results. Every runtime file declares its role in a header comment:
+The whole codebase follows FCIS. Pure logic — op planning, ref extraction,
+query evaluation, tree building, state transitions — lives in Functional Core
+files. I/O — routes, SQLite, WebSocket, workers, React effects — lives in thin
+Imperative Shell files that gather inputs, call the core, and persist results.
+Every runtime file declares its role in a header comment:
 
 ```
 # pattern: Functional Core        (Python)

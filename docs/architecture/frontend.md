@@ -144,10 +144,11 @@ link or ref pushes a `SidebarPanel` onto it.
 
 **No link in the left nav may leave shift-click to the browser.** react-router
 ignores modified clicks (`shouldProcessLinkClick` bails on `shiftKey`), so a
-bare `NavLink` hands the shift-click to the browser, which opens the whole app
-in a second window — two live copies of the same page, which the sync layer
-then warns about (pkm-10ah). Both nav link components therefore handle it, and
-new nav links must use one of them rather than `NavLink` directly:
+bare `NavLink` hands the shift-click to the browser instead. That opens the
+whole app in a second window — two live copies of the same page, which the
+sync layer then warns about (pkm-10ah). Both nav link components therefore
+handle it, and new nav links must use one of them rather than `NavLink`
+directly:
 
 - `NavPageLink` — destinations that *are* pages (the pinned entries, TODO):
   opens the page in the sidebar, same contract as `PageLink` inline.
@@ -163,13 +164,13 @@ Four global keys, all in one `window` keydown listener in `App.tsx`:
 block-stamp column.
 
 - **The Ctrl+Shift family exists because the Cmd forms never arrive.** macOS
-  reserves `Ctrl+Cmd+D` for dictionary lookup and the browser owns `Cmd+T`
-  (new tab) and `Shift+Cmd+T` (reopen closed tab); in each case the page
-  receives no keydown at all, so those chords cannot be claimed however the
-  handler is written. `Ctrl+Shift` is the fallback both of these landed on.
-  Plain `Ctrl+letter` is not available either — `docs/keyboard.md` leaves the
-  emacs-style bindings to the browser. Both Ctrl+Shift chords carry a
-  `!e.metaKey` guard so adding Cmd doesn't also fire them.
+  reserves `Ctrl+Cmd+D` for dictionary lookup, and the browser owns `Cmd+T`
+  (new tab) and `Shift+Cmd+T` (reopen closed tab). In each case the page
+  receives no keydown at all, so no handler can claim the chord. `Ctrl+Shift`
+  is the fallback both of these landed on; plain `Ctrl+letter` is not
+  available either, since `docs/keyboard.md` leaves the emacs-style bindings
+  to the browser. Both Ctrl+Shift chords carry a `!e.metaKey` guard so adding
+  Cmd doesn't also fire them.
 - **No test can tell you a chord is swallowed.** jsdom and Playwright both
   deliver a synthetic keydown the real OS or browser would have eaten, so a
   green suite says nothing about whether a new global chord reaches the page.
@@ -181,10 +182,10 @@ block-stamp column.
   `App.test.tsx` coverage fires `Ctrl+Shift+T` on the textarea rather than on
   `window` to catch that.
 
-`Ctrl+Shift+T`'s target is `blockStampsPref` — one global setting, not a
-per-page one — so it is deliberately live off page routes too: pressing it on
-`/files` takes effect on the next page opened, even though the page menu only
-offers the item on `/page/*`.
+`Ctrl+Shift+T`'s target is `blockStampsPref`, one global setting rather than a
+per-page one. It stays live off page routes too: pressing it on `/files`
+takes effect on the next page opened, even though the page menu only offers
+the item on `/page/*`.
 
 The main pane and a sidebar panel can show *the same page at the same time*.
 That fact drives the outline-session design below.
@@ -250,10 +251,10 @@ There is no Redux/Zustand; state lives in three layers:
 Driving a session correctly from a view is subtle, so the two **single-page**
 surfaces share one implementation of it: `outline/useOutlinePageLoad.ts`,
 used by `PageView` and `EditableSidebarPanel`. The hook owns the whole read
-lifecycle — one outstanding generation per mount, the parent readiness
-promise a `"parent"` read publishes through, the authoritative loader and
-parent read controller registered on the session, and the cleanup order at
-unmount — and returns just `{payload, error, reload}`. The two surfaces
+lifecycle: one outstanding generation per mount, the parent readiness promise
+a `"parent"` read publishes through, the authoritative loader and parent read
+controller registered on the session, and the cleanup order at unmount. It
+returns just `{payload, error, reload}`. The two surfaces
 differ only in presentation and in where they scroll. A second copy of this
 controller is how they silently drifted apart before.
 
@@ -264,9 +265,9 @@ delivers each day's blocks through its own capture-ticket path.
 What a *failed* read means is a policy decision, not something each surface
 reimplements. The pure `outline/missingPage.ts::substituteMissingDaily` turns
 a 404 on a daily title into an empty editable page, because a daily nobody
-has written to yet is not an error anywhere it is displayed. (The server
-auto-creates only today's; the first edit creates the row.) Every other
-missing page stays an error. `reload("resync")` is how `PageView` answers a
+has written to yet is not an error anywhere it is displayed. The server
+auto-creates only today's daily; the first edit creates every other one's
+row. Every other missing page stays an error. `reload("resync")` is how `PageView` answers a
 `resyncSeq` bump; the sidebar does not subscribe to resync.
 
 The block tree itself is the generated `BlockNode` shape (recursive
@@ -295,10 +296,10 @@ a distinct, individually-typed operation — a union would add a second name
 and a switch case per member without removing one.
 
 No component holds block-tree state. The most any of them owns is
-`BlockInput`'s *draft* of one block's text (`outline/useBlockDraft.ts`: the
-value, its dirty flag, IME composition, adoption of committed text over a
-clean draft, and caret restoration after a programmatic value swap) plus the
-transient popup offsets around it.
+`BlockInput`'s *draft* of one block's text, plus the transient popup offsets
+around it. `outline/useBlockDraft.ts` tracks the value, its dirty flag, IME
+composition, adoption of committed text over a clean draft, and caret
+restoration after a programmatic value swap.
 
 ```mermaid
 flowchart LR
@@ -324,53 +325,39 @@ Editing mechanics to know before touching `outline/`:
   ordinary debounced draft survives an unmount: nothing cancels the pending
   `setTimeout`, so it still fires and flushes after the outline is gone. A
   *held* draft has no armed timer at all — its only exits are the explicit
-  commit points above — and React delivers no blur for a node it removes. Two
-  defences, both needed:
-  - `useOutline` flushes on unmount, which covers navigation the editor never
-    sees: App's global `Ctrl-Shift-D` chord, and browser back/forward. It is
-    unmount-only on purpose (the callback is held in a ref, not a dep) and
-    enqueues into the durable op queue after the outline's session handle is
-    already released. There is nothing left to render into, and durability is
-    the queue's job anyway.
-  - Anything *inside* the editor that navigates away under its own steam
-    flushes first, explicitly. `Ctrl-O`/`Ctrl-Shift-O` over a `[[ref]]`
-    (`ensureRefPageThenOpen`) calls `handlers.onFlushDraft()` before both
-    `POST /api/pages` and the navigation. That order matters: the flush is
-    what creates the ref's page row through the normal ops path, so the
-    unmount defence alone would leave it racing. This one emptied two real
-    blocks in production before it was fixed.
+  commit points above — and React delivers no blur for a node it removes.
+  Two defences are needed, one per navigation trigger:
+
+  | Trigger | Defence |
+  |---|---|
+  | Navigation the editor never sees: App's global `Ctrl-Shift-D` chord, browser back/forward | `useOutline` flushes on unmount — unmount-only on purpose (the callback is held in a ref, not a dep), enqueuing into the durable op queue after the outline's session handle is already released. Nothing is left to render into, and durability is the queue's job anyway |
+  | Navigation the editor starts itself: `Ctrl-O`/`Ctrl-Shift-O` over a `[[ref]]` (`ensureRefPageThenOpen`) | Calls `handlers.onFlushDraft()` explicitly, before both `POST /api/pages` and the navigation — the flush is what creates the ref's page row through the normal ops path, so the unmount defence alone would race it (pkm-hhbc emptied two real blocks in production before this was fixed) |
 
   Clicking a rendered ref is not affected: only unfocused blocks render
   links, so reaching one blurs the textarea first. Tab hide, close and reload
   are covered by the `visibilitychange` flush.
-- **Keyboard policy is a pure function.** `decideEditorKey` returns a
-  semantic decision the shell executes. New shortcuts are added in the policy
-  (and its table-driven `META_WRAP_EDITS` for Cmd-letter wraps), not as
-  ad-hoc event handlers. The current surface: Cmd-K link, Cmd-B/I, Cmd-Enter
-  TODO cycle, Cmd+Alt+0–3 headings, Tab/Shift-Tab indent (multi-block
-  aware), Alt-Arrow and Shift-Cmd-Up/Down moves, Shift-Cmd-Left/Right
-  line-wise selection (logical lines, one more line per press — pkm-jgtn),
-  Shift-Arrow multi-block selection (started from the block's edge whether
-  the caret is collapsed or a text selection can no longer grow within the
-  block; Shift+Arrow must never reach the boundary-arrow block navigation,
-  which would silently drop the selection), slash commands, and Cmd-Z /
-  Shift-Cmd-Z undo/redo (`history.ts` + `undoManager.ts`).
-
-  A multi-block *selection* is keyed by the second policy function,
-  `decideSelectionKey`. With no focused textarea the tree container itself
-  takes focus, and `EditableBlockTree.onKeyDown` executes what the policy
-  decides: extend, move, indent, copy, clear or delete. The split there is
-  that **creating, extending and copying a selection are read-only-safe,
-  while every mutating branch is gated on `!readOnly`** — Tab, Shift+Cmd+Arrow
-  and Backspace/Delete. The delete gate was once missing, so a selection made
-  while editable could still be destroyed after sync turned the outline
-  read-only. `useOutline`'s handlers do not re-check editability, so the gate
-  has to be in the policy.
-
-  A gated key resolves to `"none"`, which the shell leaves **uncancelled**:
-  no `preventDefault`, so a read-only Tab still moves focus out of the tree
-  the way the platform intends. That is why "did nothing" and "was not
-  handled" are the same decision here.
+- **Keyboard policy is a pure function.** `decideEditorKey` (a focused
+  block's textarea) and `decideSelectionKey` (a multi-block selection, keyed
+  by the tree container since there is no textarea) each return a semantic
+  decision that `EditableBlockTree.onKeyDown` and `BlockInput` execute. All
+  DOM effects stay in the shell. New shortcuts are added to one of these two
+  functions — Cmd-letter wraps go in `decideEditorKey`'s `META_WRAP_EDITS`
+  table — never as ad-hoc event handlers. The full shortcut list is owned by
+  [keyboard.md](../keyboard.md).
+- **A growing text selection escalates to a block selection at the block's
+  edge**, whether the caret is collapsed or a text selection can no longer
+  grow within the block (pkm-jgtn). It must never fall through to the
+  boundary-arrow block-navigation branch instead, which would silently drop
+  the selection.
+- **Creating, extending and copying a selection are read-only-safe; every
+  mutating branch is gated on `!readOnly`** — indent/outdent (Tab/Shift-Tab),
+  move (Shift+Cmd+Arrow), and delete (Backspace/Delete). `useOutline`'s
+  handlers do not re-check editability, so this gate is the only one: a
+  selection made while editable used to survive the switch to read-only and
+  stay deletable (pkm-rckh). A gated key resolves to `"none"`, which the
+  shell leaves **uncancelled** rather than calling `preventDefault`, so a
+  read-only Tab still moves focus out of the tree the way the platform
+  intends.
 - **The autocomplete popup is shared state, and its caret is read live.**
   `outline/useAutocomplete.ts` holds the open completion context and the
   highlighted row for both the outline editor's `BlockInput` and the phone
@@ -404,13 +391,13 @@ Editing mechanics to know before touching `outline/`:
   event, which also requires the clipboard to actually have structure. One
   arm serves exactly one paste. E2E tests must arm via a synthetic keydown:
   pressing the real chord pastes whatever is on CI's clipboard.
-- **Slash commands** cover block types (`/todo`, `/table`, code fences,
-  `/mermaid`), headings, queries, `/upload`, and date links. `/today` and
-  `/tomorrow` insert `[[Ordinal Date]]` links directly, while `/date` opens
+- **Slash commands** dispatch to block-type, heading and query constructors;
+  the full command list is in
+  [keyboard.md](../keyboard.md#slash-commands). `/date` opens
   `DatePickerPopup` over the month grid computed by the pure `calendar.ts`
-  (Monday-first, whole weeks, adjacent-month days marked). Labels are
+  (Monday-first, whole weeks, adjacent-month days marked). Command labels are
   lowercase by convention, and `slashCommandsDocumented.test.ts` fails if a
-  new command isn't documented in `docs/keyboard.md`.
+  new command isn't documented there.
 - **Remote edits vs local draft.** Authoritative text lands on the tree even
   for the focused block, but the textarea keeps the local draft — per-block
   last-write-wins, consistent with the server's model.
@@ -433,32 +420,32 @@ Editing mechanics to know before touching `outline/`:
 
 **The stamp cell lives inside `.block-row`.** It is the row's last flex child,
 after `.block-text` or, when the block is focused, after `BlockInput`'s
-textarea. Both facts are load-bearing: `.block-children` indents from the left
-only, so every row in a page already shares a right edge and the cells form a
-true column at any nesting depth; and because the cell is a sibling of the
-textarea rather than of the row, focusing a block cannot shift it. The flag
-reaches it as a **prop** from `PageView` alone — `EditableBlockTree` must never
-read `BlockStampsContext` itself, or the journal scroll and sidebar panels
-would grow the column too.
+textarea. Both facts are load-bearing, for different reasons. `.block-children`
+indents from the left only, so every row in a page already shares a right edge
+and the cells form a true column at any nesting depth. The cell is also a
+sibling of the textarea rather than of the row, so focusing a block cannot
+shift it. The flag reaches it as a **prop** from `PageView` alone —
+`EditableBlockTree` must never read `BlockStampsContext` itself, or the
+journal scroll and sidebar panels would grow the column too.
 
-**The page menu flips a label instead of showing a checkmark.** The timestamps
-item is a plain `role="menuitem"` reading "Show timestamps" or "Hide
-timestamps", and `.top-bar-menu` has no reserved-width check span — BlockMenu's
-`.block-menu-item-check` idiom indents the label in both states, which in a menu
-this narrow wrapped the label onto two lines while every sibling item sat flush
-at the padding edge. Keep the two idioms apart: an item whose state is in its
-text must not also claim `menuitemcheckbox`, or the label and the announced
-checked state say the same thing twice. A `styles.test.ts` case asserts the
-slot's absence.
+**The page menu flips a label instead of showing a checkmark.** The
+timestamps item is a plain `role="menuitem"` reading "Show timestamps" or
+"Hide timestamps". `.top-bar-menu` has no reserved-width check span.
+BlockMenu's `.block-menu-item-check` idiom indents the label in both states;
+in a menu this narrow, that wrapped the label onto two lines while every
+sibling item sat flush at the padding edge. Keep the two idioms apart: an item
+whose state is in its text must not also claim `menuitemcheckbox`, or the
+label and the announced checked state say the same thing twice. A
+`styles.test.ts` case asserts the slot's absence.
 
-Related, and the deeper cause of that wrap: **`.top-bar-menu`'s items must keep
-`white-space: nowrap`.** The menu is absolutely positioned inside a
-button-sized relative parent, so its shrink-to-fit width resolves against
-roughly 30px of available space and lands at min-content — the widest single
-*word*. Without nowrap, any two-word label wraps as soon as the text outgrows
-the 160px `min-width` (a larger font size, browser zoom, or simply a longer
-label); nowrap makes min-content equal max-content so the box widens to its
-longest label instead. New menu items therefore cost width, not height.
+**`.top-bar-menu`'s items must keep `white-space: nowrap`** — the deeper
+cause of that wrap. The menu is absolutely positioned inside a button-sized
+relative parent, so its shrink-to-fit width resolves against roughly 30px of
+available space and lands at min-content — the widest single *word*. Without
+nowrap, any two-word label wraps as soon as the text outgrows the 160px
+`min-width` (a larger font size, browser zoom, or simply a longer label).
+Nowrap makes min-content equal max-content, so the box widens to its longest
+label instead. New menu items therefore cost width, not height.
 
 **`set_collapsed` must not stamp.** `opBumpsUpdatedAt` (outline/blockStamps.ts)
 is the single statement of pkm-r7k8's rule that collapsing is a view toggle,
@@ -676,11 +663,11 @@ coral: two colour tokens for two jobs.
 
 Every confirmation prompt goes through `useConfirm`
 (`web/src/components/ConfirmDialog.tsx`), which returns
-`{ confirm(message, options?): Promise<boolean>, dialog: ReactNode }`. There are
-no `window.confirm` call sites left in `web/src`, and new ones must not appear:
-iPadOS Safari has suppressed `window.confirm` in standalone (installed PWA)
-mode, which silently turns a guarded destructive action into either a no-op or
-an unguarded one depending on what it returns.
+`{ confirm(message, options?): Promise<boolean>, dialog: ReactNode }`. There
+are no `window.confirm` call sites left in `web/src`, and new ones must not
+appear. iPadOS Safari has suppressed `window.confirm` in standalone (installed
+PWA) mode, which silently turns a guarded destructive action into either a
+no-op or an unguarded one, depending on what it returns.
 
 The cost of the hook is that the owning component must render `dialog`
 somewhere in its tree, or `confirm()`'s promise never settles and the action
@@ -737,11 +724,11 @@ Four traps when working on this:
   `document.activeElement.className` plus
   `getComputedStyle(el).outlineColor`. Computed style reflects
   `:focus-visible`, and CDP's synthetic Tab does establish keyboard modality.
-- **Ordinary content anchors deliberately keep the UA ring.** `a.page-link`,
-  external links and the `.page-title > a` heading link were considered and
-  declined: the ring is only ever seen by tabbing through prose, while at the
-  block line-height a 2px offset ring collides with the line above and
-  repeats per line box on a wrapped link.
+- **Ordinary content anchors keep the UA ring, not the custom one.**
+  `a.page-link`, external links and the `.page-title > a` heading link were
+  considered and declined. The custom ring is only ever seen by tabbing
+  through prose, but at the block line-height a 2px offset ring collides
+  with the line above and repeats per line box on a wrapped link.
 - **An off-screen drawer is still in the tab order.** The phone nav
   (`@media (max-width: 600px)`) once used `transform: translateX(-100%)`
   alone, so the closed drawer's links and buttons stayed tabbable — as the
@@ -766,8 +753,8 @@ Four traps when working on this:
     `text-transform: inherit`, which the `font` shorthand does not carry.
   - **Both triggers need `display: block; width: 100%`.** An inline-block
     button sizes to its chevron-plus-label content, not the header's full
-    width, so a click anywhere else in the header row — the old
-    `<h2 onClick>`'s whole hit area — would silently do nothing.
+    width. A click anywhere else in the header row — the old `<h2 onClick>`'s
+    whole hit area — would otherwise silently do nothing.
     `styles.test.ts` asserts both properties on `.section-toggle`, matching
     `.page-title-edit`. The collapsible trigger also owns `aria-expanded` and
     marks its chevron `aria-hidden`.
@@ -776,12 +763,12 @@ Four traps when working on this:
     name by walking its children, and a child with its own explicit name
     contributes *that* name to the walk instead of its text. A fixed
     `aria-label` on this button therefore renames the page's `<h1>` in every
-    real browser. (Verified in Chromium; jsdom's accname implementation does
-    not reproduce it, so a unit test cannot catch it.) An arbitrary title can
-    still contain a word like "Cancel" or "Merge" that collides with an
-    unrelated dialog's same-named button in a test. That is deterministic,
-    not one of this suite's machine-load flakes, and the fix is to scope the
-    colliding query to its dialog — `getByRole("alertdialog")` then
+    real browser. This was verified in Chromium; jsdom's accname
+    implementation does not reproduce it, so a unit test cannot catch it. An
+    arbitrary title can still contain a word like "Cancel" or "Merge" that
+    collides with an unrelated dialog's same-named button in a test. That is
+    deterministic, not one of this suite's machine-load flakes. The fix is to
+    scope the colliding query to its dialog — `getByRole("alertdialog")` then
     `.getByRole("button", …)` — rather than to rename the product control.
 
 **Control boundary contrast is a known, measured deviation from WCAG 1.4.11.**
@@ -802,17 +789,16 @@ Two other stylesheet invariants that are easy to break without noticing:
   a media query adds no specificity and source order is what wins.
 - **The left nav's rules get their space from flexbox, not padding.**
   `.left-nav` has an 8px flex `gap`, so a separator like `.nav-section-start`
-  declares only `padding-top` below itself — 12px, being the free 8px above
-  plus `.nav-link`'s own 4px — which keeps the text equidistant from the
-  rule.
+  declares only `padding-top` below itself: 12px, the free 8px above plus
+  `.nav-link`'s own 4px. That keeps the text equidistant from the rule.
 
 `styles.test.ts` guards these as text-level drift assertions against the raw
 stylesheet. Its `ruleFor(selector)` builds an **unanchored** regex and
 returns the first match, so a selector appearing as the non-first member of a
 grouped rule silently returns the *group's* body. Use `rulesFor`, which joins
-every matching rule, for classes styled in more than one place, and
-`mediaRulesFor(query, selector)` for anything inside an `@media` block —
-`ruleFor` stops at the first `}`, which inside a media block is the end of
+every matching rule, for classes styled in more than one place. Use
+`mediaRulesFor(query, selector)` for anything inside an `@media` block,
+since `ruleFor` stops at the first `}` — inside a media block, the end of
 its first nested rule.
 
 ## Testing and quality gates

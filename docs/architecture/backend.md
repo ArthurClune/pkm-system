@@ -219,10 +219,11 @@ Key mechanics:
   `created_at`/`updated_at` in epoch milliseconds, and the block-level values
   are genuine all the way back to the import — `parse_export.py` copies each
   Roam block's `:create/time` and `:edit/time`. `blocks.updated_at` is meant
-  to answer "when was this block last really changed", so `set_collapsed`
-  stamps neither the block's `updated_at` nor its page's: collapsing a subtree
-  is a view-state toggle, frequent enough that counting it would drown the
-  signal and churn the recently-changed page ordering. `update_text`, `move`,
+  to answer "when was this block last really changed". `set_collapsed`
+  therefore stamps neither the block's `updated_at` nor its page's:
+  collapsing a subtree is a view-state toggle, frequent enough that counting
+  it would drown the signal and churn the recently-changed page ordering.
+  `update_text`, `move`,
   `set_heading` and `set_view_type` all do bump both. The change journal is
   trigger-driven and independent of this — a collapse still journals its block
   row, so the toggle still reaches other clients.
@@ -275,9 +276,9 @@ Modest by design, layered under Tailscale (see `docs/SECURITY.md`):
   which the design accepts.
 
   Acquiring that semaphore slot (`scrypt_slot()`) is bounded by a timeout
-  (`SCRYPT_ACQUIRE_TIMEOUT_S`, 2s) rather than an unbounded wait. `login()`
-  is a sync route, so it runs on the same shared worker-thread pool as every
-  other sync route; blocking indefinitely on a full semaphore would let
+  (`SCRYPT_ACQUIRE_TIMEOUT_S`, 2s) rather than an unbounded wait. `login()` is
+  a sync route, so it runs on the same shared worker-thread pool as every
+  other sync route. Blocking indefinitely on a full semaphore would let
   enough concurrent connections to `/api/login` — which cost nothing while
   queued — starve that pool and freeze the whole app, not just login. A
   timed-out acquire fails into the same uniform 401. Per-source backoff
@@ -368,8 +369,8 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 
 `routes_pages.py::_fetch_ancestors` builds the breadcrumb trail behind
 `GET /api/block/{uid}` and, via `backlinks.py`, every backlink group. It walks
-parents with a recursive CTE, and its termination condition is a **visited
-path, not a depth limit**: the CTE carries `path` as `,uid,uid,…,` and the
+parents with a recursive CTE. Its termination condition is a **visited path,
+not a depth limit**: the CTE carries `path` as `,uid,uid,…,`, and the
 recursive arm keeps a row only while `instr(a.path, ',' || b.uid || ',') = 0`.
 
 That shape matters in two directions, and both were previously wrong in the
@@ -457,7 +458,7 @@ Asset copying (the "copy assets" step below) never trusts an existing
 content-addressed destination just because it is present. It verifies against
 the freshly-indexed source's size and sha256
 (`assets_core.asset_needs_repair`, shared with the export writer's own
-verify-then-hardlink check), and rewrites a mismatch atomically — temp file
+verify-then-hardlink check). It rewrites a mismatch atomically — temp file
 plus `os.replace` — from the linked-files source, the same path used for a
 brand-new hash.
 
@@ -489,10 +490,10 @@ parents. It selects the lexicographically first offending UID and reports all
 sorted structural locations, so the diagnostic is deterministic.
 
 Only after structural preflight, and still before linked-file indexing and
-row construction, `importer/titles.py` recursively removes balanced `[[`/`]]`
-markers and `#` markers from every explicit and ref-derived title, rewrites
-refs with the resulting map, and merges collisions in stable source order,
-preferring an already-clean spelling as survivor. The report lists each
+row construction, `importer/titles.py` runs. It recursively removes balanced
+`[[`/`]]` markers and `#` markers from every explicit and ref-derived title,
+then rewrites refs with the resulting map. Collisions merge in stable source
+order, preferring an already-clean spelling as survivor. The report lists each
 changed spelling, all its locations, and whether it merged. Malformed marker
 syntax, or a result made blank by sanitization, refuses the run before the
 output directory is created.
@@ -533,7 +534,7 @@ dropped. Each unreachable subtree's root, with its internal uid/text/children
 structure intact, is attached under a deterministic
 `"Import recovery: unreachable blocks"` page (`rows.py`'s
 `RECOVERY_PAGE_TITLE`, suffixed `" (2)"` and so on if a page already has that
-title), so every `((block ref))` into one still resolves.
+title). So every `((block ref))` into one still resolves.
 
 A root is found in two passes:
 
@@ -584,7 +585,7 @@ incrementally.
 A previously-exported asset's mere presence at its content-addressed path is
 never trusted. It is verified against the `assets` row's known size and sha256
 (`assets_core.asset_needs_repair` — a cheap stat first, a full hash only once
-the size matches) before being hardlinked into the new tree, and a mismatch is
+the size matches) before being hardlinked into the new tree. A mismatch is
 re-copied from the live store instead. A truncated or corrupted file from a
 past export therefore doesn't survive forever. A successful fresh transfer
 increments only `assets_copied`; a successful corrupt replacement increments
@@ -629,9 +630,9 @@ zipped, with the same backup semantics.
 ### Single-page export
 
 `GET /api/export/page/{title}` (`routes_export.py` + `export/resolve.py`) is
-the end-user download, and deliberately a *different* rendering mode from the
-backup path above: it resolves dynamic content to plain text, so the download
-reads like what a reader of the live page would see.
+the end-user download. It is deliberately a *different* rendering mode from
+the backup path above: it resolves dynamic content to plain text, so the
+download reads like what a reader of the live page would see.
 
 - `((refs))` resolve recursively, not one level, and are inlined as plain text
   rather than wrapped in parens.
@@ -656,9 +657,10 @@ keyboard-shortcut doc.
 ### Why `extract()` is O(n) per call
 
 `refs.py`'s `extract()` used to be quadratic in one case. The attribute regex
-paired a greedy `\s*` with a lazy class that mostly overlapped it, which is
-quadratic to *fail* against a long run containing no `::` — exactly what one
-large fenced code block becomes once `_strip_code()` blanks it out.
+paired a greedy `\s*` with a lazy class that mostly overlapped it. That
+combination is quadratic to *fail* against a long run containing no `::` —
+exactly what one large fenced code block becomes once `_strip_code()` blanks
+it out.
 `export_graph()` calls `extract()` once per block, via
 `collect_block_ref_uids`, so a single pathological block in a real graph could
 make the whole-database export take minutes instead of being instant, which
@@ -823,16 +825,16 @@ request. `PkmClient.get_page_blocks` returns `([], True)` — an empty block lis
 plus a "missing" flag — and the shared workflow (`save_blocks`, `apply_batch`,
 `upload_and_link` in `client/workflows.py`) prepends a `create_page` op
 (`build.create_page_ops`) to the same `OpBatch` the planned blocks ride in.
-Blocks are all a planner needs, and the only part of a page payload a missing
-page can honestly stand in for — there is no id or timestamp to invent — which
-is why the method hands back blocks rather than a synthesized payload. That
-keeps the "one atomic transaction" contract real: a batch that fails validation
-after this point leaves neither the page nor its blocks behind, because the
-whole batch, page creation included, rolls back together.
+Blocks are all a planner needs. They are also the only part of a page payload
+a missing page can honestly stand in for, since there is no id or timestamp to
+invent. That is why the method hands back blocks rather than a synthesized
+payload. It keeps the "one atomic transaction" contract real: a batch that
+fails validation after this point leaves neither the page nor its blocks
+behind, because the whole batch, page creation included, rolls back together.
 
 `get_page_blocks` looks up `refs.normalize_title(title)`, not `title`
 verbatim. A page whose title held control whitespace is only ever stored, and
-addressable, under its normalized spelling, so a caller still holding the
+addressable, under its normalized spelling. A caller still holding the
 pre-normalization string — a second save to the same page, say — would
 otherwise get a false "missing". It would then plan its next write against an
 empty page, prepending fresh content and re-creating any `## Heading` parent
@@ -942,15 +944,17 @@ unaffected: only admission (`create()`) is serialized.
   then constructs the client and awaits `connect()` inside a
   `try`/`except BaseException` that reuses `ClaudeConversation.close()` for
   cleanup on any exit other than success. That covers three failure shapes the
-  old code left unhandled: the `client_factory` itself raising (no client to
-  disconnect, only the config to unlink), `connect()` raising after the client
-  exists, and cancellation delivered into the awaited `connect()`, which is
-  what happens when `service.create()`'s `wait_for(create_timeout)` times out
-  on a wedged handshake.
+  old code left unhandled:
+  - the `client_factory` itself raising (no client to disconnect, only the
+    config to unlink);
+  - `connect()` raising after the client exists;
+  - cancellation delivered into the awaited `connect()` — what happens when
+    `service.create()`'s `wait_for(create_timeout)` times out on a wedged
+    handshake.
 
   `close()` already tolerates a client that never connected or was never
   attached, a `disconnect()` call that itself raises, and a *second*
-  cancellation landing anywhere in its body — for instance the request task
+  cancellation landing anywhere in its body. One example: the request task
   being cancelled on top of the `create_timeout` cancellation that triggered
   cleanup. The config-file unlink lives in a `finally` rather than a trailing
   statement a `CancelledError` could skip, precisely because `except Exception`
@@ -969,8 +973,8 @@ unaffected: only admission (`create()`) is serialized.
   subclass whose `interrupt()` never returns.
 - **An unacknowledged interrupt retires the conversation, not just the turn.**
   If `interrupt()` times out or raises, `ClaudeConversation` flips its `healthy`
-  flag to `False`: the subprocess may still be running the abandoned turn, so
-  its state is uncertain and it must never be handed a later turn.
+  flag to `False`. The subprocess may still be running the abandoned turn, so
+  its state is uncertain, and it must never be handed a later turn.
   `AssistantService._stream()` checks `healthy` after every turn and, if it has
   gone false, pops the conversation out of `_entries` and closes the harness
   there instead of just clearing `busy`. The next `send()` for that id gets a
@@ -984,8 +988,8 @@ unaffected: only admission (`create()`) is serialized.
   explicit `delete()` — the pagehide beacon, say — already tore down.
 - **Silent turns are the norm, not the exception.** 80s of model reasoning
   before the first token, and 25s serialising a large tool call, were both
-  measured on 2026-07-30, and a parked confirm writes nothing for as long as
-  the user takes. `routes._with_keepalive()` therefore keeps the SSE connection
+  measured on 2026-07-30. A parked confirm writes nothing for as long as the
+  user takes. `routes._with_keepalive()` therefore keeps the SSE connection
   warm with a comment frame. That also forces a periodic write, so a client
   that vanished without a clean close surfaces promptly instead of the
   confirmation prompt being written into a dead socket. Thinking content is
@@ -1149,12 +1153,15 @@ deploy or a restart alone cannot change title identity.
 
 The operator path is split along FCIS boundaries:
 
-- `pkm/title_migration.py` is the pure, deterministic planner. It normalizes
-  control whitespace and removes boundary ordinary U+0020 only, groups padded
-  titles by that canonical spelling, chooses an existing clean twin as
-  survivor when there is one and otherwise the lowest padded page id, lists
-  source pages in stable id order, counts affected blocks, inbound refs and
-  sidebar entries, and reports `all_space` and `forbidden_syntax` blockers.
+- `pkm/title_migration.py` is the pure, deterministic planner. For each
+  canonical spelling it:
+  - normalizes control whitespace and removes boundary ordinary U+0020 only;
+  - groups padded titles under that spelling;
+  - chooses a survivor: an existing clean twin if there is one, otherwise the
+    lowest padded page id;
+  - lists source pages in stable id order and counts affected blocks, inbound
+    refs and sidebar entries;
+  - reports `all_space` and `forbidden_syntax` blockers.
 
   Replacement values are opaque: `rename.rewrite_title_refs_map()` inserts
   each mapped value once and never rescans it as another source. The plan's
@@ -1224,15 +1231,14 @@ collide with real user content.
 
 After each `create`, `create_page`, or `move` with a resolved page target,
 `ops_apply._broadcast_op()` reads the applied page row and replaces the
-caller's `page_title` with that stored title. This covers the `"Untitled"`
+caller's `page_title` with that stored title — covering the `"Untitled"`
 fallback, control-whitespace normalization, and post-activation boundary-space
 stripping. A same-page move with no `page_title` stays null.
 
-If an applied-page row lookup ever violates its normally unreachable
-invariant, broadcast assembly raises and the owning op transaction rolls back,
-rather than emitting caller spelling. Remote replicas therefore refetch the
-page the server actually mutated, instead of keying local state by a raw caller
-spelling the server did not store.
+If that row lookup ever violates its normally unreachable invariant, broadcast
+assembly raises and the owning op transaction rolls back rather than emit caller
+spelling. What a replica does with the stored title it receives is covered in
+[sync-and-offline.md](sync-and-offline.md#title-activation-across-online-and-offline-paths).
 
 ### Blank refs are dropped by the extractor
 
@@ -1260,17 +1266,18 @@ places that resolve an extracted `Ref` onto a page go through it —
 `ops_apply.py`'s `ReindexRefs` handling, and `store.py`'s
 `rewrite_referencing_blocks`, used by rename and merge.
 
-Keep it. The intended behaviour on a blank title is to index *nothing*, which
-is the opposite of the ops `page_title` fallback. An op needs *some* page to
-land its content on, but a ref whose title normalizes to blank is not a
-reference at all, so resolving it onto `"Untitled"` would fabricate a phantom
-backlink. Before this, the two call sites called `get_or_create_page`
-directly, so a spaces-only ref in ordinary block text — typed via the editor's
+The intended behaviour on a blank title is to index *nothing*, the opposite of
+the ops `page_title` fallback. An op needs *some* page to land its content on,
+but a ref whose title normalizes to blank is not a reference at all, so
+resolving it onto `"Untitled"` would fabricate a phantom backlink.
+
+Before this guard existed, both call sites called `get_or_create_page()`
+directly. A spaces-only ref in ordinary block text — typed via the editor's
 `[[` autopair, then just spaces — raised `BlankTitleError` with nothing above
-it to catch it. That was an uncaught HTTP 500 on the ops path
-(`routes_ops.py` catches only `OpError`) and on rename (which catches only
-`sqlite3.IntegrityError`): worse than either the silent blank-page creation
-before it, or the 422 the ops path forbids.
+it to catch it. That was an uncaught HTTP 500 on the ops path (`routes_ops.py`
+catches only `OpError`) and on rename (which catches only
+`sqlite3.IntegrityError`). Both are worse than the silent blank-page creation
+that preceded them, or the 422 the ops path forbids.
 
 ## Logging and observability
 

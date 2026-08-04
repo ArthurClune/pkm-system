@@ -181,12 +181,29 @@ describe("decideEditorKey block selection", () => {
     }))).toEqual({ type: "none" });
   });
 
-  it("does not start a selection with a non-collapsed caret", () => {
-    // A selection means Shift+ArrowUp is not a block-selection start; it falls
-    // through to the ordinary first-line arrow behaviour (as the original did).
+  it("starts a selection when text is selected and its start is on the first line (pkm-jgtn)", () => {
+    // Shift+ArrowUp with a live text selection used to fall into the
+    // boundary-arrow rule: focus jumped a block up and the selection died.
+    // It must escalate to a block selection (current block + neighbour).
     expect(decideEditorKey(input({
       key: "ArrowUp", shiftKey: true, draft: "one", selStart: 0, selEnd: 2,
-    }))).toEqual({ type: "arrow", dir: "up" });
+    }))).toEqual({ type: "start-block-selection", dir: "up" });
+  });
+
+  it("starts a downward selection when the selection end is on the last line (pkm-jgtn)", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowDown", shiftKey: true, draft: "one\ntwo", selStart: 5, selEnd: 6,
+    }))).toEqual({ type: "start-block-selection", dir: "down" });
+  });
+
+  it("keeps native extension while the selection is away from the edge", () => {
+    // The moving end can still travel within the block, so the platform owns it.
+    expect(decideEditorKey(input({
+      key: "ArrowUp", shiftKey: true, draft: "one\ntwo", selStart: 5, selEnd: 6,
+    }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({
+      key: "ArrowDown", shiftKey: true, draft: "one\ntwo", selStart: 1, selEnd: 2,
+    }))).toEqual({ type: "none" });
   });
 
   it("still allows block selection while read-only", () => {
@@ -464,6 +481,83 @@ describe("decideEditorKey ctrl-cmd selection (pkm-am54)", () => {
   });
 });
 
+describe("decideEditorKey shift-cmd line-wise selection (pkm-jgtn)", () => {
+  // "one\ntwo\nthree": line starts at 0 / 4 / 8, line ends at 3 / 7 / 13.
+  const draft = "one\ntwo\nthree";
+
+  it("selects to the logical line start on Shift+Cmd+ArrowLeft", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowLeft", shiftKey: true, metaKey: true, draft,
+      selStart: 10, selEnd: 10,
+    }))).toEqual({
+      type: "select-range", selStart: 8, selEnd: 10, direction: "backward",
+    });
+  });
+
+  it("extends one whole line further when already at a line start", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowLeft", shiftKey: true, metaKey: true, draft,
+      selStart: 8, selEnd: 10,
+    }))).toEqual({
+      type: "select-range", selStart: 4, selEnd: 10, direction: "backward",
+    });
+  });
+
+  it("does nothing on ArrowLeft once the selection reaches the block start", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowLeft", shiftKey: true, metaKey: true, draft,
+      selStart: 0, selEnd: 10,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("selects to the logical line end on Shift+Cmd+ArrowRight", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowRight", shiftKey: true, metaKey: true, draft,
+      selStart: 5, selEnd: 5,
+    }))).toEqual({
+      type: "select-range", selStart: 5, selEnd: 7, direction: "forward",
+    });
+  });
+
+  it("extends one whole line further when already at a line end", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowRight", shiftKey: true, metaKey: true, draft,
+      selStart: 5, selEnd: 7,
+    }))).toEqual({
+      type: "select-range", selStart: 5, selEnd: 13, direction: "forward",
+    });
+  });
+
+  it("does nothing on ArrowRight once the selection reaches the block end", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowRight", shiftKey: true, metaKey: true, draft,
+      selStart: 5, selEnd: 13,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("still selects while read-only (selection is read-only-safe)", () => {
+    expect(decideEditorKey(input({
+      key: "ArrowLeft", shiftKey: true, metaKey: true, draft, readOnly: true,
+      selStart: 10, selEnd: 10,
+    }))).toEqual({
+      type: "select-range", selStart: 8, selEnd: 10, direction: "backward",
+    });
+  });
+
+  it("ignores the chord when Ctrl or Alt is also held", () => {
+    for (const extra of [{ ctrlKey: true }, { altKey: true }]) {
+      expect(decideEditorKey(input({
+        key: "ArrowLeft", shiftKey: true, metaKey: true, draft,
+        selStart: 10, selEnd: 10, ...extra,
+      }))).toEqual({ type: "none" });
+      expect(decideEditorKey(input({
+        key: "ArrowRight", shiftKey: true, metaKey: true, draft,
+        selStart: 5, selEnd: 5, ...extra,
+      }))).toEqual({ type: "none" });
+    }
+  });
+});
+
 describe("decideEditorKey boundary arrows", () => {
   it("moves focus up when the caret is on the first line", () => {
     expect(decideEditorKey(input({ key: "ArrowUp", draft: "a\nb", selStart: 1 })))
@@ -553,6 +647,17 @@ describe("decideEditorKey boundary arrows", () => {
     }))).toEqual({ type: "none" });
     expect(decideEditorKey(input({
       key: "ArrowRight", metaKey: true, draft: "a", selStart: 1, selEnd: 1,
+    }))).toEqual({ type: "none" });
+  });
+
+  it("never lets Shift+Arrow steal focus at block boundaries (pkm-jgtn)", () => {
+    // Shift means "extend a selection" everywhere; block navigation would
+    // silently drop that intent (and any live selection with it).
+    expect(decideEditorKey(input({
+      key: "ArrowLeft", shiftKey: true, selStart: 0, selEnd: 0,
+    }))).toEqual({ type: "none" });
+    expect(decideEditorKey(input({
+      key: "ArrowRight", shiftKey: true, draft: "abc", selStart: 3, selEnd: 3,
     }))).toEqual({ type: "none" });
   });
 

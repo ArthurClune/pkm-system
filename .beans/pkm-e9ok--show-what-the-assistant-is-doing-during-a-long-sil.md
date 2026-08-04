@@ -1,11 +1,11 @@
 ---
 # pkm-e9ok
 title: Show what the assistant is doing during a long silent turn
-status: draft
+status: todo
 type: feature
 priority: normal
 created_at: 2026-07-30T20:51:31Z
-updated_at: 2026-07-31T14:58:00Z
+updated_at: 2026-08-04T18:52:15Z
 ---
 
 **Draft on purpose — the question of whether to do this at all is still open.**

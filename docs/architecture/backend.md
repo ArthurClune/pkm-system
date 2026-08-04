@@ -64,12 +64,10 @@ pkm/
 ```
 
 **Dependency direction.** `cli`/`mcp`/`client` → `contracts` ← `server`, and
-`contracts` imports neither side. Client-side code used to import
-`pkm.server.ops_core` and `pkm.server.daily` for the op models, the uid regex
-and the daily-title spelling, which made a client compile against server
-internals. Those shapes are transport contracts, not server internals, so
-they moved to `pkm/contracts/`. `pkm.server` still owns everything that acts
-on them (`ops_core.plan_op`, `server/daily.py`'s journal-day selection). Two
+`contracts` imports neither side. The op models, the uid regex and the
+daily-title spelling are transport contracts, not server internals, so they
+live in `pkm/contracts/`; `pkm.server` still owns everything that acts on
+them (`ops_core.plan_op`, `server/daily.py`'s journal-day selection). Two
 tests in `tests/test_client_contracts.py` enforce the direction by parsing
 imports, so a re-crossing fails the suite rather than review.
 
@@ -101,9 +99,10 @@ service and mounts its router alongside the ones above.
 ## Database
 
 One SQLite file (`pkm.sqlite3`) in the data directory. WAL mode and schema
-are applied **once at startup** by `init_db()` (`server/db.py`); per-request
-PRAGMA setup used to cause lock errors. Request handlers get a fresh
-connection each (`check_same_thread=False`, `Row` factory, `foreign_keys=ON`,
+are applied **once at startup** by `init_db()` (`server/db.py`), not
+per-request: per-connection WAL/DDL setup racing an in-flight transaction is
+a far larger, un-retriable source of lock errors than genuine writer
+contention. Request handlers get a fresh connection each (`check_same_thread=False`, `Row` factory, `foreign_keys=ON`,
 `recursive_triggers=ON`, `busy_timeout=5000`).
 
 Schema lives in `pkm/schema.py` as two DDL blocks. `BASE_DDL` is the data
@@ -373,13 +372,11 @@ parents with a recursive CTE. Its termination condition is a **visited path,
 not a depth limit**: the CTE carries `path` as `,uid,uid,…,`, and the
 recursive arm keeps a row only while `instr(a.path, ',' || b.uid || ',') = 0`.
 
-That shape matters in two directions, and both were previously wrong in the
-same statement. It is *complete*: the old `depth < 100` guard truncated a
-breadcrumb trail at 100 levels, which is a wrong answer rather than a slow
-one, and no user-visible output in this project truncates silently. And it is
-*cycle-safe*: a parent cycle, which the write path forbids but a corrupted or
-hand-edited database can still hold, would otherwise recurse until SQLite gave
-up.
+That shape is *complete*: no user-visible output in this project truncates
+silently, so the trail must reach however many levels a page actually has.
+It is also *cycle-safe*: a parent cycle, which the write path forbids but a
+corrupted or hand-edited database can still hold, stops at the repeat instead
+of recursing until SQLite gives up.
 
 The comma delimiters are what make the `instr` test exact. `UID_RE` is
 `^[a-zA-Z0-9_-]{6,32}$`, so no uid can contain a comma, and `,abc,` cannot
@@ -656,17 +653,15 @@ keyboard-shortcut doc.
 
 ### Why `extract()` is O(n) per call
 
-`refs.py`'s `extract()` used to be quadratic in one case. The attribute regex
-paired a greedy `\s*` with a lazy class that mostly overlapped it. That
-combination is quadratic to *fail* against a long run containing no `::` —
-exactly what one large fenced code block becomes once `_strip_code()` blanks
-it out.
+`refs.py`'s `extract()` strips leading whitespace in Python (`str.lstrip()`,
+linear, no backtracking) before its attribute regex runs. The regex then
+never backtracks against a long run containing no `::` — exactly what one
+large fenced code block becomes once `_strip_code()` blanks it out.
 `export_graph()` calls `extract()` once per block, via
-`collect_block_ref_uids`, so a single pathological block in a real graph could
-make the whole-database export take minutes instead of being instant, which
-from the browser is indistinguishable from the download not working. Leading
-whitespace is now stripped in Python (`str.lstrip()`, linear, no backtracking)
-before the regex runs.
+`collect_block_ref_uids`, so a single pathological block in a real graph
+would otherwise cost the whole-database export minutes instead of an
+instant. From the browser, that is indistinguishable from the download not
+working.
 
 ### Backup job
 
@@ -934,9 +929,9 @@ unaffected: only admission (`create()`) is serialized.
 
 - **One SDK subprocess per conversation**, with `tools=[]` plus a single MCP
   server entry running `python -m pkm.mcp.server`, so the model can only call
-  the pkm verbs. `ENABLE_TOOL_SEARCH=false` is required alongside `tools=[]`:
-  the CLI otherwise defers MCP tools behind a ToolSearch tool, which makes
-  them unreachable. (Found in a live smoke test, 2026-07-27.)
+  the pkm verbs. `ENABLE_TOOL_SEARCH=false` is required alongside `tools=[]`,
+  so the MCP tools load eagerly instead of being deferred behind a
+  ToolSearch tool.
 - **Auth**: the engine mints a fresh session token (`auth_core.sign_session`)
   into a 0600 temp config file per conversation, passes it to the MCP
   subprocess as `PKM_CLI_CONFIG`, and deletes it on close.
@@ -1271,13 +1266,12 @@ the ops `page_title` fallback. An op needs *some* page to land its content on,
 but a ref whose title normalizes to blank is not a reference at all, so
 resolving it onto `"Untitled"` would fabricate a phantom backlink.
 
-Before this guard existed, both call sites called `get_or_create_page()`
-directly. A spaces-only ref in ordinary block text — typed via the editor's
-`[[` autopair, then just spaces — raised `BlankTitleError` with nothing above
-it to catch it. That was an uncaught HTTP 500 on the ops path (`routes_ops.py`
-catches only `OpError`) and on rename (which catches only
-`sqlite3.IntegrityError`). Both are worse than the silent blank-page creation
-that preceded them, or the 422 the ops path forbids.
+Both call sites route through this guard instead of calling
+`get_or_create_page()` directly. `routes_ops.py` catches only `OpError`, and
+rename catches only `sqlite3.IntegrityError` — neither catches
+`BlankTitleError` itself. Letting it escape there would be worse than the
+silent blank-page creation the guard replaces, or the 422 the ops path
+forbids.
 
 ## Logging and observability
 
@@ -1303,9 +1297,8 @@ answer it — no timestamps on any line, and no request durations anywhere.
   handler, level and format by propagation, with no entry of its own.
 
   Without a configured ancestor, a child's INFO lines vanish, because nothing
-  configures the root logger. That bit `pkm.describe` once, and was fixed by
-  adding it individually; then it bit `pkm.assets` and `pkm.assistant` the same
-  way, until the parent-logger policy replaced the per-logger allowlist.
+  configures the root logger. The parent-logger policy is what stops a new
+  `pkm.*` logger from needing its own individual fix.
   `test_every_declared_pkm_logger_has_an_effective_info_handler` in
   `test_request_log.py` enumerates every `pkm.*` logger declared in the
   codebase and asserts it resolves to a real handler, so the next new logger
@@ -1319,6 +1312,21 @@ answer it — no timestamps on any line, and no request durations anywhere.
 When measuring a slow request, prefer these durations to client-side timing.
 The filter-hang investigation found ~4 ms server-side, which is what ruled the
 server out.
+
+## When something looks wrong
+
+Each row is a failure this system has actually produced, and the invariant
+its fix installed. The bean has the full investigation.
+
+| Symptom | Cause | Ref |
+|---|---|---|
+| A server refactor breaks the CLI/MCP client with no compile-time warning | client-side code imported `pkm.server.ops_core`/`pkm.server.daily` directly instead of the shared `pkm/contracts/` models | test_client_contracts.py |
+| Request handlers hit a database-locked error under concurrent startup | per-connection WAL/DDL setup raced an in-flight transaction; schema setup now runs once in `init_db()`, never per request | — |
+| A breadcrumb trail or backlink group truncates at 100 levels on a deeply nested page | `_fetch_ancestors`'s CTE guarded on `depth < 100` instead of a visited-path check | pkm-8kw2 |
+| A whole-database export takes minutes instead of being instant, on one large fenced code block | the attribute regex paired a greedy `\s*` with an overlapping lazy class, quadratic to *fail* against a long `::`-free run | pkm-7myl |
+| The assistant never calls any pkm tool; every turn is plain text | with `tools=[]`, the SDK deferred MCP tool discovery behind its own ToolSearch meta-tool unless `ENABLE_TOOL_SEARCH=false` was set | pkm-wn2s |
+| A spaces-only `[[   ]]` ref typed in the editor 500s the whole write, or crashes a rename | `get_or_create_page()` raised `BlankTitleError` with nothing above it to catch it; `routes_ops.py` catches only `OpError`, rename only `sqlite3.IntegrityError` | test_blank_titles.py |
+| A newly added `pkm.*` logger's INFO lines never appear in the server log | nothing configured that logger's ancestor before the parent-logger policy existed; each addition needed its own individual fix | pkm-5g3d |
 
 ## Testing
 

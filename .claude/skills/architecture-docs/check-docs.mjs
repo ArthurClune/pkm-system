@@ -27,9 +27,11 @@ import { dirname, join, normalize, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = normalize(join(dirname(fileURLToPath(import.meta.url)), "../../.."));
-const targets = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const showAll = argv.includes("--all");
+const targets = argv.filter((a) => !a.startsWith("--"));
 if (targets.length === 0) {
-  console.error("usage: check-docs.mjs <doc.md> [more.md ...]");
+  console.error("usage: check-docs.mjs [--all] <doc.md> [more.md ...]");
   process.exit(2);
 }
 
@@ -135,7 +137,7 @@ function reportSentences(file, text) {
   // top-5 with no total lets a reader fix those five and ship a doc that still
   // has long sentences — including ones their own rewrites just created.
   const tail = ranked.filter((r) => r.n >= 40).length;
-  const shown = process.argv.includes("--all") ? ranked.filter((r) => r.n >= 30) : ranked.slice(0, 5);
+  const shown = showAll ? ranked.filter((r) => r.n >= 30) : ranked.slice(0, 5);
   console.log(`\n      ${file}: ${tail} sentence(s) of ${sentences.length} run 40+ words`
     + `${shown.length < tail ? `; longest ${shown.length} shown, pass --all for every 30+` : ""}.`
     + `\n      Read them and decide whether each is one idea:`);

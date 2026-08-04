@@ -100,9 +100,10 @@ years", since-deleted flags — goes in the doc's `## When something looks wrong
 table, keyed by **what someone would observe**. That is how the content is
 queried, and it lets each invariant shrink to a sentence.
 
-`backend.md`, `frontend.md` and `sync-and-offline.md` each carry that section,
-with the same heading and the same `| Symptom | Cause | Ref |` columns, placed
-just before the closing section. Copy the one in `sync-and-offline.md`. `Ref` is
+Every mechanism-owning doc in the directory carries that section, with the same
+heading and the same `| Symptom | Cause | Ref |` columns, placed just before the
+closing section; a doc gains it with its first real row. Copy the one in
+`sync-and-offline.md`. `Ref` is
 the bean id, or the test that pins the behaviour, or an em dash. `overview.md` has
 no such section and should not gain one: it summarises the others rather than
 owning any mechanism, so it has no failures of its own to record.

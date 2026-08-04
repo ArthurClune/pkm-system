@@ -25,7 +25,7 @@ For ALL code changes, use worktrees and branches to enable parallel sessions.
 
 ### Architecture docs
 
-`docs/architecture/` (overview, backend, frontend, sync-and-offline) describes the system as it *is*. Before finishing a feature, epic, or any change that alters the shape of the system, check whether it needs updating and update it in the same branch. Triggers, in rough order of how often they are missed:
+`docs/architecture/` (overview, backend, frontend, sync-and-offline, cli-and-mcp, assistant-and-files) describes the system as it *is*. Before finishing a feature, epic, or any change that alters the shape of the system, check whether it needs updating and update it in the same branch. Triggers, in rough order of how often they are missed:
 
 - A new HTTP route, or new query params/response fields on an existing one -> the API reference table in `backend.md`
 - A new module, view, or route in the SPA -> the module map and route list in `frontend.md`

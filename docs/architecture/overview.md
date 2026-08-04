@@ -14,7 +14,9 @@ in [`docs/design.md`](../design.md) and the specs under
 | Doc | Covers |
 |---|---|
 | this file | System context, tech stack, repo layout, cross-cutting patterns, key decisions, deployment |
-| [backend.md](backend.md) | FastAPI server: modules, database, write path, HTTP API reference, importer, backup, CLI/MCP, embedded assistant, logging |
+| [backend.md](backend.md) | FastAPI server: modules, database, write path, HTTP API reference, importer, export + backup, logging |
+| [cli-and-mcp.md](cli-and-mcp.md) | The `pkm` CLI and MCP server: shared HTTP client, write workflows, planners |
+| [assistant-and-files.md](assistant-and-files.md) | Embedded assistant harness; assets, the `/files` browser, image descriptions |
 | [frontend.md](frontend.md) | React SPA: modules, editor, rendering pipeline, state, assistant panel, views, styling, testing |
 | [sync-and-offline.md](sync-and-offline.md) | The sync protocol and offline architecture, end to end |
 
@@ -87,10 +89,10 @@ docs/     design.md, this directory, per-feature specs and plans, SECURITY.md
 
 | Layer | Choices |
 |---|---|
-| Backend | Python ≥ 3.12, FastAPI, Pydantic v2, raw `sqlite3` (WAL + FTS5, no ORM), uvicorn, `uv` |
+| Backend | Python ≥ 3.12, FastAPI, Pydantic v2, raw `sqlite3` (WAL + FTS5, no ORM), uvicorn + `websockets`, `uv` (hatchling build) |
 | Frontend | TypeScript, React, Vite, sqlite-wasm (OPFS) replica, Workbox service worker, KaTeX, Mermaid, pdf.js |
 | API contract | Pydantic models → OpenAPI → generated TS types (`pnpm gen-types`) — the block model cannot drift |
-| Agent access | `pkm` CLI + MCP stdio server over the same HTTP API |
+| Agent access | `pkm` CLI + MCP stdio server (httpx2; FastMCP from the `mcp` SDK) over the same HTTP API |
 | Embedded assistant | Claude Agent SDK harness, server-side, confined to the `pkm-mcp` tools; SSE streaming chat in the SPA |
 | QA | pytest (95% branch coverage enforced), pyrefly, ruff; Vitest (enforced coverage), tsc, ESLint, Playwright e2e, FCIS checker, bundle-size budgets |
 | Ops | launchd services, Tailscale Serve (HTTPS), nightly backup: rotated SQLite snapshots + git-committed markdown export |
@@ -167,7 +169,7 @@ links to the specs:
   over the same HTTP API — reads auto-allowed, every write paused for
   in-chat user confirmation. Threat model in
   [`docs/SECURITY.md`](../SECURITY.md); details in
-  [backend.md](backend.md#embedded-assistant-pkmassistant).
+  [assistant-and-files.md](assistant-and-files.md#embedded-assistant-pkmassistant).
 - **The replica is a cache; the queue is the user's intent.** Degraded beats
   data loss at every decision point — see
   [sync-and-offline.md](sync-and-offline.md).

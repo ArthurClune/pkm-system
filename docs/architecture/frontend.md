@@ -509,7 +509,7 @@ frontend contributor needs day-to-day:
 
 `src/assistant/` is the UI for the server-side LLM assistant; the agent
 itself runs on the server (see
-[backend.md](backend.md#embedded-assistant-pkmassistant)). It is a floating
+[assistant-and-files.md](assistant-and-files.md#embedded-assistant-pkmassistant)). It is a floating
 chat panel, toggled with `Cmd/Ctrl+J` (Esc closes) or the "Assistant" sidebar
 entry.
 

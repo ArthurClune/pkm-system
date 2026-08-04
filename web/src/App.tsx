@@ -1,9 +1,10 @@
 // pattern: Imperative Shell
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Link, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, Route, Routes, useNavigate } from "react-router-dom";
 import { AssistantPanel } from "./assistant/AssistantPanel";
 import { MenuIcon } from "./components/icons";
 import { NavPageLink } from "./components/NavPageLink";
+import { NavRouteLink } from "./components/NavRouteLink";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { UndoRedoKeys } from "./components/UndoRedoKeys";
 import { SidebarNav } from "./components/SidebarNav";
@@ -102,9 +103,10 @@ export function App() {
   // Closing the phone drawer must not leave focus inside it: below 600px the
   // closed nav is visibility:hidden, so a focused link there would strand the
   // keyboard on an invisible element. Hand focus back to the control that
-  // opened it (pkm-rwwp). Guarded on the previous state, because every NavLink
-  // calls setNavOpen(false) unconditionally -- on desktop navOpen is already
-  // false and the hamburger is display:none.
+  // opened it (pkm-rwwp). Guarded on the previous state, because every nav
+  // link that navigates calls setNavOpen(false) whether or not the drawer was
+  // open -- on desktop navOpen is already false and the hamburger is
+  // display:none.
   useEffect(() => {
     if (navWasOpenRef.current && !navOpen) hamburgerRef.current?.focus();
     navWasOpenRef.current = navOpen;
@@ -157,14 +159,14 @@ export function App() {
                 <div className="nav-title">pkm</div>
                 {/* "primary": always accent-coloured, unlike the pinned pages
                   * below which are muted until active (pkm-nn7o) */}
-                <NavLink to={ROUTES.journal} end onClick={() => setNavOpen(false)}
-                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
+                <NavRouteLink to={ROUTES.journal} end className="nav-link primary"
+                              onNavigate={() => setNavOpen(false)}>
                   Daily Notes
-                </NavLink>
-                <NavLink to={ROUTES.currentWork} onClick={() => setNavOpen(false)}
-                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
+                </NavRouteLink>
+                <NavRouteLink to={ROUTES.currentWork} className="nav-link primary"
+                              onNavigate={() => setNavOpen(false)}>
                   Current Work
-                </NavLink>
+                </NavRouteLink>
                 {/* A real page, unlike the routes around it, so shift-click
                   * opens it in the sidebar rather than a second window. */}
                 <NavPageLink title="TODO" className="nav-link primary"
@@ -185,14 +187,14 @@ export function App() {
                   * like Daily Notes/Current Work/TODO above (pkm-eztt). Only
                   * one setting exists today; more are coming, so this link --
                   * not those -- is where they'll live. */}
-                <NavLink to={ROUTES.files} onClick={() => setNavOpen(false)}
-                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
+                <NavRouteLink to={ROUTES.files} className="nav-link primary"
+                              onNavigate={() => setNavOpen(false)}>
                   Files
-                </NavLink>
-                <NavLink to={ROUTES.settings} onClick={() => setNavOpen(false)}
-                         className={({ isActive }) => "nav-link primary" + (isActive ? " active" : "")}>
+                </NavRouteLink>
+                <NavRouteLink to={ROUTES.settings} className="nav-link primary"
+                              onNavigate={() => setNavOpen(false)}>
                   Settings
-                </NavLink>
+                </NavRouteLink>
               </nav>
               <div className="content-area">
                 <TopBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />

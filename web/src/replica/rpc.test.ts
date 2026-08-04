@@ -33,18 +33,23 @@ test("interleaved calls resolve to their own callers", async () => {
   expect([a, b, c]).toEqual([2, 4, 6]);
 });
 
-test("handler errors reject with ReplicaError, quota flag preserved", async () => {
+test("handler errors reject with ReplicaError, message preserved", async () => {
+  // A plain failure carries no flags: an exhausted disk arrives here as an
+  // undifferentiated SQLITE_IOERR and must be treated like any other failure
+  // to persist locally (pkm-avag).
   const { server, client } = pair();
-  const quotaErr = Object.assign(new Error("db full"), { quota: true });
   serveRpc(server, {
     boom: async () => { throw new Error("plain failure"); },
-    quotaBoom: async () => { throw quotaErr; },
+    ioBoom: async () => {
+      throw new Error("SQLITE_IOERR: sqlite3 result code 10: disk I/O error");
+    },
   });
   const rpc = createRpcClient(client);
   await expect(rpc.call("boom")).rejects.toThrow("plain failure");
-  const err = await rpc.call("quotaBoom").catch((e: unknown) => e);
+  const err = await rpc.call("ioBoom").catch((e: unknown) => e);
   expect(err).toBeInstanceOf(ReplicaError);
-  expect((err as ReplicaError).quota).toBe(true);
+  expect((err as ReplicaError).message).toContain("disk I/O error");
+  expect((err as ReplicaError).rejected).toBe(false);
 });
 
 test("unknown method rejects", async () => {
@@ -81,7 +86,6 @@ test("the rejected flag survives the wire", async () => {
   expect(err).toBeInstanceOf(ReplicaError);
   expect(err).not.toBeInstanceOf(ReplicaUnavailableError);
   expect((err as ReplicaError).rejected).toBe(true);
-  expect((err as ReplicaError).quota).toBe(false);
 });
 
 class ControlledPort implements PortLike {

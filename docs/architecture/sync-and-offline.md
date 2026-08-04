@@ -415,13 +415,28 @@ is to top the pool up to `MIN_POOL_CAPACITY` immediately after the install,
 before the database is opened. `addCapacity` creates fresh randomly-named
 files, so it never contends with handles the outgoing worker still holds.
 
-**Either failure can hit an enqueue**, and `opQueue` treats both like quota
-exhaustion. "Cannot persist locally right now" is not a server rejection, so
+**Either failure can hit an enqueue**, and `opQueue` treats both like an
+exhausted disk. "Cannot persist locally right now" is not a server rejection, so
 firing `onDesync` is the wrong answer: its authoritative repair would wipe
 the active outline back to the edit-less server state and detach the editor
 mid-keystroke. Instead the ops join an **ordered in-memory fallback lane**
 and are delivered by the ordinary drain, under the same connectivity, backoff
 and recovery-barrier policy as durable rows.
+
+**An exhausted disk is not a distinguishable failure here, so there is no
+storage-full mode.** Before reaching for one, know that the signal does not
+exist: the opfs-sahpool VFS's `xWrite` catches the `QuotaExceededError`
+DOMException raised by `SyncAccessHandle.write()`, stores it on the pool's
+private `$error`, and returns `SQLITE_IOERR` — so what arrives on the main
+thread is a bare "disk I/O error", identical to any other write failure.
+`ReplicaError` carried a `quota` flag for years, and `computeEditability` had a
+read-only branch behind it, but nothing in `web/src` could ever set it
+(pkm-avag): every production site merely forwarded the flag, and only tests
+constructed one. Both are deleted. Storage exhaustion is handled by the rule
+above — the op is retained and delivered when the socket allows — and the only
+ways to recognise it would be matching the error message (the practice
+pkm-s7af removed) or estimating from `navigator.storage.estimate()`, whose
+numbers are deliberately padded.
 
 **Startup must decide the replica is viable before it protects the replica's
 contents.** `SyncProvider`'s mount effect pauses the queue on the recovery
@@ -458,7 +473,7 @@ away from where the consequence lands (a barrier lift that kicks a drain into
 a freshly-reopened, unexamined database).
 
 **It crosses the worker/main-thread boundary as a typed error, not a
-string.** `rpc.ts`'s response shape is `{message, quota, rejected,
+string.** `rpc.ts`'s response shape is `{message, rejected,
 unavailable}`: `unavailable` is `true` exactly when the rejection was a
 `ReplicaUnavailableError`, and `createRpcClient` reconstructs the same class
 client-side. The wire flag is a boolean because only `unusable` is something

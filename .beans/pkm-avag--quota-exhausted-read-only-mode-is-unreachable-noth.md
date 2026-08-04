@@ -1,10 +1,11 @@
 ---
 # pkm-avag
 title: 'Quota-exhausted read-only mode is unreachable: nothing ever throws quota:true'
-status: todo
+status: completed
 type: bug
+priority: normal
 created_at: 2026-08-04T18:18:53Z
-updated_at: 2026-08-04T18:18:53Z
+updated_at: 2026-08-04T19:51:49Z
 ---
 
 The web client has a complete mechanism for "local storage is full, go read-only": an error carrying `quota: true` crosses the RPC wire (`rpc.ts` sets `quota: Boolean(e?.quota)`), `opQueue`'s enqueue catch calls `quota.emit(error)`, `SyncProvider` turns that into `quotaExhausted`, and `computeEditability` (`syncState.ts:74-79`) uses it to take editing away for the session.
@@ -27,8 +28,47 @@ Leaving an untriggerable read-only path in a sync client is the trap: it reads a
 
 ## Checklist
 
-- [ ] Determine what sqlite-wasm/OPFS raise on a genuinely exhausted quota (may need a synthetic small-quota profile)
-- [ ] Decide: wire it up, or delete the chain
-- [ ] If wiring: set `quota` where the error originates, and add a test driving the real error shape
-- [ ] If deleting: remove the flag from the wire shape, `onQuota`, `quotaExhausted`, and the `computeEditability` branch, plus their tests
-- [ ] Update `docs/architecture/sync-and-offline.md` if it describes the read-only path
+- [x] Determine what sqlite-wasm/OPFS raise on a genuinely exhausted quota (may need a synthetic small-quota profile)
+- [x] Decide: wire it up, or delete the chain
+- [x] If wiring: N/A — no origin can identify quota. Original: set `quota` where the error originates, and add a test driving the real error shape
+- [x] If deleting: remove the flag from the wire shape, `onQuota`, `quotaExhausted`, and the `computeEditability` branch, plus their tests
+- [x] Update `docs/architecture/sync-and-offline.md` if it describes the read-only path
+
+
+## Summary of Changes
+
+**Decision: deleted the chain.** The signal it needed cannot exist. sqlite-wasm's
+opfs-sahpool `xWrite` catches the `QuotaExceededError` DOMException raised by
+`SyncAccessHandle.write()`, stores it on the pool's private `$error` and returns
+`SQLITE_IOERR` (`web/node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs:14680`),
+so what reaches the main thread is a bare "disk I/O error", indistinguishable
+from any other write failure. The only ways to set the flag would be matching the
+message — the practice pkm-s7af deliberately removed — or estimating from
+`navigator.storage.estimate()`, whose numbers are padded. No synthetic
+small-quota profile was needed to establish this; the VFS source settles it.
+
+Two further facts made deletion the clear call: the flag's last consumer was
+`computeEditability`, whose branch only bit *offline* (`canEdit` is true whenever
+connected), and retention no longer depends on it at all (pkm-s7af's one-item
+blocklist).
+
+Removed: `quota` from `ReplicaErrorFlags`/`ReplicaError`, from `rpc.ts`'s wire
+shape and both ends of the transport, from `workerHandlers`' `ReplicaUnavailableError`
+construction, `opQueue`'s `quota` listener set and `onQuota` (interface, both
+implementations, the emit site), `SyncProvider`'s `quotaExhausted` state and its
+subscription, and `computeEditability`'s third parameter and read-only branch.
+Tests updated in `errors.test.ts`, `rpc.test.ts`, `opQueue.replica.test.ts`
+(the retention test kept, now driven by a plain `SQLITE_IOERR`) and
+`syncState.test.ts`. Each deletion site carries a short note on why the flag
+could never be set, so the next person does not rebuild it.
+
+`docs/architecture/sync-and-offline.md`: wire shape corrected to
+`{message, rejected, unavailable}`, and a new paragraph records that an
+exhausted disk is not distinguishable here and why.
+
+Verified: `pnpm verify` clean (typecheck, lint, FCIS, coverage, build, 51 e2e).
+
+Follow-up filed: **pkm-0htf** — the hazard the dead mechanism was aimed at is
+real and broader than quota. A *ready* replica whose writes keep failing raises
+no problem and no banner, and its retained lane ops die on a refresh or a closed
+tab, since there is no `beforeunload` anywhere in `web/src`.

@@ -2,6 +2,7 @@ import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { expect, it } from "vitest";
 import type { BlockNode } from "../api/payloads";
+import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, pagePayload, stubFetch,
          type SyncFake } from "../test-helpers";
@@ -154,7 +155,8 @@ it("quoted TODO controls preserve the quote prefix and update optimistically", (
   ]);
   act(() => getOutline().handlers.onToggleTodo("u1"));
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "u1", text: "> {{[[DONE]]}} quoted task" },
+    { op: "update_text", uid: "u1", text: "> {{[[DONE]]}} quoted task",
+      base_text_hash: sha256Hex("> {{[[TODO]]}} quoted task") },
   ]]);
   expect(findNode(getOutline().blocks, "u1")!.text)
     .toBe("> {{[[DONE]]}} quoted task");

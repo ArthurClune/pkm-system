@@ -4,6 +4,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { acquireOutlineSession } from "../outline/outlineSessions";
+import { sha256Hex } from "../replica/sha256";
 import { block, FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
@@ -115,6 +116,7 @@ test("enqueue outside a provider throws instead of dropping writes", () => {
 // --- replica lifecycle (pkm-y8p0) ---
 
 import type { Replica } from "../replica/client";
+import { ReplicaUnavailableError } from "../replica/errors";
 
 function fakeReplicaForProvider(): Replica & { log: string[] } {
   const log: string[] = [];
@@ -122,7 +124,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     log,
     init: async () => {
       log.push("init");
-      return { ok: true, empty: true, cursor: 0, schemaMismatch: false,
+      return { empty: true, cursor: 0, schemaMismatch: false,
                pendingBatches: [] };
     },
     applySnapshot: async () => { log.push("applySnapshot"); },
@@ -198,7 +200,7 @@ test("a forced equal-cursor generation nudge immediately reboots an active repli
   } | null = null;
   const replica = fakeReplicaForProvider();
   replica.init = async () => ({
-    ok: true, empty: false, cursor: localCursor, schemaMismatch: false,
+    empty: false, cursor: localCursor, schemaMismatch: false,
     pendingBatches: [],
   });
   replica.applyChanges = async (changes) => {
@@ -751,7 +753,7 @@ test("rejected batch repair finishes before resync and later delivery", async ()
   let nextId = 1;
   const trace: string[] = [];
   replica.init = async () => ({
-    ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    empty: false, cursor: 5, schemaMismatch: false,
     pendingBatches: [],
   });
   replica.enqueue = async (ops) => {
@@ -832,7 +834,7 @@ test("startup repairs durable poison before posting a later batch", async () => 
   ];
   const replica = fakeReplicaForProvider();
   replica.init = async () => ({
-    ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    empty: false, cursor: 5, schemaMismatch: false,
     pendingBatches: [...rows],
   });
   replica.poisonedBatches = async () => [{
@@ -908,7 +910,7 @@ async () => {
   };
   replica.init = async () => {
     initCalls += 1;
-    return { ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    return { empty: false, cursor: 5, schemaMismatch: false,
              pendingBatches: [...rows] };
   };
   replica.prepareRecovery = async () => ({ token: "reload-poison", batches: [...rows] });
@@ -1004,7 +1006,7 @@ test("startup repairs returned marks even when poison discovery fails", async ()
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.init = async () => {
     initCalls += 1;
-    return { ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    return { empty: false, cursor: 5, schemaMismatch: false,
              pendingBatches: [...rows] };
   };
   replica.prepareRecovery = async () => ({ token: "returned-mark", batches: [...rows] });
@@ -1037,7 +1039,7 @@ async () => {
   };
   replica.init = async () => {
     initCalls += 1;
-    return { ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    return { empty: false, cursor: 5, schemaMismatch: false,
              pendingBatches: [] };
   };
   let sync!: Sync;
@@ -1049,35 +1051,38 @@ async () => {
   expect(sync.problem).toMatchObject({
     kind: "poison-discovery", error: "poison discovery unavailable",
   });
-  // init() IS called here now, as the viability probe that distinguishes an
-  // unopenable replica from this anomaly (pkm-bjae). Since it reports ok, the
-  // gate must stay up: exactly one call, because a start() would make it two.
-  expect(initCalls).toBe(1);
+  // There used to be a separate init() viability probe here to distinguish an
+  // unopenable replica from this anomaly (pkm-bjae). It is gone (pkm-61zt):
+  // a plain Error is not the worker's typed ReplicaUnavailableError, so
+  // availabilityOf(error) is null and the gate stays up without asking twice.
+  expect(initCalls).toBe(0);
   expect(sync.replicaMode).toBe("starting");
 
   await act(async () => { await sync.retryProblem(); });
   expect(discoveryCalls).toBe(2);
   // Retry must actually start syncing, not merely re-run discovery.
-  expect(initCalls).toBe(2);
+  expect(initCalls).toBe(1);
   expect(sync.replicaMode).toBe("ready");
 });
 
 // --- an unopenable replica must not hold the startup gate (pkm-bjae) ---
 
 /** A replica whose database can never be opened: every handler that reaches
- * `db()` rejects, and only `init()` reports the failure as a value the way the
- * real worker does (workerHandlers.ts). */
-function unopenableReplica(): Replica & { log: string[]; initCalls: () => number } {
+ * `db()` rejects with the worker's latched ReplicaUnavailableError, and only
+ * `init()` reports the failure as a value the way the real worker does
+ * (workerHandlers.ts). The message is a parameter because the open error's
+ * cause is exactly what must stop mattering (pkm-9x6u). */
+function unopenableReplica(
+  message = "Access Handles cannot be created if there is another open Access Handle",
+): Replica & { log: string[]; initCalls: () => number } {
   const replica = fakeReplicaForProvider();
   let initCalls = 0;
-  const dead = () => Promise.reject(new Error(
-    "Access Handles cannot be created if there is another open Access Handle",
-  ));
-  replica.init = async () => {
-    initCalls += 1;
-    return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
-             pendingBatches: [] };
-  };
+  // A real worker latches its failed open, so every call — init() included —
+  // replays one ReplicaUnavailableError. The fixture has to do the same or it
+  // is testing a replica that cannot exist (pkm-za9j).
+  const unavailable = new ReplicaUnavailableError(message);
+  const dead = () => Promise.reject(unavailable);
+  replica.init = () => { initCalls += 1; return dead(); };
   replica.poisonedBatches = dead;
   replica.pendingBatches = dead;
   replica.pendingCount = dead;
@@ -1116,13 +1121,121 @@ async () => {
   expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
 });
 
-test("a replica that becomes openable later must not start syncing", async () => {
-  // Why startup calls markUnavailable() instead of awaiting start() and letting
-  // its own init() re-derive viability: if that second init() succeeded, the
-  // session would begin delivering with poison discovery SKIPPED — the exact
-  // ordering hazard the recovery barrier exists to prevent, reintroduced by
-  // the fix for it. replicaSync.test.ts covers the method in isolation, which
-  // does NOT catch a provider that stops calling it (pkm-bjae review).
+async function runDead(message: string) {
+  const posts: Array<{ ops: Array<Record<string, unknown>> }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      posts.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={unopenableReplica(message)}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+  await act(async () => {
+    sync.enqueue([{ op: "update_text", uid: "u1", text: "typed while dead" }]);
+  });
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+  return { posts, sync: () => sync };
+}
+
+test("an SAH-contention unopenable replica delivers the edit (pkm-9x6u)", async () => {
+  const { posts } = await runDead(
+    "Access Handles cannot be created if there is another open Access Handle");
+  expect(posts).toHaveLength(1);
+});
+
+test("a NON-whitelisted unopenable replica delivers the edit too (pkm-9x6u)", async () => {
+  // Before pkm-s7af this dropped the edit and fired onDesync, whose legacy
+  // repair additionally rebased the active outline to server state: the
+  // whitelist, not the availability state, decided whether writes survived.
+  // Deliberately does NOT pin sync.problem — a delivery problem can legitimately
+  // take precedence over the background replica-unavailable report.
+  const { posts } = await runDead("OPFS is not available in this browser");
+  expect(posts).toHaveLength(1);
+});
+
+test("an online-only session's update_text still carries a base_text_hash (pkm-4ubd)",
+async () => {
+  // What this can and cannot prove: SyncProvider.enqueue takes whatever ops it
+  // is given. The provider is NOT where base_text_hash is stamped, and must not
+  // be — there is no block tree here to hash against. Stamping is pinned by
+  // baseTextHash.test.ts and by the useOutline/undoManager tests. What THIS
+  // test pins is the lane: with no replica, the in-memory fallback posts
+  // head.ops verbatim, so a lane that stripped or reordered op fields would
+  // strand the conflict guard exactly where it is needed most.
+  const bodies: Array<{ ops: Array<Record<string, unknown>> }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      bodies.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+  await act(async () => {
+    sync.enqueue([{ op: "update_text", uid: "block-1", text: "edited online-only",
+                    base_text_hash: sha256Hex("hello") }]);
+  });
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+  // The VALUE, not just the field: a lane that carried the property through but
+  // mangled its contents would guard nothing.
+  expect(bodies[0].ops[0].base_text_hash).toEqual(sha256Hex("hello"));
+});
+
+test("a reconnect in a no-replica session still bumps resyncSeq (pkm-9x6u)", async () => {
+  // Every drain used to end in failed() -> a ~5s backoff, forever, because the
+  // loop fell through to replica.nextBatch() on a replica it already knew was
+  // dead. drain() therefore never returned "drained", so finishReconnect never
+  // ran and views were never told to refetch: changes made elsewhere while this
+  // tab was disconnected stayed invisible until the user navigated.
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/ops") return jsonResponse({ ok: true });
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+  const before = sync.resyncSeq;
+
+  await act(async () => { lastWs().drop(); await Promise.resolve(); });
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+
+  await vi.waitFor(() => { expect(sync.resyncSeq).toBeGreaterThan(before); });
+});
+
+test("a replica that cannot be opened never starts syncing", async () => {
+  // Why this is safe without a `disabled` flag: the worker latches its failed
+  // open until close(), so start() -> init() rejects for the whole session and
+  // can never resume delivery with poison discovery SKIPPED — the exact
+  // ordering hazard the recovery barrier exists to prevent, which pkm-bjae's
+  // own first fix had reintroduced. The commitment lives where the commitment
+  // happens.
+  //
+  // A fixture whose init() succeeds on a second call would be testing a
+  // replica that cannot exist; the property it used to guard (the provider
+  // must not call start() again) is now guarded by the latch itself, so
+  // unopenableReplica()'s own permanently-rejecting init is enough here.
   const feeds: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -1135,16 +1248,6 @@ test("a replica that becomes openable later must not start syncing", async () =>
     return jsonResponse({ detail: "not found" }, 404);
   }));
   const replica = unopenableReplica();
-  let calls = 0;
-  replica.init = async () => {
-    calls += 1;
-    // The pool frees up between the probe and any later start().
-    return calls === 1
-      ? { ok: false, empty: true, cursor: 0, schemaMismatch: false,
-          pendingBatches: [] }
-      : { ok: true, empty: false, cursor: 7, schemaMismatch: false,
-          pendingBatches: [] };
-  };
   let sync!: Sync;
   function Grab() { sync = useSync(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
@@ -1162,19 +1265,23 @@ test("a replica that becomes openable later must not start syncing", async () =>
 
 /** Models the real worker's open memoisation (`workerHandlers.ts:63`): one
  * failed open is cached and replayed to every handler, and — crucially — is
- * NOT cleared by `init()` reporting `ok: false` (pkm-bjae). Contention here
- * would clear after the first real attempt, so a worker that re-armed its open
- * WOULD succeed on a second attempt; that this double never does is the
- * property `workerHandlers.test.ts` pins directly ("a failed open stays
- * latched"). This test guards the other half: that the provider does not reach
- * the database by some other route once the barrier is lifted.
- * `unopenableReplica()` above is permanently dead and cannot express the race
- * at all. */
+ * NOT cleared by any handler's rejection, including `init()`'s (pkm-za9j's
+ * latch; before that, pkm-bjae). Contention here would clear after the first
+ * real attempt, so a worker that re-armed its open WOULD succeed on a second
+ * attempt; that this double never does is the property `workerHandlers.test.ts`
+ * pins directly ("a failed open stays latched"). This test guards the other
+ * half: that the provider does not reach the database by some other route
+ * once the barrier is lifted. `unopenableReplica()` above is permanently dead
+ * and cannot express the race at all. The internal `db()` rejection must be a
+ * `ReplicaUnavailableError` (not a plain `Error`), because `availabilityOf`
+ * — not a second call to `init()` — is what SyncProvider now consults to
+ * decide "unusable" (pkm-61zt); a plain `Error` would make this test pass
+ * vacuously by never lifting the barrier at all. */
 function racingReplica(): Replica & { log: string[] } {
   const log: string[] = [];
   let state: "unopened" | "failed" | "open" = "unopened";
   let contended = true;
-  const sah = () => new Error(
+  const sah = () => new ReplicaUnavailableError(
     "Access Handles cannot be created if there is another open Access Handle");
   const db = async (): Promise<void> => {
     if (state === "open") return;
@@ -1196,10 +1303,10 @@ function racingReplica(): Replica & { log: string[] } {
     } catch {
       // Deliberately does NOT reset `state`: the real worker leaves its
       // memoised rejection in place so the database stays latched shut.
-      return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
+      return { empty: true, cursor: 0, schemaMismatch: false,
                pendingBatches: [] };
     }
-    return { ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    return { empty: false, cursor: 5, schemaMismatch: false,
              pendingBatches: [...rows] };
   };
   replica.poisonedBatches = async () => {
@@ -1229,11 +1336,14 @@ function racingReplica(): Replica & { log: string[] } {
 
 test("a session that declared the replica unavailable must not drain a queue it never checked for poison",
 async () => {
-  // pkm-bjae review: init()'s failure path clears the worker's memoised open,
-  // so the probe RE-ARMS the database access it just reported impossible. The
-  // barrier then lifts and resume()'s kick drains through a database that now
-  // opens — delivering a batch queued behind an undiscovered poison row, which
-  // is precisely what the barrier exists to prevent.
+  // pkm-bjae / pkm-za9j: the hazard this guards is a database that RE-ARMS
+  // after being declared unavailable — the barrier lift then lets resume()'s
+  // kick drain through a database that now opens, delivering a batch queued
+  // behind an undiscovered poison row, which is precisely what the barrier
+  // exists to prevent. The worker's latch (and this fixture's `state` staying
+  // "failed" forever, never reset on the caught rejection) is what makes that
+  // impossible; this test is the only one that can still express the race at
+  // all, since unopenableReplica() is permanently dead.
   const posts: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                       init?: RequestInit) => {
@@ -1325,7 +1435,7 @@ test("failed poison repair stays visible and Retry succeeds without reapplying i
                      poisoned: boolean }> = [];
   let nextId = 1;
   replica.init = async () => ({
-    ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    empty: false, cursor: 5, schemaMismatch: false,
     pendingBatches: [],
   });
   replica.enqueue = async (ops) => {
@@ -1421,7 +1531,7 @@ test("applySync reads the freshest problem for same-tick dispatches: a dismiss "
                      poisoned: boolean }> = [];
   let nextId = 1;
   replica.init = async () => ({
-    ok: true, empty: false, cursor: 5, schemaMismatch: false,
+    empty: false, cursor: 5, schemaMismatch: false,
     pendingBatches: [],
   });
   replica.enqueue = async (ops) => {
@@ -1548,7 +1658,7 @@ test("cold start offline: a hydrated replica reaches ready and bumps resync", as
   // replica was starting must be told to refetch (through the shim)
   vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
   const replica = fakeReplicaForProvider();
-  replica.init = async () => ({ ok: true, empty: false, cursor: 5,
+  replica.init = async () => ({ empty: false, cursor: 5,
                                 schemaMismatch: false, pendingBatches: [] });
   function Grab() {
     const sync = useSync();
@@ -1596,7 +1706,7 @@ test("the internally created worker closes its database before one termination",
       const req = message as { id: number; method: string };
       if (req.method === "close") events.push("close-db");
       const result = req.method === "init"
-        ? { ok: false, empty: true, cursor: 0, schemaMismatch: false,
+        ? { empty: true, cursor: 0, schemaMismatch: false,
             pendingBatches: [] }
         : req.method === "pendingCount" ? 0 : null;
       queueMicrotask(() => this.onmessage?.({ data: { id: req.id, result } }));
@@ -1688,7 +1798,7 @@ test("automatic retry completes reconnect feed pull and resync exactly once", as
     const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
                        poisoned: boolean }> = [];
     replica.init = async () => ({
-      ok: true, empty: false, cursor: 5, schemaMismatch: false,
+      empty: false, cursor: 5, schemaMismatch: false,
       pendingBatches: [],
     });
     replica.enqueue = async (ops) => {
@@ -1755,7 +1865,7 @@ test("overlapping reconnects share one completion and leave no stale intent", as
     }));
     const replica = fakeReplicaForProvider();
     replica.init = async () => ({
-      ok: true, empty: false, cursor: 5, schemaMismatch: false,
+      empty: false, cursor: 5, schemaMismatch: false,
       pendingBatches: [],
     });
     let sync!: Sync;
@@ -1868,7 +1978,7 @@ test("recovery-failed while connected also surfaces replica-stalled", async () =
     return jsonResponse({ ok: true });
   }));
   const replica = fakeReplicaForProvider();
-  replica.init = async () => ({ ok: true, empty: false, cursor: 0,
+  replica.init = async () => ({ empty: false, cursor: 0,
                                 schemaMismatch: true, pendingBatches: [] });
   let sync!: Sync;
   function Grab() { sync = useSync(); return null; }
@@ -1895,7 +2005,7 @@ test("recovery-failed while not connected leaves the problem unchanged", async (
     return jsonResponse({ ok: true });
   }));
   const replica = fakeReplicaForProvider();
-  replica.init = async () => ({ ok: true, empty: false, cursor: 0,
+  replica.init = async () => ({ empty: false, cursor: 0,
                                 schemaMismatch: true, pendingBatches: [] });
   let sync!: Sync;
   function Grab() { sync = useSync(); return null; }

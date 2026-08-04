@@ -5,6 +5,7 @@ import { expect, test, vi } from "vitest";
 import type { Snapshot } from "./apply";
 import { createReplica, type Replica } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
+import { ReplicaUnavailableError } from "./errors";
 import { setMeta } from "./meta";
 import { serveRpc, toPortLike } from "./rpc";
 import { openRawTestDb, type TestDb } from "./testDb";
@@ -38,7 +39,7 @@ async function setup(prep?: (t: TestDb) => void): Promise<{ replica: Replica; cu
 test("init on a fresh database installs the schema and reports empty", async () => {
   const { replica } = await setup();
   const init = await replica.init();
-  expect(init).toEqual({ ok: true, empty: true, cursor: 0,
+  expect(init).toEqual({ empty: true, cursor: 0,
                          schemaMismatch: false, pendingBatches: [] });
 });
 
@@ -125,15 +126,19 @@ test("reset destroys the database and reinstalls a fresh schema", async () => {
   expect(rows).toEqual([{ value: SCHEMA_VERSION }]);
 });
 
-test("openDb failure degrades to no-replica mode instead of rejecting", async () => {
+test("openDb failure rejects init() with the worker's latched error", async () => {
+  // ok:false used to let a failed open cross the RPC boundary as a value.
+  // init() is now just another handler: the worker's db() latch rejects it
+  // exactly like every other call, and the typed error is what travels
+  // (pkm-61zt).
   const ch = new MessageChannel();
   serveRpc(toPortLike(ch.port2), buildHandlers({
     openDb: async () => { throw new Error("OPFS unavailable"); },
   }));
   const replica = createReplica(toPortLike(ch.port1));
-  await expect(replica.init()).resolves.toEqual({
-    ok: false, empty: true, cursor: 0, schemaMismatch: false, pendingBatches: [],
-  });
+  const err = await replica.init().catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ReplicaUnavailableError);
+  expect((err as Error).message).toBe("OPFS unavailable");
 });
 
 test("an edit arriving before init persists (schema installs on demand)", async () => {
@@ -146,7 +151,6 @@ test("an edit arriving before init persists (schema installs on demand)", async 
   ]);
   expect(pending).toBe(1);
   const init = await replica.init();
-  expect(init.ok).toBe(true);
   expect(init.empty).toBe(true); // still needs the snapshot bootstrap
   expect(init.schemaMismatch).toBe(false);
   expect(init.pendingBatches).toHaveLength(1);

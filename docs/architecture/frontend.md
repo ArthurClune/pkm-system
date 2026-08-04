@@ -69,7 +69,8 @@ outline/               The editor engine. It owns its own contract: handlers.ts
                        paste.ts (outline paste), calendar.ts (/date month grid),
                        missingPage.ts (the missing-page policy),
                        blockStamps.ts (margin-column dates, age bands, and
-                       which ops count as a change)
+                       which ops count as a change), baseTextHash.ts (stamps
+                       update_text ops with base_text_hash at construction time)
                        Shells: useOutline.ts (the hook), outlineSessions.ts
                        (per-title shared store), useOutlinePageLoad.ts (the
                        shared page-load controller), undoManager.ts,
@@ -92,7 +93,8 @@ sync/                  SyncProvider.tsx (global context), socket.ts (WS),
                        opQueue.ts (+ pure queueState.ts), replicaSync.ts,
                        syncState.ts (pure editability/health FSM), assets.ts
 replica/               The offline engine: worker.ts + workerHandlers.ts,
-                       rpc.ts/client.ts (typed RPC), baseSchema.gen.ts
+                       rpc.ts/client.ts (typed RPC), errors.ts (the
+                       availability taxonomy), baseSchema.gen.ts
                        (generated from server DDL), clientSchema.ts,
                        queue.ts, apply.ts, reconcile.ts, recoveryGate.ts,
                        openRetry.ts (OPFS open contention), titles.ts

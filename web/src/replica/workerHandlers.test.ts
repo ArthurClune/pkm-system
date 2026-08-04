@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { expect, test, vi } from "vitest";
 import { applySnapshot, type Snapshot } from "./apply";
+import { availabilityOf, ReplicaUnavailableError } from "./errors";
 import { openRawTestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 
@@ -234,14 +235,15 @@ test("an acquired recovery lease expires if its client forgets the token", async
   }
 });
 
-test("a failed open stays latched: init's ok:false must not re-arm the database",
+test("a failed open stays latched: init's rejection must not re-arm the database",
 async () => {
-  // pkm-bjae: SyncProvider lifts the op queue's recovery barrier on the
-  // strength of init() reporting ok:false, WITHOUT having read the poison
-  // table. If init's failure path cleared the memoised open, the next handler
-  // call would attempt a fresh one — and in the reload race that succeeds,
-  // letting the queue drain batches queued behind an undiscovered poison row.
-  // One failed open therefore has to mean online-only for the whole session.
+  // pkm-bjae / pkm-61zt: SyncProvider lifts the op queue's recovery barrier on
+  // the strength of init() rejecting with the latched ReplicaUnavailableError,
+  // WITHOUT having read the poison table. If init's failure path cleared the
+  // memoised open, the next handler call would attempt a fresh one — and in
+  // the reload race that succeeds, letting the queue drain batches queued
+  // behind an undiscovered poison row. One failed open therefore has to mean
+  // online-only for the whole session.
   let opens = 0;
   const handlers = buildHandlers({
     openDb: async () => {
@@ -254,11 +256,114 @@ async () => {
   await expect(handlers.poisonedBatches(undefined)).rejects.toThrow(/Access Handle/);
   expect(opens).toBe(1);
 
-  expect(await handlers.init(undefined)).toMatchObject({ ok: false });
+  await expect(handlers.init(undefined)).rejects.toThrow(/Access Handle/);
 
-  // The probe must not have re-armed the open: later handlers replay the
+  // init() must not have re-armed the open: later handlers replay the
   // memoised rejection rather than trying again.
   await expect(handlers.nextBatch(undefined)).rejects.toThrow(/Access Handle/);
   await expect(handlers.poisonedBatches(undefined)).rejects.toThrow(/Access Handle/);
   expect(opens).toBe(1);
+});
+
+test("one failed open is replayed by EVERY handler, and opens only once", async () => {
+  // Characterisation for pkm-q2jj: today this holds because db() is
+  // `dbPromise ??= openDb()` and nothing clears the rejection. Task 3 replaces
+  // that implicit mechanism with an explicit latch; this test must not notice.
+  //
+  // commitRecovery(), abortRecovery() and close() are deliberately excluded:
+  // commitRecovery takes a lease token and is covered by its own recovery
+  // tests; abortRecovery and close() never call db() at all on this path
+  // (abortRecovery only touches the in-memory recovery gate, and close()
+  // only clears dbPromise and calls the injected closeDb). prepareRecovery
+  // takes no required payload (its own tests call it with undefined) and
+  // does call db(), so it belongs in the list below. init() used to be
+  // excluded here because it caught the open failure and returned
+  // { ok: false }; now that it is just another handler (pkm-61zt), it belongs
+  // in the list too.
+  let opens = 0;
+  const handlers = buildHandlers({
+    openDb: async () => {
+      opens += 1;
+      throw new Error("OPFS is not available in this browser");
+    },
+  });
+
+  const calls: Array<[string, unknown]> = [
+    ["init", undefined],
+    ["enqueue", [{ op: "delete", uid: "uid_b1" }]],
+    ["nextBatch", undefined],
+    ["deleteBatch", 1],
+    ["markPoisoned", { id: 1, error: "e", batchId: "b" }],
+    ["applySnapshot", SNAP],
+    ["applyChanges", { feed: { reset: false, generation: "gen-1",
+      plain_space_title_canonicalization: false, next_since: 0, latest_seq: 0,
+      pages: [], blocks: [], sidebar: [], tombstones: [] },
+      expectedPendingIds: [] }],
+    ["pendingBatches", undefined],
+    ["poisonedBatches", undefined],
+    ["pendingCount", undefined],
+    ["localApi", { method: "GET", path: "/api/page/AI", nowMs: 1 }],
+    ["reset", undefined],
+    ["prepareRecovery", undefined],
+  ];
+  for (const [method, payload] of calls) {
+    await expect(handlers[method](payload), method).rejects.toThrow(/OPFS is not available/);
+  }
+  expect(opens).toBe(1);
+});
+
+test("the latched unavailable error is one typed object, and close() is its only reset",
+async () => {
+  let opens = 0;
+  let fail = true;
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({
+    openDb: async () => {
+      opens += 1;
+      if (fail) throw new Error("OPFS is not available in this browser");
+      return t.db;
+    },
+  });
+
+  const first = await handlers.pendingCount(undefined).catch((e: unknown) => e);
+  expect(first).toBeInstanceOf(ReplicaUnavailableError);
+  // The original message is preserved deliberately: it is the only
+  // diagnostic a user-visible banner has. Retention itself no longer matches
+  // on it (pkm-s7af made that a type check on this class instead).
+  expect((first as Error).message).toBe("OPFS is not available in this browser");
+
+  // Same object, not a fresh one per call: the fact is latched, not re-derived.
+  const second = await handlers.nextBatch(undefined).catch((e: unknown) => e);
+  expect(second).toBe(first);
+  expect(opens).toBe(1);
+
+  // Even a would-be-successful open is not attempted while the latch holds.
+  fail = false;
+  await expect(handlers.pendingCount(undefined)).rejects.toBe(first);
+  expect(opens).toBe(1);
+
+  // close() is the reset — and the only one.
+  await expect(handlers.close(undefined)).resolves.toBeNull();
+  // init() is what a real client calls on re-arm; it installs schema on the
+  // fresh (schemaless) db from openRawTestDb, the way it would on a genuinely
+  // new profile. Without it, pendingCount would query a table that does not
+  // exist yet — and SyncProvider does hit that path on a fresh profile: it
+  // calls pendingCount() from a mount effect with no dependency on init()
+  // completing first (see pkm-za9j's recorded finding).
+  await expect(handlers.init(undefined)).resolves.toMatchObject({ empty: true });
+  await expect(handlers.pendingCount(undefined)).resolves.toBe(0);
+  expect(opens).toBe(2);
+});
+
+test("init rejects with the latched error instead of reporting ok:false", async () => {
+  // ok:false was the FIRST of five representations of one fact (pkm-q2jj): a
+  // value that says what the latched rejection already says, kept in sync by
+  // convention. With the worker owning the fact, init() is just another
+  // handler.
+  const handlers = buildHandlers({
+    openDb: async () => { throw new Error("OPFS is not available in this browser"); },
+  });
+  const err = await handlers.init(undefined).catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(ReplicaUnavailableError);
+  expect(availabilityOf(err)).toBe("unusable");
 });

@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { SyncContext } from "../sync/SyncProvider";
+import { sha256Hex } from "../replica/sha256";
 import { block, makeSync, type SyncFake } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
@@ -67,7 +68,8 @@ it("a later unheld draft resumes the normal debounce with the final text", () =>
   act(() => outline().handlers.onDraftChange("a", "[[How LLMs Work]] "));
   act(() => { vi.advanceTimersByTime(600); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "a", text: "[[How LLMs Work]] " }],
+    [{ op: "update_text", uid: "a", text: "[[How LLMs Work]] ",
+      base_text_hash: sha256Hex("") }],
   ]);
 });
 
@@ -78,7 +80,8 @@ it("blur still flushes a held draft (explicit commit point)", () => {
   act(() => outline().handlers.onDraftChange("a", "[[How LLM]]", true));
   act(() => outline().handlers.onBlurBlock("a"));
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "a", text: "[[How LLM]]" }],
+    [{ op: "update_text", uid: "a", text: "[[How LLM]]",
+      base_text_hash: sha256Hex("") }],
   ]);
 });
 
@@ -91,7 +94,8 @@ it("an explicit draft flush commits a held draft (navigation, pkm-hhbc)", () => 
   act(() => outline().handlers.onDraftChange("a", "[[How LLM]]", true));
   act(() => outline().handlers.onFlushDraft());
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "a", text: "[[How LLM]]" }],
+    [{ op: "update_text", uid: "a", text: "[[How LLM]]",
+      base_text_hash: sha256Hex("") }],
   ]);
 });
 
@@ -106,7 +110,8 @@ it("unmounting flushes a held draft (navigation with no blur, pkm-mvdx)", () => 
   act(() => h.outline().handlers.onDraftChange("a", "[[How LLM]]", true));
   act(() => h.unmount());
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "a", text: "[[How LLM]]" }],
+    [{ op: "update_text", uid: "a", text: "[[How LLM]]",
+      base_text_hash: sha256Hex("") }],
   ]);
 });
 
@@ -124,5 +129,6 @@ it("a structural edit still flushes a held draft first", () => {
   act(() => outline().handlers.onDraftChange("a", "[[How LLM]]", true));
   act(() => outline().handlers.onIndent("a")); // no-op move, but flushes
   expect(sync.sent.flat()).toContainEqual(
-    { op: "update_text", uid: "a", text: "[[How LLM]]" });
+    { op: "update_text", uid: "a", text: "[[How LLM]]",
+      base_text_hash: sha256Hex("") });
 });

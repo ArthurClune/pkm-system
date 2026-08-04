@@ -2,10 +2,10 @@ import { expect, test, vi } from "vitest";
 import { ApiError } from "../api/client";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { PendingBatch, Replica, ReplicaInit } from "../replica/client";
-import { ReplicaError } from "../replica/rpc";
+import { ReplicaError, ReplicaUnavailableError } from "../replica/errors";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, ResetBlockedError, RETRY_BASE_MS,
-  RETRY_MAX_MS, type ReplicaState,
+  RETRY_MAX_MS, STALL_AFTER_FAILURES, type ReplicaState,
 } from "./replicaSync";
 
 const SNAP: Snapshot = {
@@ -19,6 +19,8 @@ const feed = (over: Partial<Changes> = {}): Changes => ({
   pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
 });
 
+const EMPTY_FEED: Changes = feed();
+
 function fakeReplica(over: Partial<Replica> = {},
                      init: Partial<ReplicaInit> = {}): Replica & { calls: string[] } {
   const calls: string[] = [];
@@ -28,7 +30,7 @@ function fakeReplica(over: Partial<Replica> = {},
   };
   return {
     calls,
-    init: () => rec("init", { ok: true, empty: false, cursor: 5,
+    init: () => rec("init", { empty: false, cursor: 5,
                               schemaMismatch: false, pendingBatches: [],
                               ...init } as ReplicaInit),
     applySnapshot: () => rec("applySnapshot", undefined),
@@ -109,7 +111,9 @@ test("a feed invalidated by pending-batch changes is refetched from the same cur
 });
 
 test("no-replica init reports mode and never fetches", async () => {
-  const replica = fakeReplica({}, { ok: false });
+  const replica = fakeReplica({
+    init: () => Promise.reject(new ReplicaUnavailableError("OPFS is not available")),
+  });
   const fetchJson = vi.fn();
   const { states, onState } = collector();
   const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
@@ -118,42 +122,60 @@ test("no-replica init reports mode and never fetches", async () => {
   expect(fetchJson).not.toHaveBeenCalled();
 });
 
-test("markUnavailable is permanent even if a later init would succeed",
+test("a session whose replica cannot open never pulls, however often start() is called",
 async () => {
-  // pkm-bjae: startup calls this when it has established the replica cannot be
-  // opened. If a later start() were allowed to re-derive viability and happened
-  // to succeed, the session would begin delivering with poison discovery
-  // skipped — the ordering hazard the startup gate exists to prevent.
+  // What `disabled` used to buy: start() short-circuiting for the rest of the
+  // session. What buys it now: init() replaying the worker's latched failure,
+  // which is the same fact at its source instead of a copy kept in sync by
+  // convention.
+  const feeds: string[] = [];
   const replica = fakeReplica();
-  const fetchJson = vi.fn();
-  const { states, onState } = collector();
-  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
-
-  sync.markUnavailable();
-  expect(states.at(-1)).toEqual({ mode: "no-replica" });
-
+  replica.init = () => Promise.reject(new ReplicaUnavailableError("no openable database"));
+  const states: ReplicaState[] = [];
+  const sync = createReplicaSync({
+    replica,
+    fetchJson: async (path: string) => {
+      if (path.startsWith("/api/sync/changes")) feeds.push(path);
+      return EMPTY_FEED;
+    },
+    clientId: "c1",
+    onState: (s) => states.push(s),
+  });
   await sync.start();
-  expect(fetchJson).not.toHaveBeenCalled();
-  expect(states.at(-1)).toEqual({ mode: "no-replica" });
+  await sync.start();
+  await sync.start();
+  expect(feeds).toEqual([]);
+  expect(states.map((s) => s.mode)).toEqual(["no-replica", "no-replica", "no-replica"]);
 });
 
-test("resetLocalData cannot revive a session marked unavailable", async () => {
-  // Defence in depth: resetLocalData sets started = true and forces mode
-  // "ready", which would undo markUnavailable()'s permanence and reach a
-  // syncing session with poison discovery skipped. No UI path reaches it today
-  // (the reset button needs a stalled/recovery-failed mode, unreachable once
-  // disabled), so this guard protects against a future UI change, not a live
-  // bug (pkm-bjae review).
+test("resetLocalData cannot revive a session whose replica cannot open", async () => {
+  // The explicit `disabled` guard is gone; prepareRecovery rejects on the latch
+  // before resetLocalData can set `started` or force mode "ready". The
+  // rejection propagating by identity is not the property under test -- a
+  // reorder that moved `started = true` above prepareRecovery() would still
+  // let that rejection through unchanged while leaving the session revived.
+  // `started` has no external getter, so the tripwire is behavioural: a start()
+  // call afterwards takes the `if (started)` branch straight into pull() and
+  // hits the changes feed, instead of re-running doStart() -> init() and
+  // reporting "no-replica" with no fetch at all.
+  const feeds: string[] = [];
   const replica = fakeReplica();
-  const fetchJson = vi.fn();
-  const { states, onState } = collector();
-  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
-
-  sync.markUnavailable();
-  await expect(sync.resetLocalData({ discardPending: true }))
-    .rejects.toThrow(/unavailable/);
-  expect(fetchJson).not.toHaveBeenCalled();
-  expect(states.at(-1)).toEqual({ mode: "no-replica" });
+  const unavailable = new ReplicaUnavailableError("no openable database");
+  replica.init = () => Promise.reject(unavailable);
+  replica.prepareRecovery = () => Promise.reject(unavailable);
+  const sync = createReplicaSync({
+    replica,
+    fetchJson: async (path: string) => {
+      if (path.startsWith("/api/sync/changes")) feeds.push(path);
+      return EMPTY_FEED;
+    },
+    clientId: "c1",
+    onState: () => undefined,
+  });
+  await sync.start();
+  await expect(sync.resetLocalData({ discardPending: true })).rejects.toBe(unavailable);
+  await sync.start();
+  expect(feeds).toEqual([]);
 });
 
 test("a hydrated replica reaches ready with the network down (cold start offline)", async () => {
@@ -789,7 +811,7 @@ test("pulls failing with ReplicaError still stall at 3 (pkm-80ds finding 2)", as
   try {
     const replica = fakeReplica();
     const fetchJson = vi.fn(async () => {
-      throw new ReplicaError("replica rpc failed", false);
+      throw new ReplicaError("replica rpc failed", {});
     });
     const { states, onState } = collector();
     const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
@@ -805,6 +827,27 @@ test("pulls failing with ReplicaError still stall at 3 (pkm-80ds finding 2)", as
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("an unavailable-shaped pull failure never stalls (pkm-y35i)", async () => {
+  // A session reporting `stalled` on top of `no-replica` lets computeEditability
+  // flip the whole session read-only, so an availability failure must not count
+  // toward the stall threshold — however many times it happens.
+  const states: ReplicaState[] = [];
+  const replica = fakeReplica();
+  replica.pendingBatches = () =>
+    Promise.reject(new ReplicaUnavailableError("no openable database"));
+  const fetchJson = vi.fn(async () => feed());
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1",
+    onState: (s) => states.push(s),
+  });
+  await sync.start();
+  for (let i = 0; i < STALL_AFTER_FAILURES + 2; i += 1) {
+    sync.onSeq(i + 100, true);
+    await sync.idle();
+  }
+  expect(states.filter((s) => s.mode === "stalled")).toEqual([]);
 });
 
 test("a mix of network and replica errors stalls only once 3 replica-shaped failures accrue (pkm-80ds finding 2)", async () => {
@@ -854,7 +897,7 @@ test("repeatedly-failing in-pull recovery with a stall-shaped underlying error s
     });
     const fetchJson = vi.fn(async (path: string) => {
       if (path === "/api/sync/snapshot") {
-        throw new ReplicaError("replica rpc failed", false);
+        throw new ReplicaError("replica rpc failed", {});
       }
       return feed();
     });

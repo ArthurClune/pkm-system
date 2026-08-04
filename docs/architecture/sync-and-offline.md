@@ -47,7 +47,7 @@ sequenceDiagram
     participant S as Server (FastAPI + SQLite)
     participant B as Other client (tab B)
 
-    U->>Q: enqueue(ops) — batch_id minted in worker,<br/>base_text_hash captured, optimistic local apply
+    U->>Q: enqueue(ops) — base_text_hash stamped main-thread,<br/>batch_id minted in worker, optimistic local apply
     Q-->>U: WriteTicket (persisted durably)
     Q->>S: POST /api/ops {client_id, batch_id, ops}
     S->>S: one transaction: plan ops (pure core),<br/>execute, re-derive refs + FTS<br/>(triggers append journal rows)
@@ -245,7 +245,15 @@ already bound the cost that matters at this scale.
 While disconnected, reads and search are served from the replica through the
 local API shim, and edits keep enqueueing durably. Each op is optimistically
 applied to the replica under its own SAVEPOINT, and `base_text_hash` — the
-sha256 of the text the edit was based on — is captured *before* that apply.
+sha256 of the text the edit was based on — is on the op before that apply. The
+editor stamps it when it builds the batch (`outline/baseTextHash.ts`, walking
+the batch in order against the tree the batch was planned from, so op N leaves
+the text op N+1's hash matches); the worker fills it in from `currentText` only
+when it is still `undefined`, capturing it *before* the op's own optimistic
+apply. Undo history deliberately records **unstamped** ops — a hash taken when
+the entry was recorded is stale by the time it is replayed, and a stale hash
+would fork a spurious `[[conflict]]` sibling against the user's own later edit
+— so `undoManager.dispatch` stamps against the tree as it is at replay time.
 The header shows "Offline — N changes pending".
 
 That optimistic apply must reproduce the server's timestamp rules, not just
@@ -423,37 +431,69 @@ never be opened, `poisonedBatches()` rejects, and for a long time that
 dead-ended startup with the barrier still held: the fallback lane was never
 drained, the editor kept accepting edits, and a reload or closed tab lost them
 (pkm-bjae). The online-only degradation that should have covered this
-(`init()` returning `ok: false`) was unreachable, because `init()` runs inside
-`start()` — the *last* thing startup does.
+(`init()` returning `ok: false`, since removed) was unreachable, because
+`init()` runs inside `start()` — the *last* thing startup does.
 
-So discovery failure now probes viability before concluding anything:
-`init()` is the one call that reports "no openable database" as a value rather
-than an exception. If it says the replica is not viable, startup calls
-`replicaSync.markUnavailable()` — committing the session to online-only, the
-same state as `ok: false` — and lifts the barrier, so the lane drains to the
-server. `markUnavailable()` exists rather than a second `start()` for a
-specific reason: were a later `init()` to succeed, the session would resume
-delivery with poison discovery *skipped*, which is the exact ordering hazard
-the barrier exists to prevent. Only an explicit `ok: false` lifts the barrier —
-a probe that *rejects* means we could not ask, not that there is no database,
-so it keeps the gate and its Retry banner.
+**The availability fact is two-valued, and the two values carry different
+evidentiary weight.** `unusable` means the worker's own `openDb()` failed:
+there is definitively no database. `unreachable` means the RPC itself is
+broken — the worker crashed, its message could not be decoded, or a call
+timed out — which says a write did not reach the replica, but not that there
+is no replica to reach. Both retain an op in the fallback lane; only
+`unusable` may lift the op queue's recovery barrier, because lifting it means
+asserting there is no poison table left to protect, and "we could not ask" is
+not that assertion — it is the absence of one. A probe that rejects because
+the port died says nothing about whether a database exists behind it, so it
+keeps the gate and its Retry banner.
 
-**Two invariants make that safe, and both are easy to break by accident.**
-First, `db()` is `dbPromise ??= deps.openDb()` (`workerHandlers.ts`), so one
-failed open is memoised and replayed to every handler; `init()`'s failure path
-must therefore *leave that rejection in place*. It originally cleared it, which
-re-armed the database the probe had just declared unopenable — and since
-`resume("recovery")` kicks a drain that calls `nextBatch()`, that drain got a
-fresh open, succeeded in the reload race, and delivered batches queued behind a
-poison row nobody had read. One failed open must mean online-only for the whole
-session; only `close()` re-arms. Second, latching preserves the memoised error's
-*identity*, which `opQueue`'s storage-error whitelist depends on to retain ops
-in the fallback lane instead of treating them as a desync.
+**The worker owns the fact and latches it until `close()`.** `db()` in
+`workerHandlers.ts` memoises `openDb()` as `dbPromise ??= deps.openDb()`; its
+first failure wraps the underlying error in a `ReplicaUnavailableError`, and
+every later handler call — including a later `init()` that would otherwise
+have succeeded — replays that same latched object. Only `close()` re-arms it.
+This makes explicit what used to be an accidental property of the memoised
+promise: the latch was always there, but its safety depended on a reader
+noticing that `init()`'s catch must never clear `dbPromise`, three modules
+away from where the consequence lands (a barrier lift that kicks a drain into
+a freshly-reopened, unexamined database).
+
+**It crosses the worker/main-thread boundary as a typed error, not a
+string.** `rpc.ts`'s response shape is `{message, quota, rejected,
+unavailable}`: `unavailable` is `true` exactly when the rejection was a
+`ReplicaUnavailableError`, and `createRpcClient` reconstructs the same class
+client-side. The wire flag is a boolean because only `unusable` is something
+the worker can assert about itself; `unreachable` never travels on the wire at
+all — it is generated client-side, by `createRpcClient`, when the port fails
+outright (`worker-error`, `message-error`, `disposed`) or a call times out.
+`availabilityOf()` (`replica/errors.ts`) folds both sources back into the
+two-valued `ReplicaAvailability`, so the boolean-vs-two-valued mismatch is
+real, but confined to that one function.
+
+**`opQueue` retains a failed replica RPC unless the replica rejected the op
+itself.** The rule is a one-item blocklist — retain everything except
+`ReplicaError.rejected` (an op the server would refuse too, e.g. unsupported
+reference title syntax) — rather than a two-value type check on
+`unusable`/`unreachable`. A type check would have regressed pkm-ndcu: a
+starved OPFS pool's `SQLITE_CANTOPEN` fires on a write to a database that
+opened successfully, so it is neither `unusable` nor `unreachable`, and would
+have fallen through to `onDesync` — wiping the active outline back to the
+edit-less server state and detaching the editor mid-keystroke, over a failure
+a moment's backoff would clear.
+
+**The queue also stops asking a dead replica, so a reconnect still bumps
+resync.** Once `noteReplicaFailure` latches `unavailable` from session-fatal
+evidence (`isSessionFatal`: the worker's latched open, or a terminally failed
+RPC client — never a bare timeout), the drain stops calling
+`nextBatch()`/`markPoisoned()` and delivers only the in-memory lane. Before
+this, the drain called the dead replica on every pass, failed every time, and
+never returned `"drained"` — so a socket reconnect that should have resumed
+durable delivery spun forever instead (pkm-9x6u).
 
 The session says so rather than degrading silently: startup raises a
 `replica-unavailable` problem, and `OfflineIndicator` renders "Working online
-only — offline editing is unavailable for now. Your changes are still being
-saved." The action is **Reload**, not Retry, and deliberately so. The failed
+only — offline editing is unavailable for now." — deliberately without a
+second sentence promising the changes are being saved. The action is
+**Reload**, not Retry, and deliberately so. The failed
 open is latched for the session, and by the time the banner shows, the queue
 has already delivered online — so reopening mid-session could flush a previous
 session's stale durable queue on top of those writes. A fresh page load gets a
@@ -467,16 +507,19 @@ the server already refused. That path keeps its barrier and its "Checking
 rejected changes failed: …" Retry banner, and it is the remaining case where
 accepted edits can sit undelivered in memory.
 
-**The lane matches the durable path's policy, not its payload.** `base_text_hash`
-is stamped inside the worker (`replica/queue.ts`, from `currentText`), so ops
-that never reach the database — every op in an online-only session — arrive at
-the server without one. The server then returns early into plain last-write-wins
-(`ops_core.py`, "check 3: legacy"), so `update_text` loses its conflict
-protection: a concurrent edit from another tab is overwritten rather than
-preserved as a `[[conflict]]` sibling, and editing a block another tab deleted
-400s, which makes the lane discard that entry. Stamping the hash on the main
-thread at op-construction time would fix it; the worker only fills it in when
-`undefined`.
+**The lane matches the durable path's policy *and* its payload.** It used to
+match only the policy: `base_text_hash` was stamped inside the worker
+(`replica/queue.ts`, from `currentText`), so ops that never reached the database
+— every op in an online-only session — arrived at the server without one, and
+the server returned early into plain last-write-wins (`ops_core.py`, "check 3:
+legacy"). `update_text` lost its conflict protection exactly where two tabs are
+most likely to be fighting: a concurrent edit from the tab that *does* own the
+replica was overwritten rather than preserved as a `[[conflict]]` sibling, and
+editing a block another tab deleted 400s, which makes the lane discard that
+entry. Since pkm-4ubd the hash is stamped on the main thread at op-construction
+time (`outline/baseTextHash.ts`), so it is on the op before the lane ever sees
+it. The worker still fills it in when `undefined`, so ownership was supplemented,
+not moved.
 
 The lane preserves order. Each entry records how many durable batches were
 queued ahead of it, and is posted only once each of those has reached a
@@ -500,13 +543,16 @@ until the queue is disposed. Before this lane existed, these ops were POSTed
 inline from `enqueue()`, which offline meant they were neither persisted nor
 retryable.
 
-One diagnostic note, because it cost a misdirected investigation once. The
-symptom of a misclassified storage error is a **"Server rejected a change"**
-banner, which reads like a server-side rejection or a `resyncSeq` bug. When
-that banner appears, check the storage layer first. The classifier is a
-whitelist that denies nothing, so any *new* local-storage error shape
-reintroduces the wipe: extend the classifier rather than adding another
-symptom fix.
+One historical diagnostic note, because it cost a misdirected investigation
+once. Before pkm-s7af, this retention decision was a whitelist matched by
+error message; any local-storage failure shape that wasn't listed fell
+through to `onDesync` and produced a **"Server rejected a change"** banner
+that read like a server-side rejection or a `resyncSeq` bug — the symptom
+showed up in the wrong layer from its cause (pkm-9x6u, pkm-c9hp). The rule is
+now the one-item blocklist above, keyed on `ReplicaError.rejected` rather than
+on message text, so an unrecognised storage failure retains by default
+instead of falling through: there is no longer a class of local-storage error
+that reintroduces the wipe.
 
 ### Rebootstrap triggers
 

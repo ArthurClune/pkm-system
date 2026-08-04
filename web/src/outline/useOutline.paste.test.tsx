@@ -4,6 +4,7 @@ import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
+import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, type SyncFake } from "../test-helpers";
 import { resetHistory } from "./undoManager";
@@ -45,7 +46,8 @@ it("onPasteOutline enqueues one batch and focuses the last pasted block", () => 
   act(() => getOutline().handlers.onPasteOutline("a", 4, 4, "!\nnext\n\tkid"));
 
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "a", text: "seed!" },
+    { op: "update_text", uid: "a", text: "seed!",
+      base_text_hash: sha256Hex("seed") },
     { op: "create", uid: expect.any(String), page_title: "Page",
       parent_uid: null, order_idx: 1, text: "next" },
     { op: "create", uid: expect.any(String), page_title: "Page",

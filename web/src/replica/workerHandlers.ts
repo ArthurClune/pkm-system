@@ -8,6 +8,7 @@ import { applyChanges, applySnapshot } from "./apply";
 import type { PendingBatch, RecoveryCommit } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
+import { ReplicaUnavailableError } from "./errors";
 import { getMeta } from "./meta";
 import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
@@ -60,7 +61,35 @@ const quoteIdentifier = (name: string): string =>
 
 export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   let dbPromise: Promise<ReplicaDb> | null = null;
-  const db = (): Promise<ReplicaDb> => (dbPromise ??= deps.openDb());
+  // The availability fact, owned here — the worker is the only party that can
+  // say "there is definitively no database" rather than "I could not ask".
+  //
+  // This REPLACES pkm-bjae's latch, which worked by leaving the memoised
+  // dbPromise rejection in place. That was correct but implicit: its safety
+  // depended on a reader noticing that init() must not clear a promise three
+  // modules from where the consequence lands (a barrier lift kicks a drain that
+  // would have posted batches queued behind an undiscovered poison row). Two
+  // independent reviewers read that mechanism identically and drew opposite
+  // conclusions about whether it was a virtue or a defect. This says what it
+  // means. close() is still the only reset.
+  let unavailable: ReplicaUnavailableError | null = null;
+  const db = async (): Promise<ReplicaDb> => {
+    if (unavailable !== null) throw unavailable;
+    dbPromise ??= deps.openDb();
+    try {
+      return await dbPromise;
+    } catch (error: unknown) {
+      // The original message is carried through verbatim: it is the only
+      // diagnostic the banner has. Retention no longer matches on it (pkm-s7af
+      // made that a type check on this class instead), so the message itself
+      // is display-only from here on.
+      unavailable ??= new ReplicaUnavailableError(
+        error instanceof Error ? error.message : String(error),
+        { quota: (error as { quota?: boolean } | null)?.quota === true },
+      );
+      throw unavailable;
+    }
+  };
   const nowMs = deps.nowMs ?? (() => Date.now());
   const clockMs = deps.clockMs ?? (() => Date.now());
   const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID());
@@ -168,27 +197,14 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     },
     async init() {
       return gate.run(async () => {
-        let d: ReplicaDb;
-        try {
-          d = await db();
-        } catch {
-          // wasm/OPFS unavailable: the app degrades to online-only. The
-          // memoised rejection is deliberately LEFT IN PLACE (pkm-bjae): it is
-          // what keeps the database latched shut for the rest of the session,
-          // so every later handler replays the open failure instead of
-          // silently succeeding on a fresh attempt. Startup lifts the op
-          // queue's recovery barrier on the strength of this ok:false, having
-          // never read the poison table; if a later db() could reopen, the
-          // queue would drain batches queued behind an undiscovered poison
-          // row. Only close() re-arms the open.
-          return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
-                   pendingBatches: [] };
-        }
+        // No catch: an unopenable database is db()'s latched
+        // ReplicaUnavailableError, exactly as it is for every other handler.
+        // Consumers derive "no-replica" from that rejection (pkm-61zt).
+        const d = await db();
         const fresh = !tableExists(d, "sync_client_meta");
         const pendingBatches = fresh ? [] : readPendingBatches(d);
         if (fresh) installSchema(d);
         return {
-          ok: true,
           empty: getMeta(d, "generation") === null,
           cursor: Number(getMeta(d, "cursor") ?? 0),
           schemaMismatch: getMeta(d, "schema_version") !== SCHEMA_VERSION,
@@ -319,7 +335,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     async close() {
       return gate.run(async () => {
         await deps.closeDb?.();
+        // The only re-arm. A new open may now be attempted, and may succeed.
         dbPromise = null;
+        unavailable = null;
         return null;
       });
     },

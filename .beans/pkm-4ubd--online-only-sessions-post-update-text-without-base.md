@@ -1,11 +1,12 @@
 ---
 # pkm-4ubd
 title: Online-only sessions post update_text without base_text_hash, losing conflict protection
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T12:20:27Z
-updated_at: 2026-08-04T12:25:31Z
+updated_at: 2026-08-04T17:19:55Z
+parent: pkm-q2jj
 ---
 
 Found by adversarial review of pkm-bjae (verified by capturing the real POST body in a provider test).
@@ -28,11 +29,59 @@ Fix: stamp `base_text_hash` on the main thread at op-construction time (the edit
 
 ## Checklist
 
-[ ] Stamp base_text_hash where update_text ops are built (edits.ts, useOutline.ts, history.ts, outlineState.ts, paste.ts)
-[ ] Confirm the worker still defers (no double-hashing, no stale-hash override)
-[ ] Cover: an online-only session's update_text POST carries a hash
-[ ] Cover: two-tab concurrent edit yields a [[conflict]] sibling rather than a silent overwrite
-[ ] Update docs/architecture/sync-and-offline.md (the fallback-lane payload note added by pkm-bjae)
+[x] Stamp base_text_hash where update_text ops are built
+[x] Confirm the worker still defers (no double-hashing, no stale-hash override)
+[x] Cover: an online-only session's update_text POST carries a hash
+[x] Cover: two-tab concurrent edit yields a [[conflict]] sibling rather than a silent overwrite
+[x] Update docs/architecture/sync-and-offline.md (the fallback-lane payload note added by pkm-bjae)
+
+## How it was closed
+
+**Two choke points, not five files.** The checklist listed edits.ts, history.ts,
+outlineState.ts and paste.ts, but those are all pure planners whose ops funnel
+through `useOutline.run` — they never reach `sync.enqueue` on their own. Every
+main-thread `update_text` therefore passes through exactly two places, and both
+now call the new Functional Core `web/src/outline/baseTextHash.ts`:
+
+- `useOutline.run` — stamps against `pre`, the pre-flush tree the whole batch
+  (textOps + result.ops) grew from.
+- `undoManager.dispatch` — stamps against the mounted session's tree *at replay
+  time*. History records UNSTAMPED ops on purpose: a hash captured when the
+  entry was recorded is stale by replay time and would fork a spurious
+  `[[conflict]]` sibling against the user's own later edit.
+
+`components/UnlinkedSection.tsx` already stamped its own hash and needed no
+change; `dnd/DndContext.tsx` sends only move ops. There is no third site.
+
+**The worker still defers.** `replica/queue.test.ts` is byte-for-byte unchanged
+and all 11 tests still pass — `queue.ts:41` fills the hash in only when
+`undefined`, so there is no double hashing and no stale-hash override.
+
+**The [[conflict]]-sibling half is pinned server-side**, so no two-tab Playwright
+test was built. The fork:
+
+- `server/tests/test_ops_core.py:262` `test_check_5_stale_hash_wins_and_preserves_loser_as_sibling`
+  (pure planner: incoming wins, loser becomes `[[conflict]] <old text>` right after the target)
+- `server/tests/test_ops_endpoint.py:338` `test_conflict_copy_lands_next_to_target` (end-to-end HTTP)
+- `server/tests/test_ops_apply.py:361` `test_conflict_sibling_uid_retries_until_alphanumeric_first_char`
+- edit-vs-delete: `server/tests/test_ops_core.py:232` `test_check_1_missing_block_lands_on_daily_page`
+  and `server/tests/test_ops_endpoint.py:367` `test_orphaned_edit_lands_on_todays_daily_page`
+
+The no-hash LWW fallback this bug was falling into:
+
+- `server/tests/test_ops_core.py:249` `test_check_3_absent_hash_applies_as_today` — the exact
+  "returns early into plain last-write-wins" path
+- `server/tests/test_ops_endpoint.py:384` `test_hashless_update_on_missing_block_still_400s` — the
+  hashless edit-vs-delete 400 that made the fallback lane discard the entry
+- `server/tests/test_ops_endpoint.py:352` `test_no_false_conflict_after_structural_change`
+
+Both halves already existed; nothing was missing server-side, so no server test
+was added.
+
+**Finding: the brief's module did not compile.** `needsHash` was typed
+`(op: BlockOp): boolean`, which never narrows `op`, so `op.uid` failed —
+`create_page` carries no `uid`. It is a type predicate (`op is UpdateTextOp`)
+instead, which also removes the `as UpdateTextOp` cast the brief needed.
 
 
 ## Ready-made repro (from the pkm-bjae adversarial review, run verbatim at 4fe2886)
@@ -67,3 +116,28 @@ Observed body at 4fe2886 — note the absent hash:
 
     {"client_id":"...","batch_id":"...",
      "ops":[{"op":"update_text","uid":"block-1","text":"edited online-only"}]}
+
+
+## Residual hole found during final fix wave (2026-08-04, pkm-q2jj)
+
+The undoManager.ts fix (task 4 above) stamps base_text_hash for undo/redo
+dispatched to a *mounted* outline session by peeking the tree. But
+web/src/outline/undoManager.ts:93-106's `dispatch` falls back to unstamped
+ops whenever `peekOutlineSession(title)` returns null -- and the comment
+there used to say the worker fills the hash in "when the replica is
+openable". That is false for an online-only session: the replica never
+opens, so the worker never fills it in.
+
+This is reachable, not hypothetical: undo/redo is a per-tab global across
+pages (`dispatch` takes `entry.pageTitle` and calls `navigator?.(pagePath(title))`
+when the page isn't mounted), and `peekOutlineSession` returns null once a
+page's session has been released. So: edit page B, navigate to page A
+(releasing B's session), press undo, in a tab whose replica never opened ->
+an unguarded `update_text` for page B ships with no base_text_hash, exactly
+the LWW-overwrite / conflict-fork-skip failure mode this bean already
+describes for the direct-edit path.
+
+Left unfixed (out of scope for the fix wave that found it): the comment at
+undoManager.ts:93-106 now says so explicitly. A real fix would need to stamp
+the hash from durable/cached page state rather than a live tree when no
+session is mounted, which is a separate design question.

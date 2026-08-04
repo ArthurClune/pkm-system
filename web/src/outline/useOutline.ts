@@ -15,6 +15,7 @@ import { dateForTitle } from "../replica/daily";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
+import { stampBaseTextHashes } from "./baseTextHash";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
          moveSubtreeUp, outdentBlock, outdentSelection, setCollapsed,
@@ -177,9 +178,15 @@ export function useOutline(
     const ops = [...textOps, ...result.ops];
     if (ops.length === 0) return;
     const next = result.ops.length > 0 ? result.blocks : base;
-    const write = sync.enqueue(ops, ["page", pageTitle]);
+    // Conflict protection must not depend on the ops reaching the database
+    // (pkm-4ubd): base_text_hash is stamped here, against `pre` — the
+    // pre-flush tree the whole batch grew from — because an online-only
+    // session's ops never reach replica/queue.ts, which is where the worker
+    // would otherwise fill it in.
+    const wireOps = stampBaseTextHashes(pre, pageTitle, ops);
+    const write = sync.enqueue(wireOps, ["page", pageTitle]);
     const handle = sessionRef.current;
-    if (handle) handle.applyLocal(write, ops);
+    if (handle) handle.applyLocal(write, wireOps);
     else {
       blocksRef.current = next;
       setBlocks(next);
@@ -189,6 +196,10 @@ export function useOutline(
     // from. Empty inverse = nothing undoable (collapse-only / create_page);
     // null = not invertible from this tree (cross-page move) — skip, history
     // stays best-effort.
+    //
+    // Deliberately the UNSTAMPED ops: a hash captured now is stale by the time
+    // undo/redo replays the entry, and a stale hash forks a spurious
+    // [[conflict]] sibling. undoManager stamps at replay time instead.
     const inverse = invertOps(pre, pageTitle, ops);
     if (inverse !== null && inverse.length > 0) {
       recordHistory({

@@ -16,6 +16,10 @@ import { canonicalizeTitle, findOpTitleViolation,
          type OpTitleViolation, titleSyntaxReason } from "./titles";
 
 export class LocalOpError extends Error {
+  /** Read by serveRpc onto the wire error: this is the replica refusing the OP,
+   * not failing to store it, so the op queue must not retain and retry it —
+   * the server would refuse it too. */
+  readonly rejected = true;
   readonly opIndex?: number;
   readonly source?: OpTitleViolation["source"];
   readonly title?: string;

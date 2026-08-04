@@ -9,8 +9,8 @@
 
 import { ApiError } from "../api/client";
 import type { Changes, Snapshot } from "../replica/apply";
-import type { PendingBatch, RecoveryCommit, Replica } from "../replica/client";
-import { ReplicaError } from "../replica/rpc";
+import type { PendingBatch, RecoveryCommit, Replica, ReplicaInit } from "../replica/client";
+import { availabilityOf, ReplicaError } from "../replica/errors";
 import type { OpQueue } from "./opQueue";
 
 export type ReplicaState =
@@ -29,12 +29,6 @@ export interface ReplicaSync {
   onSeq(seq: number, force?: boolean): void;
   /** Resolves when no pull is in flight (tests, reconnect ordering). */
   idle(): Promise<void>;
-  /** Commit this session to online-only because startup established that the
-   * replica cannot be opened. Mirrors the `init().ok === false` path, and must
-   * be used instead of relying on a later start() to re-derive it: if that
-   * start's init() happened to succeed, the session would resume delivery with
-   * poison discovery skipped (pkm-bjae). */
-  markUnavailable(): void;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
    * remains paused on return so the provider can delete the poison row, bump
    * view resync, and only then resume the queue. */
@@ -91,14 +85,19 @@ class PullStarvedError extends Error {}
 /** Network-down failures (dropped connection, DNS, an offline fetch) are not
  * wedged-replica symptoms -- the offline banner already owns network-down
  * UX, and counting them here would flip a whole offline session read-only
- * via computeEditability. Only failures that mean "the replica itself
- * cannot make progress" -- a rejected/failed API call, a replica-side RPC
- * error, or pull() starving on pending-batch churn -- count toward the
- * stall threshold; anything else still retries with backoff but is neither
- * counted nor reported as stalled. */
+ * via computeEditability. Availability failures are excluded for the same
+ * reason and more sharply: a session that reports `stalled` on top of
+ * `no-replica` is reporting a wedged replica it has already concluded does not
+ * exist, and computeEditability would take editing away for the rest of the
+ * session (pkm-y35i). Only failures that mean "the replica itself cannot make
+ * progress" -- a rejected/failed API call, a replica-side RPC error, or pull()
+ * starving on pending-batch churn -- count toward the stall threshold;
+ * anything else still retries with backoff but is neither counted nor reported
+ * as stalled. */
 const isStallShaped = (error: unknown): boolean =>
-  error instanceof ApiError || error instanceof ReplicaError ||
-  error instanceof PullStarvedError;
+  availabilityOf(error) === null &&
+  (error instanceof ApiError || error instanceof ReplicaError ||
+    error instanceof PullStarvedError);
 
 export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const { replica, fetchJson, clientId, onState } = deps;
@@ -108,7 +107,6 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
   let cursor = 0;
   let started = false;
-  let disabled = false; // no-replica: permanent for this session
   let pulling: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
@@ -317,11 +315,24 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   const doStart = async (): Promise<void> => {
-    const init = await replica.init();
-    if (!init.ok) {
-      disabled = true;
-      onState({ mode: "no-replica" });
-      return;
+    let init: ReplicaInit;
+    try {
+      init = await replica.init();
+    } catch (error: unknown) {
+      // "unusable" is the worker reporting its own latched failed open: this
+      // session is online-only, and no later start() can revive it, because the
+      // latch replays for every call until close(). That is what replaces the
+      // `disabled` boolean this function used to set — the session-commitment
+      // moment moves to where the commitment actually happens (pkm-61zt).
+      //
+      // Anything else, INCLUDING "unreachable", stays an ordinary start
+      // failure: "we could not ask" is not evidence there is no database, and
+      // isStallShaped already excludes it from the stall count.
+      if (availabilityOf(error) === "unusable") {
+        onState({ mode: "no-replica" });
+        return;
+      }
+      throw error;
     }
     cursor = init.cursor;
     if (init.schemaMismatch) {
@@ -338,12 +349,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let starting: Promise<void> | null = null;
 
   return {
-    markUnavailable() {
-      disabled = true;
-      onState({ mode: "no-replica" });
-    },
     async start() {
-      if (disabled) return;
       if (started) {
         await pull();
         return;
@@ -390,14 +396,14 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       if (authoritativeRepair === "poison") {
         throw new Error("rejected-batch repair in progress");
       }
-      // A session committed to online-only must stay that way: this method
-      // sets started and forces mode "ready", which would revive syncing with
-      // poison discovery skipped. No UI path reaches this today (the reset
-      // control needs a stalled/recovery-failed mode, and neither can arise
-      // once disabled), so this guards a future UI change (pkm-bjae).
-      if (disabled) {
-        throw new Error("replica unavailable for this session");
-      }
+      // A session committed to online-only must stay that way: this method sets
+      // started and forces mode "ready", which would revive syncing with poison
+      // discovery skipped. Nothing needs to check a flag for that — every
+      // database call below replays the worker's latched open failure, and
+      // prepareRecovery is the first of them, so this throws long before
+      // `started = true` is reached. No UI path reaches this today anyway (the
+      // reset control needs a stalled/recovery-failed mode, and neither can
+      // arise once the replica is unavailable) — pkm-bjae, pkm-61zt.
       queue.pause("recovery");
       let token: string | null = null;
       try {

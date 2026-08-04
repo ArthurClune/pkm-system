@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MIN_POOL_CAPACITY, ensureMinimumCapacity,
-         isPoolExhausted } from "./poolCapacity";
+import { MIN_POOL_CAPACITY, ensureMinimumCapacity } from "./poolCapacity";
 
 function fakePool(capacity: number, addCapacity = vi.fn(async (n: number) => {
   capacity += n;
@@ -55,24 +54,5 @@ describe("ensureMinimumCapacity", () => {
     // One slot holds /pkm-replica.sqlite3; SQLite needs at least one more for
     // the rollback journal, and temp files can want more still.
     expect(MIN_POOL_CAPACITY).toBeGreaterThanOrEqual(2);
-  });
-});
-
-describe("isPoolExhausted", () => {
-  it("recognises the SQLITE_CANTOPEN a slot-less pool produces", () => {
-    expect(isPoolExhausted(new Error(
-      "SQLITE_CANTOPEN: sqlite3 result code 14: unable to open database file")))
-      .toBe(true);
-  });
-
-  it("recognises the VFS's own message where it survives", () => {
-    expect(isPoolExhausted(new Error("SAH pool is full. Cannot create file")))
-      .toBe(true);
-  });
-
-  it("does not match unrelated errors", () => {
-    expect(isPoolExhausted(new Error("worker crashed"))).toBe(false);
-    expect(isPoolExhausted(new Error("SQLITE_BUSY"))).toBe(false);
-    expect(isPoolExhausted(undefined)).toBe(false);
   });
 });

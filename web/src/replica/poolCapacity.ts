@@ -52,13 +52,7 @@ export async function ensureMinimumCapacity(
   return capacity >= min ? capacity : pool.addCapacity(min - capacity);
 }
 
-/** Recognise a replica write that failed because the pool had no slot left.
- * xOpen swallows its own "SAH pool is full" message and returns
- * SQLITE_CANTOPEN, so both spellings are matched. Neither can ever originate
- * from the server: this is local storage saying no, and the op queue must
- * treat it as such rather than as a rejected op. */
-export function isPoolExhausted(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /SQLITE_CANTOPEN/i.test(message)
-    || /pool is full/i.test(message);
-}
+// The classifier that used to recognise this failure at the far end of the RPC
+// is gone (pkm-s7af): the op queue retains every replica failure except one the
+// replica reports as a rejection of the op, so a SQLITE_CANTOPEN write no
+// longer needs identifying by message to survive.

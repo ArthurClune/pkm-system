@@ -7,6 +7,7 @@ import {
   isOutlineSessionActive,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
+import { sha256Hex } from "../replica/sha256";
 import { block, jsonResponse, makeSync, pagePayload, reserveOutlineEditor,
          stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
@@ -96,7 +97,8 @@ test("editing a block in the panel sends the op after the debounce", async () =>
   fireEvent.change(ta, { target: { value: "edited in panel" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "uid_s1", text: "edited in panel" }],
+    [{ op: "update_text", uid: "uid_s1", text: "edited in panel",
+      base_text_hash: sha256Hex("a paper block") }],
   ]);
 });
 

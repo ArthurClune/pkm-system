@@ -4,6 +4,7 @@ import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, expect, it } from "vitest";
 import type { BlockNode } from "../api/payloads";
+import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, type SyncFake } from "../test-helpers";
 import { resetHistory } from "./undoManager";
@@ -115,6 +116,53 @@ it("undo restores a deleted block's text via subtree recreate", () => {
   expect(outline().blocks).toHaveLength(1);
   act(() => outline().handlers.onUndo());
   expect(outline().blocks.map((n) => n.text)).toEqual(["alpha", "beta"]);
+});
+
+it("a flushed draft posts update_text with the pre-edit text's hash (pkm-4ubd)", () => {
+  // Conflict protection must not depend on the op reaching the replica: an
+  // online-only session's ops never pass through replica/queue.ts, so run()
+  // stamps here, against the pre-flush tree the batch grew from.
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, ab());
+  act(() => outline().handlers.onFocusBlock("a", 5));
+  act(() => outline().handlers.onDraftChange("a", "alpha edited"));
+  act(() => outline().handlers.onBlurBlock("a"));
+  expect(sync.sent[0][0]).toMatchObject({
+    op: "update_text", uid: "a", text: "alpha edited",
+    base_text_hash: sha256Hex("alpha"),
+  });
+});
+
+it("run() records UNSTAMPED ops, so a redo hashes the current text (pkm-4ubd)", () => {
+  // The other half of the trap, and the half only this test covers: what run()
+  // hands to recordHistory. If it recorded the stamped `wireOps`, the entry
+  // would carry the hash of "alpha" forever, and stampBaseTextHashes in
+  // undoManager.dispatch would PRESERVE that stale hash (it only fills in an
+  // undefined one) — so this redo would claim to be replacing "alpha" when the
+  // block really reads "two", and the server would fork a spurious [[conflict]]
+  // sibling against another tab's edit. Driven through the handlers on purpose:
+  // recordHistory's argument is the thing under test, so an entry built by
+  // calling recordHistory() directly would prove nothing here.
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, ab());
+  act(() => outline().handlers.onFocusBlock("a", 5));
+  act(() => outline().handlers.onDraftChange("a", "one"));
+  act(() => outline().handlers.onBlurBlock("a")); // flush: records the entry
+  act(() => outline().handlers.onUndo());         // back to "alpha"
+
+  // Another tab edits the same block between the undo and the redo. A local
+  // edit would not do: recording one clears the redo stack.
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "a", text: "two" },
+  ] }));
+  expect(outline().blocks[0].text).toBe("two");
+
+  act(() => outline().handlers.onRedo());
+
+  expect(sync.sent[sync.sent.length - 1][0]).toMatchObject({
+    op: "update_text", uid: "a", text: "one",
+    base_text_hash: sha256Hex("two"),
+  });
 });
 
 it("a pending draft flushes and becomes the first undo step", () => {

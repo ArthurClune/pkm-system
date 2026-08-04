@@ -1,4 +1,6 @@
 import { afterEach, expect, it } from "vitest";
+import type { BlockOp } from "../api/ops";
+import { sha256Hex } from "../replica/sha256";
 import { block, makeSync } from "../test-helpers";
 import { acquireOutlineSession } from "./outlineSessions";
 import { performRedo, performUndo, recordHistory, registerOutlineHistory,
@@ -85,7 +87,10 @@ it("navigates on undo when the page's session lingers with no mounted hooks (off
   const clear = setHistoryNavigator((p) => paths.push(p));
   recordHistory(entry());
   performUndo(sync);
-  expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before" }]]);
+  // The lingering session IS a tree, so the replayed op is stamped against it
+  // (pkm-4ubd); the other undo tests here have no session and go out unstamped.
+  expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before",
+                               base_text_hash: sha256Hex("after") }]]);
   expect(handle.getSnapshot().blocks[0].text).toBe("before");
   expect(paths).toHaveLength(1);
   expect(paths[0]).toContain("Undo");
@@ -97,6 +102,36 @@ it("performUndo returns false on an empty stack without enqueueing", () => {
   const sync = makeSync();
   expect(performUndo(sync)).toBe(false);
   expect(sync.sent).toEqual([]);
+});
+
+it("redo stamps against the current tree, not the recorded one (pkm-4ubd)", () => {
+  // History deliberately records UNSTAMPED ops: a hash taken when the entry was
+  // recorded is stale by the time it is replayed, and a stale hash would fork a
+  // spurious [[conflict]] sibling against the user's own later edit. So the
+  // hash must be of "two" — the text the server will actually be replacing —
+  // not of "one", the text the entry was recorded against.
+  const sync = makeSync();
+  const handle = acquireOutlineSession(PAGE, [block("a", "one", { order_idx: 0 })]);
+  recordHistory({
+    pageTitle: PAGE,
+    ops: [{ op: "update_text", uid: "a", text: "one" }],
+    inverse: [{ op: "update_text", uid: "a", text: "zero" }],
+    focusBefore: null,
+    focusAfter: null,
+  });
+  performUndo(sync);
+  // A later edit of the user's own moves the block on before the redo.
+  const later: BlockOp[] = [{ op: "update_text", uid: "a", text: "two" }];
+  handle.applyLocal(sync.enqueue(later, ["page", PAGE]), later);
+  expect(handle.getSnapshot().blocks[0].text).toBe("two");
+
+  expect(performRedo(sync)).toBe(true);
+
+  expect(sync.sent[sync.sent.length - 1][0]).toMatchObject({
+    op: "update_text", uid: "a", text: "one",
+    base_text_hash: sha256Hex("two"),
+  });
+  handle.release();
 });
 
 it("recording clears redo (integration of AC through the manager)", () => {

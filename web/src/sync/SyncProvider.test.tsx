@@ -4,6 +4,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { acquireOutlineSession } from "../outline/outlineSessions";
+import { sha256Hex } from "../replica/sha256";
 import { block, FakeWebSocket, jsonResponse, stubFetch } from "../test-helpers";
 import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
@@ -1158,6 +1159,42 @@ test("a NON-whitelisted unopenable replica delivers the edit too (pkm-9x6u)", as
   // take precedence over the background replica-unavailable report.
   const { posts } = await runDead("OPFS is not available in this browser");
   expect(posts).toHaveLength(1);
+});
+
+test("an online-only session's update_text still carries a base_text_hash (pkm-4ubd)",
+async () => {
+  // What this can and cannot prove: SyncProvider.enqueue takes whatever ops it
+  // is given. The provider is NOT where base_text_hash is stamped, and must not
+  // be — there is no block tree here to hash against. Stamping is pinned by
+  // baseTextHash.test.ts and by the useOutline/undoManager tests. What THIS
+  // test pins is the lane: with no replica, the in-memory fallback posts
+  // head.ops verbatim, so a lane that stripped or reordered op fields would
+  // strand the conflict guard exactly where it is needed most.
+  const bodies: Array<{ ops: Array<Record<string, unknown>> }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      bodies.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+  await act(async () => {
+    sync.enqueue([{ op: "update_text", uid: "block-1", text: "edited online-only",
+                    base_text_hash: sha256Hex("hello") }]);
+  });
+  await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+  // The VALUE, not just the field: a lane that carried the property through but
+  // mangled its contents would guard nothing.
+  expect(bodies[0].ops[0].base_text_hash).toEqual(sha256Hex("hello"));
 });
 
 test("a reconnect in a no-replica session still bumps resyncSeq (pkm-9x6u)", async () => {

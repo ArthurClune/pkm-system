@@ -12,6 +12,7 @@
 import type { BlockOp } from "../api/ops";
 import type { WriteTicket } from "../sync/opQueue";
 import { pagePath } from "../paths";
+import { stampBaseTextHashes } from "./baseTextHash";
 import type { FocusTarget } from "./edits";
 import { emptyHistory, recordEntry, takeRedo, takeUndo,
          type HistoryEntry, type HistoryState } from "./history";
@@ -91,11 +92,26 @@ function flushAll(): void {
 
 function dispatch(sync: HistoryDispatch, batch: BlockOp[], title: string,
                   focus: FocusTarget | null): void {
-  const write = sync.enqueue([...batch], ["page", title]);
+  // Peek BEFORE enqueueing: the hash must be taken against the tree as it is
+  // now, not as it was when the entry was recorded, or a replay after any later
+  // edit would carry a stale hash and fork a spurious [[conflict]] sibling
+  // (pkm-4ubd). With no mounted session there is no tree to hash against, so
+  // the ops go out unstamped and the worker fills them in when the replica is
+  // openable — the same fallback as a block this tree does not know.
+  //
+  // try/finally because peeking first put an acquired handle on the wrong side
+  // of sync.enqueue, which throws on a disposed queue (opQueue.ts): before the
+  // peek moved up, a throw left nothing acquired, and a leaked refcount pins
+  // the session for the rest of the tab's life.
   const handle = peekOutlineSession(title);
-  if (handle) {
-    handle.applyLocal(write, batch);
-    handle.release();
+  try {
+    const wireOps = handle
+      ? stampBaseTextHashes(handle.getSnapshot().blocks, title, batch)
+      : [...batch];
+    const write = sync.enqueue(wireOps, ["page", title]);
+    handle?.applyLocal(write, wireOps);
+  } finally {
+    handle?.release();
   }
   const registered = hooks.get(title);
   if (registered) {

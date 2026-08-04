@@ -1,11 +1,11 @@
 ---
 # pkm-4ubd
 title: Online-only sessions post update_text without base_text_hash, losing conflict protection
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T12:20:27Z
-updated_at: 2026-08-04T12:54:50Z
+updated_at: 2026-08-04T16:30:46Z
 parent: pkm-q2jj
 ---
 
@@ -29,11 +29,59 @@ Fix: stamp `base_text_hash` on the main thread at op-construction time (the edit
 
 ## Checklist
 
-[ ] Stamp base_text_hash where update_text ops are built (edits.ts, useOutline.ts, history.ts, outlineState.ts, paste.ts)
-[ ] Confirm the worker still defers (no double-hashing, no stale-hash override)
-[ ] Cover: an online-only session's update_text POST carries a hash
-[ ] Cover: two-tab concurrent edit yields a [[conflict]] sibling rather than a silent overwrite
-[ ] Update docs/architecture/sync-and-offline.md (the fallback-lane payload note added by pkm-bjae)
+[x] Stamp base_text_hash where update_text ops are built
+[x] Confirm the worker still defers (no double-hashing, no stale-hash override)
+[x] Cover: an online-only session's update_text POST carries a hash
+[x] Cover: two-tab concurrent edit yields a [[conflict]] sibling rather than a silent overwrite
+[x] Update docs/architecture/sync-and-offline.md (the fallback-lane payload note added by pkm-bjae)
+
+## How it was closed
+
+**Two choke points, not five files.** The checklist listed edits.ts, history.ts,
+outlineState.ts and paste.ts, but those are all pure planners whose ops funnel
+through `useOutline.run` — they never reach `sync.enqueue` on their own. Every
+main-thread `update_text` therefore passes through exactly two places, and both
+now call the new Functional Core `web/src/outline/baseTextHash.ts`:
+
+- `useOutline.run` — stamps against `pre`, the pre-flush tree the whole batch
+  (textOps + result.ops) grew from.
+- `undoManager.dispatch` — stamps against the mounted session's tree *at replay
+  time*. History records UNSTAMPED ops on purpose: a hash captured when the
+  entry was recorded is stale by replay time and would fork a spurious
+  `[[conflict]]` sibling against the user's own later edit.
+
+`components/UnlinkedSection.tsx` already stamped its own hash and needed no
+change; `dnd/DndContext.tsx` sends only move ops. There is no third site.
+
+**The worker still defers.** `replica/queue.test.ts` is byte-for-byte unchanged
+and all 11 tests still pass — `queue.ts:41` fills the hash in only when
+`undefined`, so there is no double hashing and no stale-hash override.
+
+**The [[conflict]]-sibling half is pinned server-side**, so no two-tab Playwright
+test was built. The fork:
+
+- `server/tests/test_ops_core.py:262` `test_check_5_stale_hash_wins_and_preserves_loser_as_sibling`
+  (pure planner: incoming wins, loser becomes `[[conflict]] <old text>` right after the target)
+- `server/tests/test_ops_endpoint.py:338` `test_conflict_copy_lands_next_to_target` (end-to-end HTTP)
+- `server/tests/test_ops_apply.py:361` `test_conflict_sibling_uid_retries_until_alphanumeric_first_char`
+- edit-vs-delete: `server/tests/test_ops_core.py:232` `test_check_1_missing_block_lands_on_daily_page`
+  and `server/tests/test_ops_endpoint.py:367` `test_orphaned_edit_lands_on_todays_daily_page`
+
+The no-hash LWW fallback this bug was falling into:
+
+- `server/tests/test_ops_core.py:249` `test_check_3_absent_hash_applies_as_today` — the exact
+  "returns early into plain last-write-wins" path
+- `server/tests/test_ops_endpoint.py:384` `test_hashless_update_on_missing_block_still_400s` — the
+  hashless edit-vs-delete 400 that made the fallback lane discard the entry
+- `server/tests/test_ops_endpoint.py:352` `test_no_false_conflict_after_structural_change`
+
+Both halves already existed; nothing was missing server-side, so no server test
+was added.
+
+**Finding: the brief's module did not compile.** `needsHash` was typed
+`(op: BlockOp): boolean`, which never narrows `op`, so `op.uid` failed —
+`create_page` carries no `uid`. It is a type predicate (`op is UpdateTextOp`)
+instead, which also removes the `as UpdateTextOp` cast the brief needed.
 
 
 ## Ready-made repro (from the pkm-bjae adversarial review, run verbatim at 4fe2886)

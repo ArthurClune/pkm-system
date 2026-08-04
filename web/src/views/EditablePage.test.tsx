@@ -6,6 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { block, makeSync, reserveOutlineEditor, stubFetch,
          type SyncFake } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
+import { sha256Hex } from "../replica/sha256";
 import { EditablePage } from "./EditablePage";
 
 afterEach(() => vi.useRealTimers());
@@ -37,7 +38,8 @@ test("typing flushes one update_text op after the debounce", () => {
   expect(sync.sent).toEqual([]);
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "first edited" }],
+    [{ op: "update_text", uid: "u1", text: "first edited",
+      base_text_hash: sha256Hex("first") }],
   ]);
 });
 
@@ -50,7 +52,8 @@ test("Enter splits: pending text flushes first, create follows, focus moves", ()
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(sync.sent).toHaveLength(1);
   const batch = sync.sent[0];
-  expect(batch[0]).toEqual({ op: "update_text", uid: "u1", text: "first!" });
+  expect(batch[0]).toEqual({ op: "update_text", uid: "u1", text: "first!",
+                            base_text_hash: sha256Hex("first") });
   expect(batch[1]).toMatchObject({ op: "create", page_title: "Page",
                                    parent_uid: null, order_idx: 1, text: "" });
   // the new block's textarea is now the focused one (empty draft)
@@ -211,7 +214,8 @@ test("Backspace at the start merges with the previous block", () => {
   ta.setSelectionRange(0, 0);
   fireEvent.keyDown(ta, { key: "Backspace" });
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "u1", text: "firstsecond" },
+    { op: "update_text", uid: "u1", text: "firstsecond",
+      base_text_hash: sha256Hex("first") },
     { op: "delete", uid: "u2" },
   ]]);
   expect(screen.getByRole("textbox")).toHaveValue("firstsecond");
@@ -267,7 +271,8 @@ test("heading command selection queues text and heading ops", () => {
   });
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "u1", text: "" },
+    { op: "update_text", uid: "u1", text: "",
+      base_text_hash: sha256Hex("first") },
     { op: "set_heading", uid: "u1", heading: 1 },
   ]]);
 });
@@ -276,7 +281,8 @@ test("clicking a TODO checkbox queues the toggled text op", () => {
   const sync = mount(makeSync(), [block("u1", "{{TODO}} buy milk")]);
   fireEvent.click(screen.getByRole("checkbox", { name: "TODO" }));
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "u1", text: "{{DONE}} buy milk" },
+    { op: "update_text", uid: "u1", text: "{{DONE}} buy milk",
+      base_text_hash: sha256Hex("{{TODO}} buy milk") },
   ]]);
 });
 
@@ -301,7 +307,8 @@ test("Cmd-Enter shows the cycled TODO marker immediately and survives the next f
   act(() => { vi.advanceTimersByTime(500); });
 
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "{{TODO}} first edited more" }],
+    [{ op: "update_text", uid: "u1", text: "{{TODO}} first edited more",
+      base_text_hash: sha256Hex("first") }],
   ]);
 });
 
@@ -360,7 +367,10 @@ test("focused block with a pending draft keeps the draft; it wins on flush", () 
   // The draft flush is the next legitimate last-writer.
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "typed" }],
+    // The remote batch already landed on the block tree, so the flush hashes
+    // what it is really replacing — "remote", not the "first" it was typed over.
+    [{ op: "update_text", uid: "u1", text: "typed",
+      base_text_hash: sha256Hex("remote") }],
   ]);
 });
 
@@ -407,6 +417,7 @@ test("pasting an image uploads it and splices markdown at the cursor", async () 
   await vi.waitFor(() => {
     expect(sync.sent.flat()).toContainEqual({
       op: "update_text", uid: "u1", text: `first![pic.png](${url})`,
+      base_text_hash: sha256Hex("first"),
     });
   });
 });
@@ -424,7 +435,8 @@ test("hiding the tab flushes the pending draft immediately", () => {
   Object.defineProperty(document, "visibilityState",
                         { value: "visible", configurable: true });
   expect(sync.sent).toEqual([
-    [{ op: "update_text", uid: "u1", text: "first draft" }],
+    [{ op: "update_text", uid: "u1", text: "first draft",
+      base_text_hash: sha256Hex("first") }],
   ]);
 });
 
@@ -449,7 +461,8 @@ function heldRefDraft(sync: SyncFake) {
   return ta;
 }
 
-const HELD_TEXT_OP = { op: "update_text", uid: "u1", text: "see [[Fresh Idea]]" };
+const HELD_TEXT_OP = { op: "update_text", uid: "u1", text: "see [[Fresh Idea]]",
+                       base_text_hash: sha256Hex("first") };
 
 test("Ctrl-O over a held [[ref]] flushes the block text before navigating (pkm-hhbc)", () => {
   vi.useFakeTimers();
@@ -585,7 +598,8 @@ test("same-title fallback observes the owner's flushed optimistic tree", () => {
   act(() => { vi.advanceTimersByTime(500); });
 
   expect(sync.sent).toEqual([[
-    { op: "update_text", uid: "u1", text: "shared optimistic text" },
+    { op: "update_text", uid: "u1", text: "shared optimistic text",
+      base_text_hash: sha256Hex("first") },
   ]]);
   const fallback = [...document.querySelectorAll(".block-tree")]
     .find((tree) => tree.closest(".outline-drop-zone") === null)!;

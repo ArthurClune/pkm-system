@@ -47,7 +47,7 @@ sequenceDiagram
     participant S as Server (FastAPI + SQLite)
     participant B as Other client (tab B)
 
-    U->>Q: enqueue(ops) — batch_id minted in worker,<br/>base_text_hash captured, optimistic local apply
+    U->>Q: enqueue(ops) — base_text_hash stamped main-thread,<br/>batch_id minted in worker, optimistic local apply
     Q-->>U: WriteTicket (persisted durably)
     Q->>S: POST /api/ops {client_id, batch_id, ops}
     S->>S: one transaction: plan ops (pure core),<br/>execute, re-derive refs + FTS<br/>(triggers append journal rows)
@@ -245,7 +245,15 @@ already bound the cost that matters at this scale.
 While disconnected, reads and search are served from the replica through the
 local API shim, and edits keep enqueueing durably. Each op is optimistically
 applied to the replica under its own SAVEPOINT, and `base_text_hash` — the
-sha256 of the text the edit was based on — is captured *before* that apply.
+sha256 of the text the edit was based on — is on the op before that apply. The
+editor stamps it when it builds the batch (`outline/baseTextHash.ts`, walking
+the batch in order against the tree the batch was planned from, so op N leaves
+the text op N+1's hash matches); the worker fills it in from `currentText` only
+when it is still `undefined`, capturing it *before* the op's own optimistic
+apply. Undo history deliberately records **unstamped** ops — a hash taken when
+the entry was recorded is stale by the time it is replayed, and a stale hash
+would fork a spurious `[[conflict]]` sibling against the user's own later edit
+— so `undoManager.dispatch` stamps against the tree as it is at replay time.
 The header shows "Offline — N changes pending".
 
 That optimistic apply must reproduce the server's timestamp rules, not just
@@ -467,16 +475,19 @@ the server already refused. That path keeps its barrier and its "Checking
 rejected changes failed: …" Retry banner, and it is the remaining case where
 accepted edits can sit undelivered in memory.
 
-**The lane matches the durable path's policy, not its payload.** `base_text_hash`
-is stamped inside the worker (`replica/queue.ts`, from `currentText`), so ops
-that never reach the database — every op in an online-only session — arrive at
-the server without one. The server then returns early into plain last-write-wins
-(`ops_core.py`, "check 3: legacy"), so `update_text` loses its conflict
-protection: a concurrent edit from another tab is overwritten rather than
-preserved as a `[[conflict]]` sibling, and editing a block another tab deleted
-400s, which makes the lane discard that entry. Stamping the hash on the main
-thread at op-construction time would fix it; the worker only fills it in when
-`undefined`.
+**The lane matches the durable path's policy *and* its payload.** It used to
+match only the policy: `base_text_hash` was stamped inside the worker
+(`replica/queue.ts`, from `currentText`), so ops that never reached the database
+— every op in an online-only session — arrived at the server without one, and
+the server returned early into plain last-write-wins (`ops_core.py`, "check 3:
+legacy"). `update_text` lost its conflict protection exactly where two tabs are
+most likely to be fighting: a concurrent edit from the tab that *does* own the
+replica was overwritten rather than preserved as a `[[conflict]]` sibling, and
+editing a block another tab deleted 400s, which makes the lane discard that
+entry. Since pkm-4ubd the hash is stamped on the main thread at op-construction
+time (`outline/baseTextHash.ts`), so it is on the op before the lane ever sees
+it. The worker still fills it in when `undefined`, so ownership was supplemented,
+not moved.
 
 The lane preserves order. Each entry records how many durable batches were
 queued ahead of it, and is posted only once each of those has reached a

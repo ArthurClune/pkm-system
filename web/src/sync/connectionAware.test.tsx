@@ -6,6 +6,7 @@ import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { BlockNode } from "../api/payloads";
+import { sha256Hex } from "../replica/sha256";
 import { uploadAsset } from "./assets";
 import { useOutline, type Outline } from "../outline/useOutline";
 import { block, FakeWebSocket, jsonResponse, pagePayload } from "../test-helpers";
@@ -108,7 +109,8 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
   const posts = opsPosts();
   expect(posts).toHaveLength(1);
   expect(posts[0].ops).toEqual([
-    { op: "update_text", uid: "u1", text: "![pic.png](/assets/abc/pic.png)" },
+    { op: "update_text", uid: "u1", text: "![pic.png](/assets/abc/pic.png)",
+      base_text_hash: sha256Hex("") },
   ]);
 });
 
@@ -129,6 +131,7 @@ test("(c) reconnect flushes the ops preserved while offline, in order", async ()
   const posts = opsPosts();
   expect(posts).toHaveLength(1);
   expect(posts[0].ops).toEqual([
-    { op: "update_text", uid: "u1", text: "offline edit" },
+    { op: "update_text", uid: "u1", text: "offline edit",
+      base_text_hash: sha256Hex("") },
   ]);
 });

@@ -10,9 +10,9 @@
 //  2. links     — relative links resolve, and heading anchors exist. Includes
 //                 INBOUND anchors from sibling docs: renaming a heading breaks
 //                 another doc's deep link with no other symptom.
-//  3. sentences — the longest prose sentences, printed for judgement. One idea
-//                 per sentence is the aim; several 50-word sentences in a row is
-//                 what to look at, not any single number.
+//  3. sentences — the longest prose sentences, printed for judgement, with any
+//                 40+ word sentence THIS EDIT INTRODUCED marked NEW. One idea per
+//                 sentence is the aim; no single number is a gate.
 //  4. names     — the set of `inline-code` identifiers dropped since HEAD. A
 //                 clarity pass is meant to delete sentences, not the
 //                 CONSTANT_NAMES and function names agents grep for. Dropped
@@ -115,7 +115,7 @@ function checkInbound(file, text) {
 // sentence is sometimes right (a quoted banner string, a list of four names);
 // several long ones in a row is the thing to look at. Code blocks, tables and
 // headings are excluded; bullets count as their own units.
-function reportSentences(file, text) {
+function sentencesOf(text) {
   const prose = text
     .replace(/```[\s\S]*?```/g, "")
     .split("\n").filter((l) => !l.trim().startsWith("|") && !l.startsWith("#"))
@@ -124,25 +124,40 @@ function reportSentences(file, text) {
   // A following sentence can start lowercase — iPadOS, macOS, jsdom, opQueue —
   // so the lookahead allows any letter, and the abbreviations that would then
   // split wrongly are masked first.
-  const sentences = prose
+  return prose
     .replace(/\b(e\.g|i\.e|cf|vs|etc|approx)\./gi, "$1\u0001")
     .split(/(?<=[.:])\s+(?=[A-Za-z`*])|\n\n/)
     .map((s) => s.replace(/\u0001/g, ".").replace(/\s+/g, " ").trim())
     .filter(Boolean);
+}
+
+// Longest prose sentences, for judgement — not a pass/fail on length. Sentences
+// this edit INTRODUCED are marked, because splitting one sentence often
+// lengthens another, and a self-inflicted one can sit past 5th place where a
+// fixed top-5 view would never surface it.
+function reportSentences(file, text, before) {
+  const sentences = sentencesOf(text);
   if (sentences.length === 0) return;
+  const wasLong = new Set(
+    (before === null ? [] : sentencesOf(before)).filter((s) => s.split(" ").length >= 40));
   const ranked = sentences
     .map((s) => ({ s, n: s.split(" ").length }))
+    .map((r) => ({ ...r, isNew: r.n >= 40 && !wasLong.has(r.s) }))
     .sort((a, b) => b.n - a.n);
-  // Say how many are in the tail, not just show five of them. Showing a fixed
-  // top-5 with no total lets a reader fix those five and ship a doc that still
-  // has long sentences — including ones their own rewrites just created.
-  const tail = ranked.filter((r) => r.n >= 40).length;
+  const tail = ranked.filter((r) => r.n >= 40);
+  const introduced = tail.filter((r) => r.isNew);
   const shown = showAll ? ranked.filter((r) => r.n >= 30) : ranked.slice(0, 5);
-  console.log(`\n      ${file}: ${tail} sentence(s) of ${sentences.length} run 40+ words`
-    + `${shown.length < tail ? `; longest ${shown.length} shown, pass --all for every 30+` : ""}.`
+  const unshown = introduced.filter((r) => !shown.includes(r));
+  console.log(`\n      ${file}: ${tail.length} sentence(s) of ${sentences.length} run 40+ words`
+    + `${introduced.length > 0 ? `, ${introduced.length} new since HEAD` : ""}`
+    + `${shown.length < tail.length ? `; longest ${shown.length} shown, --all for every 30+` : ""}.`
     + `\n      Read them and decide whether each is one idea:`);
-  for (const { s, n } of shown) {
-    console.log(`        ${String(n).padStart(3)}w  ${s.slice(0, 96)}${s.length > 96 ? "…" : ""}`);
+  for (const { s, n, isNew } of shown) {
+    console.log(`        ${String(n).padStart(3)}w${isNew ? " NEW" : "   "}  `
+      + `${s.slice(0, 92)}${s.length > 92 ? "…" : ""}`);
+  }
+  for (const { s, n } of unshown) {
+    console.log(`        ${String(n).padStart(3)}w NEW  ${s.slice(0, 92)}${s.length > 92 ? "…" : ""}`);
   }
   console.log("");
 }
@@ -152,12 +167,8 @@ function reportSentences(file, text) {
 const identifiers = (text) => new Set(
   [...text.matchAll(/`([^`\n]+)`/g)].map((m) => m[1]).filter((s) => s.length < 60));
 
-function checkNames(file, text) {
-  let before;
-  try {
-    before = execFileSync("git", ["show", `HEAD:${relative(REPO, file)}`],
-                          { cwd: REPO, encoding: "utf8" });
-  } catch {
+function checkNames(file, text, before) {
+  if (before === null) {
     ok(`${file} names (no HEAD version to compare)`);
     return;
   }
@@ -173,10 +184,15 @@ function checkNames(file, text) {
 const mermaid = await loadMermaid();
 for (const file of targets) {
   const text = readFileSync(file, "utf8");
+  let before = null;
+  try {
+    before = execFileSync("git", ["show", `HEAD:${relative(REPO, file)}`],
+                          { cwd: REPO, encoding: "utf8" });
+  } catch { /* new file, or not tracked: nothing to compare against */ }
   await checkMermaid(mermaid, file, text);
   checkLinks(file, text);
   checkInbound(file, text);
-  checkNames(file, text);
-  reportSentences(file, text);
+  checkNames(file, text, before);
+  reportSentences(file, text, before);
 }
 process.exit(failures === 0 ? 0 : 1);

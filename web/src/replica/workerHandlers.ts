@@ -172,8 +172,15 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         try {
           d = await db();
         } catch {
-          // wasm/OPFS unavailable: the app degrades to online-only
-          dbPromise = null;
+          // wasm/OPFS unavailable: the app degrades to online-only. The
+          // memoised rejection is deliberately LEFT IN PLACE (pkm-bjae): it is
+          // what keeps the database latched shut for the rest of the session,
+          // so every later handler replays the open failure instead of
+          // silently succeeding on a fresh attempt. Startup lifts the op
+          // queue's recovery barrier on the strength of this ok:false, having
+          // never read the poison table; if a later db() could reopen, the
+          // queue would drain batches queued behind an undiscovered poison
+          // row. Only close() re-arms the open.
           return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
                    pendingBatches: [] };
         }

@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: low
 created_at: 2026-08-04T11:52:14Z
-updated_at: 2026-08-04T11:52:14Z
+updated_at: 2026-08-04T12:00:36Z
 ---
 
 Found in review of pkm-bjae. Pre-existing mechanics, but that fix makes them the steady state of a normally-working session instead of a symptom of a wedge, which is why they are worth addressing now.
@@ -25,3 +25,12 @@ Both point the same way: tell `opQueue` the replica is unavailable (retain uncon
 [ ] Cover: a reconnect in a no-replica session must bump resyncSeq
 [ ] Cover: an unwhitelisted replica error in a no-replica session must not trigger onDesync
 [ ] Check whether the ~5 s retry loop should stop entirely in that mode
+
+
+## Third symptom (from pkm-bjae adversarial review)
+
+**A non-contention unopenable cause loses the edit by a different route.** The fallback lane only admits ops whose error is whitelisted (quota / isSahPoolContention / isPoolExhausted). If the replica is unopenable for a reason OUTSIDE that whitelist -- wasm init failure, OPFS unavailable in private browsing -- `replica.enqueue` throws unclassified, the ops are dropped, and `onDesync` fires, whose legacy repair rebases the active outline to server state. So pkm-bjae's online-only fallback only actually rescues the contention flavour; the flavour its own comment cites as the model (OPFS unavailable) still loses the edit and additionally wipes the active outline.
+
+pkm-bjae's fix depends on the latched open preserving the ORIGINAL error identity for exactly this reason. That is fragile: it means the whitelist, not the no-replica state, decides whether writes survive. Giving opQueue an explicit no-replica mode fixes all three symptoms at once.
+
+[ ] Cover: an unopenable replica whose failure is NOT whitelisted must still retain ops, not fire onDesync

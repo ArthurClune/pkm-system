@@ -67,10 +67,21 @@ crashed between marking and repairing, *and* the replica to be unopenable now.
 
 Fall back to **online-only**, not read-only.
 
-Rationale: the app already ships "deliver anyway with an unreadable DB" — that
-is what `ok: false` → online-only does when wasm/OPFS is unavailable, accepting
-the same theoretical hidden-poison risk. This change does not invent a new
-policy; it makes the existing one reachable.
+**Correction (adversarial review, 2026-08-04).** The original rationale here was
+that the app already ships "deliver anyway with an unreadable DB" via
+`init().ok === false`, so this change merely made an existing policy reachable.
+**That precedent does not exist.** `init()`'s only pre-existing call site is in
+`doStart()`, reached only via `start()`, which startup calls *after*
+`poisonedBatches()` has succeeded — and a successful `poisonedBatches()` means
+the memoised open resolved, so `init()` could not then report `ok: false`. No
+app code calls `replica.close()` to reset it. An OPFS-less browser therefore
+wedged on the poison-discovery gate too; it did not degrade gracefully. So this
+change *restores* a path that was dead, rather than inheriting an accepted risk
+from it — which argues the fix is necessary, but gives its risk no cover.
+
+The decision stands on its remaining ground: same-origin tabs contend for one
+OPFS pool, so a read-only policy would make a routinely-open second tab
+read-only as a matter of course.
 
 Read-only was rejected. With two or more tabs open routinely (the primary
 user's normal pattern), tabs of the same origin contend for the same OPFS
@@ -135,6 +146,34 @@ This is airtight because `disabled` is already "permanent for this session"
 (`replicaSync.ts:105`) and `start()` returns early on it (`replicaSync.ts:336`),
 so every later call — including the reconnect flow's — no-ops. No path can
 later begin syncing with discovery skipped.
+
+### The probe must not re-arm the access it reports impossible
+
+Found by adversarial review, after the first implementation shipped this bug:
+`db()` is `dbPromise ??= deps.openDb()` (`workerHandlers.ts:63`), so a failed
+open is memoised and replayed to every handler — but `init()`'s catch **cleared
+`dbPromise`**. The probe therefore re-armed the database it had just reported
+unopenable, and `queue.resume("recovery")` emits a `kick` whose drain calls
+`replica.nextBatch()` → a *fresh* `openDb()` with a fresh retry budget. In the
+reload race that succeeds, so the session drained durable batches — including
+any queued behind an undiscovered poison row — having never read the poison
+table. Reproduced end-to-end before the fix.
+
+The fix is to delete that `dbPromise = null`: one failed open now latches the
+database shut for the session, and only `close()` re-arms it. That is what makes
+`no-replica` mean what it says, and it preserves the memoised error's *identity*,
+so `opQueue`'s storage-error whitelist still recognises the contention shape and
+retains ops in the fallback lane rather than treating them as a desync.
+
+Pinned by `workerHandlers.test.ts`, "a failed open stays latched" — the
+provider-level test cannot pin it, because a provider test's replica double
+*is* the worker it would be asserting about.
+
+### Only an explicit `ok: false` lifts the barrier
+
+`.catch(() => false)` on the probe treated a *rejecting* `init()` (dead worker,
+broken RPC port, timeout) as proof that no database exists. It is not: it means
+we could not ask. Such a probe now keeps the gate and its Retry banner.
 
 **Why probe rather than have `poisonedBatches` catch its own `db()` failure:**
 that handler would have to return `[]`, which asserts *"there is no poison"* —

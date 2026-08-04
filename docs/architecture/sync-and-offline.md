@@ -434,7 +434,21 @@ same state as `ok: false` — and lifts the barrier, so the lane drains to the
 server. `markUnavailable()` exists rather than a second `start()` for a
 specific reason: were a later `init()` to succeed, the session would resume
 delivery with poison discovery *skipped*, which is the exact ordering hazard
-the barrier exists to prevent.
+the barrier exists to prevent. Only an explicit `ok: false` lifts the barrier —
+a probe that *rejects* means we could not ask, not that there is no database,
+so it keeps the gate and its Retry banner.
+
+**Two invariants make that safe, and both are easy to break by accident.**
+First, `db()` is `dbPromise ??= deps.openDb()` (`workerHandlers.ts`), so one
+failed open is memoised and replayed to every handler; `init()`'s failure path
+must therefore *leave that rejection in place*. It originally cleared it, which
+re-armed the database the probe had just declared unopenable — and since
+`resume("recovery")` kicks a drain that calls `nextBatch()`, that drain got a
+fresh open, succeeded in the reload race, and delivered batches queued behind a
+poison row nobody had read. One failed open must mean online-only for the whole
+session; only `close()` re-arms. Second, latching preserves the memoised error's
+*identity*, which `opQueue`'s storage-error whitelist depends on to retain ops
+in the fallback lane instead of treating them as a desync.
 
 **One case deliberately still holds the gate.** Retained mark intents live in
 `localStorage`, not the replica, so they survive an unopenable database. When

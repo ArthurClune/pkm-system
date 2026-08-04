@@ -316,9 +316,15 @@ export function SyncProvider({ children, replica }: {
         // rows this gate could protect, and holding it would strand every
         // accepted edit in the in-memory fallback lane until the tab closes
         // (pkm-bjae).
-        const viable = await replicaRef.current!.init()
-          .then((init) => init.ok).catch(() => false);
-        if (!viable) {
+        // Only an explicit ok:false lifts the barrier. A probe that *rejects*
+        // (dead worker, broken RPC port, timeout) is not evidence that there is
+        // no database — only that we could not ask — so it keeps today's gate
+        // and its Retry banner rather than delivering past unread poison.
+        const probe = await replicaRef.current!.init().then(
+          (init) => (init.ok ? "viable" : "unopenable"),
+          () => "unknown",
+        );
+        if (probe === "unopenable") {
           startupDiscoveringPoisonRef.current = false;
           replicaSync!.markUnavailable();
           queue.resume("recovery");

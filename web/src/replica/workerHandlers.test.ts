@@ -233,3 +233,32 @@ test("an acquired recovery lease expires if its client forgets the token", async
     vi.useRealTimers();
   }
 });
+
+test("a failed open stays latched: init's ok:false must not re-arm the database",
+async () => {
+  // pkm-bjae: SyncProvider lifts the op queue's recovery barrier on the
+  // strength of init() reporting ok:false, WITHOUT having read the poison
+  // table. If init's failure path cleared the memoised open, the next handler
+  // call would attempt a fresh one — and in the reload race that succeeds,
+  // letting the queue drain batches queued behind an undiscovered poison row.
+  // One failed open therefore has to mean online-only for the whole session.
+  let opens = 0;
+  const handlers = buildHandlers({
+    openDb: async () => {
+      opens += 1;
+      throw new Error(
+        "Access Handles cannot be created if there is another open Access Handle");
+    },
+  });
+
+  await expect(handlers.poisonedBatches(undefined)).rejects.toThrow(/Access Handle/);
+  expect(opens).toBe(1);
+
+  expect(await handlers.init(undefined)).toMatchObject({ ok: false });
+
+  // The probe must not have re-armed the open: later handlers replay the
+  // memoised rejection rather than trying again.
+  await expect(handlers.nextBatch(undefined)).rejects.toThrow(/Access Handle/);
+  await expect(handlers.poisonedBatches(undefined)).rejects.toThrow(/Access Handle/);
+  expect(opens).toBe(1);
+});

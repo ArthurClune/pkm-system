@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T10:46:28Z
-updated_at: 2026-08-04T11:53:36Z
+updated_at: 2026-08-04T12:00:36Z
 ---
 
 Found while fixing pkm-wi25.
@@ -62,3 +62,24 @@ Also from review:
 - Split to **pkm-9x6u**: opQueue still calls the dead replica every drain, so drain() never reaches `drained` and finishReconnect never runs (views stop refetching after a reconnect), and the storage-error whitelist becomes load-bearing for a whole session.
 
 Re-verified: `pnpm verify` exit 0 — 1966 tests, coverage 97.69% stmts / 93.13% branch, 51/51 e2e, 0 jsdom warnings.
+
+
+## Adversarial review found a real hole — fixed (2026-08-04)
+
+A second reviewer, tasked with refuting the safety argument rather than reviewing the code, found that the first implementation of this fix **introduced the very hazard the barrier exists to prevent**. Reproduced in the repo's own harness before fixing.
+
+`db()` is `dbPromise ??= deps.openDb()` (workerHandlers.ts:63), so one failed open is memoised and replayed to every handler -- but `init()`'s catch CLEARED `dbPromise`. So the viability probe re-armed the database it had just reported unopenable. `queue.resume("recovery")` then emits a kick whose drain calls `nextBatch()` -> a fresh `openDb()` with a fresh retry budget -> succeeds in the reload race -> the session drained durable batches, including any queued behind an undiscovered poison row, having never read the poison table. Test evidence before the fix: `posts` contained `queued-behind-poison`.
+
+Fix: delete that `dbPromise = null`. One failed open now latches the database shut for the session (only `close()` re-arms), which also preserves the memoised error's identity so opQueue's storage-error whitelist still retains ops in the fallback lane. Pinned in `workerHandlers.test.ts` ("a failed open stays latched") -- NOT at provider level, because a provider test's replica double is the very worker it would be asserting about, which is why the first attempt at that test failed to catch it.
+
+Also tightened: only an explicit `ok: false` lifts the barrier. `.catch(() => false)` had treated a REJECTING probe (dead worker, broken RPC, timeout) as proof no database exists; it only means we could not ask, so that case keeps the gate and its Retry banner.
+
+**The spec's central justification was also refuted and is corrected in place.** It claimed the app already shipped "deliver anyway with an unreadable DB" via `init().ok === false`. That path was unreachable in the worker-backed app: `init()`'s only pre-existing call site is in `doStart()`, reached only after `poisonedBatches()` succeeded -- and a successful discovery means the memoised open resolved, so `init()` could not then report `ok: false`. An OPFS-less browser wedged on the gate too. This change RESTORES a dead path rather than inheriting an accepted risk from it. The decision to prefer online-only over read-only still stands on the two-tab argument.
+
+Third symptom added to pkm-9x6u: a non-whitelisted unopenable cause still loses the edit and wipes the active outline via onDesync.
+
+Re-verified: `pnpm verify` exit 0 -- 1968 tests, coverage 97.69% stmts / 93.14% branch, 51/51 e2e.
+
+## Still open for a decision (not fixed here)
+
+Committing to online-only is **silent**: `no-replica` maps to no `problem`, so no banner renders and `resetReplica` is unreachable. Before this branch, the same transient contention produced a `poison-discovery` banner WITH a Retry that could restore full offline capability once the other tab closed. So this fix trades a visible-but-wedged session for a working-but-silently-degraded one: the user loses offline editing for the session with no notice and no affordance. Needs Arthur's call on whether to surface it.

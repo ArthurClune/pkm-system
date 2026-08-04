@@ -387,8 +387,10 @@ error instantly without touching OPFS, and the backoff can never observe the
 handles being released. `SAH_POOL_INSTALL_OPTIONS` in `openRetry.ts` therefore
 passes `forceReinitIfPreviouslyFailed: true`, which sqlite-wasm documents for
 exactly this case. Dropping that flag makes a single contention failure
-permanent for the life of the worker — and, per the paragraph below, silently
-undeliverable rather than merely uncached (pkm-wi25).
+permanent for the life of the worker (pkm-wi25), costing the local cache and
+offline reads for that session. It is no longer silent data loss: per the
+paragraph below, startup now falls back to online-only rather than holding its
+recovery barrier.
 
 **The open can also succeed with a pool too small to write.** The SAHPool
 VFS is a fixed pool of pre-opened OPFS files, and *every* file SQLite opens

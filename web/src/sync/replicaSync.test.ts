@@ -137,6 +137,25 @@ async () => {
   expect(states.at(-1)).toEqual({ mode: "no-replica" });
 });
 
+test("resetLocalData cannot revive a session marked unavailable", async () => {
+  // Defence in depth: resetLocalData sets started = true and forces mode
+  // "ready", which would undo markUnavailable()'s permanence and reach a
+  // syncing session with poison discovery skipped. No UI path reaches it today
+  // (the reset button needs a stalled/recovery-failed mode, unreachable once
+  // disabled), so this guard protects against a future UI change, not a live
+  // bug (pkm-bjae review).
+  const replica = fakeReplica();
+  const fetchJson = vi.fn();
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  sync.markUnavailable();
+  await expect(sync.resetLocalData({ discardPending: true }))
+    .rejects.toThrow(/unavailable/);
+  expect(fetchJson).not.toHaveBeenCalled();
+  expect(states.at(-1)).toEqual({ mode: "no-replica" });
+});
+
 test("a hydrated replica reaches ready with the network down (cold start offline)", async () => {
   // start() must not need the socket: a cold start offline serves the app
   // shell from the service worker and content from the replica

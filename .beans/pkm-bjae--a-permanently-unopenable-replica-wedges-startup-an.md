@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T10:46:28Z
-updated_at: 2026-08-04T11:32:55Z
+updated_at: 2026-08-04T11:53:36Z
 ---
 
 Found while fixing pkm-wi25.
@@ -47,3 +47,18 @@ Deliberately out of scope, split to **pkm-tu5k**: when `retryPoisonMarks()` fail
 Residual risk accepted: a stale holder (crashed tab, OS-level lock) means nobody repairs a hidden poisoned row and this change posts ahead of it. Needs a prior crash between marking and repair; consistent with the risk the OPFS-unavailable path already takes.
 
 Verified: `cd web && pnpm verify` exit 0 -- 122 files / 1964 tests, coverage 97.69% stmts / 93.12% branch, 51/51 e2e, 0 jsdom warnings. Each new test was watched failing first; the two behaviour-pinning tests were proved to have teeth by temporarily breaking the code they guard.
+
+
+## Review follow-up (2026-08-04)
+
+Code review found two real test problems, both fixed on this branch:
+
+1. **The `markUnavailable()` vs `start()` decision was NOT pinned.** Verified by mutation: swapping `markUnavailable()` for `await start()` left all 83 tests green. The replicaSync-level test covers the method in isolation, which cannot catch a provider that stops calling it. Added "a replica that becomes openable later must not start syncing" (SyncProvider.test.tsx) — fails under that mutation with `expected 'ready' to be 'no-replica'`, i.e. the session really does start syncing with discovery skipped.
+2. **The amended test had one toothless assertion and had lost a real one.** `expect(replica.log).not.toContain("applySnapshot")` could never fail: the fake's init returns `empty: false, schemaMismatch: false`, so doStart skips both bootstrap() and recover(). Replaced with `replicaMode === "starting"`, and restored the deleted post-retry assertion as `initCalls === 2` + `replicaMode === "ready"` so a Retry that re-discovers without syncing is caught.
+
+Also from review:
+- `resetLocalData` is now gated on `disabled` (replicaSync.ts). It sets `started` and forces mode "ready", which would undo markUnavailable()'s permanence. No UI path reaches it today, so this guards a future UI change.
+- Two comments asserted the fixed bug still exists and are corrected: `openRetry.ts`'s SAH_POOL_INSTALL_OPTIONS rationale and `sync-and-offline.md`'s "silently undeliverable rather than merely uncached". Dropping the flag now costs the cache and offline reads, not durability.
+- Split to **pkm-9x6u**: opQueue still calls the dead replica every drain, so drain() never reaches `drained` and finishReconnect never runs (views stop refetching after a reconnect), and the storage-error whitelist becomes load-bearing for a whole session.
+
+Re-verified: `pnpm verify` exit 0 — 1966 tests, coverage 97.69% stmts / 93.13% branch, 51/51 e2e, 0 jsdom warnings.

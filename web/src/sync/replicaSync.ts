@@ -390,6 +390,14 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       if (authoritativeRepair === "poison") {
         throw new Error("rejected-batch repair in progress");
       }
+      // A session committed to online-only must stay that way: this method
+      // sets started and forces mode "ready", which would revive syncing with
+      // poison discovery skipped. No UI path reaches this today (the reset
+      // control needs a stalled/recovery-failed mode, and neither can arise
+      // once disabled), so this guards a future UI change (pkm-bjae).
+      if (disabled) {
+        throw new Error("replica unavailable for this session");
+      }
       queue.pause("recovery");
       let token: string | null = null;
       try {

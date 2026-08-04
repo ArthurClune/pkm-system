@@ -1051,12 +1051,15 @@ async () => {
   });
   // init() IS called here now, as the viability probe that distinguishes an
   // unopenable replica from this anomaly (pkm-bjae). Since it reports ok, the
-  // gate must stay up: what must not happen is starting to sync.
+  // gate must stay up: exactly one call, because a start() would make it two.
   expect(initCalls).toBe(1);
-  expect(replica.log).not.toContain("applySnapshot");
+  expect(sync.replicaMode).toBe("starting");
 
   await act(async () => { await sync.retryProblem(); });
   expect(discoveryCalls).toBe(2);
+  // Retry must actually start syncing, not merely re-run discovery.
+  expect(initCalls).toBe(2);
+  expect(sync.replicaMode).toBe("ready");
 });
 
 // --- an unopenable replica must not hold the startup gate (pkm-bjae) ---
@@ -1109,6 +1112,50 @@ async () => {
 
   await vi.waitFor(() => { expect(posts).toHaveLength(1); });
   expect(sync.replicaMode).toBe("no-replica");
+});
+
+test("a replica that becomes openable later must not start syncing", async () => {
+  // Why startup calls markUnavailable() instead of awaiting start() and letting
+  // its own init() re-derive viability: if that second init() succeeded, the
+  // session would begin delivering with poison discovery SKIPPED — the exact
+  // ordering hazard the recovery barrier exists to prevent, reintroduced by
+  // the fix for it. replicaSync.test.ts covers the method in isolation, which
+  // does NOT catch a provider that stops calling it (pkm-bjae review).
+  const feeds: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/ops") return jsonResponse({ ok: true });
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) {
+      feeds.push(url);
+      return jsonResponse(EMPTY_FEED);
+    }
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  let calls = 0;
+  replica.init = async () => {
+    calls += 1;
+    // The pool frees up between the probe and any later start().
+    return calls === 1
+      ? { ok: false, empty: true, cursor: 0, schemaMismatch: false,
+          pendingBatches: [] }
+      : { ok: true, empty: false, cursor: 7, schemaMismatch: false,
+          pendingBatches: [] };
+  };
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
+
+  // A reconnect issues start(); it must stay a no-op for the whole session.
+  await act(async () => { lastWs().drop(); await Promise.resolve(); });
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+
+  expect(sync.replicaMode).toBe("no-replica");
+  expect(feeds).toEqual([]);
 });
 
 test("a KNOWN-rejected batch still holds the gate when it cannot be repaired",

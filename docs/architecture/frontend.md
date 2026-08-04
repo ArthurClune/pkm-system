@@ -510,6 +510,13 @@ frontend contributor needs day-to-day:
   canonicalization activates, the same shell canonicalizes or merges padded
   negative-id pages before pending replay, preserving their blocks, refs and
   unchanged wire operations without leaving divergent padded pages.
+- `OfflineIndicator` renders both connectivity state and every *delivery
+  problem* `SyncProvider` raises (rejected batch, failed poison marking or
+  discovery, replica unavailable). The banner copy is deliberate — several
+  wordings encode what is and is not true of the user's unsent work — so it is
+  documented with the mechanisms that decide it, in
+  [sync-and-offline.md](sync-and-offline.md#the-replica-and-its-recovery-invariants),
+  not here. Change the copy there too.
 - The service worker (Workbox, configured in `vite.config.ts`) precaches the
   app shell, sqlite wasm, the pdf.js worker and core KaTeX fonts,
   runtime-caches `/assets/` (CacheFirst, 400-entry LRU), and never caches

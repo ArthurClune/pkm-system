@@ -13,9 +13,9 @@ Chord: Ctrl+Shift+T, mirroring Ctrl+Shift+D. Cmd+T is browser new-tab and never 
 
 Design: docs/superpowers/specs/2026-08-04-timestamps-shortcut-design.md
 
-- [ ] Add the Ctrl+Shift+T clause to App.tsx's global keydown effect (with the !e.metaKey guard, toggleStamps in deps)
-- [ ] App.test.tsx: toggles on and back off; fires with a block textarea focused; Ctrl+Cmd+T does not toggle
-- [ ] docs/keyboard.md: add the row; strip the technical aside from the Ctrl+Shift+D row (user-facing docs only)
-- [ ] docs/architecture/frontend.md:158: three global keys -> four, plus prose on why Ctrl+Shift, that OS-eaten chords are untestable, and that these fire with a textarea focused (BlockInput does not stopPropagation)
-- [ ] cd web && pnpm verify
+- [x] Add the Ctrl+Shift+T clause to App.tsx's global keydown effect (with the !e.metaKey guard, toggleStamps in deps)
+- [x] App.test.tsx: toggles on and back off; fires with a block textarea focused; Ctrl+Cmd+T does not toggle
+- [x] docs/keyboard.md: add the row; strip the technical aside from the Ctrl+Shift+D row (user-facing docs only)
+- [x] docs/architecture/frontend.md:158: three global keys -> four, plus prose on why Ctrl+Shift, that OS-eaten chords are untestable, and that these fire with a textarea focused (BlockInput does not stopPropagation)
+- [x] cd web && pnpm verify (tsc clean, 1959 unit tests, coverage met, 51 e2e)
 - [ ] Arthur confirms Ctrl+Shift+T by real keypress in the running app

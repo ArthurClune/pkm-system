@@ -129,10 +129,16 @@ export function App() {
         e.preventDefault();
         setAssistantOpen((o) => !o);
       }
+      // Not Cmd-T either: the browser owns that for a new tab. Same Ctrl-Shift
+      // family as the daily-notes chord above, hence the same !metaKey guard.
+      if (e.ctrlKey && e.shiftKey && !e.metaKey && e.key.toLowerCase() === "t") {
+        e.preventDefault();
+        toggleStamps();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [navigate]);
+  }, [navigate, toggleStamps]);
 
   return (
     <SyncProvider>

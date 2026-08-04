@@ -8,6 +8,7 @@ import { applyChanges, applySnapshot } from "./apply";
 import type { PendingBatch, RecoveryCommit } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
+import { ReplicaUnavailableError } from "./errors";
 import { getMeta } from "./meta";
 import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
@@ -60,7 +61,34 @@ const quoteIdentifier = (name: string): string =>
 
 export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   let dbPromise: Promise<ReplicaDb> | null = null;
-  const db = (): Promise<ReplicaDb> => (dbPromise ??= deps.openDb());
+  // The availability fact, owned here — the worker is the only party that can
+  // say "there is definitively no database" rather than "I could not ask".
+  //
+  // This REPLACES pkm-bjae's latch, which worked by leaving the memoised
+  // dbPromise rejection in place. That was correct but implicit: its safety
+  // depended on a reader noticing that init() must not clear a promise three
+  // modules from where the consequence lands (a barrier lift kicks a drain that
+  // would have posted batches queued behind an undiscovered poison row). Two
+  // independent reviewers read that mechanism identically and drew opposite
+  // conclusions about whether it was a virtue or a defect. This says what it
+  // means. close() is still the only reset.
+  let unavailable: ReplicaUnavailableError | null = null;
+  const db = async (): Promise<ReplicaDb> => {
+    if (unavailable !== null) throw unavailable;
+    dbPromise ??= deps.openDb();
+    try {
+      return await dbPromise;
+    } catch (error: unknown) {
+      // The original message is carried through verbatim: it is the only
+      // diagnostic the banner has, and the op queue's storage-error whitelist
+      // still matches on it until pkm-s7af replaces that with a type check.
+      unavailable ??= new ReplicaUnavailableError(
+        error instanceof Error ? error.message : String(error),
+        { quota: (error as { quota?: boolean } | null)?.quota === true },
+      );
+      throw unavailable;
+    }
+  };
   const nowMs = deps.nowMs ?? (() => Date.now());
   const clockMs = deps.clockMs ?? (() => Date.now());
   const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID());
@@ -172,15 +200,11 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         try {
           d = await db();
         } catch {
-          // wasm/OPFS unavailable: the app degrades to online-only. The
-          // memoised rejection is deliberately LEFT IN PLACE (pkm-bjae): it is
-          // what keeps the database latched shut for the rest of the session,
-          // so every later handler replays the open failure instead of
-          // silently succeeding on a fresh attempt. Startup lifts the op
-          // queue's recovery barrier on the strength of this ok:false, having
-          // never read the poison table; if a later db() could reopen, the
-          // queue would drain batches queued behind an undiscovered poison
-          // row. Only close() re-arms the open.
+          // wasm/OPFS unavailable: the app degrades to online-only. db() has
+          // latched the failure for the session, so every later handler
+          // replays it rather than silently succeeding on a fresh attempt.
+          // Startup lifts the op queue's recovery barrier on the strength of
+          // this ok:false, having never read the poison table (pkm-bjae).
           return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
                    pendingBatches: [] };
         }
@@ -319,7 +343,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     async close() {
       return gate.run(async () => {
         await deps.closeDb?.();
+        // The only re-arm. A new open may now be attempted, and may succeed.
         dbPromise = null;
+        unavailable = null;
         return null;
       });
     },

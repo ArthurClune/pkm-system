@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { expect, test, vi } from "vitest";
 import { applySnapshot, type Snapshot } from "./apply";
+import { ReplicaUnavailableError } from "./errors";
 import { openRawTestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 
@@ -306,4 +307,47 @@ test("one failed open is replayed by EVERY handler, and opens only once", async 
     await expect(handlers[method](payload), method).rejects.toThrow(/OPFS is not available/);
   }
   expect(opens).toBe(1);
+});
+
+test("the latched unavailable error is one typed object, and close() is its only reset",
+async () => {
+  let opens = 0;
+  let fail = true;
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({
+    openDb: async () => {
+      opens += 1;
+      if (fail) throw new Error("OPFS is not available in this browser");
+      return t.db;
+    },
+  });
+
+  const first = await handlers.pendingCount(undefined).catch((e: unknown) => e);
+  expect(first).toBeInstanceOf(ReplicaUnavailableError);
+  // The original message is preserved deliberately: it is what the op queue's
+  // storage-error whitelist still matches on until pkm-s7af lands, and it is
+  // the only diagnostic a user-visible banner has.
+  expect((first as Error).message).toBe("OPFS is not available in this browser");
+
+  // Same object, not a fresh one per call: the fact is latched, not re-derived.
+  const second = await handlers.nextBatch(undefined).catch((e: unknown) => e);
+  expect(second).toBe(first);
+  expect(opens).toBe(1);
+
+  // Even a would-be-successful open is not attempted while the latch holds.
+  fail = false;
+  await expect(handlers.pendingCount(undefined)).rejects.toBe(first);
+  expect(opens).toBe(1);
+
+  // close() is the reset — and the only one.
+  await expect(handlers.close(undefined)).resolves.toBeNull();
+  // init() is what a real client calls on re-arm; it installs schema on the
+  // fresh (schemaless) db from openRawTestDb, the way it would on a genuinely
+  // new profile. Without it, pendingCount would query a table that does not
+  // exist yet — and SyncProvider does hit that path on a fresh profile: it
+  // calls pendingCount() from a mount effect with no dependency on init()
+  // completing first (see pkm-za9j's recorded finding).
+  await expect(handlers.init(undefined)).resolves.toMatchObject({ ok: true });
+  await expect(handlers.pendingCount(undefined)).resolves.toBe(0);
+  expect(opens).toBe(2);
 });

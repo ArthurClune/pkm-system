@@ -1,11 +1,11 @@
 ---
 # pkm-61zt
 title: Derive availability in SyncProvider and replicaSync; delete the probe
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-08-04T12:54:38Z
-updated_at: 2026-08-04T15:57:43Z
+updated_at: 2026-08-04T16:06:24Z
 parent: pkm-q2jj
 ---
 

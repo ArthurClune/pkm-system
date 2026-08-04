@@ -378,7 +378,8 @@ test("an unclassified replica enqueue failure is retained, not desynced", async 
 test("a terminal RPC failure retains the op instead of desyncing", async () => {
   // pkm-9x6u's second half: a dead worker or a module chunk 404 after a deploy
   // makes every call reject with RpcLifecycleError, which no availability
-  // *mode* would ever see because markUnavailable is never reached.
+  // *mode* would ever see because SyncProvider only reports "no-replica" for
+  // availabilityOf(error) === "unusable", never reached here.
   fetchSeq([() => jsonResponse({ ok: true })]);
   const desyncs: unknown[] = [];
   const replica = memReplica();

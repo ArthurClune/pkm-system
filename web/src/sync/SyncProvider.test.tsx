@@ -1188,12 +1188,12 @@ test("a reconnect in a no-replica session still bumps resyncSeq (pkm-9x6u)", asy
 });
 
 test("a replica that cannot be opened never starts syncing", async () => {
-  // Why this is safe without markUnavailable's `disabled` flag: the worker
-  // latches its failed open until close(), so start() -> init() rejects for the
-  // whole session and can never resume delivery with poison discovery SKIPPED —
-  // the exact ordering hazard the recovery barrier exists to prevent, which
-  // pkm-bjae's own first fix had reintroduced. The commitment lives where the
-  // commitment happens.
+  // Why this is safe without a `disabled` flag: the worker latches its failed
+  // open until close(), so start() -> init() rejects for the whole session and
+  // can never resume delivery with poison discovery SKIPPED — the exact
+  // ordering hazard the recovery barrier exists to prevent, which pkm-bjae's
+  // own first fix had reintroduced. The commitment lives where the commitment
+  // happens.
   //
   // A fixture whose init() succeeds on a second call would be testing a
   // replica that cannot exist; the property it used to guard (the provider
@@ -1300,13 +1300,13 @@ function racingReplica(): Replica & { log: string[] } {
 test("a session that declared the replica unavailable must not drain a queue it never checked for poison",
 async () => {
   // pkm-bjae / pkm-za9j: the hazard this guards is a database that RE-ARMS
-  // after being declared unavailable — markUnavailable()'s barrier lift then
-  // lets resume()'s kick drain through a database that now opens, delivering
-  // a batch queued behind an undiscovered poison row, which is precisely what
-  // the barrier exists to prevent. The worker's latch (and this fixture's
-  // `state` staying "failed" forever, never reset on the caught rejection)
-  // is what makes that impossible; this test is the only one that can still
-  // express the race at all, since unopenableReplica() is permanently dead.
+  // after being declared unavailable — the barrier lift then lets resume()'s
+  // kick drain through a database that now opens, delivering a batch queued
+  // behind an undiscovered poison row, which is precisely what the barrier
+  // exists to prevent. The worker's latch (and this fixture's `state` staying
+  // "failed" forever, never reset on the caught rejection) is what makes that
+  // impossible; this test is the only one that can still express the race at
+  // all, since unopenableReplica() is permanently dead.
   const posts: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
                                       init?: RequestInit) => {

@@ -19,6 +19,8 @@ const feed = (over: Partial<Changes> = {}): Changes => ({
   pages: [], blocks: [], sidebar: [], tombstones: [], ...over,
 });
 
+const EMPTY_FEED: Changes = feed();
+
 function fakeReplica(over: Partial<Replica> = {},
                      init: Partial<ReplicaInit> = {}): Replica & { calls: string[] } {
   const calls: string[] = [];
@@ -120,42 +122,60 @@ test("no-replica init reports mode and never fetches", async () => {
   expect(fetchJson).not.toHaveBeenCalled();
 });
 
-test("markUnavailable is permanent even if a later init would succeed",
+test("a session whose replica cannot open never pulls, however often start() is called",
 async () => {
-  // pkm-bjae: startup calls this when it has established the replica cannot be
-  // opened. If a later start() were allowed to re-derive viability and happened
-  // to succeed, the session would begin delivering with poison discovery
-  // skipped — the ordering hazard the startup gate exists to prevent.
+  // What `disabled` used to buy: start() short-circuiting for the rest of the
+  // session. What buys it now: init() replaying the worker's latched failure,
+  // which is the same fact at its source instead of a copy kept in sync by
+  // convention.
+  const feeds: string[] = [];
   const replica = fakeReplica();
-  const fetchJson = vi.fn();
-  const { states, onState } = collector();
-  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
-
-  sync.markUnavailable();
-  expect(states.at(-1)).toEqual({ mode: "no-replica" });
-
+  replica.init = () => Promise.reject(new ReplicaUnavailableError("no openable database"));
+  const states: ReplicaState[] = [];
+  const sync = createReplicaSync({
+    replica,
+    fetchJson: async (path: string) => {
+      if (path.startsWith("/api/sync/changes")) feeds.push(path);
+      return EMPTY_FEED;
+    },
+    clientId: "c1",
+    onState: (s) => states.push(s),
+  });
   await sync.start();
-  expect(fetchJson).not.toHaveBeenCalled();
-  expect(states.at(-1)).toEqual({ mode: "no-replica" });
+  await sync.start();
+  await sync.start();
+  expect(feeds).toEqual([]);
+  expect(states.map((s) => s.mode)).toEqual(["no-replica", "no-replica", "no-replica"]);
 });
 
-test("resetLocalData cannot revive a session marked unavailable", async () => {
-  // Defence in depth: resetLocalData sets started = true and forces mode
-  // "ready", which would undo markUnavailable()'s permanence and reach a
-  // syncing session with poison discovery skipped. No UI path reaches it today
-  // (the reset button needs a stalled/recovery-failed mode, unreachable once
-  // disabled), so this guard protects against a future UI change, not a live
-  // bug (pkm-bjae review).
+test("resetLocalData cannot revive a session whose replica cannot open", async () => {
+  // The explicit `disabled` guard is gone; prepareRecovery rejects on the latch
+  // before resetLocalData can set `started` or force mode "ready". The
+  // rejection propagating by identity is not the property under test -- a
+  // reorder that moved `started = true` above prepareRecovery() would still
+  // let that rejection through unchanged while leaving the session revived.
+  // `started` has no external getter, so the tripwire is behavioural: a start()
+  // call afterwards takes the `if (started)` branch straight into pull() and
+  // hits the changes feed, instead of re-running doStart() -> init() and
+  // reporting "no-replica" with no fetch at all.
+  const feeds: string[] = [];
   const replica = fakeReplica();
-  const fetchJson = vi.fn();
-  const { states, onState } = collector();
-  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
-
-  sync.markUnavailable();
-  await expect(sync.resetLocalData({ discardPending: true }))
-    .rejects.toThrow(/unavailable/);
-  expect(fetchJson).not.toHaveBeenCalled();
-  expect(states.at(-1)).toEqual({ mode: "no-replica" });
+  const unavailable = new ReplicaUnavailableError("no openable database");
+  replica.init = () => Promise.reject(unavailable);
+  replica.prepareRecovery = () => Promise.reject(unavailable);
+  const sync = createReplicaSync({
+    replica,
+    fetchJson: async (path: string) => {
+      if (path.startsWith("/api/sync/changes")) feeds.push(path);
+      return EMPTY_FEED;
+    },
+    clientId: "c1",
+    onState: () => undefined,
+  });
+  await sync.start();
+  await expect(sync.resetLocalData({ discardPending: true })).rejects.toBe(unavailable);
+  await sync.start();
+  expect(feeds).toEqual([]);
 });
 
 test("a hydrated replica reaches ready with the network down (cold start offline)", async () => {

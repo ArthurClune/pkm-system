@@ -328,7 +328,11 @@ export function SyncProvider({ children, replica }: {
         const message = error instanceof Error ? error.message : String(error);
         if (availabilityOf(error) === "unusable") {
           startupDiscoveringPoisonRef.current = false;
-          replicaSync!.markUnavailable();
+          // Report the mode directly, exactly as the null-replica path does
+          // below. There is nothing to "mark": the worker has latched the fact,
+          // and every later replica call — including the start() a reconnect
+          // triggers — replays it.
+          if (mountedRef.current) setReplicaState({ mode: "no-replica" });
           queue.resume("recovery");
           // Not silent: the user has lost offline editing for the session and
           // gets no other signal, since "no-replica" raises no banner of its

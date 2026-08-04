@@ -1,11 +1,11 @@
 ---
 # pkm-q2jj
 title: Replica availability has five representations and no owner
-status: todo
+status: completed
 type: epic
 priority: normal
 created_at: 2026-08-04T12:53:17Z
-updated_at: 2026-08-04T13:31:59Z
+updated_at: 2026-08-04T16:58:21Z
 ---
 
 "Is the replica usable?" is currently encoded in five places, kept in sync by convention:
@@ -110,3 +110,24 @@ always has ok:true. Fixture churn is mechanical and typecheck finds every site.
 Third finding, recorded for pkm-imw4 rather than fixed: **nothing in web/src
 ever throws an error carrying quota:true** — the flag is set only by tests, so
 the quota -> onQuota -> read-only chain is unverifiable end-to-end today.
+
+## Summary of Changes
+
+The worker latches a ReplicaUnavailableError on the first openDb() failure and
+every handler rejects with it; it crosses the wire via two new flags on the
+existing {message, quota} shape; every other representation is derived or gone.
+Deleted: init().ok, replicaSync's `disabled`, markUnavailable(), SyncProvider's
+init() viability probe and its "unknown" branch, and opQueue's
+isSahPoolContention/isPoolExhausted message matching. Closed pkm-9x6u (both
+halves, including the RpcLifecycleError case an availability mode alone would
+have missed) and pkm-4ubd (base_text_hash stamped main-thread).
+
+Two design refinements are recorded as a spec addendum: the retain rule is a
+one-item blocklist rather than a two-value type check (a pool-exhausted write on
+an OPEN database is not an availability failure, and a type check would have
+regressed pkm-ndcu), and only session-fatal evidence may latch an availability
+state (an RPC timeout is not terminal).
+
+pkm-tu5k remains OPEN and unsequenced by design: this branch makes its fix
+possible — the queue can now see that marking is impossible — without deciding
+what to do about a rejection that can never be repaired.

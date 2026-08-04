@@ -376,9 +376,13 @@ cannot. What follows from that (`web/src/replica/client.ts`,
 
 ### Opening the replica can fail, and that is a storage problem, not a sync problem
 
-Two failures happen when a replica worker starts, not during sync. Both are
-races between an outgoing worker and its replacement, and both fixes live in
-pure policy modules: `replica/openRetry.ts` and `replica/poolCapacity.ts`.
+This is the whole path from "local storage failed" to what the user is told.
+It starts with two failures that happen when a replica worker *starts*, not
+during sync — both races between an outgoing worker and its replacement, both
+fixed in pure policy modules (`replica/openRetry.ts`, `replica/poolCapacity.ts`)
+— and then follows what they produce: the availability fact and its owner, how
+the op queue and the UI act on it, and the in-memory lane that carries the
+user's writes in the meantime.
 
 **The open can throw.** The SAHPool VFS takes an exclusive
 `SyncAccessHandle` per pooled file, and an OPFS file backs only one open
@@ -415,9 +419,10 @@ is to top the pool up to `MIN_POOL_CAPACITY` immediately after the install,
 before the database is opened. `addCapacity` creates fresh randomly-named
 files, so it never contends with handles the outgoing worker still holds.
 
-**Either failure can hit an enqueue**, and `opQueue` treats both like an
-exhausted disk. "Cannot persist locally right now" is not a server rejection, so
-firing `onDesync` is the wrong answer: its authoritative repair would wipe
+**Either failure can hit an enqueue**, and `opQueue` treats both as "could
+not persist locally right now" — what it does with every local write failure.
+That is not a server rejection, so firing `onDesync` is the wrong answer: its
+authoritative repair would wipe
 the active outline back to the edit-less server state and detach the editor
 mid-keystroke. Instead the ops join an **ordered in-memory fallback lane**
 and are delivered by the ordinary drain, under the same connectivity, backoff
@@ -491,9 +496,8 @@ reference title syntax) — rather than a two-value type check on
 `unusable`/`unreachable`. A type check would have regressed pkm-ndcu: a
 starved OPFS pool's `SQLITE_CANTOPEN` fires on a write to a database that
 opened successfully, so it is neither `unusable` nor `unreachable`, and would
-have fallen through to `onDesync` — wiping the active outline back to the
-edit-less server state and detaching the editor mid-keystroke, over a failure
-a moment's backoff would clear.
+have fallen through to `onDesync` — the outline wipe described above, over a
+failure a moment's backoff would clear.
 
 **The queue also stops asking a dead replica, so a reconnect still bumps
 resync.** Once `noteReplicaFailure` latches `unavailable` from session-fatal
@@ -504,18 +508,18 @@ this, the drain called the dead replica on every pass, failed every time, and
 never returned `"drained"` — so a socket reconnect that should have resumed
 durable delivery spun forever instead (pkm-9x6u).
 
-The session says so rather than degrading silently: startup raises a
-`replica-unavailable` problem, and `OfflineIndicator` renders "Working online
-only — offline editing is unavailable for now.", followed by a second sentence
-that **turns on connectivity, because the truth does** (pkm-s1m8). Connected,
-it reassures — "Your changes are still being saved to the server." — which
-holds because this problem is only ever raised for an `unusable` replica,
-never a `rejected` op, so the queue retains every write. Offline with unsent
-work, it warns instead: those ops exist only in the in-memory fallback lane,
-and since there is no `beforeunload` anywhere in the app, a refresh or a closed
-tab takes them silently, so the banner says so. Offline with a clean queue,
-neither sentence applies and the first stands alone. The action is
-**Reload**, not Retry, and deliberately so. The failed
+**The user is told, rather than the session degrading silently.** Startup
+raises a `replica-unavailable` problem, and `OfflineIndicator` renders
+"Working online only — offline editing is unavailable for now.", followed by a
+second sentence that **turns on connectivity, because the truth does**
+(pkm-s1m8). Connected, it reassures — "Your changes are still being saved to
+the server." — which holds because this problem is only ever raised for an
+`unusable` replica, never a `rejected` op, so the queue retains every write.
+Offline with unsent work, it warns instead: those ops exist only in the
+in-memory fallback lane, and since there is no `beforeunload` anywhere in the
+app, a refresh or a closed tab takes them silently, so the banner says so.
+Offline with a clean queue, neither sentence applies and the first stands
+alone. The action is **Reload**, not Retry, and deliberately so. The failed
 open is latched for the session, and by the time the banner shows, the queue
 has already delivered online — so reopening mid-session could flush a previous
 session's stale durable queue on top of those writes. A fresh page load gets a
@@ -557,16 +561,17 @@ durable poison mark failed is still deliverable, so an outside resume can hand
 it out for a second rejection, and counting it twice would drop the count below
 the batches genuinely ahead of the entry. A retained op cannot overtake an
 older batch, and a batch persisted after it waits its turn. Two things can
-still delay an entry past a newer batch, and
-both self-correct: a `pendingCount` that was already stale when the entry was
-appended, and batches a rebase flushed away. Both reconcile the same way —
-observing an empty durable queue clears every count, which is also what stops
-the lane waiting forever on a predecessor that will never arrive.
+still delay an entry past a newer batch, and both self-correct: a
+`pendingCount` that was already stale when the entry was appended, and batches
+a rebase flushed away. Both reconcile the same way — observing an empty
+durable queue clears every count, which is also what stops the lane waiting
+forever on a predecessor that will never arrive.
 
 An entry's `batch_id` is minted once, so a retry re-POSTs a byte-identical
-payload. It counts towards "N changes pending". It is retained until it is
-delivered, until the server rejects it with a 4xx (the one discard the queue
-makes on its own, which raises the repair barrier and calls `onDesync`), or
+payload. Every entry counts towards "N changes pending", and is retained until
+it is delivered, until the server rejects it with a 4xx (the one discard the
+queue makes on its own, which raises the repair barrier and calls `onDesync`),
+or
 until the queue is disposed. Before this lane existed, these ops were POSTed
 inline from `enqueue()`, which offline meant they were neither persisted nor
 retryable.

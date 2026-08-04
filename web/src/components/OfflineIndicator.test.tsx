@@ -134,6 +134,35 @@ it("failed durable poison marking is visible and offers Retry", () => {
   expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
 });
 
+it("an online-only session says so and offers a Reload, not a Retry", () => {
+  // pkm-bjae: this state was silent, so the user lost offline editing with no
+  // notice. Reload rather than Retry because the failed open is latched for
+  // the session and the queue has already delivered online.
+  const reload = vi.fn();
+  const original = globalThis.location;
+  Object.defineProperty(globalThis, "location", {
+    configurable: true, value: { ...original, reload },
+  });
+  try {
+    renderWith({
+      problem: {
+        kind: "replica-unavailable", error: "Access Handles cannot be created",
+      } as unknown as Sync["problem"],
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Working online only");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "changes are still being saved");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    expect(reload).toHaveBeenCalledTimes(1);
+  } finally {
+    Object.defineProperty(globalThis, "location", {
+      configurable: true, value: original,
+    });
+  }
+});
+
 it("failed startup poison discovery is visible and offers Retry", () => {
   const retryProblem = vi.fn(async () => undefined);
   renderWith({

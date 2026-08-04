@@ -162,6 +162,18 @@ describe("transitionSync poison discovery", () => {
     expect(t.state.problem).toEqual({ kind: "poison-discovery", error: "read failed" });
   });
 
+  it("reports a session committed to online-only", () => {
+    // pkm-bjae: this state used to be silent. The user has lost offline
+    // editing for the session and needs to know, and to have a way out.
+    const t = transitionSync(createSyncState(), {
+      type: "replica-unavailable", error: "Access Handles cannot be created",
+    });
+    expect(t.state.problem).toEqual({
+      kind: "replica-unavailable",
+      error: "Access Handles cannot be created",
+    });
+  });
+
   it("clears a discovery problem, leaving other problems alone", () => {
     const cleared = transitionSync(withProblem({
       kind: "poison-discovery", error: "x",

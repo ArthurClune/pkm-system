@@ -1112,6 +1112,8 @@ async () => {
 
   await vi.waitFor(() => { expect(posts).toHaveLength(1); });
   expect(sync.replicaMode).toBe("no-replica");
+  // and it says so, rather than degrading silently (pkm-bjae review)
+  expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
 });
 
 test("a replica that becomes openable later must not start syncing", async () => {

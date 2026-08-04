@@ -23,6 +23,19 @@ export function OfflineIndicator() {
         Checking rejected changes failed: {problem.error}
         <button type="button" onClick={() => { void retryProblem(); }}>Retry</button>
       </div>
+    ) : problem.kind === "replica-unavailable" ? (
+      // Reload, not Retry: the worker latches a failed open for the session
+      // (pkm-bjae), and by now the queue has already delivered online, so
+      // reopening mid-session could flush a previous session's stale durable
+      // queue on top of those writes. A fresh page load gets a fresh worker
+      // and runs startup's poison discovery in the right order.
+      <div className="ws-banner" role="status">
+        Working online only — offline editing is unavailable for now. Your
+        changes are still being saved.
+        <button type="button" onClick={() => { globalThis.location.reload(); }}>
+          Reload
+        </button>
+      </div>
     ) : problem.kind === "legacy-rejected" ? (
       <div className="ws-banner" role={
         problem.repair === "failed" ? "alert" : "status"

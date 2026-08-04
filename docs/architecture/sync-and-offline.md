@@ -450,6 +450,15 @@ session; only `close()` re-arms. Second, latching preserves the memoised error's
 *identity*, which `opQueue`'s storage-error whitelist depends on to retain ops
 in the fallback lane instead of treating them as a desync.
 
+The session says so rather than degrading silently: startup raises a
+`replica-unavailable` problem, and `OfflineIndicator` renders "Working online
+only — offline editing is unavailable for now. Your changes are still being
+saved." The action is **Reload**, not Retry, and deliberately so. The failed
+open is latched for the session, and by the time the banner shows, the queue
+has already delivered online — so reopening mid-session could flush a previous
+session's stale durable queue on top of those writes. A fresh page load gets a
+fresh worker and runs poison discovery in the correct order.
+
 **One case deliberately still holds the gate.** Retained mark intents live in
 `localStorage`, not the replica, so they survive an unopenable database. When
 `retryPoisonMarks()` fails with intents present, a rejected batch is *known* to

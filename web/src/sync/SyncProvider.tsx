@@ -328,6 +328,13 @@ export function SyncProvider({ children, replica }: {
           startupDiscoveringPoisonRef.current = false;
           replicaSync!.markUnavailable();
           queue.resume("recovery");
+          // Not silent: the user has lost offline editing for the session and
+          // gets no other signal, since "no-replica" raises no banner of its
+          // own (pkm-bjae review).
+          applySync({
+            type: "replica-unavailable",
+            error: error instanceof Error ? error.message : String(error),
+          });
           return;
         }
         applySync({

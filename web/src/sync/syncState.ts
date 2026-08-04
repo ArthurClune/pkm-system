@@ -18,6 +18,11 @@ export type SyncProblem =
       repair: "mark-failed" | "running" | "failed" | "repaired";
       error?: string }
   | { kind: "poison-discovery"; error: string }
+  /** The replica could not be opened, so this session runs online-only: edits
+   * still reach the server, but there is no local cache and no offline
+   * editing. Session-scoped by design (the worker latches a failed open), so
+   * the only way out is a reload — see pkm-bjae. */
+  | { kind: "replica-unavailable"; error: string }
   | { kind: "legacy-rejected"; repair: "running" | "failed" | "repaired";
       error: string; repairError?: string }
   | { kind: "replica-stalled"; error: string;
@@ -40,6 +45,7 @@ export type SyncEvent =
   | { type: "repair-succeeded"; event: PoisonEvent }
   | { type: "repair-failed"; event: PoisonEvent; error: string }
   | { type: "poison-discovery-failed"; error: string }
+  | { type: "replica-unavailable"; error: string }
   | { type: "poison-discovery-cleared" }
   | { type: "legacy-repair-started"; error: string }
   | { type: "legacy-repair-succeeded"; error: string }
@@ -118,6 +124,10 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       });
     case "poison-discovery-failed":
       return problem(state, { kind: "poison-discovery", error: event.error });
+    case "replica-unavailable":
+      return problem(state, {
+        kind: "replica-unavailable", error: event.error,
+      });
     case "poison-discovery-cleared":
       return state.problem?.kind === "poison-discovery"
         ? problem(state, undefined) : { state, effects: [] };

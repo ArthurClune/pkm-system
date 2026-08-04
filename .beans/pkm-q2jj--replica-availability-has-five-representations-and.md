@@ -5,7 +5,7 @@ status: todo
 type: epic
 priority: normal
 created_at: 2026-08-04T12:53:17Z
-updated_at: 2026-08-04T12:54:50Z
+updated_at: 2026-08-04T13:04:10Z
 ---
 
 "Is the replica usable?" is currently encoded in five places, kept in sync by convention:
@@ -43,3 +43,40 @@ Sequenced (see the design's Ordering section):
 6. **pkm-4ubd** — main-thread `base_text_hash` stamping
 
 **pkm-tu5k is adopted as a child but deliberately NOT sequenced into this branch.** Making the fact explicit is what lets the queue know marking is impossible; it does not decide what to do about a rejection that can never be repaired. That policy call stays open (read-only is already ruled out).
+
+
+## HANDOVER (2026-08-04, end of session)
+
+Next step: **writing-plans for this epic.** The design is approved; no implementation plan exists yet. Read the spec first: `docs/superpowers/specs/2026-08-04-replica-availability-single-owner-design.md`.
+
+### Repository state
+
+- Branch **`pkm-replica-availability`** @ `bc482ec` — docs + beans ONLY, no code. Pushed.
+- `main` @ `41702d9`. **Prod @ `f24230f`** (bundle-verified). The two are different only by a beans-only commit, which does not ship.
+- Working tree clean. Nothing in flight, no subagents running.
+
+### Shipped earlier today (all closed, all live in prod)
+
+- **pkm-wi25** — the block-stamps "flake" was real data loss: sqlite-wasm memoises `installOpfsSAHPoolVfs` rejections, so the OPFS open-retry replayed its first error without re-touching OPFS. Fixed with `forceReinitIfPreviouslyFailed: true`.
+- **pkm-apr7** — jsdom navigation noise. Needs a CAPTURE-phase listener inside an interactive island (bubble never reaches document because the island calls stopPropagation). `web/src/test-setup.ts` now FAILS the run on any jsdom "Not implemented:" output.
+- **pkm-bjae** — an unopenable replica falls back to online-only instead of wedging the op queue's startup gate.
+
+### Non-obvious things you must not rediscover the hard way
+
+1. **The fact is two-valued.** `unusable` (openDb failed) may lift the recovery barrier; `unreachable` (terminal RPC failure — dead worker, chunk 404, timeout) must NOT, because "we could not ask" is not evidence there is no poison. Both retain ops.
+2. **The wire flag is a boolean and that is correct** — only `unusable` crosses the wire; `unreachable` is generated client-side. Do not try to make one boolean carry both.
+3. **pkm-imw4 (characterise first) is a hard prerequisite**, not a nicety. This epic deletes three load-bearing things from the path behind pkm-c9hp, pkm-ndcu, pkm-hhbc, pkm-wi25, pkm-bjae. Tests must pass on TODAY's code before anything changes.
+4. **The latch invariant:** the worker's `db()` is `dbPromise ??= openDb()`. One failed open must stay latched for the session; only `close()` may re-arm. `init()`'s catch used to clear it, which let a viability probe re-arm the DB it had just declared dead — that WAS pkm-bjae's bug, introduced by pkm-bjae's own first fix.
+5. **`isStallShaped` must not count an unavailable error** (`replicaSync.ts`), or a session reports `stalled` on top of `no-replica` and `computeEditability` can flip it read-only.
+6. **There is NO `beforeunload` anywhere in `web/src`.** Anything that reloads or resets must account for the in-memory fallback lane, or undelivered ops die silently.
+7. **`base_text_hash` is stamped inside the worker** (`replica/queue.ts`), so any op bypassing the DB loses conflict protection and the server falls through to plain LWW.
+8. **`resume()` is a boolean, not a counter** (`queueState.ts`) — barrier ownership is not modelled. Latent; no concurrent holder on today's paths, but it bites if the lift ever moves.
+9. **The reproduction tests in pkm-9x6u and pkm-4ubd are NOT in the suite** — their key assertions assert the FIXED behaviour and would break CI. Land them green as part of each fix.
+
+### Verify
+
+`cd web && pnpm verify` (typecheck + enforced coverage + Playwright e2e). Baseline on `main`: 122 files / 1972 tests, coverage 97.7% stmts / 93.09% branch, 51/51 e2e, 0 jsdom warnings. Never use port 8974 (prod launchd service owns it). Deploys: `CI=true ~/.config/pkm/app/deploy/update.sh` only, then grep the SERVED bundle.
+
+### Why this epic exists
+
+Two independent reviewers read the same memoisation mechanism, described it identically, and drew opposite conclusions about whether it was a virtue or a defect. That is the symptom of a missing concept, not of unreadable code — and cause sat three modules from effect.

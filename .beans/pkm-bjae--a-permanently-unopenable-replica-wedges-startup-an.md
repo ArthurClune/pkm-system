@@ -1,10 +1,11 @@
 ---
 # pkm-bjae
 title: A permanently unopenable replica wedges startup and strands edits in memory
-status: todo
+status: in-progress
 type: bug
+priority: normal
 created_at: 2026-08-04T10:46:28Z
-updated_at: 2026-08-04T10:46:28Z
+updated_at: 2026-08-04T11:18:45Z
 ---
 
 Found while fixing pkm-wi25.

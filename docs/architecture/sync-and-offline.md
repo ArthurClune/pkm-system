@@ -4,7 +4,8 @@ This doc follows the full path an edit takes: from a keystroke, through the
 browser's durable queue and replica, to the server, and back out to other
 clients. It also covers how the system behaves offline. It spans both
 codebases; [backend.md](backend.md) and [frontend.md](frontend.md) have the
-module maps.
+module maps. The last section is a symptom-to-cause index for when something
+looks wrong.
 
 The authoritative design, with the rejected alternatives, is
 [`docs/superpowers/specs/2026-07-12-offline-editing-design.md`](../superpowers/specs/2026-07-12-offline-editing-design.md).
@@ -84,14 +85,11 @@ read transaction:
   target page the client has never seen. Entities that no longer exist ship
   as tombstones.
 - Hydration is batched, not per-id. `sync_core.chunk_ids` splits the window's
-  ids into groups of at most 500 — comfortably under SQLite's historic
-  999-parameter cap — so blocks, refs, pages and sidebar entries each cost a
-  chunk-bounded number of `WHERE x IN (...)` statements instead of two per id.
-  `sync_core.hydrate_in_order` then puts the id-keyed results back into the
-  caller's original order and drops ids nothing was found for, which is what
-  reproduces the old per-id loop's ordering and its "missing row → tombstone"
-  semantics. Both helpers are pure; the queries and dict-building stay in
-  `routes_sync.py`. Response shapes are unchanged.
+  ids into groups of at most 500 — under SQLite's historic 999-parameter cap —
+  and `hydrate_in_order` puts the id-keyed results back into the caller's order
+  and drops ids nothing was found for, reproducing the old per-id loop's
+  ordering and its "missing row → tombstone" semantics. Both helpers are pure;
+  the queries stay in `routes_sync.py`.
 - The client loops `pull → apply → cursor = next_since` until
   `next_since >= latest_seq` (`web/src/sync/replicaSync.ts`). The cursor
   persists in the replica's `sync_client_meta` table.
@@ -103,16 +101,13 @@ database; your cursor is meaningless".
 
 ## Title activation across online and offline paths
 
-Snapshot and changes payloads both carry the required
-`plain_space_title_canonicalization` boolean alongside `generation`. This is a
-server-owned rollout switch, not a client preference. Normal server startup
-does not change it, so an unactivated database stays inactive, and startup
-never runs the padded-title data migration. A later explicit audited apply
-sets the flag and rotates the server generation in the same transaction.
-Fresh importer databases run that same audit/apply path against their
-temporary database before publication, so they arrive active.
-
-Server and replica make the same decision at their I/O boundaries:
+Titles are canonicalized at both sides' I/O boundaries, and one server-owned
+flag — `plain_space_title_canonicalization`, carried in every snapshot and
+changes payload beside `generation` — decides how far. It is a rollout switch,
+not a client preference: normal server startup never changes it and never runs
+the padded-title data migration. An explicit audited apply sets the flag and
+rotates the generation in one transaction, and fresh importer databases run that
+same audit/apply path before publication, so they arrive active.
 
 | State | Online server/API | Offline replica |
 |---|---|---|
@@ -120,190 +115,149 @@ Server and replica make the same decision at their I/O boundaries:
 | Inactive | Preserve leading/trailing ordinary U+0020 exactly, allowing legacy padded rows to resolve to themselves | Persist `"0"`; preserve boundary ordinary spaces and keep queued wire operations unchanged |
 | Active | Strip only boundary U+0020 on creation/read; keep internal ordinary spaces and NBSP exact | Persist `"1"`; strip boundary U+0020 before local page lookup/creation and optimistic replay |
 
-Before applying anything locally, `findOpTitleViolation()` checks every
-explicit page target and ref-derived title in the whole op batch. A `#`, `[[`
-or `]]` violation refuses the whole gesture before any optimistic mutation.
-`enqueueBatch()` repeats that check before its transaction, so no
-`pending_ops` row or partial optimistic state is persisted either. The
-offline `POST /api/pages` shim returns 422 before creating its negative page
-or queueing a `create_page` op. Authoritative snapshot and feed payloads are
-not user writes, and remain accepted.
+Forbidden syntax is caught before anything is applied. `findOpTitleViolation()`
+checks every explicit page target and ref-derived title in the whole batch and
+refuses the gesture on `#`, `[[` or `]]` before any optimistic mutation;
+`enqueueBatch()` repeats the check before its transaction, so no `pending_ops`
+row or partial optimistic state is persisted either. The offline
+`POST /api/pages` shim returns 422 before creating its negative page.
+Authoritative snapshot and feed payloads are not user writes and are always
+accepted — rejecting one would wedge the client's queue.
 
-The replica persists the accepted flag in `sync_client_meta` in the same
-transaction as the accepted payload, **before** reconciling and replaying
-pending optimistic batches. That order matters. After activation the replica
-first canonicalizes negative-id pages created under the inactive rule: their
-blocks and refs move onto a canonical authoritative page from the accepted
-feed if one exists, and otherwise the negative page is retitled in place.
-Only then does it replay the unchanged durable wire operations under the new
-rule. Neither padded-page residue nor optimistic user state is lost.
+Two orderings carry the weight here:
 
-Activation's generation rotation forces a full rebootstrap. A client that
-receives the first post-migration changes payload sees the new generation and
-returns `needs-bootstrap` **before** touching its cursor, generation or
-activation metadata. The snapshot then installs the canonical server graph
-and metadata together, and replays pending intent. The apply route sends one
-forced seq frame after commit:
+- **The replica persists the flag in the same transaction as the payload that
+  carried it, and before reconciling and replaying pending batches.** After
+  activation it first canonicalizes negative-id pages created under the inactive
+  rule — moving their blocks and refs onto a canonical authoritative page from
+  the accepted feed if one exists, otherwise retitling in place — and only then
+  replays the unchanged durable wire ops under the new rule. Neither padded-page
+  residue nor optimistic user state is lost.
+- **A client seeing the new generation returns `needs-bootstrap` before touching
+  its cursor, generation or activation metadata**, and the snapshot then installs
+  graph and metadata together. Activation's apply route sends one forced frame
+  after commit,
+  `{type:"seq", seq:<actual journal max>, force:true, generation:<new token>}`:
+  the force bit makes a client pull even when that seq equals its cursor, and
+  never fabricates or advances the cursor, so the next ordinary higher-seq frame
+  is still observable. If the frame is lost, the reconnect pull and the feed's
+  generation check still get there.
 
-    {type:"seq", seq:<actual journal max>, force:true, generation:<new token>}
-
-A current client pulls even when that real seq equals its cursor, finds the
-generation mismatch, and reboots immediately. The force bit never changes or
-fabricates the cursor, so the next ordinary higher-seq frame is still
-observable. If that best-effort frame is lost, the reconnect pull plus the
-feed's generation check are still the correctness mechanism.
-
-Applied-op echoes also carry authoritative stored titles. For `create`,
-`create_page` and moves with a resolved page target, the caller's spelling is
-replaced with the title of the page row the server actually changed —
-including the blank-title fallback, control normalization, and boundary
-stripping when active. Same-page moves with no `page_title` stay null. If
-that authoritative row cannot be loaded, broadcast assembly fails closed: the
-op transaction rolls back rather than sending caller spelling. Other tabs
-therefore refetch the authoritative page key, while still relying on the
-journal pull for state.
+Applied-op echoes carry the authoritative *stored* title rather than the
+caller's spelling, for `create`, `create_page` and moves with a resolved page
+target — blank-title fallback, control normalization and boundary stripping
+included. Same-page moves with no `page_title` stay null. If that row cannot be
+loaded, broadcast assembly fails closed: the op transaction rolls back rather
+than sending caller spelling.
 
 ## Post-commit nudges
 
 Three tables have change-journal triggers in `schema.py`'s `SERVER_DDL`:
-`blocks`, `pages` and `sidebar_entries`. Every route whose commit touches one
-of them must send a WS `{type:"seq", seq}` nudge immediately after that
-commit, so connected replicas know to pull the new window. A committed
-metadata or generation change that may leave `changes.seq` unchanged must
-send the same frame with `force:true` and the new `generation`; `seq` is
-still the actual journal maximum, never a synthetic future value. Nudges are
-a latency optimization, never a correctness dependency (see "An online edit,
-end to end" above).
+`blocks`, `pages` and `sidebar_entries`. **Every route whose commit touches one
+of them must send a WS `{type:"seq", seq}` nudge immediately after that commit**,
+so connected replicas know to pull the new window. A committed metadata or
+generation change that may leave `changes.seq` unchanged sends the same frame
+with `force:true` and the new `generation`; `seq` is always the actual journal
+maximum, never a synthetic future value. Nudges are a latency optimization,
+never a correctness dependency (see "An online edit, end to end" above).
 
-`notify.py` provides `commit_and_nudge_threadpool` for sync-def routes,
-hopping back to the event loop via `anyio.from_thread.run`, so such a route
-has one line to remember instead of two. Async routes call `db.commit()` then
-`await nudge(request, db)` directly. Routes whose commit and nudge cannot be
-adjacent call `db.commit()` and `nudge`/`nudge_threadpool` separately:
-`delete_asset` commits before best-effort unlinking of the file, and
-`POST /api/ops` broadcasts the applied-op echo between the commit and the seq
-nudge. Most routes nudge unconditionally after every commit, which is
-harmless even when nothing changed. `cleanup_journal` is the one exception:
-it guards the nudge on `deleted` being non-empty, because it runs on every
-journal page load and a no-op run — the common case — never advances
-`changes.seq`.
+`notify.py` provides `commit_and_nudge_threadpool` for sync-def routes (hopping
+back to the event loop via `anyio.from_thread.run`), so those have one line to
+remember instead of two; async routes call `db.commit()` then
+`await nudge(request, db)`. Routes whose commit and nudge cannot be adjacent
+call them separately — `delete_asset` unlinks the file in between,
+`POST /api/ops` broadcasts its applied-op echo. Nudging unconditionally is
+harmless even when nothing changed; `cleanup_journal` alone guards its nudge on
+`deleted` being non-empty, because it runs on every journal page load and a
+no-op run never advances `changes.seq`.
 
-Nothing enforces this automatically. A new route that writes to a journalled
-table without calling one of these helpers is a silent gap. That is how
-`/api/journal/cleanup` came to delete pages and advance `changes.seq` for
-years without ever nudging: replicas kept showing deleted daily pages until
-an unrelated mutation happened to nudge them.
+Nothing enforces this in the type system, so
 `server/tests/test_journal_advancing_contract.py` enumerates every
-journal-advancing route and asserts each one emits a seq nudge. A route that
+journal-advancing route and asserts each one emits a nudge. **A route that
 starts writing to `blocks`, `pages` or `sidebar_entries` needs a case added
-there, or it ships with the same gap.
+there, or it ships with a silent gap** — which is how `/api/journal/cleanup`
+came to delete pages and advance `changes.seq` for years without ever nudging.
 
-Asset routes are a partial exception, not a blanket one. The `assets` table
-has no change-journal trigger, so `upload_asset`, which writes only `assets`,
-correctly sends no nudge. `delete_asset` is different. When the deleted asset
-has referencing blocks, it strips the reference token from each one and
-either `UPDATE`s or `DELETE`s the block (`routes_assets.py` ~184-188), which
-is a `blocks` write and does advance `changes.seq`. In that branch the nudge
-is required, exactly like every other journal-advancing route, which is why
-`delete_asset` is listed in `test_journal_advancing_contract.py` with a
-referencing-block scenario. Only the orphan-delete branch — no referencing
-blocks, so the commit touches `assets` alone — sends a nudge that changes
-nothing.
+Asset routes are a partial exception, not a blanket one. The `assets` table has
+no trigger, so `upload_asset` correctly sends nothing. `delete_asset` is
+different: when the deleted asset has referencing blocks it strips the reference
+token from each one and either `UPDATE`s or `DELETE`s the block
+(`routes_assets.py` ~184-188), which is a `blocks` write that does advance
+`changes.seq`, so the nudge is required there and the contract test covers that
+scenario. Only the orphan-delete branch touches `assets` alone.
 
 ### Hub fan-out: concurrent, per-client ordered
 
-`Hub.broadcast()` (`ws.py`) hands each frame to a small bounded per-client
-queue (`QUEUE_SIZE`) and returns without waiting on any client's network
-send. Each connection has its own drain task, the sole consumer of that
-client's queue, sending one frame at a time with a `SEND_TIMEOUT`-bounded
-`send_json`.
-
-That gives two properties at once. Fan-out across clients is fully
-concurrent: a stalled client no longer adds its timeout to every other
-client's delivery, or to the write path that called `broadcast()`. (The
+`Hub.broadcast()` (`ws.py`) hands each frame to a small bounded per-client queue
+(`QUEUE_SIZE`) and returns without waiting on any client's network send. Each
+connection has its own drain task, the sole consumer of that client's queue,
+sending one frame at a time with a `SEND_TIMEOUT`-bounded `send_json`. That
+gives two properties at once: fan-out across clients is fully concurrent (the
 previous sequential await-with-timeout loop meant N stalled clients cost N
-seconds.) And delivery to any one client stays strictly in `broadcast()`
-call order, because a single-consumer FIFO queue cannot reorder its own
-items.
+seconds, charged to the write path that called `broadcast()`), and delivery to
+any one client stays strictly in `broadcast()` call order, because a
+single-consumer FIFO cannot reorder its own items.
 
-A client is disconnected outright, never buffered without bound or waited on
-further, if its queue fills up or a send does not complete within
-`SEND_TIMEOUT`. Disconnecting also closes the socket, best-effort with errors
-swallowed. The connection can still be alive at the transport level even
-though the Hub has given up on it, and without an actual close the web
-client's `onclose` handler never fires — so it would sit wedged until a tab
-reload instead of reconnecting and resyncing from its cursor, which is the
-correctness mechanism here regardless of nudge delivery.
+A client whose queue fills or whose send exceeds `SEND_TIMEOUT` is disconnected
+outright, never buffered without bound or waited on further. **Disconnecting
+must also close the socket** (best-effort, errors swallowed): the connection can
+still be alive at the transport level even though the Hub has given up on it,
+and without an actual close the client's `onclose` never fires — so it would sit
+wedged until a tab reload instead of reconnecting and resyncing from its cursor,
+which is the correctness mechanism here regardless of nudge delivery.
 
-This is sized for a single-user server with a handful of connected replicas,
-not for many concurrent connections. There is no separate cap on total
-connection count, because the per-client queue bound and the send timeout
-already bound the cost that matters at this scale.
+This is sized for a single-user server with a handful of connected replicas.
+There is no separate cap on total connection count, because the per-client queue
+bound and the send timeout already bound the cost that matters at this scale.
 
 ## Offline editing and reconnect
 
 While disconnected, reads and search are served from the replica through the
-local API shim, and edits keep enqueueing durably. Each op is optimistically
-applied to the replica under its own SAVEPOINT, and `base_text_hash` — the
-sha256 of the text the edit was based on — is on the op before that apply. The
-editor stamps it when it builds the batch (`outline/baseTextHash.ts`, walking
-the batch in order against the tree the batch was planned from, so op N leaves
-the text op N+1's hash matches); the worker fills it in from `currentText` only
-when it is still `undefined`, capturing it *before* the op's own optimistic
-apply. Undo history deliberately records **unstamped** ops — a hash taken when
-the entry was recorded is stale by the time it is replayed, and a stale hash
-would fork a spurious `[[conflict]]` sibling against the user's own later edit
-— so `undoManager.dispatch` stamps against the tree as it is at replay time.
-The header shows "Offline — N changes pending".
+local API shim, and edits keep enqueueing durably, each applied optimistically
+under its own SAVEPOINT. The header shows "Offline — N changes pending".
 
-That optimistic apply must reproduce the server's timestamp rules, not just
-its row contents: `localOps.ts` mirrors the server in leaving both
+`base_text_hash` — the sha256 of the text the edit was based on — is on the op
+before that apply. The editor stamps it when it builds the batch
+(`outline/baseTextHash.ts`, walking the batch in order against the tree the
+batch was planned from, so op N leaves the text op N+1's hash matches); the
+worker fills it in from `currentText` only when it is still `undefined`.
+Undo history deliberately records **unstamped** ops — a hash taken when the
+entry was recorded is stale by the time it is replayed, and a stale hash would
+fork a spurious `[[conflict]]` sibling against the user's own later edit — so
+`undoManager.dispatch` stamps against the tree as it is at replay time.
+
+The optimistic apply must reproduce the server's *timestamp* rules, not just its
+row contents. `localOps.ts` mirrors the server in leaving both
 `blocks.updated_at` and `pages.updated_at` alone for `set_collapsed` (see
-[backend.md](backend.md#the-write-path)), while every real change stamps
-both. If only one side excluded collapse, a collapse made offline would
-reorder the replica's recently-changed lists and then silently un-reorder them
-on the next resync.
+[backend.md](backend.md#the-write-path)), while every real change stamps both.
+If only one side excluded collapse, a collapse made offline would reorder the
+replica's recently-changed lists and then silently un-reorder them on the next
+resync.
 
-Every shim response builder declares a **generated** return type
-(`PagePayload`, `JournalPayload`, `SearchPayload`, …) rather than `unknown`.
-A server-side field rename the shim does not follow therefore fails
-`pnpm typecheck`, instead of surfacing as a wrong-shaped payload the first
-time a user goes offline. `shim_parity.json` pins recorded *values* for a
-handful of requests; the return types pin the *shape* of every builder,
-including branches no fixture exercises. `localApi/payloadTypes.test.ts`
-guards the declarations themselves against being widened back.
+Two invariants inside the shim are easy to break without noticing:
 
-What that does and does not cover is easy to lose sight of.
-`ReplicaDb.select<T>` **asserts** its type argument
-(`selectObjects(...) as T[]`); it cannot check a database row against a type.
-A builder that passed a generated model straight to `select<T>` would look
-annotated while checking nothing. So every query feeding a response names a
-*local row* type and maps into a checked object literal —
-`rows.map((row): PageMeta => ({ … }))`. That map, plus the payload envelope
-the builder returns, is what the compiler verifies. What stays unchecked is
-the row type against the real SQL: a renamed *column* is still a runtime
-failure, which is what `shim_parity.json` is for.
-
-Two replica reads walk the block tree recursively, and both are **uncapped
-and cycle-safe** rather than depth-limited: `localApi/tree.ts`'s ancestor
-CTE, which builds the breadcrumb trails the shim's payloads carry, and
-`localOps.ts::subtreeUids`, which enumerates a subtree for an optimistic
-delete or move. Each carries a `path` column of `,uid,uid,…,` and recurses
-only while `instr(path, ',' || b.uid || ',') = 0`. A trail or subtree is
-therefore complete however deep it goes, and a parent cycle in a damaged
-replica terminates at the repeat instead of running away.
-
-This mirrors the server's `_fetch_ancestors` exactly — see
-[backend.md](backend.md#breadcrumbs-and-recursive-traversal) — and the
-mirroring is the requirement: a breadcrumb read offline must return the same
-trail as the same read online, so all three statements change together or not
-at all. Both replica reads previously stopped at `depth < 100`. On the read
-path that truncated a breadcrumb trail without saying so. On the write path
-it was worse: `subtreeUids` under-reported a subtree, so an optimistic
-`delete` left descendants below depth 100 in the replica with their parent
-gone, and a cross-page `move` left them holding the old `page_id`. The
-replica then disagreed with the server about which page owned them until the
-next full resync.
+- **Every response builder declares a generated return type** (`PagePayload`,
+  `JournalPayload`, `SearchPayload`, …), so a server-side field rename the shim
+  does not follow fails `pnpm typecheck` rather than surfacing as a wrong-shaped
+  payload the first time a user goes offline. The subtlety is that
+  `ReplicaDb.select<T>` **asserts** its type argument
+  (`selectObjects(...) as T[]`) and cannot check a row against a type, so a
+  builder passing a generated model straight to `select<T>` would look annotated
+  while checking nothing. Every query therefore names a *local row* type and
+  maps into a checked object literal — `rows.map((row): PageMeta => ({ … }))` —
+  and that map plus the envelope is what the compiler verifies. A renamed
+  *column* is still a runtime failure, which is what `shim_parity.json`'s
+  recorded values are for.
+- **Both recursive tree walks are uncapped and cycle-safe**, not depth-limited:
+  `localApi/tree.ts`'s ancestor CTE (breadcrumb trails) and
+  `localOps.ts::subtreeUids` (subtree enumeration for an optimistic delete or
+  move). Each carries a `path` column of `,uid,uid,…,` and recurses only while
+  `instr(path, ',' || b.uid || ',') = 0`, so a trail or subtree is complete
+  however deep it goes and a parent cycle in a damaged replica terminates at the
+  repeat. Both mirror the server's `_fetch_ancestors` (see
+  [backend.md](backend.md#breadcrumbs-and-recursive-traversal)), and the
+  mirroring *is* the requirement — a breadcrumb read offline must return the same
+  trail as online — so all three statements change together or not at all.
 
 ```mermaid
 sequenceDiagram
@@ -356,10 +310,10 @@ copy (the server's `BASE_DDL`, replicated via the generated
 `web/src/replica/baseSchema.gen.ts`) and the client-only tables
 (`pending_ops`, `sync_client_meta`).
 
-The guiding invariant: **the replica is a cache; the queue is the user's
-intent.** A snapshot can always be re-fetched; an unflushed pending op
-cannot. What follows from that (`web/src/replica/client.ts`,
-`recoveryGate.ts`, `web/src/sync/opQueue.ts`):
+**The replica is a cache; the queue is the user's intent.** A snapshot can
+always be re-fetched; an unflushed pending op cannot. Everything below follows
+from that (`web/src/replica/client.ts`, `recoveryGate.ts`,
+`web/src/sync/opQueue.ts`):
 
 - Optimistic local application is best-effort. An op that cannot apply
   locally is skipped, never dropped from the queue.
@@ -374,225 +328,186 @@ cannot. What follows from that (`web/src/replica/client.ts`,
   non-poisoned batches, drop the poisoned row, resume. Failure stays visible,
   with a Retry.
 
-**Opening the replica can fail, and that is a storage problem, not a sync
-problem.** The four subsections that follow are the whole path from "local
-storage failed" to what the user is told: the two ways the open fails, the
-availability fact they produce and who owns it, what the op queue and the UI do
-with it, and the in-memory lane that carries the user's writes in the meantime.
+### When the replica cannot be opened
 
-### Two ways opening the replica fails
+This is a storage problem, not a sync problem, and it happens when a replica
+worker *starts* — never mid-sync. Both failure paths are races between an
+outgoing worker and its replacement, and both fixes are pure policy modules
+(`replica/openRetry.ts`, `replica/poolCapacity.ts`).
 
-Both happen when a replica worker *starts*, not during sync. Both are races
-between an outgoing worker and its replacement, and both fixes live in pure
-policy modules: `replica/openRetry.ts` and `replica/poolCapacity.ts`.
+```mermaid
+flowchart TD
+    W([replica worker starts])
+    B["attempt — up to 6, backoff 50→800ms"]
+    I["installOpfsSAHPoolVfs, once per worker<br/>(forceReinitIfPreviouslyFailed: true)"]
+    C{"pool capacity ≥ 6?"}
+    A["addCapacity up to 6<br/>(fresh random filenames)"]
+    O["open /pkm-replica.sqlite3"]
+    R{"SyncAccessHandle contention,<br/>and attempts left?"}
+    OK([replica ready])
+    X(["unusable — latched<br/>for the session"])
+    W --> B --> I --> C
+    C -->|"no: a sibling worker was<br/>mid-create, so capacity is 1"| A --> O
+    C -->|yes| O
+    O --> OK
+    I -.->|throws| R
+    A -.->|throws| R
+    O -.->|throws| R
+    R -->|yes| B
+    R -->|no| X
+```
 
-**The open can throw.** The SAHPool VFS takes an exclusive
-`SyncAccessHandle` per pooled file, and an OPFS file backs only one open
-handle at a time. On a page reload — a user pressing F5, or Playwright
-navigating with a full document load — the fresh replica worker calls
-`installOpfsSAHPoolVfs` before the terminating worker has released its
-handles, and sqlite-wasm throws "Access Handles cannot be created if there is
-another open Access Handle". The fix is a bounded retry around the open.
+The retry wraps the whole sequence, not just the install — and only absorbs
+errors that look like handle contention, so a persistent failure fails fast into
+online-only rather than stalling startup. Two things in that path are invisible
+from the shapes:
 
-That retry only retries because of one install option. sqlite-wasm memoises
-`installOpfsSAHPoolVfs` per VFS name and by default re-awaits — and so
-rethrows — a cached *rejection* forever; every retry then replays the first
-error instantly without touching OPFS, and the backoff can never observe the
-handles being released. `SAH_POOL_INSTALL_OPTIONS` in `openRetry.ts` therefore
-passes `forceReinitIfPreviouslyFailed: true`, which sqlite-wasm documents for
-exactly this case. Dropping that flag makes a single contention failure
-permanent for the life of the worker (pkm-wi25), costing the local cache and
-offline reads for that session. It is no longer silent data loss: as the next
-subsection describes, startup now falls back to online-only rather than holding
-its recovery barrier.
+- **The retry only retries because of the install option.** sqlite-wasm
+  memoises `installOpfsSAHPoolVfs` per VFS name and by default re-awaits — so
+  rethrows — a cached *rejection* forever, replaying the first error instantly
+  without ever touching OPFS. Drop `forceReinitIfPreviouslyFailed` from
+  `SAH_POOL_INSTALL_OPTIONS` and the backoff can never observe the handles being
+  released.
+- **A pool too small to write opens perfectly.** Every file SQLite opens claims
+  a slot — the database, its rollback journal, any temp file — so a capacity of
+  one leaves reads working while every write transaction fails with
+  `SQLITE_CANTOPEN` for the life of the worker, the VFS swallowing its own "SAH
+  pool is full" message. Nothing grows the pool afterwards, which is why the
+  top-up to `MIN_POOL_CAPACITY` has to happen before the database is opened.
 
-**The open can also succeed with a pool too small to write.** The SAHPool
-VFS is a fixed pool of pre-opened OPFS files, and *every* file SQLite opens
-claims a slot: the database, its rollback journal, any temp file.
-`installOpfsSAHPoolVfs` sizes the pool from whatever it finds in its opaque
-directory, and falls back to the default capacity of 6 only when it finds
-nothing. A worker that enumerates that directory while a sibling worker is
-still creating the pool files can therefore come up with a capacity of one.
-The database file takes the only slot, and every write transaction then fails
-with `SQLITE_CANTOPEN` for the life of that worker, since nothing grows the
-pool afterwards. The VFS swallows its own "SAH pool is full" message, and
-reads keep working, so the damage is invisible until the first edit. The fix
-is to top the pool up to `MIN_POOL_CAPACITY` immediately after the install,
-before the database is opened. `addCapacity` creates fresh randomly-named
-files, so it never contends with handles the outgoing worker still holds.
+### Availability: two values, one owner
 
-### The availability fact: two values, one owner
-
-**Startup must decide the replica is viable before it protects the replica's
-contents.** `SyncProvider`'s mount effect pauses the queue on the recovery
-barrier and holds it until `queue.retryPoisonMarks()` and
-`replica.poisonedBatches()` have run — both replica RPCs. When the pool can
-never be opened, `poisonedBatches()` rejects, and for a long time that
-dead-ended startup with the barrier still held: the fallback lane was never
-drained, the editor kept accepting edits, and a reload or closed tab lost them
-(pkm-bjae). The online-only degradation that should have covered this
-(`init()` returning `ok: false`, since removed) was unreachable, because
-`init()` runs inside `start()` — the *last* thing startup does.
-
-**The availability fact is two-valued, and the two values carry different
-evidentiary weight.** `unusable` means the worker's own `openDb()` failed:
-there is definitively no database. `unreachable` means the RPC itself is
-broken — the worker crashed, its message could not be decoded, or a call
-timed out — which says a write did not reach the replica, but not that there
-is no replica to reach. Both retain an op in the fallback lane; only
-`unusable` may lift the op queue's recovery barrier, because lifting it means
-asserting there is no poison table left to protect, and "we could not ask" is
-not that assertion — it is the absence of one. A probe that rejects because
-the port died says nothing about whether a database exists behind it, so it
-keeps the gate and its Retry banner.
+Startup has to decide the replica is viable *before* it can protect the
+replica's contents: `SyncProvider`'s mount effect pauses the queue on the
+recovery barrier and holds it until `queue.retryPoisonMarks()` and
+`replica.poisonedBatches()` have run, both of which are replica RPCs. When the
+pool can never be opened, those reject — and the availability fact exists so
+that such a rejection does not dead-end startup with the barrier still held.
 
 **The worker owns the fact and latches it until `close()`.** `db()` in
-`workerHandlers.ts` memoises `openDb()` as `dbPromise ??= deps.openDb()`; its
-first failure wraps the underlying error in a `ReplicaUnavailableError`, and
-every later handler call — including a later `init()` that would otherwise
-have succeeded — replays that same latched object. Only `close()` re-arms it.
-This makes explicit what used to be an accidental property of the memoised
-promise: the latch was always there, but its safety depended on a reader
-noticing that `init()`'s catch must never clear `dbPromise`, three modules
-away from where the consequence lands (a barrier lift that kicks a drain into
-a freshly-reopened, unexamined database).
+`workerHandlers.ts` is `dbPromise ??= deps.openDb()`; the first failure is
+wrapped in a `ReplicaUnavailableError` and stored, and every later handler call
+— including an `init()` that would now succeed — replays that same object. Only
+`close()` re-arms it. Nothing else may clear it: lifting the barrier kicks a
+drain, and a drain against a freshly-reopened, unexamined database is precisely
+what the barrier exists to prevent.
 
-**It crosses the worker/main-thread boundary as a typed error, not a
-string.** `rpc.ts`'s response shape is `{message, rejected,
-unavailable}`: `unavailable` is `true` exactly when the rejection was a
-`ReplicaUnavailableError`, and `createRpcClient` reconstructs the same class
-client-side. The wire flag is a boolean because only `unusable` is something
-the worker can assert about itself; `unreachable` never travels on the wire at
-all — it is generated client-side, by `createRpcClient`, when the port fails
-outright (`worker-error`, `message-error`, `disposed`) or a call times out.
-`availabilityOf()` (`replica/errors.ts`) folds both sources back into the
-two-valued `ReplicaAvailability`, so the boolean-vs-two-valued mismatch is
-real, but confined to that one function.
+```mermaid
+flowchart LR
+    D["worker: db() latches its<br/>first openDb() failure"]
+    P["main thread: port died,<br/>message undecodable, or timed out"]
+    AV{{"availabilityOf()"}}
+    D -->|"ReplicaUnavailableError,<br/>on the wire as unavailable: true"| AV
+    P -->|"RpcLifecycleError"| AV
+    AV -->|"unusable"| L1["may lift the recovery barrier"]
+    AV -->|"either value"| L2["retain the op in the fallback lane"]
+    AV -->|"unusable"| L3["raise the replica-unavailable banner"]
+```
+
+`ReplicaAvailability` is two-valued because its consumers need different
+strengths of evidence:
+
+| Value | Evidence | Retain the op? | May lift the barrier? |
+|---|---|---|---|
+| `unusable` | the worker's own `openDb()` failed: there is definitively no database | yes | **yes** |
+| `unreachable` | the RPC itself broke (`worker-error`, `message-error`, `disposed`, `timeout`): we could not *ask* | yes | **no** |
+
+Lifting the barrier asserts there is no poison table left to protect, and "we
+could not ask" is the absence of that assertion, not a weaker form of it. Only
+`unusable` crosses the wire, as a plain boolean in `rpc.ts`'s
+`{message, rejected, unavailable}`, because the worker's own failed open is the
+only thing it can assert about itself; `availabilityOf()` (`replica/errors.ts`)
+is the one place that boolean and the client-side `RpcLifecycleError` become a
+single two-valued type. `isSessionFatal()` answers the separate question of
+whether a consumer may *latch* the state: everything except a bare timeout,
+which rejects one request and leaves the client usable.
 
 ### What the queue and the UI do with it
 
-**Either open failure can hit an enqueue**, and `opQueue` treats both as "could
-not persist locally right now" — what it does with every local write failure.
-That is not a server rejection, so firing `onDesync` is the wrong answer: its
-authoritative repair would wipe the active outline back to the edit-less server
-state and detach the editor mid-keystroke. Instead the ops join an **ordered
-in-memory fallback lane** and are delivered by the ordinary drain, under the
-same connectivity, backoff and recovery-barrier policy as durable rows.
+`opQueue` treats a failed replica RPC as "could not persist locally right now",
+which is what it does with every local write failure, and **retains the op
+unless the replica rejected the op itself.** That rule is a one-item blocklist
+on `ReplicaError.rejected` — an op the server would refuse too, e.g. unsupported
+reference title syntax — and deliberately *not* a check on the availability
+type: a starved pool's `SQLITE_CANTOPEN` is neither `unusable` nor
+`unreachable`, so a type check would fall through to `onDesync`, whose
+authoritative repair wipes the active outline back to the edit-less server state
+and detaches the editor mid-keystroke.
 
-**An exhausted disk is not a distinguishable failure here, so there is no
-storage-full mode.** Before reaching for one, know that the signal does not
-exist: the opfs-sahpool VFS's `xWrite` catches the `QuotaExceededError`
-DOMException raised by `SyncAccessHandle.write()`, stores it on the pool's
-private `$error`, and returns `SQLITE_IOERR` — so what arrives on the main
-thread is a bare "disk I/O error", identical to any other write failure.
-`ReplicaError` carried a `quota` flag for years, and `computeEditability` had a
-read-only branch behind it, but nothing in `web/src` could ever set it
-(pkm-avag): every production site merely forwarded the flag, and only tests
-constructed one. Both are deleted. Storage exhaustion is handled by the rule
-above — the op is retained and delivered when the socket allows — and the only
-ways to recognise it would be matching the error message (the practice
-pkm-s7af removed) or estimating from `navigator.storage.estimate()`, whose
-numbers are deliberately padded.
+Retained ops join an ordered **in-memory fallback lane** and are delivered by
+the ordinary drain, under the same connectivity, backoff and recovery-barrier
+policy as durable rows. There is no storage-full mode, and no signal to build
+one from: the opfs-sahpool VFS catches `SyncAccessHandle.write()`'s
+`QuotaExceededError`, stores it privately and returns `SQLITE_IOERR`, so an
+exhausted disk arrives as a bare "disk I/O error" like any other write failure.
 
-**`opQueue` retains a failed replica RPC unless the replica rejected the op
-itself.** The rule is a one-item blocklist — retain everything except
-`ReplicaError.rejected` (an op the server would refuse too, e.g. unsupported
-reference title syntax) — rather than a two-value type check on
-`unusable`/`unreachable`. A type check would have regressed pkm-ndcu: a
-starved OPFS pool's `SQLITE_CANTOPEN` fires on a write to a database that
-opened successfully, so it is neither `unusable` nor `unreachable`, and would
-have fallen through to `onDesync` — the outline wipe described above, over a
-failure a moment's backoff would clear.
+Once `noteReplicaFailure` latches `unavailable` from session-fatal evidence, the
+drain stops calling `nextBatch()`/`markPoisoned()` and delivers only the lane —
+which is what lets a socket reconnect resume delivery at all, since a drain that
+keeps calling a dead replica never returns `"drained"`.
 
-**The queue also stops asking a dead replica, so a reconnect still bumps
-resync.** Once `noteReplicaFailure` latches `unavailable` from session-fatal
-evidence (`isSessionFatal`: the worker's latched open, or a terminally failed
-RPC client — never a bare timeout), the drain stops calling
-`nextBatch()`/`markPoisoned()` and delivers only the in-memory lane. Before
-this, the drain called the dead replica on every pass, failed every time, and
-never returned `"drained"` — so a socket reconnect that should have resumed
-durable delivery spun forever instead (pkm-9x6u).
+**The user is told, rather than the session degrading silently.** Startup raises
+a `replica-unavailable` problem and `OfflineIndicator` renders "Working online
+only — offline editing is unavailable for now.", followed by a second sentence
+that turns on connectivity, because the truth does:
 
-**The user is told, rather than the session degrading silently.** Startup
-raises a `replica-unavailable` problem, and `OfflineIndicator` renders
-"Working online only — offline editing is unavailable for now.", followed by a
-second sentence that **turns on connectivity, because the truth does**
-(pkm-s1m8). Connected, it reassures — "Your changes are still being saved to
-the server." — which holds because this problem is only ever raised for an
-`unusable` replica, never a `rejected` op, so the queue retains every write.
-Offline with unsent work, it warns instead: those ops exist only in the
-in-memory fallback lane, and since there is no `beforeunload` anywhere in the
-app, a refresh or a closed tab takes them silently, so the banner says so.
-Offline with a clean queue, neither sentence applies and the first stands
-alone. The action is **Reload**, not Retry, and deliberately so. The failed
-open is latched for the session, and by the time the banner shows, the queue
-has already delivered online — so reopening mid-session could flush a previous
-session's stale durable queue on top of those writes. A fresh page load gets a
-fresh worker and runs poison discovery in the correct order.
+| State | Second sentence | Why |
+|---|---|---|
+| Connected | "Your changes are still being saved to the server." | This problem is only ever raised for an `unusable` replica, never a `rejected` op, so the queue retains every write |
+| Offline, work pending | a warning that N unsent changes exist only in memory and a reload or closed tab discards them | They live only in the fallback lane, and there is no `beforeunload` anywhere in `web/src` |
+| Offline, clean queue | none — the first sentence stands alone | Nothing to promise and nothing to lose |
+
+The action is **Reload**, not Retry, and it confirms first when ops are pending.
+The failed open is latched for the session, and by the time the banner shows the
+queue has already delivered online — so reopening mid-session could flush a
+previous session's stale durable queue on top of those writes. A fresh page load
+gets a fresh worker and runs poison discovery in the correct order.
 
 **One case deliberately still holds the gate.** Retained mark intents live in
 `localStorage`, not the replica, so they survive an unopenable database. When
 `retryPoisonMarks()` fails with intents present, a rejected batch is *known* to
-exist and cannot be repaired; delivering past it would post ahead of a batch
-the server already refused. That path keeps its barrier and its "Checking
-rejected changes failed: …" Retry banner, and it is the remaining case where
-*the queue's own policy* holds accepted edits undelivered in memory while the
-socket is up. It is not the only way they can sit there: an online-only session
-that loses connectivity has lane ops accepted while it was connected and no
-durable queue to put them in, which is what the banner above warns about. The
-difference matters when reading a report of lost edits — one
-resolves by clearing the barrier, the other only by reconnecting before the tab
-is closed.
+exist and cannot be repaired, and delivering past it would post ahead of a batch
+the server already refused — so that path keeps its barrier and its "Checking
+rejected changes failed: …" Retry banner. It is the one place where *the queue's
+own policy* holds accepted edits in memory while the socket is up; an
+online-only session that merely loses connectivity gets there too, by having
+lane ops and no durable queue to put them in. Reading a report of lost edits,
+the first resolves by clearing the barrier and the second only by reconnecting
+before the tab closes.
+
+**Known gap (pkm-0htf):** a replica that *opens* and then fails every write is
+surfaced nowhere. `availabilityOf` returns `null` for it, so no banner shows and
+editing stays enabled — correctly, since the ops do reach the server, but the
+user goes on producing writes that live only in memory.
 
 ### The in-memory fallback lane
 
-**The lane matches the durable path's policy *and* its payload.** It used to
-match only the policy: `base_text_hash` was stamped inside the worker
-(`replica/queue.ts`, from `currentText`), so ops that never reached the database
-— every op in an online-only session — arrived at the server without one, and
-the server returned early into plain last-write-wins (`ops_core.py`, "check 3:
-legacy"). `update_text` lost its conflict protection exactly where two tabs are
-most likely to be fighting: a concurrent edit from the tab that *does* own the
-replica was overwritten rather than preserved as a `[[conflict]]` sibling, and
-editing a block another tab deleted 400s, which makes the lane discard that
-entry. Since pkm-4ubd the hash is stamped on the main thread at op-construction
-time (`outline/baseTextHash.ts`), so it is on the op before the lane ever sees
-it. The worker still fills it in when `undefined`, so ownership was supplemented,
-not moved.
+The lane matches the durable path's policy *and* its payload. `base_text_hash`
+is stamped on the main thread at op-construction time
+(`outline/baseTextHash.ts`), so it is on the op before the lane ever sees it,
+and the worker's fill-in-when-`undefined` supplements that rather than owning
+it. Stamping only inside the worker meant ops that never reached the database —
+every op in an online-only session — arrived at the server without a hash, and
+the server returned early into plain last-write-wins.
 
-The lane preserves order. Each entry records how many durable batches were
-queued ahead of it, and is posted only once each of those has reached a
-terminal state: delivered, or poisoned and therefore never deliverable. That
-count-down is keyed to the batch and must stay so: a rejected batch whose
-durable poison mark failed is still deliverable, so an outside resume can hand
-it out for a second rejection, and counting it twice would drop the count below
-the batches genuinely ahead of the entry. A retained op cannot overtake an
-older batch, and a batch persisted after it waits its turn. Two things can
-still delay an entry past a newer batch, and both self-correct: a
-`pendingCount` that was already stale when the entry was appended, and batches
-a rebase flushed away. Both reconcile the same way — observing an empty
-durable queue clears every count, which is also what stops the lane waiting
-forever on a predecessor that will never arrive.
+**The lane preserves order.** Each entry records how many durable batches were
+queued ahead of it and posts only once each of those is terminal — delivered, or
+poisoned and therefore never deliverable — so a retained op cannot overtake an
+older batch and a batch persisted after it waits its turn. The count-down is
+keyed to the batch and must stay so: a rejected batch whose poison mark failed
+is still deliverable, so an outside resume can hand it out for a second
+rejection, and counting it twice would drop the count below the batches
+genuinely ahead. An entry can still be delayed past a newer batch by a
+`pendingCount` that was stale when it was appended, or by batches a rebase
+flushed away; both self-correct, because observing an empty durable queue clears
+every count — which is also what stops the lane waiting forever on a predecessor
+that will never arrive.
 
 An entry's `batch_id` is minted once, so a retry re-POSTs a byte-identical
 payload. Every entry counts towards "N changes pending", and is retained until
 it is delivered, until the server rejects it with a 4xx (the one discard the
 queue makes on its own, which raises the repair barrier and calls `onDesync`),
-or
-until the queue is disposed. Before this lane existed, these ops were POSTed
-inline from `enqueue()`, which offline meant they were neither persisted nor
-retryable.
-
-One historical diagnostic note, because it cost a misdirected investigation
-once. Before pkm-s7af, this retention decision was a whitelist matched by
-error message; any local-storage failure shape that wasn't listed fell
-through to `onDesync` and produced a **"Server rejected a change"** banner
-that read like a server-side rejection or a `resyncSeq` bug — the symptom
-showed up in the wrong layer from its cause (pkm-9x6u, pkm-c9hp). The rule is
-now the one-item blocklist above, keyed on `ReplicaError.rejected` rather than
-on message text, so an unrecognised storage failure retains by default
-instead of falling through: there is no longer a class of local-storage error
-that reintroduces the wipe.
+or until the queue is disposed.
 
 ### Rebootstrap triggers
 
@@ -627,6 +542,26 @@ coordinator:
 - **`pkm` CLI and MCP writes** ride the same path: a fresh `batch_id` per
   command, and `base_text_hash` on updates. Agent edits get the same
   idempotency and conflict preservation as browser edits.
+
+## When something looks wrong
+
+Each row is a failure this system has actually produced, and the invariant its
+fix installed. The bean has the full investigation.
+
+| Symptom | Cause | Ref |
+|---|---|---|
+| Every retry of the OPFS open fails instantly with the same error | the memoised-rejection trap: `forceReinitIfPreviouslyFailed` was dropped | pkm-wi25 |
+| Reads work; every edit fails `SQLITE_CANTOPEN` | the pool installed at capacity 1 and the top-up is missing or ran too late | pkm-ndcu |
+| "Server rejected a change" and the outline reverts, but the server is healthy | a *local* storage failure reached `onDesync`. Retention was once a whitelist matched on error message; the blocklist on `rejected` is what makes an unrecognised storage failure retain by default | pkm-c9hp, pkm-s7af |
+| After reconnect, durable delivery never resumes and the drain never reports `"drained"` | the drain kept calling a dead replica. Its "no repeated OPFS open" premise holds only because of the worker's latch — do not "fix" this by re-arming the DB | pkm-9x6u |
+| Startup wedges: edits accepted, nothing delivered, socket up | the recovery barrier was held on an RPC that could never answer, and the lane was never drained | pkm-bjae |
+| Unsent edits vanish on reload in an online-only session | the lane is their only home, and there is no `beforeunload`; the banner warns, the browser's own controls do not | pkm-bjae, pkm-tu5k |
+| A profile stays wedged across sessions after a rejected batch | the retained mark intent in `localStorage` clears only after a successful `markPoisoned`, which an unopenable replica can never do. Open by design | pkm-tu5k |
+| Two tabs; one tab's `update_text` overwrote the other's with no `[[conflict]]` sibling | the op carried no `base_text_hash`, so the server took its legacy branch and plain last-write-wins | pkm-4ubd |
+| A collapse made offline reorders recently-changed lists, then un-reorders on resync | one side stamped `updated_at` for `set_collapsed` and the other did not | pkm-r7k8 |
+| A breadcrumb read offline differs from the same read online; descendants orphaned after an offline delete or cross-page move | a depth cap on the replica's recursive walks (both were `depth < 100`) | — |
+| A deleted page keeps showing in replicas until some unrelated edit | a journal-advancing route committed without nudging; add it to `test_journal_advancing_contract.py` | — |
+| Tempted to add a read-only "storage full" mode | there is no signal to trigger it: the VFS reports `SQLITE_IOERR`. A `quota` flag existed for years that nothing in `web/src` could set | pkm-avag |
 
 ## Why it's debuggable
 

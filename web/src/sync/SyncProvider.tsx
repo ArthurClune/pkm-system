@@ -13,6 +13,7 @@ import { attachActiveOutlineWriteReplay, repairActiveOutlineSessions,
          trackActiveOutlineWrite } from "../outline/outlineSessions";
 import type { OutlineReplayAction } from "../outline/outlineState";
 import { createReplica, type Replica } from "../replica/client";
+import { availabilityOf } from "../replica/errors";
 import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue, type DrainOutcome,
          type PoisonEvent, type WriteTicket } from "./opQueue";
@@ -310,37 +311,32 @@ export function SyncProvider({ children, replica }: {
     } catch (error: unknown) {
       if (marked.length === 0) {
         // Discovery reaching the database and failing may simply mean there is
-        // no openable database at all. init() is the one call that reports
-        // that as a value instead of throwing, so ask it before treating this
-        // as an unknown repairable state: with no replica there are no poison
-        // rows this gate could protect, and holding it would strand every
-        // accepted edit in the in-memory fallback lane until the tab closes
-        // (pkm-bjae).
-        // Only an explicit ok:false lifts the barrier. A probe that *rejects*
-        // (dead worker, broken RPC port, timeout) is not evidence that there is
-        // no database — only that we could not ask — so it keeps today's gate
-        // and its Retry banner rather than delivering past unread poison.
-        const probe = await replicaRef.current!.init().then(
-          (init) => (init.ok ? "viable" : "unopenable"),
-          () => "unknown",
-        );
-        if (probe === "unopenable") {
+        // no openable database at all — and the worker is the one party that
+        // can tell the difference, so it says so in the error's type. Only its
+        // own latched open failure ("unusable") is evidence that there is no
+        // poison table for this gate to protect; with no replica there are no
+        // poison rows, and holding the barrier would strand every accepted edit
+        // in the in-memory fallback lane until the tab closes (pkm-bjae).
+        //
+        // Anything else — a dead worker, a module chunk 404 after a deploy
+        // against a stale index.html, an RPC timeout — is "we could not ask",
+        // not "there is nothing to read", so it keeps today's gate and its
+        // Retry banner rather than delivering past unread poison. There used to
+        // be an init() probe here whose third outcome ("unknown") retained the
+        // gate while setting no availability state at all, so nothing
+        // downstream knew (pkm-q2jj).
+        const message = error instanceof Error ? error.message : String(error);
+        if (availabilityOf(error) === "unusable") {
           startupDiscoveringPoisonRef.current = false;
           replicaSync!.markUnavailable();
           queue.resume("recovery");
           // Not silent: the user has lost offline editing for the session and
           // gets no other signal, since "no-replica" raises no banner of its
           // own (pkm-bjae review).
-          applySync({
-            type: "replica-unavailable",
-            error: error instanceof Error ? error.message : String(error),
-          });
+          applySync({ type: "replica-unavailable", error: message });
           return;
         }
-        applySync({
-          type: "poison-discovery-failed",
-          error: error instanceof Error ? error.message : String(error),
-        });
+        applySync({ type: "poison-discovery-failed", error: message });
         return;
       }
       // Returned mark evidence is sufficient to repair those rows safely;

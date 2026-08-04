@@ -19,7 +19,7 @@ function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch
   const pending = () => rows.filter((r) => !r.poisoned).length;
   const replica: Replica & { rows: PendingBatch[] } = {
     rows,
-    init: async () => ({ ok: true, empty: false, cursor: 0,
+    init: async () => ({ empty: false, cursor: 0,
                          schemaMismatch: false, pendingBatches: [] }),
     applySnapshot: async () => undefined,
     applyChanges: async () => ({ status: "applied", cursor: 0 }),

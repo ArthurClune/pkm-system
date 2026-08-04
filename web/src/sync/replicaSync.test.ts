@@ -28,7 +28,7 @@ function fakeReplica(over: Partial<Replica> = {},
   };
   return {
     calls,
-    init: () => rec("init", { ok: true, empty: false, cursor: 5,
+    init: () => rec("init", { empty: false, cursor: 5,
                               schemaMismatch: false, pendingBatches: [],
                               ...init } as ReplicaInit),
     applySnapshot: () => rec("applySnapshot", undefined),
@@ -109,7 +109,9 @@ test("a feed invalidated by pending-batch changes is refetched from the same cur
 });
 
 test("no-replica init reports mode and never fetches", async () => {
-  const replica = fakeReplica({}, { ok: false });
+  const replica = fakeReplica({
+    init: () => Promise.reject(new ReplicaUnavailableError("OPFS is not available")),
+  });
   const fetchJson = vi.fn();
   const { states, onState } = collector();
   const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });

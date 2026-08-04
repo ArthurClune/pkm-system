@@ -9,7 +9,7 @@
 
 import { ApiError } from "../api/client";
 import type { Changes, Snapshot } from "../replica/apply";
-import type { PendingBatch, RecoveryCommit, Replica } from "../replica/client";
+import type { PendingBatch, RecoveryCommit, Replica, ReplicaInit } from "../replica/client";
 import { availabilityOf, ReplicaError } from "../replica/errors";
 import type { OpQueue } from "./opQueue";
 
@@ -30,10 +30,10 @@ export interface ReplicaSync {
   /** Resolves when no pull is in flight (tests, reconnect ordering). */
   idle(): Promise<void>;
   /** Commit this session to online-only because startup established that the
-   * replica cannot be opened. Mirrors the `init().ok === false` path, and must
-   * be used instead of relying on a later start() to re-derive it: if that
-   * start's init() happened to succeed, the session would resume delivery with
-   * poison discovery skipped (pkm-bjae). */
+   * replica cannot be opened. Mirrors doStart's `availabilityOf(error) ===
+   * "unusable"` path, and must be used instead of relying on a later start()
+   * to re-derive it: if that start's init() happened to succeed, the session
+   * would resume delivery with poison discovery skipped (pkm-bjae). */
   markUnavailable(): void;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
    * remains paused on return so the provider can delete the poison row, bump
@@ -322,11 +322,25 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   const doStart = async (): Promise<void> => {
-    const init = await replica.init();
-    if (!init.ok) {
-      disabled = true;
-      onState({ mode: "no-replica" });
-      return;
+    let init: ReplicaInit;
+    try {
+      init = await replica.init();
+    } catch (error: unknown) {
+      // "unusable" is the worker reporting its own latched failed open: this
+      // session is online-only, and no later start() can revive it, because the
+      // latch replays for every call until close(). That is what replaces the
+      // `disabled` boolean this function used to set — the session-commitment
+      // moment moves to where the commitment actually happens (pkm-61zt).
+      //
+      // Anything else, INCLUDING "unreachable", stays an ordinary start
+      // failure: "we could not ask" is not evidence there is no database, and
+      // isStallShaped already excludes it from the stall count.
+      if (availabilityOf(error) === "unusable") {
+        disabled = true;
+        onState({ mode: "no-replica" });
+        return;
+      }
+      throw error;
     }
     cursor = init.cursor;
     if (init.schemaMismatch) {

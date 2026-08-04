@@ -28,8 +28,6 @@ export interface PoisonedBatch {
 }
 
 export interface ReplicaInit {
-  /** false => no-replica mode: wasm/OPFS unavailable, app runs online-only */
-  ok: boolean;
   /** true => never bootstrapped; fetch a snapshot before serving reads */
   empty: boolean;
   cursor: number;
@@ -52,6 +50,8 @@ export type RecoveryCommit =
 export type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 
 export interface Replica {
+  /** Rejects with ReplicaUnavailableError when the database cannot be opened;
+   * the worker has latched that for the session (pkm-za9j). */
   init(): Promise<ReplicaInit>;
   applySnapshot(snap: Snapshot): Promise<void>;
   applyChanges(feed: Changes,

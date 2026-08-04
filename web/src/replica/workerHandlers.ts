@@ -196,23 +196,14 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     },
     async init() {
       return gate.run(async () => {
-        let d: ReplicaDb;
-        try {
-          d = await db();
-        } catch {
-          // wasm/OPFS unavailable: the app degrades to online-only. db() has
-          // latched the failure for the session, so every later handler
-          // replays it rather than silently succeeding on a fresh attempt.
-          // Startup lifts the op queue's recovery barrier on the strength of
-          // this ok:false, having never read the poison table (pkm-bjae).
-          return { ok: false, empty: true, cursor: 0, schemaMismatch: false,
-                   pendingBatches: [] };
-        }
+        // No catch: an unopenable database is db()'s latched
+        // ReplicaUnavailableError, exactly as it is for every other handler.
+        // Consumers derive "no-replica" from that rejection (pkm-61zt).
+        const d = await db();
         const fresh = !tableExists(d, "sync_client_meta");
         const pendingBatches = fresh ? [] : readPendingBatches(d);
         if (fresh) installSchema(d);
         return {
-          ok: true,
           empty: getMeta(d, "generation") === null,
           cursor: Number(getMeta(d, "cursor") ?? 0),
           schemaMismatch: getMeta(d, "schema_version") !== SCHEMA_VERSION,

@@ -155,8 +155,34 @@ new nav links must use one of them rather than `NavLink` directly:
   offer; it also leaves `onNavigate` unfired, so a phone drawer stays open
   rather than closing onto nothing.
 
-Three global keys: `Ctrl+Shift+D` jumps to today's daily note, `Cmd/Ctrl+/`
-toggles the sidebar, `Cmd/Ctrl+J` toggles the assistant panel.
+Four global keys, all in one `window` keydown listener in `App.tsx`:
+`Ctrl+Shift+D` jumps to today's daily note, `Cmd/Ctrl+/` toggles the sidebar,
+`Cmd/Ctrl+J` toggles the assistant panel, and `Ctrl+Shift+T` toggles the
+block-stamp column.
+
+- **The Ctrl+Shift family exists because the Cmd forms never arrive.** macOS
+  reserves `Ctrl+Cmd+D` for dictionary lookup and the browser owns `Cmd+T`
+  (new tab) and `Shift+Cmd+T` (reopen closed tab); in each case the page
+  receives no keydown at all, so those chords cannot be claimed however the
+  handler is written. `Ctrl+Shift` is the fallback both of these landed on.
+  Plain `Ctrl+letter` is not available either — `docs/keyboard.md` leaves the
+  emacs-style bindings to the browser. Both Ctrl+Shift chords carry a
+  `!e.metaKey` guard so adding Cmd doesn't also fire them.
+- **No test can tell you a chord is swallowed.** jsdom and Playwright both
+  deliver a synthetic keydown the real OS or browser would have eaten, so a
+  green suite says nothing about whether a new global chord reaches the page.
+  Confirm one by pressing it in the running app before merging. `Ctrl+Cmd+D`
+  shipped and had to be replaced for exactly this reason.
+- **These chords fire while a block is being edited**, because `BlockInput`
+  does not `stopPropagation` on keydown and the listener is on `window`.
+  Adding a propagation guard to the editor would silently break all four; the
+  `App.test.tsx` coverage fires `Ctrl+Shift+T` on the textarea rather than on
+  `window` to catch that.
+
+`Ctrl+Shift+T`'s target is `blockStampsPref` — one global setting, not a
+per-page one — so it is deliberately live off page routes too: pressing it on
+`/files` takes effect on the next page opened, even though the page menu only
+offers the item on `/page/*`.
 
 The main pane and a sidebar panel can show *the same page at the same time*.
 That fact drives the outline-session design below.

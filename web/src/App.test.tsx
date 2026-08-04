@@ -289,6 +289,57 @@ it("ctrl-cmd-d is no longer bound", async () => {
   expect(screen.getByRole("heading", { name: "Paper" })).toBeInTheDocument();
 });
 
+// Ctrl-Shift-T, not Cmd-T: the browser owns Cmd-T for a new tab and never
+// delivers the keydown to the page. See docs/architecture/frontend.md.
+it("ctrl-shift-t shows the block-stamp column; pressing it again hides it", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+  ]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  expect(await screen.findByText("paper body")).toBeInTheDocument();
+  expect(container.querySelector(".block-stamp")).toBeNull();
+
+  fireEvent.keyDown(window, { key: "t", ctrlKey: true, shiftKey: true });
+  expect(container.querySelector(".block-stamp")).not.toBeNull();
+
+  fireEvent.keyDown(window, { key: "t", ctrlKey: true, shiftKey: true });
+  expect(container.querySelector(".block-stamp")).toBeNull();
+});
+
+// Fired on the textarea, not on window: the point is that the chord reaches
+// App's window listener from inside a focused block, which only holds because
+// BlockInput doesn't stopPropagation on keydown.
+it("ctrl-shift-t works while a block is being edited", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+  ]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  expect(await screen.findByText("paper body")).toBeInTheDocument();
+  fireEvent.click(container.querySelector('.block-row[data-uid="uid_s1"] .block-text')!);
+  const textarea = await waitFor(() => {
+    const el = container.querySelector("textarea");
+    expect(el).not.toBeNull();
+    return el!;
+  });
+  expect(textarea).toHaveFocus();
+
+  fireEvent.keyDown(textarea, { key: "t", ctrlKey: true, shiftKey: true });
+  expect(container.querySelector(".block-stamp")).not.toBeNull();
+});
+
+it("ctrl-cmd-t does not toggle the block-stamp column", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [block("uid_s1", "paper body")])],
+  ]);
+  const { container } = render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}><App /></MemoryRouter>);
+  expect(await screen.findByText("paper body")).toBeInTheDocument();
+  fireEvent.keyDown(window, { key: "t", ctrlKey: true, metaKey: true });
+  expect(container.querySelector(".block-stamp")).toBeNull();
+});
+
 it("clicking the sidebar toggle collapses the left nav and persists the choice; clicking again restores it", async () => {
   stubFetch([["/api/journal", { days: [] }]]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}><App /></MemoryRouter>);

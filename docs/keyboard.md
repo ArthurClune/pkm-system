@@ -11,10 +11,11 @@ emacs-style Ctrl+letter bindings, and so on).
 | Shortcut | Action |
 |---|---|
 | Cmd+U (or Ctrl+U) | Focus search; pressed again while in search, cancel and clear it |
-| Ctrl+Shift+D | Go to Daily Notes (Ctrl+Cmd+D is reserved by macOS for dictionary lookup) |
+| Ctrl+Shift+D | Go to Daily Notes |
 | Cmd+/ (or Ctrl+/) | Show / hide the right sidebar |
 | Cmd+Z / Shift+Cmd+Z (or Ctrl variants) | Undo / redo — global, works whether or not a block is being edited |
 | Cmd+J (or Ctrl+J) | Show / hide the assistant panel |
+| Ctrl+Shift+T | Show / hide block timestamps |
 
 ## Search
 

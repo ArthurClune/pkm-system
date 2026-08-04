@@ -80,8 +80,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       return await dbPromise;
     } catch (error: unknown) {
       // The original message is carried through verbatim: it is the only
-      // diagnostic the banner has, and the op queue's storage-error whitelist
-      // still matches on it until pkm-s7af replaces that with a type check.
+      // diagnostic the banner has. Retention no longer matches on it (pkm-s7af
+      // made that a type check on this class instead), so the message itself
+      // is display-only from here on.
       unavailable ??= new ReplicaUnavailableError(
         error instanceof Error ? error.message : String(error),
         { quota: (error as { quota?: boolean } | null)?.quota === true },

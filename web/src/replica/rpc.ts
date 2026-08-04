@@ -7,9 +7,6 @@
 
 import { ReplicaError, ReplicaUnavailableError, RpcLifecycleError } from "./errors";
 
-export type { RpcLifecycleKind } from "./errors";
-export { ReplicaError, ReplicaUnavailableError, RpcLifecycleError } from "./errors";
-
 export interface PortLike {
   postMessage(msg: unknown): void;
   onmessage: ((ev: { data: unknown }) => void) | null;

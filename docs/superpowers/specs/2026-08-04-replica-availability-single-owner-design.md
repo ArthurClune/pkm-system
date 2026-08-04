@@ -177,3 +177,20 @@ already ruled out. This design should land without pre-empting it.
 - The two reproduction tests already recorded in pkm-9x6u and pkm-4ubd go green
   as part of this and become permanent pins.
 - Full `pnpm verify` (typecheck, enforced coverage, Playwright e2e) per CLAUDE.md.
+
+## Addendum: two refinements found during implementation (2026-08-04)
+
+1. **The retain rule is a one-item blocklist, not a two-value type check.**
+   Section 3's table said `opQueue` "retains on type", meaning `unusable` /
+   `unreachable`. That would have regressed pkm-ndcu: `isPoolExhausted`
+   (`SQLITE_CANTOPEN`) fires on writes to a successfully OPEN database, so it is
+   not an availability failure and would have fallen through to `onDesync`.
+   The rule shipped is: retain every replica failure **except** one the replica
+   reports as a rejection of the op itself (`LocalOpError` -> the `rejected`
+   wire flag). This is what pkm-9x6u's own scope correction asked for, and it
+   needs one extra wire flag rather than a whitelist.
+2. **"Unreachable" retains at every level but latches only on permanent
+   evidence.** `createRpcClient` latches its terminal state for `worker-error`,
+   `message-error` and `disposed`, but a timeout rejects one request and leaves
+   the client usable. So `isSessionFatal` gates whether a consumer may cache the
+   availability state; `availabilityOf` alone gates retention.

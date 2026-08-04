@@ -434,29 +434,60 @@ drained, the editor kept accepting edits, and a reload or closed tab lost them
 (`init()` returning `ok: false`) was unreachable, because `init()` runs inside
 `start()` — the *last* thing startup does.
 
-So discovery failure now probes viability before concluding anything:
-`init()` is the one call that reports "no openable database" as a value rather
-than an exception. If it says the replica is not viable, startup calls
-`replicaSync.markUnavailable()` — committing the session to online-only, the
-same state as `ok: false` — and lifts the barrier, so the lane drains to the
-server. `markUnavailable()` exists rather than a second `start()` for a
-specific reason: were a later `init()` to succeed, the session would resume
-delivery with poison discovery *skipped*, which is the exact ordering hazard
-the barrier exists to prevent. Only an explicit `ok: false` lifts the barrier —
-a probe that *rejects* means we could not ask, not that there is no database,
-so it keeps the gate and its Retry banner.
+**The availability fact is two-valued, and the two values carry different
+evidentiary weight.** `unusable` means the worker's own `openDb()` failed:
+there is definitively no database. `unreachable` means the RPC itself is
+broken — the worker crashed, its message could not be decoded, or a call
+timed out — which says a write did not reach the replica, but not that there
+is no replica to reach. Both retain an op in the fallback lane; only
+`unusable` may lift the op queue's recovery barrier, because lifting it means
+asserting there is no poison table left to protect, and "we could not ask" is
+not that assertion — it is the absence of one. A probe that rejects because
+the port died says nothing about whether a database exists behind it, so it
+keeps the gate and its Retry banner.
 
-**Two invariants make that safe, and both are easy to break by accident.**
-First, `db()` is `dbPromise ??= deps.openDb()` (`workerHandlers.ts`), so one
-failed open is memoised and replayed to every handler; `init()`'s failure path
-must therefore *leave that rejection in place*. It originally cleared it, which
-re-armed the database the probe had just declared unopenable — and since
-`resume("recovery")` kicks a drain that calls `nextBatch()`, that drain got a
-fresh open, succeeded in the reload race, and delivered batches queued behind a
-poison row nobody had read. One failed open must mean online-only for the whole
-session; only `close()` re-arms. Second, latching preserves the memoised error's
-*identity*, which `opQueue`'s storage-error whitelist depends on to retain ops
-in the fallback lane instead of treating them as a desync.
+**The worker owns the fact and latches it until `close()`.** `db()` in
+`workerHandlers.ts` memoises `openDb()` as `dbPromise ??= deps.openDb()`; its
+first failure wraps the underlying error in a `ReplicaUnavailableError`, and
+every later handler call — including a later `init()` that would otherwise
+have succeeded — replays that same latched object. Only `close()` re-arms it.
+This makes explicit what used to be an accidental property of the memoised
+promise: the latch was always there, but its safety depended on a reader
+noticing that `init()`'s catch must never clear `dbPromise`, three modules
+away from where the consequence lands (a barrier lift that kicks a drain into
+a freshly-reopened, unexamined database).
+
+**It crosses the worker/main-thread boundary as a typed error, not a
+string.** `rpc.ts`'s response shape is `{message, quota, rejected,
+unavailable}`: `unavailable` is `true` exactly when the rejection was a
+`ReplicaUnavailableError`, and `createRpcClient` reconstructs the same class
+client-side. The wire flag is a boolean because only `unusable` is something
+the worker can assert about itself; `unreachable` never travels on the wire at
+all — it is generated client-side, by `createRpcClient`, when the port fails
+outright (`worker-error`, `message-error`, `disposed`) or a call times out.
+`availabilityOf()` (`replica/errors.ts`) folds both sources back into the
+two-valued `ReplicaAvailability`, so the boolean-vs-two-valued mismatch is
+real, but confined to that one function.
+
+**`opQueue` retains a failed replica RPC unless the replica rejected the op
+itself.** The rule is a one-item blocklist — retain everything except
+`ReplicaError.rejected` (an op the server would refuse too, e.g. unsupported
+reference title syntax) — rather than a two-value type check on
+`unusable`/`unreachable`. A type check would have regressed pkm-ndcu: a
+starved OPFS pool's `SQLITE_CANTOPEN` fires on a write to a database that
+opened successfully, so it is neither `unusable` nor `unreachable`, and would
+have fallen through to `onDesync` — wiping the active outline back to the
+edit-less server state and detaching the editor mid-keystroke, over a failure
+a moment's backoff would clear.
+
+**The queue also stops asking a dead replica, so a reconnect still bumps
+resync.** Once `noteReplicaFailure` latches `unavailable` from session-fatal
+evidence (`isSessionFatal`: the worker's latched open, or a terminally failed
+RPC client — never a bare timeout), the drain stops calling
+`nextBatch()`/`markPoisoned()` and delivers only the in-memory lane. Before
+this, the drain called the dead replica on every pass, failed every time, and
+never returned `"drained"` — so a socket reconnect that should have resumed
+durable delivery spun forever instead (pkm-9x6u).
 
 The session says so rather than degrading silently: startup raises a
 `replica-unavailable` problem, and `OfflineIndicator` renders "Working online
@@ -511,13 +542,16 @@ until the queue is disposed. Before this lane existed, these ops were POSTed
 inline from `enqueue()`, which offline meant they were neither persisted nor
 retryable.
 
-One diagnostic note, because it cost a misdirected investigation once. The
-symptom of a misclassified storage error is a **"Server rejected a change"**
-banner, which reads like a server-side rejection or a `resyncSeq` bug. When
-that banner appears, check the storage layer first. The classifier is a
-whitelist that denies nothing, so any *new* local-storage error shape
-reintroduces the wipe: extend the classifier rather than adding another
-symptom fix.
+One historical diagnostic note, because it cost a misdirected investigation
+once. Before pkm-s7af, this retention decision was a whitelist matched by
+error message; any local-storage failure shape that wasn't listed fell
+through to `onDesync` and produced a **"Server rejected a change"** banner
+that read like a server-side rejection or a `resyncSeq` bug — the symptom
+showed up in the wrong layer from its cause (pkm-9x6u, pkm-c9hp). The rule is
+now the one-item blocklist above, keyed on `ReplicaError.rejected` rather than
+on message text, so an unrecognised storage failure retains by default
+instead of falling through: there is no longer a class of local-storage error
+that reintroduces the wipe.
 
 ### Rebootstrap triggers
 

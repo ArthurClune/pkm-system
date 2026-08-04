@@ -357,10 +357,19 @@ function createReplicaQueue(replica: Replica,
     const initialBlock = terminalReason(qstate);
     if (initialBlock !== null) return blocked(initialBlock);
 
-    /** The durable queue is unreachable, so nothing durable can be delivered
-     * and nothing durable can still stand ahead of a retained entry. Returns
-     * the outcome to report, or null to keep looping (there is lane work, or a
-     * kick landed mid-drain).
+    /** The durable queue is unreachable in this session, so nothing durable
+     * can be delivered and nothing durable can still stand ahead of a
+     * retained entry FOR THIS SESSION. Returns the outcome to report, or
+     * null to keep looping (there is lane work, or a kick landed mid-drain).
+     *
+     * This does not hold across sessions: a later session with a working
+     * replica replays the deferred durable rows, and by then they are
+     * strictly behind the lane ops this session already delivered. That
+     * ordering is defensible rather than merely accepted, because
+     * base_text_hash is now stamped on update_text ops at both choke points —
+     * the durable row's hash was taken against text that is now stale, so the
+     * server forks a `[[conflict]]` sibling instead of silently
+     * LWW-overwriting the newer lane op.
      *
      * pendingCount is deliberately NOT zeroed: durable rows persisted before
      * the replica died are genuinely undelivered and belong in the pending

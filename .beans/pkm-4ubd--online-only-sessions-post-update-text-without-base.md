@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T12:20:27Z
-updated_at: 2026-08-04T16:30:46Z
+updated_at: 2026-08-04T17:19:55Z
 parent: pkm-q2jj
 ---
 
@@ -116,3 +116,28 @@ Observed body at 4fe2886 — note the absent hash:
 
     {"client_id":"...","batch_id":"...",
      "ops":[{"op":"update_text","uid":"block-1","text":"edited online-only"}]}
+
+
+## Residual hole found during final fix wave (2026-08-04, pkm-q2jj)
+
+The undoManager.ts fix (task 4 above) stamps base_text_hash for undo/redo
+dispatched to a *mounted* outline session by peeking the tree. But
+web/src/outline/undoManager.ts:93-106's `dispatch` falls back to unstamped
+ops whenever `peekOutlineSession(title)` returns null -- and the comment
+there used to say the worker fills the hash in "when the replica is
+openable". That is false for an online-only session: the replica never
+opens, so the worker never fills it in.
+
+This is reachable, not hypothetical: undo/redo is a per-tab global across
+pages (`dispatch` takes `entry.pageTitle` and calls `navigator?.(pagePath(title))`
+when the page isn't mounted), and `peekOutlineSession` returns null once a
+page's session has been released. So: edit page B, navigate to page A
+(releasing B's session), press undo, in a tab whose replica never opened ->
+an unguarded `update_text` for page B ships with no base_text_hash, exactly
+the LWW-overwrite / conflict-fork-skip failure mode this bean already
+describes for the direct-edit path.
+
+Left unfixed (out of scope for the fix wave that found it): the comment at
+undoManager.ts:93-106 now says so explicitly. A real fix would need to stamp
+the hash from durable/cached page state rather than a live tree when no
+session is mounted, which is a separate design question.

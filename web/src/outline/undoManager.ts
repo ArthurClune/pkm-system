@@ -96,8 +96,15 @@ function dispatch(sync: HistoryDispatch, batch: BlockOp[], title: string,
   // now, not as it was when the entry was recorded, or a replay after any later
   // edit would carry a stale hash and fork a spurious [[conflict]] sibling
   // (pkm-4ubd). With no mounted session there is no tree to hash against, so
-  // the ops go out unstamped and the worker fills them in when the replica is
-  // openable — the same fallback as a block this tree does not know.
+  // the ops go out unstamped, and the worker fills them in when the replica
+  // is openable — the same fallback as a block this tree does not know. But
+  // in an online-only session the replica never opens, so the worker never
+  // fills them in: undo is a per-tab global across pages (dispatch takes
+  // entry.pageTitle and navigates when the page isn't mounted, see below),
+  // and peekOutlineSession returns null once a page's session is released —
+  // so undoing an edit to a page you have since navigated away from, in a
+  // session whose replica never opened, ships an unguarded update_text.
+  // Residual hole, tracked but not fixed by pkm-4ubd.
   //
   // try/finally because peeking first put an acquired handle on the wrong side
   // of sync.enqueue, which throws on a disposed queue (opQueue.ts): before the

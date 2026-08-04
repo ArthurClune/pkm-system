@@ -46,10 +46,16 @@ export function OfflineIndicator() {
       // reopening mid-session could flush a previous session's stale durable
       // queue on top of those writes. A fresh page load gets a fresh worker
       // and runs startup's poison discovery in the right order.
-      // Copy deliberately does NOT promise the changes are being saved: that
-      // is only true when the open failure is one opQueue retains for (quota /
-      // SAH contention / pool exhaustion). Outside that whitelist the ops are
-      // dropped, so the reassurance would be false — see pkm-9x6u.
+      // Copy deliberately does NOT promise the changes are being saved: this
+      // problem is a ReplicaUnavailableError (SyncProvider only raises
+      // replica-unavailable for availabilityOf(error) === "unusable"), which
+      // is never `rejected`, so opQueue always retains here. But retained
+      // lane ops are only "still being saved" while this online-only session
+      // stays online — there is no beforeunload anywhere in the app, so if
+      // connectivity drops before they deliver, anything that reloads the
+      // page (the button below asks first; a browser refresh or tab close
+      // would not) discards them unseen. Whether the copy should say so is a
+      // product decision for Arthur — see pkm-9x6u.
       <div className="ws-banner" role="status">
         Working online only — offline editing is unavailable for now.
         <button type="button" onClick={() => { void reloadForOnlineOnly(); }}>

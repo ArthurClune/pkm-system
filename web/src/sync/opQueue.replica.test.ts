@@ -331,14 +331,15 @@ test("a replica that REJECTS the op desyncs and is not retained", async () => {
   // Characterisation for pkm-s7af: an unsupported title syntax is the replica
   // refusing the op on its merits (replica/queue.ts throws LocalOpError), and
   // the server would refuse it too — so retaining and retrying it can never
-  // help. Task 4 inverts the retain rule from a message allowlist to
-  // "retain everything except this"; this is the "except". The `rejected`
-  // flag is inert today (nothing reads it): this passes for today's reason —
-  // the message is simply not on the whitelist — which is what makes it a
-  // characterisation test rather than a test of the flag itself.
+  // help. Task 4 inverted the retain rule from a message allowlist to "retain
+  // everything except this"; this is the "except". The `rejected` flag is no
+  // longer inert: opQueue.ts reads `replicaError?.rejected === true` as the
+  // sole discriminator for the only onDesync path a replica failure can
+  // reach, so this is now a test of the flag itself, not just of the
+  // message.
   const replica = memReplica({
     enqueue: async () => { throw new ReplicaError(
-      'unsupported ref title syntax: "a[[b]]"', { rejected: true }); },
+      'unsupported reference title syntax: "a[[b]]"', { rejected: true }); },
   });
   const desyncs: unknown[] = [];
   const q = createOpQueue(replica, (e) => desyncs.push(e));

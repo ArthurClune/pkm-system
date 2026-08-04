@@ -431,8 +431,8 @@ never be opened, `poisonedBatches()` rejects, and for a long time that
 dead-ended startup with the barrier still held: the fallback lane was never
 drained, the editor kept accepting edits, and a reload or closed tab lost them
 (pkm-bjae). The online-only degradation that should have covered this
-(`init()` returning `ok: false`) was unreachable, because `init()` runs inside
-`start()` — the *last* thing startup does.
+(`init()` returning `ok: false`, since removed) was unreachable, because
+`init()` runs inside `start()` — the *last* thing startup does.
 
 **The availability fact is two-valued, and the two values carry different
 evidentiary weight.** `unusable` means the worker's own `openDb()` failed:
@@ -491,8 +491,9 @@ durable delivery spun forever instead (pkm-9x6u).
 
 The session says so rather than degrading silently: startup raises a
 `replica-unavailable` problem, and `OfflineIndicator` renders "Working online
-only — offline editing is unavailable for now. Your changes are still being
-saved." The action is **Reload**, not Retry, and deliberately so. The failed
+only — offline editing is unavailable for now." — deliberately without a
+second sentence promising the changes are being saved. The action is
+**Reload**, not Retry, and deliberately so. The failed
 open is latched for the session, and by the time the banner shows, the queue
 has already delivered online — so reopening mid-session could flush a previous
 session's stale durable queue on top of those writes. A fresh page load gets a

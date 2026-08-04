@@ -380,6 +380,16 @@ navigating with a full document load — the fresh replica worker calls
 handles, and sqlite-wasm throws "Access Handles cannot be created if there is
 another open Access Handle". The fix is a bounded retry around the open.
 
+That retry only retries because of one install option. sqlite-wasm memoises
+`installOpfsSAHPoolVfs` per VFS name and by default re-awaits — and so
+rethrows — a cached *rejection* forever; every retry then replays the first
+error instantly without touching OPFS, and the backoff can never observe the
+handles being released. `SAH_POOL_INSTALL_OPTIONS` in `openRetry.ts` therefore
+passes `forceReinitIfPreviouslyFailed: true`, which sqlite-wasm documents for
+exactly this case. Dropping that flag makes a single contention failure
+permanent for the life of the worker — and, per the paragraph below, silently
+undeliverable rather than merely uncached (pkm-wi25).
+
 **The open can also succeed with a pool too small to write.** The SAHPool
 VFS is a fixed pool of pre-opened OPFS files, and *every* file SQLite opens
 claims a slot: the database, its rollback journal, any temp file.
@@ -402,6 +412,18 @@ the active outline back to the edit-less server state and detach the editor
 mid-keystroke. Instead the ops join an **ordered in-memory fallback lane**
 and are delivered by the ordinary drain, under the same connectivity, backoff
 and recovery-barrier policy as durable rows.
+
+**That lane assumes the replica comes up eventually.** It is the enqueue that
+tolerates a temporarily unwritable replica, not startup: `SyncProvider`'s mount
+effect pauses the queue on the recovery barrier and holds it there until
+`queue.retryPoisonMarks()` and `replica.poisonedBatches()` have run, and both
+are replica RPCs. While the open cannot succeed at all, that gate never lifts,
+so the queue is never set online and the fallback lane is never drained. The
+UI shows "Checking rejected changes failed: …" with a Retry button, but the
+editor still accepts edits, and those edits live only in memory: a reload or a
+closed tab loses them. So a *permanently* unopenable replica is a
+durability hazard, not just a lost cache, and the pool's install options above
+are load-bearing for that reason.
 
 The lane preserves order. Each entry records how many durable batches were
 queued ahead of it, and is posted only once each of those has reached a

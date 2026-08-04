@@ -8,18 +8,27 @@
 
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import { type Oo1DbLike, type ReplicaDb, wrapSqlite } from "./db";
-import { openWithRetry } from "./openRetry";
+import { openWithRetry, SAH_POOL_INSTALL_OPTIONS } from "./openRetry";
 import { ensureMinimumCapacity, type CapacityPool } from "./poolCapacity";
 import { serveRpc, toPortLike } from "./rpc";
 import { buildHandlers } from "./workerHandlers";
 
 const DB_FILE = "/pkm-replica.sqlite3";
 
+interface SahPoolOptions {
+  name: string;
+  /** Drop a memoised install failure instead of replaying it — see
+   * SAH_POOL_INSTALL_OPTIONS. */
+  forceReinitIfPreviouslyFailed: boolean;
+}
+
 interface PoolUtil extends CapacityPool {
   OpfsSAHPoolDb: new (filename: string) => Oo1DbLike & { close(): void };
 }
 
-let sqlite3: { installOpfsSAHPoolVfs(opts: { name: string }): Promise<PoolUtil> } | null = null;
+let sqlite3: {
+  installOpfsSAHPoolVfs(opts: SahPoolOptions): Promise<PoolUtil>;
+} | null = null;
 let pool: PoolUtil | null = null;
 let rawDb: (Oo1DbLike & { close(): void }) | null = null;
 
@@ -37,9 +46,11 @@ async function openDb(): Promise<ReplicaDb> {
   // A page reload/navigation can spawn this worker before the previous one
   // has released the OPFS SAH pool; retry through that transient contention
   // (pkm-c9hp) instead of surfacing it as a spurious "server rejected"
-  // desync that wipes the active outline.
+  // desync that wipes the active outline. The install options are what let a
+  // retry be a real second attempt rather than a replay of the memoised
+  // failure (pkm-wi25) — see SAH_POOL_INSTALL_OPTIONS.
   return openWithRetry(async () => {
-    pool ??= await sqlite3!.installOpfsSAHPoolVfs({ name: "pkm-replica" });
+    pool ??= await sqlite3!.installOpfsSAHPoolVfs({ ...SAH_POOL_INSTALL_OPTIONS });
     // The same navigation race can also let the install SUCCEED with a pool
     // too small to hold both the database and its rollback journal, which
     // makes every write fail with SQLITE_CANTOPEN forever (pkm-ndcu). Grow it

@@ -1,5 +1,6 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { waitForServerText } from "./server-state";
 
 const PASSWORD = "e2e-pw";
 
@@ -47,6 +48,13 @@ test("the page menu toggles a stamp column that survives a reload", async ({ pag
   // Just created, so it lands in the freshest band with a real date on it.
   await expect(stamp).toHaveClass(/block-stamp-week/);
   await expect(stamp).toHaveText(/^\d{1,2} [A-Z][a-z]{2} \d{2}$/);
+
+  // Wait for the server's own copy before reloading (pkm-wi25). The block was
+  // typed a few hundred ms ago, and a reload that beats the queue's first
+  // delivery reloads onto an empty page — there is then no row to stamp, and
+  // the failure reads as a missing stamp column rather than a missing block.
+  // Polling the server is the deterministic wait; see server-state.ts.
+  await waitForServerText(page, title, "a block with a date");
 
   await page.reload();
   await expect(page.locator("h1.page-title")).toHaveText(title);

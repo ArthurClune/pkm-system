@@ -18,6 +18,28 @@
 // sleep and the open factory are injected so the schedule is unit-testable
 // without a real Worker, OPFS, or timers.
 
+/** The options the replica worker must install the SAH pool with.
+ *
+ * `forceReinitIfPreviouslyFailed` (pkm-wi25) is what makes the backoff below
+ * mean anything. sqlite-wasm memoises `installOpfsSAHPoolVfs` per VFS name and
+ * by default re-awaits — and so rethrows — a cached *rejection* on every later
+ * call (dist/index.mjs, `initPromises[vfsName]`). Without the flag the very
+ * first contention failure is final for the life of the worker: each retry
+ * replays the memoised error instantly, without touching OPFS, so the handles
+ * releasing "moments later" can never be observed. sqlite-wasm documents the
+ * flag for exactly this ("environments which may mysteriously fail to permit
+ * access to OPFS sync access handles on an initial attempt but permit it on a
+ * second attempt", sqlite/sqlite-wasm#79).
+ *
+ * The cost of a dead replica is not just a missing cache: startup's rejected-
+ * changes check fails, the op queue never leaves its startup pause, and edits
+ * already accepted on screen sit in memory undelivered until the tab is
+ * reloaded or closed, which loses them. */
+export const SAH_POOL_INSTALL_OPTIONS = {
+  name: "pkm-replica",
+  forceReinitIfPreviouslyFailed: true,
+} as const;
+
 /** Recognise the OPFS SyncAccessHandle contention that a page reload/
  * navigation races into — the only failure this retry should absorb. */
 export function isSahPoolContention(error: unknown): boolean {

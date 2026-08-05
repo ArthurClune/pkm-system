@@ -21,6 +21,7 @@ import { createReplicaSync, ResetBlockedError, type ReplicaState } from "./repli
 import { connectSocket, type WsBatch } from "./socket";
 import { computeEditability, transitionSync,
          type SyncEvent, type SyncStatus, type SyncProblem } from "./syncState";
+import { useUnloadGuard } from "./unloadGuard";
 
 export type { SyncStatus, SyncProblem } from "./syncState";
 
@@ -46,6 +47,12 @@ export interface Sync {
   canEdit: boolean;
   /** Queued (non-poisoned) batches not yet acknowledged by the server. */
   pending: number;
+  /** Ops stranded ONLY in this tab's memory — the subset of `pending` a
+   * reload actually destroys (pkm-0htf). Durable replica rows count toward
+   * `pending` too but survive a reload fine, which is why the beforeunload
+   * guard (wired in SyncProvider, not here) is gated on this and not on
+   * `pending`. */
+  unsentInMemory: number;
   /** Why editing is blocked, when it is. */
   readOnlyReason?: string;
   /** Delivery health is separate from websocket connectivity. */
@@ -73,6 +80,7 @@ export const SyncContext = createContext<Sync>({
   replicaMode: "starting",
   canEdit: false,
   pending: 0,
+  unsentInMemory: 0,
   retryProblem: () => Promise.resolve(),
   dismissProblem: () => undefined,
   resetReplica: () => Promise.resolve(),
@@ -127,6 +135,7 @@ export function SyncProvider({ children, replica }: {
   const [replicaState, setReplicaState] =
     useState<ReplicaState>({ mode: "starting" });
   const [pending, setPending] = useState(0);
+  const [unsentInMemory, setUnsentInMemory] = useState(0);
   const [problem, setProblem] = useState<SyncProblem>();
   const subsRef = useRef(new Set<(b: WsBatch) => void>());
   const everConnectedRef = useRef(false);
@@ -213,6 +222,9 @@ export function SyncProvider({ children, replica }: {
   useEffect(() => {
     const offs = [
       queue.onPending((n) => { if (mountedRef.current) setPending(n); }),
+      queue.onUnsentInMemory((n) => {
+        if (mountedRef.current) setUnsentInMemory(n);
+      }),
       queue.onPoisonMarkFailed(({ event, error }) => {
         repairTargetsRef.current = [event];
         repairSucceededRef.current = false;
@@ -538,12 +550,17 @@ export function SyncProvider({ children, replica }: {
   const { canEdit, readOnlyReason } =
     computeEditability(status, replicaState.mode);
 
+  // Live for the provider's whole lifetime, independent of whether any
+  // banner component is mounted to show the corresponding copy (pkm-0htf).
+  useUnloadGuard(unsentInMemory);
+
   const api = useMemo<Sync>(() => ({
     status,
     resyncSeq,
     replicaMode: replicaState.mode,
     canEdit,
     pending,
+    unsentInMemory,
     readOnlyReason,
     problem,
     retryProblem: () => {
@@ -622,8 +639,8 @@ export function SyncProvider({ children, replica }: {
       return () => { subsRef.current.delete(fn); };
     },
     settled: () => queue.settled(),
-  }), [status, resyncSeq, replicaState, canEdit, pending, readOnlyReason,
-       problem, queue, replicaSync]);
+  }), [status, resyncSeq, replicaState, canEdit, pending, unsentInMemory,
+       readOnlyReason, problem, queue, replicaSync]);
 
   return <SyncContext.Provider value={api}>{children}</SyncContext.Provider>;
 }

@@ -1479,3 +1479,41 @@ async (reason, transition) => {
   });
   q.dispose();
 });
+
+// --- pkm-0htf: onUnsentInMemory reports only the fallback lane (ops that
+// exist ONLY in this tab's memory), never durable rows that survive a
+// reload, so a beforeunload guard gated on it never fires for ordinary
+// offline reloads. ---
+
+test("a persist failure retained in the lane emits 1 on onUnsentInMemory; delivering it returns to 0",
+async () => {
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica({
+    enqueue: async () => { throw new Error(CANTOPEN); },
+  });
+  const q = createOpQueue(replica, () => undefined);
+  const unsentCounts: number[] = [];
+  q.onUnsentInMemory((n) => unsentCounts.push(n));
+  q.enqueue([op("u1")]);
+  await q.settled();
+  expect(unsentCounts.at(-1)).toBe(1);
+
+  await q.drain();
+  expect(unsentCounts.at(-1)).toBe(0);
+  expect(bodies).toHaveLength(1);
+});
+
+test("a healthy durable enqueue reports non-zero onPending while onUnsentInMemory stays 0",
+async () => {
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  const pendingCounts: number[] = [];
+  const unsentCounts: number[] = [];
+  q.onPending((n) => pendingCounts.push(n));
+  q.onUnsentInMemory((n) => unsentCounts.push(n));
+  q.setOnline(false); // durable row persists but is not yet delivered
+  q.enqueue([op("u1")]);
+  await q.settled();
+  expect(pendingCounts.at(-1)).toBe(1);
+  expect(unsentCounts.at(-1)).toBe(0); // a durable row is not in-memory-only
+});

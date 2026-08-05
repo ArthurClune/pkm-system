@@ -457,7 +457,7 @@ changes with connectivity, because what is true changes with connectivity:
 | State | Second sentence | Why |
 |---|---|---|
 | Connected | "Your changes are still being saved to the server." | This problem is only ever raised for an `unusable` replica, never a `rejected` op, so the queue retains every write |
-| Offline, work pending | a warning that N unsent changes exist only in memory and a reload or closed tab discards them | They live only in the fallback lane, and there is no `beforeunload` anywhere in `web/src` |
+| Offline, work pending | a warning that N unsent changes exist only in memory and a reload or closed tab discards them | They live only in the fallback lane. `useUnloadGuard` interrupts a reload where `beforeunload` is honoured, which an iOS standalone PWA does not |
 | Offline, clean queue | none — the first sentence stands alone | Nothing to promise and nothing to lose |
 
 The action is **Reload**, not Retry, and it confirms first when ops are pending.
@@ -482,7 +482,10 @@ lifting the barrier, the second only by reconnecting before the tab closes.
 **Known gap (pkm-0htf):** nothing surfaces a replica that opens and then fails
 every write. `availabilityOf` returns `null` for it, so no banner shows and
 editing stays enabled. That is right in itself — the ops still reach the server —
-but the user keeps producing writes that live only in memory.
+but the user keeps producing writes that live only in memory. A banner for it
+was considered and dropped: telling these failures from the single transient one
+that self-heals needs a threshold nothing can validate. The unload guard covers
+the loss instead, whatever caused it.
 
 ### The in-memory fallback lane
 
@@ -513,6 +516,16 @@ Every entry counts towards "N changes pending". It is kept until it is delivered
 until the server rejects it with a 4xx, or until the queue is disposed. That 4xx
 is the only discard the queue makes on its own; it raises the repair barrier and
 calls `onDesync`.
+
+A reload destroys the lane, so `useUnloadGuard` interrupts one. It arms from
+`onUnsentInMemory`, the lane's own length, and never from "N changes pending":
+that total includes durable rows, which a reload finds again, so arming from it
+would interrupt an offline reload that loses nothing. The listener attaches only
+while the lane is non-empty, because a permanently attached `beforeunload`
+handler opts the page out of the back/forward cache. It is a desktop protection:
+`beforeunload` is unreliable in an iOS standalone PWA, the same context that
+suppresses `window.confirm`, which is why `OfflineIndicator`'s own Reload
+confirm stays.
 
 ### Rebootstrap triggers
 
@@ -560,7 +573,7 @@ fix installed. The bean has the full investigation.
 | "Server rejected a change" and the outline reverts, but the server is healthy | a *local* storage failure reached `onDesync`. Retention was once a whitelist matched on error message; the blocklist on `rejected` is what makes an unrecognised storage failure retain by default | pkm-c9hp, pkm-s7af |
 | After reconnect, durable delivery never resumes and the drain never reports `"drained"` | the drain kept calling a dead replica. Its "no repeated OPFS open" premise holds only because of the worker's latch — do not "fix" this by re-arming the DB | pkm-9x6u |
 | Startup wedges: edits accepted, nothing delivered, socket up | the recovery barrier was held on an RPC that could never answer, and the lane was never drained | pkm-bjae |
-| Unsent edits vanish on reload in an online-only session | the lane is their only home, and there is no `beforeunload`; the banner warns, the browser's own controls do not | pkm-bjae, pkm-tu5k |
+| Unsent edits vanish on reload in an online-only session | the lane is their only home. `useUnloadGuard` interrupts the reload, but an iOS standalone PWA ignores `beforeunload`, so on iPad the banner's own Reload confirm is the only warning | pkm-bjae, pkm-0htf |
 | A profile stays wedged across sessions after a rejected batch | the retained mark intent in `localStorage` clears only after a successful `markPoisoned`, which an unopenable replica can never do. Open by design | pkm-tu5k |
 | Two tabs; one tab's `update_text` overwrote the other's with no `[[conflict]]` sibling | the op carried no `base_text_hash`, so the server took its legacy branch and plain last-write-wins | pkm-4ubd |
 | A collapse made offline reorders recently-changed lists, then un-reorders on resync | one side stamped `updated_at` for `set_collapsed` and the other did not | pkm-r7k8 |

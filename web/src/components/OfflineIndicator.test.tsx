@@ -10,6 +10,7 @@ function syncWith(overrides: Partial<Sync>): Sync {
     replicaMode: "ready",
     canEdit: true,
     pending: 0,
+    unsentInMemory: 0,
     retryProblem: () => Promise.resolve(),
     dismissProblem: () => undefined,
     resetReplica: () => Promise.resolve(),
@@ -169,9 +170,9 @@ it("an online-only session says so and offers a Reload, not a Retry", async () =
 
 it("warns instead of reassuring when an online-only session goes offline", () => {
   // pkm-s1m8: the reassurance is true only while the socket is up. Offline,
-  // retained ops live in the in-memory fallback lane and there is no
-  // beforeunload anywhere in the app, so a refresh or a closed tab takes them
-  // silently — the one case where the user can still act on the warning.
+  // retained ops live in the in-memory fallback lane, and useUnloadGuard does
+  // not hold on iPad (pkm-0htf), so a refresh or a closed tab can still take
+  // them — the one case where the user can act on the warning.
   renderWith({
     status: "reconnecting",
     canEdit: false,
@@ -225,10 +226,10 @@ it("says nothing about safety when an offline online-only session is clean", () 
 
 it("Reload confirms before discarding undelivered work", async () => {
   // pkm-bjae review: location.reload() destroys the in-memory fallback lane,
-  // which in an online-only session is the ONLY place undelivered ops live,
-  // and there is no beforeunload anywhere in the app to catch it. The banner's
-  // own wording invites the click, so it must ask first — mirroring
-  // resetReplica's "N unsent changes" refusal.
+  // which in an online-only session is the ONLY place undelivered ops live.
+  // The banner's own wording invites the click, so it must ask first —
+  // mirroring resetReplica's "N unsent changes" refusal. This confirm outlives
+  // useUnloadGuard because beforeunload is unreliable on iPad (pkm-0htf).
   const reload = vi.fn();
   const original = globalThis.location;
   Object.defineProperty(globalThis, "location", {

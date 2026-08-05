@@ -2156,3 +2156,53 @@ test("provider cleanup disposes the queue and cancels its retry timer", async ()
     vi.useRealTimers();
   }
 });
+
+// pkm-0htf: the guard is armed from the in-memory lane, never from `pending`.
+// The unit tests either side of this one prove the lane count is right and the
+// listener obeys its argument; only these two prove SyncProvider hands the
+// guard the lane count and not the total, which is the substitution a future
+// edit is most likely to make.
+
+function dispatchUnload(): Event {
+  const event = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(event);
+  return event;
+}
+
+test("an op stranded in the in-memory lane arms the unload guard", async () => {
+  const replica = {
+    ...fakeReplicaForProvider(),
+    // What a full disk reaches this layer as: the opfs-sahpool VFS reports it
+    // as a bare I/O error, so it is retained like any other failure to persist.
+    enqueue: async () => { throw new Error("SQLITE_IOERR: disk I/O error"); },
+  };
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  // The socket stays closed: a connected queue would deliver the lane entry
+  // immediately and there would be nothing left to lose.
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+  await act(async () => { await sync.settled(); });
+
+  expect(sync.unsentInMemory).toBe(1);
+  expect(dispatchUnload().defaultPrevented).toBe(true);
+});
+
+test("a durable pending row leaves the unload guard disarmed", async () => {
+  const replica = {
+    ...fakeReplicaForProvider(),
+    enqueue: async () => ({ pending: 1 }),
+    pendingCount: async () => 1,
+  };
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
+  await act(async () => { await sync.settled(); });
+
+  // Undelivered, so it shows in the offline banner's count — but it is on disk
+  // and a reload will still find it.
+  expect(sync.pending).toBe(1);
+  expect(sync.unsentInMemory).toBe(0);
+  expect(dispatchUnload().defaultPrevented).toBe(false);
+});

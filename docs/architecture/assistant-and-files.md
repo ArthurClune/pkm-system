@@ -32,39 +32,49 @@ Conversations are ephemeral: in memory only, with no history table. The engine
 is injected into `create_app(config, assistant_engine=...)`; production
 defaults to `ClaudeEngine`, while tests and the e2e server inject a fake.
 
+One turn with a confirmed write, end to end:
+
+```mermaid
+sequenceDiagram
+    participant B as Browser (chat panel)
+    participant R as routes.py (SSE)
+    participant H as Harness subprocess<br/>(Claude Agent SDK)
+    participant A as Same HTTP API
+
+    B->>R: POST …/{id}/messages (one turn)
+    R->>H: send turn
+    loop while the turn runs
+        H-->>R: deltas + tool activity
+        R-->>B: text_delta / tool_started / tool_finished
+        Note over R,B: comment keepalive every 15 idle s
+    end
+    H->>H: model calls a write tool —<br/>can_use_tool parks it on a future
+    R-->>B: confirm_request (ops preview from policy.py)
+    B->>R: POST …/{id}/confirm {tool_use_id, allow}
+    R->>H: resolve future — tool runs, or "the user declined"
+    H->>A: pkm-mcp verb → HTTP API (minted session token)
+    H-->>R: turn ends
+    R-->>B: turn_done
+```
+
 ### Admission is serialized
 
-`create()`'s cap check, eviction, and `engine.create_conversation()` call all
-run under a single `asyncio.Lock`. Without it, two concurrent creations could
+`create()`'s cap check, eviction and `engine.create_conversation()` call run
+under a single `asyncio.Lock`; without it, two concurrent creations could
 both observe free capacity before either registered, bypassing the cap or
-double-evicting.
+double-evicting. The lock spans a subprocess spawn, so it is bounded by
+`create_timeout` (`CREATE_TIMEOUT_S`, 60s default): a wedged harness fails
+that one request instead of wedging every future `create()`. The bound is the
+timeout *plus* the cancelled task's own cleanup — `asyncio.wait_for` waits
+for it — which rides the SDK transport's bounded close.
 
-That lock spans a subprocess spawn (the harness connect handshake), so it is
-bounded by `create_timeout` (`CREATE_TIMEOUT_S`, 60s default) rather than left
-unbounded: a wedged harness fails that one request instead of wedging every
-future `create()`. The true worst-case hold is `CREATE_TIMEOUT_S` *plus*
-cleanup, not `CREATE_TIMEOUT_S` alone. `asyncio.wait_for` does not return until
-the task it cancelled has finished unwinding, so `create_conversation()`'s own
-cancellation-triggered cleanup — disconnecting the partially-connected client —
-runs to completion first, still under the lock. That cleanup rides on the SDK
-transport's own bounded close, about 20s worst case, which puts the real
-ceiling near 80s.
-
-Closing a reaped or evicted conversation's harness is deliberately *not* done
-under the lock. The entry is popped from the registry, which is atomic and so
-enforces the cap correctly, and the actual `close()` runs after the lock is
-released. A hung teardown can then only block the request that triggered it,
-never other admissions.
-
-That post-lock teardown loop is itself cancellation-safe. Every queued handle
-was already popped from the registry, so nothing else will ever retry closing
-it, and a cancellation landing while parked in one handle's `close()` keeps
-closing the rest of the queue rather than abandoning it. The first
-cancellation is re-raised only once every handle has been attempted, which
-delays it rather than losing it.
-
-Sending a turn, confirming a tool call and deleting a conversation are
-unaffected: only admission (`create()`) is serialized.
+Closing a reaped or evicted conversation's harness runs *after* the lock is
+released; the registry pop alone is what enforces the cap, so a hung teardown
+blocks only the request that triggered it. That post-lock loop is
+cancellation-safe: every queued handle was already popped, nothing else will
+retry it, and a cancellation landing mid-`close()` keeps closing the rest of
+the queue before being re-raised. Only admission is serialized — sending a
+turn, confirming a tool call and deleting a conversation are unaffected.
 
 ### How `claude_engine.py` confines the harness
 
@@ -79,27 +89,17 @@ unaffected: only admission (`create()`) is serialized.
 - **Transactional startup**: `create_conversation()` writes that config file,
   then constructs the client and awaits `connect()` inside a
   `try`/`except BaseException` that reuses `ClaudeConversation.close()` for
-  cleanup on any exit other than success. That covers three failure shapes the
-  old code left unhandled:
-  - the `client_factory` itself raising (no client to disconnect, only the
-    config to unlink);
-  - `connect()` raising after the client exists;
-  - cancellation delivered into the awaited `connect()` — what happens when
-    `service.create()`'s `wait_for(create_timeout)` times out on a wedged
-    handshake.
-
-  `close()` already tolerates a client that never connected or was never
-  attached, a `disconnect()` call that itself raises, and a *second*
-  cancellation landing anywhere in its body. One example: the request task
-  being cancelled on top of the `create_timeout` cancellation that triggered
-  cleanup. The config-file unlink lives in a `finally` rather than a trailing
-  statement a `CancelledError` could skip, precisely because `except Exception`
-  does not catch `BaseException`. Startup failure and normal teardown share one
-  code path instead of two.
-- **Write confirmation**: the SDK's `can_use_tool` hook streams a
-  `ConfirmRequest`, with an ops preview from `policy.py`, to the browser and
-  blocks the tool call on a future until `POST …/confirm` resolves it. A denial
-  returns "the user declined" to the model instead of erroring the turn.
+  cleanup on any exit other than success. The covered exits: the factory
+  raising, `connect()` raising, and cancellation delivered into `connect()`
+  when admission's `wait_for(create_timeout)` times out on a wedged
+  handshake. `close()` tolerates a client that
+  never connected, a `disconnect()` that itself raises, and a second
+  cancellation landing anywhere in its body; the config-file unlink lives in
+  a `finally` because `except Exception` does not catch `BaseException`.
+  Startup failure and normal teardown share one code path instead of two.
+- **Write confirmation** is the parked-future flow in the diagram above. A
+  denial returns "the user declined" to the model instead of erroring the
+  turn.
 - **Dropped-consumer cleanup, in this order**: decline every pending confirm
   future, *then* await `interrupt()` (bounded by `INTERRUPT_TIMEOUT_S`). The
   order matters and is easy to get backwards. A harness sitting in
@@ -108,29 +108,23 @@ unaffected: only admission (`create()`) is serialized.
   returns instantly, which hides this entirely, so the regression tests use a
   subclass whose `interrupt()` never returns.
 - **An unacknowledged interrupt retires the conversation, not just the turn.**
-  If `interrupt()` times out or raises, `ClaudeConversation` flips its `healthy`
-  flag to `False`. The subprocess may still be running the abandoned turn, so
-  its state is uncertain, and it must never be handed a later turn.
-  `AssistantService._stream()` checks `healthy` after every turn and, if it has
-  gone false, pops the conversation out of `_entries` and closes the harness
-  there instead of just clearing `busy`. The next `send()` for that id gets a
-  plain `UnknownConversationError` (404), the same as any other unknown
-  conversation.
-
-  That check runs synchronously right after the busy flag is cleared, with no
-  `await` in between, so it cannot race a concurrent admission's reap/evict
-  (both skip busy entries). It also closes the handle only if its own pop is
-  what removed the entry, so it cannot double-close one that a concurrent
-  explicit `delete()` — the pagehide beacon, say — already tore down.
-- **Silent turns are the norm, not the exception.** 80s of model reasoning
-  before the first token, and 25s serialising a large tool call, were both
-  measured on 2026-07-30. A parked confirm writes nothing for as long as the
-  user takes. `routes._with_keepalive()` therefore keeps the SSE connection
-  warm with a comment frame. That also forces a periodic write, so a client
-  that vanished without a clean close surfaces promptly instead of the
-  confirmation prompt being written into a dead socket. Thinking content is
-  deliberately *not* streamed (`TurnMapper.map` forwards only `text_delta`);
-  the panel's own "thinking…" line is the liveness signal.
+  If `interrupt()` times out or raises, the subprocess may still be running
+  the abandoned turn. `ClaudeConversation` therefore flips `healthy` to
+  `False`, and the conversation must never be handed a later turn.
+  `AssistantService._stream()` checks `healthy` right after clearing the
+  busy flag — synchronously, so it cannot race a concurrent admission's
+  reap or evict. It pops the conversation, and closes the harness only if
+  its own pop removed the entry, so one already torn down by an explicit
+  `delete()` (the pagehide beacon, say) cannot be double-closed. The next
+  `send()` for that id gets a plain `UnknownConversationError` (404).
+- **Silent turns are the norm, not the exception.** Long model reasoning,
+  large tool payloads and a parked confirm can all write nothing for minutes,
+  so `routes._with_keepalive()` keeps the SSE connection warm with the
+  comment frame. Forcing a periodic write also surfaces a client that
+  vanished without a clean close, instead of the confirmation prompt being
+  written into a dead socket. Thinking content is deliberately *not* streamed
+  (`TurnMapper.map` forwards only `text_delta`); the panel's own "thinking…"
+  line is the liveness signal.
 - **Deployment prerequisite**: the SDK bundles its own `claude` binary and
   authenticates with the machine's logged-in Claude subscription. There is
   deliberately no `ANTHROPIC_API_KEY` in the service environment. See

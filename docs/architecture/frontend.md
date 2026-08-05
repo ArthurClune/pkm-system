@@ -32,76 +32,91 @@ depth — this doc covers them only from the UI side.
 ## Module map (`web/src/`)
 
 ```
-main.tsx / App.tsx     Shell   Entry + top-level tree: SyncProvider > DndProvider >
-                               SidebarContext > BlockStampsContext > (left nav,
-                               TopBar, routes, sidebar stack)
-routeMeta.ts           Core    Route paths + top-bar label/browser-title table, one
-                               entry per static route; TopBar, App.tsx's routing,
-                               and useRouteTitle.ts (Shell, the single title effect)
-                               all consume it, so /page/* and the not-found
-                               catch-all are the only routes without a fixed label
-blockStampsPref.ts     Core    Block-timestamps preference (localStorage key +
-                               guard + toggle); useBlockStampsPref.ts (Shell)
-                               owns the single instance, shared through
-                               BlockStampsContext so the page menu's Show/Hide
-                               label and PageView's column cannot disagree
-api/                   client.ts (fetch wrapper + offline gateway),
-                       typedClient.ts (path/method-aware wrapper over it),
-                       generated openapi.json + types.d.ts, type-only
-                       re-exports (ops.ts, payloads.ts)
-assistant/             The embedded-assistant chat panel (Cmd/Ctrl+J).
-                       Core: sse.ts (incremental SSE frame parser).
-                       Shells: client.ts (fetch/stream over /api/assistant/*),
-                       useAssistant.ts (chat state), AssistantPanel.tsx
-views/                 Journal (daily notes, `/`), PageView (`/page/*`),
-                       CurrentWork (`/current-work`), Files (`/files`, + pure
-                       filesCore.ts), Settings (`/settings`), Help (`/help`);
-                       EditablePage = one editable outline, reused by main pane
-                       and sidebar panels
-outline/               The editor engine. It owns its own contract: handlers.ts
-                       declares OutlineHandlers, the command port useOutline
-                       implements and the components call, so the dependency
-                       runs UI → engine.
-                       Cores: outlineState.ts (the reducer), keyboardPolicy.ts,
-                       edits.ts, tree.ts (applyOps — mirrors server ops_apply),
-                       keyEdits.ts, slashCommands.ts, autocomplete.ts,
-                       refAtCaret.ts, blockSelection.ts, history.ts,
-                       paste.ts (outline paste), calendar.ts (/date month grid),
-                       missingPage.ts (the missing-page policy),
-                       blockStamps.ts (margin-column dates, age bands, and
-                       which ops count as a change), baseTextHash.ts (stamps
-                       update_text ops with base_text_hash at construction time)
-                       Shells: useOutline.ts (the hook), outlineSessions.ts
-                       (per-title shared store), useOutlinePageLoad.ts (the
-                       shared page-load controller), undoManager.ts,
-                       useAutocomplete.ts (the popup's shared state),
-                       useBlockDraft.ts (the focused block's draft session)
-grammar/               Roam-markdown parsing: scan.ts (the shared scanner,
-                       mirrors server refs.py), tokenize.ts (render tokens),
-                       refs.ts, todo.ts, snippet.ts
-components/            ~45 files: the editor's own views (EditableBlockTree =
-                       the read-side tree + selection keyboard, BlockInput =
-                       the focused block's textarea), inline rendering
-                       (InlineSegments, MathSpan, QueryBlock, BlockRef,
-                       MermaidDiagram, PdfEmbed/PdfViewer,
-                       PageLink, AssetImage, CodeBlock, BlueskyEmbed, roamTable…)
-                       + chrome (TopBar, SidebarNav/Panel, NavPageLink/
-                       NavRouteLink, SearchBar,
-                       OfflineIndicator, Composer, BacklinksSection,
-                       JournalDayReferences, BlockMenu, DatePickerPopup…)
-sync/                  SyncProvider.tsx (global context), socket.ts (WS),
-                       opQueue.ts (+ pure queueState.ts), replicaSync.ts,
-                       syncState.ts (pure editability/health FSM), assets.ts
-replica/               The offline engine: worker.ts + workerHandlers.ts,
-                       rpc.ts/client.ts (typed RPC), errors.ts (the
-                       availability taxonomy), baseSchema.gen.ts
-                       (generated from server DDL), clientSchema.ts,
-                       queue.ts, apply.ts, reconcile.ts, recoveryGate.ts,
-                       openRetry.ts (OPFS open contention), titles.ts
-                       (pure title canonicalization), localApi/ (offline read
-                       shims), localOps.ts
-dnd/                   Drag-and-drop context + drop zones
-styles.css             All styling (plain CSS, design tokens)
+web/src/
+├── main.tsx / App.tsx        Shell        Entry; provider nesting (SyncProvider > Dnd >
+│                                          Sidebar > BlockStamps); routes; the single
+│                                          window keydown listener for the global chords
+├── routeMeta.ts              Core         Path / top-bar label / browser title per
+│                                          static route (see Views and navigation)
+├── useRouteTitle.ts          Shell        The one route-aware document.title effect
+├── blockStampsPref.ts        Core         Block-timestamps preference: key, guard, toggle
+├── useBlockStampsPref.ts     Shell        Owns the single instance behind BlockStampsContext
+├── uid.ts / uidCore.ts       Shell/Core   uid minting; the alphanumeric-first rule
+├── theme.ts / useTheme.ts    Core/Shell   Theme cycle; data-theme stamping
+├── styles.css                —            All styling — owned by styling.md
+│
+├── api/                      The typed HTTP layer (see API layer)
+│   ├── client.ts             Shell        apiFetch: JSON, 401 → /login, offline gateway
+│   ├── typedClient.ts        Shell        apiGet/apiPost/…, typed by the OpenAPI paths
+│   └── openapi.json, types.d.ts (generated); ops.ts, payloads.ts (type-only re-exports)
+│
+├── grammar/                  Roam-markdown parsing (see Rendering pipeline)
+│   ├── scan.ts               Core         THE scanner; mirrors server refs.py,
+│   │                                      fixture-pinned
+│   ├── tokenize.ts           Core         Token stream → BlockSegment[] for rendering
+│   └── refs.ts, todo.ts, snippet.ts, markdown.ts, linkReference.ts — Core adapters
+│
+├── outline/                  The editor engine (see The editor)
+│   ├── handlers.ts           —            OutlineHandlers, the command port (types only)
+│   ├── outlineState.ts       Core         transitionOutline — the session reducer
+│   ├── tree.ts               Core         applyOps; mirrors the server's op semantics
+│   ├── edits.ts / keyEdits.ts  Core       Structural and in-block edit planning
+│   ├── keyboardPolicy.ts     Core         Keystroke → semantic KeyDecision
+│   ├── autocomplete.ts / refAtCaret.ts  Core  Completion contexts; live-caret rules
+│   ├── slashCommands.ts / calendar.ts   Core  Slash commands; the /date month grid
+│   ├── blockSelection.ts / history.ts / paste.ts / dnd.ts  Core  Selection, undo
+│   │                                      history, outline paste, drag planning
+│   ├── blockStamps.ts        Core         Stamp bands; which ops count as a change
+│   ├── baseTextHash.ts       Core         Stamps update_text ops at build time
+│   ├── missingPage.ts        Core         The missing-page policy (see State management)
+│   ├── useOutline.ts         Shell        Implements OutlineHandlers
+│   ├── outlineSessions.ts    Shell        Per-title shared sessions (see State management)
+│   ├── useOutlinePageLoad.ts Shell        The shared single-page load controller
+│   ├── useBlockDraft.ts      Shell        The focused block's draft session
+│   ├── useAutocomplete.ts    Shell        The popup's shared state
+│   ├── undoManager.ts        Shell        Undo/redo dispatch; re-stamps hashes at replay
+│   └── caretDisplayLine.ts   Shell        Caret geometry reads
+│
+├── components/               ~45 Shell files: the editor's views (EditableBlockTree,
+│   │                         BlockInput), inline renderers (InlineSegments, MathSpan,
+│   │                         QueryBlock, BlockRef, MermaidDiagram, PdfViewer, CodeBlock,
+│   │                         roamTable…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
+│   │                         OfflineIndicator, Composer, BacklinksSection, BlockMenu,
+│   │                         DatePickerPopup…)
+│   └── pure halves           Core         Beside their component: pdfViewerCore,
+│                                          roamTableRows, backlinkFilter, groups, bluesky…
+│
+├── views/                    One Shell file per route (see Views and navigation);
+│   │                         EditablePage = one editable outline, shared by the main
+│   │                         pane and sidebar panels
+│   └── filesCore.ts          Core         /files queries, MIME buckets, confirm text
+│
+├── assistant/                The chat panel UI (see The assistant panel)
+│   ├── sse.ts                Core         Incremental SSE frame parser
+│   └── client.ts / useAssistant.ts / AssistantPanel.tsx — Shell: stream, state, panel
+│
+├── sync/                     Delivery + connectivity (see sync-and-offline.md)
+│   ├── SyncProvider.tsx      Shell        The global context; reconnect ordering
+│   ├── opQueue.ts            Shell        Durable-queue driver (+ queueState.ts Core)
+│   ├── replicaSync.ts        Shell        Cursor pull loop
+│   ├── socket.ts             Shell        WebSocket + reconnect
+│   ├── syncState.ts          Core         Editability/health FSM
+│   └── assets.ts             Shell        Multipart upload
+│
+├── replica/                  The offline engine (see sync-and-offline.md)
+│   ├── worker.ts / workerHandlers.ts  Shell  The worker; db()'s latched open
+│   ├── rpc.ts / client.ts    Shell        Typed RPC over the worker port
+│   ├── queue.ts / apply.ts / reconcile.ts / recoveryGate.ts  Shell  Pending ops, feed
+│   │                                      apply, negative-id remap, recovery FIFO
+│   ├── localApi/             Shell        Offline read shims: the routes' exact JSON
+│   ├── localOps.ts           Shell        Optimistic apply (server timestamp rules)
+│   ├── errors.ts             Core         The availability taxonomy
+│   ├── openRetry.ts / poolCapacity.ts  Core  OPFS open policy
+│   ├── titles.ts             Core         Title canonicalization
+│   └── baseSchema.gen.ts     —            Generated from the server's BASE_DDL
+│
+├── dnd/                      Shell        Drag-and-drop context + drop zones
+└── contexts.ts, sidebar.ts, paths.ts, router.ts, help/ — small shared modules
 ```
 
 ## Views and navigation

@@ -17,7 +17,8 @@ in [`docs/design.md`](../design.md) and the specs under
 | [backend.md](backend.md) | FastAPI server: modules, database, write path, HTTP API reference, importer, export + backup, logging |
 | [cli-and-mcp.md](cli-and-mcp.md) | The `pkm` CLI and MCP server: shared HTTP client, write workflows, planners |
 | [assistant-and-files.md](assistant-and-files.md) | Embedded assistant harness; assets, the `/files` browser, image descriptions |
-| [frontend.md](frontend.md) | React SPA: modules, editor, rendering pipeline, state, assistant panel, views, styling, testing |
+| [frontend.md](frontend.md) | React SPA: modules, editor, rendering pipeline, state, assistant panel, views, testing |
+| [styling.md](styling.md) | Design tokens, control families, confirmations, focus invariants |
 | [sync-and-offline.md](sync-and-offline.md) | The sync protocol and offline architecture, end to end |
 
 ## System context

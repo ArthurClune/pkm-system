@@ -13,9 +13,11 @@ export function OfflineIndicator() {
   const { confirm, dialog } = useConfirm();
 
   // A reload destroys the in-memory fallback lane, which in an online-only
-  // session is the only place undelivered ops live — and there is no
-  // beforeunload anywhere in the app to catch it. Ask first, the way
-  // resetReplica does (pkm-bjae review).
+  // session is the only place undelivered ops live. Ask first, the way
+  // resetReplica does (pkm-bjae review). useUnloadGuard now covers this button
+  // too, but it does not replace this confirm: beforeunload is unreliable in an
+  // iOS standalone PWA, and this wording says what is actually at stake
+  // (pkm-0htf).
   const reloadForOnlineOnly = async (): Promise<void> => {
     if (pending > 0) {
       const ok = await confirm(
@@ -50,13 +52,14 @@ export function OfflineIndicator() {
       // (pkm-s1m8). This problem is a ReplicaUnavailableError (SyncProvider
       // only raises replica-unavailable for availabilityOf(error) ===
       // "unusable"), which is never `rejected`, so opQueue always retains
-      // here — but retained ops live in the in-memory fallback lane, and
-      // there is no beforeunload anywhere in the app. So "still being saved"
-      // is true while the socket is up and delivering, and false the moment
-      // it is not: a refresh or a closed tab then takes them unseen (the
-      // button below asks first; the browser's own controls do not). Offline
-      // with nothing pending there is neither a promise to make nor a loss to
-      // warn about, so the first sentence stands alone.
+      // here — but retained ops live in the in-memory fallback lane. So "still
+      // being saved" is true while the socket is up and delivering, and false
+      // the moment it is not: a refresh or a closed tab then takes them. The
+      // copy stays conditional even with useUnloadGuard installed, because the
+      // guard does not hold on iPad (pkm-0htf), so the unconditional
+      // reassurance would be a promise we cannot keep there. Offline with
+      // nothing pending there is neither a promise to make nor a loss to warn
+      // about, so the first sentence stands alone.
       <div className="ws-banner" role="status">
         Working online only — offline editing is unavailable for now.
         {status === "connected"

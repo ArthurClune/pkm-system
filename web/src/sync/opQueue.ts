@@ -98,6 +98,12 @@ export interface OpQueue {
   resume(reason: "recovery"): void;
   dispose(): void;
   onPending(fn: (n: number) => void): () => void;
+  /** Ops that exist ONLY in this tab's memory (the fallback lane) — never a
+   * durable replica row, which survives a reload fine. This is the gate a
+   * beforeunload guard must use: onPending also counts durable rows, and
+   * gating on it would interrupt an ordinary offline reload that risks
+   * nothing (pkm-0htf). */
+  onUnsentInMemory(fn: (n: number) => void): () => void;
   /** Internal recovery ownership signal. Unlike onPoison, this fires before
    * the durable poison mark so a recovery lease cannot flush a stale row. */
   onPoisonPending(fn: () => void): () => void;
@@ -170,6 +176,7 @@ function createReplicaQueue(replica: Replica,
   let drainAgain = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   const pending = listeners<number>();
+  const unsentInMemory = listeners<number>();
   const poisonPending = listeners<void>();
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
@@ -199,7 +206,16 @@ function createReplicaQueue(replica: Replica,
   /** Durable rows plus retained in-memory entries: what the UI must show as
    * "changes pending", and what a blocked drain reports. */
   const totalPending = (): number => pendingCount + fallback.length;
-  const emitPending = (): void => { pending.emit(totalPending()); };
+  // Every fallback mutation site (append, shift-on-delivery, shift-on-4xx)
+  // already calls emitPending() immediately after, so this is the one choke
+  // point that keeps onUnsentInMemory in step with the lane without a second
+  // call site to forget (pkm-0htf). dispose() never touches fallback.length —
+  // it settles entries in place, deliberately keeping them in the pending
+  // diagnostic — so it needs no emit here either.
+  const emitPending = (): void => {
+    pending.emit(totalPending());
+    unsentInMemory.emit(fallback.length);
+  };
 
   /** A durable batch reached a terminal state — delivered, or poisoned and so
    * never deliverable — so it no longer stands ahead of the retained head.
@@ -695,6 +711,7 @@ function createReplicaQueue(replica: Replica,
       for (const entry of fallback) entry.resolve({ status: "failed", error });
     },
     onPending: pending.add,
+    onUnsentInMemory: unsentInMemory.add,
     onPoisonPending: poisonPending.add,
     onPoisonMarkFailed: poisonMarkFailed.add,
     onPoison: poison.add,
@@ -902,6 +919,13 @@ function createLegacyQueue(onDesync: (error: unknown) => void,
       failDeliveries(new Error("op queue disposed"));
     },
     onPending: () => () => undefined,
+    // Honestly inert, not merely unwired: createOpQueue only builds this
+    // queue when replica === null, which defaultReplica() returns only where
+    // Worker is undefined (jsdom) — so this factory never runs in a real
+    // browser, which is also why its onPending was never plumbed. A real
+    // browser with no usable OPFS still gets the replica queue above, whose
+    // failed open lands every op in the fallback lane (pkm-0htf).
+    onUnsentInMemory: () => () => undefined,
     onPoisonPending: () => () => undefined,
     onPoisonMarkFailed: () => () => undefined,
     onPoison: () => () => undefined,

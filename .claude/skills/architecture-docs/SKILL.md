@@ -15,8 +15,9 @@ replaces goes away rather than sitting beside it.
 
 Any edit under `docs/architecture/`, including the triggers in `CLAUDE.md`
 § Architecture docs; or when a section reads long, flat or repetitive, when
-ideas and small asides feel equally weighted, or when you are about to split,
-reflow or clarify a section.
+ideas and small asides feel equally weighted, when a section's length is out
+of proportion to its subject, or when you are about to split, reflow or
+clarify a section.
 
 Not for `docs/design.md`, specs, plans or beans — those are *where* rationale,
 history and rejected alternatives belong.
@@ -81,16 +82,45 @@ Also:
   this" rarely survive contact with a specific reason. Assert intent only where a
   reader would otherwise suspect a bug, and then give the reason.
 - **Prefer the plain verb.** "X catches that" over "which is what X is for".
+- **State the invariant, not the proof.** A paragraph that walks defensive
+  code case by case — each cancellation window, each order two failures could
+  arrive in — is re-running the code review. Keep the claim and the sharpest
+  reason it must hold; the case enumeration lives in the test that pins it.
 
 ## Make emphasis scarce
 
 When every paragraph opens with a bolded thesis, nothing is emphasised and a
 reader cannot tell a load-bearing invariant from an aside. Keep roughly one
 bolded claim per section — the one a reader must not miss — and let the rest be
-ordinary sentences. Headings name a topic; they do not assert a thesis.
+ordinary sentences. Headings name a topic; they do not assert a thesis. A
+bolded one-word *label* opening each item of a list (`**Ordering.**`,
+`**Idempotency.**`) is a term being defined, not a thesis being asserted;
+the rule is about bolded claims, so leave definition lists alone.
 
 If a section resists this because it holds ten equally important things, that is
 the signal it wanted a table.
+
+## Weight sections by the reader's risk, not the writer's effort
+
+Length is a claim. A reader takes the longest section for the most important
+one, and reads top to bottom expecting the picture before the parts. So a doc
+descends — the paths everyone touches first, the detail few need later — and a
+new section goes where its subject sits in that descent, never at the end
+because the end is where the file stopped. A back half that reads in ship
+order has stopped being an explanation.
+
+The failure to watch for is depth tracking how hard the work was: a run-once
+importer outweighing the write path, one fix's cancellation walkthrough
+burying the turn lifecycle it defends, a styling section that has absorbed
+every ship's lesson while the rendering pipeline stays a stub. The doc
+remembers the pain; the reader needs the map.
+
+The test for any detail: does a contributor meet it in normal work, or only
+when something breaks? Normal work earns prose, placed as early as its
+altitude allows. Only-when-broken earns a symptom row. Within a doc the same
+ownership rule applies as across docs: a mechanism note lands in the section
+that owns the mechanism, not in the section about the feature that shipped
+it.
 
 ## Separate the invariant from the incident
 
@@ -162,6 +192,8 @@ changed).
 | Restructuring instead of clarifying | four new headings over the same paragraphs | change the shape of the material, not its subdivisions |
 | An enumeration inside a sentence | twelve shortcuts, comma-separated, with parenthetical caveats | a table — or a link to the doc that already has one |
 | Stacking clauses onto a correct sentence | two subclauses, an em-dash aside and a colon, all accurate | one claim per sentence, in the order a reader needs them |
+| Sizing a section by the work it took | the run-once tool's section is the longest in the doc; a fix's defensive analysis dwarfs the mechanism it defends | depth follows the reader's risk; the proof moves to the bean or the test |
+| Appending where the ship happened | a section trails off into bolded, unrelated ship notes; orientation (what the surface *is*) sits at the bottom | fold each note into the section that owns its mechanism; put the whole before the parts |
 | Inventing a term of art | "the availability fact", "evidentiary weight" | the name the code uses |
 | Propagating a local formatting tic | "gave it a bold lead like its siblings" | fix the pattern rather than conform to it |
 | Trusting the bean or plan | doc describes intended behaviour | verify against the code; it is what shipped |

@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-08-05T08:25:32Z
-updated_at: 2026-08-05T08:59:46Z
+updated_at: 2026-08-05T09:20:31Z
 ---
 
 Follow-up to the pkm-3f83 review. Ranked fixes, largest payoff first. Each is independent; do them in separate small branches if picked up.
@@ -46,3 +46,8 @@ Follow-up to the pkm-3f83 review. Ranked fixes, largest payoff first. Each is in
 Applied on branch docs-rebalance-emphasis, one commit per doc, all restructuring with no claim changes. Every doc passes check-docs.mjs (all links/anchors/mermaid ok, no NEW 40+-word sentences). Directory went 3003 -> 2858 lines with a diagram and three tables added.
 
 Deviations from the plan above: (1) "Writes, uids and missing pages" was compressed under its existing heading rather than split -- backend.md links to that anchor, and the compression (65 -> ~40 lines, one paragraph per mechanism) removed the flatness the split was for. (2) The backlinks paragraph kept prose, no diagram -- at four sentences it no longer earns one. (3) frontend bold-leads went 35 -> ~29 via the moves/rewrites, not a dedicated de-bolding pass; several remaining bolds are definition-list labels the updated skill now exempts.
+
+## Round 2 (Arthur's branch review)
+
+- [x] frontend module map rewritten in backend.md's aligned tree style — name/pattern/role columns, directories spread across sub-lines, every pattern verified against the file's declared FCIS header (outline/dnd.ts was absent from the old map), keyboard chords removed from the map
+- [x] styling split out to docs/architecture/styling.md (tokens/theming, control families, confirmations, focus invariants, its own symptom table with the two pkm-cq32 rows); frontend.md keeps a stub; overview.md table and CLAUDE.md list + styling trigger updated

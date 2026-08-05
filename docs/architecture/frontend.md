@@ -198,14 +198,6 @@ Pagination has two guards. A synchronous single-flight lock, alongside the
 disabled button state, stops a double click issuing two page requests; a
 generation guard discards responses that a filter change has made stale.
 
-`PdfViewer` uses the same generation idea for a different race. When `href`
-changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps a counter
-**synchronously during render**, not in an effect, and every load callback
-compares the generation it captured against the current one before writing
-state. An effect would be too late: effects fire child-before-parent, so a
-`Document` child that resolves synchronously can call `onLoadSuccess` before
-the parent's reset effect runs.
-
 Its pure half, `views/filesCore.ts`, owns the typed query-object building,
 MIME categorisation, size formatting, confirm-text composition, and the
 reference token a user can copy into a block. `typedClient` serializes the
@@ -414,35 +406,6 @@ Editing mechanics to know before touching `outline/`:
 - Phones get a bottom **Composer** (append-to-daily-note) instead of full
   outline editing.
 
-**The stamp cell lives inside `.block-row`.** It is the row's last flex child,
-after `.block-text` or, when the block is focused, after `BlockInput`'s
-textarea. Both facts are load-bearing, for different reasons. `.block-children`
-indents from the left only, so every row in a page already shares a right edge
-and the cells form a true column at any nesting depth. The cell is also a
-sibling of the textarea rather than of the row, so focusing a block cannot
-shift it. The flag reaches it as a **prop** from `PageView` alone —
-`EditableBlockTree` must never read `BlockStampsContext` itself, or the
-journal scroll and sidebar panels would grow the column too.
-
-**The page menu flips a label instead of showing a checkmark.** The
-timestamps item is a plain `role="menuitem"` reading "Show timestamps" or
-"Hide timestamps". `.top-bar-menu` has no reserved-width check span.
-BlockMenu's `.block-menu-item-check` idiom indents the label in both states;
-in a menu this narrow, that wrapped the label onto two lines while every
-sibling item sat flush at the padding edge. Keep the two idioms apart: an item
-whose state is in its text must not also claim `menuitemcheckbox`, or the
-label and the announced checked state say the same thing twice. A
-`styles.test.ts` case asserts the slot's absence.
-
-**`.top-bar-menu`'s items must keep `white-space: nowrap`** — the deeper
-cause of that wrap. The menu is absolutely positioned inside a button-sized
-relative parent, so its shrink-to-fit width resolves against roughly 30px of
-available space and lands at min-content — the widest single *word*. Without
-nowrap, any two-word label wraps as soon as the text outgrows the 160px
-`min-width` (a larger font size, browser zoom, or simply a longer label).
-Nowrap makes min-content equal max-content, so the box widens to its longest
-label instead. New menu items therefore cost width, not height.
-
 **`set_collapsed` must not stamp.** `opBumpsUpdatedAt` (outline/blockStamps.ts)
 is the single statement of pkm-r7k8's rule that collapsing is a view toggle,
 not a change. `transitionOutline` uses it to decide which uids to stamp, and a
@@ -473,6 +436,13 @@ flowchart LR
   offline.
 - Link hrefs are sanitized (`isSafeHref` rejects `javascript:` and
   protocol-relative URLs); Mermaid runs in strict mode.
+- `PdfViewer` guards its load/reset race with a generation counter. When
+  `href` changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps
+  the counter **synchronously during render**, not in an effect, and every
+  load callback compares its captured generation before writing state. An
+  effect would be too late: effects fire child-before-parent, so a `Document`
+  child that resolves synchronously can call `onLoadSuccess` before the
+  parent's reset effect runs.
 
 ## Sync and offline (UI-side summary)
 
@@ -608,6 +578,14 @@ three tints are solid fills, not alpha, so a band stays predictable over
 `.block-row:hover` and `.block-row.focused`. `.block-stamp` is the control
 class; below the 600px breakpoint the whole column is `display: none`.
 
+The stamp cell is `.block-row`'s last flex child — after `.block-text`, or
+after the focused block's textarea. `.block-children` indents from the left
+only, so every row shares a right edge and the cells form a true column at
+any nesting depth. Being a sibling of the textarea, not of the row, means
+focusing a block cannot shift it. The flag reaches it as a prop from
+`PageView` alone — `EditableBlockTree` must never read `BlockStampsContext`
+itself, or the journal scroll and sidebar panels would grow the column too.
+
 Theming is three-way: light by default, OS dark via
 `@media (prefers-color-scheme: dark)` (which works with zero JS), and an
 explicit `data-theme` override stamped on `<html>` by `useTheme.ts`
@@ -654,6 +632,19 @@ than silently inheriting a look, or silently getting none.
 `--color-error-fill` is a **fill-only** token, separate from the error text
 colour. Reusing one red for both made dark-theme Delete buttons read as
 coral: two colour tokens for two jobs.
+
+Menus keep two idioms apart. `BlockMenu` items reserve a check slot
+(`.block-menu-item-check`). `.top-bar-menu` items are plain
+`role="menuitem"` entries that flip their label text
+("Show timestamps" / "Hide timestamps") with no reserved-width slot;
+`styles.test.ts` asserts the slot's absence. An item whose state is in its
+text must not also claim `menuitemcheckbox`, or the label and the announced
+checked state say the same thing twice. `.top-bar-menu` items must
+also keep `white-space: nowrap`: the menu is absolutely positioned inside a
+button-sized relative parent, so its shrink-to-fit width resolves at
+min-content — the widest single *word* — and any two-word label wraps once
+text outgrows the 160px `min-width`. Nowrap makes min-content equal
+max-content, so new menu items cost width, not height.
 
 ### Confirmations
 
@@ -722,50 +713,31 @@ Four traps when working on this:
   `:focus-visible`, and CDP's synthetic Tab does establish keyboard modality.
 - **Ordinary content anchors keep the UA ring, not the custom one.**
   `a.page-link`, external links and the `.page-title > a` heading link were
-  considered and declined. The custom ring is only ever seen by tabbing
-  through prose, but at the block line-height a 2px offset ring collides
-  with the line above and repeats per line box on a wrapped link.
-- **An off-screen drawer is still in the tab order.** The phone nav
-  (`@media (max-width: 600px)`) once used `transform: translateX(-100%)`
-  alone, so the closed drawer's links and buttons stayed tabbable — as the
-  *first* tab stops on the page. It now also sets `visibility: hidden`, with
-  `.left-nav.open` restoring `visible`, and `visibility` in the transition so
-  the slide-out is still seen. Both declarations are scoped to that media
-  query: at wider widths the nav is permanent and `navOpen` means nothing.
-  The hamburger carries `aria-expanded` and `aria-controls="left-nav"`, and
-  closing the drawer moves focus back to it — guarded on the drawer's
-  previous state, since every `NavLink` calls `setNavOpen(false)` on every
-  click and the hamburger is `display: none` above the breakpoint.
-- **A heading with an `onClick` cannot be reached from the keyboard.** Page
-  title renaming and the Unlinked references collapse were both `onClick` on
-  a non-focusable `<h1>`/`<h2>`. Both now wrap their label in a real
-  `<button>` *inside* the heading: `.page-title-edit` and `.section-toggle`,
-  chrome-free classes that inherit the heading's type and take the standard
-  ring. `BacklinksSection`'s `.filter-toggle` is the same in-heading pattern,
-  where a visible button *is* wanted. Three details make this work:
-
-  - **Inheriting the type takes three declarations, not one.**
-    `font: inherit`, plus an explicit `letter-spacing: inherit` and
-    `text-transform: inherit`, which the `font` shorthand does not carry.
-  - **Both triggers need `display: block; width: 100%`.** An inline-block
-    button sizes to its chevron-plus-label content, not the header's full
-    width. A click anywhere else in the header row — the old `<h2 onClick>`'s
-    whole hit area — would otherwise silently do nothing.
-    `styles.test.ts` asserts both properties on `.section-toggle`, matching
-    `.page-title-edit`. The collapsible trigger also owns `aria-expanded` and
-    marks its chevron `aria-hidden`.
-  - **`.page-title-edit` must stay named by its content**, the title, and
-    never by a fixed `aria-label`. Accname computes the enclosing `<h1>`'s
-    name by walking its children, and a child with its own explicit name
-    contributes *that* name to the walk instead of its text. A fixed
-    `aria-label` on this button therefore renames the page's `<h1>` in every
-    real browser. This was verified in Chromium; jsdom's accname
-    implementation does not reproduce it, so a unit test cannot catch it. An
-    arbitrary title can still contain a word like "Cancel" or "Merge" that
-    collides with an unrelated dialog's same-named button in a test. That is
-    deterministic, not one of this suite's machine-load flakes. The fix is to
-    scope the colliding query to its dialog — `getByRole("alertdialog")` then
-    `.getByRole("button", …)` — rather than to rename the product control.
+  considered and declined: at the block line-height a 2px offset ring
+  collides with the line above and repeats per line box on a wrapped link.
+- **The closed phone drawer must be `visibility: hidden`.** Inside
+  `@media (max-width: 600px)` the nav pairs its `translateX(-100%)` with
+  `visibility: hidden` (restored by `.left-nav.open`, and transitioned so
+  the slide-out still shows) — transform alone leaves the drawer's links in
+  the tab order (symptom table). The hamburger carries `aria-expanded` and
+  `aria-controls="left-nav"`, and closing the drawer returns focus to it,
+  guarded on the drawer's previous state since every `NavLink` calls
+  `setNavOpen(false)` on every click.
+- **Clickable headings wrap their label in a real `<button>` inside the
+  heading.** Page-title rename (`.page-title-edit`), the Unlinked references
+  collapse (`.section-toggle`) and `BacklinksSection`'s `.filter-toggle` all
+  use this pattern — a heading's own `onClick` is unreachable from the
+  keyboard (symptom table). The classes inherit the heading's type
+  (`font: inherit` plus explicit `letter-spacing` and `text-transform`,
+  which the shorthand does not carry) and take
+  `display: block; width: 100%`, so the whole header row stays the hit area
+  (`styles.test.ts` asserts both properties); the collapsible trigger owns
+  `aria-expanded` and marks its chevron `aria-hidden`. `.page-title-edit` must stay
+  named by its content, never a fixed `aria-label`: accname walks the
+  `<h1>`'s children, so an explicit name on the button renames the page's
+  heading in every real browser — verified in Chromium; jsdom cannot
+  reproduce it. When a title word collides with a dialog button's name in a
+  test, scope the query to its dialog rather than rename the control.
 
 **Control boundary contrast is a known, measured deviation from WCAG 1.4.11.**
 `.btn-secondary`'s border is 1.30:1 against a panel surface in dark and
@@ -808,6 +780,8 @@ its fix installed. The bean has the full investigation.
 | Navigating to a freshly created `[[ref]]` with Ctrl-O/Ctrl-Shift-O leaves the source block empty, its typed text gone | the unmount-only draft flush raced `POST /api/pages`; `ensureRefPageThenOpen` must flush the draft explicitly before creating the page and navigating | pkm-hhbc |
 | Shift-Up/Down with a text selection active at a block's edge collapses the selection and jumps focus to the neighboring block | the boundary-arrow branch excluded Meta/Ctrl/Alt but not Shift, so a growing selection fell through to block navigation instead of escalating to a block selection | pkm-jgtn |
 | A multi-block selection made while editable stays deletable after the outline switches to read-only | Backspace/Delete invoked `onDeleteBlockSelection()` unconditionally; every mutating selection branch must gate on `!readOnly` | pkm-rckh |
+| On a phone, Tab lands on invisible controls before anything visible | the closed drawer used `transform: translateX(-100%)` alone, which keeps its links tabbable as the page's first tab stops; it must also toggle `visibility` | pkm-cq32 |
+| Page-title rename and the Unlinked references collapse cannot be reached from the keyboard | `onClick` sat on a non-focusable `<h1>`/`<h2>`; the label must be a real `<button>` inside the heading | pkm-cq32 |
 
 ## Testing and quality gates
 

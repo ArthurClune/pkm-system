@@ -32,76 +32,91 @@ depth — this doc covers them only from the UI side.
 ## Module map (`web/src/`)
 
 ```
-main.tsx / App.tsx     Shell   Entry + top-level tree: SyncProvider > DndProvider >
-                               SidebarContext > BlockStampsContext > (left nav,
-                               TopBar, routes, sidebar stack)
-routeMeta.ts           Core    Route paths + top-bar label/browser-title table, one
-                               entry per static route; TopBar, App.tsx's routing,
-                               and useRouteTitle.ts (Shell, the single title effect)
-                               all consume it, so /page/* and the not-found
-                               catch-all are the only routes without a fixed label
-blockStampsPref.ts     Core    Block-timestamps preference (localStorage key +
-                               guard + toggle); useBlockStampsPref.ts (Shell)
-                               owns the single instance, shared through
-                               BlockStampsContext so the page menu's Show/Hide
-                               label and PageView's column cannot disagree
-api/                   client.ts (fetch wrapper + offline gateway),
-                       typedClient.ts (path/method-aware wrapper over it),
-                       generated openapi.json + types.d.ts, type-only
-                       re-exports (ops.ts, payloads.ts)
-assistant/             The embedded-assistant chat panel (Cmd/Ctrl+J).
-                       Core: sse.ts (incremental SSE frame parser).
-                       Shells: client.ts (fetch/stream over /api/assistant/*),
-                       useAssistant.ts (chat state), AssistantPanel.tsx
-views/                 Journal (daily notes, `/`), PageView (`/page/*`),
-                       CurrentWork (`/current-work`), Files (`/files`, + pure
-                       filesCore.ts), Settings (`/settings`), Help (`/help`);
-                       EditablePage = one editable outline, reused by main pane
-                       and sidebar panels
-outline/               The editor engine. It owns its own contract: handlers.ts
-                       declares OutlineHandlers, the command port useOutline
-                       implements and the components call, so the dependency
-                       runs UI → engine.
-                       Cores: outlineState.ts (the reducer), keyboardPolicy.ts,
-                       edits.ts, tree.ts (applyOps — mirrors server ops_apply),
-                       keyEdits.ts, slashCommands.ts, autocomplete.ts,
-                       refAtCaret.ts, blockSelection.ts, history.ts,
-                       paste.ts (outline paste), calendar.ts (/date month grid),
-                       missingPage.ts (the missing-page policy),
-                       blockStamps.ts (margin-column dates, age bands, and
-                       which ops count as a change), baseTextHash.ts (stamps
-                       update_text ops with base_text_hash at construction time)
-                       Shells: useOutline.ts (the hook), outlineSessions.ts
-                       (per-title shared store), useOutlinePageLoad.ts (the
-                       shared page-load controller), undoManager.ts,
-                       useAutocomplete.ts (the popup's shared state),
-                       useBlockDraft.ts (the focused block's draft session)
-grammar/               Roam-markdown parsing: scan.ts (the shared scanner,
-                       mirrors server refs.py), tokenize.ts (render tokens),
-                       refs.ts, todo.ts, snippet.ts
-components/            ~45 files: the editor's own views (EditableBlockTree =
-                       the read-side tree + selection keyboard, BlockInput =
-                       the focused block's textarea), inline rendering
-                       (InlineSegments, MathSpan, QueryBlock, BlockRef,
-                       MermaidDiagram, PdfEmbed/PdfViewer,
-                       PageLink, AssetImage, CodeBlock, BlueskyEmbed, roamTable…)
-                       + chrome (TopBar, SidebarNav/Panel, NavPageLink/
-                       NavRouteLink, SearchBar,
-                       OfflineIndicator, Composer, BacklinksSection,
-                       JournalDayReferences, BlockMenu, DatePickerPopup…)
-sync/                  SyncProvider.tsx (global context), socket.ts (WS),
-                       opQueue.ts (+ pure queueState.ts), replicaSync.ts,
-                       syncState.ts (pure editability/health FSM), assets.ts
-replica/               The offline engine: worker.ts + workerHandlers.ts,
-                       rpc.ts/client.ts (typed RPC), errors.ts (the
-                       availability taxonomy), baseSchema.gen.ts
-                       (generated from server DDL), clientSchema.ts,
-                       queue.ts, apply.ts, reconcile.ts, recoveryGate.ts,
-                       openRetry.ts (OPFS open contention), titles.ts
-                       (pure title canonicalization), localApi/ (offline read
-                       shims), localOps.ts
-dnd/                   Drag-and-drop context + drop zones
-styles.css             All styling (plain CSS, design tokens)
+web/src/
+├── main.tsx / App.tsx        Shell        Entry; provider nesting (SyncProvider > Dnd >
+│                                          Sidebar > BlockStamps); routes; the single
+│                                          window keydown listener for the global chords
+├── routeMeta.ts              Core         Path / top-bar label / browser title per
+│                                          static route (see Views and navigation)
+├── useRouteTitle.ts          Shell        The one route-aware document.title effect
+├── blockStampsPref.ts        Core         Block-timestamps preference: key, guard, toggle
+├── useBlockStampsPref.ts     Shell        Owns the single instance behind BlockStampsContext
+├── uid.ts / uidCore.ts       Shell/Core   uid minting; the alphanumeric-first rule
+├── theme.ts / useTheme.ts    Core/Shell   Theme cycle; data-theme stamping
+├── styles.css                —            All styling — owned by styling.md
+│
+├── api/                      The typed HTTP layer (see API layer)
+│   ├── client.ts             Shell        apiFetch: JSON, 401 → /login, offline gateway
+│   ├── typedClient.ts        Shell        apiGet/apiPost/…, typed by the OpenAPI paths
+│   └── openapi.json, types.d.ts (generated); ops.ts, payloads.ts (type-only re-exports)
+│
+├── grammar/                  Roam-markdown parsing (see Rendering pipeline)
+│   ├── scan.ts               Core         THE scanner; mirrors server refs.py,
+│   │                                      fixture-pinned
+│   ├── tokenize.ts           Core         Token stream → BlockSegment[] for rendering
+│   └── refs.ts, todo.ts, snippet.ts, markdown.ts, linkReference.ts — Core adapters
+│
+├── outline/                  The editor engine (see The editor)
+│   ├── handlers.ts           —            OutlineHandlers, the command port (types only)
+│   ├── outlineState.ts       Core         transitionOutline — the session reducer
+│   ├── tree.ts               Core         applyOps; mirrors the server's op semantics
+│   ├── edits.ts / keyEdits.ts  Core       Structural and in-block edit planning
+│   ├── keyboardPolicy.ts     Core         Keystroke → semantic KeyDecision
+│   ├── autocomplete.ts / refAtCaret.ts  Core  Completion contexts; live-caret rules
+│   ├── slashCommands.ts / calendar.ts   Core  Slash commands; the /date month grid
+│   ├── blockSelection.ts / history.ts / paste.ts / dnd.ts  Core  Selection, undo
+│   │                                      history, outline paste, drag planning
+│   ├── blockStamps.ts        Core         Stamp bands; which ops count as a change
+│   ├── baseTextHash.ts       Core         Stamps update_text ops at build time
+│   ├── missingPage.ts        Core         The missing-page policy (see State management)
+│   ├── useOutline.ts         Shell        Implements OutlineHandlers
+│   ├── outlineSessions.ts    Shell        Per-title shared sessions (see State management)
+│   ├── useOutlinePageLoad.ts Shell        The shared single-page load controller
+│   ├── useBlockDraft.ts      Shell        The focused block's draft session
+│   ├── useAutocomplete.ts    Shell        The popup's shared state
+│   ├── undoManager.ts        Shell        Undo/redo dispatch; re-stamps hashes at replay
+│   └── caretDisplayLine.ts   Shell        Caret geometry reads
+│
+├── components/               ~45 Shell files: the editor's views (EditableBlockTree,
+│   │                         BlockInput), inline renderers (InlineSegments, MathSpan,
+│   │                         QueryBlock, BlockRef, MermaidDiagram, PdfViewer, CodeBlock,
+│   │                         roamTable…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
+│   │                         OfflineIndicator, Composer, BacklinksSection, BlockMenu,
+│   │                         DatePickerPopup…)
+│   └── pure halves           Core         Beside their component: pdfViewerCore,
+│                                          roamTableRows, backlinkFilter, groups, bluesky…
+│
+├── views/                    One Shell file per route (see Views and navigation);
+│   │                         EditablePage = one editable outline, shared by the main
+│   │                         pane and sidebar panels
+│   └── filesCore.ts          Core         /files queries, MIME buckets, confirm text
+│
+├── assistant/                The chat panel UI (see The assistant panel)
+│   ├── sse.ts                Core         Incremental SSE frame parser
+│   └── client.ts / useAssistant.ts / AssistantPanel.tsx — Shell: stream, state, panel
+│
+├── sync/                     Delivery + connectivity (see sync-and-offline.md)
+│   ├── SyncProvider.tsx      Shell        The global context; reconnect ordering
+│   ├── opQueue.ts            Shell        Durable-queue driver (+ queueState.ts Core)
+│   ├── replicaSync.ts        Shell        Cursor pull loop
+│   ├── socket.ts             Shell        WebSocket + reconnect
+│   ├── syncState.ts          Core         Editability/health FSM
+│   └── assets.ts             Shell        Multipart upload
+│
+├── replica/                  The offline engine (see sync-and-offline.md)
+│   ├── worker.ts / workerHandlers.ts  Shell  The worker; db()'s latched open
+│   ├── rpc.ts / client.ts    Shell        Typed RPC over the worker port
+│   ├── queue.ts / apply.ts / reconcile.ts / recoveryGate.ts  Shell  Pending ops, feed
+│   │                                      apply, negative-id remap, recovery FIFO
+│   ├── localApi/             Shell        Offline read shims: the routes' exact JSON
+│   ├── localOps.ts           Shell        Optimistic apply (server timestamp rules)
+│   ├── errors.ts             Core         The availability taxonomy
+│   ├── openRetry.ts / poolCapacity.ts  Core  OPFS open policy
+│   ├── titles.ts             Core         Title canonicalization
+│   └── baseSchema.gen.ts     —            Generated from the server's BASE_DDL
+│
+├── dnd/                      Shell        Drag-and-drop context + drop zones
+└── contexts.ts, sidebar.ts, paths.ts, router.ts, help/ — small shared modules
 ```
 
 ## Views and navigation
@@ -197,14 +212,6 @@ zip export.
 Pagination has two guards. A synchronous single-flight lock, alongside the
 disabled button state, stops a double click issuing two page requests; a
 generation guard discards responses that a filter change has made stale.
-
-`PdfViewer` uses the same generation idea for a different race. When `href`
-changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps a counter
-**synchronously during render**, not in an effect, and every load callback
-compares the generation it captured against the current one before writing
-state. An effect would be too late: effects fire child-before-parent, so a
-`Document` child that resolves synchronously can call `onLoadSuccess` before
-the parent's reset effect runs.
 
 Its pure half, `views/filesCore.ts`, owns the typed query-object building,
 MIME categorisation, size formatting, confirm-text composition, and the
@@ -405,7 +412,8 @@ Editing mechanics to know before touching `outline/`:
   `onOpenMenu` call site is on that span, and `keyboardPolicy` has no menu
   shortcut, so removing its tab stop removes keyboard access to Copy block
   reference and the view modes entirely. Its focus styling is constrained
-  too — see *Focus and interactive affordances* below.
+  too — see
+  [styling.md](styling.md#focus-and-interactive-affordances).
 
   In `EditableBlockTree` fallback mode (`fallback=true`), bullets are inert
   spans with no role, tab stop, menu, focus, upload, selection or drag
@@ -413,35 +421,6 @@ Editing mechanics to know before touching `outline/`:
   the live shared outline without a second editing implementation.
 - Phones get a bottom **Composer** (append-to-daily-note) instead of full
   outline editing.
-
-**The stamp cell lives inside `.block-row`.** It is the row's last flex child,
-after `.block-text` or, when the block is focused, after `BlockInput`'s
-textarea. Both facts are load-bearing, for different reasons. `.block-children`
-indents from the left only, so every row in a page already shares a right edge
-and the cells form a true column at any nesting depth. The cell is also a
-sibling of the textarea rather than of the row, so focusing a block cannot
-shift it. The flag reaches it as a **prop** from `PageView` alone —
-`EditableBlockTree` must never read `BlockStampsContext` itself, or the
-journal scroll and sidebar panels would grow the column too.
-
-**The page menu flips a label instead of showing a checkmark.** The
-timestamps item is a plain `role="menuitem"` reading "Show timestamps" or
-"Hide timestamps". `.top-bar-menu` has no reserved-width check span.
-BlockMenu's `.block-menu-item-check` idiom indents the label in both states;
-in a menu this narrow, that wrapped the label onto two lines while every
-sibling item sat flush at the padding edge. Keep the two idioms apart: an item
-whose state is in its text must not also claim `menuitemcheckbox`, or the
-label and the announced checked state say the same thing twice. A
-`styles.test.ts` case asserts the slot's absence.
-
-**`.top-bar-menu`'s items must keep `white-space: nowrap`** — the deeper
-cause of that wrap. The menu is absolutely positioned inside a button-sized
-relative parent, so its shrink-to-fit width resolves against roughly 30px of
-available space and lands at min-content — the widest single *word*. Without
-nowrap, any two-word label wraps as soon as the text outgrows the 160px
-`min-width` (a larger font size, browser zoom, or simply a longer label).
-Nowrap makes min-content equal max-content, so the box widens to its longest
-label instead. New menu items therefore cost width, not height.
 
 **`set_collapsed` must not stamp.** `opBumpsUpdatedAt` (outline/blockStamps.ts)
 is the single statement of pkm-r7k8's rule that collapsing is a view toggle,
@@ -473,6 +452,13 @@ flowchart LR
   offline.
 - Link hrefs are sanitized (`isSafeHref` rejects `javascript:` and
   protocol-relative URLs); Mermaid runs in strict mode.
+- `PdfViewer` guards its load/reset race with a generation counter. When
+  `href` changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps
+  the counter **synchronously during render**, not in an effect, and every
+  load callback compares its captured generation before writing state. An
+  effect would be too late: effects fire child-before-parent, so a `Document`
+  child that resolves synchronously can call `onLoadSuccess` before the
+  parent's reset effect runs.
 
 ## Sync and offline (UI-side summary)
 
@@ -578,224 +564,13 @@ slash-free by construction. Compile-time drift probes live in
 `api/typedClient.test.ts` — an expected-error directive that stops erroring
 fails the build, so the probes cannot rot.
 
-## Styling and theming
+## Styling
 
-Plain CSS in a single `src/styles.css` — no framework, no CSS-in-JS. Design
-tokens are custom properties on `:root`: a color system
-(`--color-bg/-surface/-text*/-accent/-link/-tag/…`), a five-step radius
-scale, and `--hljs-*` code tokens.
-
-The radius steps are assigned by *role*, not by size, and the comments in
-`styles.css` are the contract:
-
-| Token | Size | Used for |
-|---|---|---|
-| `--radius-pill` | 999px | buttons, ghost icon buttons, search fields |
-| `--radius-field` | 7px | text inputs, selects, textareas |
-| `--radius-control` | 4px | inline code, block rows, badges, thumbs |
-| `--radius-card` | 6px | embedded content |
-| `--radius-panel` | 8px | floating menus, dropdowns, the main pane |
-
-Block stamps add three band tokens — `--color-stamp-week`,
-`-month`, `-year` — declared in all three theme blocks, warm-for-fresh
-cooling toward neutral as material ages. The fourth band, `older`, is
-deliberately unfilled: `stampBand` still returns `"older"` and the row still
-carries a `.block-stamp-older` class, but no token and no background rule
-back it, so it renders as plain text. In a mature database most rows are
-"older" -- painting ink behind the commonest rows would be backwards, so the
-strongest colour is reserved for the rare recent rows worth flagging. The
-three tints are solid fills, not alpha, so a band stays predictable over
-`.block-row:hover` and `.block-row.focused`. `.block-stamp` is the control
-class; below the 600px breakpoint the whole column is `display: none`.
-
-Theming is three-way: light by default, OS dark via
-`@media (prefers-color-scheme: dark)` (which works with zero JS), and an
-explicit `data-theme` override stamped on `<html>` by `useTheme.ts`
-(system → light → dark cycle, persisted to localStorage). `color-scheme` is
-declared per theme; without it Chrome paints `select` and date widgets light
-whatever the CSS says.
-
-### Two control families
-
-Buttons and fields are styled by named class, and there is deliberately **no
-bare `input`/`select` element rule**: a new control opts in by name rather
-than silently inheriting a look, or silently getting none.
-
-- **Buttons** are pills (`--radius-pill`): `.btn-secondary` (bordered,
-  `--color-bg-subtle`, hover to `--color-selected-bg`), `.btn-danger` (filled
-  `--color-error-fill`), and the quiet-until-hovered chrome trio
-  (`.top-bar-menu-button`, `.sidebar-toggle-button`, `.help-button`) whose
-  transparent border keeps hover from shifting layout. `.btn-secondary`
-  carries its own padding; it once had none, so bare call sites rendered at
-  UA metrics.
-
-  The danger family mirrors the same disabled treatment:
-  `.btn-danger:hover:not(:disabled)` suppresses hover feedback once
-  busy/disabled, and `.btn-danger:disabled` uses the same 0.35 opacity and
-  default cursor as `.btn-secondary:disabled`. The left nav is the exception
-  to watch for: its `.nav-link` class covers both `<a>` and `<button>` (see
-  below).
-- **Fields** are `.input-control` (text inputs, selects, textareas) and
-  `.search-field` / `.search-field-input`. The latter is the top-bar search
-  look, extracted so `/files`' search is literally the same field as `Cmd-U`
-  rather than a lookalike. The resting fill is `--color-bg-subtle`, lifting
-  to `--color-bg-surface` on focus; per-call-site rules add geometry only.
-
-  Shared supporting and status copy in Files and Settings uses
-  `p.settings-note`. The `p` qualifier keeps `.settings-section p`
-  specificity, so the later shared rule can set the muted colour and tighter
-  top margin without undoing Settings' paragraph reset.
-
-  The one colour exception is the left nav's `Add page…` input. It sits *on*
-  `--color-bg-subtle` (`.left-nav`'s own background), so it takes the surface
-  fill at rest; otherwise only its border would separate it from the nav. Its
-  focus is then carried by the border colour and the ring alone.
-
-`--color-error-fill` is a **fill-only** token, separate from the error text
-colour. Reusing one red for both made dark-theme Delete buttons read as
-coral: two colour tokens for two jobs.
-
-### Confirmations
-
-Every confirmation prompt goes through `useConfirm`
-(`web/src/components/ConfirmDialog.tsx`), which returns
-`{ confirm(message, options?): Promise<boolean>, dialog: ReactNode }`. There
-are no `window.confirm` call sites left in `web/src`, and new ones must not
-appear. iPadOS Safari has suppressed `window.confirm` in standalone (installed
-PWA) mode, which silently turns a guarded destructive action into either a
-no-op or an unguarded one, depending on what it returns.
-
-The cost of the hook is that the owning component must render `dialog`
-somewhere in its tree, or `confirm()`'s promise never settles and the action
-hangs instead of prompting. Hooks that expose a confirm-backed handler
-therefore re-export `dialog` to their caller — `useOutline` does this for the
-large-selection delete prompt, and `EditablePage` renders it.
-
-Because the prompt is now asynchronous where `window.confirm` blocked the main
-thread, remote sync batches can land while a dialog is open. Handlers must
-re-derive what they act on after the await rather than closing over uids
-captured before it.
-
-### Focus and interactive affordances
-
-One ring, everywhere a control can be focused:
-
-```css
-:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
-```
-
-It is declared **per component, next to that component's own rule**, rather
-than as one grouped selector list. Locality beats brevity in a single
-1000-line stylesheet, and the grouped-rule alternative also trips `ruleFor`
-(below). Resolved colours are `#c25a28` light and `#e8935a` dark. Every
-control uses `outline-offset: 1px`; the one deviation is
-`.asset-image-trigger` at 2px, to clear an embedded image's rounded corner.
-
-Three deliberate exceptions, all commented in `styles.css` so an audit
-doesn't "fix" them:
-
-- `.top-bar-search-input` sets `outline: none` — its 220px→320px width growth
-  is the focus affordance. That growth is desktop-only: below the 600px phone
-  breakpoint the field must shrink instead of overflow (`.search-field`'s
-  `min-width: 0`), so growth stops being a usable focus cue and the
-  `@media (max-width: 600px)` block re-enables the ring there.
-- `DatePickerPopup`'s buttons get no ring. The popup is mouse-only by design
-  (every element `preventDefault`s on mousedown so the block textarea keeps
-  focus), and Tab inside a block indents, so a ring there is unreachable.
-  `styles.test.ts` asserts its *absence*.
-- `.bullet` uses the standard ring, for a second reason beyond the palette
-  clash. The bullet is a 5px dot inside a `4px solid transparent` border, and
-  `.bullet.closed` signals *collapsed with hidden children* by colouring that
-  border. Chrome's default ring hugs the dot the same way, so an unstyled
-  focused bullet reads as a collapsed block. Any future restyling here must
-  stay distinguishable from `.closed`.
-
-Four traps when working on this:
-
-- **Auditing the stylesheet alone is not enough.** `.nav-link` is applied to
-  both the `<a>` destinations and the `<button>` controls in the left nav,
-  and those are the app's first eight tab stops. A class-by-class read of
-  `styles.css` looking for `<button>` selectors misses it completely. Drive
-  the running app instead: `press Tab` in a loop and read
-  `document.activeElement.className` plus
-  `getComputedStyle(el).outlineColor`. Computed style reflects
-  `:focus-visible`, and CDP's synthetic Tab does establish keyboard modality.
-- **Ordinary content anchors keep the UA ring, not the custom one.**
-  `a.page-link`, external links and the `.page-title > a` heading link were
-  considered and declined. The custom ring is only ever seen by tabbing
-  through prose, but at the block line-height a 2px offset ring collides
-  with the line above and repeats per line box on a wrapped link.
-- **An off-screen drawer is still in the tab order.** The phone nav
-  (`@media (max-width: 600px)`) once used `transform: translateX(-100%)`
-  alone, so the closed drawer's links and buttons stayed tabbable — as the
-  *first* tab stops on the page. It now also sets `visibility: hidden`, with
-  `.left-nav.open` restoring `visible`, and `visibility` in the transition so
-  the slide-out is still seen. Both declarations are scoped to that media
-  query: at wider widths the nav is permanent and `navOpen` means nothing.
-  The hamburger carries `aria-expanded` and `aria-controls="left-nav"`, and
-  closing the drawer moves focus back to it — guarded on the drawer's
-  previous state, since every `NavLink` calls `setNavOpen(false)` on every
-  click and the hamburger is `display: none` above the breakpoint.
-- **A heading with an `onClick` cannot be reached from the keyboard.** Page
-  title renaming and the Unlinked references collapse were both `onClick` on
-  a non-focusable `<h1>`/`<h2>`. Both now wrap their label in a real
-  `<button>` *inside* the heading: `.page-title-edit` and `.section-toggle`,
-  chrome-free classes that inherit the heading's type and take the standard
-  ring. `BacklinksSection`'s `.filter-toggle` is the same in-heading pattern,
-  where a visible button *is* wanted. Three details make this work:
-
-  - **Inheriting the type takes three declarations, not one.**
-    `font: inherit`, plus an explicit `letter-spacing: inherit` and
-    `text-transform: inherit`, which the `font` shorthand does not carry.
-  - **Both triggers need `display: block; width: 100%`.** An inline-block
-    button sizes to its chevron-plus-label content, not the header's full
-    width. A click anywhere else in the header row — the old `<h2 onClick>`'s
-    whole hit area — would otherwise silently do nothing.
-    `styles.test.ts` asserts both properties on `.section-toggle`, matching
-    `.page-title-edit`. The collapsible trigger also owns `aria-expanded` and
-    marks its chevron `aria-hidden`.
-  - **`.page-title-edit` must stay named by its content**, the title, and
-    never by a fixed `aria-label`. Accname computes the enclosing `<h1>`'s
-    name by walking its children, and a child with its own explicit name
-    contributes *that* name to the walk instead of its text. A fixed
-    `aria-label` on this button therefore renames the page's `<h1>` in every
-    real browser. This was verified in Chromium; jsdom's accname
-    implementation does not reproduce it, so a unit test cannot catch it. An
-    arbitrary title can still contain a word like "Cancel" or "Merge" that
-    collides with an unrelated dialog's same-named button in a test. That is
-    deterministic, not one of this suite's machine-load flakes. The fix is to
-    scope the colliding query to its dialog — `getByRole("alertdialog")` then
-    `.getByRole("button", …)` — rather than to rename the product control.
-
-**Control boundary contrast is a known, measured deviation from WCAG 1.4.11.**
-`.btn-secondary`'s border is 1.30:1 against a panel surface in dark and
-1.29:1 in light. Reaching 3:1 would need a control-border token near
-`#6e7a88` dark / `#959ea4` light, i.e. a visibly grey outline on every button
-and input in both themes, which was judged to cost more than it buys.
-
-Two other stylesheet invariants that are easy to break without noticing:
-
-- **Embedded images cap at two-thirds of the text column** (`.asset-image`
-  and `.asset-image-trigger`, both `max-width: 67%`). An external URL renders
-  as a bare `<img>`, while an uploaded `/assets/` image is wrapped in the
-  expansion trigger, so both boxes carry the cap and the outermost one
-  decides. That is why the inner image resets to `max-width: 100%`: without
-  the reset the two caps multiply to 4/9. The phone override back to full
-  width (`@media (max-width: 600px)`) must stay *after* those rules, because
-  a media query adds no specificity and source order is what wins.
-- **The left nav's rules get their space from flexbox, not padding.**
-  `.left-nav` has an 8px flex `gap`, so a separator like `.nav-section-start`
-  declares only `padding-top` below itself: 12px, the free 8px above plus
-  `.nav-link`'s own 4px. That keeps the text equidistant from the rule.
-
-`styles.test.ts` guards these as text-level drift assertions against the raw
-stylesheet. Its `ruleFor(selector)` builds an **unanchored** regex and
-returns the first match, so a selector appearing as the non-first member of a
-grouped rule silently returns the *group's* body. Use `rulesFor`, which joins
-every matching rule, for classes styled in more than one place. Use
-`mediaRulesFor(query, selector)` for anything inside an `@media` block,
-since `ruleFor` stops at the first `}` — inside a media block, the end of
-its first nested rule.
+Plain CSS in a single `src/styles.css` — no framework, no CSS-in-JS.
+The design tokens, control families, confirmation pattern and
+focus/affordance invariants are owned by [styling.md](styling.md), which
+also carries their symptom table. A new control opts into a named class
+there; nothing inherits a look silently.
 
 ## When something looks wrong
 

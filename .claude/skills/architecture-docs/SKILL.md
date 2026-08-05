@@ -30,6 +30,7 @@ history and rejected alternatives belong.
 | a set of things sharing fields (keys, routes, states, options, outcomes) | a table | a comma list inside a sentence |
 | a decision with two or three outcomes | a table keyed by the condition | a paragraph per branch |
 | already owned by another doc | a link to it | a restatement that will drift |
+| a module map | the aligned tree in `backend.md` § Module map — name / pattern / role columns, one sub-line per file, directories spread across lines | a paragraph of file names per directory |
 
 Ownership matters as much as shape: `docs/keyboard.md` owns the shortcut surface
 and the slash commands, `docs/cli.md` the CLI's user-facing syntax, `backend.md`

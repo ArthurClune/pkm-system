@@ -7,6 +7,29 @@ as the web client. The user-facing reference is [docs/cli.md](../cli.md); the
 API they call is the reference table in
 [backend.md](backend.md#http-api-reference).
 
+## The MCP tool surface
+
+`pkm-mcp`'s tools are built from the same planners as the CLI. Reads return
+markdown annotated with `^uid` markers that the write tools accept. The
+embedded assistant's `policy.py` splits the tools along exactly this
+read/write line — reads auto-allowed, writes confirm-gated (see
+[assistant-and-files.md](assistant-and-files.md#embedded-assistant-pkmassistant))
+— so adding a tool means deciding which side it joins.
+
+| Tool | Kind | Does |
+|---|---|---|
+| `get_page` | read | fetch a page as a `^uid`-annotated markdown outline |
+| `get_block` | read | fetch one block's subtree with page + breadcrumb context |
+| `search` | read | full-text search over page titles and block text |
+| `query` | read | structured block query (`{and: [[A]] [[B]]}`, Roam syntax) |
+| `backlinks` | read | everything referencing `[[title]]`, grouped by source page |
+| `todos` | read | open `{{TODO}}` blocks, grouped by page |
+| `search_assets` | read | find uploads by image description or filename |
+| `save_note` | write | create block(s); multi-line text becomes an outline, default page is today's daily note |
+| `update_block` | write | replace a block's text or set its task marker |
+| `batch` | write | apply several commands in one atomic transaction |
+| `upload_asset` | write | upload a local file and link it from a page |
+
 ## The shared client
 
 `client/api.py::PkmClient` owns all I/O: config at
@@ -92,9 +115,7 @@ disagree about which `Notes` they mean.
 
 A *bare* spec (`Notes`) selects the first block with that exact text at any
 level, including a plain non-heading block. This is the lenient form, kept for
-callers that don't know or care how a section is marked up. Before the two
-modes were separated, the marker was stripped and both forms behaved as bare,
-so `--section "## Notes"` could return an H3 or a plain block.
+callers that don't know or care how a section is marked up.
 
 Blank-vs-heading is the only leniency: text still matches exactly. A miss
 raises `RenderError` listing the page's headings *with* their level markers, so
@@ -117,18 +138,16 @@ levels 1-3), and multi-line text, which stays verbatim in one block. The
 never emit `set_heading`: the text they read back is already bare, so splitting
 it would demote a real heading.
 
-The heading round trip is `pkm get`/`get_page`/`get_block` only.
-`render_groups`, `render_backlinks` and `render_search` — the renderers behind
-`pkm todos`, `query`, `refs` and `search` — print `item.text` bare, because
-the response models behind them (`GroupItem`, `BacklinkItem`,
-`SearchBlockHit`) carry no `heading` field: `backlinks.py` and
-`routes_search.py` select only `uid` and `text`, plus `breadcrumbs` for
-backlinks. Copying a heading's text out of one of those verbs into
-`pkm update`/`update_block` therefore demotes it silently. Making that
-round-trip-safe would mean a new response field on three models, new query
-columns in `backlinks.py`/`routes_search.py`, and an openapi/gen-types regen,
-which was judged out of proportion to the CLI-only papercut it fixes. The gap
-is documented instead of fixed.
+The heading round trip is `pkm get`/`get_page`/`get_block` only. The
+renderers behind `pkm todos`, `query`, `refs` and `search`
+(`render_groups`, `render_backlinks`, `render_search`) print `item.text`
+bare, because their response models (`GroupItem`, `BacklinkItem`,
+`SearchBlockHit`) carry no `heading` field. Copying a heading's text out of
+one of those verbs into `pkm update`/`update_block` therefore demotes it
+silently — a documented gap (symptom table), judged out of proportion to fix:
+three new response fields, new query columns in
+`backlinks.py`/`routes_search.py`, and an openapi/gen-types regen for a
+CLI-only papercut.
 
 ## Writes, uids and missing pages
 
@@ -138,70 +157,46 @@ the current text first and rides the `base_text_hash` conflict path.
 Every uid minter in this project resamples until the first character is
 alphanumeric: `client/api.py::new_uid` (Python CLI/MCP client),
 `server/ops_apply.py::_new_uid` (the conflict-sibling uid) and
-`web/src/uid.ts::newUid` (the SPA, via `uidCore.ts::isAlphanumericByte`).
-
-`UID_RE` (`contracts/ops.py`) itself still *accepts* a leading `-` or `_`, so
-existing blocks can have one: a Roam import, or a block created by an older
-web build. A bare uid CLI argument starting with `-` is parsed by argparse as
-an unknown option. `pkm get` and `pkm update` take a uid as a plain
-positional, so addressing one of those older uids needs the standard argparse
-`--` end-of-options marker, e.g. `pkm get -- -abc123`. Any `-D`/`-T` flags
-must come before the `--`, since everything after it is positional. Any future
-tightening of `UID_RE` to reject a leading `-`/`_` must apply to newly-minted
-uids only. Existing blocks that already hold one must stay addressable by uid
-for updates and moves, which a naive regex change would break, so that change
-needs its own migration-aware work item.
+`web/src/uid.ts::newUid` (the SPA, via `uidCore.ts::isAlphanumericByte`). `UID_RE` (`contracts/ops.py`) itself
+still *accepts* a leading `-` or `_`, so existing blocks can have one — a
+Roam import, or an older web build — and a bare leading-`-` uid argument
+needs argparse's `--` end-of-options marker (symptom table). Any future
+tightening of `UID_RE` must apply to newly-minted uids only: existing blocks
+must stay addressable for updates and moves, so that change needs its own
+migration-aware work item.
 
 A page a write targets that doesn't exist yet is never created by a separate
-request. `PkmClient.get_page_blocks` returns `([], True)` — an empty block list
-plus a "missing" flag — and the shared workflow (`save_blocks`, `apply_batch`,
-`upload_and_link` in `client/workflows.py`) prepends a `create_page` op
-(`build.create_page_ops`) to the same `OpBatch` the planned blocks ride in.
-Blocks are all a planner needs. They are also the only part of a page payload
-a missing page can honestly stand in for, since there is no id or timestamp to
-invent. That is why the method hands back blocks rather than a synthesized
-payload. It keeps the "one atomic transaction" contract real: a batch that
-fails validation after this point leaves neither the page nor its blocks
-behind, because the whole batch, page creation included, rolls back together.
+request. `PkmClient.get_page_blocks` returns `([], True)` — an empty block
+list plus a "missing" flag; blocks are all a planner needs, and the only part
+of a page payload a missing page can honestly stand in for. The shared
+workflows (`save_blocks`, `apply_batch`, `upload_and_link`) prepend a
+`create_page` op (`build.create_page_ops`) to the same `OpBatch` the planned
+blocks ride in. That keeps the one-atomic-transaction contract real: a batch
+that fails validation later leaves neither the page nor its blocks behind.
+The lookup uses `refs.normalize_title(title)`, not the verbatim title. A
+control-whitespace title is only ever stored under its normalized spelling,
+so a caller still holding the original string would get a false "missing"
+and plan its next write against an empty page. The ops built from that call
+still carry the caller's spelling, which the server normalizes at the same
+`get_or_create_page` choke point onto the identical row.
 
-`get_page_blocks` looks up `refs.normalize_title(title)`, not `title`
-verbatim. A page whose title held control whitespace is only ever stored, and
-addressable, under its normalized spelling. A caller still holding the
-pre-normalization string — a second save to the same page, say — would
-otherwise get a false "missing". It would then plan its next write against an
-empty page, prepending fresh content and re-creating any `## Heading` parent
-the first write already made. The `create_page`/`create` ops built from that
-call still carry the caller's original, un-normalized `title` for
-`page_title`, which is fine: the server normalizes it again at the same
-`get_or_create_page` choke point and lands on the identical row either way.
+`PkmClient.get_backlinks` (the CLI's `refs` command and the MCP `backlinks`
+tool) loops `GET /api/page`'s `bl_offset`/`bl_limit` pagination until every
+group is fetched — no user-visible output in this project truncates
+silently. The route sorts sources by `(updated_at DESC, title)`, so a
+concurrent write can shift ranks across a page boundary mid-fetch, producing
+a duplicate page_id or a total short of what the server reported.
+`_fetch_backlinks_once` detects either symptom and `get_backlinks` restarts
+from offset 0, bounded by `_BACKLINK_MAX_ATTEMPTS`, raising rather than ever
+returning a possibly skipped or duplicated set.
 
-`PkmClient.get_backlinks`, used by the CLI's `refs` command and the MCP
-`backlinks` tool, loops `GET /api/page`'s `bl_offset`/`bl_limit` pagination
-until every group is fetched, rather than rendering just the first page. The
-route caps a single response at 100 groups, but the CLI/MCP wording promises
-the complete backlink list, and no user-visible output in this project
-truncates silently. The aggregate `Backlinks.limit` is the first response's
-observed, server-clamped page size, or 0 only if no response established one;
-it is never the final number of groups synthesized as a fake request limit.
+## When something looks wrong
 
-The route sorts backlink sources by `(updated_at DESC, title)`, which is
-stable across `get_backlinks`'s sequential requests only if no source page's
-`updated_at` changes mid-fetch — a concurrent write from another CLI/MCP
-process, for instance. A rank shift across a page boundary produces a
-duplicate page_id, a total short of what the server reported, or both.
-`_fetch_backlinks_once` detects either symptom, and `get_backlinks` restarts
-the whole fetch from offset 0, bounded by `_BACKLINK_MAX_ATTEMPTS`. It raises
-rather than ever returning a possibly skipped or duplicated set. `get_page`
-itself, used for a page's own content, is unchanged and still returns one page
-of backlinks alongside the blocks.
+Each row is something a caller has actually hit, and the rule that answers
+it.
 
-## The MCP tool surface
-
-The MCP server exposes eleven tools: seven reads (`get_page`, `get_block`,
-`search`, `query`, `backlinks`, `todos`, `search_assets`) and four writes
-(`save_note`, `update_block`, `batch`, `upload_asset`), built from the same
-planners. Reads return markdown annotated with `^uid` markers that the write
-tools accept. The embedded assistant's `policy.py` splits them along exactly
-that read/write line (see
-[assistant-and-files.md](assistant-and-files.md#embedded-assistant-pkmassistant)),
-so adding a tool means deciding which tuple it joins.
+| Symptom | Cause | Ref |
+|---|---|---|
+| `--section "## Notes"` returns an H3 or a plain block | the marker was once stripped so every spec behaved as bare; a marked spec now matches heading level and text together | — |
+| A heading copied from `pkm todos`/`search`/`refs` output and written back with `pkm update` silently becomes plain text | those verbs' response models carry no `heading` field, so the text they print is bare; the round trip is `pkm get`/`get_page`/`get_block` only | — |
+| `pkm get -abc123` fails with an unknown-option error | argparse reads a leading-`-` uid as a flag; use `pkm get -- -abc123`, with any `-D`/`-T` flags before the `--` | — |

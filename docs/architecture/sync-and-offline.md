@@ -99,58 +99,6 @@ Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
 was rebuilt) or a changed `generation` token. Both mean "this is a different
 database; your cursor is meaningless".
 
-## Title activation across online and offline paths
-
-Titles are canonicalized at both sides' I/O boundaries, and one server-owned
-flag — `plain_space_title_canonicalization`, carried in every snapshot and
-changes payload beside `generation` — decides how far. It is a rollout switch,
-not a client preference: normal server startup never changes it and never runs
-the padded-title data migration. An explicit audited apply sets the flag and
-rotates the generation in one transaction, and fresh importer databases run that
-same audit/apply path before publication, so they arrive active.
-
-| State | Online server/API | Offline replica |
-|---|---|---|
-| Always | Normalize control whitespace in title creation and page/unlinked read lookup; after normalization reject `#`, `[[`, and `]]` in normal writes | `canonicalizeTitle` applies the same normalization to local creation and reads; local writes use the same forbidden-syntax predicate |
-| Inactive | Preserve leading/trailing ordinary U+0020 exactly, allowing legacy padded rows to resolve to themselves | Persist `"0"`; preserve boundary ordinary spaces and keep queued wire operations unchanged |
-| Active | Strip only boundary U+0020 on creation/read; keep internal ordinary spaces and NBSP exact | Persist `"1"`; strip boundary U+0020 before local page lookup/creation and optimistic replay |
-
-Forbidden syntax is caught before anything is applied. `findOpTitleViolation()`
-checks every explicit page target and ref-derived title in the batch, and refuses
-the whole gesture on `#`, `[[` or `]]` before any optimistic mutation.
-`enqueueBatch()` repeats the check before its transaction, so no `pending_ops` row
-or partial optimistic state is persisted either. The offline `POST /api/pages`
-shim returns 422 before creating its negative page.
-
-Snapshot and feed payloads are not user writes. They are always accepted, because
-rejecting one would wedge the client's queue.
-
-Two orderings matter:
-
-- **The replica persists the flag in the same transaction as the payload that
-  carried it.** It does so before reconciling and replaying pending batches.
-  After activation it canonicalizes negative-id pages created under the old rule:
-  their blocks and refs move onto a canonical authoritative page if the accepted
-  feed has one, otherwise the page is retitled in place. Only then does it replay
-  the durable wire ops, unchanged, under the new rule. No padded-page residue and
-  no optimistic user state is lost.
-- **A client that sees the new generation returns `needs-bootstrap` before
-  touching its cursor, generation or activation metadata.** The snapshot then
-  installs graph and metadata together. After commit, the apply route sends one
-  forced frame:
-  `{type:"seq", seq:<actual journal max>, force:true, generation:<new token>}`.
-  The force bit makes a client pull even when that seq equals its cursor. It
-  never fabricates or advances the cursor, so the next ordinary higher-seq frame
-  still arrives. If the frame is lost, the reconnect pull and the feed's
-  generation check get there anyway.
-
-Applied-op echoes carry the *stored* title, not the caller's spelling, for
-`create`, `create_page` and moves with a resolved page target. That includes the
-blank-title fallback, control normalization and boundary stripping. Same-page
-moves with no `page_title` stay null. If the row cannot be loaded, broadcast
-assembly fails closed: the op transaction rolls back rather than send caller
-spelling.
-
 ## Post-commit nudges
 
 Three tables have change-journal triggers in `schema.py`'s `SERVER_DDL`:
@@ -304,6 +252,58 @@ Conflict resolution happens entirely server-side at push time
 Nothing is discarded. Conflict blocks are ordinary blocks, so they reach
 every client through the normal feed, and they are findable through search
 and the `[[conflict]]` page's backlinks.
+
+## Title activation across online and offline paths
+
+Titles are canonicalized at both sides' I/O boundaries, and one server-owned
+flag — `plain_space_title_canonicalization`, carried in every snapshot and
+changes payload beside `generation` — decides how far. It is a rollout switch,
+not a client preference: normal server startup never changes it and never runs
+the padded-title data migration. An explicit audited apply sets the flag and
+rotates the generation in one transaction, and fresh importer databases run that
+same audit/apply path before publication, so they arrive active.
+
+| State | Online server/API | Offline replica |
+|---|---|---|
+| Always | Normalize control whitespace in title creation and page/unlinked read lookup; after normalization reject `#`, `[[`, and `]]` in normal writes | `canonicalizeTitle` applies the same normalization to local creation and reads; local writes use the same forbidden-syntax predicate |
+| Inactive | Preserve leading/trailing ordinary U+0020 exactly, allowing legacy padded rows to resolve to themselves | Persist `"0"`; preserve boundary ordinary spaces and keep queued wire operations unchanged |
+| Active | Strip only boundary U+0020 on creation/read; keep internal ordinary spaces and NBSP exact | Persist `"1"`; strip boundary U+0020 before local page lookup/creation and optimistic replay |
+
+Forbidden syntax is caught before anything is applied. `findOpTitleViolation()`
+checks every explicit page target and ref-derived title in the batch, and refuses
+the whole gesture on `#`, `[[` or `]]` before any optimistic mutation.
+`enqueueBatch()` repeats the check before its transaction, so no `pending_ops` row
+or partial optimistic state is persisted either. The offline `POST /api/pages`
+shim returns 422 before creating its negative page.
+
+Snapshot and feed payloads are not user writes. They are always accepted, because
+rejecting one would wedge the client's queue.
+
+Two orderings matter:
+
+- **The replica persists the flag in the same transaction as the payload that
+  carried it.** It does so before reconciling and replaying pending batches.
+  After activation it canonicalizes negative-id pages created under the old rule:
+  their blocks and refs move onto a canonical authoritative page if the accepted
+  feed has one, otherwise the page is retitled in place. Only then does it replay
+  the durable wire ops, unchanged, under the new rule. No padded-page residue and
+  no optimistic user state is lost.
+- **A client that sees the new generation returns `needs-bootstrap` before
+  touching its cursor, generation or activation metadata.** The snapshot then
+  installs graph and metadata together. After commit, the apply route sends one
+  forced frame:
+  `{type:"seq", seq:<actual journal max>, force:true, generation:<new token>}`.
+  The force bit makes a client pull even when that seq equals its cursor. It
+  never fabricates or advances the cursor, so the next ordinary higher-seq frame
+  still arrives. If the frame is lost, the reconnect pull and the feed's
+  generation check get there anyway.
+
+Applied-op echoes carry the *stored* title, not the caller's spelling, for
+`create`, `create_page` and moves with a resolved page target. That includes the
+blank-title fallback, control normalization and boundary stripping. Same-page
+moves with no `page_title` stay null. If the row cannot be loaded, broadcast
+assembly fails closed: the op transaction rolls back rather than send caller
+spelling.
 
 ## The replica and its recovery invariants
 

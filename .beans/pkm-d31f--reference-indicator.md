@@ -17,7 +17,7 @@ Blocks with references (block level not page) should have an indicator in the ri
 - [x] Task 3: one-time server backfill at startup
 - [x] Task 4: importer populates block_refs
 - [x] Task 5: block_ref_counts in page and journal payloads
-- [ ] Task 6: GET /api/block/{uid}/backlinks
+- [x] Task 6: GET /api/block/{uid}/backlinks
 - [ ] Task 7: replica write paths, shim reads, parity fixture
 - [ ] Task 8: badge in the outline
 - [ ] Task 9: references popover

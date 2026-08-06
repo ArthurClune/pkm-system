@@ -94,6 +94,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/block/{uid}/backlinks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Block Backlinks
+         * @description The ((uid)) badge's popover read (pkm-d31f): who references this
+         *     block. Same group shape and ordering as page backlinks; the count badge
+         *     itself rides the page/journal payloads (block_ref_counts).
+         */
+        get: operations["get_block_backlinks_api_block__uid__backlinks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/block/{uid}": {
         parameters: {
             query?: never;
@@ -831,6 +853,16 @@ export interface components {
             offset: number;
             /** Limit */
             limit: number;
+        };
+        /**
+         * BlockBacklinksPayload
+         * @description GET /api/block/{uid}/backlinks: every block referencing ((uid)),
+         *     grouped like page backlinks. Unpaginated by design -- counts are small
+         *     and nothing user-visible truncates silently (pkm-d31f).
+         */
+        BlockBacklinksPayload: {
+            /** Groups */
+            groups: components["schemas"]["BacklinkGroup"][];
         };
         /** BlockGroup */
         BlockGroup: {
@@ -1572,6 +1604,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BlockRefsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_block_backlinks_api_block__uid__backlinks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                uid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockBacklinksPayload"];
                 };
             };
             /** @description Validation Error */

@@ -79,3 +79,27 @@ def test_journal_payload_carries_block_ref_counts(client):
     payload = r.json()
     assert any(d["title"] == "July 7th, 2026" for d in payload["days"])
     assert payload["block_ref_counts"] == {"uid_b5": 1}
+
+
+def test_block_backlinks_groups(client):
+    r = client.get("/api/block/uid_b3/backlinks")
+    assert r.status_code == 200
+    groups = r.json()["groups"]
+    assert [g["page_title"] for g in groups] == ["July 7th, 2026"]
+    assert [i["uid"] for i in groups[0]["items"]] == ["uid_b5"]
+    assert groups[0]["items"][0]["text"] == "See ((uid_b3)) for details"
+    assert groups[0]["items"][0]["breadcrumbs"] == []
+
+
+def test_block_backlinks_empty_for_unreferenced_block(client):
+    r = client.get("/api/block/uid_b1/backlinks")
+    assert r.status_code == 200
+    assert r.json() == {"groups": []}
+
+
+def test_block_backlinks_unknown_uid_404s(client):
+    assert client.get("/api/block/uid_nope99/backlinks").status_code == 404
+
+
+def test_block_backlinks_malformed_uid_422s(client):
+    assert client.get("/api/block/x!/backlinks").status_code == 422

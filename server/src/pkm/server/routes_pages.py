@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 from pkm.contracts.daily import date_for_title, title_for_date
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
-    BlockPayload, BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
-    JournalPayload, PageMeta, PagePayload, RenamePageResponse)
+    BlockBacklinksPayload, BlockPayload, BlockRefsPayload, CurrentWorkPayload,
+    GroupsPayload, JournalPayload, PageMeta, PagePayload, RenamePageResponse)
 from pkm.refs import canonicalize_title, is_blank_title, title_syntax_reason
 from pkm.server import notify
 from pkm.server.auth import require_auth
@@ -155,6 +155,29 @@ def get_block_refs(uids: str,
             raise HTTPException(status_code=422,
                                 detail=f"malformed uid: {uid!r}")
     return {"block_ref_texts": _resolve_ref_uids(db, wanted)}
+
+
+@router.get("/api/block/{uid}/backlinks", response_model=BlockBacklinksPayload)
+def get_block_backlinks(uid: str,
+                        db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """The ((uid)) badge's popover read (pkm-d31f): who references this
+    block. Same group shape and ordering as page backlinks; the count badge
+    itself rides the page/journal payloads (block_ref_counts)."""
+    if not _UID_RE.fullmatch(uid):
+        raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
+    if db.execute("SELECT 1 FROM blocks WHERE uid = ?",
+                  (uid,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="block not found")
+    rows = db.execute(
+        """SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
+             FROM block_refs r
+             JOIN blocks b ON b.uid = r.src_block_uid
+             JOIN pages p ON p.id = b.page_id
+            WHERE r.target_block_uid = ?
+            ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
+        (uid,)).fetchall()
+    ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
+    return {"groups": group_backlinks(rows, ancestors)}
 
 
 @router.get("/api/block/{uid}", response_model=BlockPayload)

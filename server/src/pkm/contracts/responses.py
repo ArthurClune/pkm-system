@@ -57,6 +57,13 @@ class Backlinks(BaseModel):
     limit: int
 
 
+class BlockBacklinksPayload(BaseModel):
+    """GET /api/block/{uid}/backlinks: every block referencing ((uid)),
+    grouped like page backlinks. Unpaginated by design -- counts are small
+    and nothing user-visible truncates silently (pkm-d31f)."""
+    groups: list[BacklinkGroup]
+
+
 class BlockRefText(BaseModel):
     text: str
     page_title: str

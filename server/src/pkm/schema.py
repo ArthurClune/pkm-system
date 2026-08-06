@@ -48,6 +48,20 @@ CREATE TABLE IF NOT EXISTS refs(
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_refs_target ON refs(target_page_id);
 
+-- pkm-d31f: incoming ((uid)) index, the block-level analogue of refs.
+-- No FK on target_block_uid: an unresolved ((uid)) is a legal state (it
+-- renders unresolved), so dangling rows are permitted and simply never
+-- match a count query. Rows are derived from block text at every write
+-- choke point (ops_apply.py, localOps.ts, apply.ts) and NEVER shipped
+-- over sync -- targets are uids, needing no id resolution, and the
+-- extractor is parity-pinned (refs_parity.json).
+CREATE TABLE IF NOT EXISTS block_refs(
+  src_block_uid    TEXT NOT NULL REFERENCES blocks(uid) ON DELETE CASCADE,
+  target_block_uid TEXT NOT NULL,
+  PRIMARY KEY (src_block_uid, target_block_uid)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_block_refs_target ON block_refs(target_block_uid);
+
 CREATE TABLE IF NOT EXISTS assets(
   sha256      TEXT PRIMARY KEY,
   filename    TEXT NOT NULL,

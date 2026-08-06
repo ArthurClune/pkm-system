@@ -124,6 +124,18 @@ def test_plain_space_title_canonicalization_defaults_false_and_replay_keeps_true
     assert plain_space_title_canonicalization_active(db) is True
 
 
+def test_block_refs_table_exists(tmp_path):
+    from pkm.server.db import init_db, open_db
+    db_path = tmp_path / "pkm.sqlite3"
+    init_db(db_path)
+    con = open_db(db_path)
+    cols = [r[1] for r in con.execute("PRAGMA table_info(block_refs)")]
+    assert cols == ["src_block_uid", "target_block_uid"]
+    indexes = {r[1] for r in con.execute("PRAGMA index_list(block_refs)")}
+    assert "idx_block_refs_target" in indexes
+    con.close()
+
+
 def test_rotate_database_generation_changes_only_generation(db):
     before = dict(db.execute("SELECT key, value FROM sync_meta"))
 

@@ -35,6 +35,9 @@ SEED_REFS = [
     ("uid_b3", 4, "link"),
     ("uid_b4", 1, "link"),
 ]
+SEED_BLOCK_REFS = [
+    ("uid_b5", "uid_b3"),  # "See ((uid_b3)) for details"
+]
 
 
 @pytest.fixture()
@@ -48,6 +51,7 @@ def seeded_config(tmp_path) -> Config:
         " heading, collapsed, created_at, updated_at)"
         " VALUES (?,?,?,?,?,?,?,?,?)", SEED_BLOCKS)
     con.executemany("INSERT INTO refs VALUES (?,?,?)", SEED_REFS)
+    con.executemany("INSERT INTO block_refs VALUES (?,?)", SEED_BLOCK_REFS)
     con.commit()
     con.close()
     (tmp_path / "assets").mkdir()

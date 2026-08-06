@@ -19,6 +19,7 @@ import { formatStamp, formatStampTitle, stampBand,
          stampTs } from "../outline/blockStamps";
 import { BlockInput } from "./BlockInput";
 import { BlockMenu } from "./BlockMenu";
+import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
 import { InlineSegments } from "./InlineSegments";
 import { RoamTable } from "./roamTable";
 import { quoteContent } from "./blockPresentation";
@@ -79,14 +80,12 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     viewMode: EffectiveBlockView;
     trigger: HTMLElement;
   } | null>(null);
-  // The badge's references popover (pkm-d31f); the popover element itself
-  // is rendered elsewhere (bean pkm-d31f, next task) -- this tree only owns
-  // where it opens. Read here so this file typechecks standalone; the next
-  // task's conditional render replaces this line.
+  // The badge's references popover (pkm-d31f); one per tree, anchored at
+  // the badge that opened it. Renders in fallback trees too -- read-only
+  // navigation to a referencing block is fine even where editing isn't.
   const [refPopover, setRefPopover] = useState<{
     uid: string; x: number; y: number;
   } | null>(null);
-  void refPopover;
   const selected = !fallback && selection
     ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
   const closeMenu = () => {
@@ -178,6 +177,11 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
             handlers,
             readOnly,
           )} />
+      )}
+      {refPopover && (
+        <BlockRefBacklinksPopover uid={refPopover.uid}
+          x={refPopover.x} y={refPopover.y}
+          onClose={() => setRefPopover(null)} />
       )}
     </div>
   );

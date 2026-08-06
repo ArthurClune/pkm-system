@@ -731,3 +731,30 @@ describe("reference-count gutter badge (pkm-d31f)", () => {
       .toContain("outline: 2px solid var(--color-link);");
   });
 });
+
+describe("references popover (pkm-d31f)", () => {
+  // layers and shades like .block-menu -- both are fixed-position floating
+  // panels that can be open at the same time (a badge inside a block menu's
+  // context is unlikely, but nothing rules it out), so they share tokens.
+  test("shares .block-menu's layering and surface treatment", () => {
+    const menu = ruleFor(".block-menu");
+    const popover = ruleFor(".block-ref-popover");
+    expect(popover).toContain("z-index: 60;");
+    expect(menu).toContain("z-index: 60;");
+    expect(popover).toContain("border-radius: var(--radius-panel);");
+    expect(popover).toContain("box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15);");
+    expect(menu).toContain("box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15);");
+  });
+
+  test("caps its own height with a vertical scrollbar, never the page's horizontal", () => {
+    const rule = ruleFor(".block-ref-popover");
+    expect(rule).toContain("max-height: 60vh;");
+    expect(rule).toContain("overflow-y: auto;");
+  });
+
+  test("navigable backlink items get a pointer cursor and hover fill", () => {
+    expect(ruleFor(".backlink-item.navigable")).toContain("cursor: pointer;");
+    expect(ruleFor(".backlink-item.navigable:hover"))
+      .toContain("background: var(--color-bg-subtle);");
+  });
+});

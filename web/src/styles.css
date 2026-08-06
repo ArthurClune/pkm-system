@@ -529,6 +529,17 @@ button { font: inherit; }
   color: var(--color-text-muted); background: var(--color-bg-subtle); }
 .block-ref-badge:hover { border: none; color: var(--color-text); }
 .block-ref-badge:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+/* pkm-d31f: the badge's popover. Same layering and surface treatment as
+ * .block-menu (styles.css ~line 855); capped height with its own scroll
+ * (never the page's horizontal). */
+.block-ref-popover { position: fixed; z-index: 60;
+  min-width: 260px; max-width: min(480px, calc(100vw - 24px));
+  max-height: 60vh; overflow-y: auto; padding: 8px 12px;
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
+.backlink-item.navigable { cursor: pointer; border-radius: var(--radius-control); }
+.backlink-item.navigable:hover { background: var(--color-bg-subtle); }
 /* all clearly below the 28px page title so the page keeps one visual root */
 h1.block-text, .block-input.heading-1 { font-size: 1.4rem; font-weight: 600; }
 h2.block-text, .block-input.heading-2 { font-size: 1.25rem; font-weight: 600; }

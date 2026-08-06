@@ -52,6 +52,11 @@ SEED = {
          1000, 2000],
         ["uid_b9", 2, None, 1, "Remind me on [[July 9th, 2026]] to check this",
          None, 0, 1000, 2000],
+        # second ((uid_b3)) referrer on a different page (pkm-l6cl): page 5's
+        # updated_at 8000 beats page 3's 3000, so block_backlinks now pins the
+        # group ORDER BY (updated_at DESC NULLS LAST) and multi-group shaping.
+        ["uid_b10", 5, None, 1, "Follow-up to ((uid_b3)) findings", None, 0,
+         1000, 2000],
     ],
     "refs": [
         ["uid_b1", 2, "attribute"],
@@ -68,6 +73,7 @@ SEED = {
     "block_refs": [
         ["uid_b6", "uid_b3"],
         ["uid_b8", "uid_b6"],
+        ["uid_b10", "uid_b3"],
     ],
     "sidebar": [
         [1, "Machine Learning", 0],

@@ -62,6 +62,13 @@ SEED = {
         ["uid_b5", 1, "link"],
         ["uid_b9", 6, "link"],
     ],
+    # Derived from the block texts above (uid_b6 cites uid_b3, uid_b8 cites
+    # uid_b6): the write path maintains these on both engines, so the seed
+    # states them rather than either engine re-deriving them (pkm-d31f).
+    "block_refs": [
+        ["uid_b6", "uid_b3"],
+        ["uid_b8", "uid_b6"],
+    ],
     "sidebar": [
         [1, "Machine Learning", 0],
         [2, "AI", 1],
@@ -83,6 +90,7 @@ CASES = [
     ("titles_a", "/api/titles?q=a"),
     ("titles_ml", "/api/titles?q=Machine"),
     ("block_refs", "/api/block-refs?uids=uid_b8,uid_missing"),
+    ("block_backlinks", "/api/block/uid_b3/backlinks"),
     ("sidebar", "/api/sidebar"),
     ("search_attention", "/api/search?q=attention"),
     ("search_machine", "/api/search?q=machine"),
@@ -104,6 +112,8 @@ def fixture() -> dict:
             " heading, collapsed, created_at, updated_at)"
             " VALUES (?,?,?,?,?,?,?,?,?)", SEED["blocks"])
         con.executemany("INSERT INTO refs VALUES (?,?,?)", SEED["refs"])
+        con.executemany("INSERT INTO block_refs VALUES (?,?)",
+                        SEED["block_refs"])
         con.executemany("INSERT INTO sidebar_entries VALUES (?,?,?)",
                         SEED["sidebar"])
         con.commit()

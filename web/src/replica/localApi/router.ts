@@ -14,7 +14,8 @@ import { enqueueBatch } from "../queue";
 import { canonicalizeTitle, titleSyntaxReason } from "../titles";
 import { escapeFtsQuery } from "./fts";
 import { journalPayload } from "./journal";
-import { currentWorkPayload, fetchPage, pagePayload, unlinked } from "./pages";
+import { blockBacklinks, currentWorkPayload, fetchPage, pagePayload,
+         unlinked } from "./pages";
 import { searchPayload } from "./search";
 import { resolveRefUids } from "./tree";
 
@@ -104,6 +105,13 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
     enqueueBatch(db, [{ op: "create_page", page_title: title }], req.nowMs,
                  deps.newBatchId());
     return ok(fetchPage(db, title));
+  }
+  const blockBacklinksMatch = /^\/api\/block\/([^/]+)\/backlinks$/.exec(path);
+  if (method === "GET" && blockBacklinksMatch) {
+    const uid = decodeURIComponent(blockBacklinksMatch[1]);
+    if (!UID_RE.test(uid)) return err(422, `malformed uid: '${uid}'`);
+    const body = blockBacklinks(db, uid);
+    return body === null ? err(404, "block not found") : ok(body);
   }
   return NOT_HANDLED;
 }

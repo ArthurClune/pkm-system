@@ -15,6 +15,7 @@ export type BacklinkGroup = Schemas["BacklinkGroup"];
 export type Backlinks = Schemas["Backlinks"];
 export type BlockRefText = Schemas["BlockRefText"];
 export type BlockRefsPayload = Schemas["BlockRefsPayload"];
+export type BlockBacklinksPayload = Schemas["BlockBacklinksPayload"];
 export type PagePayload = Schemas["PagePayload"];
 
 /** Shared by /api/unlinked and /api/todos (both return {groups, total}). */

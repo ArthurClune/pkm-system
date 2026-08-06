@@ -9,7 +9,8 @@ import { dateForTitle, selectJournalDays, titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { fetchPage } from "./pages";
-import { BLOCK_COLS, type BlockRow, blockRefTexts, buildTree } from "./tree";
+import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts,
+         buildTree } from "./tree";
 
 const isoDate = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-` +
@@ -62,14 +63,17 @@ export function journalPayload(db: ReplicaDb, before: string | null,
   }
   const out: JournalDay[] = [];
   const texts: string[] = [];
+  const uids: string[] = [];
   for (const d of selectJournalDays(nonempty, today, cursor, window)) {
     const page = fetchPage(db, titleForDate(d));
     if (page === null) continue; // unreachable: selected days exist
     const blocks = db.select<BlockRow>(
       `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`, [page.id]);
     texts.push(...blocks.map((r) => r.text));
+    uids.push(...blocks.map((r) => r.uid));
     out.push({ date: isoDate(d), title: page.title, exists: true,
                blocks: buildTree(blocks) });
   }
-  return { days: out, block_ref_texts: blockRefTexts(db, texts) };
+  return { days: out, block_ref_texts: blockRefTexts(db, texts),
+           block_ref_counts: blockRefCounts(db, uids) };
 }

@@ -215,6 +215,14 @@ describe("applySnapshot", () => {
     expect(getMeta(t.db, "generation")).toBe("gen-2");
     expect(getMeta(t.db, "cursor")).toBe("4");
   });
+
+  test("wipes block_refs before rebuilding", () => {
+    t.db.exec("INSERT INTO block_refs VALUES ('uid_b1', 'uid_stale')");
+
+    applySnapshot(t.db, SNAP); // no block refs in any of its texts
+
+    expect(t.db.select("SELECT * FROM block_refs")).toEqual([]);
+  });
 });
 
 describe("applyChanges", () => {
@@ -343,6 +351,25 @@ describe("applyChanges", () => {
     expect(ftsHits("links")).toEqual(["uid_b1"]);
     expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
       .toEqual([{ text: "no more links" }]);
+  });
+
+  test("upsertBlock derives block_refs from synced text", () => {
+    // block_refs never ride the feed: the client extracts them from the
+    // block's own text on every upsert (pkm-d31f).
+    applyChanges(t.db, emptyFeed({
+      next_since: 12, latest_seq: 12,
+      blocks: [block("uid_b1", 1, { text: "cites ((uid_tgtA))", refs: [] })],
+    }));
+
+    expect(t.db.select("SELECT * FROM block_refs")).toEqual([
+      { src_block_uid: "uid_b1", target_block_uid: "uid_tgtA" }]);
+
+    applyChanges(t.db, emptyFeed({
+      next_since: 13, latest_seq: 13,
+      blocks: [block("uid_b1", 1, { text: "cites nothing now", refs: [] })],
+    }));
+
+    expect(t.db.select("SELECT * FROM block_refs")).toEqual([]);
   });
 
   test("re-applying the same window is idempotent", () => {

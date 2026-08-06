@@ -13,7 +13,7 @@ Blocks with references (block level not page) should have an indicator in the ri
 ## Tasks (plan: docs/superpowers/plans/2026-08-06-pkm-d31f-block-ref-indicator.md)
 
 - [x] Task 1: block_refs table in schema + regenerated client schema artifact
-- [ ] Task 2: server write-path maintenance
+- [x] Task 2: server write-path maintenance
 - [ ] Task 3: one-time server backfill at startup
 - [ ] Task 4: importer populates block_refs
 - [ ] Task 5: block_ref_counts in page and journal payloads

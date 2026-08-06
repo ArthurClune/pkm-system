@@ -4,7 +4,7 @@ owns the transaction (read routes commit; the ops batch commits once)."""
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from pkm.refs import (canonicalize_title, extract, is_blank_title,
                       title_syntax_reason)
@@ -88,6 +88,16 @@ def index_ref(db: sqlite3.Connection, src_uid: str, ref_title: str,
               (src_uid, page["id"], ref_kind))
 
 
+def reindex_block_refs(db: sqlite3.Connection, src_uid: str,
+                       targets: Iterable[str]) -> None:
+    """Replace one block's outgoing ((uid)) rows (pkm-d31f). Targets may
+    dangle -- an unresolved ((uid)) is a legal state -- so no existence
+    check. Never commits."""
+    db.execute("DELETE FROM block_refs WHERE src_block_uid = ?", (src_uid,))
+    db.executemany("INSERT OR IGNORE INTO block_refs VALUES (?,?)",
+                   [(src_uid, t) for t in targets])
+
+
 def delete_page_rows(db: sqlite3.Connection, page_id: int,
                      title: str) -> None:
     """Deletes a page, its blocks, and any sidebar entry. Never commits --
@@ -137,9 +147,11 @@ def rewrite_snapshotted_blocks(
                 (new_text, now_ms, uid),
             )
             rewritten += 1
+        parsed = extract(new_text)
         db.execute("DELETE FROM refs WHERE src_block_uid = ?", (uid,))
-        for ref in extract(new_text).refs:
+        for ref in parsed.refs:
             index_ref(db, uid, ref.title, ref.kind, now_ms)
+        reindex_block_refs(db, uid, parsed.block_refs)
     return rewritten
 
 

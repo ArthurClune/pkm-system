@@ -29,6 +29,38 @@ function wrapper({ children }: { children: React.ReactNode }) {
 
 afterEach(() => {
   mockApiGet.mockReset();
+  vi.restoreAllMocks();
+});
+
+// jsdom reports zero-size rects, so give the popover a real footprint; the
+// jsdom viewport is 1024x768.
+function mockPopoverRect(width: number, height: number) {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+    width, height, x: 0, y: 0, top: 0, left: 0, right: width, bottom: height,
+    toJSON: () => ({}),
+  } as DOMRect);
+}
+
+it("clamps a popover opened near the right/bottom edges into the viewport", async () => {
+  mockPopoverRect(480, 300);
+  mockApiGet.mockResolvedValueOnce({ groups: [] });
+  render(<BlockRefBacklinksPopover uid="uid_t1" x={2000} y={1500}
+                                   onClose={vi.fn()} />, { wrapper });
+  await screen.findByText(/no.*references/i);
+  const popover = screen.getByRole("dialog", { name: "References" });
+  expect(popover.style.left).toBe(`${1024 - 480 - 12}px`);
+  expect(popover.style.top).toBe(`${768 - 300 - 12}px`);
+});
+
+it("keeps an in-viewport anchor position unchanged", async () => {
+  mockPopoverRect(300, 150);
+  mockApiGet.mockResolvedValueOnce({ groups: [] });
+  render(<BlockRefBacklinksPopover uid="uid_t1" x={40} y={60}
+                                   onClose={vi.fn()} />, { wrapper });
+  await screen.findByText(/no.*references/i);
+  const popover = screen.getByRole("dialog", { name: "References" });
+  expect(popover.style.left).toBe("40px");
+  expect(popover.style.top).toBe("60px");
 });
 
 it("fetches and renders referencing blocks", async () => {

@@ -51,7 +51,18 @@ test("badge shows the incoming count and its popover navigates", async ({ page }
   await expect(popover.getByText(source)).toBeVisible();
   await expect(popover.getByText("the referenced block")).toBeVisible(); // the ((ref)) resolves inline
 
-  await popover.locator(".backlink-item").click();
+  // the badge sits at the right edge of this full-width row, so this also
+  // covers pkm-7iv7: the popover must be clamped fully inside the viewport
+  const popBox = await popover.boundingBox();
+  const viewport = page.viewportSize();
+  expect(popBox!.x).toBeGreaterThanOrEqual(0);
+  expect(popBox!.x + popBox!.width).toBeLessThanOrEqual(viewport!.width);
+  expect(popBox!.y).toBeGreaterThanOrEqual(0);
+  expect(popBox!.y + popBox!.height).toBeLessThanOrEqual(viewport!.height);
+
+  // click the item's top-left corner, not its center: the center lands on
+  // the inline ((ref)) span, which is its own link back to the target
+  await popover.locator(".backlink-item").click({ position: { x: 10, y: 10 } });
   await expect(page).toHaveURL(
     new RegExp(`/page/${encodeURIComponent(source)}#${sourceUid}$`));
   await expect(page.getByRole("dialog", { name: "References" })).toHaveCount(0);

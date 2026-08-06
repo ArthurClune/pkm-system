@@ -299,6 +299,10 @@ while the badge count is payload-fresh, with no reconciliation between them.
 The popover renders through `BacklinkGroupList`, the one renderer for
 backlink-group markup, shared with `BacklinksSection`. Navigation is
 read-only-safe, so the badge and popover render in `fallback` trees too.
+After render the popover measures itself and clamps its fixed position into
+the viewport (`popoverPosition.ts`) — the badge anchors at the right end of
+its row, and an overflowing `position: fixed` element grows no scrollbar to
+recover it.
 
 **Which way the editor's dependencies point.** Everything the UI can ask the
 editor to do is the `OutlineHandlers` port in `outline/handlers.ts` — about
@@ -594,6 +598,7 @@ its fix installed. The bean has the full investigation.
 | Navigating to a freshly created `[[ref]]` with Ctrl-O/Ctrl-Shift-O leaves the source block empty, its typed text gone | the unmount-only draft flush raced `POST /api/pages`; `ensureRefPageThenOpen` must flush the draft explicitly before creating the page and navigating | pkm-hhbc |
 | Shift-Up/Down with a text selection active at a block's edge collapses the selection and jumps focus to the neighboring block | the boundary-arrow branch excluded Meta/Ctrl/Alt but not Shift, so a growing selection fell through to block navigation instead of escalating to a block selection | pkm-jgtn |
 | A multi-block selection made while editable stays deletable after the outline switches to read-only | Backspace/Delete invoked `onDeleteBlockSelection()` unconditionally; every mutating selection branch must gate on `!readOnly` | pkm-rckh |
+| The references popover renders clipped off the right window edge, and no scrollbar appears to reach it | its fixed position applied the badge anchor verbatim; the popover must clamp its measured rect into the viewport (`popoverPosition.ts`) | pkm-7iv7 |
 
 ## Testing and quality gates
 

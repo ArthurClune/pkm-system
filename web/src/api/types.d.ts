@@ -490,6 +490,9 @@ export interface paths {
          *     reindex is needed; refs rows of deleted blocks go via FK cascade
          *     (the refs table has no FTS trigger — unlike blocks, where explicit
          *     per-uid DELETE is required to keep the FTS delete trigger firing).
+         *     `block_refs` needs no reindex either, for the same reason:
+         *     `strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint
+         *     from `((uid))`.
          */
         delete: operations["delete_asset_api_assets__sha256__delete"];
         options?: never;

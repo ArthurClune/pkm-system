@@ -1152,7 +1152,7 @@
     "/api/assets/{sha256}": {
       "delete": {
         "summary": "Delete Asset",
-        "description": "Delete an asset: strip every reference token from block text\n(blocks left empty with no children are deleted outright \u2014 asset\ndeletion must never cascade away real content, so emptied parents\nare kept), drop the assets row, commit, then best-effort unlink the\nfile. Commit-before-unlink: a crash leaves at worst an unreferenced\nfile on disk, never a row pointing at a missing file. Asset URLs\nnever contribute refs rows ([[link]]/#tag/attr:: only), so no refs\nreindex is needed; refs rows of deleted blocks go via FK cascade\n(the refs table has no FTS trigger \u2014 unlike blocks, where explicit\nper-uid DELETE is required to keep the FTS delete trigger firing).",
+        "description": "Delete an asset: strip every reference token from block text\n(blocks left empty with no children are deleted outright \u2014 asset\ndeletion must never cascade away real content, so emptied parents\nare kept), drop the assets row, commit, then best-effort unlink the\nfile. Commit-before-unlink: a crash leaves at worst an unreferenced\nfile on disk, never a row pointing at a missing file. Asset URLs\nnever contribute refs rows ([[link]]/#tag/attr:: only), so no refs\nreindex is needed; refs rows of deleted blocks go via FK cascade\n(the refs table has no FTS trigger \u2014 unlike blocks, where explicit\nper-uid DELETE is required to keep the FTS delete trigger firing).\n`block_refs` needs no reindex either, for the same reason:\n`strip_asset_tokens` removes only asset-embed tokens, a syntax disjoint\nfrom `((uid))`.",
         "operationId": "delete_asset_api_assets__sha256__delete",
         "parameters": [
           {

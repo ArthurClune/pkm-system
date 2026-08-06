@@ -34,6 +34,7 @@ class Rows:
     pages: list[tuple]
     blocks: list[tuple]
     refs: list[tuple]
+    block_refs: list[tuple]
     implicit_page_count: int
     block_ref_count: int
     embed_count: int
@@ -104,6 +105,7 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
     pages: list[tuple] = []
     blocks: list[tuple] = []
     refs: list[tuple] = []
+    block_refs: list[tuple] = []
     page_ids: dict[str, int] = {}
     counts = {"block_ref": 0, "embed": 0}
     block_ref_sources = _collect_block_ref_sources(export)
@@ -142,6 +144,8 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
                        b.view_type))
         for r in parsed.refs:
             refs.append((b.uid, page_id(r.title), r.kind))
+        for target in dict.fromkeys(parsed.block_refs):
+            block_refs.append((b.uid, target))
         counts["block_ref"] += len(parsed.block_refs)
         counts["embed"] += parsed.embeds
         if fence is None:  # children consumed into the fence otherwise
@@ -168,7 +172,7 @@ def to_rows(export: Export, transform_text: Callable[[str], str]) -> Rows:
         len(pages) - explicit - (1 if recovery_page_title is not None else 0)
     )
 
-    return Rows(pages=pages, blocks=blocks, refs=refs,
+    return Rows(pages=pages, blocks=blocks, refs=refs, block_refs=block_refs,
                 implicit_page_count=implicit_page_count,
                 block_ref_count=counts["block_ref"],
                 embed_count=counts["embed"],

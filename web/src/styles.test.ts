@@ -710,3 +710,24 @@ describe("block stamps (pkm-4ler)", () => {
       .toContain("white-space: nowrap;");
   });
 });
+
+describe("reference-count gutter badge (pkm-d31f)", () => {
+  test("is a muted pill styled from the two tokens", () => {
+    const rule = rulesFor(".block-ref-badge");
+    expect(rule).toContain("color: var(--color-text-muted);");
+    expect(rule).toContain("background: var(--color-bg-subtle);");
+  });
+
+  // unlike .block-stamp, the badge must NOT be display:none on phones -- it
+  // is the only route to the popover on touch. No override at all in the
+  // phone media query means the base (visible) rule keeps applying there.
+  test("survives the phone media query", () => {
+    expect(() => mediaRulesFor("(max-width: 600px)", ".block-ref-badge"))
+      .toThrow(/Missing CSS rule/);
+  });
+
+  test("gets the standard keyboard focus ring", () => {
+    expect(ruleFor(".block-ref-badge:focus-visible"))
+      .toContain("outline: 2px solid var(--color-link);");
+  });
+});

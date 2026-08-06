@@ -800,3 +800,29 @@ test("the stamp stays the row's last child while the block is focused", () => {
   expect(row.querySelector("textarea")).not.toBeNull();
   expect(row.lastElementChild).toHaveClass("block-stamp");
 });
+
+// --- reference-count gutter badge (pkm-d31f) ---
+
+test("blocks with incoming refs show a count badge; others none", () => {
+  const h = handlers();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={BLOCKS} focus={null} handlers={h}
+                         readOnly={false} refCounts={{ [BLOCKS[0].uid]: 3 }} />
+    </MemoryRouter>);
+  const badge = screen.getByRole("button", { name: "3 references" });
+  expect(badge).toHaveClass("block-ref-badge");
+  expect(badge).toHaveTextContent("3");
+  expect(screen.getAllByRole("button", { name: /references?$/ })).toHaveLength(1);
+});
+
+test("badge click does not focus the block", () => {
+  const h = handlers();
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={BLOCKS} focus={null} handlers={h}
+                         readOnly={false} refCounts={{ [BLOCKS[0].uid]: 1 }} />
+    </MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "1 reference" }));
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+});

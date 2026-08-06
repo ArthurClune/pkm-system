@@ -517,6 +517,18 @@ button { font: inherit; }
 .block-stamp-year { background: var(--color-stamp-year); }
 /* .block-stamp-older intentionally has no fill: .block-stamp's own
  * background: none above is what renders it unfilled (pkm-4ler). */
+/* pkm-d31f: incoming-reference count badge. Sparse per-row pill, not a
+ * column (contrast .block-stamp above); sits just inside the stamp cell,
+ * whose own margin-left supplies the separation. Deliberately low-ink so
+ * a stamp's freshness tint stays the louder signal on rows with both.
+ * NOT hidden in the phone media query: it is the only route to the
+ * popover on touch. */
+.block-ref-badge { flex: none; margin-left: 8px; padding: 0 6px;
+  font-size: 11px; line-height: 18px; align-self: center;
+  border: none; cursor: pointer; border-radius: var(--radius-control);
+  color: var(--color-text-muted); background: var(--color-bg-subtle); }
+.block-ref-badge:hover { border: none; color: var(--color-text); }
+.block-ref-badge:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 /* all clearly below the 28px page title so the page keeps one visual root */
 h1.block-text, .block-input.heading-1 { font-size: 1.4rem; font-weight: 600; }
 h2.block-text, .block-input.heading-2 { font-size: 1.25rem; font-weight: 600; }

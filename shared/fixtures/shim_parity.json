@@ -137,6 +137,17 @@
         0,
         1000,
         2000
+      ],
+      [
+        "uid_b10",
+        5,
+        null,
+        1,
+        "Follow-up to ((uid_b3)) findings",
+        null,
+        0,
+        1000,
+        2000
       ]
     ],
     "refs": [
@@ -184,6 +195,10 @@
       [
         "uid_b8",
         "uid_b6"
+      ],
+      [
+        "uid_b10",
+        "uid_b3"
       ]
     ],
     "sidebar": [
@@ -278,7 +293,7 @@
         },
         "block_ref_texts": {},
         "block_ref_counts": {
-          "uid_b3": 1
+          "uid_b3": 2
         }
       }
     },
@@ -587,6 +602,17 @@
       "path": "/api/block/uid_b3/backlinks",
       "response": {
         "groups": [
+          {
+            "page_id": 5,
+            "page_title": "Attention Is All You Need",
+            "items": [
+              {
+                "uid": "uid_b10",
+                "text": "Follow-up to ((uid_b3)) findings",
+                "breadcrumbs": []
+              }
+            ]
+          },
           {
             "page_id": 3,
             "page_title": "July 10th, 2026",

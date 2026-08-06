@@ -21,5 +21,5 @@ Blocks with references (block level not page) should have an indicator in the ri
 - [x] Task 7: replica write paths, shim reads, parity fixture
 - [x] Task 8: badge in the outline
 - [x] Task 9: references popover
-- [ ] Task 10: e2e spec
+- [x] Task 10: e2e spec
 - [ ] Task 11: architecture docs, bean completion, full verification

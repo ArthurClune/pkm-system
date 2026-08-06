@@ -18,6 +18,7 @@ const emptyPagePayload = (title: string): PagePayload => ({
   blocks: [],
   backlinks: { groups: [], total_pages: 0, offset: 0, limit: 20 },
   block_ref_texts: {},
+  block_ref_counts: {},
 });
 
 /** A non-today daily page 404s if nobody has written to it yet or it was

@@ -52,3 +52,30 @@ def test_rename_rewrite_preserves_block_refs(client, seeded_config):
                     json={"new_title": "Papers Renamed"})
     assert r.status_code == 200, r.text
     assert ("uid_b5", "uid_b3") in _rows(seeded_config)
+
+
+def test_page_payload_carries_block_ref_counts(client):
+    # seed: uid_b5 (July 7th daily) references uid_b3 (Machine Learning)
+    r = client.get("/api/page/Machine%20Learning")
+    assert r.status_code == 200
+    assert r.json()["block_ref_counts"] == {"uid_b3": 1}
+
+
+def test_page_payload_counts_are_omitted_at_zero(client):
+    r = client.get("/api/page/AI")
+    assert r.status_code == 200
+    assert r.json()["block_ref_counts"] == {}
+
+
+def test_journal_payload_carries_block_ref_counts(client):
+    # make the daily's own block a ((target)) so the count rides the
+    # journal payload: uid_b5 lives on "July 7th, 2026"
+    _post_ops(client, [{
+        "op": "create", "uid": "uid_jref1", "page_title": "AI",
+        "parent_uid": None, "order_idx": 9, "text": "note ((uid_b5))",
+    }], "b-j1-task5")
+    r = client.get("/api/journal?before=2026-07-08&days=3")
+    assert r.status_code == 200
+    payload = r.json()
+    assert any(d["title"] == "July 7th, 2026" for d in payload["days"])
+    assert payload["block_ref_counts"] == {"uid_b5": 1}

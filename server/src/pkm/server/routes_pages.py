@@ -54,6 +54,20 @@ def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
     return _resolve_ref_uids(db, collect_block_ref_uids(texts))
 
 
+def _block_ref_counts(db: sqlite3.Connection,
+                      uids: list[str]) -> dict[str, int]:
+    """Incoming ((ref)) count per uid, nonzero entries only (pkm-d31f).
+    One GROUP BY against idx_block_refs_target; src rows CASCADE with their
+    block, so every counted row has a live source."""
+    if not uids:
+        return {}
+    marks = ",".join("?" * len(uids))
+    return {r["target_block_uid"]: r["n"] for r in db.execute(
+        f"""SELECT target_block_uid, count(*) AS n FROM block_refs
+             WHERE target_block_uid IN ({marks})
+             GROUP BY target_block_uid""", uids)}
+
+
 def _resolve_ref_uids(db: sqlite3.Connection, uids: list[str]) -> dict:
     """Resolve ((refs)) transitively: a referenced block's text may itself
     contain ((refs)) the client renders nested, so follow the chain. The
@@ -196,6 +210,8 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
                       "offset": bl_offset, "limit": bl_limit},
         "block_ref_texts": _block_ref_texts(
             db, [r["text"] for r in blocks] + bl_texts),
+        "block_ref_counts": _block_ref_counts(
+            db, [r["uid"] for r in blocks]),
     }
 
 
@@ -412,6 +428,7 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
             nonempty.add(d)
     out = []
     texts: list[str] = []
+    uids: list[str] = []
     for d in select_journal_days(nonempty, today, cursor, days):
         page = fetch_page(db, title_for_date(d))
         if page is None:  # pragma: no cover - selected days exist
@@ -420,9 +437,11 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
             f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
             (page["id"],)).fetchall()
         texts.extend(r["text"] for r in blocks)
+        uids.extend(r["uid"] for r in blocks)
         out.append({"date": d.isoformat(), "title": page["title"],
                     "exists": True, "blocks": build_tree(blocks)})
-    return {"days": out, "block_ref_texts": _block_ref_texts(db, texts)}
+    return {"days": out, "block_ref_texts": _block_ref_texts(db, texts),
+            "block_ref_counts": _block_ref_counts(db, uids)}
 
 
 def _block_is_referenced(db: sqlite3.Connection, uid: str,

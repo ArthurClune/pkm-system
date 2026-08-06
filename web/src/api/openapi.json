@@ -2587,12 +2587,20 @@
             },
             "type": "object",
             "title": "Block Ref Texts"
+          },
+          "block_ref_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Block Ref Counts"
           }
         },
         "type": "object",
         "required": [
           "days",
-          "block_ref_texts"
+          "block_ref_texts",
+          "block_ref_counts"
         ],
         "title": "JournalPayload"
       },
@@ -2790,6 +2798,13 @@
             },
             "type": "object",
             "title": "Block Ref Texts"
+          },
+          "block_ref_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Block Ref Counts"
           }
         },
         "type": "object",
@@ -2797,7 +2812,8 @@
           "page",
           "blocks",
           "backlinks",
-          "block_ref_texts"
+          "block_ref_texts",
+          "block_ref_counts"
         ],
         "title": "PagePayload"
       },

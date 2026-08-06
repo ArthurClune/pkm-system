@@ -72,6 +72,7 @@ class PagePayload(BaseModel):
     blocks: list[BlockNode]
     backlinks: Backlinks
     block_ref_texts: dict[str, BlockRefText]
+    block_ref_counts: dict[str, int]
 
 
 class RenamePageResponse(BaseModel):
@@ -115,6 +116,7 @@ class JournalDay(BaseModel):
 class JournalPayload(BaseModel):
     days: list[JournalDay]
     block_ref_texts: dict[str, BlockRefText]
+    block_ref_counts: dict[str, int]
 
 
 class CurrentWorkPage(BaseModel):

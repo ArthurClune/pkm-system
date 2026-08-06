@@ -71,6 +71,7 @@ export function pagePayload(title: string, blocks: BlockNode[],
     blocks,
     backlinks: { groups: [], total_pages: 0, offset: 0, limit: 20 },
     block_ref_texts: {},
+    block_ref_counts: {},
     ...over,
   };
 }

@@ -350,7 +350,7 @@ def test_get_backlinks_gives_up_loudly_if_ordering_never_stabilizes(
         return PagePayload.model_validate(
             {"page": {"id": 1, "title": "X", "created_at": None,
                       "updated_at": None},
-             "blocks": [], "block_ref_texts": {},
+             "blocks": [], "block_ref_texts": {}, "block_ref_counts": {},
              "backlinks": {"groups": [{"page_id": 1, "page_title": "X",
                                        "items": []}],
                            "total_pages": 2, "offset": bl_offset,

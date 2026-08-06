@@ -1065,6 +1065,10 @@ export interface components {
             block_ref_texts: {
                 [key: string]: components["schemas"]["BlockRefText"];
             };
+            /** Block Ref Counts */
+            block_ref_counts: {
+                [key: string]: number;
+            };
         };
         /** LoginBody */
         LoginBody: {
@@ -1116,6 +1120,10 @@ export interface components {
             /** Block Ref Texts */
             block_ref_texts: {
                 [key: string]: components["schemas"]["BlockRefText"];
+            };
+            /** Block Ref Counts */
+            block_ref_counts: {
+                [key: string]: number;
             };
         };
         /**

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import Request
 
+from pkm.refs import extract
 from pkm.schema import DDL
 from pkm.server.config import Config
 
@@ -53,6 +54,29 @@ def _backfill_created_at(con: sqlite3.Connection) -> None:
         " WHERE created_at IS NULL AND updated_at IS NOT NULL")
 
 
+def _backfill_block_refs(con: sqlite3.Connection) -> None:
+    """pkm-d31f: one-time historical catch-up. Blocks written before
+    ops_apply maintained block_refs are indexed exactly once, guarded by a
+    sync_meta marker rather than "table is empty" -- an empty table is a
+    legitimate state for a graph with no ((refs)). Runs inside init_db's
+    single commit: a failure aborts startup rather than leaving a
+    half-filled index that silently undercounts. The write path owns all
+    rows after the marker is set."""
+    done = con.execute(
+        "SELECT value FROM sync_meta WHERE key = 'block_refs_backfilled'"
+    ).fetchone()
+    if done is not None and done[0] == "1":
+        return
+    for uid, text in con.execute("SELECT uid, text FROM blocks"):
+        targets = extract(text).block_refs
+        if targets:
+            con.executemany("INSERT OR IGNORE INTO block_refs VALUES (?,?)",
+                            [(uid, t) for t in targets])
+    con.execute(
+        "INSERT INTO sync_meta(key, value) VALUES ('block_refs_backfilled','1')"
+        " ON CONFLICT(key) DO UPDATE SET value = '1'")
+
+
 def init_db(path: Path) -> None:
     """One-time, idempotent database setup: switch to WAL journal mode and
     apply the base schema. Call this once at process startup (serve
@@ -72,7 +96,9 @@ def init_db(path: Path) -> None:
     since (e.g. sidebar_entries or blocks.view_type), which picks it up
     with no manual migration step. Then _backfill_created_at() fills any
     NULL blocks.created_at left by old Roam imports (pkm-r7k8); like the
-    migrations above it is guarded to be a no-op past the first run."""
+    migrations above it is guarded to be a no-op past the first run.
+    _backfill_block_refs() catches up the `((uid))` index once (pkm-d31f),
+    guarded by a sync_meta marker."""
     con = sqlite3.connect(path)
     try:
         con.execute("PRAGMA journal_mode=WAL")
@@ -80,6 +106,7 @@ def init_db(path: Path) -> None:
         con.executescript(DDL)
         _ensure_schema_migrations(con)
         _backfill_created_at(con)
+        _backfill_block_refs(con)
         con.commit()
     finally:
         con.close()

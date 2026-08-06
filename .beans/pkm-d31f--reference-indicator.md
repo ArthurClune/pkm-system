@@ -14,7 +14,7 @@ Blocks with references (block level not page) should have an indicator in the ri
 
 - [x] Task 1: block_refs table in schema + regenerated client schema artifact
 - [x] Task 2: server write-path maintenance
-- [ ] Task 3: one-time server backfill at startup
+- [x] Task 3: one-time server backfill at startup
 - [ ] Task 4: importer populates block_refs
 - [ ] Task 5: block_ref_counts in page and journal payloads
 - [ ] Task 6: GET /api/block/{uid}/backlinks

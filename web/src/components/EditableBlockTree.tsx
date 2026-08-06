@@ -291,6 +291,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
 }) {
   const focused = !fallback && focus?.uid === node.uid;
   const isSelected = selected.has(node.uid);
+  const refCount = refCounts?.[node.uid] ?? 0;
   const hasChildren = node.children.length > 0;
   const Tag: "h1" | "h2" | "h3" | "div" =
     node.heading === 1 ? "h1" :
@@ -378,8 +379,8 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                 </BlockEditContext.Provider>}
           </WrapperTag>
         )}
-        {(refCounts?.[node.uid] ?? 0) > 0 && (
-          <RefCountBadge uid={node.uid} count={refCounts![node.uid]}
+        {refCount > 0 && (
+          <RefCountBadge uid={node.uid} count={refCount}
                          onOpen={onOpenRefPopover} />
         )}
         {stamps && <BlockStamp node={node} nowMs={nowMs} />}

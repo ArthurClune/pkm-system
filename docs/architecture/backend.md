@@ -228,8 +228,10 @@ Key mechanics:
 - **Refs re-derivation.** Every text change emits `ReindexRefs`: delete the
   block's refs, re-extract with `refs.py`, get-or-create referenced pages,
   re-insert. The same handler re-derives `block_refs`
-  (`store.reindex_block_refs`), as does the rename rewrite — every path that
-  rewrites text re-derives both indexes.
+  (`store.reindex_block_refs`), as does the rename rewrite. The asset-token
+  strip (`routes_assets.py`) and the one-off mermaid migration script rewrite
+  text without re-deriving either index — the strip is safe because asset
+  tokens and `((uid))` are disjoint syntaxes.
 - **Timestamps: what counts as a change.** Blocks and pages both carry
   `created_at`/`updated_at` in epoch milliseconds, and the block-level values
   are genuine all the way back to the import — `parse_export.py` copies each

@@ -719,11 +719,18 @@ describe("reference-count gutter badge (pkm-d31f)", () => {
   });
 
   // unlike .block-stamp, the badge must NOT be display:none on phones -- it
-  // is the only route to the popover on touch. No override at all in the
-  // phone media query means the base (visible) rule keeps applying there.
+  // is the only route to the popover on touch. There is currently no phone
+  // override at all, so the base (visible) rule keeps applying there; the
+  // invariant is "not hidden", not "no rule ever" -- a future phone rule
+  // (e.g. a bigger touch target) shouldn't fail this test on its own.
   test("survives the phone media query", () => {
-    expect(() => mediaRulesFor("(max-width: 600px)", ".block-ref-badge"))
-      .toThrow(/Missing CSS rule/);
+    let phoneRule = "";
+    try {
+      phoneRule = mediaRulesFor("(max-width: 600px)", ".block-ref-badge");
+    } catch {
+      return; // no phone rule at all -- base rule stays visible
+    }
+    expect(phoneRule).not.toContain("display: none");
   });
 
   test("gets the standard keyboard focus ring", () => {

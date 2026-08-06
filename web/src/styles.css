@@ -518,10 +518,10 @@ button { font: inherit; }
 /* .block-stamp-older intentionally has no fill: .block-stamp's own
  * background: none above is what renders it unfilled (pkm-4ler). */
 /* pkm-d31f: incoming-reference count badge. Sparse per-row pill, not a
- * column (contrast .block-stamp above); sits just inside the stamp cell,
- * whose own margin-left supplies the separation. Deliberately low-ink so
- * a stamp's freshness tint stays the louder signal on rows with both.
- * NOT hidden in the phone media query: it is the only route to the
+ * column (contrast .block-stamp above); sits between .block-text and the
+ * stamp cell, with its own margin-left supplying the separation. Deliberately
+ * low-ink so a stamp's freshness tint stays the louder signal on rows with
+ * both. NOT hidden in the phone media query: it is the only route to the
  * popover on touch. */
 .block-ref-badge { flex: none; margin-left: 8px; padding: 0 6px;
   font-size: 11px; line-height: 18px; align-self: center;

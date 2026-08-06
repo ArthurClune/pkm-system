@@ -39,6 +39,16 @@ focusing a block cannot shift it. The flag reaches it as a prop from
 `PageView` alone — `EditableBlockTree` must never read `BlockStampsContext`
 itself, or the journal scroll and sidebar panels would grow the column too.
 
+`.block-ref-badge` (the incoming-reference count, pkm-d31f) sits between
+`.block-text` and the stamp cell but is the column's opposite: sparse,
+rendered only on rows with a count, so it needs no empty placeholder.
+It is deliberately low-ink (`--color-text-muted` on `--color-bg-subtle`) so
+a stamp's freshness tint stays the louder signal, and it must **not** join
+`.block-stamp`'s under-600px `display: none` — on touch it is the only route
+to the references popover. `.block-ref-popover` copies `.block-menu`'s
+surface (z-index 60, same border, shadow and `--radius-panel`);
+`styles.test.ts` pins the pair together.
+
 Theming is three-way: light by default, OS dark via
 `@media (prefers-color-scheme: dark)` (which works with zero JS), and an
 explicit `data-theme` override stamped on `<html>` by `useTheme.ts`

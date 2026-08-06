@@ -109,6 +109,7 @@ erDiagram
     blocks ||--o{ blocks : "parent_uid"
     blocks ||--o{ refs : "src_block_uid"
     pages ||--o{ refs : "target_page_id"
+    blocks ||--o{ block_refs : "src_block_uid"
 
     pages {
         int id PK
@@ -133,6 +134,10 @@ erDiagram
         int target_page_id PK
         text kind PK "link | tag | attribute"
     }
+    block_refs {
+        text src_block_uid PK "CASCADE with its block"
+        text target_block_uid PK "no FK: may dangle"
+    }
     assets {
         text sha256 PK
         text filename
@@ -149,9 +154,15 @@ erDiagram
 Around that base model:
 
 - **Derived indexes.** `blocks_fts` and `pages_fts` are external-content FTS5
-  tables kept in sync by `AFTER INSERT/UPDATE/DELETE` triggers. Block text is
-  the only durable data; `refs` and FTS are always rebuilt from it.
-  (`blocks_fts` is keyed by implicit rowid, so `VACUUM` would break it.)
+  tables kept in sync by `AFTER INSERT/UPDATE/DELETE` triggers; `blocks_fts`
+  is keyed by implicit rowid, so `VACUUM` would break it. Block text is the
+  only durable data — `refs`, `block_refs` and FTS are always rebuilt from
+  it. `block_refs` is the block-level analogue of `refs`: one row per
+  distinct `((uid))` target a block mentions, backing the count badge and
+  `GET /api/block/{uid}/backlinks`. Its target has no FK because an
+  unresolved `((uid))` is legal; a dangling row never matches a count.
+  A one-time `sync_meta`-guarded backfill in `db.py::init_db` indexed
+  pre-existing text (pkm-d31f); the write path owns all rows since.
 - **Server-only tables** (`SERVER_DDL`):
   - `changes(seq AUTOINCREMENT, kind, entity_id, deleted)` — the append-only
     change journal. Populated by **row-level triggers** on
@@ -216,7 +227,9 @@ Key mechanics:
   both pages, and a parent-chain check prevents cycles.
 - **Refs re-derivation.** Every text change emits `ReindexRefs`: delete the
   block's refs, re-extract with `refs.py`, get-or-create referenced pages,
-  re-insert.
+  re-insert. The same handler re-derives `block_refs`
+  (`store.reindex_block_refs`), as does the rename rewrite — every path that
+  rewrites text re-derives both indexes.
 - **Timestamps: what counts as a change.** Blocks and pages both carry
   `created_at`/`updated_at` in epoch milliseconds, and the block-level values
   are genuine all the way back to the import — `parse_export.py` copies each
@@ -421,14 +434,15 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 | **Writes** | | |
 | POST | `/api/ops` | Transactional block-operation write path — apply an `OpBatch` transactionally |
 | **Pages & blocks** | | |
-| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks (daily pages auto-created) |
+| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks + `block_ref_counts` (daily pages auto-created) |
 | GET | `/api/block/{uid}` | One block subtree with page context + breadcrumbs |
+| GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, grouped like page backlinks (unpaginated) |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references on demand |
 | POST | `/api/pages` | Idempotent page create |
 | DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry); inbound links remain as text |
 | POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`. Returns `RenamePageResponse` (`result: "renamed" \| "merged"`, `title`) |
 | GET | `/api/unlinked?title` | Unlinked mentions of a title |
-| GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll) |
+| GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll); one `block_ref_counts` map covers all days |
 | POST | `/api/journal/cleanup` | Prune empty daily pages (spares today + referenced blocks) |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
 | **Migrations** | | |

@@ -83,7 +83,11 @@ read transaction:
   order, then hydrated. Blocks ship with their refs, plus any "dependency
   pages" those refs target, so a window boundary cannot deliver a block whose
   target page the client has never seen. Entities that no longer exist ship
-  as tombstones.
+  as tombstones. `block_refs` rows are **never shipped**: both sides
+  re-derive them from block text — the server in `ops_apply.py`, the client
+  in `localOps.ts` (optimistic writes) and `apply.ts` (synced upserts, plus a
+  wipe on snapshot apply). Targets are uids needing no id resolution, and
+  the extractor is parity-pinned, so local derivation matches the server.
 - Hydration is batched, not per-id. `sync_core.chunk_ids` splits the window's
   ids into groups of at most 500, under SQLite's historic 999-parameter cap.
   `hydrate_in_order` then restores the caller's order and drops ids nothing was

@@ -81,8 +81,8 @@ web/src/
 │   │                         BlockInput), inline renderers (InlineSegments, MathSpan,
 │   │                         QueryBlock, BlockRef, MermaidDiagram, PdfViewer, CodeBlock,
 │   │                         roamTable…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
-│   │                         OfflineIndicator, Composer, BacklinksSection, BlockMenu,
-│   │                         DatePickerPopup…)
+│   │                         OfflineIndicator, Composer, BacklinksSection, BacklinkGroupList,
+│   │                         BlockRefBacklinksPopover, BlockMenu, DatePickerPopup…)
 │   └── pure halves           Core         Beside their component: pdfViewerCore,
 │                                          roamTableRows, backlinkFilter, groups, bluesky…
 │
@@ -288,6 +288,17 @@ auto-growing `<textarea>` holding raw markdown; every other block is
 rendered HTML (`EditableBlockTree` → `EditableBlock` → `BlockInput`, the last
 of these its own file). This is the central performance decision: a 500-block
 page is one textarea plus cheap static HTML.
+
+Rows with incoming `((uid))` references carry a count badge
+(`RefCountBadge`, between the text and the stamp cell). The counts arrive as
+`block_ref_counts` on the page/journal payloads and reach the tree as the
+`refCounts` prop — PageView and Journal pass it; sidebar panels stay bare,
+like `stamps`. Clicking the badge opens `BlockRefBacklinksPopover`, which
+fetches `GET /api/block/{uid}/backlinks` at open — the list is live truth
+while the badge count is payload-fresh, with no reconciliation between them.
+The popover renders through `BacklinkGroupList`, the one renderer for
+backlink-group markup, shared with `BacklinksSection`. Navigation is
+read-only-safe, so the badge and popover render in `fallback` trees too.
 
 **Which way the editor's dependencies point.** Everything the UI can ask the
 editor to do is the `OutlineHandlers` port in `outline/handlers.ts` — about
@@ -595,7 +606,7 @@ Playwright e2e against that build.**
   enforced (statements 95 / branches 91 / functions 89 / lines 95), with
   workers and generated files excluded. The pure cores are the payoff of the
   FCIS split: they test with no React, DOM, fetch, worker or SQLite mocks.
-- **E2E** (Playwright, `web/e2e/`): ~23 specs — editing, backlinks, math,
+- **E2E** (Playwright, `web/e2e/`): ~27 specs — editing, backlinks, math,
   rename, undo, embeds, images, PDF, outline paste, slash dates, journal
   references, the assistant, the `/files` browser, and two offline specs.
   The harness is strict: any HTTP 5xx fails the run (`fixtures.ts`), and a

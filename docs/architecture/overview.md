@@ -151,8 +151,8 @@ Condensed from [`docs/design.md`](../design.md), which has the full list and
 links to the specs:
 
 - **Block text is stored unmodified** (literal Roam-flavoured markdown).
-  The `refs` table and FTS index are derived and rebuilt on every change —
-  the durable data is always plain text.
+  The `refs` and `block_refs` tables and the FTS index are derived and
+  rebuilt on every change — the durable data is always plain text.
 - **Roam compatibility where it keeps links working**: block uids survive
   import; daily pages keep Roam's ordinal title format (`July 8th, 2026`).
 - **Assets are content-addressed** (sha256, deduplicated) on the filesystem,

@@ -5,15 +5,16 @@
 // online visit, and a daily page with content pushes via its block ops'
 // page_title anyway (spec section 1).
 
-import type { BacklinkGroup, BlockGroup, CurrentWorkPage, CurrentWorkPayload,
-              GroupsPayload, PageMeta, PagePayload } from "../../api/payloads";
+import type { BacklinkGroup, BlockBacklinksPayload, BlockGroup, CurrentWorkPage,
+              CurrentWorkPayload, GroupsPayload, PageMeta,
+              PagePayload } from "../../api/payloads";
 import { titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { plainSpaceTitleCanonicalizationActive } from "../meta";
 import { canonicalizeTitle } from "../titles";
 import { phraseQuery } from "./fts";
-import { BLOCK_COLS, type BlockRow, blockRefTexts, buildTree,
+import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts, buildTree,
          fetchAncestors } from "./tree";
 
 // db.select<T> ASSERTS its type argument (`selectObjects(...) as T[]`), so
@@ -82,7 +83,14 @@ function backlinks(db: ReplicaDb, pageId: number, offset: number, limit: number)
       WHERE r.target_page_id = ? AND b.page_id IN (${marks})
       ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`,
     [pageId, ...pageIds]);
-  const ancestors = fetchAncestors(db, rows.map((r) => r.uid));
+  const groups = groupBacklinkRows(
+    rows, fetchAncestors(db, rows.map((r) => r.uid)));
+  return { groups, total, texts: rows.map((r) => r.text) };
+}
+
+/** Rows arrive already ordered; grouping preserves first-seen page order. */
+function groupBacklinkRows(rows: BacklinkRow[],
+                           ancestors: Map<string, string[]>): BacklinkGroup[] {
   const groups: BacklinkGroup[] = [];
   const index = new Map<number, BacklinkGroup>();
   for (const r of rows) {
@@ -96,7 +104,24 @@ function backlinks(db: ReplicaDb, pageId: number, offset: number, limit: number)
     group.items.push({ uid: r.uid, text: r.text,
                        breadcrumbs: ancestors.get(r.uid) ?? [] });
   }
-  return { groups, total, texts: rows.map((r) => r.text) };
+  return groups;
+}
+
+/** null = block not found: the router 404s. */
+export function blockBacklinks(db: ReplicaDb,
+                               uid: string): BlockBacklinksPayload | null {
+  const exists = db.select<{ one: number }>(
+    "SELECT 1 AS one FROM blocks WHERE uid = ?", [uid]);
+  if (exists.length === 0) return null;
+  const rows = db.select<BacklinkRow>(
+    `SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
+       FROM block_refs r
+       JOIN blocks b ON b.uid = r.src_block_uid
+       JOIN pages p ON p.id = b.page_id
+      WHERE r.target_block_uid = ?
+      ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid`, [uid]);
+  return { groups: groupBacklinkRows(
+    rows, fetchAncestors(db, rows.map((r) => r.uid))) };
 }
 
 /** null = page not found (and not a daily title): the caller 404s. */
@@ -123,6 +148,7 @@ export function pagePayload(db: ReplicaDb, title: string, blOffset: number,
                  offset: blOffset, limit },
     block_ref_texts: blockRefTexts(
       db, [...blocks.map((r) => r.text), ...bl.texts]),
+    block_ref_counts: blockRefCounts(db, blocks.map((r) => r.uid)),
   };
 }
 

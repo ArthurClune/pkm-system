@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 from pkm.contracts.daily import date_for_title, title_for_date
 from pkm.contracts.ops import UID_RE as _UID_RE
 from pkm.contracts.responses import (
-    BlockPayload, BlockRefsPayload, CurrentWorkPayload, GroupsPayload,
-    JournalPayload, PageMeta, PagePayload, RenamePageResponse)
+    BlockBacklinksPayload, BlockPayload, BlockRefsPayload, CurrentWorkPayload,
+    GroupsPayload, JournalPayload, PageMeta, PagePayload, RenamePageResponse)
 from pkm.refs import canonicalize_title, is_blank_title, title_syntax_reason
 from pkm.server import notify
 from pkm.server.auth import require_auth
@@ -52,6 +52,20 @@ class RenamePageRequest(BaseModel):
 
 def _block_ref_texts(db: sqlite3.Connection, texts: list[str]) -> dict:
     return _resolve_ref_uids(db, collect_block_ref_uids(texts))
+
+
+def _block_ref_counts(db: sqlite3.Connection,
+                      uids: list[str]) -> dict[str, int]:
+    """Incoming ((ref)) count per uid, nonzero entries only (pkm-d31f).
+    One GROUP BY against idx_block_refs_target; src rows CASCADE with their
+    block, so every counted row has a live source."""
+    if not uids:
+        return {}
+    marks = ",".join("?" * len(uids))
+    return {r["target_block_uid"]: r["n"] for r in db.execute(
+        f"""SELECT target_block_uid, count(*) AS n FROM block_refs
+             WHERE target_block_uid IN ({marks})
+             GROUP BY target_block_uid""", uids)}
 
 
 def _resolve_ref_uids(db: sqlite3.Connection, uids: list[str]) -> dict:
@@ -143,6 +157,29 @@ def get_block_refs(uids: str,
     return {"block_ref_texts": _resolve_ref_uids(db, wanted)}
 
 
+@router.get("/api/block/{uid}/backlinks", response_model=BlockBacklinksPayload)
+def get_block_backlinks(uid: str,
+                        db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """The ((uid)) badge's popover read (pkm-d31f): who references this
+    block. Same group shape and ordering as page backlinks; the count badge
+    itself rides the page/journal payloads (block_ref_counts)."""
+    if not _UID_RE.fullmatch(uid):
+        raise HTTPException(status_code=422, detail=f"malformed uid: {uid!r}")
+    if db.execute("SELECT 1 FROM blocks WHERE uid = ?",
+                  (uid,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="block not found")
+    rows = db.execute(
+        """SELECT b.uid, b.text, p.id AS src_page_id, p.title AS src_page_title
+             FROM block_refs r
+             JOIN blocks b ON b.uid = r.src_block_uid
+             JOIN pages p ON p.id = b.page_id
+            WHERE r.target_block_uid = ?
+            ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
+        (uid,)).fetchall()
+    ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
+    return {"groups": group_backlinks(rows, ancestors)}
+
+
 @router.get("/api/block/{uid}", response_model=BlockPayload)
 def get_block(uid: str, db: sqlite3.Connection = Depends(get_db)) -> dict:
     """One block's subtree plus its page and ancestor texts (pkm-w05j:
@@ -196,6 +233,8 @@ def get_page(request: Request, title: str, bl_offset: int = 0, bl_limit: int = 2
                       "offset": bl_offset, "limit": bl_limit},
         "block_ref_texts": _block_ref_texts(
             db, [r["text"] for r in blocks] + bl_texts),
+        "block_ref_counts": _block_ref_counts(
+            db, [r["uid"] for r in blocks]),
     }
 
 
@@ -412,6 +451,7 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
             nonempty.add(d)
     out = []
     texts: list[str] = []
+    uids: list[str] = []
     for d in select_journal_days(nonempty, today, cursor, days):
         page = fetch_page(db, title_for_date(d))
         if page is None:  # pragma: no cover - selected days exist
@@ -420,9 +460,11 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
             f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
             (page["id"],)).fetchall()
         texts.extend(r["text"] for r in blocks)
+        uids.extend(r["uid"] for r in blocks)
         out.append({"date": d.isoformat(), "title": page["title"],
                     "exists": True, "blocks": build_tree(blocks)})
-    return {"days": out, "block_ref_texts": _block_ref_texts(db, texts)}
+    return {"days": out, "block_ref_texts": _block_ref_texts(db, texts),
+            "block_ref_counts": _block_ref_counts(db, uids)}
 
 
 def _block_is_referenced(db: sqlite3.Connection, uid: str,

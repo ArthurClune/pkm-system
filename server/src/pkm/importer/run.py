@@ -123,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
             " heading, collapsed, created_at, updated_at, view_type)"
             " VALUES (?,?,?,?,?,?,?,?,?,?)", rows.blocks)
         con.executemany("INSERT INTO refs VALUES (?,?,?)", rows.refs)
+        con.executemany("INSERT OR IGNORE INTO block_refs VALUES (?,?)",
+                        rows.block_refs)
         con.executemany(
             "INSERT INTO assets(sha256, filename, mime, size, created_at)"
             " VALUES (?,?,?,?,NULL)",

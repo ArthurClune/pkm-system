@@ -26,6 +26,7 @@ PAGE = PagePayload.model_validate({
     ],
     "backlinks": NO_BACKLINKS,
     "block_ref_texts": {},
+    "block_ref_counts": {},
 })
 
 
@@ -136,6 +137,7 @@ def test_render_empty_text_block():
         "blocks": [_node("u1", "")],  # empty text
         "backlinks": NO_BACKLINKS,
         "block_ref_texts": {},
+        "block_ref_counts": {},
     })
     assert render_page(payload) == "# Test\n\n-\n"
     assert render_page(payload, include_uids=True) == "# Test\n\n-  ^u1\n"
@@ -168,7 +170,8 @@ def test_render_page_resolve_refs():
     payload = PagePayload.model_validate(
         {"page": PAGE.page, "blocks": [_node("u1", "see ((u9))")],
          "backlinks": NO_BACKLINKS,
-         "block_ref_texts": {"u9": {"text": "target", "page_title": "X"}}})
+         "block_ref_texts": {"u9": {"text": "target", "page_title": "X"}},
+         "block_ref_counts": {}})
     out = render_page(payload, resolve_refs=True)
     assert '- see "target" ((u9))\n' in out
     assert "see ((u9))" in render_page(payload)  # default unchanged

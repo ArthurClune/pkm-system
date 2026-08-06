@@ -19,6 +19,7 @@ import { formatStamp, formatStampTitle, stampBand,
          stampTs } from "../outline/blockStamps";
 import { BlockInput } from "./BlockInput";
 import { BlockMenu } from "./BlockMenu";
+import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
 import { InlineSegments } from "./InlineSegments";
 import { RoamTable } from "./roamTable";
 import { quoteContent } from "./blockPresentation";
@@ -38,11 +39,15 @@ interface TreeProps {
    * context read: only PageView passes it, which is exactly what keeps the
    * journal scroll and sidebar panels bare. */
   stamps?: boolean;
+  /** Incoming ((uid)) reference counts (pkm-d31f). Payload-fresh, like
+   * block_ref_texts: PageView and Journal pass it; sidebar panels stay bare. */
+  refCounts?: Record<string, number>;
 }
 
 export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                                     readOnly, fallback = false,
-                                    stamps = false }: TreeProps) {
+                                    stamps = false,
+                                    refCounts = undefined }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
   // One instant for the whole tree, so two rows a millisecond either side of
   // a band edge can't be tinted inconsistently within a single paint.
@@ -74,6 +79,12 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
     y: number;
     viewMode: EffectiveBlockView;
     trigger: HTMLElement;
+  } | null>(null);
+  // The badge's references popover (pkm-d31f); one per tree, anchored at
+  // the badge that opened it. Renders in fallback trees too -- read-only
+  // navigation to a referencing block is fine even where editing isn't.
+  const [refPopover, setRefPopover] = useState<{
+    uid: string; x: number; y: number;
   } | null>(null);
   const selected = !fallback && selection
     ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
@@ -144,9 +155,11 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                        fallback={fallback} onRequestUpload={requestUpload}
                        viewMode="document" number={index + 1}
                        openMenuUid={menu?.uid ?? null}
-                       stamps={stamps} nowMs={nowMs}
+                       stamps={stamps} nowMs={nowMs} refCounts={refCounts}
                        onOpenMenu={(uid, x, y, viewMode, trigger) =>
-                         setMenu({ uid, x, y, viewMode, trigger })} />
+                         setMenu({ uid, x, y, viewMode, trigger })}
+                       onOpenRefPopover={(uid, x, y) =>
+                         setRefPopover({ uid, x, y })} />
       ))}
       {!fallback && !readOnly && (
         <input ref={fileInputRef} type="file" multiple
@@ -164,6 +177,11 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
             handlers,
             readOnly,
           )} />
+      )}
+      {refPopover && (
+        <BlockRefBacklinksPopover uid={refPopover.uid}
+          x={refPopover.x} y={refPopover.y}
+          onClose={() => setRefPopover(null)} />
       )}
     </div>
   );
@@ -227,9 +245,33 @@ function BlockStamp({ node, nowMs }: { node: BlockNode; nowMs: number }) {
   );
 }
 
+/** The gutter count of incoming ((uid)) refs (pkm-d31f). Sparse — rendered
+ * only on rows that have any — so unlike BlockStamp it is not a column and
+ * needs no empty placeholder; it borrows width from the flexible text cell
+ * on exactly the rows where it appears. */
+function RefCountBadge({ uid, count, onOpen }: {
+  uid: string; count: number;
+  onOpen: (uid: string, x: number, y: number) => void;
+}) {
+  const label = count === 1 ? "1 reference" : `${count} references`;
+  return (
+    <button className="block-ref-badge" title={label} aria-label={label}
+            aria-haspopup="dialog"
+            onClick={(e) => {
+              // never bubble into the row's click-to-edit
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              onOpen(uid, rect.left, rect.bottom + 4);
+            }}>
+      {count}
+    </button>
+  );
+}
+
 function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                          onRequestUpload, viewMode, number, openMenuUid,
-                         stamps, nowMs, onOpenMenu }: {
+                         stamps, nowMs, refCounts, onOpenMenu,
+                         onOpenRefPopover }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
@@ -242,11 +284,14 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
   openMenuUid: string | null;
   stamps: boolean;
   nowMs: number;
+  refCounts?: Record<string, number>;
   onOpenMenu: (uid: string, x: number, y: number,
                viewMode: EffectiveBlockView, trigger: HTMLElement) => void;
+  onOpenRefPopover: (uid: string, x: number, y: number) => void;
 }) {
   const focused = !fallback && focus?.uid === node.uid;
   const isSelected = selected.has(node.uid);
+  const refCount = refCounts?.[node.uid] ?? 0;
   const hasChildren = node.children.length > 0;
   const Tag: "h1" | "h2" | "h3" | "div" =
     node.heading === 1 ? "h1" :
@@ -334,6 +379,10 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                 </BlockEditContext.Provider>}
           </WrapperTag>
         )}
+        {refCount > 0 && (
+          <RefCountBadge uid={node.uid} count={refCount}
+                         onOpen={onOpenRefPopover} />
+        )}
         {stamps && <BlockStamp node={node} nowMs={nowMs} />}
       </div>
       {hasChildren && !showTable && (tableRows !== null || !node.collapsed) && (
@@ -344,8 +393,9 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
                            fallback={fallback} onRequestUpload={onRequestUpload}
                            viewMode={childrenView} number={index + 1}
                            openMenuUid={openMenuUid}
-                           stamps={stamps} nowMs={nowMs}
-                           onOpenMenu={onOpenMenu} />
+                           stamps={stamps} nowMs={nowMs} refCounts={refCounts}
+                           onOpenMenu={onOpenMenu}
+                           onOpenRefPopover={onOpenRefPopover} />
           ))}
         </div>
       )}

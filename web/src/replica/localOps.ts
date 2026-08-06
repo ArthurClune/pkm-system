@@ -62,11 +62,18 @@ export function getOrCreateLocalPage(db: ReplicaDb, title: string,
 
 const reindexRefs = (db: ReplicaDb, uid: string, text: string,
                      nowMs: number): void => {
+  const { refs, blockRefs } = extractRefs(text);
   db.exec("DELETE FROM refs WHERE src_block_uid = ?", [uid]);
-  for (const ref of extractRefs(text).refs) {
+  for (const ref of refs) {
     const pageId = getOrCreateLocalPage(db, ref.title, nowMs);
     db.exec("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
             [uid, pageId, ref.kind]);
+  }
+  // pkm-d31f: the block-level index. Mirrors the server's ReindexRefs
+  // effect; targets may dangle (unresolved ((uid)) is legal).
+  db.exec("DELETE FROM block_refs WHERE src_block_uid = ?", [uid]);
+  for (const target of blockRefs) {
+    db.exec("INSERT OR IGNORE INTO block_refs VALUES (?,?)", [uid, target]);
   }
 };
 

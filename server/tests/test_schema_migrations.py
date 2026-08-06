@@ -61,3 +61,50 @@ def test_existing_db_gains_plain_space_title_canonicalization_metadata(tmp_path)
     assert row["value"] == "0"
     assert plain_space_title_canonicalization_active(con) is False
     con.close()
+
+
+def test_block_refs_backfill_fills_historical_rows(tmp_path):
+    from pkm.server.db import init_db, open_db
+    db_path = tmp_path / "pkm.sqlite3"
+    init_db(db_path)
+    con = open_db(db_path)
+    con.execute("INSERT INTO pages VALUES (1, 'P', NULL, NULL)")
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed) VALUES ('uid_src01', 1, NULL, 0,"
+        " 'see ((uid_tgt01))', NULL, 0)")
+    # simulate a pre-pkm-d31f database: rows exist but no index, no marker
+    con.execute("DELETE FROM sync_meta WHERE key = 'block_refs_backfilled'")
+    con.commit()
+    con.close()
+
+    init_db(db_path)  # idempotent second run performs the catch-up
+    con = open_db(db_path)
+    rows = {tuple(r) for r in con.execute(
+        "SELECT src_block_uid, target_block_uid FROM block_refs")}
+    marker = con.execute(
+        "SELECT value FROM sync_meta WHERE key = 'block_refs_backfilled'"
+    ).fetchone()[0]
+    con.close()
+    assert rows == {("uid_src01", "uid_tgt01")}
+    assert marker == "1"
+
+
+def test_block_refs_backfill_is_guarded(tmp_path):
+    from pkm.server.db import init_db, open_db
+    db_path = tmp_path / "pkm.sqlite3"
+    init_db(db_path)  # empty graph: marker set, table legitimately empty
+    con = open_db(db_path)
+    con.execute("INSERT INTO pages VALUES (1, 'P', NULL, NULL)")
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed) VALUES ('uid_src02', 1, NULL, 0,"
+        " 'see ((uid_tgt02))', NULL, 0)")
+    con.commit()
+    con.close()
+
+    init_db(db_path)  # marker present: must NOT re-scan
+    con = open_db(db_path)
+    rows = list(con.execute("SELECT * FROM block_refs"))
+    con.close()
+    assert rows == []  # write path owns post-marker rows, not startup

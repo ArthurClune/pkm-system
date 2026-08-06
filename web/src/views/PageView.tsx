@@ -47,7 +47,8 @@ export function PageView() {
       <article className="page">
         <PageTitle title={payload.page.title} />
         <EditablePage key={payload.page.title} title={payload.page.title}
-                      initial={payload.blocks} composer stamps={stamps} />
+                      initial={payload.blocks} composer stamps={stamps}
+                      refCounts={payload.block_ref_counts} />
       </article>
       <BacklinksSection
         key={`bl-${title}`}

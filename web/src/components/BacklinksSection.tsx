@@ -3,13 +3,11 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "r
 import { apiGet } from "../api/typedClient";
 import type { BacklinkGroup, Backlinks, BlockRefText } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
-import { tokenizeBlock } from "../grammar/tokenize";
 
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, toggleChip,
          type FilterState } from "./backlinkFilter";
+import { BacklinkGroupList } from "./BacklinkGroupList";
 import { mergeGroups } from "./groups";
-import { InlineSegments } from "./InlineSegments";
-import { PageLink } from "./PageLink";
 
 export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     { title: string; initial: Backlinks; refreshGeneration?: number }) {
@@ -197,21 +195,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
             )}
           </div>
         )}
-        {visible.map((g) => (
-          <div className="backlink-group" key={g.page_id}>
-            <h3 className="group-title"><PageLink title={g.page_title} tag={false} /></h3>
-            {g.items.map((item) => (
-              <div className="backlink-item" key={item.uid}>
-                {item.breadcrumbs.length > 0 && (
-                  <div className="breadcrumbs">{item.breadcrumbs.join(" › ")}</div>
-                )}
-                <div className="backlink-text">
-                  <InlineSegments segments={tokenizeBlock(item.text)} />
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
+        <BacklinkGroupList groups={visible} />
         {filtering && fullyLoaded && visible.length === 0 && (
           <p className="filter-no-match">No matching references</p>
         )}

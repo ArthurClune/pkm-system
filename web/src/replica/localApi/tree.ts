@@ -103,6 +103,23 @@ export function blockRefTexts(db: ReplicaDb, texts: string[]): BlockRefTexts {
   return resolveRefUids(db, collectBlockRefUids(texts));
 }
 
+/** Incoming ((ref)) count per uid, nonzero entries only (pkm-d31f): one
+ * GROUP BY against idx_block_refs_target. Source rows CASCADE with their
+ * block, so every counted row has a live source. */
+export function blockRefCounts(db: ReplicaDb,
+                               uids: string[]): Record<string, number> {
+  if (uids.length === 0) return {};
+  const marks = uids.map(() => "?").join(",");
+  const out: Record<string, number> = {};
+  for (const r of db.select<{ target_block_uid: string; n: number }>(
+    `SELECT target_block_uid, count(*) AS n FROM block_refs
+      WHERE target_block_uid IN (${marks})
+      GROUP BY target_block_uid`, uids)) {
+    out[r.target_block_uid] = Number(r.n);
+  }
+  return out;
+}
+
 /** Breadcrumb trails: root-first ancestor texts per start uid. */
 export function fetchAncestors(db: ReplicaDb,
                                uids: string[]): Map<string, string[]> {

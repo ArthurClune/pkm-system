@@ -57,6 +57,13 @@ class Backlinks(BaseModel):
     limit: int
 
 
+class BlockBacklinksPayload(BaseModel):
+    """GET /api/block/{uid}/backlinks: every block referencing ((uid)),
+    grouped like page backlinks. Unpaginated by design -- counts are small
+    and nothing user-visible truncates silently (pkm-d31f)."""
+    groups: list[BacklinkGroup]
+
+
 class BlockRefText(BaseModel):
     text: str
     page_title: str
@@ -72,6 +79,7 @@ class PagePayload(BaseModel):
     blocks: list[BlockNode]
     backlinks: Backlinks
     block_ref_texts: dict[str, BlockRefText]
+    block_ref_counts: dict[str, int]
 
 
 class RenamePageResponse(BaseModel):
@@ -115,6 +123,7 @@ class JournalDay(BaseModel):
 class JournalPayload(BaseModel):
     days: list[JournalDay]
     block_ref_texts: dict[str, BlockRefText]
+    block_ref_counts: dict[str, int]
 
 
 class CurrentWorkPage(BaseModel):

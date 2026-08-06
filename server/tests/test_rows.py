@@ -324,6 +324,24 @@ def test_orphan_mermaid_composes_with_recovery_and_global_protection():
     )
 
 
+BLOCK_REF_EXPORT = Export(
+    pages=(
+        Page("Notes", None, None, (
+            _block("uid-refsrc", "see ((uid_target)) and ((uid_target))"),
+        )),
+    ),
+    orphan_block_count=0,
+    skipped_entities=0,
+    attr_counts={},
+)
+
+
+def test_rows_collects_block_refs():
+    # a block whose text embeds ((uid_target)) twice yields ONE pair
+    rows = to_rows(BLOCK_REF_EXPORT, lambda t: t)
+    assert rows.block_refs == [("uid-refsrc", "uid_target")]
+
+
 def test_recovery_page_title_avoids_collision_with_an_existing_page():
     collide = Export(
         pages=(

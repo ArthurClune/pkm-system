@@ -14,6 +14,7 @@ interface Fixture {
     blocks: [string, number, string | null, number, string, number | null,
              number, number | null, number | null][];
     refs: [string, number, string][];
+    block_refs: [string, string][];
     sidebar: [number, string, number][];
   };
   cases: { name: string; path: string; response: unknown }[];
@@ -39,6 +40,9 @@ beforeAll(async () => {
   }
   for (const r of fixture.seed.refs) {
     t.db.exec("INSERT INTO refs VALUES (?,?,?)", r);
+  }
+  for (const br of fixture.seed.block_refs) {
+    t.db.exec("INSERT INTO block_refs VALUES (?,?)", br);
   }
   for (const s of fixture.seed.sidebar) {
     t.db.exec("INSERT INTO sidebar_entries VALUES (?,?,?)", s);

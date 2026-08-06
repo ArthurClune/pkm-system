@@ -1,0 +1,105 @@
+"""pkm-d31f: block_refs stays current through every text write path."""
+from pkm.server.db import open_db
+
+
+def _rows(config) -> set[tuple[str, str]]:
+    con = open_db(config.db_path)
+    try:
+        # open_db sets row_factory = sqlite3.Row, which does not compare
+        # equal to plain tuples in a set -- cast explicitly.
+        return {tuple(row) for row in con.execute(
+            "SELECT src_block_uid, target_block_uid FROM block_refs")}
+    finally:
+        con.close()
+
+
+def _post_ops(client, ops, batch_id):
+    r = client.post("/api/ops", json={
+        "client_id": "t-d31f", "batch_id": batch_id, "ops": ops})
+    assert r.status_code == 200, r.text
+    return r
+
+
+def test_create_indexes_block_refs(client, seeded_config):
+    _post_ops(client, [{
+        "op": "create", "uid": "uid_new01", "page_title": "AI",
+        "parent_uid": None, "order_idx": 5,
+        "text": "see ((uid_b3)) and ((uid_b3)) twice, plus ((uid_b1))",
+    }], "batch_d31f01")
+    assert {("uid_new01", "uid_b3"), ("uid_new01", "uid_b1")} <= _rows(seeded_config)
+    # duplicate mentions collapse to one row (count = referencing blocks)
+    assert len([r for r in _rows(seeded_config) if r[0] == "uid_new01"]) == 2
+
+
+def test_update_text_replaces_block_refs(client, seeded_config):
+    _post_ops(client, [{"op": "update_text", "uid": "uid_b5",
+                        "text": "now points at ((uid_b1))"}], "batch_d31f02")
+    rows = _rows(seeded_config)
+    assert ("uid_b5", "uid_b1") in rows
+    assert ("uid_b5", "uid_b3") not in rows
+
+
+def test_delete_block_cascades_block_refs(client, seeded_config):
+    _post_ops(client, [{"op": "delete", "uid": "uid_b5"}], "batch_d31f03")
+    assert all(src != "uid_b5" for src, _ in _rows(seeded_config))
+
+
+def test_rename_rewrite_preserves_block_refs(client, seeded_config):
+    # uid_b3's text holds [[Paper]]; renaming Paper rewrites uid_b3's text.
+    # uid_b5 -> uid_b3 must survive, and uid_b3's own outgoing rows (none)
+    # must be re-derived from the rewritten text without error.
+    r = client.post("/api/page/Paper/rename",
+                    json={"new_title": "Papers Renamed"})
+    assert r.status_code == 200, r.text
+    assert ("uid_b5", "uid_b3") in _rows(seeded_config)
+
+
+def test_page_payload_carries_block_ref_counts(client):
+    # seed: uid_b5 (July 7th daily) references uid_b3 (Machine Learning)
+    r = client.get("/api/page/Machine%20Learning")
+    assert r.status_code == 200
+    assert r.json()["block_ref_counts"] == {"uid_b3": 1}
+
+
+def test_page_payload_counts_are_omitted_at_zero(client):
+    r = client.get("/api/page/AI")
+    assert r.status_code == 200
+    assert r.json()["block_ref_counts"] == {}
+
+
+def test_journal_payload_carries_block_ref_counts(client):
+    # make the daily's own block a ((target)) so the count rides the
+    # journal payload: uid_b5 lives on "July 7th, 2026"
+    _post_ops(client, [{
+        "op": "create", "uid": "uid_jref1", "page_title": "AI",
+        "parent_uid": None, "order_idx": 9, "text": "note ((uid_b5))",
+    }], "b-j1-task5")
+    r = client.get("/api/journal?before=2026-07-08&days=3")
+    assert r.status_code == 200
+    payload = r.json()
+    assert any(d["title"] == "July 7th, 2026" for d in payload["days"])
+    assert payload["block_ref_counts"] == {"uid_b5": 1}
+
+
+def test_block_backlinks_groups(client):
+    r = client.get("/api/block/uid_b3/backlinks")
+    assert r.status_code == 200
+    groups = r.json()["groups"]
+    assert [g["page_title"] for g in groups] == ["July 7th, 2026"]
+    assert [i["uid"] for i in groups[0]["items"]] == ["uid_b5"]
+    assert groups[0]["items"][0]["text"] == "See ((uid_b3)) for details"
+    assert groups[0]["items"][0]["breadcrumbs"] == []
+
+
+def test_block_backlinks_empty_for_unreferenced_block(client):
+    r = client.get("/api/block/uid_b1/backlinks")
+    assert r.status_code == 200
+    assert r.json() == {"groups": []}
+
+
+def test_block_backlinks_unknown_uid_404s(client):
+    assert client.get("/api/block/uid_nope99/backlinks").status_code == 404
+
+
+def test_block_backlinks_malformed_uid_422s(client):
+    assert client.get("/api/block/x!/backlinks").status_code == 422

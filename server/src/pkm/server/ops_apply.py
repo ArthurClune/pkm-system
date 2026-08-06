@@ -16,7 +16,8 @@ from pkm.server.ops_core import (BlockInfo, DeleteBlocks, Effect, InsertBlock,
                                  SetHeading, SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  find_op_title_violation, plan_op)
-from pkm.server.store import BlankTitleError, get_or_create_page, index_ref
+from pkm.server.store import (BlankTitleError, get_or_create_page, index_ref,
+                              reindex_block_refs)
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
@@ -176,9 +177,11 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
             "UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
             (eff.view_type, now_ms, eff.uid))
     elif isinstance(eff, ReindexRefs):
+        parsed = extract(eff.text)
         db.execute("DELETE FROM refs WHERE src_block_uid = ?", (eff.uid,))
-        for ref in extract(eff.text).refs:
+        for ref in parsed.refs:
             index_ref(db, eff.uid, ref.title, ref.kind, now_ms)
+        reindex_block_refs(db, eff.uid, parsed.block_refs)
     elif isinstance(eff, TouchPage):
         db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
                    (now_ms, eff.page_id))

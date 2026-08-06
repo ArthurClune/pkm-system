@@ -32,6 +32,8 @@ const replicaState = () => ({
   pages: rows("SELECT * FROM pages ORDER BY id"),
   blocks: rows("SELECT * FROM blocks ORDER BY uid"),
   refs: rows("SELECT * FROM refs ORDER BY src_block_uid, target_page_id, kind"),
+  blockRefs: rows(
+    "SELECT * FROM block_refs ORDER BY src_block_uid, target_block_uid"),
   sidebar: rows("SELECT * FROM sidebar_entries ORDER BY id"),
   metadata: rows("SELECT * FROM sync_client_meta ORDER BY key"),
 });
@@ -202,6 +204,33 @@ describe("applyLocalOps", () => {
     expect(rows(
       "SELECT b.uid FROM blocks b JOIN blocks_fts f ON f.rowid = b.rowid" +
       " WHERE blocks_fts MATCH 'mentions'")).toEqual([{ uid: "uid_r1" }]);
+  });
+
+  test("create and update_text maintain block_refs", () => {
+    applyLocalOps(t.db, [{
+      op: "create", uid: "uid_src1", page_title: "P", parent_uid: null,
+      order_idx: 0, text: "see ((uid_tgt1)) and ((uid_tgt1))",
+    }], 99);
+    expect(rows("SELECT * FROM block_refs")).toEqual([
+      { src_block_uid: "uid_src1", target_block_uid: "uid_tgt1" }]);
+
+    applyLocalOps(t.db, [
+      { op: "update_text", uid: "uid_src1", text: "now ((uid_tgt2))" },
+    ], 99);
+    expect(rows("SELECT * FROM block_refs")).toEqual([
+      { src_block_uid: "uid_src1", target_block_uid: "uid_tgt2" }]);
+  });
+
+  test("delete cascades block_refs with the block", () => {
+    applyLocalOps(t.db, [{
+      op: "create", uid: "uid_src2", page_title: "P", parent_uid: null,
+      order_idx: 0, text: "see ((uid_tgt1))",
+    }], 99);
+
+    applyLocalOps(t.db, [{ op: "delete", uid: "uid_src2" }], 99);
+
+    expect(rows(
+      "SELECT * FROM block_refs WHERE src_block_uid = 'uid_src2'")).toEqual([]);
   });
 
   test("cross-page move rewrites the whole subtree's page_id", () => {

@@ -231,6 +231,41 @@ describe("daily auto-creation", () => {
     });
 });
 
+describe("block backlinks", () => {
+  test("groups referencing blocks, 404s unknown uids, 422s malformed ones", () => {
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'Target'), (2, 'Source')");
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text) VALUES" +
+      " ('uid_t1', 1, NULL, 0, 'the target')," +
+      " ('uid_s1', 2, NULL, 0, 'see ((uid_t1))')");
+    // rows are derived at write time, so a hand-seeded graph seeds them too
+    t.db.exec("INSERT INTO block_refs VALUES ('uid_s1', 'uid_t1')");
+
+    expect(call("GET", "/api/block/uid_t1/backlinks")).toEqual({
+      handled: true, status: 200, body: { groups: [{
+        page_id: 2, page_title: "Source",
+        items: [{ uid: "uid_s1", text: "see ((uid_t1))", breadcrumbs: [] }],
+      }] },
+    });
+    expect(call("GET", "/api/block/uid_nope99/backlinks")).toEqual({
+      handled: true, status: 404, body: { detail: "block not found" },
+    });
+    expect(call("GET", "/api/block/x!/backlinks")).toEqual({
+      handled: true, status: 422, body: { detail: "malformed uid: 'x!'" },
+    });
+  });
+
+  test("a referenced block with no referrers returns no groups", () => {
+    t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'Target')");
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
+      " VALUES ('uid_t1', 1, NULL, 0, 'the target')");
+
+    expect(expectStatus(call("GET", "/api/block/uid_t1/backlinks"), 200))
+      .toEqual({ groups: [] });
+  });
+});
+
 describe("current work", () => {
   test("groups pages into exclusive changed-time windows", () => {
     const hour = 60 * 60 * 1000;

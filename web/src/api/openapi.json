@@ -163,6 +163,46 @@
         }
       }
     },
+    "/api/block/{uid}/backlinks": {
+      "get": {
+        "summary": "Get Block Backlinks",
+        "description": "The ((uid)) badge's popover read (pkm-d31f): who references this\nblock. Same group shape and ordering as page backlinks; the count badge\nitself rides the page/journal payloads (block_ref_counts).",
+        "operationId": "get_block_backlinks_api_block__uid__backlinks_get",
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockBacklinksPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/block/{uid}": {
       "get": {
         "summary": "Get Block",
@@ -1960,6 +2000,23 @@
         ],
         "title": "Backlinks"
       },
+      "BlockBacklinksPayload": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/BacklinkGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups"
+        ],
+        "title": "BlockBacklinksPayload",
+        "description": "GET /api/block/{uid}/backlinks: every block referencing ((uid)),\ngrouped like page backlinks. Unpaginated by design -- counts are small\nand nothing user-visible truncates silently (pkm-d31f)."
+      },
       "BlockGroup": {
         "properties": {
           "page_id": {
@@ -2587,12 +2644,20 @@
             },
             "type": "object",
             "title": "Block Ref Texts"
+          },
+          "block_ref_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Block Ref Counts"
           }
         },
         "type": "object",
         "required": [
           "days",
-          "block_ref_texts"
+          "block_ref_texts",
+          "block_ref_counts"
         ],
         "title": "JournalPayload"
       },
@@ -2790,6 +2855,13 @@
             },
             "type": "object",
             "title": "Block Ref Texts"
+          },
+          "block_ref_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Block Ref Counts"
           }
         },
         "type": "object",
@@ -2797,7 +2869,8 @@
           "page",
           "blocks",
           "backlinks",
-          "block_ref_texts"
+          "block_ref_texts",
+          "block_ref_counts"
         ],
         "title": "PagePayload"
       },

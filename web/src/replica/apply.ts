@@ -12,6 +12,7 @@ import { applyLocalOps } from "./localOps";
 import { getMeta, setMeta, setPlainSpaceTitleCanonicalization } from "./meta";
 import { allBatches } from "./queue";
 import { reconcileActivationPageTitles, reconcilePage } from "./reconcile";
+import { extractRefs } from "./refs";
 
 export type Changes = components["schemas"]["ChangesPayload"];
 export type Snapshot = components["schemas"]["SnapshotPayload"];
@@ -49,6 +50,13 @@ const upsertBlock = (db: ReplicaDb, b: SyncBlock): void => {
     db.exec("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
             [b.uid, r.target_page_id, r.kind] as SqlValue[]);
   }
+  // block_refs are never shipped over sync: targets are uids (no id
+  // resolution, unlike refs' dependency pages) and the extractor is
+  // parity-pinned, so local derivation matches the server (pkm-d31f).
+  db.exec("DELETE FROM block_refs WHERE src_block_uid = ?", [b.uid]);
+  for (const target of extractRefs(b.text).blockRefs) {
+    db.exec("INSERT OR IGNORE INTO block_refs VALUES (?,?)", [b.uid, target]);
+  }
 };
 
 export function applySnapshot(db: ReplicaDb, snap: Snapshot,
@@ -57,6 +65,7 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
     db.exec("PRAGMA defer_foreign_keys = ON");
     // wipe order respects FKs anyway (refs -> blocks -> pages)
     db.exec("DELETE FROM refs");
+    db.exec("DELETE FROM block_refs");
     db.exec("DELETE FROM blocks");
     db.exec("DELETE FROM pages");
     db.exec("DELETE FROM sidebar_entries");

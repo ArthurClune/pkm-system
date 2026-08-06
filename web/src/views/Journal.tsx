@@ -36,6 +36,7 @@ async function fetchDayBlocks(title: string): Promise<PagePayload["blocks"]> {
 export function Journal() {
   const [days, setDays] = useState<JournalDay[]>([]);
   const [refTexts, setRefTexts] = useState<Record<string, BlockRefText>>({});
+  const [refCounts, setRefCounts] = useState<Record<string, number>>({});
   const [autoLoad, setAutoLoad] = useState(true);
   // The API returns only non-empty days (pkm-03x6), so a batch shorter than
   // requested means the journal's past is exhausted: nothing left to load.
@@ -124,6 +125,9 @@ export function Journal() {
       setRefTexts((m) => oldest
         ? { ...m, ...p.block_ref_texts }
         : { ...p.block_ref_texts });
+      setRefCounts((m) => oldest
+        ? { ...m, ...p.block_ref_counts }
+        : { ...p.block_ref_counts });
       if (p.days.length < want) {
         setAutoLoad(false);
         setDone(true);
@@ -217,7 +221,7 @@ export function Journal() {
               </h1>
               {/* the first loaded day is today by construction */}
               <EditablePage title={day.title} initial={day.blocks}
-                            composer={i === 0} />
+                            composer={i === 0} refCounts={refCounts} />
               <JournalDayReferences title={day.title} />
             </section>
           ))}

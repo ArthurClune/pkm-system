@@ -176,6 +176,16 @@
         "link"
       ]
     ],
+    "block_refs": [
+      [
+        "uid_b6",
+        "uid_b3"
+      ],
+      [
+        "uid_b8",
+        "uid_b6"
+      ]
+    ],
     "sidebar": [
       [
         1,
@@ -266,7 +276,10 @@
           "offset": 0,
           "limit": 20
         },
-        "block_ref_texts": {}
+        "block_ref_texts": {},
+        "block_ref_counts": {
+          "uid_b3": 1
+        }
       }
     },
     {
@@ -334,7 +347,8 @@
           "offset": 0,
           "limit": 20
         },
-        "block_ref_texts": {}
+        "block_ref_texts": {},
+        "block_ref_counts": {}
       }
     },
     {
@@ -382,6 +396,9 @@
             "text": "[[Attention Is All You Need]] is a [[Paper]]",
             "page_title": "Machine Learning"
           }
+        },
+        "block_ref_counts": {
+          "uid_b6": 1
         }
       }
     },
@@ -425,7 +442,8 @@
           "offset": 1,
           "limit": 1
         },
-        "block_ref_texts": {}
+        "block_ref_texts": {},
+        "block_ref_counts": {}
       }
     },
     {
@@ -501,6 +519,9 @@
             "text": "[[Attention Is All You Need]] is a [[Paper]]",
             "page_title": "Machine Learning"
           }
+        },
+        "block_ref_counts": {
+          "uid_b6": 1
         }
       }
     },
@@ -516,7 +537,8 @@
             "blocks": []
           }
         ],
-        "block_ref_texts": {}
+        "block_ref_texts": {},
+        "block_ref_counts": {}
       }
     },
     {
@@ -558,6 +580,25 @@
             "page_title": "Machine Learning"
           }
         }
+      }
+    },
+    {
+      "name": "block_backlinks",
+      "path": "/api/block/uid_b3/backlinks",
+      "response": {
+        "groups": [
+          {
+            "page_id": 3,
+            "page_title": "July 10th, 2026",
+            "items": [
+              {
+                "uid": "uid_b6",
+                "text": "See ((uid_b3)) for details",
+                "breadcrumbs": []
+              }
+            ]
+          }
+        ]
       }
     },
     {

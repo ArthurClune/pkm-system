@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { apiGet } from "../api/typedClient";
 import { ROUTER_FUTURE_FLAGS } from "../router";
@@ -11,8 +11,20 @@ vi.mock("../api/typedClient", async (importOriginal) => {
 });
 const mockApiGet = vi.mocked(apiGet);
 
+// Same location-probe pattern as BlockRef.test.tsx: assert where a click
+// actually navigated to, not just that some handler fired.
+function Probe() {
+  const loc = useLocation();
+  return <p data-testid="loc">{loc.pathname + loc.hash}</p>;
+}
+
 function wrapper({ children }: { children: React.ReactNode }) {
-  return <MemoryRouter future={ROUTER_FUTURE_FLAGS}>{children}</MemoryRouter>;
+  return (
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
+      {children}
+      <Probe />
+    </MemoryRouter>
+  );
 }
 
 afterEach(() => {
@@ -77,6 +89,7 @@ it("navigates on Enter when the item itself is focused", async () => {
   const item = await screen.findByRole("link", { name: "mentions it here" });
   fireEvent.keyDown(item, { key: "Enter" });
   expect(onClose).toHaveBeenCalled();
+  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Source%20Page#uid_s1");
 });
 
 it("navigates to the referencing page and hash on click, and closes", async () => {
@@ -89,4 +102,5 @@ it("navigates to the referencing page and hash on click, and closes", async () =
                                    onClose={onClose} />, { wrapper });
   fireEvent.click(await screen.findByRole("link", { name: "mentions it here" }));
   expect(onClose).toHaveBeenCalled();
+  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Source%20Page#uid_s1");
 });

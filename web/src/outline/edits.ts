@@ -161,7 +161,9 @@ export function indentSelection(blocks: BlockNode[], pageTitle: string,
 }
 
 /** Outdent every selected root exactly once. A top-level run aborts the whole
- * gesture; otherwise each run lands consecutively after its former parent. */
+ * gesture; otherwise each run lands consecutively after its former parent and
+ * adopts the unselected siblings between it and the next run (or the end of
+ * its sibling list) as children of its last block (pkm-udqj). */
 export function outdentSelection(blocks: BlockNode[], pageTitle: string,
                                  uids: string[]): EditResult {
   const runs = selectionSiblingRuns(blocks, uids);
@@ -169,23 +171,20 @@ export function outdentSelection(blocks: BlockNode[], pageTitle: string,
       || runs.some((run) => run.parent === null)) {
     return noop(blocks);
   }
-  const plans: Array<{
-    uids: string[];
-    parentUid: string | null;
-    orderIdx: number;
-  }> = [];
-  for (const run of runs) {
+  const ops: BlockOp[] = [];
+  for (const [i, run] of runs.entries()) {
     if (!run.parent) return noop(blocks);
     const parentLoc = locate(blocks, run.parent.uid);
     if (!parentLoc) return noop(blocks);
-    plans.push({
-      uids: run.uids,
-      parentUid: parentLoc.parent?.uid ?? null,
-      orderIdx: idxAfter(parentLoc.siblings, parentLoc.index),
-    });
+    ops.push(...groupMoveOps(run.uids, parentLoc.parent?.uid ?? null,
+                             idxAfter(parentLoc.siblings, parentLoc.index)));
+    const end = run.first + run.uids.length;
+    const next = runs[i + 1];
+    ops.push(...adoptTrailingOps(
+      run.siblings[end - 1], run.siblings, end,
+      next && next.siblings === run.siblings ? next.first
+                                             : run.siblings.length));
   }
-  const ops = plans.flatMap((plan) =>
-    groupMoveOps(plan.uids, plan.parentUid, plan.orderIdx));
   return done(blocks, pageTitle, ops, null);
 }
 

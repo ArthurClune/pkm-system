@@ -20,5 +20,5 @@ New behavior (Logseq/Workflowy/org-mode standard): outdent takes the following s
 ## Checklist
 
 - [x] Task 1: outdentBlock adopts trailing siblings (adoptTrailingOps helper)
-- [ ] Task 2: outdentSelection adopts each run's gap siblings
+- [x] Task 2: outdentSelection adopts each run's gap siblings
 - [ ] Task 3: keyboard.md docs, full verification, bean completion

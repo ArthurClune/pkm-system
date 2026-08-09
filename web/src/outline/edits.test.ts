@@ -218,6 +218,19 @@ const mixedOutdentTree = () => [
   block("z", "Z", { order_idx: 1 }),
 ];
 
+const gapTree = () => [
+  block("top", "top parent", {
+    order_idx: 0,
+    children: [
+      block("s1", "one", { order_idx: 0 }),
+      block("s2", "two", { order_idx: 1 }),
+      block("s3", "three", { order_idx: 2 }),
+      block("s4", "four", { order_idx: 3 }),
+      block("s5", "five", { order_idx: 4 }),
+    ],
+  }),
+];
+
 describe("indentSelection / outdentSelection (pkm-0ovd)", () => {
   test("indents one sibling run under one parent without staircasing", () => {
     const r = indentSelection(selectionTree(), P, ["b", "b1", "c"]);
@@ -300,6 +313,49 @@ describe("indentSelection / outdentSelection (pkm-0ovd)", () => {
     expect(r.blocks.map((n) => n.uid)).toEqual(["root", "q", "z"]);
     expect(findNode(r.blocks, "q")!.children.map((n) => n.uid))
       .toEqual(["q1"]);
+  });
+
+  test("a run adopts trailing siblings under its last block", () => {
+    const r = outdentSelection(gapTree(), P, ["s1", "s2"]);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "s1", parent_uid: null, order_idx: 1 },
+      { op: "move", uid: "s2", parent_uid: null, order_idx: 2 },
+      { op: "move", uid: "s3", parent_uid: "s2", order_idx: 0 },
+      { op: "move", uid: "s4", parent_uid: "s2", order_idx: 1 },
+      { op: "move", uid: "s5", parent_uid: "s2", order_idx: 2 },
+    ]);
+    expect(r.blocks.map((n) => n.uid)).toEqual(["top", "s1", "s2"]);
+    expect(findNode(r.blocks, "s2")!.children.map((n) => n.uid))
+      .toEqual(["s3", "s4", "s5"]);
+    expect(findNode(r.blocks, "top")!.children).toEqual([]);
+  });
+
+  test("split runs in one sibling group each adopt only their gap", () => {
+    const r = outdentSelection(gapTree(), P, ["s2", "s4"]);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "s2", parent_uid: null, order_idx: 1 },
+      { op: "move", uid: "s3", parent_uid: "s2", order_idx: 0 },
+      { op: "move", uid: "s4", parent_uid: null, order_idx: 1 },
+      { op: "move", uid: "s5", parent_uid: "s4", order_idx: 0 },
+    ]);
+    expect(findNode(r.blocks, "s2")!.children.map((n) => n.uid))
+      .toEqual(["s3"]);
+    expect(findNode(r.blocks, "s4")!.children.map((n) => n.uid))
+      .toEqual(["s5"]);
+  });
+
+  test("a collapsed run tail expands when it adopts", () => {
+    const t = gapTree();
+    findNode(t, "s2")!.collapsed = true;
+    const r = outdentSelection(t, P, ["s1", "s2"]);
+    expect(r.ops).toEqual([
+      { op: "move", uid: "s1", parent_uid: null, order_idx: 1 },
+      { op: "move", uid: "s2", parent_uid: null, order_idx: 2 },
+      { op: "set_collapsed", uid: "s2", collapsed: false },
+      { op: "move", uid: "s3", parent_uid: "s2", order_idx: 0 },
+      { op: "move", uid: "s4", parent_uid: "s2", order_idx: 1 },
+      { op: "move", uid: "s5", parent_uid: "s2", order_idx: 2 },
+    ]);
   });
 
   test("one top-level root aborts every outdent run", () => {

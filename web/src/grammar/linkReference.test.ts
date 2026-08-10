@@ -68,23 +68,57 @@ describe("linkUnlinkedReference", () => {
     expect(linked("unrelated", "ACME")).toEqual({ status: "no-safe-match" });
   });
 
-  test("does not corrupt a bare URL whose host contains the title", () => {
+  test("appends a tag when the only occurrence is inside a bare URL host", () => {
+    const text = "Self-play for driving https://www.interconnects.ai/p/interviewing-eugene-vinitsky-on-self";
+    expect(linked(text, "interconnects.ai")).toEqual({
+      status: "linked", match: "url", text: `${text} #[[interconnects.ai]]`,
+    });
+  });
+
+  test("appends a tag instead of corrupting a bare URL whose host contains the title", () => {
     expect(linked("a link test https://testpage.com/url more text", "Testpage"))
-      .toEqual({ status: "no-safe-match" });
+      .toEqual({
+        status: "linked",
+        match: "url",
+        text: "a link test https://testpage.com/url more text #[[Testpage]]",
+      });
   });
 
-  test("does not corrupt a bare http URL whose host contains the title", () => {
+  test("appends a tag instead of corrupting a bare http URL whose host contains the title", () => {
     expect(linked("see http://testpage.example/url", "Testpage"))
-      .toEqual({ status: "no-safe-match" });
+      .toEqual({
+        status: "linked",
+        match: "url",
+        text: "see http://testpage.example/url #[[Testpage]]",
+      });
   });
 
-  test("does not corrupt a bare URL whose path segment contains the title", () => {
+  test("appends a tag instead of corrupting a bare URL whose path segment contains the title", () => {
     expect(linked("see https://example.test/testpage/more here", "Testpage"))
-      .toEqual({ status: "no-safe-match" });
+      .toEqual({
+        status: "linked",
+        match: "url",
+        text: "see https://example.test/testpage/more here #[[Testpage]]",
+      });
   });
 
-  test("does not corrupt a bare URL whose query string contains the title", () => {
+  test("appends a tag instead of corrupting a bare URL whose query string contains the title", () => {
     expect(linked("see https://example.test/page?testpage=1 here", "Testpage"))
+      .toEqual({
+        status: "linked",
+        match: "url",
+        text: "see https://example.test/page?testpage=1 here #[[Testpage]]",
+      });
+  });
+
+  test("adds no duplicate separator when a bare-URL block ends in whitespace", () => {
+    expect(linked("see https://testpage.com/url ", "Testpage")).toMatchObject({
+      text: "see https://testpage.com/url #[[Testpage]]",
+    });
+  });
+
+  test("does not append a tag for a URL occurrence inside inline code", () => {
+    expect(linked("`https://testpage.com/url`", "Testpage"))
       .toEqual({ status: "no-safe-match" });
   });
 

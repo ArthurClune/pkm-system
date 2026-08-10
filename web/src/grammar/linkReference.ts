@@ -3,7 +3,7 @@ import { scanMarkdownLinks, type MarkdownSpan } from "./markdown";
 import { scanGrammar, type Span } from "./scan";
 
 export type LinkReferenceResult =
-  | { status: "linked"; text: string; match: "plain" | "markdown" }
+  | { status: "linked"; text: string; match: "plain" | "markdown" | "url" }
   | { status: "no-safe-match" };
 
 const ALNUM = /[\p{L}\p{N}]/u;
@@ -62,6 +62,17 @@ function candidates(text: string, title: string): Span[] {
   return found;
 }
 
+// Occurrences inside Markdown spans are excluded here: link destinations are
+// the markdown fallback's job, and images deliberately never link.
+const matchingBareUrl = (
+  bareUrls: readonly Span[],
+  found: readonly Span[],
+  otherProtected: readonly Span[],
+): boolean => found.some((candidate) =>
+  !otherProtected.some((span) => overlaps(candidate, span))
+  && bareUrls.some((url) => contains(url, candidate)),
+);
+
 const matchingMarkdown = (
   spans: readonly MarkdownSpan[],
   found: readonly Span[],
@@ -103,13 +114,20 @@ export function linkUnlinkedReference(
     };
   }
 
+  // The occurrence sits inside a link that must stay intact, so link the
+  // block by appending a canonical tag instead of rewriting in place.
+  const appendedTag = (match: "markdown" | "url"): LinkReferenceResult => ({
+    status: "linked",
+    match,
+    text: `${text}${/\s$/u.test(text) ? "" : " "}#[[${canonicalTitle}]]`,
+  });
+
   if (matchingMarkdown(markdown, found, grammarProtected)) {
-    const separator = /\s$/u.test(text) ? "" : " ";
-    return {
-      status: "linked",
-      match: "markdown",
-      text: `${text}${separator}#[[${canonicalTitle}]]`,
-    };
+    return appendedTag("markdown");
+  }
+
+  if (matchingBareUrl(bareUrls, found, [...grammarProtected, ...markdown])) {
+    return appendedTag("url");
   }
 
   return { status: "no-safe-match" };

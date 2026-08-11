@@ -24,3 +24,5 @@ docs/superpowers/handoffs/
 # Pi agent state
 .pi/
 
+# codegraph working dir
+.codegraph

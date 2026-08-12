@@ -3,7 +3,7 @@
 //
 //   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/frontend.md
 //
-// Four things, none of which a read-through reliably catches:
+// Five things, none of which a read-through reliably catches:
 //
 //  1. mermaid   — every ```mermaid block parses under the project's OWN mermaid
 //                 (web/node_modules), so a diagram cannot ship broken.
@@ -18,8 +18,13 @@
 //                 CONSTANT_NAMES and function names agents grep for. Dropped
 //                 names are printed for judgement, not failed on: rewording
 //                 `foo()` to `foo` shows up here too.
+//  5. beans     — bean ids (pkm-xxxx) in prose. Their one home is the Ref
+//                 column of a "When something looks wrong" table; in prose
+//                 they are provenance tags every rebalance pass has had to
+//                 strip again.
 //
-// Exits non-zero only for a broken diagram or an unresolved link/anchor.
+// Exits non-zero only for a broken diagram, an unresolved link/anchor, or a
+// bean id in prose.
 
 import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -179,6 +184,28 @@ function checkNames(file, text, before) {
   for (const d of dropped) console.log(`        ${d}`);
 }
 
+// ------------------------------------------------------------------ beans ---
+
+// Table rows (the Ref column's home) and linked spec/plan filenames are the
+// legitimate places a bean id appears. Product names like `pkm-replica` and
+// `pkm-specific` never match: the id shape ends at a word boundary four
+// characters in. Code blocks are blanked line-for-line so numbers stay right.
+function checkBeans(file, text) {
+  const lines = text
+    .replace(/```[\s\S]*?```/g, (b) => b.replace(/[^\n]/g, ""))
+    .split("\n");
+  let found = 0;
+  lines.forEach((line, i) => {
+    if (line.trim().startsWith("|")) return;
+    if (/superpowers\/(specs|plans)\//.test(line)) return;
+    for (const m of line.matchAll(/\bpkm-[a-z0-9]{4}\b/g)) {
+      found += 1;
+      fail(`${file}:${i + 1} bean id in prose (${m[0]}) — its home is the symptom table's Ref column`);
+    }
+  });
+  if (found === 0) ok(`${file} beans (none outside symptom tables)`);
+}
+
 // ------------------------------------------------------------------- main ---
 
 const mermaid = await loadMermaid();
@@ -193,6 +220,7 @@ for (const file of targets) {
   checkLinks(file, text);
   checkInbound(file, text);
   checkNames(file, text, before);
+  checkBeans(file, text);
   reportSentences(file, text, before);
 }
 process.exit(failures === 0 ? 0 : 1);

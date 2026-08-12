@@ -172,7 +172,8 @@ node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/<file>.md
 
 Every mermaid block parses under the project's own mermaid; links and heading
 anchors resolve, including inbound anchors from sibling docs (a renamed heading
-breaks those silently). It also prints, for judgement rather than pass/fail, the
+breaks those silently); a bean id in prose fails — its one home is the symptom
+table's Ref column. It also prints, for judgement rather than pass/fail, the
 longest prose sentences and any identifiers dropped since `HEAD`.
 
 **Re-run it after your edits and read the count, not just the list.** It shows

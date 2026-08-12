@@ -15,21 +15,17 @@ this check enforces; this file only sequences the audit.
 
 ## The audit
 
-1. **Mechanical sweep** — bean ids outside symptom tables:
+1. **Mechanical sweep** — run the architecture-docs checker over every doc;
+   its `checkBeans` fails on bean ids in prose, and its exclusions (table
+   rows, linked spec filenames) live in the script, nowhere else:
 
    ```bash
-   grep -rnE 'pkm-[a-z0-9]{4}' docs/architecture/ \
-     | grep -vE '\|\s*$' \
-     | grep -vE 'superpowers/specs|pkm-specific|pkm-replica'
+   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/*.md
    ```
 
-   The first exclusion drops `| Symptom | Cause | Ref |` rows — the one
-   legitimate home for bean ids. The second drops the known non-bean matches:
-   spec file paths, "pkm-specific", the `/pkm-replica.sqlite3` filename.
-   Read every remaining match; the expected count is zero. A bean id in
-   prose is a provenance tag — drop the tag, keep the sentence. If the
-   sentence only exists to name the bean, it is an incident: move it to the
-   doc's symptom table or delete it.
+   A flagged bean id is a provenance tag — drop the tag, keep the sentence.
+   If the sentence only exists to name the bean, it is an incident: move it
+   to the doc's symptom table or delete it.
 
 2. **Judgment review** — find the last re-check
    (`git log --oneline --grep=re-check -i -- docs/architecture/`, or the
@@ -55,5 +51,5 @@ this check enforces; this file only sequences the audit.
 |---|---|
 | Bean id in a symptom table's Ref column | that column is its designated home |
 | Bean id inside a linked spec/plan filename | filenames are identifiers, not provenance |
-| `pkm-replica`, `pkm-specific`, other product uses of "pkm-" | not bean ids; extend the grep exclusions if a new one appears |
+| `pkm-replica`, `pkm-specific`, other product uses of "pkm-" | not bean ids — the id shape ends at a word boundary, so they never match; a genuine new false positive means extending `checkBeans` in check-docs.mjs, not ignoring the failure |
 | A "Known gap" paragraph describing a current, deliberate gap | the gap is an invariant; only the bean tag on it was provenance |

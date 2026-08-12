@@ -1010,6 +1010,11 @@ mark.highlight { background: var(--color-highlight-bg); }
   background: var(--color-bg-subtle);
 }
 .file-thumb img { width: 100%; height: 100%; object-fit: cover; }
+/* pkm-vcn6: an image thumb is a button (in-app expansion), not a link */
+button.file-thumb { appearance: none; width: 100%; padding: 0;
+  border: none; font: inherit; cursor: zoom-in; }
+button.file-thumb:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: 2px; }
 .file-type-label {
   color: var(--color-text-muted); text-transform: uppercase;
   font-size: 0.8em; letter-spacing: 0.08em;
@@ -1029,6 +1034,16 @@ mark.highlight { background: var(--color-highlight-bg); }
 }
 .file-badge.status-failed { color: var(--color-error); }
 .file-badge.linked { color: var(--color-link); }
+/* pkm-vcn6: badges with something to show are buttons */
+button.file-badge { appearance: none; font-family: inherit;
+  cursor: pointer; }
+button.file-badge:hover { color: var(--color-text); }
+button.file-badge:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: 1px; }
+button.file-badge.status-failed:hover { color: var(--color-error); }
+/* pkm-vcn6: description/error text inside a card popover */
+.file-popover-text { margin: 4px 0; font-size: 0.9em;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
 .file-select { position: absolute; top: 12px; left: 12px; }
 /* compact inside the 160px-wide card; the rest of the look is .btn-secondary */
 .file-copy { align-self: flex-start; padding: 1px 8px; font-size: 0.8em; }

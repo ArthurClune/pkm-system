@@ -8,6 +8,11 @@ const PNG = Buffer.from(
   + "z8DQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 // Different bytes -> different sha256 for the second asset.
 const PNG2 = Buffer.concat([PNG, Buffer.from([0])]);
+// Upload is INSERT OR IGNORE on the sha and answers with the *stored*
+// filename, so an asset sharing bytes with another test's is served under
+// that test's name. Own bytes keep the popover test's card labelled
+// "reffed.png" whatever else the shared e2e DB holds.
+const PNG3 = Buffer.concat([PNG, Buffer.from([2, 7])]);
 
 async function login(page) {
   await page.goto("/login");
@@ -82,6 +87,40 @@ test("browse, orphan purge, linked delete, export", async ({ page }) => {
   expect((await page.request.get(linked.url)).status()).toBe(404);
 });
 
+test("refs popover navigates; thumbnail expands in-app", async ({ page }) => {
+  await login(page);
+  const title = `Files Popover E2E ${Date.now()}`;
+  const reffed = await upload(page, "reffed.png", PNG3);
+  await page.request.post("/api/pages", { data: { title } });
+  const uid = `filespop${Date.now()}`;
+  await page.request.post("/api/ops", {
+    data: {
+      client_id: "e2e", batch_id: `filespop-${uid}`,
+      ops: [{ op: "create", uid, page_title: title, parent_uid: null,
+              order_idx: 0, text: `sketch here ![](${reffed.url})` }],
+    },
+  });
+
+  await page.goto("/files");
+  const card = page.locator(".file-card", { hasText: "reffed.png" });
+  await card.getByRole("button", { name: "1 ref" }).click();
+  const popover = page.getByRole("dialog", { name: "References" });
+  await expect(popover.getByText(title)).toBeVisible();
+  await expect(popover.getByText(/sketch here/)).toBeVisible();
+  // Corner-click: the row's center can land on inline content with its
+  // own click handling (the pkm-7iv7 lesson).
+  await popover.locator(".backlink-item").click({ position: { x: 4, y: 4 } });
+  await page.waitForURL(`**/page/**#${uid}`);
+
+  await page.goto("/files");
+  await card.getByRole("button", { name: "Expand image: reffed.png" })
+    .click();
+  const overlay = page.getByRole("dialog", { name: /Expanded image/ });
+  await expect(overlay).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(overlay).toHaveCount(0);
+});
+
 test("export selected downloads a zip", async ({ page }) => {
   await login(page);
   await upload(page, "export-me.png", Buffer.concat([PNG, PNG2]));
@@ -89,7 +128,9 @@ test("export selected downloads a zip", async ({ page }) => {
   await page.getByLabel("Select export-me.png").check();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    page.getByRole("button", { name: "Export" }).click(),
+    // exact: true -- the default substring match also hits the thumbnail's
+    // "Expand image: export-me.png" label.
+    page.getByRole("button", { name: "Export", exact: true }).click(),
   ]);
   expect(download.suggestedFilename())
     .toMatch(/^assets-\d{4}-\d{2}-\d{2}\.zip$/);

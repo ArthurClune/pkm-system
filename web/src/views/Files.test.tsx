@@ -2,8 +2,10 @@
 import {
   act, fireEvent, render, screen, waitFor,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetSearchItem, AssetSearchPayload } from "../api/payloads";
+import { ROUTER_FUTURE_FLAGS } from "../router";
 import { makeSync } from "../test-helpers";
 import { Files } from "./Files";
 
@@ -27,6 +29,13 @@ const payload = (assets: AssetSearchItem[],
                  total = assets.length): AssetSearchPayload =>
   ({ total, assets });
 
+const renderFiles = () =>
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/files"]}>
+      <Files />
+    </MemoryRouter>,
+  );
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => { resolve = done; });
@@ -42,19 +51,19 @@ beforeEach(() => {
 describe("Files", () => {
   it("shows the offline note without fetching when disconnected", () => {
     mockSync.mockReturnValue(makeSync("reconnecting"));
-    render(<Files />);
+    renderFiles();
     expect(screen.getByText(/needs a connection/i)).toHaveClass("settings-note");
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("shows an empty state", async () => {
-    render(<Files />);
+    renderFiles();
     expect(await screen.findByText(/no files match/i)).toHaveClass("settings-note");
   });
 
   it("shows an error state when the fetch fails", async () => {
     mockFetch.mockRejectedValue(new Error("boom"));
-    render(<Files />);
+    renderFiles();
     expect(
       await screen.findByText(/could not load files/i),
     ).toBeInTheDocument();
@@ -70,7 +79,7 @@ describe("Files", () => {
         refs: [{ uid: "b1", page_title: "AI" }],
       }),
     ]));
-    render(<Files />);
+    renderFiles();
     expect(await screen.findByText("pic.png")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "pic.png" }))
       .toHaveAttribute("src", expect.stringContaining("/assets/"));
@@ -83,19 +92,19 @@ describe("Files", () => {
 
   it("styles the filter widgets with the shared tokens (pkm-mrru, pkm-0wg9)",
      async () => {
-    render(<Files />);
+    renderFiles();
     await screen.findByText(/no files match/i);
     for (const name of ["Type", "From", "To", "Linked"]) {
       expect(screen.getByLabelText(name)).toHaveClass("input-control");
     }
     // the search box is the same object as the Cmd-U search, icon and all
-    const search = screen.getByLabelText("Search files");
+    const search = screen.getByLabelText("Search names & descriptions");
     expect(search).toHaveClass("search-field-input");
     expect(search.closest(".search-field")).not.toBeNull();
   });
 
   it("passes filters to the search request", async () => {
-    render(<Files />);
+    renderFiles();
     await screen.findByText(/no files match/i);
     fireEvent.change(screen.getByLabelText("Type"),
                      { target: { value: "pdf" } });
@@ -116,7 +125,7 @@ describe("Files", () => {
     mockFetch
       .mockResolvedValueOnce(payload(first, 51))
       .mockResolvedValueOnce(payload(second, 51));
-    render(<Files />);
+    renderFiles();
     expect(await screen.findByText("50 of 51 files")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     await screen.findByText("51 selected");
@@ -135,7 +144,7 @@ describe("Files", () => {
       .mockResolvedValueOnce(payload(firstPage, 60))   // initial reload
       .mockResolvedValueOnce(stale.promise)             // loadMore (offset=50)
       .mockResolvedValueOnce(filtered);                 // filter-change reload
-    render(<Files />);
+    renderFiles();
     expect(await screen.findByText("50 of 60 files")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
@@ -164,7 +173,7 @@ describe("Files", () => {
     mockFetch
       .mockResolvedValueOnce(payload(first, 51))
       .mockReturnValueOnce(pending.promise);
-    render(<Files />);
+    renderFiles();
     const button = await screen.findByRole("button", { name: "Load more" });
 
     act(() => {
@@ -193,7 +202,7 @@ describe("Files", () => {
       .mockResolvedValueOnce(payload(firstPage, 51))   // initial reload
       .mockResolvedValueOnce(stale.promise)             // selectAll (offset=50)
       .mockResolvedValueOnce(filtered);                 // filter-change reload
-    render(<Files />);
+    renderFiles();
     expect(await screen.findByText("50 of 51 files")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
@@ -218,7 +227,7 @@ describe("Files", () => {
 
   it("deletes selected files after a calm confirm and reports", async () => {
     mockFetch.mockResolvedValueOnce(payload([item({})]));
-    render(<Files />);
+    renderFiles();
     fireEvent.click(await screen.findByLabelText("Select pic.png"));
     mockFetch.mockResolvedValueOnce({ deleted: true, refs_removed: 0 });
     mockFetch.mockResolvedValueOnce(payload([]));
@@ -237,7 +246,7 @@ describe("Files", () => {
       .mockResolvedValueOnce(payload([item({})]))
       .mockReturnValueOnce(pending.promise)
       .mockResolvedValueOnce(payload([]));
-    render(<Files />);
+    renderFiles();
     fireEvent.click(await screen.findByLabelText("Select pic.png"));
 
     const deleteButton = screen.getByRole("button", { name: "Delete" });
@@ -259,7 +268,7 @@ describe("Files", () => {
       refs: [{ uid: "b1", page_title: "AI" }] });
     const other = item({ sha256: "cd".repeat(32), filename: "b.png" });
     mockFetch.mockResolvedValueOnce(payload([linked, other]));
-    render(<Files />);
+    renderFiles();
     fireEvent.click(await screen.findByLabelText("Select pic.png"));
     fireEvent.click(screen.getByLabelText("Select b.png"));
     mockFetch
@@ -275,7 +284,7 @@ describe("Files", () => {
 
   it("cancelling the confirm deletes nothing", async () => {
     mockFetch.mockResolvedValueOnce(payload([item({})]));
-    render(<Files />);
+    renderFiles();
     fireEvent.click(await screen.findByLabelText("Select pic.png"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
@@ -288,7 +297,7 @@ describe("Files", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     mockFetch.mockResolvedValueOnce(payload([item({})]));
-    render(<Files />);
+    renderFiles();
     fireEvent.click(await screen.findByRole("button",
                                             { name: "Copy link" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(
@@ -298,7 +307,7 @@ describe("Files", () => {
 
   it("runs a scan and reports the queue size", async () => {
     mockFetch.mockResolvedValueOnce(payload([]));
-    render(<Files />);
+    renderFiles();
     await screen.findByText(/no files match/i);
     mockFetch.mockResolvedValueOnce(
       { queued: 4, enabled: true, reason: null });
@@ -310,7 +319,7 @@ describe("Files", () => {
 
   it("reports the disabled reason when describe is off", async () => {
     mockFetch.mockResolvedValueOnce(payload([]));
-    render(<Files />);
+    renderFiles();
     await screen.findByText(/no files match/i);
     mockFetch.mockResolvedValueOnce(
       { queued: 0, enabled: false, reason: "no key" });
@@ -324,7 +333,7 @@ describe("Files", () => {
     mockFetch.mockResolvedValueOnce(payload([item({})]));
     const submit = vi.spyOn(HTMLFormElement.prototype, "submit")
       .mockImplementation(() => {});
-    render(<Files />);
+    renderFiles();
     fireEvent.click(await screen.findByLabelText("Select pic.png"));
     fireEvent.click(screen.getByRole("button", { name: "Export" }));
     expect(submit).toHaveBeenCalledOnce();
@@ -333,8 +342,91 @@ describe("Files", () => {
 
   it("falls back to a type label when the image is broken", async () => {
     mockFetch.mockResolvedValueOnce(payload([item({})]));
-    render(<Files />);
+    renderFiles();
     fireEvent.error(await screen.findByRole("img", { name: "pic.png" }));
     expect(screen.getByText("image")).toBeInTheDocument();
+  });
+
+  it("expands an image thumbnail in-app instead of opening a tab", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({})]));
+    renderFiles();
+    const thumb = await screen.findByRole("button",
+                                          { name: "Expand image: pic.png" });
+    expect(thumb.closest("a")).toBeNull();
+    fireEvent.click(thumb);
+    const overlay = screen.getByRole("dialog",
+                                     { name: "Expanded image: pic.png" });
+    expect(overlay).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog",
+                              { name: "Expanded image: pic.png" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the new-tab link for non-image files", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({
+      sha256: "cd".repeat(32), filename: "notes.pdf",
+      mime: "application/pdf",
+    })]));
+    renderFiles();
+    await screen.findByText("notes.pdf");
+    const label = screen.getByText("pdf");
+    const link = label.closest("a");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(screen.queryByRole("button", { name: /Expand image/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it("opens the refs popover from the refs badge", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/block-refs")) {
+        return Promise.resolve({ block_ref_texts: {
+          b1: { text: "embeds the pic", page_title: "AI" } } });
+      }
+      return Promise.resolve(payload([item({
+        refs: [{ uid: "b1", page_title: "AI" }] })]));
+    });
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "1 ref" }));
+    const popover = await screen.findByRole("dialog",
+                                            { name: "References" });
+    expect(popover).toHaveClass("block-ref-popover");
+    expect(await screen.findByText("embeds the pic")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "References" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the orphan badge inert", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({})]));
+    renderFiles();
+    const badge = await screen.findByText("orphan");
+    expect(badge.tagName).toBe("SPAN");
+  });
+
+  it("shows the description from the described badge", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({
+      description: "a bar chart of monthly revenue" })]));
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button",
+                                            { name: "described" }));
+    expect(screen.getByRole("dialog", { name: "Description" }))
+      .toHaveTextContent("a bar chart of monthly revenue");
+  });
+
+  it("shows the error from the failed badge", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({
+      status: "failed", describe_error: "too large" })]));
+    renderFiles();
+    fireEvent.click(await screen.findByRole("button", { name: "failed" }));
+    expect(screen.getByRole("dialog", { name: "Description error" }))
+      .toHaveTextContent("too large");
+  });
+
+  it("keeps the pending badge inert", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({ status: "pending" })]));
+    renderFiles();
+    const badge = await screen.findByText("pending");
+    expect(badge.tagName).toBe("SPAN");
   });
 });

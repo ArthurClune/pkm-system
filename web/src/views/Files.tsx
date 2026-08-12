@@ -3,8 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPost } from "../api/typedClient";
 import type { AssetSearchItem } from "../api/payloads";
 import { useConfirm } from "../components/ConfirmDialog";
+import { ImageOverlay } from "../components/ImageOverlay";
 import { SearchIcon } from "../components/icons";
 import { useSync } from "../sync/SyncProvider";
+import {
+  FileDescriptionPopover, FileRefsPopover,
+} from "./FileCardPopovers";
 import {
   EMPTY_FILTERS, clipboardToken, deleteConfirm, formatSize,
   mimeCategory, searchQuery, summarizeDeletes,
@@ -51,32 +55,75 @@ function FileCard({ item, checked, onToggle, onCopy }: {
 }) {
   const category = mimeCategory(item.mime);
   const [broken, setBroken] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [popover, setPopover] = useState<
+    { kind: "refs" | "status"; x: number; y: number } | null>(null);
+  const thumbRef = useRef<HTMLButtonElement>(null);
+  const closeOverlay = useCallback(() => setExpanded(false), []);
+  const overlayError = useCallback(() => {
+    setExpanded(false);
+    setBroken(true);
+  }, []);
   const when = item.created_at
     ? ` · ${new Date(item.created_at).toLocaleDateString()}` : "";
   return (
     <div className={"file-card" + (checked ? " selected" : "")}>
-      <a className="file-thumb" href={item.url} target="_blank"
-         rel="noreferrer">
-        {category === "image" && !broken
-          ? <img src={item.url} alt={item.filename} loading="lazy"
-                 onError={() => setBroken(true)} />
-          : <span className="file-type-label">{category}</span>}
-      </a>
+      {category === "image" && !broken ? (
+        <button type="button" className="file-thumb" ref={thumbRef}
+                aria-label={`Expand image: ${item.filename}`}
+                onClick={() => setExpanded(true)}>
+          <img src={item.url} alt={item.filename} loading="lazy"
+               onError={() => setBroken(true)} />
+        </button>
+      ) : (
+        <a className="file-thumb" href={item.url} target="_blank"
+           rel="noreferrer">
+          <span className="file-type-label">{category}</span>
+        </a>
+      )}
+      {expanded && (
+        <ImageOverlay src={item.url} alt={item.filename}
+                      onClose={closeOverlay} onError={overlayError}
+                      triggerRef={thumbRef} />
+      )}
+      {popover?.kind === "refs" && (
+        <FileRefsPopover refs={item.refs} x={popover.x} y={popover.y}
+                         onClose={() => setPopover(null)} />
+      )}
+      {popover?.kind === "status" && (
+        <FileDescriptionPopover
+          label={item.status === "failed"
+            ? "Description error" : "Description"}
+          text={(item.status === "failed"
+            ? item.describe_error : item.description) ?? ""}
+          x={popover.x} y={popover.y}
+          onClose={() => setPopover(null)} />
+      )}
       <span className="file-name" title={item.filename}>
         {item.filename}
       </span>
       <span className="file-sub">{formatSize(item.size)}{when}</span>
       <span className="file-badges">
-        <span className={`file-badge status-${item.status}`}
-              title={item.describe_error ?? undefined}>
-          {item.status}
-        </span>
-        <span className={"file-badge "
-                         + (item.refs.length ? "linked" : "orphan")}>
-          {item.refs.length
-            ? `${item.refs.length} ref${item.refs.length === 1 ? "" : "s"}`
-            : "orphan"}
-        </span>
+        {item.status === "pending" ? (
+          <span className="file-badge status-pending">pending</span>
+        ) : (
+          <button type="button"
+                  className={`file-badge status-${item.status}`}
+                  title={item.describe_error ?? undefined}
+                  onClick={(e) => setPopover(
+                    { kind: "status", x: e.clientX, y: e.clientY })}>
+            {item.status}
+          </button>
+        )}
+        {item.refs.length ? (
+          <button type="button" className="file-badge linked"
+                  onClick={(e) => setPopover(
+                    { kind: "refs", x: e.clientX, y: e.clientY })}>
+            {`${item.refs.length} ref${item.refs.length === 1 ? "" : "s"}`}
+          </button>
+        ) : (
+          <span className="file-badge orphan">orphan</span>
+        )}
       </span>
       {item.refs.length === 0 && (
         <button type="button" className="btn-secondary file-copy"
@@ -252,8 +299,8 @@ export function Files() {
         <div className="search-field files-search">
           <span className="search-field-icon"><SearchIcon /></span>
           <input type="search" className="search-field-input"
-                 value={filters.q} placeholder="Search files"
-                 aria-label="Search files"
+                 value={filters.q} placeholder="Search names & descriptions"
+                 aria-label="Search names & descriptions"
                  onChange={(e) => update({ q: e.target.value })} />
         </div>
         <label>Type{" "}

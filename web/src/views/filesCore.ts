@@ -1,7 +1,7 @@
 // pattern: Functional Core
 // Pure logic for the /files asset browser (pkm-jdu3). The Files view is
 // the imperative shell; everything testable without I/O lives here.
-import type { AssetSearchItem } from "../api/payloads";
+import type { AssetSearchItem, BacklinkGroup } from "../api/payloads";
 
 export interface FileFilters {
   q: string;
@@ -104,4 +104,48 @@ export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export interface AssetRef {
+  uid: string;
+  page_title: string;
+}
+
+// GET /api/block-refs rejects more than 50 uids per call.
+const BLOCK_REFS_CAP = 50;
+
+export function refUidChunks(refs: readonly AssetRef[]): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < refs.length; i += BLOCK_REFS_CAP) {
+    chunks.push(refs.slice(i, i + BLOCK_REFS_CAP).map((r) => r.uid));
+  }
+  return chunks;
+}
+
+export const MISSING_BLOCK_TEXT = "(block not found)";
+
+// Shape an asset's refs for BacklinkGroupList. page_id is a synthetic
+// key (the search payload carries no page ids) and breadcrumbs aren't
+// available here, so rows carry text only.
+export function refGroups(
+  refs: readonly AssetRef[],
+  texts: Record<string, { text: string; page_title: string }>,
+): BacklinkGroup[] {
+  const groups: BacklinkGroup[] = [];
+  const byTitle = new Map<string, BacklinkGroup>();
+  for (const ref of refs) {
+    let group = byTitle.get(ref.page_title);
+    if (group === undefined) {
+      group = { page_id: groups.length, page_title: ref.page_title,
+                items: [] };
+      byTitle.set(ref.page_title, group);
+      groups.push(group);
+    }
+    group.items.push({
+      uid: ref.uid,
+      text: texts[ref.uid]?.text ?? MISSING_BLOCK_TEXT,
+      breadcrumbs: [],
+    });
+  }
+  return groups;
 }

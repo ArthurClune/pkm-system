@@ -162,7 +162,7 @@ Around that base model:
   `GET /api/block/{uid}/backlinks`. Its target has no FK because an
   unresolved `((uid))` is legal; a dangling row never matches a count.
   A one-time `sync_meta`-guarded backfill in `db.py::init_db` indexed
-  pre-existing text (pkm-d31f); the write path owns all rows since.
+  pre-existing text; the write path owns all rows since.
 - **Server-only tables** (`SERVER_DDL`):
   - `changes(seq AUTOINCREMENT, kind, entity_id, deleted)` — the append-only
     change journal. Populated by **row-level triggers** on
@@ -531,7 +531,7 @@ It calls `refs.extract()` once per block (`collect_block_ref_uids`), so
 its attribute regex runs, and the regex then never backtracks against a long
 `::`-free run — which is what a large fenced code block becomes once
 `_strip_code()` blanks it. One pathological block would otherwise turn the
-instant whole-database export into minutes (symptom table, pkm-7myl).
+instant whole-database export into minutes (symptom table).
 
 A previously-exported asset's mere presence at its content-addressed path is
 never trusted. It is verified against the `assets` row's known size and sha256

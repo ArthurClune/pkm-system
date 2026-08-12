@@ -210,7 +210,7 @@ That fact drives the outline-session design below.
 filename and description, type, date range, linked/orphan), offset pagination,
 and multi-select for delete and zip export.
 
-Cards are interactive (pkm-vcn6). An image thumb expands in the shared
+Cards are interactive. An image thumb expands in the shared
 `ImageOverlay` (extracted from `AssetImage`). The refs and described/failed
 status badges open popovers (`views/FileCardPopovers.tsx`): the refs popover
 fetches block text through `GET /api/block-refs` — chunked at its 50-uid cap
@@ -450,7 +450,7 @@ Editing mechanics to know before touching `outline/`:
   outline editing.
 
 **`set_collapsed` must not stamp.** `opBumpsUpdatedAt` (outline/blockStamps.ts)
-is the single statement of pkm-r7k8's rule that collapsing is a view toggle,
+is the single statement of the rule that collapsing is a view toggle,
 not a change. `transitionOutline` uses it to decide which uids to stamp, and a
 test in `replica/localOps.test.ts` asserts the replica's own writes agree
 op-for-op — so the displayed date and the stored date cannot drift apart.

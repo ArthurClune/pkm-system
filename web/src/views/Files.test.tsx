@@ -337,4 +337,34 @@ describe("Files", () => {
     fireEvent.error(await screen.findByRole("img", { name: "pic.png" }));
     expect(screen.getByText("image")).toBeInTheDocument();
   });
+
+  it("expands an image thumbnail in-app instead of opening a tab", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({})]));
+    render(<Files />);
+    const thumb = await screen.findByRole("button",
+                                          { name: "Expand image: pic.png" });
+    expect(thumb.closest("a")).toBeNull();
+    fireEvent.click(thumb);
+    const overlay = screen.getByRole("dialog",
+                                     { name: "Expanded image: pic.png" });
+    expect(overlay).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog",
+                              { name: "Expanded image: pic.png" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the new-tab link for non-image files", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({
+      sha256: "cd".repeat(32), filename: "notes.pdf",
+      mime: "application/pdf",
+    })]));
+    render(<Files />);
+    await screen.findByText("notes.pdf");
+    const label = screen.getByText("pdf");
+    const link = label.closest("a");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(screen.queryByRole("button", { name: /Expand image/ }))
+      .not.toBeInTheDocument();
+  });
 });

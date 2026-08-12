@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPost } from "../api/typedClient";
 import type { AssetSearchItem } from "../api/payloads";
 import { useConfirm } from "../components/ConfirmDialog";
+import { ImageOverlay } from "../components/ImageOverlay";
 import { SearchIcon } from "../components/icons";
 import { useSync } from "../sync/SyncProvider";
 import {
@@ -51,17 +52,35 @@ function FileCard({ item, checked, onToggle, onCopy }: {
 }) {
   const category = mimeCategory(item.mime);
   const [broken, setBroken] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const thumbRef = useRef<HTMLButtonElement>(null);
+  const closeOverlay = useCallback(() => setExpanded(false), []);
+  const overlayError = useCallback(() => {
+    setExpanded(false);
+    setBroken(true);
+  }, []);
   const when = item.created_at
     ? ` · ${new Date(item.created_at).toLocaleDateString()}` : "";
   return (
     <div className={"file-card" + (checked ? " selected" : "")}>
-      <a className="file-thumb" href={item.url} target="_blank"
-         rel="noreferrer">
-        {category === "image" && !broken
-          ? <img src={item.url} alt={item.filename} loading="lazy"
-                 onError={() => setBroken(true)} />
-          : <span className="file-type-label">{category}</span>}
-      </a>
+      {category === "image" && !broken ? (
+        <button type="button" className="file-thumb" ref={thumbRef}
+                aria-label={`Expand image: ${item.filename}`}
+                onClick={() => setExpanded(true)}>
+          <img src={item.url} alt={item.filename} loading="lazy"
+               onError={() => setBroken(true)} />
+        </button>
+      ) : (
+        <a className="file-thumb" href={item.url} target="_blank"
+           rel="noreferrer">
+          <span className="file-type-label">{category}</span>
+        </a>
+      )}
+      {expanded && (
+        <ImageOverlay src={item.url} alt={item.filename}
+                      onClose={closeOverlay} onError={overlayError}
+                      triggerRef={thumbRef} />
+      )}
       <span className="file-name" title={item.filename}>
         {item.filename}
       </span>

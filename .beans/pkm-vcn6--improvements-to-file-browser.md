@@ -12,8 +12,8 @@ In the image card in image search, the refs should be clickable to give the list
 
 ## Checklist
 
-- [ ] ImageOverlay extracted from AssetImage
-- [ ] Image thumbnails expand in-app
+- [x] ImageOverlay extracted from AssetImage
+- [x] Image thumbnails expand in-app
 - [ ] filesCore ref-grouping/chunking helpers
 - [ ] FileCardPopovers (refs + description)
 - [ ] Badges wired to popovers in Files.tsx

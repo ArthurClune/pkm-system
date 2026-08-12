@@ -1010,6 +1010,11 @@ mark.highlight { background: var(--color-highlight-bg); }
   background: var(--color-bg-subtle);
 }
 .file-thumb img { width: 100%; height: 100%; object-fit: cover; }
+/* pkm-vcn6: an image thumb is a button (in-app expansion), not a link */
+button.file-thumb { appearance: none; width: 100%; padding: 0;
+  border: none; font: inherit; cursor: zoom-in; }
+button.file-thumb:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: 2px; }
 .file-type-label {
   color: var(--color-text-muted); text-transform: uppercase;
   font-size: 0.8em; letter-spacing: 0.08em;

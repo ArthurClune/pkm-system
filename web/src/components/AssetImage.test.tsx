@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { InertMediaContext } from "../contexts";
 import { AssetImage } from "./AssetImage";
 
 const ASSET = "/assets/abc/photo.png";
@@ -115,6 +116,17 @@ it("shows the existing placeholder when either image fails", () => {
   fireEvent.error(screen.getAllByRole("img", { name: "photo" })[1]);
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.getByText(/image unavailable offline/i)).toHaveTextContent("photo");
+});
+
+it("renders inert — no expand trigger — inside InertMediaContext", () => {
+  render(
+    <InertMediaContext.Provider value={true}>
+      <AssetImage src="/assets/abc/pic.png" alt="pic" />
+    </InertMediaContext.Provider>,
+  );
+  expect(screen.queryByRole("button", { name: /Expand image/ }))
+    .not.toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "pic" })).toBeInTheDocument();
 });
 
 it("closes expansion on a source change and recovers from a prior failure", () => {

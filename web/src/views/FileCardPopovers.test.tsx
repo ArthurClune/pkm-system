@@ -96,6 +96,21 @@ it("Escape and outside mousedown close the refs popover", async () => {
   expect(onClose).toHaveBeenCalledTimes(2);
 });
 
+it("navigates from a row whose block embeds the image (media inert)", async () => {
+  mockApiGet.mockResolvedValueOnce({ block_ref_texts: {
+    a1: { text: "![pic](/assets/aa/pic.png)", page_title: "Alpha" },
+  } });
+  const onClose = vi.fn();
+  render(<FileRefsPopover refs={[{ uid: "a1", page_title: "Alpha" }]}
+                          x={0} y={0} onClose={onClose} />, { wrapper });
+  const img = await screen.findByRole("img");
+  expect(screen.queryByRole("button", { name: /Expand image/ }))
+    .not.toBeInTheDocument();
+  fireEvent.click(img);
+  expect(onClose).toHaveBeenCalled();
+  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Alpha#a1");
+});
+
 it("shows the description without any fetch", () => {
   render(<FileDescriptionPopover label="Description"
                                  text="a bar chart of monthly revenue"

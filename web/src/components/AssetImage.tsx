@@ -3,8 +3,11 @@
 // worker (spec section 5); one that was never viewed can't load offline,
 // so a failed load renders a labelled placeholder instead of a broken img.
 // Uploaded /assets/ images also expand fullscreen via the shared
-// ImageOverlay (pkm-vcn6).
-import { useCallback, useEffect, useRef, useState } from "react";
+// ImageOverlay (pkm-vcn6). Inside InertMediaContext (popover rows whose
+// whole row is the click target, pkm-v57y) the expand trigger is skipped
+// and the image renders inline only.
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { InertMediaContext } from "../contexts";
 import { ImageOverlay } from "./ImageOverlay";
 
 function isUploadedAsset(src: string): boolean {
@@ -15,6 +18,7 @@ export function AssetImage({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const inertMedia = useContext(InertMediaContext);
 
   // A new src deserves a fresh attempt and must not leave the old image open.
   useEffect(() => {
@@ -40,6 +44,7 @@ export function AssetImage({ src, alt }: { src: string; alt: string }) {
     <img className="asset-image" src={src} alt={alt} loading="lazy" onError={onError} />
   );
   if (!isUploadedAsset(src)) return inlineImage;
+  if (inertMedia) return inlineImage;
 
   const triggerLabel = alt ? `Expand image: ${alt}` : "Expand image";
 

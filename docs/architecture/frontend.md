@@ -215,8 +215,9 @@ Cards are interactive (pkm-vcn6). An image thumb expands in the shared
 status badges open popovers (`views/FileCardPopovers.tsx`): the refs popover
 fetches block text through `GET /api/block-refs` — chunked at its 50-uid cap
 by `filesCore.refUidChunks` — and renders through `BacklinkGroupList`, the
-same single renderer the backlinks surfaces use. `orphan` and `pending`
-badges stay inert spans.
+same single renderer the backlinks surfaces use. Media inside popover rows
+renders inert (`InertMediaContext`), so the whole row stays a click target.
+`orphan` and `pending` badges stay inert spans.
 
 Pagination has two guards. A synchronous single-flight lock, alongside the
 disabled button state, stops a double click issuing two page requests; a

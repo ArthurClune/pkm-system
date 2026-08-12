@@ -47,3 +47,8 @@ export const BlockStampsContext = createContext<BlockStampsApi>({
   stamps: false,
   toggle: () => undefined,
 });
+
+/** True inside popover rows whose whole row is a navigation target
+ * (pkm-v57y): embedded media renders inert — no expand trigger — so a
+ * click anywhere in the row navigates instead of expanding. */
+export const InertMediaContext = createContext(false);

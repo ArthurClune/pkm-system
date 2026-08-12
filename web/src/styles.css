@@ -1044,6 +1044,9 @@ button.file-badge.status-failed:hover { color: var(--color-error); }
 /* pkm-vcn6: description/error text inside a card popover */
 .file-popover-text { margin: 4px 0; font-size: 0.9em;
   white-space: pre-wrap; overflow-wrap: anywhere; }
+/* pkm-v57y: media inside popover rows is inert and thumbnail-sized —
+   the row itself is the click target */
+.block-ref-popover .asset-image { max-height: 80px; width: auto; }
 .file-select { position: absolute; top: 12px; left: 12px; }
 /* compact inside the 160px-wide card; the rest of the look is .btn-secondary */
 .file-copy { align-self: flex-start; padding: 1px 8px; font-size: 0.8em; }

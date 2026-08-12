@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { apiGet } from "../api/typedClient";
 import type { BacklinkGroup } from "../api/payloads";
 import { BacklinkGroupList } from "../components/BacklinkGroupList";
+import { InertMediaContext } from "../contexts";
 import { pagePath } from "../paths";
 import { clampPopoverPosition } from "../popoverPosition";
 import { refGroups, refUidChunks } from "./filesCore";
@@ -100,11 +101,13 @@ export function FileRefsPopover({ refs, x, y, onClose }: {
         <p className="loading">Loading…</p>
       )}
       {groups !== null && (
-        <BacklinkGroupList groups={groups}
-          onNavigate={(pageTitle, uid) => {
-            onClose();
-            navigate(`${pagePath(pageTitle)}#${uid}`);
-          }} />
+        <InertMediaContext.Provider value={true}>
+          <BacklinkGroupList groups={groups}
+            onNavigate={(pageTitle, uid) => {
+              onClose();
+              navigate(`${pagePath(pageTitle)}#${uid}`);
+            }} />
+        </InertMediaContext.Provider>
       )}
     </CardPopover>
   );

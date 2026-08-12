@@ -4,6 +4,7 @@ import type { AssetSearchItem } from "../api/payloads";
 import {
   EMPTY_FILTERS, PAGE_SIZE, clipboardToken, deleteConfirm, formatSize,
   mimeCategory, searchQuery, summarizeDeletes,
+  MISSING_BLOCK_TEXT, refGroups, refUidChunks,
 } from "./filesCore";
 
 const item = (over: Partial<AssetSearchItem>): AssetSearchItem => ({
@@ -106,5 +107,49 @@ describe("formatSize", () => {
     [5 * 1024 * 1024, "5.0 MB"],
   ])("%d -> %s", (bytes, out) => {
     expect(formatSize(bytes)).toBe(out);
+  });
+});
+
+describe("refUidChunks", () => {
+  it("chunks ref uids at the block-refs cap of 50", () => {
+    const refs = Array.from({ length: 101 }, (_, i) =>
+      ({ uid: `u${i}`, page_title: "P" }));
+    const chunks = refUidChunks(refs);
+    expect(chunks.map((c) => c.length)).toEqual([50, 50, 1]);
+    expect(chunks[0][0]).toBe("u0");
+    expect(chunks[2][0]).toBe("u100");
+  });
+
+  it("returns no chunks for no refs", () => {
+    expect(refUidChunks([])).toEqual([]);
+  });
+});
+
+describe("refGroups", () => {
+  it("groups refs by page in first-seen order with fetched text", () => {
+    const refs = [
+      { uid: "a1", page_title: "Alpha" },
+      { uid: "b1", page_title: "Beta" },
+      { uid: "a2", page_title: "Alpha" },
+    ];
+    const texts = {
+      a1: { text: "first", page_title: "Alpha" },
+      b1: { text: "second", page_title: "Beta" },
+      a2: { text: "third", page_title: "Alpha" },
+    };
+    expect(refGroups(refs, texts)).toEqual([
+      { page_id: 0, page_title: "Alpha", items: [
+        { uid: "a1", text: "first", breadcrumbs: [] },
+        { uid: "a2", text: "third", breadcrumbs: [] },
+      ] },
+      { page_id: 1, page_title: "Beta", items: [
+        { uid: "b1", text: "second", breadcrumbs: [] },
+      ] },
+    ]);
+  });
+
+  it("falls back to a placeholder for uids the endpoint omitted", () => {
+    const groups = refGroups([{ uid: "gone", page_title: "P" }], {});
+    expect(groups[0].items[0].text).toBe(MISSING_BLOCK_TEXT);
   });
 });

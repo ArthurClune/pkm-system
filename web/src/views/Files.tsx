@@ -7,6 +7,9 @@ import { ImageOverlay } from "../components/ImageOverlay";
 import { SearchIcon } from "../components/icons";
 import { useSync } from "../sync/SyncProvider";
 import {
+  FileDescriptionPopover, FileRefsPopover,
+} from "./FileCardPopovers";
+import {
   EMPTY_FILTERS, clipboardToken, deleteConfirm, formatSize,
   mimeCategory, searchQuery, summarizeDeletes,
 } from "./filesCore";
@@ -53,6 +56,8 @@ function FileCard({ item, checked, onToggle, onCopy }: {
   const category = mimeCategory(item.mime);
   const [broken, setBroken] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [popover, setPopover] = useState<
+    { kind: "refs" | "status"; x: number; y: number } | null>(null);
   const thumbRef = useRef<HTMLButtonElement>(null);
   const closeOverlay = useCallback(() => setExpanded(false), []);
   const overlayError = useCallback(() => {
@@ -81,21 +86,44 @@ function FileCard({ item, checked, onToggle, onCopy }: {
                       onClose={closeOverlay} onError={overlayError}
                       triggerRef={thumbRef} />
       )}
+      {popover?.kind === "refs" && (
+        <FileRefsPopover refs={item.refs} x={popover.x} y={popover.y}
+                         onClose={() => setPopover(null)} />
+      )}
+      {popover?.kind === "status" && (
+        <FileDescriptionPopover
+          label={item.status === "failed"
+            ? "Description error" : "Description"}
+          text={(item.status === "failed"
+            ? item.describe_error : item.description) ?? ""}
+          x={popover.x} y={popover.y}
+          onClose={() => setPopover(null)} />
+      )}
       <span className="file-name" title={item.filename}>
         {item.filename}
       </span>
       <span className="file-sub">{formatSize(item.size)}{when}</span>
       <span className="file-badges">
-        <span className={`file-badge status-${item.status}`}
-              title={item.describe_error ?? undefined}>
-          {item.status}
-        </span>
-        <span className={"file-badge "
-                         + (item.refs.length ? "linked" : "orphan")}>
-          {item.refs.length
-            ? `${item.refs.length} ref${item.refs.length === 1 ? "" : "s"}`
-            : "orphan"}
-        </span>
+        {item.status === "pending" ? (
+          <span className="file-badge status-pending">pending</span>
+        ) : (
+          <button type="button"
+                  className={`file-badge status-${item.status}`}
+                  title={item.describe_error ?? undefined}
+                  onClick={(e) => setPopover(
+                    { kind: "status", x: e.clientX, y: e.clientY })}>
+            {item.status}
+          </button>
+        )}
+        {item.refs.length ? (
+          <button type="button" className="file-badge linked"
+                  onClick={(e) => setPopover(
+                    { kind: "refs", x: e.clientX, y: e.clientY })}>
+            {`${item.refs.length} ref${item.refs.length === 1 ? "" : "s"}`}
+          </button>
+        ) : (
+          <span className="file-badge orphan">orphan</span>
+        )}
       </span>
       {item.refs.length === 0 && (
         <button type="button" className="btn-secondary file-copy"

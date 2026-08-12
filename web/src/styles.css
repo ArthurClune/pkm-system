@@ -1034,6 +1034,13 @@ button.file-thumb:focus-visible { outline: 2px solid var(--color-link);
 }
 .file-badge.status-failed { color: var(--color-error); }
 .file-badge.linked { color: var(--color-link); }
+/* pkm-vcn6: badges with something to show are buttons */
+button.file-badge { appearance: none; font-family: inherit;
+  cursor: pointer; }
+button.file-badge:hover { color: var(--color-text); }
+button.file-badge:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: 1px; }
+button.file-badge.status-failed:hover { color: var(--color-error); }
 /* pkm-vcn6: description/error text inside a card popover */
 .file-popover-text { margin: 4px 0; font-size: 0.9em;
   white-space: pre-wrap; overflow-wrap: anywhere; }

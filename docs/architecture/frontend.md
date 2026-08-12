@@ -89,6 +89,7 @@ web/src/
 ├── views/                    One Shell file per route (see Views and navigation);
 │   │                         EditablePage = one editable outline, shared by the main
 │   │                         pane and sidebar panels
+│   ├── FileCardPopovers.tsx  Shell        /files card popovers: refs, description
 │   └── filesCore.ts          Core         /files queries, MIME buckets, confirm text
 │
 ├── assistant/                The chat panel UI (see The assistant panel)
@@ -205,17 +206,26 @@ That fact drives the outline-session design below.
 
 ### The `/files` browser
 
-`/files` is a plain table over `/api/assets/search`, with filters (text, type,
-date range, linked/orphan), offset pagination, and multi-select for delete and
-zip export.
+`/files` is a plain table over `/api/assets/search`, with filters (text over
+filename and description, type, date range, linked/orphan), offset pagination,
+and multi-select for delete and zip export.
+
+Cards are interactive (pkm-vcn6). An image thumb expands in the shared
+`ImageOverlay` (extracted from `AssetImage`). The refs and described/failed
+status badges open popovers (`views/FileCardPopovers.tsx`): the refs popover
+fetches block text through `GET /api/block-refs` — chunked at its 50-uid cap
+by `filesCore.refUidChunks` — and renders through `BacklinkGroupList`, the
+same single renderer the backlinks surfaces use. `orphan` and `pending`
+badges stay inert spans.
 
 Pagination has two guards. A synchronous single-flight lock, alongside the
 disabled button state, stops a double click issuing two page requests; a
 generation guard discards responses that a filter change has made stale.
 
 Its pure half, `views/filesCore.ts`, owns the typed query-object building,
-MIME categorisation, size formatting, confirm-text composition, and the
-reference token a user can copy into a block. `typedClient` serializes the
+MIME categorisation, size formatting, confirm-text composition, the
+reference token a user can copy into a block, and the ref grouping behind
+the refs popover (`refGroups`, `refUidChunks`). `typedClient` serializes the
 query; the shell owns fetching, selection state and the download.
 
 The zip export is submitted as a throwaway hidden `<form method="post">`
@@ -297,7 +307,8 @@ like `stamps`. Clicking the badge opens `BlockRefBacklinksPopover`, which
 fetches `GET /api/block/{uid}/backlinks` at open — the list is live truth
 while the badge count is payload-fresh, with no reconciliation between them.
 The popover renders through `BacklinkGroupList`, the one renderer for
-backlink-group markup, shared with `BacklinksSection`. Navigation is
+backlink-group markup, shared with `BacklinksSection` and the `/files` refs
+popover. Navigation is
 read-only-safe, so the badge and popover render in `fallback` trees too.
 After render the popover measures itself and clamps its fixed position into
 the viewport (`popoverPosition.ts`) — the badge anchors at the right end of

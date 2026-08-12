@@ -39,7 +39,7 @@ focusing a block cannot shift it. The flag reaches it as a prop from
 `PageView` alone — `EditableBlockTree` must never read `BlockStampsContext`
 itself, or the journal scroll and sidebar panels would grow the column too.
 
-`.block-ref-badge` (the incoming-reference count, pkm-d31f) sits between
+`.block-ref-badge` (the incoming-reference count) sits between
 `.block-text` and the stamp cell but is the column's opposite: sparse,
 rendered only on rows with a count, so it needs no empty placeholder.
 It is deliberately low-ink (`--color-text-muted` on `--color-bg-subtle`) so

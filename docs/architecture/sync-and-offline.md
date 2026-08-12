@@ -483,7 +483,7 @@ looking the same, with lane ops and no durable queue to put them in. The
 difference matters when reading a report of lost edits: the first clears by
 lifting the barrier, the second only by reconnecting before the tab closes.
 
-**Known gap (pkm-0htf):** nothing surfaces a replica that opens and then fails
+**Known gap:** nothing surfaces a replica that opens and then fails
 every write. `availabilityOf` returns `null` for it, so no banner shows and
 editing stays enabled. That is right in itself — the ops still reach the server —
 but the user keeps producing writes that live only in memory. A banner for it

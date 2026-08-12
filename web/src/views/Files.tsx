@@ -299,8 +299,8 @@ export function Files() {
         <div className="search-field files-search">
           <span className="search-field-icon"><SearchIcon /></span>
           <input type="search" className="search-field-input"
-                 value={filters.q} placeholder="Search files"
-                 aria-label="Search files"
+                 value={filters.q} placeholder="Search names & descriptions"
+                 aria-label="Search names & descriptions"
                  onChange={(e) => update({ q: e.target.value })} />
         </div>
         <label>Type{" "}

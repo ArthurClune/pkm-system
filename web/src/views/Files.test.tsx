@@ -98,7 +98,7 @@ describe("Files", () => {
       expect(screen.getByLabelText(name)).toHaveClass("input-control");
     }
     // the search box is the same object as the Cmd-U search, icon and all
-    const search = screen.getByLabelText("Search files");
+    const search = screen.getByLabelText("Search names & descriptions");
     expect(search).toHaveClass("search-field-input");
     expect(search.closest(".search-field")).not.toBeNull();
   });

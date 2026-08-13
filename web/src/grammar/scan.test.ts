@@ -179,6 +179,15 @@ describe("scanGrammar: opaque code", () => {
     ]);
   });
 
+  it("a fence opener with an info string cannot close an outer fence", () => {
+    // pkm-9qgk: ```css used to close the outer ```markdown fence, exposing
+    // the css body — hex colours like #ffcdd2 then minted pages.
+    expect(tokens("```markdown\na\n```css\nb #ffcdd2\n```\n#Real")).toEqual([
+      { kind: "code-fence", start: 0, end: 34 },
+      { kind: "hashtag", title: "Real", start: 35, end: 40 },
+    ]);
+  });
+
   it("an unclosed backtick is plain text, so refs inside are live", () => {
     expect(tokens("`[[x]]")).toEqual([
       { kind: "page-ref", start: 1, end: 6, content: { start: 3, end: 4 },

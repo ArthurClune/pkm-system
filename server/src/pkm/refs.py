@@ -10,7 +10,12 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-_CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
+# A ``` run followed by a word character is a fence *opener* with an info
+# string (```css, ```mermaid), never a closer -- without the lookahead, an
+# outer fence pairs with the first inner example's opener, fence parity
+# flips, and hex colours in the exposed code mint pages named "0277bd"
+# (pkm-9qgk). Punctuation and whitespace after ``` still close as before.
+_CODE_FENCE = re.compile(r"```.*?```(?!\w)", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
 # No leading `\s*` here (see extract() below): `\s` is a near-subset of
 # this negated class, and pairing a greedy `\s*` with a lazy quantifier

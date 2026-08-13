@@ -59,6 +59,7 @@ const EMBED_RE = /\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]/y;
 // [\p{L}\p{N}_] mirrors Python's unicode-aware \w closely enough for titles.
 const TAG_CHARS_RE = /[\p{L}\p{N}_./\-]+/uy;
 const TAG_BOUNDARY_RE = /[\s(]/;
+const WORD_CHAR_RE = /[\p{L}\p{N}_]/u;
 
 /** Left-to-right opaque-code pass: closed fences win over inline code, and
  * inline code must close before the next newline. Returns the code tokens
@@ -76,7 +77,16 @@ function scanCode(text: string): { codeTokens: GrammarToken[]; clean: string } {
   };
   while (i < text.length) {
     if (text.startsWith("```", i)) {
-      const close = text.indexOf("```", i + 3);
+      // A ``` run followed by a word character is a fence *opener* with an
+      // info string (```css, ```mermaid), never a closer — without this
+      // skip, an outer fence pairs with the first inner example's opener,
+      // fence parity flips, and hex colours in the exposed code mint pages
+      // named "0277bd" (pkm-9qgk; mirrors _CODE_FENCE in refs.py).
+      let close = text.indexOf("```", i + 3);
+      while (close !== -1 && close + 3 < text.length
+             && WORD_CHAR_RE.test(text[close + 3])) {
+        close = text.indexOf("```", close + 1);
+      }
       if (close !== -1) { blank("code-fence", close + 3); continue; }
     }
     if (text[i] === "`") {

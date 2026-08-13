@@ -28,6 +28,10 @@ CASES = [
     "inline `code with [[NotALink]]` stays code",
     "```\nfenced [[NotALink]] #not-a-tag\n```",
     "before ```fence [[X]]``` after [[Real Link]]",
+    # pkm-9qgk: an inner fence's opener (info string) must not close the
+    # outer fence — the exposed css body used to mint #ffcdd2 as a tag.
+    "```markdown\nouter\n```css\n.err { color: #ffcdd2; }\n```\nafter #RealTag",
+    "```mermaid\ngraph TD\n  style A fill:#0277bd\n```\n#Diagrams",
     "a block ref ((abcdef123)) is not a page ref",
     "short ((abc)) is not a block ref",
     "{{embed: ((abcdef123))}}",

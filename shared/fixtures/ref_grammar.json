@@ -88,6 +88,18 @@
     {"name": "plain-space blank is dropped while padded nonblank survives",
      "text": "skip [[   ]] but keep [[ Valid ]]",
      "refs": [{"title": " Valid ", "kind": "link"}],
+     "block_refs": [], "embeds": 0},
+    {"name": "fence with info string cannot close an outer fence",
+     "text": "```markdown\nSee the example below\n```css\n.err { background-color: #ffcdd2; }\n```\nafter #RealTag",
+     "refs": [{"title": "RealTag", "kind": "tag"}],
+     "block_refs": [], "embeds": 0},
+    {"name": "mermaid style colours stay inside the fence",
+     "text": "```mermaid\ngraph TD\n  A --> B\n  style A fill:#0277bd,stroke:#01579b\n```\n#Diagrams",
+     "refs": [{"title": "Diagrams", "kind": "tag"}],
+     "block_refs": [], "embeds": 0},
+    {"name": "punctuation after a closing fence still closes it",
+     "text": "run ```#ff0000```. done #Real",
+     "refs": [{"title": "Real", "kind": "tag"}],
      "block_refs": [], "embeds": 0}
   ]
 }

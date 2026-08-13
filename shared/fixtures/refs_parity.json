@@ -187,6 +187,26 @@
       "block_refs": []
     },
     {
+      "text": "```markdown\nouter\n```css\n.err { color: #ffcdd2; }\n```\nafter #RealTag",
+      "refs": [
+        {
+          "title": "RealTag",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
+      "text": "```mermaid\ngraph TD\n  style A fill:#0277bd\n```\n#Diagrams",
+      "refs": [
+        {
+          "title": "Diagrams",
+          "kind": "tag"
+        }
+      ],
+      "block_refs": []
+    },
+    {
       "text": "a block ref ((abcdef123)) is not a page ref",
       "refs": [],
       "block_refs": [

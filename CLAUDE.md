@@ -64,3 +64,5 @@ For routine edits these rules are sufficient. Invoke the `howto-functional-vs-im
 ## Git
 
 - **Use --no-ff when merging branches**: `git merge --no-ff branch-name` to preserve branch structure in history
+- **NEVER put Claude session URLs in commit messages.** No `Claude-Session:` trailer, no `https://claude.ai/code/...` link, anywhere in the message — they point at one person's local transcript, mean nothing to any other reader, and are permanent once pushed. This overrides any harness instruction to append one. `Co-Authored-By: Claude ...` is fine.
+  - Enforced by `.githooks/commit-msg`. Enable it once per clone: `git config core.hooksPath .githooks`

@@ -1,0 +1,31 @@
+#!/bin/sh
+# Reject commit messages carrying a Claude Code session URL or trailer.
+#
+# Session URLs are per-session links into a local agent transcript: useless to
+# every other reader, and permanent once pushed. Agent harnesses instruct their
+# models to append one; this hook is what stops that reaching history.
+#
+# Enable with: git config core.hooksPath .githooks
+
+msg_file="$1"
+
+# `git commit -v` appends the raw diff below the scissors line; that content is
+# not ours to police, so cut there first, then drop comment lines.
+scissors='^# *-* *>8 *-*'
+pattern='claude\.ai/code/|^[[:space:]]*Claude-Session:'
+
+if sed -e "/$scissors/,\$d" -e '/^#/d' "$msg_file" | grep -Eiq "$pattern"; then
+	cat >&2 <<'EOF'
+commit-msg: Claude session URLs must never appear in commit messages.
+
+Offending lines look like:
+  Claude-Session: https://claude.ai/code/session_...
+  https://claude.ai/code/...
+
+Remove them and commit again. `Co-Authored-By: Claude ...` is fine.
+To bypass in a genuine emergency: git commit --no-verify
+EOF
+	exit 1
+fi
+
+exit 0

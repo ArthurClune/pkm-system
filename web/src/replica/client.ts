@@ -56,8 +56,13 @@ export interface Replica {
   applySnapshot(snap: Snapshot): Promise<void>;
   applyChanges(feed: Changes,
                expectedPendingIds?: readonly number[]): Promise<ApplyResult>;
-  /** su05: persist + optimistically apply; returns pending count. */
-  enqueue(ops: BlockOp[]): Promise<{ pending: number; batchId?: string }>;
+  /** su05: persist + optimistically apply; returns pending count. The caller
+   * mints batchId BEFORE this call: if the reply is lost after the row was
+   * persisted, the copy the caller retains still shares the row's id, so a
+   * duplicate delivery hits the server's replay dedup instead of a
+   * create-collision 400 (pkm-ybgt). Omitted => the worker mints one. */
+  enqueue(ops: BlockOp[],
+          batchId?: string): Promise<{ pending: number; batchId?: string }>;
   nextBatch(): Promise<PendingBatch | null>;
   /** All queued batches, oldest first (recovery flush reads). */
   pendingBatches(): Promise<PendingBatch[]>;
@@ -91,7 +96,7 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
     applyChanges: (feed, expectedPendingIds = []) => rpc.call("applyChanges", {
       feed, expectedPendingIds,
     }),
-    enqueue: (ops) => rpc.call("enqueue", ops),
+    enqueue: (ops, batchId) => rpc.call("enqueue", { ops, batchId }),
     nextBatch: () => rpc.call("nextBatch"),
     pendingBatches: () => rpc.call("pendingBatches"),
     poisonedBatches: () => rpc.call("poisonedBatches"),

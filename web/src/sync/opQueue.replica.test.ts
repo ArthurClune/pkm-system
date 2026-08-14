@@ -13,22 +13,29 @@ const op = (uid: string): BlockOp => ({ op: "delete", uid });
 
 beforeEach(() => { localStorage.clear(); });
 
-/** In-memory replica queue mirroring queue.ts semantics. */
-function memReplica(over: Partial<Replica> = {}): Replica & { rows: PendingBatch[] } {
+/** In-memory replica queue mirroring queue.ts semantics. `enqueued` records
+ * batch ids in enqueue order: the ids are caller-minted now, so assertions
+ * read them back instead of pinning literals. */
+function memReplica(over: Partial<Replica> = {}): Replica & {
+  rows: PendingBatch[]; enqueued: string[];
+} {
   const rows: PendingBatch[] = [];
+  const enqueued: string[] = [];
   let nextId = 1;
   const pending = () => rows.filter((r) => !r.poisoned).length;
-  const replica: Replica & { rows: PendingBatch[] } = {
+  const replica: Replica & { rows: PendingBatch[]; enqueued: string[] } = {
     rows,
+    enqueued,
     init: async () => ({ empty: false, cursor: 0,
                          schemaMismatch: false, pendingBatches: [] }),
     applySnapshot: async () => undefined,
     applyChanges: async () => ({ status: "applied", cursor: 0 }),
-    enqueue: async (ops) => {
-      const batchId = `batch-${nextId}`;
-      rows.push({ id: nextId, batch_id: batchId, ops, poisoned: false });
+    enqueue: async (ops, batchId) => {
+      const id = batchId ?? `batch-${nextId}`;
+      enqueued.push(id);
+      rows.push({ id: nextId, batch_id: id, ops, poisoned: false });
       nextId += 1;
-      return { pending: pending(), batchId };
+      return { pending: pending(), batchId: id };
     },
     nextBatch: async () => rows.find((r) => !r.poisoned) ?? null,
     pendingBatches: async () => [...rows],
@@ -82,8 +89,8 @@ test("drains each persisted batch as one POST carrying its batch_id", async () =
   await q.settled();
   await q.drain();
   expect(bodies.map((b) => b.body)).toEqual([
-    { client_id: clientId, batch_id: "batch-1", ops: [op("u1")] },
-    { client_id: clientId, batch_id: "batch-2", ops: [op("u2")] },
+    { client_id: clientId, batch_id: replica.enqueued[0], ops: [op("u1")] },
+    { client_id: clientId, batch_id: replica.enqueued[1], ops: [op("u2")] },
   ]);
   expect(replica.rows).toEqual([]);
   expect(counts.at(-1)).toBe(0);
@@ -104,7 +111,7 @@ test("offline: batches persist without posting; reconnect drains in order", asyn
   await q.settled();
   await q.drain();
   expect(bodies.map((b) => (b.body as { batch_id: string }).batch_id))
-    .toEqual(["batch-1", "batch-2"]);
+    .toEqual(replica.enqueued);
 });
 
 test("a 4xx emits batch details and pauses later delivery before notifying", async () => {
@@ -122,15 +129,15 @@ test("a 4xx emits batch details and pauses later delivery before notifying", asy
   const outcome = await q.drain();
   expect(poisons).toEqual([{
     rowId: 1,
-    batchId: "batch-1",
+    batchId: replica.enqueued[0],
     ops: [op("bad")],
     status: 400,
     message: "request failed: 400 /api/ops: bad op",
   }]);
   expect(outcome).toMatchObject({ status: "blocked", reason: "recovering" });
   expect(replica.rows).toEqual([
-    expect.objectContaining({ batch_id: "batch-1", poisoned: true }),
-    expect.objectContaining({ batch_id: "batch-2", poisoned: false }),
+    expect.objectContaining({ batch_id: replica.enqueued[0], poisoned: true }),
+    expect.objectContaining({ batch_id: replica.enqueued[1], poisoned: false }),
   ]);
   expect(bodies).toHaveLength(1); // the good batch waits for repair
 
@@ -178,11 +185,11 @@ test("a 4xx raises the internal poison barrier before durable mark resolves", as
   expect(observedWhileMarkBlocked).toEqual({
     pendingSignals: 1,
     publicEvents: [], // public details follow durable mark
-    postedBatchIds: ["batch-1"],
+    postedBatchIds: [replica.enqueued[0]],
   });
   expect(publicEvents).toHaveLength(1);
   expect(bodies.map((body) => (body.body as { batch_id: string }).batch_id))
-    .toEqual(["batch-1"]); // rejected exactly once; later batch still held
+    .toEqual([replica.enqueued[0]]); // rejected exactly once; later batch still held
 });
 
 test("a durable batch from a previous page load drains on the first connect", async () => {
@@ -417,6 +424,26 @@ test("an RPC timeout retains the op but does not latch the replica off", async (
   expect(nextBatchCalls).toBeGreaterThan(0);
 });
 
+test("a lost-reply enqueue retains the lane copy under the durable row's batch id", async () => {
+  // The worker persisted the row but the reply never arrived (e.g. iOS
+  // suspending the PWA mid-RPC, pkm-ybgt). Both copies may deliver; they must
+  // carry ONE batch id so the second POST hits the server's applied_batches
+  // replay (stored ack) instead of a create-collision 400.
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  const persist = replica.enqueue.bind(replica);
+  replica.enqueue = async (ops, batchId) => {
+    void await persist(ops, batchId);
+    throw new RpcLifecycleError("timeout", "replica RPC enqueue timed out");
+  };
+  const q = createOpQueue(replica, () => undefined);
+  await q.enqueue([op("u1")]).delivered;
+  await q.drain();
+  const ids = bodies.map((b) => (b.body as { batch_id: string }).batch_id);
+  expect(ids).toHaveLength(2); // durable row first, then the retained copy
+  expect(ids[1]).toBe(ids[0]);
+});
+
 test("a dead replica is asked once, then never again", async () => {
   const replica = memReplica();
   let nextBatchCalls = 0;
@@ -648,7 +675,7 @@ async () => {
   expect(pending).toHaveBeenCalledTimes(1);
   expect(published).not.toHaveBeenCalled();
   expect(markFailed).toHaveBeenCalledWith({
-    event: expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+    event: expect.objectContaining({ rowId: 1, batchId: replica.enqueued[0] }),
     error,
   });
   expect(desync).not.toHaveBeenCalled();
@@ -686,7 +713,7 @@ async () => {
   expect(recovery.onPoisonMarkFailed).toBeTypeOf("function");
   expect(recovery.retryPoisonMarks).toBeTypeOf("function");
   expect(markFailures).toEqual([{
-    event: expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+    event: expect.objectContaining({ rowId: 1, batchId: replica.enqueued[0] }),
     error,
   }]);
   expect(poisons).toEqual([]);
@@ -697,7 +724,7 @@ async () => {
 
   expect(markAttempts).toBe(2);
   expect(poisons).toEqual([
-    expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+    expect.objectContaining({ rowId: 1, batchId: replica.enqueued[0] }),
   ]);
   expect(bodies).toHaveLength(1); // Retry only marks; it never calls /api/ops
   expect(replica.rows).toEqual([
@@ -739,7 +766,7 @@ async () => {
   expect(bodies).toHaveLength(1); // reload did not resend rejected or later work
   expect(markAttempts).toBe(1);
   expect(recovery.poisonMarkIntents?.()).toEqual([
-    expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+    expect.objectContaining({ rowId: 1, batchId: replica.enqueued[0] }),
   ]);
 
   await recovery.retryPoisonMarks?.();
@@ -747,7 +774,7 @@ async () => {
   expect(markAttempts).toBe(2);
   expect(bodies).toHaveLength(1);
   expect(poisons).toEqual([
-    expect.objectContaining({ rowId: 1, batchId: "batch-1" }),
+    expect.objectContaining({ rowId: 1, batchId: replica.enqueued[0] }),
   ]);
 });
 

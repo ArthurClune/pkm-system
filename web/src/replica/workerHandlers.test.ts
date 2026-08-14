@@ -367,3 +367,35 @@ test("init rejects with the latched error instead of reporting ok:false", async 
   expect(err).toBeInstanceOf(ReplicaUnavailableError);
   expect(availabilityOf(err)).toBe("unusable");
 });
+
+test("enqueue persists a caller-provided batch id instead of minting one", async () => {
+  // The lost-reply window (pkm-ybgt): if the caller never sees this reply, it
+  // retains the ops under the id it chose. The row must carry that same id so
+  // the duplicate delivery lands on the server's replay path, not a 400.
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({
+    openDb: async () => t.db,
+    nowMs: () => 10,
+    newBatchId: () => "batch-minted",
+  });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await expect(handlers.enqueue({
+    ops: [{ op: "delete", uid: "uid_b1" }], batchId: "caller-id",
+  })).resolves.toEqual({ pending: 1, batchId: "caller-id" });
+  expect(t.db.select("SELECT batch_id FROM pending_ops"))
+    .toEqual([{ batch_id: "caller-id" }]);
+});
+
+test("enqueue still accepts the bare-array payload and mints an id", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({
+    openDb: async () => t.db,
+    nowMs: () => 10,
+    newBatchId: () => "batch-minted",
+  });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await expect(handlers.enqueue([{ op: "delete", uid: "uid_b1" }]))
+    .resolves.toEqual({ pending: 1, batchId: "batch-minted" });
+});

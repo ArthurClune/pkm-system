@@ -48,7 +48,7 @@ sequenceDiagram
     participant S as Server (FastAPI + SQLite)
     participant B as Other client (tab B)
 
-    U->>Q: enqueue(ops) — base_text_hash stamped main-thread,<br/>batch_id minted in worker, optimistic local apply
+    U->>Q: enqueue(ops) — base_text_hash and batch_id<br/>stamped main-thread, optimistic local apply
     Q-->>U: WriteTicket (persisted durably)
     Q->>S: POST /api/ops {client_id, batch_id, ops}
     S->>S: one transaction: plan ops (pure core),<br/>execute, re-derive refs + FTS<br/>(triggers append journal rows)
@@ -515,7 +515,11 @@ already stale when the entry was appended, and batches a rebase flushed away. Bo
 fix themselves the same way. An empty durable queue clears every count, which is
 also what stops the lane waiting forever on a predecessor that will never arrive.
 
-An entry's `batch_id` is minted once, so a retry re-POSTs an identical payload.
+An entry's `batch_id` is minted in `opQueue.enqueue` *before* the persist RPC,
+and a retained entry keeps it. If the worker persisted the row but the reply was
+lost, the durable row and the lane copy therefore share one id, and whichever
+delivers second lands on the server's `applied_batches` replay instead of a
+create-collision 400. A retry re-POSTs an identical payload for the same reason.
 Every entry counts towards "N changes pending". It is kept until it is delivered,
 until the server rejects it with a 4xx, or until the queue is disposed. That 4xx
 is the only discard the queue makes on its own; it raises the repair barrier and
@@ -578,6 +582,7 @@ fix installed. The bean has the full investigation.
 | After reconnect, durable delivery never resumes and the drain never reports `"drained"` | the drain kept calling a dead replica. Its "no repeated OPFS open" premise holds only because of the worker's latch — do not "fix" this by re-arming the DB | pkm-9x6u |
 | Startup wedges: edits accepted, nothing delivered, socket up | the recovery barrier was held on an RPC that could never answer, and the lane was never drained | pkm-bjae |
 | Unsent edits vanish on reload in an online-only session | the lane is their only home. `useUnloadGuard` interrupts the reload, but an iOS standalone PWA ignores `beforeunload`, so on iPad the banner's own Reload confirm is the only warning | pkm-bjae, pkm-0htf |
+| "Server rejected a change (HTTP 400)" on reconnect, a `create` of a uid that already exists | a lost enqueue reply once split one batch into two ids — the worker minted the durable row's id, the lane copy got a fresh one, and the replay dedup never matched. The id is now minted main-thread and shared | pkm-ybgt |
 | A profile stays wedged across sessions after a rejected batch | the retained mark intent in `localStorage` clears only after a successful `markPoisoned`, which an unopenable replica can never do. Open by design | pkm-tu5k |
 | Two tabs; one tab's `update_text` overwrote the other's with no `[[conflict]]` sibling | the op carried no `base_text_hash`, so the server took its legacy branch and plain last-write-wins | pkm-4ubd |
 | A collapse made offline reorders recently-changed lists, then un-reorders on resync | one side stamped `updated_at` for `set_collapsed` and the other did not | pkm-r7k8 |

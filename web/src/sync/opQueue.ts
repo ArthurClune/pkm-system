@@ -595,8 +595,15 @@ function createReplicaQueue(replica: Replica,
           resolveDelivery({ status: "failed", error });
           return;
         }
+        // Minted BEFORE the RPC so a lost reply cannot split the batch's
+        // identity: if the worker persisted the row but the reply never
+        // arrived (iOS suspending a PWA mid-RPC), the lane copy retained in
+        // the catch below still carries the row's id, and whichever copy
+        // delivers second lands on the server's applied_batches replay
+        // instead of a create-collision 400 (pkm-ybgt).
+        const batchId = newUid();
         try {
-          const result = await replica.enqueue(ops);
+          const result = await replica.enqueue(ops, batchId);
           pendingCount = result.pending;
           if (fallback.length > 0) durableSinceFallback += 1;
           if (qstate.disposed) {
@@ -674,7 +681,7 @@ function createReplicaQueue(replica: Replica,
             return;
           }
           fallback.push({
-            batchId: newUid(),
+            batchId,
             ops,
             durableAhead,
             resolve: resolveDelivery,

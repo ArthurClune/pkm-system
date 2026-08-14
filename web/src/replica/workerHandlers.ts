@@ -167,7 +167,12 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         // An existing database (any version) is left alone — init() owns
         // schema-mismatch detection and recovery.
         if (!tableExists(d, "sync_client_meta")) installSchema(d);
-        return enqueueBatch(d, payload as BlockOp[], nowMs(), newBatchId());
+        // Bare-array payloads come from older bundles and tests; the object
+        // shape carries the caller-minted batch id (pkm-ybgt).
+        const { ops, batchId } = Array.isArray(payload)
+          ? { ops: payload as BlockOp[], batchId: undefined }
+          : payload as { ops: BlockOp[]; batchId?: string };
+        return enqueueBatch(d, ops, nowMs(), batchId ?? newBatchId());
       });
     },
     async nextBatch() {

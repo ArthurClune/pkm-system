@@ -172,6 +172,24 @@ describe("AssistantPanel", () => {
     expect(screen.getByRole("link", { name: "the compute chart block" })).toBeInTheDocument();
   });
 
+  test("a ((^uid)) citation with a copied caret marker still resolves (pkm-wx86)", async () => {
+    stubFetch([["/api/block-refs", {
+      block_ref_texts: { chart1: { text: "the compute chart block", page_title: "Charts" } },
+    }]]);
+    state.current.items = [
+      { kind: "assistant", text: "see ((^chart1)) for details" },
+    ];
+    render(
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <AssistantPanel open onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("the compute chart block")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: "the compute chart block" })).toBeInTheDocument();
+  });
+
   test("the model select is styled as a field (pkm-0wg9)", () => {
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByLabelText(/model/i)).toHaveClass("input-control");

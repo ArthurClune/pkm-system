@@ -548,6 +548,12 @@ entry.
   render tool-activity lines ("searching …"), and `confirm_request` shows an
   Allow/Deny card with the write's ops preview. The tool call is held
   server-side until answered.
+- Assistant bubbles render through the shared block grammar
+  (`tokenizeBlock` → `InlineSegments`), with `stripCaretBlockRefs`
+  (`assistant/normalizeRefs.ts`) applied to the raw text first. Tool output
+  labels blocks with trailing `^uid` markers and some models copy the caret
+  into their citations; the grammar rejects `((^uid))` on purpose, so the
+  fix lives here, not in `scan.ts`.
 - `sse.ts` drops any frame whose `event:` name is not one of the six known
   types. That is what makes the server's keepalive comment frames, sent every
   15 idle seconds, invisible here. Keep it that way.
@@ -614,6 +620,7 @@ its fix installed. The bean has the full investigation.
 | Shift-Up/Down with a text selection active at a block's edge collapses the selection and jumps focus to the neighboring block | the boundary-arrow branch excluded Meta/Ctrl/Alt but not Shift, so a growing selection fell through to block navigation instead of escalating to a block selection | pkm-jgtn |
 | A multi-block selection made while editable stays deletable after the outline switches to read-only | Backspace/Delete invoked `onDeleteBlockSelection()` unconditionally; every mutating selection branch must gate on `!readOnly` | pkm-rckh |
 | The references popover renders clipped off the right window edge, and no scrollbar appears to reach it | its fixed position applied the badge anchor verbatim; the popover must clamp its measured rect into the viewport (`popoverPosition.ts`) | pkm-7iv7 |
+| An assistant reply shows a block citation as literal `((^uid))` text instead of a link | the model copied the `^uid` marker from tool output into the citation; `stripCaretBlockRefs` must run on assistant text before `tokenizeBlock` | pkm-wx86 |
 
 ## Testing and quality gates
 

@@ -159,7 +159,10 @@ Citing (the UI turns these into clickable links; plain names are inert):
 - Mention an asset (image, PDF, ...) by its full /assets/<sha256>/<filename>
   URL exactly as search_assets returned it, even in list-style answers —
   never by filename alone.
-- Point at a specific block by citing its uid as ((uid)).
+- Point at a specific block by citing its uid as ((uid)). Tool output
+  marks blocks with a trailing ^uid; the uid is the part AFTER the caret.
+  Write ((abc123)), never ((^abc123)) — a caret inside (( )) breaks the
+  link.
 
 Style: answer in plain markdown, be brief, never invent page titles or
 uids — always look them up first.

@@ -1477,6 +1477,25 @@
         }
       }
     },
+    "/api/assistant/models": {
+      "get": {
+        "summary": "List Models",
+        "description": "Models the picker may offer; glm appears only when a z.ai key is\nconfigured, so the UI can hide rather than error on it.",
+        "operationId": "list_models_api_assistant_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantModels"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/assistant/conversations": {
       "post": {
         "summary": "Create Conversation",
@@ -1916,6 +1935,27 @@
           "model"
         ],
         "title": "AssistantConversation"
+      },
+      "AssistantModels": {
+        "properties": {
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "default": {
+            "type": "string",
+            "title": "Default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "models",
+          "default"
+        ],
+        "title": "AssistantModels"
       },
       "BacklinkGroup": {
         "properties": {

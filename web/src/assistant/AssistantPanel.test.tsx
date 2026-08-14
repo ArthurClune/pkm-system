@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
     error: null as string | null,
     model: "sonnet",
     setModel: vi.fn(),
+    models: ["sonnet", "opus", "haiku"],
     modelLocked: false,
     pendingConfirm: null as PendingConfirm | null,
     send: vi.fn().mockResolvedValue(undefined),
@@ -31,9 +32,22 @@ afterEach(() => {
   state.current.error = null;
   state.current.modelLocked = false;
   state.current.pendingConfirm = null;
+  state.current.models = ["sonnet", "opus", "haiku"];
 });
 
 describe("AssistantPanel", () => {
+  test("model picker renders exactly what the server offers", () => {
+    state.current.models = ["sonnet", "opus", "haiku", "glm"];
+    render(<AssistantPanel open onClose={() => {}} />);
+    const labels = screen.getAllByRole("option").map((o) => o.textContent);
+    expect(labels).toEqual(["sonnet", "opus", "haiku", "glm"]);
+  });
+
+  test("model picker hides glm when the server does not offer it", () => {
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(screen.queryByRole("option", { name: "glm" })).toBeNull();
+  });
+
   test("renders nothing when closed", () => {
     const { container } = render(<AssistantPanel open={false} onClose={() => {}} />);
     expect(container.firstChild).toBeNull();

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pkm.assistant.engine import AgentEngine, ConversationHandle
 from pkm.assistant.events import AssistantEvent
 from pkm.assistant.policy import SYSTEM_PROMPT, resolve_model
+from pkm.assistant.policy import available_models as _policy_available_models
 
 logger = logging.getLogger("pkm.assistant")
 
@@ -61,7 +62,15 @@ class AssistantService:
         idle_ttl: float = 900.0,
         clock: Callable[[], float] = time.monotonic,
         create_timeout: float = CREATE_TIMEOUT_S,
+        available_models: list[str] | None = None,
     ) -> None:
+        # What the picker may offer AND what create() accepts: glm is only
+        # in the list when the caller (create_app) resolved a z.ai key, so
+        # an unconfigured deployment neither advertises nor accepts it. The
+        # default hides it — a test double or bare service must opt in.
+        self.available_models = (
+            available_models if available_models is not None
+            else _policy_available_models(zai_configured=False))
         self._engine = engine
         self._max = max_conversations
         self._idle_ttl = idle_ttl
@@ -94,6 +103,9 @@ class AssistantService:
 
     async def create(self, model: str | None) -> tuple[str, str]:
         resolved = resolve_model(model)
+        if resolved not in self.available_models:
+            raise ValueError(
+                f"model {resolved!r} is not available (missing provider key?)")
         to_close: list[tuple[str, ConversationHandle]] = []
         try:
             async with self._admission_lock:

@@ -22,11 +22,11 @@ threat model: [`docs/SECURITY.md`](../SECURITY.md).
 | File | Pattern | Role |
 |---|---|---|
 | `events.py` | Core | The event union routes and the web UI speak (`TextDelta`, `ToolStarted`/`ToolFinished`, `ConfirmRequest`, `TurnDone`, `ErrorEvent`) + `encode_sse()`. Nothing engine-specific leaks upward |
-| `policy.py` | Core | The tool gate (seven read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` default / `opus` / `haiku`), tool-activity summaries and write-op previews, and the system prompt |
+| `policy.py` | Core | The tool gate (seven read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` default / `opus` / `haiku` / `glm`; `available_models()` drops `glm` when no z.ai key is configured), tool-activity summaries and write-op previews, and the system prompt |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend (or the test double) plugs into |
 | `service.py` | Shell | In-memory conversation registry: 3-conversation cap, lazy 15-minute idle reap, per-conversation lock (a second concurrent turn is a 409); `close_all()` runs on app-lifespan shutdown |
 | `claude_engine.py` | Shell | The Claude Agent SDK adapter — the only engine today |
-| `routes.py` | Shell | The four endpoints; an engine failure mid-stream is reported in-band as an `error` SSE event, not a broken response. `_with_keepalive()` interleaves a comment frame (`events.SSE_COMMENT`) every `KEEPALIVE_INTERVAL_S` idle seconds |
+| `routes.py` | Shell | The HTTP/SSE endpoints; an engine failure mid-stream is reported in-band as an `error` SSE event, not a broken response. `_with_keepalive()` interleaves a comment frame (`events.SSE_COMMENT`) every `KEEPALIVE_INTERVAL_S` idle seconds |
 
 Conversations are ephemeral: in memory only, with no history table. The engine
 is injected into `create_app(config, assistant_engine=...)`; production
@@ -83,6 +83,17 @@ turn, confirming a tool call and deleting a conversation are unaffected.
   the pkm verbs. `ENABLE_TOOL_SEARCH=false` is required alongside `tools=[]`,
   so the MCP tools load eagerly instead of being deferred behind a
   ToolSearch tool.
+- **Provider routing**: `model="glm"` runs the same harness against z.ai's
+  Anthropic-compatible endpoint, via `ANTHROPIC_BASE_URL` and
+  `ANTHROPIC_AUTH_TOKEN` in the subprocess env. The SDK is passed the
+  `sonnet` alias: z.ai maps Claude aliases to its plan-default GLM
+  server-side, so no GLM version name exists in the code to go stale. The
+  token comes from `config.zai_api_key_file` (default `PKM_HOME/zai_key`),
+  with `ZAI_API_KEY` as the env fallback; the file wins, like the OpenAI
+  key. Without a token, `GET /api/assistant/models` omits `glm`, the
+  service's `create()` rejects it (400), and the engine refuses it before
+  writing the credential file. Claude models are untouched by any of this:
+  they keep the machine's subscription login.
 - **Auth**: the engine mints a fresh session token (`auth_core.sign_session`)
   into a 0600 temp config file per conversation, passes it to the MCP
   subprocess as `PKM_CLI_CONFIG`, and deletes it on close.
@@ -127,8 +138,9 @@ turn, confirming a tool call and deleting a conversation are unaffected.
   line is the liveness signal.
 - **Deployment prerequisite**: the SDK bundles its own `claude` binary and
   authenticates with the machine's logged-in Claude subscription. There is
-  deliberately no `ANTHROPIC_API_KEY` in the service environment. See
-  [`deploy/README.md`](../../deploy/README.md).
+  deliberately no `ANTHROPIC_API_KEY` in the service environment. The `glm`
+  model additionally needs the z.ai key file (see Provider routing above).
+  See [`deploy/README.md`](../../deploy/README.md).
 
 Testing: no real LLM anywhere in CI. `tests/fake_engine.py` is a scripted
 `AgentEngine` double that drives the service and route tests, including a

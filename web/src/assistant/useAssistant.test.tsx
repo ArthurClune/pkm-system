@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   confirmTool: vi.fn(),
   streamMessage: vi.fn(),
   closeConversationBeacon: vi.fn(),
+  fetchModels: vi.fn(),
 }));
 vi.mock("./client", () => mocks);
 
@@ -38,6 +39,23 @@ function deferredValue<T>() {
 }
 
 describe("useAssistant", () => {
+  test("models defaults to the claude trio and adopts the server list", async () => {
+    const d = deferredValue<{ models: string[]; default: string }>();
+    mocks.fetchModels.mockReturnValue(d.promise);
+    render(<Harness />);
+    // before the fetch resolves the picker still has something to offer
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku"]);
+    await act(async () => d.resolve({ models: ["sonnet", "opus", "haiku", "glm"], default: "sonnet" }));
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku", "glm"]);
+  });
+
+  test("models keeps the fallback when the fetch fails", async () => {
+    mocks.fetchModels.mockRejectedValue(new Error("offline"));
+    render(<Harness />);
+    await act(async () => {});
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku"]);
+  });
+
   test("send creates conversation lazily and accumulates deltas", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     feed([

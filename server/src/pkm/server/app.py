@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from pkm.assistant.engine import AgentEngine
+from pkm.assistant.policy import available_models
 from pkm.assistant.routes import router as assistant_router
 from pkm.assistant.service import AssistantService
 from pkm.describe.core import enabled_reason
@@ -91,14 +92,23 @@ def create_app(
     app.state.config = config
     app.state.hub = Hub()
     app.state.login_throttle = LoginThrottle()
+    # Same precedence as the OpenAI key: the on-disk pkm-specific key wins
+    # over a general-purpose env var. The key is the z.ai GLM Coding Plan
+    # credential; presence enables the assistant's glm model.
+    zai_token = (_read_key_file(config.zai_api_key_file)
+                 or os.environ.get("ZAI_API_KEY") or None)
     if assistant_engine is None:
         from pkm.assistant.claude_engine import ClaudeEngine
 
         assistant_engine = ClaudeEngine(
             base_url=f"http://127.0.0.1:{api_port}",
             session_secret_hex=config.session_secret,
+            zai_token=zai_token,
         )
-    app.state.assistant = AssistantService(assistant_engine)
+    app.state.assistant = AssistantService(
+        assistant_engine,
+        available_models=available_models(zai_configured=zai_token is not None),
+    )
     app.state.describe = (describe_service if describe_service is not None
                           else _default_describe_service(config))
     app.add_middleware(RequestLogMiddleware)

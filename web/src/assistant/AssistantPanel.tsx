@@ -7,8 +7,6 @@ import { InlineSegments } from "../components/InlineSegments";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { useAssistant } from "./useAssistant";
 
-const MODELS = ["sonnet", "opus", "haiku"];
-
 // pkm-c98s item 6: the server only clips ops_preview at a generous 4000
 // chars (see policy.py); this is a purely visual collapse so the approval
 // card doesn't dominate the panel for a long batch, with a toggle to see
@@ -92,7 +90,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             disabled={assistant.modelLocked}
             onChange={(e) => assistant.setModel(e.target.value)}
           >
-            {MODELS.map((m) => (
+            {assistant.models.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>

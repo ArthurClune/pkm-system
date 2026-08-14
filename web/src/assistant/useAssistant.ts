@@ -8,6 +8,7 @@ import {
   confirmTool,
   createConversation,
   deleteConversation,
+  fetchModels,
   streamMessage,
 } from "./client";
 import type { AssistantEvent } from "./sse";
@@ -69,6 +70,9 @@ export function useAssistant() {
   const [status, setStatus] = useState<"idle" | "busy" | "confirm">("idle");
   const [error, setError] = useState<string | null>(null);
   const [model, setModel] = useState("sonnet");
+  // The claude trio is always servable, so it doubles as the offline/failed
+  // fallback; the server list adds glm only when a z.ai key is configured.
+  const [models, setModels] = useState(["sonnet", "opus", "haiku"]);
   const [modelLocked, setModelLocked] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const conversationId = useRef<string | null>(null);
@@ -94,6 +98,22 @@ export function useAssistant() {
     };
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchModels()
+      .then((r) => {
+        if (!cancelled && Array.isArray(r?.models) && r.models.length > 0) {
+          setModels(r.models);
+        }
+      })
+      .catch(() => {
+        // keep the fallback trio; a failed fetch must not break the panel
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const applyEvent = useCallback((ev: AssistantEvent) => {
@@ -303,6 +323,7 @@ export function useAssistant() {
     error,
     model,
     setModel,
+    models,
     modelLocked,
     pendingConfirm,
     send,

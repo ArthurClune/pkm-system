@@ -135,13 +135,14 @@ class HangingDisconnectClient(FakeSDKClient):
         await asyncio.Event().wait()  # never set; second cancellation lands here
 
 
-def make_engine(tmp_path, factory=FakeSDKClient) -> ClaudeEngine:
+def make_engine(tmp_path, factory=FakeSDKClient, zai_token=None) -> ClaudeEngine:
     FakeSDKClient.instances.clear()
     return ClaudeEngine(
         base_url="http://127.0.0.1:8999",
         session_secret_hex=SECRET,
         client_factory=factory,
         config_dir=tmp_path,
+        zai_token=zai_token,
     )
 
 
@@ -175,6 +176,51 @@ def test_create_conversation_options_and_config_file(tmp_path):
     asyncio.run(conv.close())
     assert not cfg_path.exists()  # config file removed on close
     assert client.connected is False
+
+
+def test_glm_routes_to_zai_endpoint(tmp_path):
+    engine = make_engine(tmp_path, zai_token="zk-test")
+
+    async def scenario():
+        return await engine.create_conversation(SYSTEM_PROMPT, "glm")
+
+    conv = asyncio.run(scenario())
+    opts = FakeSDKClient.instances[0].options
+    # z.ai maps the Claude alias to its plan-default GLM server-side, so no
+    # GLM version name is hardcoded anywhere.
+    assert opts.model == "sonnet"
+    assert opts.env["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
+    assert opts.env["ANTHROPIC_AUTH_TOKEN"] == "zk-test"
+    # the MCP-tool eager-load setting must survive the provider override
+    assert opts.env["ENABLE_TOOL_SEARCH"] == "false"
+    asyncio.run(conv.close())
+
+
+def test_claude_models_unaffected_by_zai_config(tmp_path):
+    engine = make_engine(tmp_path, zai_token="zk-test")
+
+    async def scenario():
+        return await engine.create_conversation(SYSTEM_PROMPT, "opus")
+
+    conv = asyncio.run(scenario())
+    opts = FakeSDKClient.instances[0].options
+    assert opts.model == "opus"
+    # a configured z.ai key must never leak into Claude-subscription runs
+    assert "ANTHROPIC_BASE_URL" not in opts.env
+    assert "ANTHROPIC_AUTH_TOKEN" not in opts.env
+    asyncio.run(conv.close())
+
+
+def test_glm_without_token_is_rejected_before_any_side_effect(tmp_path):
+    engine = make_engine(tmp_path)  # no zai_token
+
+    async def scenario():
+        return await engine.create_conversation(SYSTEM_PROMPT, "glm")
+
+    with pytest.raises(ValueError, match="z.ai"):
+        asyncio.run(scenario())
+    assert FakeSDKClient.instances == []  # no subprocess client constructed
+    assert list(tmp_path.iterdir()) == []  # no credential file left behind
 
 
 def test_create_conversation_factory_failure_unlinks_config(tmp_path):

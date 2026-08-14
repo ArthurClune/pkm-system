@@ -142,6 +142,13 @@ def test_system_prompt_tells_model_to_cite_clickable_links():
     assert "((" in SYSTEM_PROMPT
 
 
+def test_system_prompt_warns_against_caret_in_block_ref_citations():
+    # pkm-wx86: tool output shows blocks with trailing ^uid markers; GLM
+    # copied the marker verbatim, citing ((^uid)), which the web grammar
+    # rejects. The prompt must show the wrong form explicitly.
+    assert "((^" in SYSTEM_PROMPT
+
+
 def test_system_prompt_has_no_tool_count_to_drift():
     # The prompt once said "ten PKM verbs" while listing eleven tools; a
     # count-free sentence can't drift when tools are added.

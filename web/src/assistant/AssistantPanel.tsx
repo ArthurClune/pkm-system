@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
 import { tokenizeBlock } from "../grammar/tokenize";
+import { stripCaretBlockRefs } from "./normalizeRefs";
 import { useAssistant } from "./useAssistant";
 
 // pkm-c98s item 6: the server only clips ops_preview at a generous 4000
@@ -121,7 +122,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             ) : (
               <div key={i} className={`assistant-msg assistant-msg-${item.kind}`}>
                 {item.kind === "assistant" ? (
-                  <InlineSegments segments={tokenizeBlock(item.text)} />
+                  <InlineSegments segments={tokenizeBlock(stripCaretBlockRefs(item.text))} />
                 ) : (
                   item.text
                 )}

@@ -99,7 +99,11 @@ export function OfflineIndicator() {
         ? "alert" : "status"
     }>
       {problem.repair === "running" ? (
-        <>Server rejected a change (HTTP {problem.event.status}). Repairing local state…</>
+        // The repair rebuilds the whole replica from a snapshot, and iOS
+        // freezes a backgrounded PWA mid-rebuild; each relaunch then starts
+        // over, which reads as sync being stuck forever (pkm-a1gh).
+        <>Server rejected a change (HTTP {problem.event.status}).
+          {" "}Repairing local state… Keep the app open until this finishes.</>
       ) : problem.repair === "mark-failed" ? (
         <>Server rejected a change (HTTP {problem.event.status}): {problem.event.message}.{" "}
           Saving rejected-change recovery failed: {problem.error}

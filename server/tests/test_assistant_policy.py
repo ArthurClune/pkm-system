@@ -6,6 +6,7 @@ from pkm.assistant.policy import (
     DEFAULT_MODEL,
     SYSTEM_PROMPT,
     all_tool_names,
+    available_models,
     classify_tool,
     mcp_tool_name,
     ops_preview,
@@ -48,10 +49,22 @@ def test_resolve_model():
     assert resolve_model(None) == DEFAULT_MODEL == "sonnet"
     assert resolve_model("opus") == "opus"
     assert resolve_model("haiku") == "haiku"
+    assert resolve_model("glm") == "glm"
     with pytest.raises(ValueError):
         resolve_model("gpt-4o")
     with pytest.raises(ValueError):
         resolve_model("")
+
+
+def test_available_models_includes_glm_only_when_zai_configured():
+    with_key = available_models(zai_configured=True)
+    without_key = available_models(zai_configured=False)
+    assert "glm" in with_key
+    assert "glm" not in without_key
+    # the Claude trio and the default are offered either way
+    for models in (with_key, without_key):
+        assert DEFAULT_MODEL in models
+        assert {"sonnet", "opus", "haiku"} <= set(models)
 
 
 def test_tool_summary():

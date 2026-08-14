@@ -135,6 +135,29 @@ def test_create_rejects_unknown_model():
         asyncio.run(service.create("gpt-4o"))
 
 
+def test_default_available_models_hides_glm_and_rejects_it():
+    # glm needs a z.ai key; a service not told otherwise must neither offer
+    # nor accept it, even though it is a known model name.
+    service = AssistantService(FakeEngine())
+    assert service.available_models == ["sonnet", "opus", "haiku"]
+    with pytest.raises(ValueError):
+        asyncio.run(service.create("glm"))
+
+
+def test_explicit_available_models_offers_and_accepts_glm():
+    engine = FakeEngine()
+    service = AssistantService(
+        engine, available_models=["sonnet", "opus", "haiku", "glm"])
+    assert "glm" in service.available_models
+
+    async def scenario():
+        return await service.create("glm")
+
+    _, model = asyncio.run(scenario())
+    assert model == "glm"
+    assert engine.conversations[0].model == "glm"
+
+
 def test_idle_conversations_reaped_on_create():
     clock = FakeClock()
     engine = FakeEngine()

@@ -122,3 +122,12 @@ Agent SDK. The launchd service user therefore needs:
 
 If the login is missing the assistant returns an error event in-chat; the
 rest of the app is unaffected.
+
+The optional `glm` model (z.ai GLM Coding Plan) is enabled by a key file at
+`PKM_HOME/zai_key` (mode 600; path configurable via `zai_api_key_file` in
+`config.json`, `ZAI_API_KEY` env var as fallback — the file wins). The key
+is the plan credential: requests go to z.ai's Anthropic-compatible endpoint
+and draw on the flat-rate plan, not per-token billing. Without the key the
+model picker simply doesn't offer `glm`. The key is read once at service
+start (like the OpenAI key), so adding, rotating, or deleting it needs a
+service restart to take effect.

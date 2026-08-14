@@ -39,6 +39,7 @@ from pkm.assistant.events import (
     TurnDone,
 )
 from pkm.assistant.policy import (
+    ZAI_MODELS,
     classify_tool,
     ops_preview,
     read_tool_names,
@@ -50,6 +51,12 @@ from pkm.server.auth_core import sign_session
 logger = logging.getLogger("pkm.assistant")
 
 MAX_TURNS = 40
+
+# z.ai's Anthropic-compatible endpoint (GLM Coding Plan). It maps the Claude
+# model aliases to its plan-default GLM server-side, so requesting "sonnet"
+# through it always gets the plan's current GLM — no version name to go stale.
+ZAI_BASE_URL = "https://api.z.ai/api/anthropic"
+ZAI_SDK_MODEL = "sonnet"
 
 # A harness parked inside can_use_tool cannot acknowledge an interrupt until
 # the permission decision arrives, and it may be wedged for other reasons
@@ -261,11 +268,13 @@ class ClaudeEngine:
         session_secret_hex: str,
         client_factory: Callable[[ClaudeAgentOptions], Any] | None = None,
         config_dir: Path | None = None,
+        zai_token: str | None = None,
     ) -> None:
         self._base_url = base_url
         self._secret = session_secret_hex
         self._client_factory = client_factory or (lambda opts: ClaudeSDKClient(options=opts))
         self._config_dir = config_dir
+        self._zai_token = zai_token
 
     def _write_cli_config(self) -> Path:
         token = sign_session(bytes.fromhex(self._secret), int(time.time() * 1000))
@@ -276,6 +285,21 @@ class ClaudeEngine:
         return path
 
     async def create_conversation(self, system_prompt: str, model: str) -> ClaudeConversation:
+        # the CLI defers MCP tools behind ToolSearch by default, which
+        # tools=[] would make unreachable -- disabling tool search loads
+        # the pkm tools eagerly; verified live 2026-07-27
+        env = {"ENABLE_TOOL_SEARCH": "false"}
+        requested = model
+        if model in ZAI_MODELS:
+            # Reject before the credential file or any subprocess exists;
+            # routes surface this as a 400. The models endpoint hides these
+            # models from the picker in this state, so only a hand-crafted
+            # request gets here.
+            if not self._zai_token:
+                raise ValueError(f"model {model!r} requires a z.ai key (zai_api_key_file)")
+            env["ANTHROPIC_BASE_URL"] = ZAI_BASE_URL
+            env["ANTHROPIC_AUTH_TOKEN"] = self._zai_token
+            model = ZAI_SDK_MODEL
         config_path = self._write_cli_config()
         conversation = ClaudeConversation(config_path)
         try:
@@ -296,10 +320,7 @@ class ClaudeEngine:
                 setting_sources=[],
                 include_partial_messages=True,
                 max_turns=MAX_TURNS,
-                # the CLI defers MCP tools behind ToolSearch by default, which
-                # tools=[] would make unreachable -- disabling tool search loads
-                # the pkm tools eagerly; verified live 2026-07-27
-                env={"ENABLE_TOOL_SEARCH": "false"},
+                env=env,
             )
             client = self._client_factory(options)
             conversation.attach(client)
@@ -316,5 +337,7 @@ class ClaudeEngine:
             # handling here (pkm-4zq4).
             await conversation.close()
             raise
-        logger.info("assistant harness started (model=%s)", model)
+        # the requested name, not the SDK alias: a glm harness must not log
+        # as a real sonnet run
+        logger.info("assistant harness started (model=%s)", requested)
         return conversation

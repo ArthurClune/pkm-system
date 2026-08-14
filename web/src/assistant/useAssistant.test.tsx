@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   confirmTool: vi.fn(),
   streamMessage: vi.fn(),
   closeConversationBeacon: vi.fn(),
+  fetchModels: vi.fn(),
 }));
 vi.mock("./client", () => mocks);
 
@@ -38,6 +39,49 @@ function deferredValue<T>() {
 }
 
 describe("useAssistant", () => {
+  test("models are not fetched until ensureModels is called (panel open)", async () => {
+    const d = deferredValue<{ models: string[]; default: string }>();
+    mocks.fetchModels.mockReturnValue(d.promise);
+    render(<Harness />);
+    // mounting alone (app load, panel closed) must not hit the network
+    expect(mocks.fetchModels).not.toHaveBeenCalled();
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku"]);
+    act(() => latest.ensureModels());
+    act(() => latest.ensureModels());
+    expect(mocks.fetchModels).toHaveBeenCalledTimes(1); // idempotent while pending
+    await act(async () => d.resolve({ models: ["sonnet", "opus", "haiku", "glm"], default: "sonnet" }));
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku", "glm"]);
+    act(() => latest.ensureModels());
+    expect(mocks.fetchModels).toHaveBeenCalledTimes(1); // and after success
+  });
+
+  test("a failed models fetch keeps the fallback and retries on the next open", async () => {
+    mocks.fetchModels.mockRejectedValueOnce(new Error("offline"));
+    mocks.fetchModels.mockResolvedValueOnce({ models: ["sonnet", "opus", "haiku", "glm"], default: "sonnet" });
+    render(<Harness />);
+    await act(async () => latest.ensureModels());
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku"]);
+    await act(async () => latest.ensureModels());
+    expect(latest.models).toEqual(["sonnet", "opus", "haiku", "glm"]);
+  });
+
+  test("adopts the server's default model unless the user already picked one", async () => {
+    mocks.fetchModels.mockResolvedValue({ models: ["sonnet", "opus", "haiku"], default: "haiku" });
+    render(<Harness />);
+    await act(async () => latest.ensureModels());
+    expect(latest.model).toBe("haiku");
+  });
+
+  test("does not clobber a user's picker choice with the server default", async () => {
+    const d = deferredValue<{ models: string[]; default: string }>();
+    mocks.fetchModels.mockReturnValue(d.promise);
+    render(<Harness />);
+    act(() => latest.ensureModels());
+    act(() => latest.setModel("opus"));
+    await act(async () => d.resolve({ models: ["sonnet", "opus", "haiku"], default: "haiku" }));
+    expect(latest.model).toBe("opus");
+  });
+
   test("send creates conversation lazily and accumulates deltas", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     feed([

@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from pkm.assistant.engine import AgentEngine
+from pkm.assistant.policy import available_models
 from pkm.assistant.routes import router as assistant_router
 from pkm.assistant.service import AssistantService
 from pkm.describe.core import enabled_reason
@@ -44,13 +45,16 @@ def _read_key_file(path: Path) -> str | None:
     return key or None
 
 
+def _resolve_key(path: Path, env_var: str) -> str | None:
+    """Provider-key precedence: the key file first, then the env var. A user
+    may have a general-purpose key in their environment but want a
+    pkm-specific key on disk for its own cost attribution, so the file — the
+    pkm-specific, deliberately-provisioned source — wins."""
+    return _read_key_file(path) or os.environ.get(env_var) or None
+
+
 def _default_describe_service(config: Config) -> DescribeService:
-    # Precedence: the key file first, then OPENAI_API_KEY env var. A user
-    # may have a general-purpose OPENAI_API_KEY in their environment but
-    # want a pkm-specific key on disk for its own cost attribution, so the
-    # file — the pkm-specific, deliberately-provisioned source — wins.
-    api_key = (_read_key_file(config.openai_api_key_file)
-              or os.environ.get("OPENAI_API_KEY") or None)
+    api_key = _resolve_key(config.openai_api_key_file, "OPENAI_API_KEY")
     reason = enabled_reason(api_key, config.image_descriptions)
     if reason is not None:
         return DescribeService(config, None, reason)
@@ -91,14 +95,21 @@ def create_app(
     app.state.config = config
     app.state.hub = Hub()
     app.state.login_throttle = LoginThrottle()
+    # The z.ai GLM Coding Plan credential; presence enables the assistant's
+    # glm model. Read once here — rotating the key file needs a restart.
+    zai_token = _resolve_key(config.zai_api_key_file, "ZAI_API_KEY")
     if assistant_engine is None:
         from pkm.assistant.claude_engine import ClaudeEngine
 
         assistant_engine = ClaudeEngine(
             base_url=f"http://127.0.0.1:{api_port}",
             session_secret_hex=config.session_secret,
+            zai_token=zai_token,
         )
-    app.state.assistant = AssistantService(assistant_engine)
+    app.state.assistant = AssistantService(
+        assistant_engine,
+        available_models=available_models(zai_configured=zai_token is not None),
+    )
     app.state.describe = (describe_service if describe_service is not None
                           else _default_describe_service(config))
     app.add_middleware(RequestLogMiddleware)

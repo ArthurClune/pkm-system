@@ -40,6 +40,36 @@ def test_create_conversation_bad_model_400(assistant_client):
     assert r.status_code == 400
 
 
+def test_models_endpoint_requires_auth(anon_client):
+    assert anon_client.get("/api/assistant/models").status_code == 401
+
+
+def test_models_endpoint_hides_glm_without_key(assistant_client):
+    r = assistant_client.get("/api/assistant/models")
+    assert r.status_code == 200
+    assert r.json() == {"models": ["sonnet", "opus", "haiku"], "default": "sonnet"}
+
+
+def test_create_conversation_glm_400_without_key(assistant_client):
+    r = assistant_client.post("/api/assistant/conversations", json={"model": "glm"})
+    assert r.status_code == 400
+
+
+def test_models_endpoint_offers_glm_with_key(seeded_config, fake_engine, tmp_path):
+    from fastapi.testclient import TestClient
+    from pkm.server.app import create_app
+
+    (tmp_path / "zai_key").write_text("zk-test")
+    with TestClient(create_app(seeded_config, assistant_engine=fake_engine)) as c:
+        assert c.post("/api/login", json={"password": "test-pw"}).status_code == 200
+        r = c.get("/api/assistant/models")
+        assert r.json() == {"models": ["sonnet", "opus", "haiku", "glm"],
+                            "default": "sonnet"}
+        # and glm is actually creatable in this state
+        assert c.post("/api/assistant/conversations",
+                      json={"model": "glm"}).status_code == 200
+
+
 def test_conversation_cap_evicts_oldest_idle_over_http(assistant_client):
     # pkm-c98s item 1: reaching the cap with idle conversations evicts the
     # least-recently-used one instead of 409ing, so a reload that orphans

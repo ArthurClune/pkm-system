@@ -8,6 +8,7 @@ import {
   confirmTool,
   createConversation,
   deleteConversation,
+  fetchModels,
   streamMessage,
 } from "./client";
 import type { AssistantEvent } from "./sse";
@@ -68,8 +69,20 @@ export function useAssistant() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [status, setStatus] = useState<"idle" | "busy" | "confirm">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [model, setModel] = useState("sonnet");
+  const [model, setModelState] = useState("sonnet");
+  // The claude trio is always servable, so it doubles as the offline/failed
+  // fallback; the server list adds glm only when a z.ai key is configured.
+  const [models, setModels] = useState(["sonnet", "opus", "haiku"]);
   const [modelLocked, setModelLocked] = useState(false);
+  // distinguishes the user's own picker choice from the initial state, so
+  // the fetched server default can fill the latter without clobbering the
+  // former
+  const modelTouched = useRef(false);
+  const setModel = useCallback((m: string) => {
+    modelTouched.current = true;
+    setModelState(m);
+  }, []);
+  const modelsRequested = useRef(false);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const conversationId = useRef<string | null>(null);
   const abortController = useRef<AbortController | null>(null);
@@ -94,6 +107,27 @@ export function useAssistant() {
     };
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
+  }, []);
+
+  // Called by the panel when it opens (not at app load: the panel component
+  // is always mounted, and most loads never open it). One fetch per success;
+  // a failure re-arms so the next open retries instead of pinning the
+  // fallback trio for the tab's lifetime.
+  const ensureModels = useCallback(() => {
+    if (modelsRequested.current) return;
+    modelsRequested.current = true;
+    fetchModels()
+      .then((r) => {
+        if (Array.isArray(r?.models) && r.models.length > 0) setModels(r.models);
+        if (typeof r?.default === "string" && !modelTouched.current
+            && conversationId.current === null) {
+          setModelState(r.default);
+        }
+      })
+      .catch(() => {
+        // keep the fallback trio; a failed fetch must not break the panel
+        modelsRequested.current = false;
+      });
   }, []);
 
   const applyEvent = useCallback((ev: AssistantEvent) => {
@@ -303,6 +337,8 @@ export function useAssistant() {
     error,
     model,
     setModel,
+    models,
+    ensureModels,
     modelLocked,
     pendingConfirm,
     send,

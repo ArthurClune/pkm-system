@@ -52,3 +52,16 @@ def test_openai_api_key_file_override(tmp_path):
     cfg = load_config(write_config(
         tmp_path, {"openai_api_key_file": "secrets/my-key"}))
     assert cfg.openai_api_key_file == tmp_path / "secrets" / "my-key"
+
+
+def test_zai_api_key_file_default(tmp_path):
+    cfg = load_config(write_config(tmp_path, {}))
+    # Same placement rule as the OpenAI key: PKM_HOME root, never the
+    # data dir. Pure path assertion, no file is created here.
+    assert cfg.zai_api_key_file == tmp_path / "../zai_key"
+
+
+def test_zai_api_key_file_override(tmp_path):
+    cfg = load_config(write_config(
+        tmp_path, {"zai_api_key_file": "secrets/glm-key"}))
+    assert cfg.zai_api_key_file == tmp_path / "secrets" / "glm-key"

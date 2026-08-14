@@ -289,6 +289,11 @@ class AssistantAck(BaseModel):
     ok: bool = True
 
 
+class AssistantModels(BaseModel):
+    models: list[str]
+    default: str
+
+
 class TitleMigrationPage(BaseModel):
     page_id: int
     title: str

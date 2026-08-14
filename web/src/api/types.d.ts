@@ -663,6 +663,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/assistant/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Models
+         * @description Models the picker may offer; glm appears only when a z.ai key is
+         *     configured, so the UI can hide rather than error on it.
+         */
+        get: operations["list_models_api_assistant_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/assistant/conversations": {
         parameters: {
             query?: never;
@@ -827,6 +848,13 @@ export interface components {
             id: string;
             /** Model */
             model: string;
+        };
+        /** AssistantModels */
+        AssistantModels: {
+            /** Models */
+            models: string[];
+            /** Default */
+            default: string;
         };
         /** BacklinkGroup */
         BacklinkGroup: {
@@ -2557,6 +2585,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_models_api_assistant_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantModels"];
                 };
             };
         };

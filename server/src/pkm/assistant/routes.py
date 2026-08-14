@@ -17,7 +17,8 @@ from pkm.assistant.service import (
     ConversationLimitError,
     UnknownConversationError,
 )
-from pkm.contracts.responses import AssistantAck, AssistantConversation
+from pkm.assistant.policy import DEFAULT_MODEL
+from pkm.contracts.responses import AssistantAck, AssistantConversation, AssistantModels
 from pkm.server.auth import require_auth
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -79,6 +80,13 @@ def get_service(request: Request) -> AssistantService:
     if service is None:
         raise HTTPException(status_code=503, detail="assistant not configured")
     return service
+
+
+@router.get("/api/assistant/models", response_model=AssistantModels)
+def list_models(service: AssistantService = Depends(get_service)) -> dict:
+    """Models the picker may offer; glm appears only when a z.ai key is
+    configured, so the UI can hide rather than error on it."""
+    return {"models": service.available_models, "default": DEFAULT_MODEL}
 
 
 @router.post("/api/assistant/conversations", response_model=AssistantConversation)

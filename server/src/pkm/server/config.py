@@ -29,6 +29,11 @@ class Config:
     # OPENAI_API_KEY env var when both are present (see
     # server/_default_describe_service).
     openai_api_key_file: Path = Path("../openai_key")
+    # z.ai GLM Coding Plan key: same placement rule and precedence as the
+    # OpenAI key above (file wins over the ZAI_API_KEY env var). The key IS
+    # the plan credential — z.ai has no machine-login flow like Claude's —
+    # and enables the assistant's glm model (see server/app.py).
+    zai_api_key_file: Path = Path("../zai_key")
 
 
 def load_config(path: Path) -> Config:
@@ -48,4 +53,5 @@ def load_config(path: Path) -> Config:
         image_description_model=str(raw.get("image_description_model",
                                             "gpt-4o-mini")),
         openai_api_key_file=base / raw.get("openai_api_key_file", "../openai_key"),
+        zai_api_key_file=base / raw.get("zai_api_key_file", "../zai_key"),
     )

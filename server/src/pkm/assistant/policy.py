@@ -12,8 +12,15 @@ READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
                                "backlinks", "todos", "search_assets")
 WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch", "upload_asset")
 
-MODELS: tuple[str, ...] = ("sonnet", "opus", "haiku")
+# The Claude trio also exists as the web picker's fetch-failure fallback
+# (useAssistant.ts); a rename or addition there must stay in sync.
+MODELS: tuple[str, ...] = ("sonnet", "opus", "haiku", "glm")
 DEFAULT_MODEL = "sonnet"
+
+# Models that route to z.ai's Anthropic-compatible endpoint and are only
+# offered when a z.ai key is configured. The Claude models need no such
+# gate: they ride the machine's logged-in Claude subscription.
+ZAI_MODELS: tuple[str, ...] = ("glm",)
 
 _MAX_VALUE_CHARS = 120
 
@@ -51,6 +58,12 @@ def classify_tool(full_name: str) -> Literal["read", "write", "unknown"]:
     if short in WRITE_TOOLS:
         return "write"
     return "unknown"
+
+
+def available_models(*, zai_configured: bool) -> list[str]:
+    if zai_configured:
+        return list(MODELS)
+    return [m for m in MODELS if m not in ZAI_MODELS]
 
 
 def resolve_model(name: str | None) -> str:

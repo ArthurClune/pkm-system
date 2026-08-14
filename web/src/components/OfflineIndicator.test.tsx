@@ -100,7 +100,8 @@ const rejected = {
 it("shows connected rejected-delivery details while repair is running", () => {
   renderWith({ problem: { ...rejected, repair: "running" } });
   expect(screen.getByRole("status")).toHaveTextContent(
-    "Server rejected a change (HTTP 400). Repairing local state…");
+    "Server rejected a change (HTTP 400). Repairing local state…" +
+    " Keep the app open until this finishes.");
   expect(screen.getByText("Details")).toBeInTheDocument();
   expect(screen.getByText(/batch-rejected/)).toBeInTheDocument();
 });

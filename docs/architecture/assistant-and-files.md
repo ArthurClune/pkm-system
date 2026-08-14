@@ -90,7 +90,10 @@ turn, confirming a tool call and deleting a conversation are unaffected.
   server-side, so no GLM version name exists in the code to go stale. The
   token comes from `config.zai_api_key_file` (default `PKM_HOME/zai_key`),
   with `ZAI_API_KEY` as the env fallback; the file wins, like the OpenAI
-  key. Without a token, `GET /api/assistant/models` omits `glm`, the
+  key, and is read once at startup. Env is the SDK's token transport, so
+  the token is visible in the harness subprocess's environment (and its
+  children, including the pkm MCP server) — accepted on a single-user
+  deployment. Without a token, `GET /api/assistant/models` omits `glm`, the
   service's `create()` rejects it (400), and the engine refuses it before
   writing the credential file. Claude models are untouched by any of this:
   they keep the machine's subscription login.

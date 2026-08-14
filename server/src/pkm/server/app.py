@@ -45,13 +45,16 @@ def _read_key_file(path: Path) -> str | None:
     return key or None
 
 
+def _resolve_key(path: Path, env_var: str) -> str | None:
+    """Provider-key precedence: the key file first, then the env var. A user
+    may have a general-purpose key in their environment but want a
+    pkm-specific key on disk for its own cost attribution, so the file — the
+    pkm-specific, deliberately-provisioned source — wins."""
+    return _read_key_file(path) or os.environ.get(env_var) or None
+
+
 def _default_describe_service(config: Config) -> DescribeService:
-    # Precedence: the key file first, then OPENAI_API_KEY env var. A user
-    # may have a general-purpose OPENAI_API_KEY in their environment but
-    # want a pkm-specific key on disk for its own cost attribution, so the
-    # file — the pkm-specific, deliberately-provisioned source — wins.
-    api_key = (_read_key_file(config.openai_api_key_file)
-              or os.environ.get("OPENAI_API_KEY") or None)
+    api_key = _resolve_key(config.openai_api_key_file, "OPENAI_API_KEY")
     reason = enabled_reason(api_key, config.image_descriptions)
     if reason is not None:
         return DescribeService(config, None, reason)
@@ -92,11 +95,9 @@ def create_app(
     app.state.config = config
     app.state.hub = Hub()
     app.state.login_throttle = LoginThrottle()
-    # Same precedence as the OpenAI key: the on-disk pkm-specific key wins
-    # over a general-purpose env var. The key is the z.ai GLM Coding Plan
-    # credential; presence enables the assistant's glm model.
-    zai_token = (_read_key_file(config.zai_api_key_file)
-                 or os.environ.get("ZAI_API_KEY") or None)
+    # The z.ai GLM Coding Plan credential; presence enables the assistant's
+    # glm model. Read once here — rotating the key file needs a restart.
+    zai_token = _resolve_key(config.zai_api_key_file, "ZAI_API_KEY")
     if assistant_engine is None:
         from pkm.assistant.claude_engine import ClaudeEngine
 

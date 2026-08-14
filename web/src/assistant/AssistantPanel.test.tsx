@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
     model: "sonnet",
     setModel: vi.fn(),
     models: ["sonnet", "opus", "haiku"],
+    ensureModels: vi.fn(),
     modelLocked: false,
     pendingConfirm: null as PendingConfirm | null,
     send: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +47,13 @@ describe("AssistantPanel", () => {
   test("model picker hides glm when the server does not offer it", () => {
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.queryByRole("option", { name: "glm" })).toBeNull();
+  });
+
+  test("opening the panel requests the model list; staying closed does not", () => {
+    const { rerender } = render(<AssistantPanel open={false} onClose={() => {}} />);
+    expect(state.current.ensureModels).not.toHaveBeenCalled();
+    rerender(<AssistantPanel open onClose={() => {}} />);
+    expect(state.current.ensureModels).toHaveBeenCalled();
   });
 
   test("renders nothing when closed", () => {

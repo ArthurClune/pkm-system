@@ -60,6 +60,13 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
     if (list) list.scrollTop = list.scrollHeight;
   }, [assistant.items, assistant.pendingConfirm]);
 
+  // the panel is mounted from app load; fetch the model list only when it
+  // is actually opened (ensureModels retries a failed fetch on a later open)
+  const { ensureModels } = assistant;
+  useEffect(() => {
+    if (open) ensureModels();
+  }, [open, ensureModels]);
+
   if (!open) return null;
 
   const submit = () => {

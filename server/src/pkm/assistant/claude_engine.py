@@ -39,6 +39,7 @@ from pkm.assistant.events import (
     TurnDone,
 )
 from pkm.assistant.policy import (
+    ZAI_MODELS,
     classify_tool,
     ops_preview,
     read_tool_names,
@@ -288,13 +289,14 @@ class ClaudeEngine:
         # tools=[] would make unreachable -- disabling tool search loads
         # the pkm tools eagerly; verified live 2026-07-27
         env = {"ENABLE_TOOL_SEARCH": "false"}
-        if model == "glm":
+        requested = model
+        if model in ZAI_MODELS:
             # Reject before the credential file or any subprocess exists;
-            # routes surface this as a 400. The models endpoint hides glm
-            # from the picker in this state, so only a hand-crafted request
-            # gets here.
+            # routes surface this as a 400. The models endpoint hides these
+            # models from the picker in this state, so only a hand-crafted
+            # request gets here.
             if not self._zai_token:
-                raise ValueError("model 'glm' requires a z.ai key (zai_api_key_file)")
+                raise ValueError(f"model {model!r} requires a z.ai key (zai_api_key_file)")
             env["ANTHROPIC_BASE_URL"] = ZAI_BASE_URL
             env["ANTHROPIC_AUTH_TOKEN"] = self._zai_token
             model = ZAI_SDK_MODEL
@@ -335,5 +337,7 @@ class ClaudeEngine:
             # handling here (pkm-4zq4).
             await conversation.close()
             raise
-        logger.info("assistant harness started (model=%s)", model)
+        # the requested name, not the SDK alias: a glm harness must not log
+        # as a real sonnet run
+        logger.info("assistant harness started (model=%s)", requested)
         return conversation

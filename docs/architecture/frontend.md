@@ -527,9 +527,10 @@ chat panel, toggled with `Cmd/Ctrl+J` (Esc closes) or the "Assistant" sidebar
 entry.
 
 - The conversation is created lazily on the first message. The model dropdown
-  renders what `GET /api/assistant/models` offers, and locks once the
-  conversation exists. `glm` only appears when the server has a z.ai key;
-  `sonnet` / `opus` / `haiku` are the fallback if the fetch fails. "New chat"
+  renders what `GET /api/assistant/models` offers — fetched on first panel
+  open, not app load — and locks once the conversation exists. `glm` only
+  appears when the server has a z.ai key; `sonnet` / `opus` / `haiku` are
+  the fallback if the fetch fails (retried on a later open). "New chat"
   deletes the server-side conversation and resets. Conversations are
   ephemeral: a reload loses them.
 - "New chat" is safe mid-turn. Each turn carries a generation counter, and

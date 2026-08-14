@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import json
+import logging
 import stat
 from pathlib import Path
 
@@ -193,6 +194,37 @@ def test_glm_routes_to_zai_endpoint(tmp_path):
     assert opts.env["ANTHROPIC_AUTH_TOKEN"] == "zk-test"
     # the MCP-tool eager-load setting must survive the provider override
     assert opts.env["ENABLE_TOOL_SEARCH"] == "false"
+    asyncio.run(conv.close())
+
+
+def test_zai_routing_covers_every_zai_model(tmp_path, monkeypatch):
+    # policy.ZAI_MODELS is the set of z.ai-routed models; the engine must
+    # consult it rather than a "glm" literal, or a future entry would
+    # silently run on the Claude subscription instead.
+    monkeypatch.setattr(claude_engine, "ZAI_MODELS", ("glm", "glm-air"))
+    engine = make_engine(tmp_path, zai_token="zk-test")
+
+    async def scenario():
+        return await engine.create_conversation(SYSTEM_PROMPT, "glm-air")
+
+    conv = asyncio.run(scenario())
+    opts = FakeSDKClient.instances[0].options
+    assert opts.env["ANTHROPIC_BASE_URL"] == "https://api.z.ai/api/anthropic"
+    assert opts.env["ANTHROPIC_AUTH_TOKEN"] == "zk-test"
+    asyncio.run(conv.close())
+
+
+def test_glm_startup_log_names_the_requested_model(tmp_path, caplog):
+    # The alias rewrite (glm -> sonnet for the SDK) must not reach the log,
+    # or a glm harness is indistinguishable from a real sonnet one.
+    engine = make_engine(tmp_path, zai_token="zk-test")
+
+    async def scenario():
+        return await engine.create_conversation(SYSTEM_PROMPT, "glm")
+
+    with caplog.at_level(logging.INFO, logger="pkm.assistant"):
+        conv = asyncio.run(scenario())
+    assert any("model=glm" in r.getMessage() for r in caplog.records)
     asyncio.run(conv.close())
 
 

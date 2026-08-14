@@ -12,6 +12,8 @@ READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
                                "backlinks", "todos", "search_assets")
 WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch", "upload_asset")
 
+# The Claude trio also exists as the web picker's fetch-failure fallback
+# (useAssistant.ts); a rename or addition there must stay in sync.
 MODELS: tuple[str, ...] = ("sonnet", "opus", "haiku", "glm")
 DEFAULT_MODEL = "sonnet"
 

@@ -1,11 +1,11 @@
 ---
 # pkm-af7s
 title: 'Assistant: z.ai GLM provider via coding plan (Anthropic-compatible endpoint)'
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-08-14T16:43:43Z
-updated_at: 2026-08-14T17:32:10Z
+updated_at: 2026-08-14T17:41:20Z
 ---
 
 Add z.ai GLM support to the assistant without a second engine: ClaudeEngine routes model=glm to the z.ai Anthropic-compatible endpoint (https://api.z.ai/api/anthropic) via ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN in the SDK subprocess env, passing model=sonnet (z.ai maps aliases to its plan-default GLM). Key file PKM_HOME/zai_key (config: zai_api_key_file, env fallback ZAI_API_KEY, file wins). New GET /api/assistant/models exposes available models so the web picker hides glm when no key; create() still 400s on glm without a key.
@@ -21,7 +21,7 @@ Add z.ai GLM support to the assistant without a second engine: ClaudeEngine rout
 - [x] openapi.json regen + gen-types
 - [x] docs: assistant-and-files.md + backend.md API table + deploy note
 - [x] tests green (server pytest, pyrefly, ruff, web verify)
-- [ ] live smoke with real z.ai key (Arthur: verify glm hidden pre-key, then add ~/.config/pkm/zai_key + restart and run a glm conversation)
+- [x] live smoke with real z.ai key (glm hidden pre-key verified on prod endpoint + by Arthur in UI; key added, service restarted, glm offered; live glm turn on prod called the search tool and answered from the graph — harness subprocess env showed ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic and server.err.log shows "assistant harness started (model=glm)")
 
 ## Summary of Changes
 

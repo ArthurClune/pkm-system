@@ -20,16 +20,19 @@ export function memReplica(over: Partial<Replica> = {}): Replica & {
     applySnapshot: async () => undefined,
     applyChanges: async () => ({ status: "applied", cursor: 0 }),
     enqueue: async (ops, batchId) => {
-      enqueued.push(batchId);
-      rows.push({ id: nextId, batch_id: batchId, ops, poisoned: false });
-      nextId += 1;
+      if (ops.length > 0) {
+        enqueued.push(batchId);
+        rows.push({ id: nextId, batch_id: batchId, ops, poisoned: false });
+        nextId += 1;
+      }
       return { pending: pending(), batchId };
     },
     nextBatch: async () => rows.find((r) => !r.poisoned) ?? null,
     pendingBatches: async () => [...rows],
     poisonedBatches: async () => [],
     deleteBatch: async (id) => {
-      rows.splice(rows.findIndex((r) => r.id === id), 1);
+      const index = rows.findIndex((r) => r.id === id);
+      if (index !== -1) rows.splice(index, 1);
       return { pending: pending() };
     },
     markPoisoned: async (id, _error, batchId) => {

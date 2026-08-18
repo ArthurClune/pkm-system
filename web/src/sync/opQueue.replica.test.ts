@@ -452,63 +452,8 @@ test("a write ticket reports delivery only after its durable batch is acknowledg
   await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
 });
 
-test("an unkeyed earlier ticket resolves before a later batch retries", async () => {
-  const replica = memReplica();
-  const enqueue = replica.enqueue.bind(replica);
-  replica.enqueue = async (ops) => {
-    const result = await enqueue(ops);
-    return { pending: result.pending };
-  };
-  fetchSeq([
-    () => jsonResponse({ ok: true }),
-    () => jsonResponse({ detail: "busy" }, 503),
-  ]);
-  const q = createOpQueue(replica, () => undefined);
-  q.setOnline(false);
-  const first = q.enqueue([op("first")]);
-  const second = q.enqueue([op("second")]);
-  await q.settled();
-  q.setOnline(true);
-  await expect(q.drain()).resolves.toMatchObject({ reason: "retryable" });
-
-  let firstOutcome: unknown;
-  let secondOutcome: unknown;
-  void first.delivered.then((outcome) => { firstOutcome = outcome; });
-  void second.delivered.then((outcome) => { secondOutcome = outcome; });
-  await Promise.resolve();
-  expect(firstOutcome).toEqual({ status: "delivered" });
-  expect(secondOutcome).toBeUndefined();
-  q.dispose();
-});
-
-test("an unkeyed ticket receives its matching 4xx terminal outcome", async () => {
-  const replica = memReplica();
-  const enqueue = replica.enqueue.bind(replica);
-  replica.enqueue = async (ops) => {
-    const result = await enqueue(ops);
-    return { pending: result.pending };
-  };
-  fetchSeq([() => jsonResponse({ detail: "bad op" }, 400)]);
-  const q = createOpQueue(replica, () => undefined);
-  q.setOnline(false);
-  const rejected = q.enqueue([op("bad")]);
-  const later = q.enqueue([op("later")]);
-  await q.settled();
-  q.setOnline(true);
-  await expect(q.drain()).resolves.toMatchObject({ reason: "recovering" });
-
-  let rejectedOutcome: unknown;
-  let laterOutcome: unknown;
-  void rejected.delivered.then((outcome) => { rejectedOutcome = outcome; });
-  void later.delivered.then((outcome) => { laterOutcome = outcome; });
-  await Promise.resolve();
-  expect(rejectedOutcome).toMatchObject({ status: "failed" });
-  expect(laterOutcome).toBeUndefined();
-  q.dispose();
-});
-
 test("dispose during replica persistence settles delivery exactly once", async () => {
-  const persisted = deferred<{ pending: number; batchId?: string }>();
+  const persisted = deferred<{ pending: number; batchId: string }>();
   const replica = memReplica({ enqueue: () => persisted.promise });
   const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
   vi.stubGlobal("fetch", fetchMock);

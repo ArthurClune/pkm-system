@@ -132,7 +132,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
       log.push("applyChanges");
       return { status: "applied", cursor: f.next_since };
     },
-    enqueue: async () => ({ pending: 0 }),
+    enqueue: async (_ops, batchId) => ({ pending: 0, batchId }),
     nextBatch: async () => null,
     pendingBatches: async () => [],
     poisonedBatches: async () => [],
@@ -758,9 +758,9 @@ test("rejected batch repair finishes before resync and later delivery", async ()
   });
   replica.enqueue = async (ops) => {
     const id = nextId++;
-    rows.push({ id, batch_id: id === 1 ? "bad-batch" : "good-batch",
-                ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    const batch_id = id === 1 ? "bad-batch" : "good-batch";
+    rows.push({ id, batch_id, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
   };
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.markPoisoned = async (id) => {
@@ -888,9 +888,9 @@ async () => {
   let initCalls = 0;
   replica.enqueue = async (ops) => {
     const id = nextId++;
-    rows.push({ id, batch_id: id === 1 ? "bad-batch" : "later-good",
-                ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    const batch_id = id === 1 ? "bad-batch" : "later-good";
+    rows.push({ id, batch_id, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
   };
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
@@ -1440,9 +1440,9 @@ test("failed poison repair stays visible and Retry succeeds without reapplying i
   });
   replica.enqueue = async (ops) => {
     const id = nextId++;
-    rows.push({ id, batch_id: id === 1 ? "bad-batch" : "good-batch",
-                ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    const batch_id = id === 1 ? "bad-batch" : "good-batch";
+    rows.push({ id, batch_id, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
   };
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.markPoisoned = async (id) => {
@@ -1538,7 +1538,7 @@ test("applySync reads the freshest problem for same-tick dispatches: a dismiss "
     const id = nextId++;
     const batchId = id === 1 ? "bad-batch" : id === 2 ? "good-batch" : "bad-batch-2";
     rows.push({ id, batch_id: batchId, ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId };
   };
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.markPoisoned = async (id) => {
@@ -1632,7 +1632,7 @@ test("offline with a ready replica keeps editing enabled and counts pending", as
   const replica = fakeReplicaForProvider();
   let pendingN = 2;
   replica.pendingCount = async () => pendingN;
-  replica.enqueue = async () => ({ pending: ++pendingN });
+  replica.enqueue = async (_ops, batchId) => ({ pending: ++pendingN, batchId });
   replica.nextBatch = async () => null; // nothing drains in this test
   let sync!: Sync;
   function Grab() {
@@ -1807,7 +1807,7 @@ test("automatic retry completes reconnect feed pull and resync exactly once", as
     });
     replica.enqueue = async (ops) => {
       rows.push({ id: 1, batch_id: "retry-me", ops, poisoned: false });
-      return { pending: rows.length };
+      return { pending: rows.length, batchId: "retry-me" };
     };
     replica.nextBatch = async () => rows[0] ?? null;
     replica.deleteBatch = async () => {
@@ -2195,7 +2195,7 @@ test("an op stranded in the in-memory lane arms the unload guard", async () => {
 test("a durable pending row leaves the unload guard disarmed", async () => {
   const replica = {
     ...fakeReplicaForProvider(),
-    enqueue: async () => ({ pending: 1 }),
+    enqueue: async (_ops: BlockOp[], batchId: string) => ({ pending: 1, batchId }),
     pendingCount: async () => 1,
   };
   let sync!: Sync;

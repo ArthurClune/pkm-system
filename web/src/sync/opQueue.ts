@@ -179,10 +179,6 @@ function createReplicaQueue(replica: Replica,
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
   const deliveries = new Map<string, (outcome: DeliveryOutcome) => void>();
-  const unidentifiedDeliveries: Array<{
-    position: number;
-    resolve(outcome: DeliveryOutcome): void;
-  }> = [];
   const fallback: FallbackEntry[] = [];
   // Durable batches persisted since the last fallback entry was appended:
   // they sit BEHIND that entry and must not overtake it.
@@ -238,20 +234,6 @@ function createReplicaQueue(replica: Replica,
   const finishAllDeliveries = (outcome: DeliveryOutcome): void => {
     for (const resolve of deliveries.values()) resolve(outcome);
     deliveries.clear();
-    while (unidentifiedDeliveries.length > 0) {
-      unidentifiedDeliveries.shift()!.resolve(outcome);
-    }
-  };
-
-  /** Older workers omitted enqueue batch ids. Their returned pending count is
-   * the ticket's FIFO position among deliverable durable rows. */
-  const finishObservedUnidentified = (outcome: DeliveryOutcome): void => {
-    const retained: typeof unidentifiedDeliveries = [];
-    for (const delivery of unidentifiedDeliveries) {
-      if (delivery.position === 1) delivery.resolve(outcome);
-      else retained.push({ ...delivery, position: delivery.position - 1 });
-    }
-    unidentifiedDeliveries.splice(0, unidentifiedDeliveries.length, ...retained);
   };
 
   const runEffects = (effects: readonly QueueEffect[]): void => {
@@ -477,7 +459,6 @@ function createReplicaQueue(replica: Replica,
           poisonPending.emit(undefined);
           const firstRejection = rememberPoisonMark(event);
           finishDelivery(batch.batch_id, { status: "failed", error });
-          finishObservedUnidentified({ status: "failed", error });
           // Terminal for this batch: it is never POSTed again (the barrier
           // holds until the repair, and marking is retried, never delivery), so
           // it stops standing ahead of a retained entry from here. Keyed to a
@@ -505,11 +486,13 @@ function createReplicaQueue(replica: Replica,
       }
       pendingCount = result.pending;
       finishDelivery(batch.batch_id, { status: "delivered" });
-      finishObservedUnidentified({ status: "delivered" });
       durableBatchSettled();
       if (pendingCount === 0) {
-        // Test replicas and older workers may not return enqueue batch ids;
-        // an empty durable queue proves those in-memory tickets delivered.
+        // A durable row can be deleted outside this drain (a recovery flush
+        // or a rebase settle): its ticket never gets a matching finishDelivery
+        // call here, so it stays in `deliveries` unresolved. Once the durable
+        // queue is observed empty, every remaining ticket must have been
+        // delivered by one of those out-of-band paths — settle them now.
         finishAllDeliveries({ status: "delivered" });
       }
       emitPending();
@@ -607,11 +590,6 @@ function createReplicaQueue(replica: Replica,
           if (qstate.disposed) {
             resolveDelivery({
               status: "failed", error: new Error("op queue disposed"),
-            });
-          } else if (result.batchId === undefined) {
-            unidentifiedDeliveries.push({
-              position: result.pending,
-              resolve: resolveDelivery,
             });
           } else {
             deliveries.set(result.batchId, resolveDelivery);

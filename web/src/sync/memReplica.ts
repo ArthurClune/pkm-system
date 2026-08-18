@@ -20,11 +20,10 @@ export function memReplica(over: Partial<Replica> = {}): Replica & {
     applySnapshot: async () => undefined,
     applyChanges: async () => ({ status: "applied", cursor: 0 }),
     enqueue: async (ops, batchId) => {
-      const id = batchId ?? `batch-${nextId}`;
-      enqueued.push(id);
-      rows.push({ id: nextId, batch_id: id, ops, poisoned: false });
+      enqueued.push(batchId);
+      rows.push({ id: nextId, batch_id: batchId, ops, poisoned: false });
       nextId += 1;
-      return { pending: pending(), batchId: id };
+      return { pending: pending(), batchId };
     },
     nextBatch: async () => rows.find((r) => !r.poisoned) ?? null,
     pendingBatches: async () => [...rows],

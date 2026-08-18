@@ -36,7 +36,7 @@ function fakeReplica(over: Partial<Replica> = {},
     applySnapshot: () => rec("applySnapshot", undefined),
     applyChanges: (f: Changes) =>
       rec<ApplyResult>("applyChanges", { status: "applied", cursor: f.next_since }),
-    enqueue: () => rec("enqueue", { pending: 0 }),
+    enqueue: () => rec("enqueue", { pending: 0, batchId: "batch-1" }),
     nextBatch: () => rec<PendingBatch | null>("nextBatch", null),
     deleteBatch: () => rec("deleteBatch", { pending: 0 }),
     markPoisoned: () => rec("markPoisoned", { pending: 0 }),

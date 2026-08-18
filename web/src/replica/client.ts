@@ -57,12 +57,12 @@ export interface Replica {
   applyChanges(feed: Changes,
                expectedPendingIds?: readonly number[]): Promise<ApplyResult>;
   /** su05: persist + optimistically apply; returns pending count. The caller
-   * mints batchId BEFORE this call: if the reply is lost after the row was
-   * persisted, the copy the caller retains still shares the row's id, so a
-   * duplicate delivery hits the server's replay dedup instead of a
-   * create-collision 400 (pkm-ybgt). Omitted => the worker mints one. */
+   * ALWAYS mints batchId BEFORE this call: if the reply is lost after the row
+   * was persisted, the copy the caller retains still shares the row's id, so
+   * a duplicate delivery hits the server's replay dedup instead of a
+   * create-collision 400 (pkm-ybgt). */
   enqueue(ops: BlockOp[],
-          batchId?: string): Promise<{ pending: number; batchId?: string }>;
+          batchId: string): Promise<{ pending: number; batchId: string }>;
   nextBatch(): Promise<PendingBatch | null>;
   /** All queued batches, oldest first (recovery flush reads). */
   pendingBatches(): Promise<PendingBatch[]>;

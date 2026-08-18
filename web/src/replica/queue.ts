@@ -24,7 +24,7 @@ const currentText = (db: ReplicaDb, uid: string): string | null => {
 export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
                              batchId: string): {
   pending: number;
-  batchId?: string;
+  batchId: string;
 } {
   const violation = findOpTitleViolation(ops);
   if (violation !== null) {
@@ -65,10 +65,7 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
               [batchId, JSON.stringify(augmented)]);
     });
   }
-  return {
-    pending: pendingCount(db),
-    ...(ops.length > 0 ? { batchId } : {}),
-  };
+  return { pending: pendingCount(db), batchId };
 }
 
 const toBatch = (r: { id: number; batch_id: string; ops_json: string;

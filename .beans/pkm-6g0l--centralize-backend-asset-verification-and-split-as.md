@@ -1,14 +1,14 @@
 ---
 # pkm-6g0l
 title: Centralize backend asset verification and split asset staging workflows
-status: in-progress
+status: completed
 type: task
 priority: high
 tags:
     - review
     - backend
 created_at: 2026-08-17T20:55:20Z
-updated_at: 2026-08-18T12:13:42Z
+updated_at: 2026-08-18T13:33:03Z
 parent: pkm-wvvu
 ---
 

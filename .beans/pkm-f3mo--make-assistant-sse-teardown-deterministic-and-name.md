@@ -1,14 +1,14 @@
 ---
 # pkm-f3mo
 title: Make assistant SSE teardown deterministic and name lifecycle protocols
-status: in-progress
+status: completed
 type: bug
 priority: high
 tags:
     - review
     - backend
 created_at: 2026-08-17T20:55:22Z
-updated_at: 2026-08-18T12:14:31Z
+updated_at: 2026-08-18T13:33:03Z
 parent: pkm-wvvu
 ---
 

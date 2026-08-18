@@ -47,15 +47,15 @@
 
 **Steps:**
 
-- [ ] **Step 1: Move `memReplica` to `web/src/sync/memReplica.ts`.** Copy lines 19-60 of opQueue.replica.test.ts verbatim into the new file with the needed imports (`Replica`, `PendingBatch` from `../replica/client`), export it, and add a header comment `// Test fake: in-memory Replica mirroring queue.ts semantics. Not shipped — imported only by tests.` Update opQueue.replica.test.ts to import it. Run `cd web && pnpm test:unit -- opQueue` — all existing tests must stay green.
+- [x] **Step 1: Move `memReplica` to `web/src/sync/memReplica.ts`.** Copy lines 19-60 of opQueue.replica.test.ts verbatim into the new file with the needed imports (`Replica`, `PendingBatch` from `../replica/client`), export it, and add a header comment `// Test fake: in-memory Replica mirroring queue.ts semantics. Not shipped — imported only by tests.` Update opQueue.replica.test.ts to import it. Run `cd web && pnpm test:unit -- opQueue` — all existing tests must stay green.
 
-- [ ] **Step 2: Build the disposition table for the 21 tests in `opQueue.test.ts`.** For each test decide one of: **(a) DELETE-covered** — an existing test in opQueue.replica.test.ts pins the same policy (name it); **(b) DELETE-legacy-only** — the behavior belongs to the legacy queue's mechanism (`MAX_BATCH` reslicing, frozen-slice retry replay, legacy ticket semantics) and has no replica-queue analogue by design; **(c) PORT** — a queue POLICY (connectivity, barrier, missed-kick, backoff, dispose) not yet pinned for the replica queue. Starting expectation (verify each against the actual replica test file before trusting it):
+- [x] **Step 2: Build the disposition table for the 21 tests in `opQueue.test.ts`.** For each test decide one of: **(a) DELETE-covered** — an existing test in opQueue.replica.test.ts pins the same policy (name it); **(b) DELETE-legacy-only** — the behavior belongs to the legacy queue's mechanism (`MAX_BATCH` reslicing, frozen-slice retry replay, legacy ticket semantics) and has no replica-queue analogue by design; **(c) PORT** — a queue POLICY (connectivity, barrier, missed-kick, backoff, dispose) not yet pinned for the replica queue. Starting expectation (verify each against the actual replica test file before trusting it):
   - Expected (b) DELETE-legacy-only: `batches larger than 500 ops split...` (:223), `legacy 4xx fails only tickets touched...` (:270), `legacy queue sends a batch_id and freezes the slice...` (:333), `ops enqueued in the same tick coalesce...` (:25), `legacy offline enqueue settles in memory...` (:234), `legacy write ticket reports delivery only after...` (:250).
   - Expected (a) DELETE-covered: offline no-HTTP (:133), reconnect flush order (:144), 503 retry 250ms (:312), terminal-state `test.each` (:450), in-flight → next batch (:38), failed batch reports desync (:58).
   - Expected (c) PORT candidates (port only if genuinely uncovered): onDesync re-enqueue not stranded (:75), async resume hands missed kick (:90), throwing onDesync doesn't poison drain (:116), in-flight POST completes after offline (:156), missed kick barred by recovery (:180), dispose drops missed kick (:203), missed kick doesn't bypass backoff (:365), dispose cancels retry (:400), reconnect resets retry delay (:422).
   Record the final table (test name → disposition → covering-test name or new-test name) in your report file. Every one of the 21 must appear.
 
-- [ ] **Step 3: Write the ported tests (red first where possible).** Add each PORT test to opQueue.replica.test.ts using `memReplica()` + the file's existing `fetchSeq` helper, following the file's existing style. Example port for `a throwing onDesync does not poison the queue or drain()`:
+- [x] **Step 3: Write the ported tests (red first where possible).** Add each PORT test to opQueue.replica.test.ts using `memReplica()` + the file's existing `fetchSeq` helper, following the file's existing style. Example port for `a throwing onDesync does not poison the queue or drain()`:
 
   ```ts
   test("a throwing onDesync does not poison the queue or drain()", async () => {
@@ -81,9 +81,9 @@
 
   Adapt assertions to what the replica queue actually promises (e.g. a 4xx here poisons the durable row and retains the intent — assert via `replica.rows` / `queue.poisonMarkIntents()` where the legacy test asserted in-memory state). These run green against the CURRENT queue (the replica queue already implements the policies) — that is expected; the point is pinning coverage before the deletion.
 
-- [ ] **Step 4: Run the new tests.** `cd web && pnpm test:unit -- opQueue.replica` — all green, including ports.
+- [x] **Step 4: Run the new tests.** `cd web && pnpm test:unit -- opQueue.replica` — all green, including ports.
 
-- [ ] **Step 5: Delete the legacy queue.** In opQueue.ts remove `createLegacyQueue` (:730-942), `MAX_BATCH` (:17), and rewrite the factory:
+- [x] **Step 5: Delete the legacy queue.** In opQueue.ts remove `createLegacyQueue` (:730-942), `MAX_BATCH` (:17), and rewrite the factory:
 
   ```ts
   export function createOpQueue(replica: Replica,
@@ -96,11 +96,11 @@
 
   Delete `web/src/sync/opQueue.test.ts`. Update the queueState.ts:3 comment ("legacy in-memory queues" → the single replica-backed queue). Keep `createReplicaQueue` itself untouched in this task.
 
-- [ ] **Step 6: Fix the SyncProvider seam.** `SyncProvider.tsx:194` currently calls `createOpQueue(replicaRef.current ?? null, ...)`. Grep every test that renders `<SyncProvider` (SyncProvider.test.tsx and any component test): if all pass a `replica` prop, change the provider so a missing replica is a hard error — in the `replicaRef` initialization (:183-192), when the prop is absent AND `defaultReplica()` returns null, `throw new Error("SyncProvider requires a Replica: pass the replica prop in tests (jsdom has no Worker)")` — and drop the `?? null`. If any test renders it bare, give that test `memReplica()` via the prop instead of weakening the provider. Do not change production wiring (`App.tsx` renders bare `<SyncProvider>`; a real browser always has `Worker`).
+- [x] **Step 6: Fix the SyncProvider seam.** `SyncProvider.tsx:194` currently calls `createOpQueue(replicaRef.current ?? null, ...)`. Grep every test that renders `<SyncProvider` (SyncProvider.test.tsx and any component test): if all pass a `replica` prop, change the provider so a missing replica is a hard error — in the `replicaRef` initialization (:183-192), when the prop is absent AND `defaultReplica()` returns null, `throw new Error("SyncProvider requires a Replica: pass the replica prop in tests (jsdom has no Worker)")` — and drop the `?? null`. If any test renders it bare, give that test `memReplica()` via the prop instead of weakening the provider. Do not change production wiring (`App.tsx` renders bare `<SyncProvider>`; a real browser always has `Worker`). (Done via `absentReplica()` instead of throwing — 11 sites pass `replica={null}` on purpose to exercise no-replica mode, so the provider had to answer "no replica" rather than reject it; see task-1-report § CONCERN 1. Every method of `absentReplica()` rejects with `ReplicaUnavailableError`, which the queue already latches into lane-only delivery, so behavior is unchanged and unreachable in production.)
 
-- [ ] **Step 7: Full gate.** `cd web && pnpm typecheck && pnpm test:unit && pnpm test:coverage` — thresholds (95/91/89/95) must pass. If coverage newly fails on `memReplica.ts` lines, prefer covering them via tests you control; only as a last resort add it to the vite.config.ts coverage `exclude` (it is a test fake, same footing as the excluded `src/test-helpers.ts`), and say so in the report.
+- [x] **Step 7: Full gate.** `cd web && pnpm typecheck && pnpm test:unit && pnpm test:coverage` — thresholds (95/91/89/95) must pass. If coverage newly fails on `memReplica.ts` lines, prefer covering them via tests you control; only as a last resort add it to the vite.config.ts coverage `exclude` (it is a test fake, same footing as the excluded `src/test-helpers.ts`), and say so in the report. (Done via the last-resort exclude — `src/sync/memReplica.ts` is registered in `vite.config.ts`'s coverage exclude and `tooling/fcis-exemptions.json`, same footing as `src/test-helpers.ts`.)
 
-- [ ] **Step 8: Commit.** `git add -A web/src docs/superpowers/plans web/vite.config.ts` (as applicable), commit: `refactor(sync): retire createLegacyQueue; queue policy tests ride the fake Replica (pkm-w5gf)`.
+- [x] **Step 8: Commit.** `git add -A web/src docs/superpowers/plans web/vite.config.ts` (as applicable), commit: `refactor(sync): retire createLegacyQueue; queue policy tests ride the fake Replica (pkm-w5gf)`.
 
 ### Task 2: Make enqueue batch ids required end-to-end; delete unidentified-delivery bookkeeping
 
@@ -119,19 +119,19 @@
 
 **Steps:**
 
-- [ ] **Step 1: Red.** Change `Replica.enqueue` in client.ts to `enqueue(ops: BlockOp[], batchId: string): Promise<{ pending: number; batchId: string }>` (update the doc comment: the caller ALWAYS mints the id — keep the pkm-ybgt lost-reply rationale, drop the "Omitted => the worker mints one" sentence). Run `pnpm typecheck` — expect failures at memReplica, opQueue.ts:613, and the two unkeyed tests. That failure list is the checklist for this task.
+- [x] **Step 1: Red.** Change `Replica.enqueue` in client.ts to `enqueue(ops: BlockOp[], batchId: string): Promise<{ pending: number; batchId: string }>` (update the doc comment: the caller ALWAYS mints the id — keep the pkm-ybgt lost-reply rationale, drop the "Omitted => the worker mints one" sentence). Run `pnpm typecheck` — expect failures at memReplica, opQueue.ts:613, and the two unkeyed tests. That failure list is the checklist for this task.
 
-- [ ] **Step 2: Worker side.** In workerHandlers.ts `enqueue` (:162-177): delete the `Array.isArray` branch and its "older bundles" comment; destructure `const { ops, batchId } = payload as { ops: BlockOp[]; batchId: string };` and call `enqueueBatch(d, ops, nowMs(), batchId)`. In `markPoisoned` (:186-201): make `batchId` required in the payload type and drop its "older direct handler callers" tolerance (opQueue.ts:343-345 always sends it; no bundle skew is possible — worker and main bundle ship from one hashed build). Keep `newBatchId` in WorkerDeps — the localApi router still consumes it.
+- [x] **Step 2: Worker side.** In workerHandlers.ts `enqueue` (:162-177): delete the `Array.isArray` branch and its "older bundles" comment; destructure `const { ops, batchId } = payload as { ops: BlockOp[]; batchId: string };` and call `enqueueBatch(d, ops, nowMs(), batchId)`. In `markPoisoned` (:186-201): make `batchId` required in the payload type and drop its "older direct handler callers" tolerance (opQueue.ts:343-345 always sends it; no bundle skew is possible — worker and main bundle ship from one hashed build). Keep `newBatchId` in WorkerDeps — the localApi router still consumes it.
 
-- [ ] **Step 3: Durable layer.** In queue.ts make `enqueueBatch`'s return include `batchId` unconditionally (delete the `...(ops.length > 0 ? { batchId } : {})` spread and the `batchId?` in the return type) — opQueue.ts:580-584 already short-circuits empty enqueues before the RPC, and the localApi caller passes a real id.
+- [x] **Step 3: Durable layer.** In queue.ts make `enqueueBatch`'s return include `batchId` unconditionally (delete the `...(ops.length > 0 ? { batchId } : {})` spread and the `batchId?` in the return type) — opQueue.ts:580-584 already short-circuits empty enqueues before the RPC, and the localApi caller passes a real id.
 
-- [ ] **Step 4: Queue bookkeeping deletion.** In opQueue.ts delete `unidentifiedDeliveries`, `finishObservedUnidentified`, both call sites, and the undefined-batchId branch in the persist closure (:609-620 becomes: disposed check, then `deliveries.set(result.batchId, resolveDelivery)`). In `finishAllDeliveries` delete the unidentified drain loop. KEEP the `pendingCount === 0 → finishAllDeliveries` block at :512-516 but rewrite its comment: the remaining reason is rows deleted outside the drain (a recovery flush/rebase) whose tickets must settle as delivered once the durable queue is observed empty. Keep the `batch === null` branch (:448-461) untouched.
+- [x] **Step 4: Queue bookkeeping deletion.** In opQueue.ts delete `unidentifiedDeliveries`, `finishObservedUnidentified`, both call sites, and the undefined-batchId branch in the persist closure (:609-620 becomes: disposed check, then `deliveries.set(result.batchId, resolveDelivery)`). In `finishAllDeliveries` delete the unidentified drain loop. KEEP the `pendingCount === 0 → finishAllDeliveries` block at :512-516 but rewrite its comment: the remaining reason is rows deleted outside the drain (a recovery flush/rebase) whose tickets must settle as delivered once the durable queue is observed empty. Keep the `batch === null` branch (:448-461) untouched.
 
-- [ ] **Step 5: Tests.** Update memReplica (`batchId: string` param, no fallback mint). Delete the two unkeyed tests (:497, :526) — note in the report they are deleted because their premise (a batch-id-less reply) is now unrepresentable in the type system, which is the point of the change. Fix workerHandlers.test.ts call sites to the object shape. Verify the pkm-ybgt test (`a lost-reply enqueue retains the lane copy under the durable row's batch id`, :427) still passes unmodified — it is the load-bearing proof for this contract.
+- [x] **Step 5: Tests.** Update memReplica (`batchId: string` param, no fallback mint). Delete the two unkeyed tests (:497, :526) — note in the report they are deleted because their premise (a batch-id-less reply) is now unrepresentable in the type system, which is the point of the change. Fix workerHandlers.test.ts call sites to the object shape. Verify the pkm-ybgt test (`a lost-reply enqueue retains the lane copy under the durable row's batch id`, :427) still passes unmodified — it is the load-bearing proof for this contract.
 
-- [ ] **Step 6: Gate.** `cd web && pnpm typecheck && pnpm test:unit`. Expected: green, with exactly the deleted tests gone.
+- [x] **Step 6: Gate.** `cd web && pnpm typecheck && pnpm test:unit`. Expected: green, with exactly the deleted tests gone.
 
-- [ ] **Step 7: Commit.** `refactor(replica): enqueue batch ids are required end-to-end; drop unidentified-delivery FIFO (pkm-w5gf)`.
+- [x] **Step 7: Commit.** `refactor(replica): enqueue batch ids are required end-to-end; drop unidentified-delivery FIFO (pkm-w5gf)`.
 
 ### Task 3: Local API deps become required; delete the dead re-export
 
@@ -146,10 +146,10 @@
 
 **Steps:**
 
-- [ ] **Step 1: Red.** Make `deps` required in the signature; `pnpm typecheck` — the failure list enumerates every test call site to fix.
-- [ ] **Step 2: Green.** Drop `&& deps` from the `POST /api/pages` guard. Fix test call sites to pass `{ newBatchId: () => "batch-test-1" }` (or the file's existing convention). Delete the without-deps test — its behavior (silent NOT_HANDLED degrade) is exactly the failure mode the bean retires; a future caller forgetting deps is now a compile error, which is strictly stronger than the test was.
-- [ ] **Step 3: Dead re-export.** Delete router.ts:148. Verify with `grep -rn "from \"./localApi/router\"\|from \"../localApi/router\"" web/src | grep -v "LocalApiRequest\|LocalApiResult"` that nothing imported the two names via router. Keep imports at :9/:15 only if the file body still uses them (it does — the daily/FTS routes); confirm by grep within the file.
-- [ ] **Step 4: Gate + commit.** `cd web && pnpm typecheck && pnpm test:unit`. Commit: `refactor(replica): localApi deps are required; drop dead router re-export (pkm-w5gf)`.
+- [x] **Step 1: Red.** Make `deps` required in the signature; `pnpm typecheck` — the failure list enumerates every test call site to fix.
+- [x] **Step 2: Green.** Drop `&& deps` from the `POST /api/pages` guard. Fix test call sites to pass `{ newBatchId: () => "batch-test-1" }` (or the file's existing convention). Delete the without-deps test — its behavior (silent NOT_HANDLED degrade) is exactly the failure mode the bean retires; a future caller forgetting deps is now a compile error, which is strictly stronger than the test was.
+- [x] **Step 3: Dead re-export.** Delete router.ts:148. Verify with `grep -rn "from \"./localApi/router\"\|from \"../localApi/router\"" web/src | grep -v "LocalApiRequest\|LocalApiResult"` that nothing imported the two names via router. Keep imports at :9/:15 only if the file body still uses them (it does — the daily/FTS routes); confirm by grep within the file.
+- [x] **Step 4: Gate + commit.** `cd web && pnpm typecheck && pnpm test:unit`. Commit: `refactor(replica): localApi deps are required; drop dead router re-export (pkm-w5gf)`.
 
 ### Task 4: Extract named protocols from `runDrain`; rename the side-effecting `laneOnly`
 
@@ -162,11 +162,11 @@
 
 **Steps:**
 
-- [ ] **Step 1: Extract `deliverLaneHead`.** Pull the lane-head branch (today :405-432, post-Task-2 numbering will differ) into a closure `const deliverLaneHead = async (head: FallbackEntry): Promise<DrainOutcome | null> => { ... }` returning `null` for "delivered, keep looping" and a `DrainOutcome` to return. Move the branch's comments with it verbatim.
-- [ ] **Step 2: Extract `rejectDurableBatch`.** Pull the durable 4xx protocol (today :466-498) into `const rejectDurableBatch = async (batch: PendingBatch, error: ApiError): Promise<DrainOutcome> => { ... }`. The ordering comments (pause → poisonPending → rememberPoisonMark → finishDelivery → durableBatchSettled-once → markRetainedPoison) move with the code — they are the protocol's spec; do not thin them.
-- [ ] **Step 3: Rename `laneOnly`.** Split the side effect from the decision: `const clearDurablePrecedence = (): void => { for (const entry of fallback) entry.durableAhead = 0; durableSinceFallback = 0; };` and a caller-side decision that keeps the exact same control flow at both call sites (:434, :444) and the `batch === null` branch (:457-458) which performs the same clearing — route all three through `clearDurablePrecedence()`. Preserve the big lane-only doc comment (:374-393) attached to wherever the decision now lives.
-- [ ] **Step 4: Gate.** `cd web && pnpm test:unit -- opQueue.replica && pnpm typecheck`. Then run the FULL unit suite once (`pnpm test:unit`) — refactors here have historically broken SyncProvider tests via subtle timing, and the suite is the only detector.
-- [ ] **Step 5: Commit.** `refactor(sync): name runDrain's lane-head and 4xx-poison protocols (pkm-w5gf)`.
+- [x] **Step 1: Extract `deliverLaneHead`.** Pull the lane-head branch (today :405-432, post-Task-2 numbering will differ) into a closure `const deliverLaneHead = async (head: FallbackEntry): Promise<DrainOutcome | null> => { ... }` returning `null` for "delivered, keep looping" and a `DrainOutcome` to return. Move the branch's comments with it verbatim.
+- [x] **Step 2: Extract `rejectDurableBatch`.** Pull the durable 4xx protocol (today :466-498) into `const rejectDurableBatch = async (batch: PendingBatch, error: ApiError): Promise<DrainOutcome> => { ... }`. The ordering comments (pause → poisonPending → rememberPoisonMark → finishDelivery → durableBatchSettled-once → markRetainedPoison) move with the code — they are the protocol's spec; do not thin them.
+- [x] **Step 3: Rename `laneOnly`.** Split the side effect from the decision: `const clearDurablePrecedence = (): void => { for (const entry of fallback) entry.durableAhead = 0; durableSinceFallback = 0; };` and a caller-side decision that keeps the exact same control flow at both call sites (:434, :444) and the `batch === null` branch (:457-458) which performs the same clearing — route all three through `clearDurablePrecedence()`. Preserve the big lane-only doc comment (:374-393) attached to wherever the decision now lives.
+- [x] **Step 4: Gate.** `cd web && pnpm test:unit -- opQueue.replica && pnpm typecheck`. Then run the FULL unit suite once (`pnpm test:unit`) — refactors here have historically broken SyncProvider tests via subtle timing, and the suite is the only detector.
+- [x] **Step 5: Commit.** `refactor(sync): name runDrain's lane-head and 4xx-poison protocols (pkm-w5gf)`.
 
 ### Task 5: Docs, bean closure, full verification gate
 
@@ -178,10 +178,10 @@
 
 **Steps:**
 
-- [ ] **Step 1: Docs pass.** Invoke the `architecture-docs` skill before editing anything under docs/architecture/. Grep both docs for `legacy`, `MAX_BATCH`, `unidentified`, `opQueue.test` and fix only what is now wrong. Docs-only edits need no test run, but this task also owns the final gate below.
-- [ ] **Step 2: Bean update.** Tick every satisfied acceptance criterion checkbox; the "Reconcile with pkm-tu5k" criterion is satisfied by the Global Constraints note (gate untouched) — say so explicitly in the bean.
-- [ ] **Step 3: Full gate.** From the worktree root: `cd web && CI=true pnpm verify` (typecheck, lint, FCIS check, coverage-enforced unit tests, vite build, Playwright e2e). Also `pnpm build` happens inside verify. Paste the tail of the output in the report. Known flakes: see the repo's e2e conventions — a load-sensitive flake may be retried once, but report it.
-- [ ] **Step 4: Commit.** `docs(pkm-w5gf): close out legacy-queue retirement — docs + bean` including bean + plan + doc files.
+- [x] **Step 1: Docs pass.** Invoke the `architecture-docs` skill before editing anything under docs/architecture/. Grep both docs for `legacy`, `MAX_BATCH`, `unidentified`, `opQueue.test` and fix only what is now wrong. Docs-only edits need no test run, but this task also owns the final gate below.
+- [x] **Step 2: Bean update.** Tick every satisfied acceptance criterion checkbox; the "Reconcile with pkm-tu5k" criterion is satisfied by the Global Constraints note (gate untouched) — say so explicitly in the bean.
+- [x] **Step 3: Full gate.** From the worktree root: `cd web && CI=true pnpm verify` (typecheck, lint, FCIS check, coverage-enforced unit tests, vite build, Playwright e2e). Also `pnpm build` happens inside verify. Paste the tail of the output in the report. Known flakes: see the repo's e2e conventions — a load-sensitive flake may be retried once, but report it.
+- [x] **Step 4: Commit.** `docs(pkm-w5gf): close out legacy-queue retirement — docs + bean` including bean + plan + doc files.
 
 ---
 

@@ -73,6 +73,32 @@ test("confirming the delete dialog deletes the page and returns to the journal",
   expect(res.status()).toBe(404);
 });
 
+// pkm-2i6a: the page menu takes its dismissal from the shared useDismiss
+// hook. Covered here in a real browser because the menu's trigger sits
+// inside the same wrapper the hook tests for containment -- a click on it
+// must toggle, not dismiss-then-reopen.
+test("the page menu dismisses on Escape and on an outside click", async ({ page }) => {
+  const title = `PageMenuDismiss${Date.now()}`;
+  await login(page);
+  await createAndVisitPage(page, title);
+  const trigger = page.getByRole("button", { name: "Page menu" });
+  const menu = page.getByRole("menu");
+
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  // inside the menu: a setting that deliberately leaves the menu open
+  await page.getByRole("menuitem", { name: /timestamps/ }).click();
+  await expect(menu).toBeVisible();
+  // outside: the top bar's own label, inert chrome beside the menu wrapper
+  await page.locator(".top-bar-title").click();
+  await expect(menu).toHaveCount(0);
+});
+
 test("Escape cancels the delete confirm dialog (keyboard accessibility)", async ({ page }) => {
   const title = `DeletePageEscape${Date.now()}`;
   await login(page);

@@ -541,6 +541,24 @@ test("Escape and click-away close the block menu (pkm-y6af)", () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
+// The menu's own keys (roving focus, Tab-to-close) live in a different effect
+// from its Escape/click-away dismissal, so they need coverage that would
+// notice one of the two going missing.
+test("the block menu keeps its roving focus and Tab-closes", () => {
+  const { container } = mount(handlers(), null);
+  fireEvent.click(bullet(container, "u1"));
+  const copy = screen.getByRole("menuitem", { name: "Copy block reference" });
+  expect(copy).toHaveFocus();
+  // fired on document, where the listener is: firing on a menu item would
+  // also run the tree's own Tab handling on the way up
+  fireEvent.keyDown(document, { key: "ArrowDown" });
+  expect(screen.getByRole("menuitemradio", { name: "Plain text" })).toHaveFocus();
+  fireEvent.keyDown(document, { key: "ArrowUp" });
+  expect(copy).toHaveFocus();
+  fireEvent.keyDown(document, { key: "Tab" });
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
 test("the block menu also opens in read-only mode (pkm-y6af)", () => {
   // copying a ref is read-only-safe, same as multi-block copy
   const { container } = mount(handlers(), null, true);

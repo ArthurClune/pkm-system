@@ -136,8 +136,8 @@ def _walk_block(block: Block) -> tuple[Block, ...]:
 
 
 def _rewrite_block(block: Block, title_map: dict[str, str]) -> Block:
-    # title_map is keyed the way extract() reports titles, so the rewriter is
-    # told to normalize each spelling it finds before looking it up.
+    # Every lookup normalizes first, which reaches both halves of title_map's
+    # key set -- see _collect_title_locations for why that is safe.
     return Block(
         uid=block.uid,
         text=rewrite_title_refs_map(
@@ -157,6 +157,15 @@ def _collect_title_locations(export: Export) -> dict[str, list[str]]:
 
     Page titles come first so a page's own location wins the one that decides
     the refusal message; block refs are recorded in walk order after them.
+
+    The two kinds of key are spelled differently, and _rewrite_block depends
+    on it. A page title is recorded raw, so a key here can hold control
+    whitespace that extract() would never report; a block ref is recorded as
+    extract() normalized it. The rewriter looks up normalized spellings only,
+    so a raw key is reached through its normalized twin -- which exists for
+    any spelling block text contains, because extract() read that same text.
+    A raw key with no twin is one no block mentions, and only the page's own
+    retitling looks it up.
     """
     locations: dict[str, list[str]] = {}
     for index, page in enumerate(export.pages):

@@ -88,6 +88,14 @@ def test_attribute_rewrite_keeps_the_indent_in_front_of_it():
     assert rewrite_title_refs("\tOld:: v", "Old", "New") == "\tNew:: v"
 
 
+def test_attribute_rewrite_keeps_a_code_span_in_front_of_it():
+    # strip_code() blanks the code to spaces, so a column-0 attribute match
+    # would start its span at offset 0 and splice the new title over the code.
+    assert rewrite_title_refs("`x` Old:: v", "Old", "New") == "`x` New:: v"
+    assert rewrite_title_refs("```\nc\n``` Old:: v", "Old", "New") == \
+        "```\nc\n``` New:: v"
+
+
 def test_attribute_behind_a_leading_newline_is_rewritten():
     # _ATTRIBUTE cannot cross a newline, so this is reachable only because
     # the scan is anchored past the leading whitespace, as extract() is.

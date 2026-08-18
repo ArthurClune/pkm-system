@@ -9,7 +9,9 @@
 
 import { ApiError } from "../api/client";
 import type { Changes, Snapshot } from "../replica/apply";
-import type { PendingBatch, RecoveryCommit, Replica, ReplicaInit } from "../replica/client";
+import type {
+  PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
+} from "../replica/client";
 import { availabilityOf, ReplicaError } from "../replica/errors";
 import type { OpQueue } from "./opQueue";
 
@@ -75,6 +77,47 @@ export interface ReplicaSyncDeps {
 
 const errText = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
+
+/** What a recovery run does with the lease's pending batches. The queue is the
+ * user's intent, so this is a policy per entrant rather than a boolean. */
+type FlushPolicy =
+  /** Post nothing: poison repair must not push later valid rows ahead of a
+   * batch the server already refused. */
+  | "skip"
+  /** Post oldest-first, abandoning the run the moment a poison repair claims
+   * recovery — the lease's batch list was read before the durable mark, so it
+   * is stale. */
+  | "preemptible"
+  /** Post oldest-first, and treat failure as a refusal rather than an outage:
+   * the caller gets `ResetBlockedError` and an intact database, and must
+   * re-ask with discardPending to proceed. */
+  | "blocking";
+
+/** Everything that differs between the entrants to the recovery lease
+ * (schema/feed recovery, poison repair, manual reset), named here so the
+ * lifecycle itself exists once. */
+interface RecoveryOptions {
+  flush: FlushPolicy;
+  /** Release the delivery barrier when the run ends. False only for poison
+   * repair, where the provider resumes after deleting the durable row and
+   * scheduling resync. */
+  resume: boolean;
+  /** Report mode "recovery-failed" when the run throws. False where the
+   * caller owns the report: poison repair and the manual reset each have
+   * their own banner, and a stall report over it would contradict them. */
+  reportReplicaFailure: boolean;
+  /** Wait for a pull that already passed the pending-id guard before taking
+   * the lease: its stale window could otherwise apply after the fresh
+   * snapshot and move the cursor/state backwards. Must stay false for
+   * recovery that runs *inside* pullLoop, which would deadlock awaiting the
+   * pull it is part of. */
+  awaitInFlightPull: boolean;
+  /** Force mode "ready" and (re)enable pulls after the commit. Only the
+   * manual reset does this: it resolves a recovery-failed state whether or
+   * not a failure was ever announced, and whether `started` was left false by
+   * a failed doStart or true by a failed in-pull recovery. */
+  forceReadyOnSuccess: boolean;
+}
 
 /** Thrown by pullLoop when the pending-batch id list never stops changing
  * (PENDING_CHANGED_CAP retries exhausted): a real replica-side stall, not a
@@ -190,26 +233,47 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     }
   };
 
-  const runRecovery = async (kind: RecoveryCommit["kind"], options: {
-    flush: boolean;
-    resume: boolean;
-    reportReplicaFailure: boolean;
-  }): Promise<void> => {
+  const flushLease = async (
+    lease: RecoveryLease, policy: FlushPolicy,
+  ): Promise<void> => {
+    if (policy === "skip") return;
+    if (policy === "preemptible") {
+      assertNormalRecoveryStillOwnsFlush();
+      await flushBatches(
+        [...lease.batches], assertNormalRecoveryStillOwnsFlush,
+      );
+      return;
+    }
+    try {
+      await flushBatches([...lease.batches], () => undefined);
+    } catch {
+      throw new ResetBlockedError(
+        lease.batches.filter((b) => !b.poisoned).length,
+      );
+    }
+  };
+
+  /** The one recovery-lease lifecycle: barrier, lease, flush, snapshot,
+   * commit, release. Every entrant runs it with different `RecoveryOptions`
+   * rather than its own copy, so a lease-handling fix lands once. */
+  const runRecovery = async (
+    kind: RecoveryCommit["kind"], options: RecoveryOptions,
+  ): Promise<void> => {
     queue.pause("recovery");
     let token: string | null = null;
     try {
+      if (options.awaitInFlightPull) await (pulling ?? Promise.resolve());
       const lease = await replica.prepareRecovery();
       token = lease.token;
-      if (options.flush) {
-        assertNormalRecoveryStillOwnsFlush();
-        await flushBatches(
-          [...lease.batches], assertNormalRecoveryStillOwnsFlush,
-        );
-      }
+      await flushLease(lease, options.flush);
       const snapshot = (await fetchJson("/api/sync/snapshot")) as Snapshot;
       await replica.commitRecovery(token, { kind, snapshot });
       token = null; // commit released the worker gate
       cursor = snapshot.seq;
+      if (options.forceReadyOnSuccess) {
+        started = true;
+        noteSuccess({ force: true });
+      }
     } catch (error: unknown) {
       const poisonOwnsRecovery = authoritativeRepair === "poison" ||
         error === poisonPreempted;
@@ -245,7 +309,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   ): Promise<{ ok: true } | { ok: false; error: unknown }> => {
     try {
       await runRecovery(kind, {
-        flush: true, resume: true, reportReplicaFailure: true,
+        flush: "preemptible", resume: true, reportReplicaFailure: true,
+        // this runs inside pullLoop; see RecoveryOptions
+        awaitInFlightPull: false, forceReadyOnSuccess: false,
       });
       return { ok: true };
     } catch (error: unknown) {
@@ -373,16 +439,14 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       return pulling ?? Promise.resolve();
     },
     async rebaseAuthoritative(_reason) {
-      // Unlike schema/generation recovery, poison repair must not flush later
-      // valid rows before the rejected optimistic state has been removed. A
-      // pull that already passed Task 1's pending-id guard must finish first;
-      // otherwise its stale window could apply after the full snapshot and
-      // move the cursor/state backwards.
+      // Ownership is claimed before the barrier so a concurrent normal
+      // recovery abandons its stale flush; the rest is the shared lifecycle
+      // under poison's options (no flush of later valid rows, no resume, no
+      // report of its own).
       authoritativeRepair = "poison";
-      queue.pause("recovery");
-      await (pulling ?? Promise.resolve());
       await runRecovery("rebase", {
-        flush: false, resume: false, reportReplicaFailure: false,
+        flush: "skip", resume: false, reportReplicaFailure: false,
+        awaitInFlightPull: true, forceReadyOnSuccess: false,
       });
     },
     completeAuthoritativeRepair(reason) {
@@ -404,46 +468,15 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // `started = true` is reached. No UI path reaches this today anyway (the
       // reset control needs a stalled/recovery-failed mode, and neither can
       // arise once the replica is unavailable) — pkm-bjae, pkm-61zt.
-      queue.pause("recovery");
-      let token: string | null = null;
-      try {
-        // Unlike schema/generation recovery, a manual reset must not tear
-        // down a database out from under a pull that already passed the
-        // pending-id guard; that pull's stale window could otherwise apply
-        // after the full snapshot and move the cursor/state backwards.
-        await (pulling ?? Promise.resolve());
-        const lease = await replica.prepareRecovery();
-        token = lease.token;
-        if (!discardPending) {
-          try {
-            await flushBatches([...lease.batches], () => undefined);
-          } catch {
-            throw new ResetBlockedError(
-              lease.batches.filter((b) => !b.poisoned).length,
-            );
-          }
-        }
-        const snapshot = (await fetchJson("/api/sync/snapshot")) as Snapshot;
-        await replica.commitRecovery(token, { kind: "reset", snapshot });
-        token = null; // commit released the worker gate
-        cursor = snapshot.seq;
-        // Unlike ordinary pull success, a reset must report ready even when
-        // no prior failure was announced, and must (re)enable pulls: it can
-        // resolve a recovery-failed state that left `started` false (a
-        // failed doStart never got here) as well as one where it was already
-        // true (a failed in-pull recovery).
-        started = true;
-        noteSuccess({ force: true });
-      } catch (error: unknown) {
-        if (token !== null) {
-          try { await replica.abortRecovery(token); } catch { /* already released */ }
-        }
-        throw error;
-      } finally {
-        if (authoritativeRepair !== "poison") {
-          queue.resume("recovery");
-        }
-      }
+      await runRecovery("reset", {
+        // discarding is the user answering the ResetBlockedError question
+        flush: discardPending ? "skip" : "blocking",
+        resume: true,
+        // SyncProvider turns this rejection into its own reset-failed banner
+        reportReplicaFailure: false,
+        awaitInFlightPull: true,
+        forceReadyOnSuccess: true,
+      });
     },
     stop() {
       stopped = true;

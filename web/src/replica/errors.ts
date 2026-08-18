@@ -36,9 +36,11 @@ export class ReplicaError extends Error {
   }
 }
 
-/** The worker's own openDb() failure, latched for the session. Only the worker
- * can raise this: it is the one party able to say "there is definitively no
- * database", as opposed to "I could not ask". */
+/** The worker's own openDb() failure, latched for the session. Raised only
+ * where the answer is "there is definitively no database", never "I could not
+ * ask": by the worker, which is the one party that can say so of a database it
+ * tried to open, and by SyncProvider's absentReplica(), which says the same of
+ * an environment with no Worker to open one in. */
 export class ReplicaUnavailableError extends ReplicaError {
   constructor(message: string, flags: ReplicaErrorFlags = {}) {
     super(message, flags);

@@ -3,8 +3,8 @@
 // terminally blocked, when a retryable failure schedules an escalating retry,
 // and how online/pause/resume/dispose transitions cancel or reset that retry.
 // The queue shell owns the actual timers, promises, deliveries, and
-// persistence; this module only decides. Behaviour matches the former inline flag mutations
-// exactly (Task 1-3 semantics).
+// persistence; this module only decides. Behaviour matches the former inline
+// flag mutations exactly.
 
 export type QueueBlockReason = "offline" | "retryable" | "recovering" | "disposed";
 

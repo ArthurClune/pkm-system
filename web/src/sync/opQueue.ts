@@ -364,11 +364,11 @@ function createReplicaQueue(replica: Replica,
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status >= 400
           && error.status < 500) {
-        // No durable row exists to poison, so this mirrors the legacy
-        // queue's terminal 4xx: discard exactly the rejected entry — the
-        // only discard this queue makes on its own — hold later entries
-        // behind the recovery barrier, and let onDesync run the
-        // authoritative repair that resumes it.
+        // A lane entry has no durable row to poison, so terminal means
+        // discarded: drop exactly the rejected entry — the only discard
+        // this queue makes on its own — hold later entries behind the
+        // recovery barrier, and let onDesync run the authoritative repair
+        // that resumes it.
         dispatch({ type: "pause" });
         fallback.shift();
         head.resolve({ status: "failed", error });
@@ -541,8 +541,8 @@ function createReplicaQueue(replica: Replica,
         // but before drainRun is cleared below would otherwise be dropped
         // silently: kick() only records it by setting drainAgain when
         // drainRun is still set, and nothing else re-checks that flag once
-        // runDrain has returned. Re-check it here, mirroring the legacy
-        // queue's missedKick handling.
+        // runDrain has returned. Re-check it here: this is the only place
+        // that can still see a kick landing in that window.
         //
         // A blocked outcome is not automatically dead: the very event that
         // kicked may be what lifted the block (setOnline(true) racing a drain

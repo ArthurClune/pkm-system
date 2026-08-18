@@ -18,8 +18,6 @@ export type BlockRefsPayload = Schemas["BlockRefsPayload"];
 export type BlockBacklinksPayload = Schemas["BlockBacklinksPayload"];
 export type PagePayload = Schemas["PagePayload"];
 
-/** Shared by /api/unlinked and /api/todos (both return {groups, total}). */
-export type GroupItem = Schemas["GroupItem"];
 export type BlockGroup = Schemas["BlockGroup"];
 export type GroupsPayload = Schemas["GroupsPayload"];
 
@@ -27,7 +25,6 @@ export type JournalDay = Schemas["JournalDay"];
 export type JournalPayload = Schemas["JournalPayload"];
 
 export type CurrentWorkPage = Schemas["CurrentWorkPage"];
-export type CurrentWorkSection = Schemas["CurrentWorkSection"];
 export type CurrentWorkPayload = Schemas["CurrentWorkPayload"];
 
 export type SearchPageHit = Schemas["SearchPageHit"];
@@ -44,4 +41,3 @@ export type DescribeStatusPayload = Schemas["DescribeStatusPayload"];
 export type AssetRef = Schemas["AssetRef"];
 export type AssetSearchItem = Schemas["AssetSearchItem"];
 export type AssetSearchPayload = Schemas["AssetSearchPayload"];
-export type ScanPayload = Schemas["ScanPayload"];

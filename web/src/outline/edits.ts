@@ -239,6 +239,9 @@ export function outdentBlock(blocks: BlockNode[], pageTitle: string,
   return done(blocks, pageTitle, ops, null);
 }
 
+/** Swap `uid` with its previous sibling. Exported (not test-only): it is the
+ * plain-swap primitive moveSubtreeUp delegates to when there is a previous
+ * sibling to swap with, in addition to being exercised directly by tests. */
 export function moveBlockUp(blocks: BlockNode[], pageTitle: string,
                             uid: string): EditResult {
   const found = locate(blocks, uid);
@@ -250,6 +253,8 @@ export function moveBlockUp(blocks: BlockNode[], pageTitle: string,
   return done(blocks, pageTitle, ops, null);
 }
 
+/** Mirror of moveBlockUp: swap `uid` with its next sibling. Exported (not
+ * test-only) for the same reason — moveSubtreeDown delegates to it. */
 export function moveBlockDown(blocks: BlockNode[], pageTitle: string,
                               uid: string): EditResult {
   const found = locate(blocks, uid);

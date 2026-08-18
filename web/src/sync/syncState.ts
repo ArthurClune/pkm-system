@@ -33,10 +33,6 @@ export interface SyncState {
   problem: SyncProblem | undefined;
 }
 
-export function createSyncState(): SyncState {
-  return { problem: undefined };
-}
-
 export type SyncEvent =
   | { type: "mode-ready-check"; prevMode: ReplicaMode; mode: ReplicaMode;
       status: SyncStatus }
@@ -94,6 +90,21 @@ const problem = (
   next: SyncProblem | undefined,
   effects: readonly SyncEffect[] = [],
 ): SyncTransition => ({ state: { ...state, problem: next }, effects });
+
+type StalledProblem = Extract<SyncProblem, { kind: "replica-stalled" }>;
+
+/** Shared by reset-started/reset-blocked/reset-failed: a delivery problem of
+ * a different kind takes precedence over a reset event, so those cases must
+ * leave the state untouched (undefined signals that). Otherwise returns the
+ * replica-stalled problem to update in place, creating a fresh idle one if
+ * none exists yet — the reset events can arrive before any "replica-stalled"
+ * event has, e.g. in tests that drive reset-started directly. */
+function stalledBaseOrDeferred(state: SyncState): StalledProblem | undefined {
+  const current = state.problem;
+  if (current && current.kind !== "replica-stalled") return undefined;
+  return current?.kind === "replica-stalled"
+    ? current : { kind: "replica-stalled", error: "", reset: "idle" };
+}
 
 export function transitionSync(state: SyncState, event: SyncEvent): SyncTransition {
   switch (event.type) {
@@ -174,34 +185,22 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
         ? problem(state, undefined) : { state, effects: [] };
     }
     case "reset-started": {
-      const current = state.problem;
-      // Delivery problems (a different kind) take precedence — leave the state untouched.
-      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
-      // Create or update the replica-stalled problem to move reset to running.
-      const base = current?.kind === "replica-stalled"
-        ? current : { kind: "replica-stalled" as const, error: "", reset: "idle" as const };
+      const base = stalledBaseOrDeferred(state);
+      if (!base) return { state, effects: [] };
       return problem(state, {
         ...base, reset: "running", pending: undefined, resetError: undefined,
       });
     }
     case "reset-blocked": {
-      const current = state.problem;
-      // Delivery problems (a different kind) take precedence — leave the state untouched.
-      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
-      // Create or update the replica-stalled problem to move reset to blocked.
-      const base = current?.kind === "replica-stalled"
-        ? current : { kind: "replica-stalled" as const, error: "", reset: "idle" as const };
+      const base = stalledBaseOrDeferred(state);
+      if (!base) return { state, effects: [] };
       return problem(state, {
         ...base, reset: "blocked", pending: event.pending, resetError: undefined,
       });
     }
     case "reset-failed": {
-      const current = state.problem;
-      // Delivery problems (a different kind) take precedence — leave the state untouched.
-      if (current && current.kind !== "replica-stalled") return { state, effects: [] };
-      // Create or update the replica-stalled problem to move reset to failed.
-      const base = current?.kind === "replica-stalled"
-        ? current : { kind: "replica-stalled" as const, error: "", reset: "idle" as const };
+      const base = stalledBaseOrDeferred(state);
+      if (!base) return { state, effects: [] };
       return problem(state, {
         ...base, reset: "failed", resetError: event.error, pending: undefined,
       });

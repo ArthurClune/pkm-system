@@ -18,6 +18,7 @@ import {
   activateAuthoritativeRead,
   createOutlineState,
   reserveAuthoritativeRead,
+  scopeContainsTitle,
   transitionOutline,
   type OutlineEffect,
   type OutlineReplayAction,
@@ -371,10 +372,6 @@ function runEffects(session: Session, effects: readonly OutlineEffect[]): void {
     }
     else void requestAuthoritative(session).catch(() => undefined);
   }
-}
-
-function scopeContainsTitle(scope: readonly string[], title: string): boolean {
-  return scope[0] === "page" && scope.slice(1).includes(title);
 }
 
 /** Retain a scoped ticket on one session until delivery. `replay` is what a

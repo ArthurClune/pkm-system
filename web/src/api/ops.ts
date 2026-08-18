@@ -15,5 +15,3 @@ export type CreatePageOp = components["schemas"]["CreatePageOp"];
 export type BlockOp =
   | CreateOp | UpdateTextOp | MoveOp | DeleteOp | SetCollapsedOp
   | SetHeadingOp | SetViewTypeOp | CreatePageOp;
-
-export type OpBatch = components["schemas"]["OpBatch"];

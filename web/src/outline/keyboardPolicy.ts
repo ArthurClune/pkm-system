@@ -121,6 +121,19 @@ const META_WRAP_EDITS: Partial<Record<string,
   i: (t, s, e) => toggleEmphasis(t, s, e, "__"),
 };
 
+type Modifiers = Pick<EditorKeyInput, "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
+
+/** Shift+Cmd with no Ctrl/Alt: the subtree-move (line 177 below) and
+ * line-wise selection (line ~187) chords share this exact shape. */
+const isShiftMetaOnly = (i: Modifiers): boolean =>
+  i.shiftKey && i.metaKey && !i.ctrlKey && !i.altKey;
+
+/** Meta or Ctrl, with no Alt/Shift: undo/redo's 'z' and the todo-cycle
+ * Enter chord share this exact shape (Ctrl accepted alongside Meta so both
+ * also work on non-Mac keyboards, per the module-level convention above). */
+const isMetaOrCtrlOnly = (i: Modifiers): boolean =>
+  (i.metaKey || i.ctrlKey) && !i.altKey && !i.shiftKey;
+
 export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   const pos = i.selStart;
   const caretOnly = i.selStart === i.selEnd;
@@ -174,8 +187,7 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   // block's whole subtree (pkm-hx2w). It must be caught before the plain-
   // Shift block-selection-start check below (same shiftKey+Arrow shape), and
   // like any mutation it is read-only-gated.
-  if (i.shiftKey && i.metaKey && !i.ctrlKey && !i.altKey
-      && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
+  if (isShiftMetaOnly(i) && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
     if (i.readOnly) return NONE;
     return i.key === "ArrowUp" ? { type: "move-subtree-up" } : { type: "move-subtree-down" };
   }
@@ -184,8 +196,7 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   // display line the native binding stops at), and each further press adds
   // one whole line — native's "select to line start" is a dead end on the
   // second press. Selection is read-only-safe, hence before the cutoff.
-  if (i.shiftKey && i.metaKey && !i.ctrlKey && !i.altKey
-      && (i.key === "ArrowLeft" || i.key === "ArrowRight")) {
+  if (isShiftMetaOnly(i) && (i.key === "ArrowLeft" || i.key === "ArrowRight")) {
     if (i.key === "ArrowLeft") {
       const start = lineStartAt(i.draft, pos);
       const target = start < pos ? start
@@ -221,6 +232,8 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   // (pkm-7q14). preventDefault in the shell kills the textarea's native
   // undo, which would otherwise fight the op-based history.
   if ((i.metaKey || i.ctrlKey) && !i.altKey && i.key.toLowerCase() === "z") {
+    // Deliberately not isMetaOrCtrlOnly below: Shift is part of THIS decision
+    // (Cmd-Z vs Shift-Cmd-Z), not excluded from it.
     return i.shiftKey ? { type: "redo" } : { type: "undo" };
   }
   // Cmd-Alt-1/2/3 set heading levels 1-3, Cmd-Alt-0 clears back to plain
@@ -252,7 +265,7 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   // cycled text, never revert it. Checked before plain Enter so the modifier
   // wins over a split. The caret shifts by the same delta as the text length
   // change, clamped to the new text, to stay near where the user was.
-  if ((i.metaKey || i.ctrlKey) && !i.altKey && !i.shiftKey && i.key === "Enter") {
+  if (isMetaOrCtrlOnly(i) && i.key === "Enter") {
     const cycled = cycleTodo(i.draft);
     const caret = Math.max(0, Math.min(cycled.length,
       pos + (cycled.length - i.draft.length)));

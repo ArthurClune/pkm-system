@@ -1,7 +1,7 @@
 ---
 # pkm-2771
 title: Disentangle CLI batch planning and remove obsolete client and package boundaries
-status: todo
+status: in-progress
 type: task
 priority: normal
 tags:
@@ -20,7 +20,7 @@ Backend B1, B2, B3, the `cli/build.py` file-size finding, and the duplicated `_w
 
 ## Acceptance criteria
 
-- [ ] Delete `PkmClient.create_page` and migrate test setup to atomic operation paths
+- [x] Delete `PkmClient.create_page` and migrate test setup to atomic operation paths
 - [ ] Move batch-only uid/index/alias handling out of `_Planner.creates()` and introduce a small batch context only if it clarifies the threaded state
 - [ ] Split batch schema/dispatch from the outline planner when doing so gives each module one clear job
 - [ ] Relocate shared planning/rendering code to a transport-neutral package and update CLI, client workflow, and MCP imports

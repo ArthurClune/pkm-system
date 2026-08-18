@@ -318,3 +318,70 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
       .toEqual(applyOpsWithChange(tree(), [op], "P").blocks);
   });
 });
+
+describe("applyOpsWithChange allocates nothing for a batch that misses this page", () => {
+  // The websocket broadcasts every page's ops to every open outline, so the
+  // common case is a batch none of whose ops concern this tree (pkm-a4wf).
+  // Cloning it to throw the clone away costs one fresh node per block per
+  // remote batch; these tests fail the moment the clone comes back.
+  const elsewhere: BlockOp[] = [
+    { op: "create", uid: "n1", page_title: "Other", parent_uid: null,
+      order_idx: 0, text: "new" },
+    { op: "create_page", page_title: "Other" },
+    { op: "update_text", uid: "zz", text: "x" },
+    { op: "set_collapsed", uid: "zz", collapsed: true },
+    { op: "set_heading", uid: "zz", heading: 1 },
+    { op: "set_view_type", uid: "zz", view_type: "numbered" },
+    { op: "move", uid: "zz", parent_uid: null, order_idx: 0 },
+    { op: "move", uid: "zz", parent_uid: null, order_idx: 0,
+      page_title: "Other" },
+    { op: "delete", uid: "zz" },
+  ];
+
+  test("returns the very tree it was given, nodes and all", () => {
+    const before = tree();
+    const applied = applyOpsWithChange(before, elsewhere, "P");
+    expect(applied.changed).toBe(false);
+    expect(applied.blocks).toBe(before);
+    // Reference-identity all the way down: a clone would rebuild the nested
+    // arrays and nodes even where the top-level array looked untouched.
+    expect(applied.blocks[1]).toBe(before[1]);
+    expect(applied.blocks[1].children).toBe(before[1].children);
+    expect(applied.blocks[2].children[0]).toBe(before[2].children[0]);
+  });
+
+  test("each miss on its own returns the same tree", () => {
+    for (const op of elsewhere) {
+      const before = tree();
+      expect(applyOpsWithChange(before, [op], "P").blocks,
+             `cloned for ${op.op}`).toBe(before);
+    }
+  });
+
+  test("one op landing on a nested uid still clones and applies the batch", () => {
+    const before = tree();
+    const applied = applyOpsWithChange(
+      before, [...elsewhere, { op: "update_text", uid: "b2", text: "B2!" }], "P");
+    expect(applied.changed).toBe(true);
+    expect(applied.blocks).not.toBe(before);
+    expect(findNode(applied.blocks, "b2")!.text).toBe("B2!");
+    expect(findNode(before, "b2")!.text).toBe("B2"); // input untouched
+  });
+
+  test("a create for THIS page is never a miss, whatever it resolves to", () => {
+    // Both of these apply nothing (uid already here / unknown parent), but
+    // they are this page's ops: the skip may only key on relevance, never on
+    // the outcome, or the change flag would start disagreeing with the tree.
+    for (const op of [
+      { op: "create", uid: "b", page_title: "P", parent_uid: null,
+        order_idx: 5, text: "B" },
+      { op: "create", uid: "n1", page_title: "P", parent_uid: "zz",
+        order_idx: 0, text: "new" },
+    ] satisfies BlockOp[]) {
+      const before = tree();
+      const applied = applyOpsWithChange(before, [op], "P");
+      expect(applied.changed).toBe(false);
+      expect(applied.blocks).toEqual(before);
+    }
+  });
+});

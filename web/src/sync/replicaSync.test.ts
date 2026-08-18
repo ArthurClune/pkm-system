@@ -1017,8 +1017,11 @@ test("resetLocalData without discardPending surfaces a blocked reset when flush 
     if (path === "/api/sync/snapshot") { snapshotCalls += 1; return SNAP; }
     return feed();
   });
+  const queue = { pause: vi.fn(), resume: vi.fn() };
   const { onState } = collector();
-  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
   await sync.start();
 
   let caught: unknown;
@@ -1033,6 +1036,10 @@ test("resetLocalData without discardPending surfaces a blocked reset when flush 
   expect(replica.calls).toContain("abortRecovery");
   expect(replica.calls).not.toContain("commitRecovery");
   expect(snapshotCalls).toBe(0);
+  // A blocked reset is a refusal, not an outage: the database is intact and
+  // delivery must be handed back so the flush the user is being asked about
+  // can still succeed on its own.
+  expect(queue.resume.mock.calls).toEqual([["recovery"]]);
 });
 
 test("resetLocalData succeeding after a failed doStart reports ready and re-enables pulls", async () => {
@@ -1157,6 +1164,220 @@ test("resetLocalData does not resume the queue when poison now owns recovery", a
 
   expect(queue.resume).not.toHaveBeenCalled();
 });
+
+test("resetLocalData follows the shared queue/lease/flush/snapshot/commit trace", async () => {
+  const trace: string[] = [];
+  const batches: PendingBatch[] = [
+    { id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false },
+    { id: 2, batch_id: "b-2", ops: [{ op: "delete", uid: "uid_a2" }], poisoned: true },
+    { id: 3, batch_id: "b-3", ops: [{ op: "delete", uid: "uid_a3" }], poisoned: false },
+  ];
+  const replica = fakeReplica({
+    prepareRecovery: async () => {
+      trace.push("prepare lease");
+      return { token: "lease-reset", batches };
+    },
+    commitRecovery: async (token, input) => {
+      expect(token).toBe("lease-reset");
+      expect(input).toEqual({ kind: "reset", snapshot: { ...SNAP, seq: 42 } });
+      trace.push("compare final durable rows");
+      trace.push("reset plus snapshot");
+      trace.push("release lease");
+    },
+  });
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      trace.push(`flush ${JSON.parse(String(init?.body)).batch_id}`);
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") {
+      trace.push("fetch snapshot");
+      return { ...SNAP, seq: 42 };
+    }
+    return feed();
+  });
+  const queue = {
+    pause: () => { trace.push("pause queue"); },
+    resume: () => { trace.push("resume queue"); },
+  };
+  const { states, onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+  trace.length = 0; // start's own catch-up is not what this test pins
+
+  await sync.resetLocalData({ discardPending: false });
+
+  // the same lifecycle the schema/feed traces above assert, with the poisoned
+  // row skipped by the shared flush
+  expect(trace).toEqual([
+    "pause queue",
+    "prepare lease",
+    "flush b-1",
+    "flush b-3",
+    "fetch snapshot",
+    "compare final durable rows",
+    "reset plus snapshot",
+    "release lease",
+    "resume queue",
+  ]);
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+});
+
+test("resetLocalData waits for an in-flight guarded feed before taking the lease", async () => {
+  let releaseFeed!: () => void;
+  const feedGate = new Promise<void>((resolve) => { releaseFeed = resolve; });
+  let changeCalls = 0;
+  let prepareCalls = 0;
+  const replica = fakeReplica({
+    prepareRecovery: async () => {
+      prepareCalls += 1;
+      return { token: "lease-reset", batches: [] };
+    },
+  });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/sync/snapshot") return SNAP;
+    changeCalls += 1;
+    if (changeCalls === 2) await feedGate;
+    return feed({ next_since: 6, latest_seq: 6 });
+  });
+  const { onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+  await sync.start();
+
+  sync.onSeq(9);
+  await vi.waitFor(() => { expect(changeCalls).toBe(2); });
+  const reset = sync.resetLocalData({ discardPending: true });
+  // prepareRecovery is called synchronously once the awaits ahead of it are
+  // done, so a missing wait would already show up here as prepareCalls === 1
+  await Promise.resolve();
+  expect(prepareCalls).toBe(0);
+
+  releaseFeed();
+  await reset;
+  expect(prepareCalls).toBe(1);
+});
+
+test("a failed reset snapshot aborts the lease and leaves the report to the caller", async () => {
+  const replica = fakeReplica({
+    prepareRecovery: async () => ({ token: "lease-reset", batches: [] }),
+  });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/sync/snapshot") throw new Error("snapshot offline");
+    return feed();
+  });
+  const queue = { pause: vi.fn(), resume: vi.fn() };
+  const { states, onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+  const statesAfterStart = states.length;
+
+  await expect(sync.resetLocalData({ discardPending: true }))
+    .rejects.toThrow("snapshot offline");
+
+  expect(replica.calls).toContain("abortRecovery");
+  expect(replica.calls).not.toContain("commitRecovery");
+  expect(queue.resume.mock.calls).toEqual([["recovery"]]);
+  // A manual reset reports through its own caller (SyncProvider's
+  // reset-failed), never through the coordinator's recovery-failed mode:
+  // otherwise a reset the user asked for would also raise a stall banner.
+  expect(states.length).toBe(statesAfterStart);
+});
+
+test("a failed reset commit aborts, resumes, and keeps the pre-reset cursor", async () => {
+  const trace: string[] = [];
+  const replica = fakeReplica({
+    prepareRecovery: async () => {
+      trace.push("prepare");
+      return { token: "lease-reset", batches: [] };
+    },
+    commitRecovery: async () => {
+      trace.push("compare");
+      throw new Error("pending rows changed during recovery");
+    },
+    abortRecovery: async () => { trace.push("abort"); },
+  });
+  const fetchJson = vi.fn(async (path: string) =>
+    path === "/api/sync/snapshot" ? { ...SNAP, seq: 42 } : feed());
+  const queue = {
+    pause: () => { trace.push("pause"); },
+    resume: () => { trace.push("resume"); },
+  };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+  trace.length = 0;
+
+  await expect(sync.resetLocalData({ discardPending: true }))
+    .rejects.toThrow("pending rows changed during recovery");
+
+  expect(trace).toEqual(["pause", "prepare", "compare", "abort", "resume"]);
+  // the cursor only advances with a committed snapshot: a later nudge still
+  // asks from where the retained database actually is
+  sync.onSeq(999);
+  await sync.idle();
+  expect(fetchJson.mock.calls.at(-1)?.[0]).toBe("/api/sync/changes?since=5");
+  sync.stop();
+});
+
+// Pins the shared recovery protocol rather than any one entrant: whoever owns
+// delivery resumption releases the barrier exactly once on the way out,
+// whether the lifecycle committed or threw. Poison repair is the deliberate
+// exception (the provider resumes after deleting the durable row) and has its
+// own tests above.
+type BarrierEntrant = "schema recovery" | "feed rebootstrap" | "manual reset";
+
+async function runBarrierEntrant(
+  entrant: BarrierEntrant, snapshotFails: boolean,
+): Promise<{ pause: ReturnType<typeof vi.fn>; resume: ReturnType<typeof vi.fn> }> {
+  const replica = fakeReplica(
+    entrant === "feed rebootstrap"
+      ? {
+        applyChanges: vi.fn()
+          .mockResolvedValueOnce({ status: "needs-bootstrap" })
+          .mockResolvedValue({ status: "applied", cursor: 5 }),
+      }
+      : {},
+    entrant === "schema recovery" ? { schemaMismatch: true } : {},
+  );
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/sync/snapshot") {
+      if (snapshotFails) throw new Error("snapshot offline");
+      return SNAP;
+    }
+    return feed();
+  });
+  const queue = { pause: vi.fn(), resume: vi.fn() };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start();
+  if (entrant === "manual reset") {
+    await sync.resetLocalData({ discardPending: true })
+      .catch(() => undefined);
+  }
+  sync.stop();
+  return queue;
+}
+
+test.each([
+  ["schema recovery", false], ["schema recovery", true],
+  ["feed rebootstrap", false], ["feed rebootstrap", true],
+  ["manual reset", false], ["manual reset", true],
+] as const)(
+  "%s releases the delivery barrier exactly once (snapshot fails: %s)",
+  async (entrant: BarrierEntrant, snapshotFails: boolean) => {
+    const queue = await runBarrierEntrant(entrant, snapshotFails);
+
+    expect(queue.pause).toHaveBeenCalledWith("recovery");
+    expect(queue.resume.mock.calls).toEqual([["recovery"]]);
+  });
 
 test("stop() clears the pending retry timer and prevents further scheduling", async () => {
   vi.useFakeTimers();

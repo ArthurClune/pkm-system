@@ -1,14 +1,14 @@
 ---
 # pkm-nqve
 title: Share replica recovery lifecycles and tighten reset contracts
-status: todo
+status: in-progress
 type: task
 priority: normal
 tags:
     - review
     - frontend
 created_at: 2026-08-17T20:55:23Z
-updated_at: 2026-08-17T20:55:23Z
+updated_at: 2026-08-18T16:25:09Z
 parent: pkm-wvvu
 ---
 

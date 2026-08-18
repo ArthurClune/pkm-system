@@ -98,6 +98,26 @@ def reindex_block_refs(db: sqlite3.Connection, src_uid: str,
                    [(src_uid, t) for t in targets])
 
 
+def reindex_refs_for_text(db: sqlite3.Connection, src_uid: str, text: str,
+                          now_ms: int) -> None:
+    """Rebuild one block's whole outgoing ref index from its text.
+
+    The invariant every write path shares: `refs` and `block_refs` are
+    *derived*, never edited in place, so re-deriving from the block's current
+    text is the only way either table changes. Both server call sites -- op
+    application (ops_apply's ReindexRefs effect) and snapshot rewriting
+    (rewrite_snapshotted_blocks, i.e. rename/merge and the title migration) --
+    go through here, so the ritual stays in lockstep with the extractor and
+    the schema. `now_ms` only stamps pages that a `[[link]]` creates. Never
+    commits: the caller owns the transaction.
+    """
+    parsed = extract(text)
+    db.execute("DELETE FROM refs WHERE src_block_uid = ?", (src_uid,))
+    for ref in parsed.refs:
+        index_ref(db, src_uid, ref.title, ref.kind, now_ms)
+    reindex_block_refs(db, src_uid, parsed.block_refs)
+
+
 def delete_page_rows(db: sqlite3.Connection, page_id: int,
                      title: str) -> None:
     """Deletes a page, its blocks, and any sidebar entry. Never commits --
@@ -147,11 +167,7 @@ def rewrite_snapshotted_blocks(
                 (new_text, now_ms, uid),
             )
             rewritten += 1
-        parsed = extract(new_text)
-        db.execute("DELETE FROM refs WHERE src_block_uid = ?", (uid,))
-        for ref in parsed.refs:
-            index_ref(db, uid, ref.title, ref.kind, now_ms)
-        reindex_block_refs(db, uid, parsed.block_refs)
+        reindex_refs_for_text(db, uid, new_text, now_ms)
     return rewritten
 
 

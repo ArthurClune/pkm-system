@@ -1,14 +1,14 @@
 ---
 # pkm-t3qw
 title: Centralize reference reindexing invariants across server and replica
-status: todo
+status: in-progress
 type: task
 priority: high
 tags:
     - review
     - architecture
 created_at: 2026-08-17T20:55:21Z
-updated_at: 2026-08-17T20:55:21Z
+updated_at: 2026-08-18T12:11:14Z
 parent: pkm-wvvu
 ---
 
@@ -18,7 +18,7 @@ Backend A2 and frontend A5. The invariant that refs and block refs are rebuilt f
 
 ## Acceptance criteria
 
-- [ ] Add a server `store.reindex_refs_for_text(db, uid, text, now_ms)` composition and use it from operation application and snapshot rewriting
+- [x] Add a server `store.reindex_refs_for_text(db, uid, text, now_ms)` composition and use it from operation application and snapshot rewriting
 - [ ] Add a replica `reindexBlockRefs(db, uid, text)` composition and use it from both remote apply and local operation application
 - [ ] Preserve blank-ref handling, page creation/index semantics, timestamps, and transaction ownership
 - [ ] Add focused tests that would fail if either call site drifted from its shared implementation

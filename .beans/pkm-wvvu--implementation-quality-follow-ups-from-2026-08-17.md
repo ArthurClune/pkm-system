@@ -8,7 +8,7 @@ tags:
     - review
     - architecture
 created_at: 2026-08-17T20:54:48Z
-updated_at: 2026-08-17T20:55:25Z
+updated_at: 2026-08-18T18:58:54Z
 ---
 
 ## Context
@@ -63,3 +63,7 @@ The epic is complete only when every child has a terminal status, all retained a
 - `pkm-nny1` — outline session decomposition
 - `pkm-ij2s` — SyncProvider and repair UI decomposition
 - `pkm-vpvf` — frontend minor cleanup/documentation
+
+## Status note (2026-08-18, frontend slice)
+
+All six normal-priority frontend children are completed and merged to main at 55c7be1: pkm-3lqg, pkm-nqve, pkm-d5re, pkm-2i6a, pkm-jk21, pkm-nvxh (four --no-ff lane merges: 4e29f97, 2787f0b, 6a7e704, 55c7be1). Full web verify green after every merge. Whole-branch review: no Critical/Important findings. Review-deferred follow-ups filed as pkm-ub5s (frontend deferred minors) and pkm-a4wf (applyOps other-page clone).

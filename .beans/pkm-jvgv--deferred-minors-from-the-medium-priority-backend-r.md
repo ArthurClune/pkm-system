@@ -25,8 +25,8 @@ Docstrings/comments:
 - [x] docs/architecture/cli-and-mcp.md ~line 151 loose claim about Planner._one (inherited wording)
 
 Typing/shape:
-- [ ] importer/titles.py _title_changes takes set[str]; AbstractSet/frozenset matches read-only intent and sibling signatures
-- [ ] _merge_sanitized_pages indexes (original, rebuilt) pairs positionally; a NamedTuple would name the roles
+- [x] importer/titles.py _title_changes takes set[str]; AbstractSet/frozenset matches read-only intent and sibling signatures
+- [x] _merge_sanitized_pages indexes (original, rebuilt) pairs positionally; a NamedTuple would name the roles
 
 Coverage:
 - [ ] planning.py pre-existing uncovered lines: asset_block_text's pdf-macro and plain-link arms are a real hole in a user-visible output shape

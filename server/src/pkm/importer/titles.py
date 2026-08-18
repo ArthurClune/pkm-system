@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Mapping, Sequence
+from typing import AbstractSet, Literal, Mapping, NamedTuple, Sequence
 
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.refs import (
@@ -181,8 +181,15 @@ def _collect_title_locations(export: Export) -> dict[str, list[str]]:
     return locations
 
 
+class _PageRebuild(NamedTuple):
+    """One page as the import found it and as sanitization rebuilt it."""
+
+    original: Page
+    rebuilt: Page
+
+
 def _merge_sanitized_pages(
-    rebuilt_sources: Sequence[tuple[Page, Page]],
+    rebuilt_sources: Sequence[_PageRebuild],
 ) -> tuple[tuple[Page, ...], set[str]]:
     """Collapse pages that sanitized to one title; report which titles merged.
 
@@ -190,9 +197,9 @@ def _merge_sanitized_pages(
     the first in export order: its timestamps are kept and its blocks lead,
     with the other sources' blocks following in export order.
     """
-    grouped: dict[str, list[tuple[Page, Page]]] = {}
+    grouped: dict[str, list[_PageRebuild]] = {}
     for source in rebuilt_sources:
-        grouped.setdefault(source[1].title, []).append(source)
+        grouped.setdefault(source.rebuilt.title, []).append(source)
 
     merged_pages: list[Page] = []
     merged_titles: set[str] = set()
@@ -202,12 +209,12 @@ def _merge_sanitized_pages(
         survivor_index = next(
             (
                 index
-                for index, (original, _) in enumerate(sources)
-                if original.title == sanitized_title
+                for index, source in enumerate(sources)
+                if source.original.title == sanitized_title
             ),
             0,
         )
-        survivor = sources[survivor_index][1]
+        survivor = sources[survivor_index].rebuilt
         ordered_sources = [sources[survivor_index]] + [
             source
             for index, source in enumerate(sources)
@@ -220,8 +227,8 @@ def _merge_sanitized_pages(
                 edited_at=survivor.edited_at,
                 children=tuple(
                     child
-                    for _, rebuilt in ordered_sources
-                    for child in rebuilt.children
+                    for source in ordered_sources
+                    for child in source.rebuilt.children
                 ),
             )
         )
@@ -231,7 +238,7 @@ def _merge_sanitized_pages(
 def _title_changes(
     title_map: Mapping[str, str],
     locations: Mapping[str, list[str]],
-    merged_pages_titles: set[str],
+    merged_pages_titles: AbstractSet[str],
 ) -> tuple[ImportTitleChange, ...]:
     """One record per changed spelling, in sorted original-title order.
 
@@ -266,7 +273,7 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
         for title, title_locations in locations.items()
     }
     rebuilt_sources = [
-        (
+        _PageRebuild(
             page,
             Page(
                 title=title_map[page.title],

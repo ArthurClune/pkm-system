@@ -8,7 +8,7 @@ tags:
     - review
     - backend
 created_at: 2026-08-17T20:55:21Z
-updated_at: 2026-08-18T00:00:00Z
+updated_at: 2026-08-18T18:34:47Z
 parent: pkm-wvvu
 ---
 
@@ -35,7 +35,7 @@ Backend A3 and A4. Search and export routes duplicate execution of a query plan,
 - `server/src/pkm/server/backlinks.py` -> `grouping.py`, gaining
   `group_by_page(rows)` for rows of `uid, text, page_id, page_title`. It
   replaces the identical loop in `/api/query`, `/api/todos` and
-  `/api/page/{title}/unlinked`. `group_backlinks` keeps its own loop -- its
+  `GET /api/unlinked`. `group_backlinks` keeps its own loop -- its
   rows name the page `src_page_*` and its items carry breadcrumbs -- with the
   module docstring saying why.
 - `routes_export._run_query` now calls `execute_plan` + `group_by_page` and

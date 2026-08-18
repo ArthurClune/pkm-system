@@ -23,8 +23,9 @@ logger = logging.getLogger("pkm.assistant")
 # harness fails one request instead of wedging every future create().
 # pkm-rovq review round 1.
 #
-# THE LOCK-HOLD STORY, once, here: this is not a ceiling on how long the lock
-# is held. asyncio.wait_for does not return until the task it cancelled has
+# The lock-hold story lives here, once, and is cross-referenced from the two
+# places that used to retell it. This is not a ceiling on how long the lock is
+# held: asyncio.wait_for does not return until the task it cancelled has
 # finished unwinding, so a handshake still wedged at CREATE_TIMEOUT_S gets
 # create_conversation's own cancellation-triggered cleanup (disconnecting the
 # partially-connected client, pkm-4zq4) run to completion first, under the

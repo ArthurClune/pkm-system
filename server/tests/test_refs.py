@@ -4,14 +4,20 @@ from pathlib import Path
 
 import pytest
 
+from pkm import refs
 from pkm.refs import (
     AttributeSpan,
     Ref,
+    TagSpan,
     attribute_title_span,
+    bracket_spans,
     canonicalize_title,
     extract,
+    is_bare_tag_title,
+    iter_bracket_spans,
     normalize_title,
     strip_code,
+    tag_spans,
     title_syntax_reason,
 )
 
@@ -29,6 +35,74 @@ def test_grammar_fixture(case):
     assert [{"title": r.title, "kind": r.kind} for r in parsed.refs] == case["refs"]
     assert list(parsed.block_refs) == case["block_refs"]
     assert parsed.embeds == case["embeds"]
+
+
+def test_the_hashtag_pattern_is_built_from_the_bare_tag_name_class():
+    # rename._tag_form() asks is_bare_tag_title() whether a new title would
+    # read back as "#title". That answer is only trustworthy while the two
+    # patterns share one name class -- they used to be hand-copies of each
+    # other, one in each module.
+    assert refs._HASHTAG.pattern == rf"(?:^|(?<=[\s(]))#({refs._BARE_TAG.pattern})"
+
+
+@pytest.mark.parametrize(
+    "title, bare",
+    [("Tag", True), ("a/b.c-d", True), ("Two Words", False), ("", False)],
+)
+def test_is_bare_tag_title_answers_for_the_whole_title(title, bare):
+    assert is_bare_tag_title(title) is bare
+
+
+def test_bracket_spans_locate_runs_and_nest_them():
+    text = "x #[[A [[B]]]] y"
+    spans = bracket_spans(text)
+    assert len(spans) == 1
+    outer = spans[0]
+    assert (outer.start, outer.end) == (3, 14)
+    assert text[outer.inner_start:outer.inner_end] == "A [[B]]"
+    assert outer.is_tag is True
+    inner = outer.children[0]
+    assert text[inner.start:inner.end] == "[[B]]"
+    # Only a top-level run carries the tag spelling; "#" inside a title is
+    # title text, which is why extract() reads "#A" in "[[#A]]" as part of
+    # the title rather than as a tag.
+    assert inner.is_tag is False
+    assert inner.children == ()
+    assert [text[s.inner_start:s.inner_end]
+            for s in iter_bracket_spans(spans)] == ["A [[B]]", "B"]
+
+
+@pytest.mark.parametrize(
+    "text, titles",
+    [
+        ("[[A and [[B]]", ["B"]),          # unbalanced open, scan resumes
+        ("[[[C]]", ["[C"]),                # the stray bracket is title text
+        ("[[D]]]]", ["D"]),
+        ("]]E[[", []),
+        ("[[[[F]]]]", ["[[F]]", "F"]),
+    ],
+)
+def test_bracket_spans_pin_the_unbalanced_cases(text, titles):
+    assert [text[s.inner_start:s.inner_end]
+            for s in iter_bracket_spans(bracket_spans(text))] == titles
+
+
+def test_tag_spans_window_keeps_the_lookbehind_outside_it():
+    # rename scans the inside of an unreplaced bracket run this way: the
+    # window starts past "[[", and "#Old" is still a tag because the space
+    # before it is read even though it sits outside the window.
+    text = "[[A #Old]]"
+    assert tag_spans(text, 2, len(text) - 2) == (TagSpan(4, 8, "Old"),)
+    # The same window one character later cannot see a boundary at all.
+    assert tag_spans(text, 5, len(text) - 2) == ()
+
+
+def test_tag_spans_over_the_whole_text_by_default():
+    assert tag_spans("a #one and (#two)") == (
+        TagSpan(2, 6, "one"),
+        # The "(" is a lookbehind, so the span starts at the "#".
+        TagSpan(12, 16, "two"),
+    )
 
 
 def test_ref_ordering_and_types():

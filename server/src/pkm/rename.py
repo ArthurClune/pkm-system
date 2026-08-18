@@ -3,22 +3,29 @@
 
 Locates spans with the same grammar refs.extract() uses (pinned by
 shared/fixtures/ref_grammar.json): [[Title]], #[[Title]], #Title, and a
-leading Title:: attribute -- the attribute through refs.attribute_title_span(),
-so an indented one is a ref to both modules or to neither. Code spans are
-never rewritten. Forms are preserved where the new title still parses in that
-form and downgraded otherwise (#tag -> #[[..]], attribute -> [[..]]).
+leading Title:: attribute. It does not re-implement any of it -- refs owns
+every scan (bracket_spans, tag_spans, attribute_title_span), so a spelling is
+a ref to both modules or to neither. What is left here is what to do with the
+spans refs reports: which one wins when they nest, and how to spell the
+replacement. Code spans are never rewritten. Forms are preserved where the
+new title still parses in that form and downgraded otherwise (#tag ->
+#[[..]], attribute -> [[..]]).
 
 How a written spelling maps onto a replacement key is the caller's to state,
 via `normalize` -- see rewrite_title_refs_map().
 """
 from __future__ import annotations
 
-import re
-from typing import Callable, Mapping
+from typing import Callable, Iterable, Mapping
 
-from pkm.refs import attribute_title_span, strip_code
-
-_BARE_TAG = re.compile(r"[\w/.\-]+")  # _HASHTAG's capture class
+from pkm.refs import (
+    BracketSpan,
+    attribute_title_span,
+    bracket_spans,
+    is_bare_tag_title,
+    strip_code,
+    tag_spans,
+)
 
 # Resolves a title as written in the text to its replacement, or None.
 _TitleLookup = Callable[[str], "str | None"]
@@ -38,7 +45,7 @@ def _title_lookup(
 
 
 def _tag_form(new_title: str) -> str:
-    if _BARE_TAG.fullmatch(new_title):
+    if is_bare_tag_title(new_title):
         return f"#{new_title}"
     return f"#[[{new_title}]]"
 
@@ -50,67 +57,56 @@ def _attribute_form(new_title: str) -> str:
     return f"[[{new_title}]]"
 
 
-def _matching_bracket_end(text: str, start: int, stop: int) -> int | None:
-    depth = 1
-    index = start + 2
-    while index < stop - 1 and depth:
-        pair = text[index : index + 2]
-        if pair == "[[":
-            depth += 1
-            index += 2
-        elif pair == "]]":
-            depth -= 1
-            index += 2
-        else:
-            index += 1
-    return index if depth == 0 else None
-
-
-def _scan_range(
+def _rewrite_tags(
     clean: str,
     lookup: _TitleLookup,
     start: int,
     stop: int,
     spans: list[tuple[int, int, str]],
 ) -> None:
+    for tag in tag_spans(clean, start, stop):
+        new_title = lookup(tag.raw_title)
+        if new_title is not None:
+            spans.append((tag.start, tag.end, _tag_form(new_title)))
+
+
+def _rewrite_range(
+    clean: str,
+    lookup: _TitleLookup,
+    start: int,
+    stop: int,
+    brackets: Iterable[BracketSpan],
+    spans: list[tuple[int, int, str]],
+) -> None:
+    """Collect the spans to splice over `clean[start:stop]`, given the bracket
+    runs `refs.bracket_spans()` found directly inside it.
+
+    Two rules the spans have to obey, and why the walk is shaped this way:
+
+    * Nothing may overlap, because the caller splices back to front. A
+      replaced run therefore ends the descent -- outer title wins -- and only
+      an *unreplaced* one is opened up so its nested refs can be reached.
+    * A `#[[Title]]` keeps its form for free. The span covers the bracket run
+      alone, so the `#` in front of it is never spliced over, and the tag
+      scan cannot claim it either (a tag name never starts with `[`).
+    """
     index = start
-    while index < stop:
-        if clean.startswith("#[[", index):
-            close = _matching_bracket_end(clean, index + 1, stop)
-            if close is not None:
-                inner_start = index + 3
-                inner_end = close - 2
-                new_title = lookup(clean[inner_start:inner_end])
-                if new_title is not None:
-                    spans.append((index, close, f"#[[{new_title}]]"))
-                else:
-                    _scan_range(clean, lookup, inner_start, inner_end, spans)
-                index = close
-                continue
-
-        if clean.startswith("[[", index):
-            close = _matching_bracket_end(clean, index, stop)
-            if close is not None:
-                inner_start = index + 2
-                inner_end = close - 2
-                new_title = lookup(clean[inner_start:inner_end])
-                if new_title is not None:
-                    spans.append((index, close, f"[[{new_title}]]"))
-                else:
-                    _scan_range(clean, lookup, inner_start, inner_end, spans)
-                index = close
-                continue
-
-        if clean[index] == "#" and (index == 0 or clean[index - 1].isspace() or clean[index - 1] == "("):
-            match = _BARE_TAG.match(clean, index + 1)
-            if match is not None:
-                new_title = lookup(match.group(0))
-                if new_title is not None:
-                    spans.append((index, match.end(), _tag_form(new_title)))
-                index = match.end()
-                continue
-
-        index += 1
+    for bracket in brackets:
+        _rewrite_tags(clean, lookup, index, bracket.start, spans)
+        new_title = lookup(clean[bracket.inner_start:bracket.inner_end])
+        if new_title is not None:
+            spans.append((bracket.start, bracket.end, f"[[{new_title}]]"))
+        else:
+            _rewrite_range(
+                clean,
+                lookup,
+                bracket.inner_start,
+                bracket.inner_end,
+                bracket.children,
+                spans,
+            )
+        index = bracket.end
+    _rewrite_tags(clean, lookup, index, stop, spans)
 
 
 def rewrite_title_refs_map(
@@ -144,7 +140,9 @@ def rewrite_title_refs_map(
                 (attribute.start, attribute.end, _attribute_form(new_title))
             )
 
-    _scan_range(clean, lookup, 0, len(clean), spans)
+    _rewrite_range(
+        clean, lookup, 0, len(clean), bracket_spans(clean), spans
+    )
 
     out = text
     for start, end, replacement in sorted(spans, reverse=True):

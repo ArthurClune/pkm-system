@@ -442,6 +442,10 @@ button { font: inherit; }
   padding: 0 4px; }
 .top-bar-search-input:focus + .top-bar-search-hint,
 .top-bar-search-input:not(:placeholder-shown) + .top-bar-search-hint { display: none; }
+/* deletion-failure banner (pkm-d5re): sits below .top-bar in the same
+ * .content-area column, aligned to the same pane geometry so it reads as
+ * part of the bar rather than a page-global notification. */
+.top-bar-error { width: var(--pane-width); margin: 0 auto 8px var(--pane-left); padding: 0 4px; }
 .top-bar-page-menu { position: relative; }
 .top-bar-menu { position: absolute; top: 100%; right: 0; z-index: 21; margin: 4px 0 0;
   padding: 4px 0; list-style: none; min-width: 160px; background: var(--color-bg-surface);
@@ -803,6 +807,7 @@ mark.highlight { background: var(--color-highlight-bg); }
   .sidebar-toggle-button { display: none; }
   /* extra left padding clears the fixed hamburger button */
   .top-bar { width: auto; margin: 0; padding: 8px 16px 8px 52px; }
+  .top-bar-error { width: auto; margin: 0 16px 8px; padding: 0; }
   .main-pane { width: auto; margin: 0; padding: 24px 16px 120px;
     border: none; border-radius: 0; box-shadow: none; }
   .sidebar { width: 100vw; }

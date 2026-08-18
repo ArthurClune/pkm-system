@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { BlockStampsContext, SidebarContext } from "../contexts";
@@ -169,7 +169,7 @@ it("confirming delete in the dialog sends DELETE to the page's URL, closes the m
   expect(screen.getByText("home")).toBeInTheDocument();
 });
 
-it("a failed delete closes the menu but does not navigate", async () => {
+it("a failed delete closes the menu, does not navigate, and announces an actionable error", async () => {
   vi.stubGlobal("fetch", vi.fn(async () =>
     new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
   renderTopBar("/page/Paper");
@@ -182,6 +182,79 @@ it("a failed delete closes the menu but does not navigate", async () => {
   expect(screen.queryByRole("menu")).toBeNull();
   expect(screen.getByText("page view here")).toBeInTheDocument();
   expect(screen.queryByText("home")).toBeNull();
+
+  // role="alert" is how the sync banner and upload errors announce failures
+  // elsewhere in the app (pkm-d5re) -- the same pattern, not a new one.
+  const alert = screen.getByRole("alert");
+  expect(alert).toHaveTextContent("Paper");
+  expect(alert).toHaveTextContent("boom");
+});
+
+it("dismissing the delete error removes it", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
+  renderTopBar("/page/Paper");
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  });
+  expect(screen.getByRole("alert")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("retrying a failed delete clears the stale error and navigates on success", async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "boom" }), { status: 500 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  renderTopBar("/page/Paper");
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  });
+  expect(screen.getByRole("alert")).toBeInTheDocument();
+
+  // Reopen the menu and try again -- the stale error from the first
+  // attempt must not linger once a new attempt is under way, and a
+  // successful retry must navigate exactly like a first-try success.
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  });
+
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByText("home")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("navigating away clears a stale delete error", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () =>
+    new Response(JSON.stringify({ detail: "boom" }), { status: 500 })));
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/page/Paper"]}>
+      <SidebarContext.Provider value={{ openInSidebar: vi.fn() }}>
+        <TopBar sidebarCollapsed={false} onToggleSidebar={vi.fn()} />
+      </SidebarContext.Provider>
+      <Routes>
+        <Route path="/page/*" element={<><p>page view here</p><Link to="/page/Other">go elsewhere</Link></>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Delete page…" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  });
+  expect(screen.getByRole("alert")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("link", { name: "go elsewhere" }));
+
+  expect(screen.queryByRole("alert")).toBeNull();
 });
 
 it("shows the current page title in the bar on page routes (pkm-absu)", () => {

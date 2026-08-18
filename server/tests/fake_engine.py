@@ -14,7 +14,7 @@ Behavior is keyed on the user text so Playwright can drive it:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 from pkm.assistant.events import (
     AssistantEvent,
@@ -36,7 +36,7 @@ class FakeConversation:
         self._decisions: dict[str, asyncio.Future[bool]] = {}
         self._confirm_seq = 0
 
-    async def send(self, text: str) -> AsyncIterator[AssistantEvent]:
+    async def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
         self.sent.append(text)
         if "please hang" in text:
             await asyncio.Event().wait()  # never set: blocks until cancelled

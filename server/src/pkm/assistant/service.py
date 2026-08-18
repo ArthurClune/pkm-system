@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import secrets
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 
 from pkm.assistant.engine import AgentEngine, ConversationHandle
@@ -175,7 +176,7 @@ class AssistantService:
             if first_cancel is not None:
                 raise first_cancel
 
-    def send(self, conversation_id: str, text: str) -> AsyncIterator[AssistantEvent]:
+    def send(self, conversation_id: str, text: str) -> AsyncGenerator[AssistantEvent, None]:
         entry = self._get(conversation_id)
         if entry.busy:
             raise BusyError("a turn is already in progress")
@@ -188,11 +189,22 @@ class AssistantService:
         entry.busy = True
         return self._stream(conversation_id, entry, text)
 
-    async def _stream(self, cid: str, entry: _Entry, text: str) -> AsyncIterator[AssistantEvent]:
+    async def _stream(
+        self, cid: str, entry: _Entry, text: str
+    ) -> AsyncGenerator[AssistantEvent, None]:
         try:
             entry.last_used = self._clock()
-            async for event in entry.handle.send(text):
-                yield event
+            # aclosing, not a bare `async for`: when the SSE layer closes this
+            # generator on a client disconnect, GeneratorExit lands at the
+            # yield below -- not inside the handle's turn generator, which an
+            # `async for` would simply drop. Its abandon-turn cleanup would
+            # then run on async-generator finalization, i.e. *after* the
+            # health check in the finally below, and an unacknowledged
+            # interrupt would leave the conversation in the registry for a
+            # later turn to reuse (pkm-f3mo, reopening pkm-rwwc).
+            async with contextlib.aclosing(entry.handle.send(text)) as turn:
+                async for event in turn:
+                    yield event
             entry.last_used = self._clock()
         finally:
             entry.busy = False

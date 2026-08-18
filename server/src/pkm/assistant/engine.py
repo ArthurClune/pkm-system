@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Protocol
 
 from pkm.assistant.events import AssistantEvent
@@ -17,8 +17,14 @@ class ConversationHandle(Protocol):
     # handle that goes unhealthy rather than reuse it.
     healthy: bool
 
-    def send(self, text: str) -> AsyncIterator[AssistantEvent]:
-        """Send one user turn; yields events until TurnDone or ErrorEvent."""
+    def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
+        """Send one user turn; yields events until TurnDone or ErrorEvent.
+
+        A generator rather than a plain AsyncIterator on purpose: the caller
+        closes it explicitly when the consumer disappears mid-turn, so an
+        implementation's abandon-turn cleanup runs on a schedule instead of
+        waiting for async-generator finalization (pkm-f3mo).
+        """
         ...
 
     def resolve_confirm(self, tool_use_id: str, allow: bool) -> None:

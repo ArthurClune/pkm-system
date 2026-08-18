@@ -176,42 +176,7 @@ class ClaudeConversation:
                     break
         finally:
             if not finished:
-                # The SSE consumer dropped mid-turn (browser closed the tab,
-                # navigated away, or the fetch was aborted via the Stop
-                # button).
-                #
-                # Decline any parked confirm FIRST. A can_use_tool hook may
-                # still be awaiting a decision that will now never come from
-                # the UI, and the harness cannot answer an interrupt while it
-                # sits in that hook -- so doing this after interrupt() left
-                # the decline unreachable in exactly the case it exists for
-                # (pkm-mbcc defect 2: a wedged harness, no tool_result, and a
-                # panel showing nothing at all, until the process restarted).
-                for fut in self._pending.values():
-                    if not fut.done():
-                        fut.set_result(False)
-                # Then stop the harness: cancelling our local pump task only
-                # stops us from reading further messages, it does NOT stop the
-                # CLI subprocess from continuing to execute the abandoned
-                # query. Bounded, because a harness wedged for any other
-                # reason must not hold up this cleanup either.
-                try:
-                    await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT_S)
-                except TimeoutError:
-                    logger.warning(
-                        "assistant interrupt not acknowledged in %ss; abandoning the turn "
-                        "and retiring the harness",
-                        INTERRUPT_TIMEOUT_S,
-                    )
-                    # The subprocess may still be executing the abandoned
-                    # turn: an interrupt it never acknowledged is not proof
-                    # it stopped. Mark this handle unhealthy so the caller
-                    # (AssistantService) tears it down instead of handing it
-                    # a later turn (pkm-rwwc).
-                    self.healthy = False
-                except Exception:
-                    logger.exception("assistant interrupt failed; retiring the harness")
-                    self.healthy = False
+                await self._abandon_turn()
             # if the consumer went away mid-turn, don't block generator
             # close on a live harness turn
             if not pump.done():
@@ -220,6 +185,55 @@ class ClaudeConversation:
                 await pump
             if self._pump_task is pump:
                 self._pump_task = None
+
+    def _decline_pending(self) -> None:
+        """Answer every parked confirm with a decline.
+
+        A `can_use_tool` hook may be awaiting a decision that will never
+        arrive now -- the consumer is gone, or the conversation is closing --
+        and an unresolved future leaves the harness wedged inside the hook.
+        """
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.set_result(False)
+
+    async def _abandon_turn(self) -> None:
+        """Give up on the turn in flight: decline, interrupt, judge health.
+
+        Runs when the consumer dropped mid-turn -- browser closed the tab,
+        navigated away, or the fetch was aborted via the Stop button. The SSE
+        layer closes this generator explicitly (`routes._abandon_stream`) so
+        that this protocol runs on a schedule rather than whenever an orphaned
+        generator is finalized.
+
+        Decline FIRST. The harness cannot answer an interrupt while it sits in
+        `can_use_tool` awaiting the very decision this supplies, so doing it
+        after `interrupt()` left the decline unreachable in exactly the case
+        it exists for (pkm-mbcc defect 2: a wedged harness, no tool_result,
+        and a panel showing nothing at all, until the process restarted).
+        """
+        self._decline_pending()
+        # Then stop the harness: cancelling our local pump task only stops us
+        # from reading further messages, it does NOT stop the CLI subprocess
+        # from continuing to execute the abandoned query. Bounded, because a
+        # harness wedged for any other reason must not hold up this cleanup
+        # either.
+        try:
+            await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT_S)
+        except TimeoutError:
+            logger.warning(
+                "assistant interrupt not acknowledged in %ss; abandoning the turn "
+                "and retiring the harness",
+                INTERRUPT_TIMEOUT_S,
+            )
+            # The subprocess may still be executing the abandoned turn: an
+            # interrupt it never acknowledged is not proof it stopped. Mark
+            # this handle unhealthy so the caller (AssistantService) tears it
+            # down instead of handing it a later turn (pkm-rwwc).
+            self.healthy = False
+        except Exception:
+            logger.exception("assistant interrupt failed; retiring the harness")
+            self.healthy = False
 
     async def _pump(self, mapper: TurnMapper) -> None:
         try:
@@ -231,9 +245,7 @@ class ClaudeConversation:
             await self._queue.put(ErrorEvent(message=str(exc)))
 
     async def close(self) -> None:
-        for fut in self._pending.values():
-            if not fut.done():
-                fut.set_result(False)
+        self._decline_pending()
         try:
             if self._pump_task is not None and not self._pump_task.done():
                 self._pump_task.cancel()

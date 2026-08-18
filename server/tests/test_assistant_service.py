@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 
 import pytest
 
@@ -38,8 +38,8 @@ class _StubHandle:
         # never exercises the cancellation-triggered cleanup path.
         self._unhealthy_after_interrupt = unhealthy_after_interrupt
 
-    def send(self, text: str) -> AsyncIterator[AssistantEvent]:
-        async def _gen() -> AsyncIterator[AssistantEvent]:
+    def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
+        async def _gen() -> AsyncGenerator[AssistantEvent, None]:
             if self._unhealthy_after_interrupt:
                 try:
                     await asyncio.Event().wait()  # never set: blocks like a live turn
@@ -47,7 +47,7 @@ class _StubHandle:
                     self.healthy = False
                 return
             return
-            yield  # pragma: no cover - never reached, satisfies AsyncIterator
+            yield  # pragma: no cover - never reached, makes this a generator
 
         return _gen()
 

@@ -167,12 +167,11 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         // An existing database (any version) is left alone — init() owns
         // schema-mismatch detection and recovery.
         if (!tableExists(d, "sync_client_meta")) installSchema(d);
-        // Bare-array payloads come from older bundles and tests; the object
-        // shape carries the caller-minted batch id (pkm-ybgt).
-        const { ops, batchId } = Array.isArray(payload)
-          ? { ops: payload as BlockOp[], batchId: undefined }
-          : payload as { ops: BlockOp[]; batchId?: string };
-        return enqueueBatch(d, ops, nowMs(), batchId ?? newBatchId());
+        // The object shape always carries the caller-minted batch id
+        // (pkm-ybgt): worker and main bundle ship from one hashed build, so
+        // no version skew between caller and handler is possible.
+        const { ops, batchId } = payload as { ops: BlockOp[]; batchId: string };
+        return enqueueBatch(d, ops, nowMs(), batchId);
       });
     },
     async nextBatch() {
@@ -186,17 +185,11 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     async markPoisoned(payload) {
       return gate.run(async () => {
         const { id, error, batchId } = payload as {
-          id: number; error: string; batchId?: string;
+          id: number; error: string; batchId: string;
         };
         const d = await db();
         const matched = markPoisoned(d, id, error, batchId);
-        const result: { pending: number; matched?: boolean } = {
-          pending: pendingCount(d),
-        };
-        // Older direct handler callers omitted batch identity. Preserve their
-        // response shape while typed clients always receive match evidence.
-        if (batchId !== undefined) result.matched = matched;
-        return result;
+        return { pending: pendingCount(d), matched };
       });
     },
     async init() {

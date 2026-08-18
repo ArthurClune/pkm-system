@@ -76,7 +76,7 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
   await replica.applySnapshot(SNAP);
   await replica.enqueue([
     { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
-  ]);
+  ], "batch-ack");
 
   // The request was dispatched while this optimistic batch still existed.
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
@@ -148,7 +148,7 @@ test("an edit arriving before init persists (schema installs on demand)", async 
   const { pending } = await replica.enqueue([
     { op: "create", uid: "uid_pre", page_title: "Today",
       parent_uid: null, order_idx: 0, text: "typed before init" },
-  ]);
+  ], "batch-pre");
   expect(pending).toBe(1);
   const init = await replica.init();
   expect(init.empty).toBe(true); // still needs the snapshot bootstrap
@@ -245,7 +245,7 @@ test("a prepare delayed past its client timeout cannot later orphan the worker l
     releaseOpen.resolve(t.db);
     await workerPrepareFinished.promise;
     expect(workerPrepareOutcome).toBe("rejected");
-    await expect(replica.enqueue([{ op: "delete", uid: "uid_after" }]))
+    await expect(replica.enqueue([{ op: "delete", uid: "uid_after" }], "batch-after"))
       .resolves.toMatchObject({ pending: 1, batchId: expect.any(String) });
     await earlier;
   } finally {
@@ -259,7 +259,7 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
   await replica.applySnapshot(SNAP);
   const { pending } = await replica.enqueue([
     { op: "update_text", uid: "uid_b1", text: "offline edit" },
-  ]);
+  ], "batch-offline");
   expect(pending).toBe(1);
   expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
     .toEqual([{ text: "offline edit" }]);
@@ -317,7 +317,7 @@ test("a recovery lease gates enqueue and offline POST until the fresh database i
   let localPostSettled = false;
   const enqueue = replica.enqueue([
     { op: "update_text", uid: "uid_b1", text: "after recovery" },
-  ]).finally(() => { enqueueSettled = true; });
+  ], "batch-after-recovery").finally(() => { enqueueSettled = true; });
   const localPost = replica.localApi({
     method: "POST", path: "/api/pages", body: { title: "Offline Page" }, nowMs: 10,
   }).finally(() => { localPostSettled = true; });

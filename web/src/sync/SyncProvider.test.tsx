@@ -132,12 +132,12 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
       log.push("applyChanges");
       return { status: "applied", cursor: f.next_since };
     },
-    enqueue: async () => ({ pending: 0 }),
+    enqueue: async (_ops, batchId) => ({ pending: 0, batchId }),
     nextBatch: async () => null,
     pendingBatches: async () => [],
     poisonedBatches: async () => [],
     deleteBatch: async () => ({ pending: 0 }),
-    markPoisoned: async () => ({ pending: 0 }),
+    markPoisoned: async () => ({ pending: 0, matched: true }),
     pendingCount: async () => 0,
     localApi: async () => ({ handled: false as const }),
     prepareRecovery: async () => ({ token: "lease-1", batches: [] }),
@@ -758,15 +758,15 @@ test("rejected batch repair finishes before resync and later delivery", async ()
   });
   replica.enqueue = async (ops) => {
     const id = nextId++;
-    rows.push({ id, batch_id: id === 1 ? "bad-batch" : "good-batch",
-                ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    const batch_id = id === 1 ? "bad-batch" : "good-batch";
+    rows.push({ id, batch_id, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
   };
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.markPoisoned = async (id) => {
     trace.push("mark poison");
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
   replica.pendingBatches = async () => [...rows];
@@ -888,9 +888,9 @@ async () => {
   let initCalls = 0;
   replica.enqueue = async (ops) => {
     const id = nextId++;
-    rows.push({ id, batch_id: id === 1 ? "bad-batch" : "later-good",
-                ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    const batch_id = id === 1 ? "bad-batch" : "later-good";
+    rows.push({ id, batch_id, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
   };
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
@@ -899,7 +899,7 @@ async () => {
     markAttempts += 1;
     if (markAttempts <= 2) throw new Error(`mark unavailable ${markAttempts}`);
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.poisonedBatches = async () => {
     poisonDiscoveryCalls += 1;
@@ -995,7 +995,7 @@ test("startup repairs returned marks even when poison discovery fails", async ()
   let initCalls = 0;
   replica.markPoisoned = async (id) => {
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.poisonedBatches = async () => {
     discoveryCalls += 1;
@@ -1440,14 +1440,14 @@ test("failed poison repair stays visible and Retry succeeds without reapplying i
   });
   replica.enqueue = async (ops) => {
     const id = nextId++;
-    rows.push({ id, batch_id: id === 1 ? "bad-batch" : "good-batch",
-                ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    const batch_id = id === 1 ? "bad-batch" : "good-batch";
+    rows.push({ id, batch_id, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
   };
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.markPoisoned = async (id) => {
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
   replica.pendingBatches = async () => [...rows];
@@ -1538,12 +1538,12 @@ test("applySync reads the freshest problem for same-tick dispatches: a dismiss "
     const id = nextId++;
     const batchId = id === 1 ? "bad-batch" : id === 2 ? "good-batch" : "bad-batch-2";
     rows.push({ id, batch_id: batchId, ops, poisoned: false });
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId };
   };
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.markPoisoned = async (id) => {
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
   replica.pendingBatches = async () => [...rows];
@@ -1632,7 +1632,7 @@ test("offline with a ready replica keeps editing enabled and counts pending", as
   const replica = fakeReplicaForProvider();
   let pendingN = 2;
   replica.pendingCount = async () => pendingN;
-  replica.enqueue = async () => ({ pending: ++pendingN });
+  replica.enqueue = async (_ops, batchId) => ({ pending: ++pendingN, batchId });
   replica.nextBatch = async () => null; // nothing drains in this test
   let sync!: Sync;
   function Grab() {
@@ -1740,8 +1740,12 @@ test("StrictMode effect replay keeps the queue live", async () => {
   act(() => lastWs().open());
 
   const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
-  await expect(write.settled).resolves.toMatchObject({ status: "persisted" });
-  await act(async () => { await Promise.resolve(); });
+  // With no replica there is nothing to persist into, so the op rides the
+  // in-memory lane; liveness is that the queue still delivers it after
+  // StrictMode has replayed the mount effects.
+  await act(async () => {
+    await expect(write.delivered).resolves.toEqual({ status: "delivered" });
+  });
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
@@ -1803,7 +1807,7 @@ test("automatic retry completes reconnect feed pull and resync exactly once", as
     });
     replica.enqueue = async (ops) => {
       rows.push({ id: 1, batch_id: "retry-me", ops, poisoned: false });
-      return { pending: rows.length };
+      return { pending: rows.length, batchId: "retry-me" };
     };
     replica.nextBatch = async () => rows[0] ?? null;
     replica.deleteBatch = async () => {
@@ -2191,7 +2195,7 @@ test("an op stranded in the in-memory lane arms the unload guard", async () => {
 test("a durable pending row leaves the unload guard disarmed", async () => {
   const replica = {
     ...fakeReplicaForProvider(),
-    enqueue: async () => ({ pending: 1 }),
+    enqueue: async (_ops: BlockOp[], batchId: string) => ({ pending: 1, batchId }),
     pendingCount: async () => 1,
   };
   let sync!: Sync;

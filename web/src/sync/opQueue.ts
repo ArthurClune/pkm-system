@@ -5,7 +5,7 @@
 import { ApiError } from "../api/client";
 import { apiPost } from "../api/typedClient";
 import type { BlockOp } from "../api/ops";
-import type { PoisonedBatch, Replica } from "../replica/client";
+import type { PendingBatch, PoisonedBatch, Replica } from "../replica/client";
 import { availabilityOf, isSessionFatal, ReplicaError,
          type ReplicaAvailability } from "../replica/errors";
 import { newUid } from "../uid";
@@ -13,8 +13,6 @@ import { createQueueState, terminalReason, transitionQueue,
          type QueueEffect, type QueueEvent } from "./queueState";
 
 export const clientId = newUid();
-
-const MAX_BATCH = 500;
 
 export type WriteOutcome =
   | { status: "persisted"; pending: number }
@@ -181,10 +179,6 @@ function createReplicaQueue(replica: Replica,
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
   const deliveries = new Map<string, (outcome: DeliveryOutcome) => void>();
-  const unidentifiedDeliveries: Array<{
-    position: number;
-    resolve(outcome: DeliveryOutcome): void;
-  }> = [];
   const fallback: FallbackEntry[] = [];
   // Durable batches persisted since the last fallback entry was appended:
   // they sit BEHIND that entry and must not overtake it.
@@ -230,6 +224,14 @@ function createReplicaQueue(replica: Replica,
     }
   };
 
+  /** Zero the durable-precedence bookkeeping: no retained entry is left
+   * waiting on a durable predecessor, and no entry appended next inherits one.
+   * Each call site owns the argument for why that is true there. */
+  const clearDurablePrecedence = (): void => {
+    for (const entry of fallback) entry.durableAhead = 0;
+    durableSinceFallback = 0;
+  };
+
   const finishDelivery = (batchId: string, outcome: DeliveryOutcome): void => {
     const resolve = deliveries.get(batchId);
     if (!resolve) return;
@@ -240,20 +242,6 @@ function createReplicaQueue(replica: Replica,
   const finishAllDeliveries = (outcome: DeliveryOutcome): void => {
     for (const resolve of deliveries.values()) resolve(outcome);
     deliveries.clear();
-    while (unidentifiedDeliveries.length > 0) {
-      unidentifiedDeliveries.shift()!.resolve(outcome);
-    }
-  };
-
-  /** Older workers omitted enqueue batch ids. Their returned pending count is
-   * the ticket's FIFO position among deliverable durable rows. */
-  const finishObservedUnidentified = (outcome: DeliveryOutcome): void => {
-    const retained: typeof unidentifiedDeliveries = [];
-    for (const delivery of unidentifiedDeliveries) {
-      if (delivery.position === 1) delivery.resolve(outcome);
-      else retained.push({ ...delivery, position: delivery.position - 1 });
-    }
-    unidentifiedDeliveries.splice(0, unidentifiedDeliveries.length, ...retained);
   };
 
   const runEffects = (effects: readonly QueueEffect[]): void => {
@@ -336,14 +324,14 @@ function createReplicaQueue(replica: Replica,
     const intents = [...poisonMarkIntents];
     if (intents.length === 0) return [];
     dispatch({ type: "pause" });
-    let result: { pending: number; matched?: boolean } | null = null;
+    let result: { pending: number; matched: boolean } | null = null;
     const matchedIntents: PoisonEvent[] = [];
     for (const event of intents) {
       try {
         result = await replica.markPoisoned(event.rowId, JSON.stringify({
           status: event.status, message: event.message,
         }), event.batchId);
-        if (result.matched !== false) matchedIntents.push(event);
+        if (result.matched) matchedIntents.push(event);
       } catch (error: unknown) {
         // Same fact, learned from a different call. An unmarkable intent still
         // holds the gate: knowing the replica is gone does not make delivering
@@ -364,6 +352,77 @@ function createReplicaQueue(replica: Replica,
     poisonMarkIntents = [];
     matchedIntents.forEach((event) => poison.emit(event));
     return matchedIntents;
+  };
+
+  /** Deliver the retained head, which has no durable batch left ahead of it.
+   * Returns the outcome the drain must report, or null to keep looping. */
+  const deliverLaneHead = async (
+    head: FallbackEntry,
+  ): Promise<DrainOutcome | null> => {
+    try {
+      await postOps(head.ops, head.batchId);
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.status >= 400
+          && error.status < 500) {
+        // A lane entry has no durable row to poison, so terminal means
+        // discarded: drop exactly the rejected entry — the only discard
+        // this queue makes on its own — hold later entries behind the
+        // recovery barrier, and let onDesync run the authoritative repair
+        // that resumes it.
+        dispatch({ type: "pause" });
+        fallback.shift();
+        head.resolve({ status: "failed", error });
+        emitPending();
+        try { onDesync(error); } catch { /* listener isolation */ }
+        return blocked("recovering", error);
+      }
+      return failed(error);
+    }
+    fallback.shift();
+    head.resolve({ status: "delivered" });
+    emitPending();
+    dispatch({ type: "batch-succeeded" });
+    const laneBlock = terminalReason(qstate);
+    if (laneBlock !== null) return blocked(laneBlock);
+    return null;
+  };
+
+  /** The server rejected a durable batch outright. Terminal for that batch:
+   * it is poisoned rather than retried, and the recovery barrier holds until
+   * an outside repair lifts it. */
+  const rejectDurableBatch = async (
+    batch: PendingBatch, error: ApiError,
+  ): Promise<DrainOutcome> => {
+    const event: PoisonEvent = {
+      rowId: batch.id,
+      batchId: batch.batch_id,
+      ops: batch.ops,
+      status: error.status,
+      message: error.message,
+    };
+    // Claim the shared recovery barrier as soon as the server rejects
+    // the batch. markPoisoned may wait behind a recovery lease whose
+    // snapshot still says this row is valid; that lease must learn it
+    // is stale before it begins its next POST.
+    dispatch({ type: "pause" });
+    poisonPending.emit(undefined);
+    const firstRejection = rememberPoisonMark(event);
+    finishDelivery(batch.batch_id, { status: "failed", error });
+    // Terminal for this batch: it is never POSTed again (the barrier
+    // holds until the repair, and marking is retried, never delivery), so
+    // it stops standing ahead of a retained entry from here. Keyed to a
+    // new mark intent so it counts once per batch: markPoisoned below can
+    // throw, and the still-unmarked row is then handed out again by an
+    // outside resume, taking the same 4xx. A second decrement would put
+    // the head's count below the batches actually ahead of it and let the
+    // retained op overtake one of them (pkm-yavj).
+    if (firstRejection) durableBatchSettled();
+    try {
+      await markRetainedPoison();
+    } catch (rpcError: unknown) {
+      return failed(rpcError);
+    }
+    return blocked("recovering");
   };
 
   const runDrain = async (): Promise<DrainOutcome> => {
@@ -391,9 +450,8 @@ function createReplicaQueue(replica: Replica,
      * unsettled, exactly as they are today — dispose() is what settles them —
      * because resolving them "delivered" would be a lie and resolving them
      * "failed" would change what the outline session's replay does. */
-    const laneOnly = (): DrainOutcome | null => {
-      for (const entry of fallback) entry.durableAhead = 0;
-      durableSinceFallback = 0;
+    const deferDurableQueue = (): DrainOutcome | null => {
+      clearDurablePrecedence();
       if (fallback.length > 0) return null;
       if (drainAgain) return null;
       return { status: "drained" };
@@ -403,35 +461,12 @@ function createReplicaQueue(replica: Replica,
       drainAgain = false;
       const head = fallback[0];
       if (head !== undefined && head.durableAhead === 0) {
-        try {
-          await postOps(head.ops, head.batchId);
-        } catch (error: unknown) {
-          if (error instanceof ApiError && error.status >= 400
-              && error.status < 500) {
-            // No durable row exists to poison, so this mirrors the legacy
-            // queue's terminal 4xx: discard exactly the rejected entry — the
-            // only discard this queue makes on its own — hold later entries
-            // behind the recovery barrier, and let onDesync run the
-            // authoritative repair that resumes it.
-            dispatch({ type: "pause" });
-            fallback.shift();
-            head.resolve({ status: "failed", error });
-            emitPending();
-            try { onDesync(error); } catch { /* listener isolation */ }
-            return blocked("recovering", error);
-          }
-          return failed(error);
-        }
-        fallback.shift();
-        head.resolve({ status: "delivered" });
-        emitPending();
-        dispatch({ type: "batch-succeeded" });
-        const laneBlock = terminalReason(qstate);
-        if (laneBlock !== null) return blocked(laneBlock);
+        const outcome = await deliverLaneHead(head);
+        if (outcome !== null) return outcome;
         continue;
       }
       if (unavailable !== null) {
-        const outcome = laneOnly();
+        const outcome = deferDurableQueue();
         if (outcome !== null) return outcome;
         continue;
       }
@@ -441,7 +476,7 @@ function createReplicaQueue(replica: Replica,
       } catch (error: unknown) {
         noteReplicaFailure(error);
         if (unavailable === null) return failed(error);
-        const outcome = laneOnly();
+        const outcome = deferDurableQueue();
         if (outcome !== null) return outcome;
         continue;
       }
@@ -454,8 +489,7 @@ function createReplicaQueue(replica: Replica,
         // never arrive. durableSinceFallback counts batches that are equally
         // gone, so it must be cleared too or the next appended entry inherits
         // a phantom predecessor.
-        for (const entry of fallback) entry.durableAhead = 0;
-        durableSinceFallback = 0;
+        clearDurablePrecedence();
         if (fallback.length > 0) continue;
         if (drainAgain) continue;
         return { status: "drained" };
@@ -464,37 +498,7 @@ function createReplicaQueue(replica: Replica,
         await postOps(batch.ops, batch.batch_id);
       } catch (error: unknown) {
         if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
-          const event: PoisonEvent = {
-            rowId: batch.id,
-            batchId: batch.batch_id,
-            ops: batch.ops,
-            status: error.status,
-            message: error.message,
-          };
-          // Claim the shared recovery barrier as soon as the server rejects
-          // the batch. markPoisoned may wait behind a recovery lease whose
-          // snapshot still says this row is valid; that lease must learn it
-          // is stale before it begins its next POST.
-          dispatch({ type: "pause" });
-          poisonPending.emit(undefined);
-          const firstRejection = rememberPoisonMark(event);
-          finishDelivery(batch.batch_id, { status: "failed", error });
-          finishObservedUnidentified({ status: "failed", error });
-          // Terminal for this batch: it is never POSTed again (the barrier
-          // holds until the repair, and marking is retried, never delivery), so
-          // it stops standing ahead of a retained entry from here. Keyed to a
-          // new mark intent so it counts once per batch: markPoisoned below can
-          // throw, and the still-unmarked row is then handed out again by an
-          // outside resume, taking the same 4xx. A second decrement would put
-          // the head's count below the batches actually ahead of it and let the
-          // retained op overtake one of them (pkm-yavj).
-          if (firstRejection) durableBatchSettled();
-          try {
-            await markRetainedPoison();
-          } catch (rpcError: unknown) {
-            return failed(rpcError);
-          }
-          return blocked("recovering");
+          return rejectDurableBatch(batch, error);
         }
         return failed(error);
       }
@@ -507,11 +511,13 @@ function createReplicaQueue(replica: Replica,
       }
       pendingCount = result.pending;
       finishDelivery(batch.batch_id, { status: "delivered" });
-      finishObservedUnidentified({ status: "delivered" });
       durableBatchSettled();
       if (pendingCount === 0) {
-        // Test replicas and older workers may not return enqueue batch ids;
-        // an empty durable queue proves those in-memory tickets delivered.
+        // A durable row can be deleted outside this drain (a recovery flush
+        // or a rebase settle): its ticket never gets a matching finishDelivery
+        // call here, so it stays in `deliveries` unresolved. Once the durable
+        // queue is observed empty, every remaining ticket must have been
+        // delivered by one of those out-of-band paths — settle them now.
         finishAllDeliveries({ status: "delivered" });
       }
       emitPending();
@@ -535,8 +541,8 @@ function createReplicaQueue(replica: Replica,
         // but before drainRun is cleared below would otherwise be dropped
         // silently: kick() only records it by setting drainAgain when
         // drainRun is still set, and nothing else re-checks that flag once
-        // runDrain has returned. Re-check it here, mirroring the legacy
-        // queue's missedKick handling.
+        // runDrain has returned. Re-check it here: this is the only place
+        // that can still see a kick landing in that window.
         //
         // A blocked outcome is not automatically dead: the very event that
         // kicked may be what lifted the block (setOnline(true) racing a drain
@@ -610,13 +616,8 @@ function createReplicaQueue(replica: Replica,
             resolveDelivery({
               status: "failed", error: new Error("op queue disposed"),
             });
-          } else if (result.batchId === undefined) {
-            unidentifiedDeliveries.push({
-              position: result.pending,
-              resolve: resolveDelivery,
-            });
           } else {
-            deliveries.set(result.batchId, resolveDelivery);
+            deliveries.set(batchId, resolveDelivery);
           }
           emitPending();
           resolve({ status: "persisted", pending: pendingCount });
@@ -727,224 +728,9 @@ function createReplicaQueue(replica: Replica,
   };
 }
 
-function createLegacyQueue(onDesync: (error: unknown) => void,
-                           onDrain: (outcome: DrainOutcome) => void): OpQueue {
-  let pending: BlockOp[] = [];
-  let qstate = createQueueState();
-  let drainRun: Promise<DrainOutcome> | null = null;
-  let drainAgain = false;
-  let kickScheduled = false;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  // A retried batch must resend a byte-identical payload under the same id
-  // (the server binds batch_id to a sha256 of the ops), so this survives
-  // across the separate runDrain() calls a 5xx retry makes: it is only
-  // cleared on success or a terminal 4xx, never merely because runDrain
-  // returned. Ops enqueued during a retry's backoff must not silently join
-  // an already-attempted batch.
-  let frozen: { id: string; ops: BlockOp[] } | null = null;
-  const deliveries: Array<{
-    remaining: number;
-    resolve(outcome: DeliveryOutcome): void;
-  }> = [];
-
-  const deliverOps = (count: number): void => {
-    let remaining = count;
-    while (remaining > 0 && deliveries.length > 0) {
-      const delivery = deliveries[0];
-      const consumed = Math.min(remaining, delivery.remaining);
-      delivery.remaining -= consumed;
-      remaining -= consumed;
-      if (delivery.remaining === 0) {
-        deliveries.shift();
-        delivery.resolve({ status: "delivered" });
-      }
-    }
-  };
-
-  const failDeliveries = (error: unknown): void => {
-    while (deliveries.length > 0) {
-      deliveries.shift()!.resolve({ status: "failed", error });
-    }
-  };
-
-  /** Reject every ticket touched by the failed HTTP batch, including any
-   * remainder of a ticket that crossed MAX_BATCH. Return the number of
-   * pending ops owned by those terminal tickets so later tickets stay queued. */
-  const rejectBatchDeliveries = (count: number, error: unknown): number => {
-    let remaining = count;
-    let discarded = 0;
-    while (remaining > 0 && deliveries.length > 0) {
-      const delivery = deliveries.shift()!;
-      remaining -= Math.min(remaining, delivery.remaining);
-      discarded += delivery.remaining;
-      delivery.resolve({ status: "failed", error });
-    }
-    return discarded;
-  };
-
-  const runEffects = (effects: readonly QueueEffect[]): void => {
-    for (const eff of effects) {
-      if (eff.type === "clear-timer") {
-        if (retryTimer !== null) clearTimeout(retryTimer);
-        retryTimer = null;
-      } else if (eff.type === "start-timer") {
-        retryTimer = setTimeout(() => {
-          retryTimer = null;
-          dispatch({ type: "retry-fired" });
-          void drain();
-        }, eff.delayMs);
-      } else {
-        kick();
-      }
-    }
-  };
-
-  const dispatch = (event: QueueEvent) => {
-    const transition = transitionQueue(qstate, event);
-    qstate = transition.state;
-    runEffects(transition.effects);
-    return transition;
-  };
-
-  const terminal = (
-    reason: "offline" | "retryable" | "recovering" | "disposed",
-    error?: unknown,
-  ): DrainOutcome => ({
-    status: "blocked", reason, pending: pending.length,
-    ...(error === undefined ? {} : { error }),
-  });
-
-  const failed = (error: unknown): DrainOutcome => {
-    const transition = dispatch({ type: "delivery-failed" });
-    return terminal(transition.blockedReason!, error);
-  };
-
-  const runDrain = async (): Promise<DrainOutcome> => {
-    const initialBlock = terminalReason(qstate);
-    if (initialBlock !== null) return terminal(initialBlock);
-    while (pending.length > 0) {
-      frozen ??= { id: newUid(), ops: pending.slice(0, MAX_BATCH) };
-      const batch = frozen.ops;
-      try {
-        await postOps(batch, frozen.id);
-      } catch (error: unknown) {
-        if (!(error instanceof ApiError) || error.status >= 500) {
-          return failed(error);
-        }
-        // A rejected ticket is terminal, including a ticket whose remaining
-        // ops cross this transport batch. Later tickets stay pending behind a
-        // repair barrier and cannot POST until its owner explicitly resumes.
-        dispatch({ type: "pause" });
-        const discarded = rejectBatchDeliveries(batch.length, error);
-        pending.splice(0, discarded);
-        frozen = null;
-        try { onDesync(error); } catch { /* listener isolation */ }
-        // dispatch({ type: "pause" }) above unconditionally sets recovering
-        // true (see queueState.ts), so this is never false: the loop always
-        // returns here and never falls through to another iteration.
-        return terminal("recovering", error);
-      }
-      pending.splice(0, batch.length);
-      deliverOps(batch.length);
-      frozen = null;
-      dispatch({ type: "batch-succeeded" });
-      const loopBlock = terminalReason(qstate);
-      if (loopBlock !== null) return terminal(loopBlock);
-    }
-    return { status: "drained" };
-  };
-
-  const drain = (): Promise<DrainOutcome> => {
-    if (drainRun) return drainRun;
-    drainRun = runDrain()
-      .catch(failed)
-      .then((outcome) => {
-        try { onDrain(outcome); } catch { /* observer isolation */ }
-        return outcome;
-      })
-      .finally(() => {
-        const missedKick = drainAgain;
-        drainAgain = false;
-        drainRun = null;
-        if (missedKick && pending.length > 0) kick();
-      });
-    return drainRun;
-  };
-
-  const kick = (): void => {
-    if (kickScheduled || !qstate.online || qstate.recovering ||
-        qstate.disposed || retryTimer !== null) return;
-    if (drainRun) {
-      drainAgain = true;
-      return;
-    }
-    kickScheduled = true;
-    void Promise.resolve().then(() => {
-      kickScheduled = false;
-      return drain();
-    });
-  };
-
-  return {
-    enqueue(ops, scope) {
-      if (ops.length > 0 && !qstate.disposed) {
-        pending.push(...ops);
-        let resolveDelivery!: (outcome: DeliveryOutcome) => void;
-        const delivered = new Promise<DeliveryOutcome>((done) => {
-          resolveDelivery = done;
-        });
-        deliveries.push({ remaining: ops.length, resolve: resolveDelivery });
-        kick();
-        return ticket(scope, Promise.resolve({
-          status: "persisted", pending: pending.length,
-        }), delivered);
-      }
-      if (qstate.disposed && ops.length > 0) {
-        const error = new Error("op queue disposed");
-        return ticket(scope, Promise.resolve({
-          status: "failed", error,
-        }), Promise.resolve({ status: "failed", error }));
-      }
-      return ticket(scope, Promise.resolve({
-        status: "persisted", pending: pending.length,
-      }), Promise.resolve({ status: "delivered" }));
-    },
-    settled: async () => undefined,
-    drain,
-    setOnline(next) {
-      dispatch({ type: "set-online", online: next });
-    },
-    pause() {
-      dispatch({ type: "pause" });
-    },
-    resume() {
-      dispatch({ type: "resume" });
-    },
-    dispose() {
-      if (qstate.disposed) return;
-      dispatch({ type: "dispose" });
-      failDeliveries(new Error("op queue disposed"));
-    },
-    onPending: () => () => undefined,
-    // Honestly inert, not merely unwired: createOpQueue only builds this
-    // queue when replica === null, which defaultReplica() returns only where
-    // Worker is undefined (jsdom) — so this factory never runs in a real
-    // browser, which is also why its onPending was never plumbed. A real
-    // browser with no usable OPFS still gets the replica queue above, whose
-    // failed open lands every op in the fallback lane (pkm-0htf).
-    onUnsentInMemory: () => () => undefined,
-    onPoisonPending: () => () => undefined,
-    onPoisonMarkFailed: () => () => undefined,
-    onPoison: () => () => undefined,
-    poisonMarkIntents: () => [],
-    retryPoisonMarks: async () => [],
-  };
-}
-
-export function createOpQueue(replica: Replica | null,
+export function createOpQueue(replica: Replica,
                               onDesync: (error: unknown) => void,
                               onDrain: (outcome: DrainOutcome) => void =
                                 () => undefined): OpQueue {
-  return replica ? createReplicaQueue(replica, onDesync, onDrain)
-                 : createLegacyQueue(onDesync, onDrain);
+  return createReplicaQueue(replica, onDesync, onDrain);
 }

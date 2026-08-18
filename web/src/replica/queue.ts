@@ -24,7 +24,7 @@ const currentText = (db: ReplicaDb, uid: string): string | null => {
 export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
                              batchId: string): {
   pending: number;
-  batchId?: string;
+  batchId: string;
 } {
   const violation = findOpTitleViolation(ops);
   if (violation !== null) {
@@ -65,10 +65,7 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
               [batchId, JSON.stringify(augmented)]);
     });
   }
-  return {
-    pending: pendingCount(db),
-    ...(ops.length > 0 ? { batchId } : {}),
-  };
+  return { pending: pendingCount(db), batchId };
 }
 
 const toBatch = (r: { id: number; batch_id: string; ops_json: string;
@@ -138,19 +135,12 @@ export function deleteBatch(db: ReplicaDb, id: number): number {
 }
 
 export function markPoisoned(db: ReplicaDb, id: number, error: string,
-                             batchId?: string): boolean {
-  const matches = batchId === undefined
-    ? db.select<{ id: number }>("SELECT id FROM pending_ops WHERE id = ?", [id])
-    : db.select<{ id: number }>(
-      "SELECT id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
+                             batchId: string): boolean {
+  const matches = db.select<{ id: number }>(
+    "SELECT id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
   if (matches.length === 0) return false;
-  if (batchId === undefined) {
-    db.exec("UPDATE pending_ops SET poisoned = 1, error = ? WHERE id = ?",
-            [error, id]);
-  } else {
-    db.exec(
-      "UPDATE pending_ops SET poisoned = 1, error = ? WHERE id = ? AND batch_id = ?",
-      [error, id, batchId]);
-  }
+  db.exec(
+    "UPDATE pending_ops SET poisoned = 1, error = ? WHERE id = ? AND batch_id = ?",
+    [error, id, batchId]);
   return true;
 }

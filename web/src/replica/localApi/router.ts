@@ -6,13 +6,11 @@
 
 import type { BlockRefsPayload, SidebarNavEntry, SidebarNavPayload,
               TitlesPayload } from "../../api/payloads";
-import { titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
 import { plainSpaceTitleCanonicalizationActive } from "../meta";
 import { enqueueBatch } from "../queue";
 import { canonicalizeTitle, titleSyntaxReason } from "../titles";
-import { escapeFtsQuery } from "./fts";
 import { journalPayload } from "./journal";
 import { blockBacklinks, currentWorkPayload, fetchPage, pagePayload,
          unlinked } from "./pages";
@@ -44,7 +42,7 @@ export interface LocalApiDeps {
 }
 
 export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
-                               deps?: LocalApiDeps): LocalApiResult {
+                               deps: LocalApiDeps): LocalApiResult {
   const url = new URL(req.path, "http://replica.local");
   const q = url.searchParams;
   const path = url.pathname;
@@ -90,7 +88,7 @@ export function handleLocalApi(db: ReplicaDb, req: LocalApiRequest,
     return ok(searchPayload(db, q.get("q") ?? "",
                             Number(q.get("limit") ?? 20), exact));
   }
-  if (method === "POST" && path === "/api/pages" && deps) {
+  if (method === "POST" && path === "/api/pages") {
     const title = canonicalizeTitle(
       String((req.body as { title?: unknown })?.title ?? ""),
       plainSpaceTitleCanonicalizationActive(db),
@@ -144,5 +142,3 @@ export function titlesPayload(db: ReplicaDb, qStr: string,
       LIMIT ?`, [`%${esc}%`, `${esc}%`, lim]);
   return { titles: rows.map((r) => r.title) };
 }
-
-export { escapeFtsQuery, titleForDate };

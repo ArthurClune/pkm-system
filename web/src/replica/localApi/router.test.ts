@@ -28,7 +28,8 @@ beforeEach(async () => {
 });
 
 function call(method: string, path: string, body?: unknown,
-              deps?: { newBatchId(): string }): LocalApiResult {
+              deps: { newBatchId(): string } =
+                { newBatchId: () => "batch-test-1" }): LocalApiResult {
   return handleLocalApi(t.db, { method, path, body, nowMs: NOW }, deps);
 }
 
@@ -43,11 +44,6 @@ describe("unmatched routes", () => {
   test("unknown paths report handled:false", () => {
     expect(call("GET", "/api/query?expr=x")).toEqual({ handled: false });
     expect(call("DELETE", "/api/page/X")).toEqual({ handled: false });
-  });
-
-  test("POST /api/pages without deps is not handled", () => {
-    expect(call("POST", "/api/pages", { title: "X" }))
-      .toEqual({ handled: false });
   });
 });
 

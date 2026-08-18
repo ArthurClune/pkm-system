@@ -23,7 +23,7 @@ test("commit refuses changed durable rows and releases the recovery lease", asyn
   });
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
-  await handlers.enqueue([{ op: "delete", uid: "uid_b1" }]);
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "batch-1" });
   const lease = await handlers.prepareRecovery(undefined) as {
     token: string;
     batches: unknown[];
@@ -43,8 +43,9 @@ test("commit refuses changed durable rows and releases the recovery lease", asyn
     .rejects.toThrow("invalid or inactive recovery token");
 
   // A failed commit released exactly once, so later mutations are not wedged.
-  await expect(handlers.enqueue([{ op: "delete", uid: "uid_x2" }]))
-    .resolves.toEqual({ pending: 3, batchId: "batch-new" });
+  await expect(handlers.enqueue({
+    ops: [{ op: "delete", uid: "uid_x2" }], batchId: "batch-x2",
+  })).resolves.toEqual({ pending: 3, batchId: "batch-x2" });
 });
 
 test("abort rejects invalid and double-used recovery tokens", async () => {
@@ -72,9 +73,10 @@ test("rebase preserves and reapplies stable pending rows, then rejects token reu
   });
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
-  await handlers.enqueue([
-    { op: "update_text", uid: "uid_b1", text: "local pending" },
-  ]);
+  await handlers.enqueue({
+    ops: [{ op: "update_text", uid: "uid_b1", text: "local pending" }],
+    batchId: "batch-local",
+  });
   const lease = await handlers.prepareRecovery(undefined) as { token: string };
 
   await expect(handlers.commitRecovery({
@@ -115,8 +117,8 @@ test("a reset commit rolls back schema rebuild when snapshot application fails",
   });
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
-  await handlers.enqueue([{ op: "delete", uid: "uid_b1" }]);
-  await handlers.markPoisoned({ id: 1, error: "rejected" });
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "batch-retained" });
+  await handlers.markPoisoned({ id: 1, error: "rejected", batchId: "batch-retained" });
   const blocksBefore = t.db.select("SELECT uid, text FROM blocks ORDER BY uid");
   const lease = await handlers.prepareRecovery(undefined) as { token: string };
   failSnapshot = true;
@@ -144,8 +146,8 @@ test("commit detects an error-only durable row mutation hidden from the public l
     newBatchId: () => "batch-error",
   });
   await handlers.init(undefined);
-  await handlers.enqueue([{ op: "delete", uid: "uid_error" }]);
-  await handlers.markPoisoned({ id: 1, error: "first rejection" });
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_error" }], batchId: "batch-error" });
+  await handlers.markPoisoned({ id: 1, error: "first rejection", batchId: "batch-error" });
   const lease = await handlers.prepareRecovery(undefined) as {
     token: string;
     batches: Array<Record<string, unknown>>;
@@ -167,7 +169,9 @@ test("markPoisoned validates batch identity and remains idempotent", async () =>
     newBatchId: () => "replacement-batch",
   });
   await handlers.init(undefined);
-  await handlers.enqueue([{ op: "delete", uid: "uid_new" }]);
+  await handlers.enqueue({
+    ops: [{ op: "delete", uid: "uid_new" }], batchId: "replacement-batch",
+  });
 
   await expect(handlers.markPoisoned({
     id: 1, batchId: "deleted-batch", error: "old rejection",
@@ -220,7 +224,9 @@ test("an acquired recovery lease expires if its client forgets the token", async
     const lease = await handlers.prepareRecovery({ expiresAtMs: 100 }) as {
       token: string;
     };
-    const later = handlers.enqueue([{ op: "delete", uid: "uid_later" }]);
+    const later = handlers.enqueue({
+      ops: [{ op: "delete", uid: "uid_later" }], batchId: "batch-after-expiry",
+    });
 
     clock = 100;
     await vi.advanceTimersByTimeAsync(100);
@@ -290,7 +296,7 @@ test("one failed open is replayed by EVERY handler, and opens only once", async 
 
   const calls: Array<[string, unknown]> = [
     ["init", undefined],
-    ["enqueue", [{ op: "delete", uid: "uid_b1" }]],
+    ["enqueue", { ops: [{ op: "delete", uid: "uid_b1" }], batchId: "batch-b1" }],
     ["nextBatch", undefined],
     ["deleteBatch", 1],
     ["markPoisoned", { id: 1, error: "e", batchId: "b" }],
@@ -385,17 +391,4 @@ test("enqueue persists a caller-provided batch id instead of minting one", async
   })).resolves.toEqual({ pending: 1, batchId: "caller-id" });
   expect(t.db.select("SELECT batch_id FROM pending_ops"))
     .toEqual([{ batch_id: "caller-id" }]);
-});
-
-test("enqueue still accepts the bare-array payload and mints an id", async () => {
-  const t = await openRawTestDb();
-  const handlers = buildHandlers({
-    openDb: async () => t.db,
-    nowMs: () => 10,
-    newBatchId: () => "batch-minted",
-  });
-  await handlers.init(undefined);
-  await handlers.applySnapshot(SNAP);
-  await expect(handlers.enqueue([{ op: "delete", uid: "uid_b1" }]))
-    .resolves.toEqual({ pending: 1, batchId: "batch-minted" });
 });

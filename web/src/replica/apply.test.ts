@@ -142,7 +142,7 @@ describe("applySnapshot", () => {
     const rejected = nextBatch(t.db)!;
     markPoisoned(t.db, rejected.id, JSON.stringify({
       status: 400, message: "request failed: 400 /api/ops",
-    }));
+    }), "batch-rejected");
     enqueueBatch(t.db, [
       { op: "set_heading", uid: "uid_b3", heading: 2 },
     ], 5, "batch-valid");

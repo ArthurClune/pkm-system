@@ -13,7 +13,7 @@ import { attachActiveOutlineWriteReplay, repairActiveOutlineSessions,
          trackActiveOutlineWrite } from "../outline/outlineSessions";
 import type { OutlineReplayAction } from "../outline/outlineState";
 import { createReplica, type Replica } from "../replica/client";
-import { availabilityOf } from "../replica/errors";
+import { availabilityOf, ReplicaUnavailableError } from "../replica/errors";
 import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue, type DrainOutcome,
          type PoisonEvent, type WriteTicket } from "./opQueue";
@@ -125,6 +125,27 @@ function defaultReplica(): OwnedReplica | null {
   };
 }
 
+/** The queue always has a Replica; where there is none, this reports the same
+ * permanent unavailability the worker reports for a database it could not open.
+ * The queue latches that once and answers it by delivering online-only through
+ * its in-memory lane (pkm-bjae) — which is what a browser with no usable OPFS
+ * already does, so "no replica at all" needs no second delivery path. Reachable
+ * only where `Worker` is undefined (jsdom) or a test passes `replica={null}`; a
+ * real browser always builds the worker-backed replica above. */
+function absentReplica(): Replica {
+  const absent = async (): Promise<never> => {
+    throw new ReplicaUnavailableError("no replica in this environment");
+  };
+  return {
+    init: absent, applySnapshot: absent, applyChanges: absent,
+    enqueue: absent, nextBatch: absent, pendingBatches: absent,
+    poisonedBatches: absent, deleteBatch: absent, markPoisoned: absent,
+    pendingCount: absent, localApi: absent, prepareRecovery: absent,
+    commitRecovery: absent, abortRecovery: absent, reset: absent,
+    dispose: absent,
+  };
+}
+
 export function SyncProvider({ children, replica }: {
   children: ReactNode;
   /** Injectable for tests; defaults to the worker-backed replica. */
@@ -192,7 +213,7 @@ export function SyncProvider({ children, replica }: {
   }
 
   const queue = useMemo(
-    () => createOpQueue(replicaRef.current ?? null, (error) => {
+    () => createOpQueue(replicaRef.current ?? absentReplica(), (error) => {
       void repairLegacyRef.current(error);
     }, (outcome) => drainObserverRef.current(outcome)), []);
 

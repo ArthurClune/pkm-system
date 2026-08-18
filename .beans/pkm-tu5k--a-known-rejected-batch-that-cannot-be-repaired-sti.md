@@ -1,11 +1,11 @@
 ---
 # pkm-tu5k
 title: A known-rejected batch that cannot be repaired still strands edits in memory
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-08-04T11:32:28Z
-updated_at: 2026-08-18T19:33:58Z
+updated_at: 2026-08-18T19:46:55Z
 parent: pkm-q2jj
 ---
 
@@ -46,6 +46,30 @@ confirm dialog, following the replica-stalled "Discard and reset" precedent.
 [x] Cover with a SyncProvider unit test alongside the existing pin
 [x] Update docs/architecture/sync-and-offline.md ("One case deliberately still holds the gate")
 
+
+## Summary of Changes
+
+The mark-failed banner now offers **Discard rejected change** alongside Retry —
+the user-facing escape from the permanently-wedged profile:
+
+- `opQueue.discardPoisonIntents()` drops retained intents from memory and
+  localStorage without any replica call (the replica being unreachable is the
+  scenario).
+- `SyncProvider.discardProblem()` (Sync context) guards on the
+  rejected-batch/mark-failed problem, discards, emits the new
+  `poison-intents-discarded` core event, then rejoins startup via
+  `continueStartup([])` (or `resume("recovery")` mid-session). An unopenable
+  replica falls into the pkm-bjae online-only fallback; edits typed while
+  wedged deliver instead of dying with the tab.
+- `syncState` gained the `poison-intents-discarded` event because
+  `replica-unavailable` never stomps another problem kind — without it the
+  stale mark-failed banner would outlive its intents.
+- Safety argument: an unmarked batch redelivers when the replica next opens;
+  the server rejects it again into the normal poison → repair flow. The
+  existing gate pin ("a KNOWN-rejected batch still holds the gate…") is
+  unchanged — Retry alone still never lifts the gate.
+- Docs: sync-and-offline.md gate paragraph gained the escape; corrected the
+  stale banner quote; symptom row no longer says "open by design".
 
 ## The gate is STICKY, not transient (adversarial review, 2026-08-04)
 

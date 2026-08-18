@@ -20,7 +20,15 @@ export interface WorkerDeps {
   openDb(): Promise<ReplicaDb>;
   /** Close the active database resource before the worker is terminated. */
   closeDb?(): Promise<void> | void;
-  /** Injectable for tests; the worker uses Date.now/crypto.randomUUID. */
+  /** Injectable for tests; the worker uses Date.now/crypto.randomUUID.
+   * nowMs and clockMs both default to Date.now and are two names for the
+   * same wall clock, kept distinct because they measure different things:
+   * nowMs is the data-stamp clock (what gets written as updated_at/inserted
+   * timestamps via applySnapshotToDb/enqueueBatch/applyChanges — see its
+   * call sites below), clockMs is the deadline clock (what prepareRecovery
+   * compares against the caller-supplied expiresAtMs). Tests inject them
+   * independently so a fake data clock doesn't also have to fake recovery
+   * deadlines, and vice versa. */
   nowMs?: () => number;
   clockMs?: () => number;
   newBatchId?: () => string;

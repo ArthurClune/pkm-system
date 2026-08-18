@@ -117,7 +117,9 @@ export function activateAuthoritativeRead(
   return { ...state, latestRequestId: token.requestId };
 }
 
-function scopeContainsTitle(scope: readonly string[], title: string): boolean {
+/** Shared with outlineSessions.ts's write tracking — both need the same
+ * "does this delivery ticket's scope cover this title" test. */
+export function scopeContainsTitle(scope: readonly string[], title: string): boolean {
   return scope[0] === "page" && scope.slice(1).includes(title);
 }
 

@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { PoisonEvent } from "./opQueue";
 import {
   computeEditability,
-  createSyncState,
   transitionSync,
   type SyncEvent,
   type SyncProblem,
+  type SyncState,
 } from "./syncState";
+
+// Test-only: production code builds a SyncState inline (SyncProvider.tsx's
+// applySync does `{ problem: prev }`), so this constructor lives here rather
+// than as a production export.
+const createSyncState = (): SyncState => ({ problem: undefined });
 
 const poison = (over: Partial<PoisonEvent> = {}): PoisonEvent => ({
   rowId: 1,

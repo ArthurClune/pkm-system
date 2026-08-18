@@ -61,7 +61,12 @@ export interface OutlineHandlers {
   /** Backspace/Delete while a block selection is active: delete every
    * selected block as a set (pkm-q89w). */
   onDeleteBlockSelection(): void;
-  onDragStartBlock(uid: string): void;
+  /** Optional: useOutline has no access to the page title or the drag/drop
+   * API a real implementation needs, so it leaves this unset. EditablePage
+   * is the one host that owns those and supplies the real handler by
+   * spreading useOutline's handlers and adding this key — optionality means
+   * that spread no longer needs a satisfy-the-interface stub to override. */
+  onDragStartBlock?(uid: string): void;
   /** App-level undo/redo (pkm-7q14): global history, not per-outline. */
   onUndo(): void;
   onRedo(): void;

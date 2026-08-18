@@ -7,6 +7,9 @@ import type { ApplyResult, Changes, Snapshot } from "./apply";
 import type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 import { createRpcClient, type PortLike } from "./rpc";
 
+/** Timeout budget for every recovery-adjacent worker RPC (prepareRecovery,
+ * applySnapshot, commitRecovery, reset): these can process a full local
+ * database and share the same generous allowance. */
 const RECOVERY_TIMEOUT_MS = 120_000;
 
 export interface PendingBatch {
@@ -92,7 +95,8 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
   let disposing: Promise<void> | null = null;
   return {
     init: () => rpc.call("init"),
-    applySnapshot: (snap) => rpc.call("applySnapshot", snap, { timeoutMs: 120_000 }),
+    applySnapshot: (snap) =>
+      rpc.call("applySnapshot", snap, { timeoutMs: RECOVERY_TIMEOUT_MS }),
     applyChanges: (feed, expectedPendingIds = []) => rpc.call("applyChanges", {
       feed, expectedPendingIds,
     }),
@@ -110,9 +114,9 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
       { expiresAtMs: Date.now() + RECOVERY_TIMEOUT_MS },
       { timeoutMs: RECOVERY_TIMEOUT_MS }),
     commitRecovery: (token, input) => rpc.call(
-      "commitRecovery", { token, input }, { timeoutMs: 120_000 }),
+      "commitRecovery", { token, input }, { timeoutMs: RECOVERY_TIMEOUT_MS }),
     abortRecovery: (token) => rpc.call("abortRecovery", token),
-    reset: () => rpc.call("reset", undefined, { timeoutMs: 120_000 }),
+    reset: () => rpc.call("reset", undefined, { timeoutMs: RECOVERY_TIMEOUT_MS }),
     dispose: () => (disposing ??= (async () => {
       try {
         await rpc.call("close");

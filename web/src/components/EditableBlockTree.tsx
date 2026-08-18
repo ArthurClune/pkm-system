@@ -332,7 +332,7 @@ function EditableBlock({ node, focus, selected, focusChain, handlers, readOnly,
                 if (fallback) return;
                 e.dataTransfer.setData("text/plain", node.uid);
                 e.dataTransfer.effectAllowed = "move";
-                handlers.onDragStartBlock(node.uid);
+                handlers.onDragStartBlock?.(node.uid);
               }}
               // Click or right-click opens the block menu (pkm-y6af); plain
               // click included because iPad Safari doesn't fire contextmenu

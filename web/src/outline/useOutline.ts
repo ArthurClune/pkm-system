@@ -418,9 +418,6 @@ export function useOutline(
         run((b) => deleteSelection(b, pageTitle, selectedUids(b, selection)));
       })();
     },
-    // overridden by EditablePage (which knows the drag-source page title);
-    // kept here only so this object satisfies OutlineHandlers on its own.
-    onDragStartBlock: () => undefined,
     // App-level undo/redo (pkm-7q14): global history, not per-outline. No
     // explicit flush here — performUndo/performRedo call every registered
     // flushPending, including this outline's.

@@ -7,25 +7,9 @@ import {
   THEME_STORAGE_KEY,
   type ThemePreference,
 } from "./theme";
+import { useStoredPref } from "./useStoredPref";
 
 const DARK_MEDIA_QUERY = "(prefers-color-scheme: dark)";
-
-function readStoredPreference(): ThemePreference {
-  try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    return isThemePreference(stored) ? stored : "system";
-  } catch {
-    return "system"; // localStorage unavailable (private mode / disabled)
-  }
-}
-
-function persistPreference(preference: ThemePreference) {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, preference);
-  } catch {
-    // Not persisted this session; the in-memory state still works.
-  }
-}
 
 /** Stamps data-theme so CSS can force a palette regardless of the OS
  * setting. "system" also gets the attribute (rather than none) so callers
@@ -36,7 +20,8 @@ function applyToDocument(preference: ThemePreference) {
 }
 
 export function useTheme() {
-  const [preference, setPreference] = useState<ThemePreference>(readStoredPreference);
+  const [preference, setPreference] =
+    useStoredPref(THEME_STORAGE_KEY, isThemePreference, "system");
   const [systemPrefersDark, setSystemPrefersDark] = useState(
     () => window.matchMedia(DARK_MEDIA_QUERY).matches,
   );
@@ -48,12 +33,10 @@ export function useTheme() {
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  useEffect(() => {
-    applyToDocument(preference);
-    persistPreference(preference);
-  }, [preference]);
+  useEffect(() => { applyToDocument(preference); }, [preference]);
 
-  const cycle = useCallback(() => setPreference(nextThemePreference), []);
+  const cycle = useCallback(() => setPreference(nextThemePreference),
+    [setPreference]);
 
   return {
     preference,

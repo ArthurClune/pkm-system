@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-import { useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api/typedClient";
 import type { SearchPayload } from "../api/payloads";
@@ -7,6 +7,7 @@ import { SidebarContext } from "../contexts";
 import { parseSnippet } from "../grammar/snippet";
 import { pagePath } from "../paths";
 import { useDismiss } from "../useDismiss";
+import { useStaleGuard } from "../useStaleGuard";
 import { SearchIcon } from "./icons";
 
 interface ResultRow {
@@ -57,21 +58,23 @@ export function SearchBar() {
   const [resultsQuery, setResultsQuery] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  // Request sequence token: only the latest dispatched request may set rows,
-  // so a slow response for an old query can't clobber newer results.
-  const seqRef = useRef(0);
+  // Only the latest dispatched request may set rows, so a slow response for
+  // an old query can't clobber newer results.
+  const guard = useStaleGuard();
   const navigate = useNavigate();
   const { openInSidebar } = useContext(SidebarContext);
 
-  const cancel = () => {
-    seqRef.current++; // drop any in-flight response after cancel
+  // Stable: closes over refs, state setters, and the guard (itself stable),
+  // so the document-level listeners below bind once rather than per render.
+  const cancel = useCallback(() => {
+    guard.cancel(); // drop any in-flight response after cancel
     setOpen(false);
     setQuery("");
     setRows([]);
     setResultsQuery(null);
     setSelected(0);
     inputRef.current?.blur();
-  };
+  }, [guard]);
 
   // Cmd/Ctrl-U: focus the bar from anywhere; when the bar already has focus
   // the shortcut cancels instead (a toggle, like the old search modal).
@@ -85,9 +88,7 @@ export function SearchBar() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-    // `cancel` only touches refs and stable state setters, so binding the
-    // mount-time closure once is correct; no reactive deps.
-  }, []);
+  }, [cancel]);
 
   // While engaged: an outside click cancels, and Escape cancels at the
   // document level so the search can be dismissed even when focus has
@@ -98,29 +99,29 @@ export function SearchBar() {
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) {
-      seqRef.current++; // drop any in-flight response for a cleared query
+      guard.cancel(); // drop any in-flight response for a cleared query
       setRows([]);
       setResultsQuery(null);
       setSelected(0);
       return;
     }
     const timer = setTimeout(() => {
-      const token = ++seqRef.current;
+      const token = guard.begin();
       apiGet("/api/search", { query: { q: query } })
         .then((p) => {
-          if (token !== seqRef.current) return; // stale response: drop
+          if (guard.isStale(token)) return; // stale response: drop
           setRows(toRows(p));
           setResultsQuery(trimmed);
           setSelected(0);
         })
         .catch(() => {
-          if (token !== seqRef.current) return;
+          if (guard.isStale(token)) return;
           setRows([]);
           setResultsQuery(trimmed);
         });
     }, 150);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, guard]);
 
   const trimmedQuery = query.trim();
   const showCreateRow = trimmedQuery !== "" && resultsQuery === trimmedQuery

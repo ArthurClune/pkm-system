@@ -13,27 +13,18 @@
 // scoped to this panel's OWN container via containerRef, never a
 // document-wide query: the same page can be open in the main window at
 // the same time, with its own element carrying that data-uid.
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { BlockRefContext } from "../contexts";
 import { substituteMissingDaily } from "../outline/missingPage";
 import { useOutlinePageLoad } from "../outline/useOutlinePageLoad";
+import { useScrollFlashTarget } from "../useScrollFlashTarget";
 import { EditablePage } from "../views/EditablePage";
 
 export function EditableSidebarPanel({ title, uid }: { title: string; uid?: string }) {
   const { payload, error } = useOutlinePageLoad(title, substituteMissingDaily);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!payload || !uid) return;
-    const container = containerRef.current;
-    if (!container) return;
-    const el = container.querySelector(`[data-uid="${CSS.escape(uid)}"]`);
-    if (!el) return;
-    el.scrollIntoView({ block: "center" });
-    el.classList.add("flash-target");
-    const t = setTimeout(() => el.classList.remove("flash-target"), 1600);
-    return () => clearTimeout(t);
-  }, [payload, uid]);
+  useScrollFlashTarget(uid, payload, containerRef);
 
   if (error) return <p className="error">{error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;

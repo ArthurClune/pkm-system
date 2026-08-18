@@ -46,6 +46,13 @@ web/src/
 ├── popoverPosition.ts        Core         clampPopoverPosition — viewport clamping
 ├── Popover.tsx               Shell        The shared anchored-popover chrome
 ├── useDismiss.ts             Shell        Outside-mousedown + Escape dismissal
+├── useStoredPref.ts          Shell        One localStorage preference: guard-checked
+│                                          read, write-back, fallback on either failure
+├── useStaleGuard.ts          Shell        begin/cancel/isStale for surfaces holding at
+│                                          most one live request (SearchBar, QueryBlock,
+│                                          useTitleOptions); Files keeps its own
+├── useScrollFlashTarget.ts   Shell        Scroll a data-uid into view and flash it,
+│                                          document-wide or scoped to a panel root
 ├── styles.css                —            All styling — owned by styling.md
 │
 ├── api/                      The typed HTTP layer (see API layer)

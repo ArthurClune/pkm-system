@@ -84,7 +84,8 @@ web/src/
 │   │                         OfflineIndicator, Composer, BacklinksSection, BacklinkGroupList,
 │   │                         BlockRefBacklinksPopover, BlockMenu, DatePickerPopup…)
 │   └── pure halves           Core         Beside their component: pdfViewerCore,
-│                                          roamTableRows, backlinkFilter, groups, bluesky…
+│                                          roamTableRows, backlinkFilter, groups,
+│                                          backlinkBatchWalk, bluesky…
 │
 ├── views/                    One Shell file per route (see Views and navigation);
 │   │                         EditablePage = one editable outline, shared by the main

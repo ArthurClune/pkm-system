@@ -366,6 +366,69 @@ it("disables show-more during refresh so stale pagination cannot start", async (
   expect(screen.queryByRole("link", { name: "July 7th, 2026" })).toBeNull();
 });
 
+it("a concurrent loadAll's groups survive a loadMore that started from a stale snapshot (pkm-3lqg)", async () => {
+  // Nothing disables the filter toggle while a plain loadMore is in flight
+  // (only `refreshing` does) -- start show-more, then open the filter panel
+  // before it resolves, then let loadAll's fetch resolve first.
+  const loadMoreBatch = deferred<Response>();
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/page/T?bl_offset=1&bl_limit=1") return loadMoreBatch.promise;
+    if (url === "/api/page/T?bl_offset=1&bl_limit=100") {
+      return Promise.resolve(jsonResponse(pagePayload("T", [], {
+        backlinks: {
+          groups: [
+            { page_id: 2, page_title: "B", items: [{ uid: "b1", text: "b", breadcrumbs: [] }] },
+            { page_id: 3, page_title: "C", items: [{ uid: "c1", text: "c", breadcrumbs: [] }] },
+          ],
+          total_pages: 3, offset: 1, limit: 100,
+        },
+      })));
+    }
+    return Promise.resolve(new Response(JSON.stringify({ detail: "not found" }), { status: 404 }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const raceInitial: Backlinks = {
+    groups: [{ page_id: 1, page_title: "A", items: [{ uid: "a1", text: "a", breadcrumbs: [] }] }],
+    total_pages: 3, offset: 0, limit: 1,
+  };
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <BacklinksSection title="T" initial={raceInitial} />
+    </MemoryRouter>,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+    "/api/page/T?bl_offset=1&bl_limit=1", { method: "GET" }));
+
+  fireEvent.click(screen.getByRole("button", { name: /filter/i }));
+  // loadAll (bl_limit=100) resolves first, well before loadMore.
+  expect(await screen.findByRole("link", { name: "C" })).toBeInTheDocument();
+  expect(screen.queryByText(/loading all references/i)).toBeNull();
+
+  await act(async () => {
+    loadMoreBatch.resolve(jsonResponse(pagePayload("T", [], {
+      backlinks: {
+        groups: [{ page_id: 2, page_title: "B", items: [{ uid: "b1", text: "b", breadcrumbs: [] }] }],
+        total_pages: 3, offset: 1, limit: 1,
+      },
+    })));
+    await loadMoreBatch.promise;
+    await Promise.resolve();
+  });
+
+  // loadMore's later, stale-snapshot-derived commit must not discard the
+  // page loadAll already loaded, and the panel must not be left wedged in
+  // a permanent "loading" state.
+  expect(screen.getByRole("link", { name: "A" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "B" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "C" })).toBeInTheDocument();
+  expect(screen.getByText(/linked references \(3\)/i)).toBeInTheDocument();
+  expect(screen.queryByText(/loading all references/i)).toBeNull();
+});
+
 it("prevents opening the filter panel during refresh so stale load-all cannot start", async () => {
   const refresh = deferred<Response>();
   const fetchMock = vi.fn((input: RequestInfo | URL) => {

@@ -548,14 +548,39 @@ confirm stays.
 
 ### Rebootstrap triggers
 
-Three triggers cause a rebootstrap, all funnelled through the same recovery
-coordinator:
+Three conditions cause a rebootstrap on their own:
 
 | Trigger | Detected by | Kind |
 |---|---|---|
 | App deploy changed the client schema | `SCHEMA_VERSION` = sha256(base + client DDL) vs stored value | `reset` (rebuild file) |
 | Server DB rebuilt or title activation rotated generation | `generation` token mismatch in any feed payload; a forced WS frame makes metadata-only rotation pull immediately | `rebase` (flush queue, re-snapshot) |
 | Cursor ahead of journal | `reset: true` from the feed | `rebase` |
+
+Two more rebootstraps happen on request: the authoritative repair of a poisoned
+batch, and the user's own Reset local data.
+
+`runRecovery` (`web/src/sync/replicaSync.ts`) is the single lifecycle behind all
+five — pause delivery, take the worker lease, flush pending batches, fetch a
+snapshot, commit, release the barrier. Entrants differ only in the
+`RecoveryOptions` they pass, so a lease-handling fix lands once:
+
+| Option | schema / feed recovery | poison repair | manual reset |
+|---|---|---|---|
+| `flush` | `"preemptible"`: abandon the run if a poison mark claims recovery mid-flush | `"skip"`: never post later valid rows ahead of a batch the server refused | `"blocking"`: a failed flush raises `ResetBlockedError` and keeps the database |
+| `resume` | yes | no: `SyncProvider` resumes after deleting the durable row | yes |
+| `reportReplicaFailure` | yes, mode `recovery-failed` | no, the repair banner owns the report | no, the reset banner owns the report |
+| `awaitInFlightPull` | no | yes | yes |
+| `forceReadyOnSuccess` | no | no | yes: mode `ready`, pulls re-enabled |
+
+A pull that already passed the pending-id guard must finish before the database
+is torn down. Its stale window would otherwise apply after the fresh snapshot
+and move the cursor backwards. Recovery reached from `pullLoop` is the one
+entrant that must keep `awaitInFlightPull` false, because it would await the
+pull it is part of.
+
+Resume and lease abort live in the shared `catch`/`finally`. A run that throws
+releases both, including one a poison mark preempted mid-flush; a poison repair
+that succeeds keeps delivery paused, and the provider resumes it.
 
 ## Ancillary details
 

@@ -5,7 +5,7 @@
 import { ApiError } from "../api/client";
 import { apiPost } from "../api/typedClient";
 import type { BlockOp } from "../api/ops";
-import type { PoisonedBatch, Replica } from "../replica/client";
+import type { PendingBatch, PoisonedBatch, Replica } from "../replica/client";
 import { availabilityOf, isSessionFatal, ReplicaError,
          type ReplicaAvailability } from "../replica/errors";
 import { newUid } from "../uid";
@@ -224,6 +224,14 @@ function createReplicaQueue(replica: Replica,
     }
   };
 
+  /** Zero the durable-precedence bookkeeping: no retained entry is left
+   * waiting on a durable predecessor, and no entry appended next inherits one.
+   * Each call site owns the argument for why that is true there. */
+  const clearDurablePrecedence = (): void => {
+    for (const entry of fallback) entry.durableAhead = 0;
+    durableSinceFallback = 0;
+  };
+
   const finishDelivery = (batchId: string, outcome: DeliveryOutcome): void => {
     const resolve = deliveries.get(batchId);
     if (!resolve) return;
@@ -346,6 +354,77 @@ function createReplicaQueue(replica: Replica,
     return matchedIntents;
   };
 
+  /** Deliver the retained head, which has no durable batch left ahead of it.
+   * Returns the outcome the drain must report, or null to keep looping. */
+  const deliverLaneHead = async (
+    head: FallbackEntry,
+  ): Promise<DrainOutcome | null> => {
+    try {
+      await postOps(head.ops, head.batchId);
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.status >= 400
+          && error.status < 500) {
+        // No durable row exists to poison, so this mirrors the legacy
+        // queue's terminal 4xx: discard exactly the rejected entry — the
+        // only discard this queue makes on its own — hold later entries
+        // behind the recovery barrier, and let onDesync run the
+        // authoritative repair that resumes it.
+        dispatch({ type: "pause" });
+        fallback.shift();
+        head.resolve({ status: "failed", error });
+        emitPending();
+        try { onDesync(error); } catch { /* listener isolation */ }
+        return blocked("recovering", error);
+      }
+      return failed(error);
+    }
+    fallback.shift();
+    head.resolve({ status: "delivered" });
+    emitPending();
+    dispatch({ type: "batch-succeeded" });
+    const laneBlock = terminalReason(qstate);
+    if (laneBlock !== null) return blocked(laneBlock);
+    return null;
+  };
+
+  /** The server rejected a durable batch outright. Terminal for that batch:
+   * it is poisoned rather than retried, and the recovery barrier holds until
+   * an outside repair lifts it. */
+  const rejectDurableBatch = async (
+    batch: PendingBatch, error: ApiError,
+  ): Promise<DrainOutcome> => {
+    const event: PoisonEvent = {
+      rowId: batch.id,
+      batchId: batch.batch_id,
+      ops: batch.ops,
+      status: error.status,
+      message: error.message,
+    };
+    // Claim the shared recovery barrier as soon as the server rejects
+    // the batch. markPoisoned may wait behind a recovery lease whose
+    // snapshot still says this row is valid; that lease must learn it
+    // is stale before it begins its next POST.
+    dispatch({ type: "pause" });
+    poisonPending.emit(undefined);
+    const firstRejection = rememberPoisonMark(event);
+    finishDelivery(batch.batch_id, { status: "failed", error });
+    // Terminal for this batch: it is never POSTed again (the barrier
+    // holds until the repair, and marking is retried, never delivery), so
+    // it stops standing ahead of a retained entry from here. Keyed to a
+    // new mark intent so it counts once per batch: markPoisoned below can
+    // throw, and the still-unmarked row is then handed out again by an
+    // outside resume, taking the same 4xx. A second decrement would put
+    // the head's count below the batches actually ahead of it and let the
+    // retained op overtake one of them (pkm-yavj).
+    if (firstRejection) durableBatchSettled();
+    try {
+      await markRetainedPoison();
+    } catch (rpcError: unknown) {
+      return failed(rpcError);
+    }
+    return blocked("recovering");
+  };
+
   const runDrain = async (): Promise<DrainOutcome> => {
     await settleAll();
     const initialBlock = terminalReason(qstate);
@@ -371,9 +450,8 @@ function createReplicaQueue(replica: Replica,
      * unsettled, exactly as they are today — dispose() is what settles them —
      * because resolving them "delivered" would be a lie and resolving them
      * "failed" would change what the outline session's replay does. */
-    const laneOnly = (): DrainOutcome | null => {
-      for (const entry of fallback) entry.durableAhead = 0;
-      durableSinceFallback = 0;
+    const deferDurableQueue = (): DrainOutcome | null => {
+      clearDurablePrecedence();
       if (fallback.length > 0) return null;
       if (drainAgain) return null;
       return { status: "drained" };
@@ -383,35 +461,12 @@ function createReplicaQueue(replica: Replica,
       drainAgain = false;
       const head = fallback[0];
       if (head !== undefined && head.durableAhead === 0) {
-        try {
-          await postOps(head.ops, head.batchId);
-        } catch (error: unknown) {
-          if (error instanceof ApiError && error.status >= 400
-              && error.status < 500) {
-            // No durable row exists to poison, so this mirrors the legacy
-            // queue's terminal 4xx: discard exactly the rejected entry — the
-            // only discard this queue makes on its own — hold later entries
-            // behind the recovery barrier, and let onDesync run the
-            // authoritative repair that resumes it.
-            dispatch({ type: "pause" });
-            fallback.shift();
-            head.resolve({ status: "failed", error });
-            emitPending();
-            try { onDesync(error); } catch { /* listener isolation */ }
-            return blocked("recovering", error);
-          }
-          return failed(error);
-        }
-        fallback.shift();
-        head.resolve({ status: "delivered" });
-        emitPending();
-        dispatch({ type: "batch-succeeded" });
-        const laneBlock = terminalReason(qstate);
-        if (laneBlock !== null) return blocked(laneBlock);
+        const outcome = await deliverLaneHead(head);
+        if (outcome !== null) return outcome;
         continue;
       }
       if (unavailable !== null) {
-        const outcome = laneOnly();
+        const outcome = deferDurableQueue();
         if (outcome !== null) return outcome;
         continue;
       }
@@ -421,7 +476,7 @@ function createReplicaQueue(replica: Replica,
       } catch (error: unknown) {
         noteReplicaFailure(error);
         if (unavailable === null) return failed(error);
-        const outcome = laneOnly();
+        const outcome = deferDurableQueue();
         if (outcome !== null) return outcome;
         continue;
       }
@@ -434,8 +489,7 @@ function createReplicaQueue(replica: Replica,
         // never arrive. durableSinceFallback counts batches that are equally
         // gone, so it must be cleared too or the next appended entry inherits
         // a phantom predecessor.
-        for (const entry of fallback) entry.durableAhead = 0;
-        durableSinceFallback = 0;
+        clearDurablePrecedence();
         if (fallback.length > 0) continue;
         if (drainAgain) continue;
         return { status: "drained" };
@@ -444,36 +498,7 @@ function createReplicaQueue(replica: Replica,
         await postOps(batch.ops, batch.batch_id);
       } catch (error: unknown) {
         if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
-          const event: PoisonEvent = {
-            rowId: batch.id,
-            batchId: batch.batch_id,
-            ops: batch.ops,
-            status: error.status,
-            message: error.message,
-          };
-          // Claim the shared recovery barrier as soon as the server rejects
-          // the batch. markPoisoned may wait behind a recovery lease whose
-          // snapshot still says this row is valid; that lease must learn it
-          // is stale before it begins its next POST.
-          dispatch({ type: "pause" });
-          poisonPending.emit(undefined);
-          const firstRejection = rememberPoisonMark(event);
-          finishDelivery(batch.batch_id, { status: "failed", error });
-          // Terminal for this batch: it is never POSTed again (the barrier
-          // holds until the repair, and marking is retried, never delivery), so
-          // it stops standing ahead of a retained entry from here. Keyed to a
-          // new mark intent so it counts once per batch: markPoisoned below can
-          // throw, and the still-unmarked row is then handed out again by an
-          // outside resume, taking the same 4xx. A second decrement would put
-          // the head's count below the batches actually ahead of it and let the
-          // retained op overtake one of them (pkm-yavj).
-          if (firstRejection) durableBatchSettled();
-          try {
-            await markRetainedPoison();
-          } catch (rpcError: unknown) {
-            return failed(rpcError);
-          }
-          return blocked("recovering");
+          return rejectDurableBatch(batch, error);
         }
         return failed(error);
       }

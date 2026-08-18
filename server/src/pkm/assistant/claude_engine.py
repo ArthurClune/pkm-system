@@ -38,8 +38,8 @@ from pkm.assistant.events import (
     ToolStarted,
     TurnDone,
 )
+from pkm.assistant.harness_env import resolve_harness_env
 from pkm.assistant.policy import (
-    ZAI_MODELS,
     classify_tool,
     ops_preview,
     read_tool_names,
@@ -51,12 +51,6 @@ from pkm.server.auth_core import sign_session
 logger = logging.getLogger("pkm.assistant")
 
 MAX_TURNS = 40
-
-# z.ai's Anthropic-compatible endpoint (GLM Coding Plan). It maps the Claude
-# model aliases to its plan-default GLM server-side, so requesting "sonnet"
-# through it always gets the plan's current GLM — no version name to go stale.
-ZAI_BASE_URL = "https://api.z.ai/api/anthropic"
-ZAI_SDK_MODEL = "sonnet"
 
 # A harness parked inside can_use_tool cannot acknowledge an interrupt until
 # the permission decision arrives, and it may be wedged for other reasons
@@ -176,42 +170,7 @@ class ClaudeConversation:
                     break
         finally:
             if not finished:
-                # The SSE consumer dropped mid-turn (browser closed the tab,
-                # navigated away, or the fetch was aborted via the Stop
-                # button).
-                #
-                # Decline any parked confirm FIRST. A can_use_tool hook may
-                # still be awaiting a decision that will now never come from
-                # the UI, and the harness cannot answer an interrupt while it
-                # sits in that hook -- so doing this after interrupt() left
-                # the decline unreachable in exactly the case it exists for
-                # (pkm-mbcc defect 2: a wedged harness, no tool_result, and a
-                # panel showing nothing at all, until the process restarted).
-                for fut in self._pending.values():
-                    if not fut.done():
-                        fut.set_result(False)
-                # Then stop the harness: cancelling our local pump task only
-                # stops us from reading further messages, it does NOT stop the
-                # CLI subprocess from continuing to execute the abandoned
-                # query. Bounded, because a harness wedged for any other
-                # reason must not hold up this cleanup either.
-                try:
-                    await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT_S)
-                except TimeoutError:
-                    logger.warning(
-                        "assistant interrupt not acknowledged in %ss; abandoning the turn "
-                        "and retiring the harness",
-                        INTERRUPT_TIMEOUT_S,
-                    )
-                    # The subprocess may still be executing the abandoned
-                    # turn: an interrupt it never acknowledged is not proof
-                    # it stopped. Mark this handle unhealthy so the caller
-                    # (AssistantService) tears it down instead of handing it
-                    # a later turn (pkm-rwwc).
-                    self.healthy = False
-                except Exception:
-                    logger.exception("assistant interrupt failed; retiring the harness")
-                    self.healthy = False
+                await self._abandon_turn()
             # if the consumer went away mid-turn, don't block generator
             # close on a live harness turn
             if not pump.done():
@@ -220,6 +179,66 @@ class ClaudeConversation:
                 await pump
             if self._pump_task is pump:
                 self._pump_task = None
+
+    def _decline_pending(self) -> None:
+        """Answer every parked confirm with a decline.
+
+        A `can_use_tool` hook may be awaiting a decision that will never
+        arrive now -- the consumer is gone, or the conversation is closing --
+        and an unresolved future leaves the harness wedged inside the hook.
+        """
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.set_result(False)
+
+    async def _abandon_turn(self) -> None:
+        """Give up on the turn in flight: decline, interrupt, judge health.
+
+        Runs when the consumer dropped mid-turn -- browser closed the tab,
+        navigated away, or the fetch was aborted via the Stop button. The SSE
+        layer closes this generator explicitly (`routes._abandon_stream`) so
+        that this protocol runs on a schedule rather than whenever an orphaned
+        generator is finalized.
+
+        Decline FIRST. The harness cannot answer an interrupt while it sits in
+        `can_use_tool` awaiting the very decision this supplies, so doing it
+        after `interrupt()` left the decline unreachable in exactly the case
+        it exists for (pkm-mbcc defect 2: a wedged harness, no tool_result,
+        and a panel showing nothing at all, until the process restarted).
+        """
+        self._decline_pending()
+        # Then stop the harness: cancelling our local pump task only stops us
+        # from reading further messages, it does NOT stop the CLI subprocess
+        # from continuing to execute the abandoned query. Bounded, because a
+        # harness wedged for any other reason must not hold up this cleanup
+        # either.
+        try:
+            await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT_S)
+        except TimeoutError:
+            logger.warning(
+                "assistant interrupt not acknowledged in %ss; abandoning the turn "
+                "and retiring the harness",
+                INTERRUPT_TIMEOUT_S,
+            )
+            # The subprocess may still be executing the abandoned turn: an
+            # interrupt it never acknowledged is not proof it stopped. Mark
+            # this handle unhealthy so the caller (AssistantService) tears it
+            # down instead of handing it a later turn (pkm-rwwc).
+            self.healthy = False
+        except asyncio.CancelledError:
+            # An abandoned wait says as little about the harness as a
+            # timed-out one, so the verdict is the same. The cancellation is
+            # re-raised, never swallowed -- the caller keeps unwinding, and
+            # sees a handle it must retire. The SSE layer runs this protocol
+            # in a task of its own so cancellation is not the normal case
+            # (routes._wait_out).
+            logger.warning("assistant interrupt abandoned by a cancellation; "
+                           "retiring the harness")
+            self.healthy = False
+            raise
+        except Exception:
+            logger.exception("assistant interrupt failed; retiring the harness")
+            self.healthy = False
 
     async def _pump(self, mapper: TurnMapper) -> None:
         try:
@@ -231,9 +250,7 @@ class ClaudeConversation:
             await self._queue.put(ErrorEvent(message=str(exc)))
 
     async def close(self) -> None:
-        for fut in self._pending.values():
-            if not fut.done():
-                fut.set_result(False)
+        self._decline_pending()
         try:
             if self._pump_task is not None and not self._pump_task.done():
                 self._pump_task.cancel()
@@ -285,26 +302,14 @@ class ClaudeEngine:
         return path
 
     async def create_conversation(self, system_prompt: str, model: str) -> ClaudeConversation:
-        # the CLI defers MCP tools behind ToolSearch by default, which
-        # tools=[] would make unreachable -- disabling tool search loads
-        # the pkm tools eagerly; verified live 2026-07-27
-        env = {"ENABLE_TOOL_SEARCH": "false"}
-        requested = model
-        if model in ZAI_MODELS:
-            # Reject before the credential file or any subprocess exists;
-            # routes surface this as a 400. The models endpoint hides these
-            # models from the picker in this state, so only a hand-crafted
-            # request gets here.
-            if not self._zai_token:
-                raise ValueError(f"model {model!r} requires a z.ai key (zai_api_key_file)")
-            env["ANTHROPIC_BASE_URL"] = ZAI_BASE_URL
-            env["ANTHROPIC_AUTH_TOKEN"] = self._zai_token
-            model = ZAI_SDK_MODEL
+        # Resolved first: a model this deployment has no key for must be
+        # rejected before the credential file or any subprocess exists.
+        harness = resolve_harness_env(model, self._zai_token)
         config_path = self._write_cli_config()
         conversation = ClaudeConversation(config_path)
         try:
             options = ClaudeAgentOptions(
-                model=model,
+                model=harness.sdk_model,
                 system_prompt=system_prompt,
                 tools=[],
                 allowed_tools=read_tool_names(),
@@ -320,7 +325,7 @@ class ClaudeEngine:
                 setting_sources=[],
                 include_partial_messages=True,
                 max_turns=MAX_TURNS,
-                env=env,
+                env=harness.env,
             )
             client = self._client_factory(options)
             conversation.attach(client)
@@ -339,5 +344,5 @@ class ClaudeEngine:
             raise
         # the requested name, not the SDK alias: a glm harness must not log
         # as a real sonnet run
-        logger.info("assistant harness started (model=%s)", requested)
+        logger.info("assistant harness started (model=%s)", model)
         return conversation

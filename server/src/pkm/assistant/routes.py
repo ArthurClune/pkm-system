@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
+import contextlib
+import logging
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -21,6 +23,8 @@ from pkm.assistant.policy import DEFAULT_MODEL
 from pkm.contracts.responses import AssistantAck, AssistantConversation, AssistantModels
 from pkm.server.auth import require_auth
 
+logger = logging.getLogger("pkm.assistant")
+
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
@@ -35,16 +39,108 @@ SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 KEEPALIVE_INTERVAL_S = 15.0
 
 
+# How long teardown may hold the response task before the rest is left to run
+# on its own. `claude_engine.INTERRUPT_TIMEOUT_S` plus the SDK transport's own
+# bounded close (~20s worst case) is what the cleanup chain can honestly cost;
+# past that something is wedged in a way waiting will not fix, and the wait
+# below is not free (see _wait_out).
+TEARDOWN_TIMEOUT_S = 30.0
+
+
+async def _wait_out(work: asyncio.Task) -> bool:
+    """Wait for `work`, absorbing cancellations aimed at this coroutine.
+
+    Returns True if `work` finished, False if the wait gave up on it.
+
+    A client disconnect reaches us as a cancellation, and it does not arrive
+    once: Starlette runs the response body inside an anyio cancel scope, whose
+    `_deliver_cancellation` re-cancels every task still in the scope on every
+    loop cycle. A plain `await` in teardown is therefore cancelled the moment
+    it starts, which leaves the engine's cleanup half-run -- `interrupt()`
+    called and its bounded wait abandoned, so `healthy` never gets its verdict
+    and the conversation is never retired.
+
+    `work` is a task of our own, outside that scope, so the storm cannot reach
+    it. `asyncio.wait` (unlike `wait_for`) leaves it running when our own wait
+    is cut short, so each cancellation costs one loop pass and nothing else.
+    The deadline is what keeps that from being open-ended: a cleanup that never
+    returns would otherwise hold this response task, and a core, until the
+    process restarts.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + TEARDOWN_TIMEOUT_S
+    while not work.done():
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            logger.warning(
+                "assistant SSE teardown unfinished after %ss; leaving it to run detached",
+                TEARDOWN_TIMEOUT_S,
+            )
+            return False
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await asyncio.wait({work}, timeout=remaining)
+    return True
+
+
+async def _abandon_stream(
+    stream: AsyncGenerator[AssistantEvent, None], pending: asyncio.Task[AssistantEvent] | None
+) -> None:
+    """Cancel the in-flight read, then close `stream`, on the way out.
+
+    Closing it here rather than letting it be collected is the point: the
+    engine's abandon-turn protocol (decline parked confirms, bounded
+    interrupt, retire the harness -- `ClaudeConversation._abandon_turn`) lives
+    in that generator's `finally`, and an orphaned async generator runs its
+    `finally` when CPython's finalizer hook gets to it, which is prompt in
+    practice but not a schedule. pkm-f3mo.
+
+    Three things carry weight here:
+
+    - The pending `anext` is cancelled *and waited for* before the close.
+      `cancel()` only requests cancellation, and `aclose()` on a generator
+      with an `__anext__` still in flight raises "asynchronous generator is
+      already running" -- which would abandon teardown at its first step.
+    - Both waits go through `_wait_out`, because the disconnect keeps being
+      re-delivered while we are still inside Starlette's cancel scope.
+    - Nothing is raised from here. This runs while a `GeneratorExit` or a
+      cancellation is already unwinding the consumer, and anything raised
+      would replace that disconnect with an unrelated error.
+    """
+    if pending is not None:
+        pending.cancel()
+        # Cancelling the read is what drives the cleanup: the CancelledError
+        # lands inside the engine's generator, in this task-of-our-own rather
+        # than in the scope being cancel-stormed. Its outcome is never
+        # interesting -- the cancellation is the one we asked for, and any
+        # engine error it carries has no reader left.
+        if not await _wait_out(pending):
+            # The read is still running, so the generator is too, and
+            # aclose() could only raise; that read is carrying the same
+            # cleanup anyway.
+            return
+    # A separate task again, for the same reason: aclose() runs the
+    # generator's `finally` in whatever task awaits it.
+    closing = asyncio.ensure_future(stream.aclose())
+    if not await _wait_out(closing):
+        return
+    if closing.cancelled():
+        logger.warning("assistant stream close cancelled during SSE teardown")
+    elif closing.exception() is not None:
+        logger.error(
+            "assistant stream close failed during SSE teardown",
+            exc_info=closing.exception(),
+        )
+
+
 async def _with_keepalive(
-    stream: AsyncIterator[AssistantEvent], interval: float
+    stream: AsyncGenerator[AssistantEvent, None], interval: float
 ) -> AsyncGenerator[str, None]:
     """Encode `stream`, emitting a comment frame every `interval` idle seconds."""
-    iterator = stream.__aiter__()
     pending: asyncio.Task[AssistantEvent] | None = None
     try:
         while True:
             if pending is None:
-                pending = asyncio.ensure_future(anext(iterator))
+                pending = asyncio.ensure_future(anext(stream))
             # asyncio.wait (unlike wait_for) leaves the task running on
             # timeout, so the in-flight anext survives every keepalive.
             done, _ = await asyncio.wait({pending}, timeout=interval)
@@ -58,8 +154,24 @@ async def _with_keepalive(
                 return
             yield encode_sse(event)
     finally:
-        if pending is not None:
-            pending.cancel()
+        await _abandon_stream(stream, pending)
+
+
+async def _sse_frames(
+    stream: AsyncGenerator[AssistantEvent, None], interval: float
+) -> AsyncGenerator[str, None]:
+    """The response body for one turn: keepalive-interleaved SSE frames.
+
+    `aclosing`, not a bare `async for`: Starlette closes (or cancels) this
+    generator when the client disconnects, and only an explicit close passes
+    that on to the keepalive wrapper's teardown -- see `_abandon_stream`.
+    """
+    async with contextlib.aclosing(_with_keepalive(stream, interval)) as frames:
+        try:
+            async for frame in frames:
+                yield frame
+        except Exception as exc:  # engine failure mid-stream: report in-band
+            yield encode_sse(ErrorEvent(message=str(exc)))
 
 
 class CreateConversationRequest(BaseModel):
@@ -115,14 +227,11 @@ async def send_message(
     except BusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    async def sse() -> AsyncIterator[str]:
-        try:
-            async for frame in _with_keepalive(stream, KEEPALIVE_INTERVAL_S):
-                yield frame
-        except Exception as exc:  # engine failure mid-stream: report in-band
-            yield encode_sse(ErrorEvent(message=str(exc)))
-
-    return StreamingResponse(sse(), media_type="text/event-stream", headers=SSE_HEADERS)
+    return StreamingResponse(
+        _sse_frames(stream, KEEPALIVE_INTERVAL_S),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )
 
 
 @router.post("/api/assistant/conversations/{conversation_id}/confirm", response_model=AssistantAck)

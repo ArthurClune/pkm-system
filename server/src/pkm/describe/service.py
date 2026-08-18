@@ -64,6 +64,19 @@ class DescribeService:
             self._task = asyncio.get_running_loop().create_task(self._worker())
 
     async def close(self) -> None:
+        """Shut the worker and the owned describer down, exactly once.
+
+        Idempotent and safe to call concurrently: teardown lives in one
+        retained task that every caller waits on, so the describer transport
+        is closed once no matter how many callers (lifespan shutdown, a test,
+        a second close()) arrive.
+
+        The wait is shielded because the caller's cancellation must not abort
+        that teardown -- the describer owns a live HTTP transport, and nobody
+        else will come back to close it. A cancelled caller therefore keeps
+        waiting, and is re-cancelled only once the owned cleanup has finished:
+        its cancellation is delayed, never lost.
+        """
         shutdown_task = self._shutdown_task
         if shutdown_task is None:
             self._closed = True
@@ -78,6 +91,8 @@ class DescribeService:
             try:
                 await asyncio.shield(shutdown_task)
             except asyncio.CancelledError:
+                # Either us or the shielded task; if the task itself was
+                # cancelled, surface that instead of looping forever.
                 if shutdown_task.done() and shutdown_task.cancelled():
                     shutdown_task.result()
                 caller_cancelled = True
@@ -87,12 +102,22 @@ class DescribeService:
             raise asyncio.CancelledError
 
     async def _shutdown(self) -> None:
+        # Worker first, transport second: a describe attempt in flight when
+        # the transport goes away would fail on a closed client rather than
+        # finish or cancel cleanly. The `finally` guarantees the transport
+        # closes even if awaiting the cancelled worker raises.
         try:
             if self._task is not None:
                 self._task.cancel()
                 try:
                     await self._task
                 except asyncio.CancelledError:
+                    # Normally this is just the worker acknowledging the
+                    # cancel we asked for, which is not our caller's business.
+                    # But if *this* task is itself being cancelled, the same
+                    # exception means something else wants us gone, and
+                    # swallowing it would hide that -- cancelling() tells the
+                    # two apart.
                     current_task = asyncio.current_task()
                     if current_task is not None and current_task.cancelling():
                         raise

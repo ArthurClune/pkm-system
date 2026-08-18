@@ -11,86 +11,19 @@ from claude_agent_sdk import (
     AssistantMessage,
     PermissionResultAllow,
     PermissionResultDeny,
-    ResultMessage,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
 )
+# FakeSDKClient, HangingInterruptClient, make_engine and make_result live in
+# fake_sdk_client.py: the SSE-teardown tests drive the same real engine.
+from fake_sdk_client import FakeSDKClient, HangingInterruptClient, make_engine, make_result
 
-from pkm.assistant import claude_engine
-from pkm.assistant.claude_engine import ClaudeEngine, TurnMapper
+from pkm.assistant import claude_engine, harness_env
+from pkm.assistant.claude_engine import TurnMapper
 from pkm.assistant.events import ConfirmRequest, ErrorEvent, TextDelta, ToolFinished, ToolStarted, TurnDone
 from pkm.assistant.policy import SYSTEM_PROMPT
-
-SECRET = "ab" * 32
-
-
-def make_result(**over):
-    defaults = dict(
-        subtype="success", duration_ms=1, duration_api_ms=1, is_error=False,
-        num_turns=1, session_id="s1", usage={"input_tokens": 5},
-    )
-    defaults.update(over)
-    return ResultMessage(**defaults)
-
-
-class FakeSDKClient:
-    """Stands in for ClaudeSDKClient; instances are created by client_factory.
-
-    receive_response() awaits a queue (like the real SDK awaits the CLI), so
-    the engine's pump task stays alive while a confirm round-trip is pending.
-    Feed messages with feed(); a ResultMessage ends the turn.
-    """
-
-    instances: list["FakeSDKClient"] = []
-
-    def __init__(self, options):
-        self.options = options
-        self.connected = False
-        self.queries: list[str] = []
-        self.interrupts = 0
-        self.disconnect_calls = 0
-        self.messages: asyncio.Queue = asyncio.Queue()
-        FakeSDKClient.instances.append(self)
-
-    def feed(self, *msgs):
-        for msg in msgs:
-            self.messages.put_nowait(msg)
-
-    async def connect(self):
-        self.connected = True
-
-    async def disconnect(self):
-        self.connected = False
-        self.disconnect_calls += 1
-
-    async def query(self, text):
-        self.queries.append(text)
-
-    async def interrupt(self):
-        self.interrupts += 1
-
-    async def receive_response(self):
-        while True:
-            msg = await self.messages.get()
-            yield msg
-            if isinstance(msg, ResultMessage):
-                return
-
-
-class HangingInterruptClient(FakeSDKClient):
-    """interrupt() never returns.
-
-    That is what the real harness does when it is parked inside can_use_tool:
-    it cannot acknowledge an interrupt until the permission decision it is
-    awaiting arrives (pkm-mbcc defect 2). FakeSDKClient's instant interrupt()
-    hides the ordering bug entirely.
-    """
-
-    async def interrupt(self):
-        self.interrupts += 1
-        await asyncio.Event().wait()  # never set
 
 
 class BrokenInterruptClient(FakeSDKClient):
@@ -134,17 +67,6 @@ class HangingDisconnectClient(FakeSDKClient):
     async def disconnect(self):
         self.disconnect_calls += 1
         await asyncio.Event().wait()  # never set; second cancellation lands here
-
-
-def make_engine(tmp_path, factory=FakeSDKClient, zai_token=None) -> ClaudeEngine:
-    FakeSDKClient.instances.clear()
-    return ClaudeEngine(
-        base_url="http://127.0.0.1:8999",
-        session_secret_hex=SECRET,
-        client_factory=factory,
-        config_dir=tmp_path,
-        zai_token=zai_token,
-    )
 
 
 def test_create_conversation_options_and_config_file(tmp_path):
@@ -198,10 +120,10 @@ def test_glm_routes_to_zai_endpoint(tmp_path):
 
 
 def test_zai_routing_covers_every_zai_model(tmp_path, monkeypatch):
-    # policy.ZAI_MODELS is the set of z.ai-routed models; the engine must
+    # policy.ZAI_MODELS is the set of z.ai-routed models; resolution must
     # consult it rather than a "glm" literal, or a future entry would
     # silently run on the Claude subscription instead.
-    monkeypatch.setattr(claude_engine, "ZAI_MODELS", ("glm", "glm-air"))
+    monkeypatch.setattr(harness_env, "ZAI_MODELS", ("glm", "glm-air"))
     engine = make_engine(tmp_path, zai_token="zk-test")
 
     async def scenario():
@@ -624,6 +546,41 @@ def test_interrupt_that_raises_marks_conversation_unhealthy(tmp_path):
 
     conv = asyncio.run(scenario())
     assert conv.healthy is False
+
+
+def test_interrupt_abandoned_by_a_second_cancellation_marks_unhealthy(tmp_path, caplog):
+    # A cancellation landing in the bounded interrupt wait says as little
+    # about the harness as a timeout does, and `except Exception` does not
+    # catch it. Left unhandled it skipped the health verdict entirely, so the
+    # service kept the conversation and handed it a later turn -- which is how
+    # a real client disconnect behaved, because Starlette's cancel scope
+    # re-delivers its cancellation on every loop cycle.
+    engine = make_engine(tmp_path, factory=HangingInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+
+        async def consume():
+            async for _ in conv.send("hi"):  # no messages fed: blocks forever
+                pass
+
+        task = asyncio.create_task(consume())
+        for _ in range(3):
+            await asyncio.sleep(0)
+        task.cancel()  # first cancellation: starts the abandon-turn protocol
+        for _ in range(3):
+            await asyncio.sleep(0)  # let it reach the interrupt that never lands
+        assert FakeSDKClient.instances[0].interrupts == 1
+        task.cancel()  # second cancellation: lands in the interrupt wait
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+        await conv.close()
+        return conv
+
+    with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
+        conv = asyncio.run(scenario())
+    assert conv.healthy is False
+    assert any("abandoned by a cancellation" in r.message for r in caplog.records)
 
 
 def test_acknowledged_interrupt_leaves_conversation_healthy(tmp_path):

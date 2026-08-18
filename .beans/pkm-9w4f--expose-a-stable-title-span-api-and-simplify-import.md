@@ -67,8 +67,17 @@ though `extract()` indexes it as a ref, leaving a stale reference after a
 rename. Both are now rewritten with the indent intact. The importer path is
 unchanged -- it already compensated for exactly this.
 
-Tests: 13 new in `test_rename.py`, 5 in `test_refs.py` (two parametrized), 3
+Tests: 14 new in `test_rename.py`, 5 in `test_refs.py` (two parametrized), 3
 in `test_import_titles.py`. Characterization tests landed in their own commit
 first and stayed green; the three tests covering the intended change were red
-before the refactor. Gates: `pytest -q` 1532 passed, coverage 97.19%;
+before the refactor. Gates: `pytest -q` 1533 passed, coverage 97.19%;
 `pyrefly check` 0 errors; `ruff check` clean.
+
+Review follow-up (`b1aa477`) corrected two documentation claims. The importer's
+key set is not simply "what `extract()` reported" -- `_collect_title_locations`
+also records raw export page titles, which can hold control whitespace
+`extract()` never reports; the invariant that makes the normalize-only lookup
+safe is now stated where the key set is built. And the behaviour change above
+is larger than first described: a column-0 attribute match also swallowed a
+leading code span, so a rename could splice the new title over a `code` run or
+a whole fence. That variant is named in the symptom row and pinned by a test.

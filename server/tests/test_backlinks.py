@@ -1,16 +1,5 @@
-from pkm.server.backlinks import group_backlinks
-
-
-def test_group_backlinks_pure():
-    rows = [
-        {"uid": "x1", "text": "t1", "src_page_id": 7, "src_page_title": "P1"},
-        {"uid": "x2", "text": "t2", "src_page_id": 7, "src_page_title": "P1"},
-        {"uid": "y1", "text": "t3", "src_page_id": 9, "src_page_title": "P2"},
-    ]
-    groups = group_backlinks(rows, {"x2": ["root text"]})
-    assert [g["page_title"] for g in groups] == ["P1", "P2"]
-    assert groups[0]["items"][0] == {"uid": "x1", "text": "t1", "breadcrumbs": []}
-    assert groups[0]["items"][1]["breadcrumbs"] == ["root text"]
+"""Backlink routes. group_backlinks itself is tested in test_grouping.py,
+beside the plain group_by_page it deliberately does not share."""
 
 
 def test_page_endpoint_includes_backlinks(client):

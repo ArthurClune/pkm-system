@@ -245,6 +245,24 @@ def test_plan_batch_move_rejects_wrong_level_heading():
         plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
 
 
+def test_plan_batch_move_under_a_block_created_in_the_same_batch():
+    # The move target is a uid created earlier in the same batch, so it is
+    # on no fetched page: the append position has to start at 0 instead of
+    # asking the page for that block's child count, which would raise.
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "New home",
+                    "as": "home"}},
+        {"command": "move",
+         "params": {"uid": "u1", "page": "Machine Learning",
+                    "parent": "{{home}}"}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
+    home = as_create(ops[0]).uid
+    assert ops[1] == MoveOp(op="move", uid="u1", parent_uid=home,
+                            order_idx=0, page_title=None)
+
+
 def test_plan_batch_create_with_index():
     cmds = [{"command": "create",
              "params": {"page": "Machine Learning", "text": "top",

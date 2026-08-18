@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Annotated, Literal, Union
 
 from pydantic import (BaseModel, ConfigDict, Field, TypeAdapter,
@@ -65,6 +66,15 @@ def next_child_idx(blocks: Sequence[BlockNode],
     raise BuildError(f"parent block not on page: {parent_uid}")
 
 
+def parse_uid_spec(spec: str | None) -> str | None:
+    """The uid inside a `((uid))` parent spec, or None for anything else
+    (no spec, a "## Heading", a malformed one). Callers that can see uids
+    `resolve_parent` cannot -- blocks created earlier in the same batch --
+    use this to recognize such a spec before resolving it against a page."""
+    m = _UID_SPEC.match(spec) if spec else None
+    return m.group(1) if m else None
+
+
 def resolve_parent(
     blocks: Sequence[BlockNode], spec: str | None
 ) -> tuple[str | None, tuple[int, str] | None]:
@@ -87,9 +97,8 @@ def resolve_parent(
     """
     if spec is None:
         return None, None
-    m = _UID_SPEC.match(spec)
-    if m:
-        uid = m.group(1)
+    uid = parse_uid_spec(spec)
+    if uid is not None:
         if not any(n.uid == uid for n in _walk(blocks)):
             raise BuildError(f"block not on page: {uid}")
         return uid, None
@@ -128,15 +137,17 @@ def _create(uid: str, page: str, parent: str | None, idx: int, text: str,
 
 
 class _Planner:
-    """Tracks the next append order_idx per (page, parent) across ops so
-    consecutive creates land in consecutive positions. `in_batch` is the
-    set of uids created earlier in the same batch: they are not on the
-    fetched page, so their first child starts at order_idx 0
-    instead of consulting `next_child_idx` (which would raise, since the
-    block isn't among the page's blocks). Also memoizes missing '## Heading'
-    parents by (page, level, text): a repeated spec across separate
-    `creates` calls (i.e. separate batch commands) reuses the heading
-    already planned instead of creating a duplicate."""
+    """The state a run of create planning threads through its ops: the next
+    append order_idx per (page, parent), and the uid of every '## Heading'
+    the run has created. Both exist so that several `creates`/`create_at`
+    calls -- i.e. several batch commands -- compose: consecutive creates
+    land in consecutive positions, and a heading spec repeated across
+    commands reuses the heading already planned instead of duplicating it.
+
+    Every method takes an already-resolved parent uid. Turning a parent
+    *spec* into one -- aliases, in-batch uids, a page that was never
+    fetched -- is the caller's job (see `_BatchCtx.resolve_parent`); this
+    class only positions blocks."""
 
     def __init__(self, uids: Iterator[str]):
         self._uids = uids
@@ -147,98 +158,121 @@ class _Planner:
         return next(self._uids)
 
     def bump(self, blocks: Sequence[BlockNode], page: str,
-             parent: str | None,
-             in_batch: frozenset[str] = frozenset()) -> int:
+             parent: str | None, parent_off_page: bool = False) -> int:
+        """The next append order_idx under (page, parent), counting up from
+        the parent's current child count.
+
+        `parent_off_page` says `parent` was created earlier in this run of
+        planning rather than fetched: it is not among `blocks`, so its
+        first child starts at 0 instead of consulting `next_child_idx`,
+        which would raise. Only a real uid can be off-page -- page top
+        level (`parent=None`) is always countable from `blocks`."""
         key = (page, parent)
         if key not in self._next_idx:
-            if parent is not None and parent in in_batch:
-                self._next_idx[key] = 0
-            else:
-                self._next_idx[key] = next_child_idx(blocks, parent)
+            self._next_idx[key] = 0 if parent_off_page \
+                else next_child_idx(blocks, parent)
         idx = self._next_idx[key]
         self._next_idx[key] = idx + 1
         return idx
 
-    def creates(self, blocks: Sequence[BlockNode], page: str,
-                parent_spec: str | None,
-                items: list[tuple[int, str]], todo: bool,
-                in_batch: frozenset[str] = frozenset(),
-                index: int | None = None) -> list[CreateOp]:
-        """Plan creates for `items` (depth, text) pairs under `parent_spec`.
-        Resolves the parent spec first (handling in-batch alias uids, which
-        `resolve_parent` can't see since they aren't on the page), then
-        walks the outline maintaining a depth->uid stack so nested items
-        attach to the most recently created ancestor at the right depth.
+    def heading(self, blocks: Sequence[BlockNode], page: str, level: int,
+                text: str) -> tuple[str, list[CreateOp]]:
+        """The uid of a page-top-level heading with `level` and `text`, plus
+        the op creating it -- or no ops, if this run planned it already.
+        Memoized per (page, level, text) so a "## Heading" parent spec
+        repeated across separate calls (i.e. separate batch commands) nests
+        under the one heading instead of minting a second."""
+        key = (page, level, text)
+        planned = self._headings.get(key)
+        if planned is not None:
+            return planned, []
+        uid = self.next_uid()
+        self._headings[key] = uid
+        return uid, [_create(uid, page, None, self.bump(blocks, page, None),
+                             text, level)]
 
-        `index`, when given, becomes the first depth-0 item's `order_idx`
-        verbatim -- the server splices siblings at/after it on insert. Only
-        single-item `create`/`todo` batch commands pass it (never `outline`,
-        never `plan_save`). Mixing an indexed create with plain appends
-        under the same parent in one batch may interleave, since appends
-        keep counting from the page's original child count rather than
-        accounting for the index; see `pkm batch --help`.
-        """
-        m = _UID_SPEC.match(parent_spec) if parent_spec else None
-        if m and m.group(1) in in_batch:
-            parent: str | None = m.group(1)
-            missing_heading = None
-        else:
-            parent, missing_heading = resolve_parent(blocks, parent_spec)
+    def _one(self, page: str, parent: str | None, idx: int, text: str,
+             todo: bool) -> CreateOp:
+        """One create op at a decided position: heading marker split off the
+        text, task marker applied when asked.
+
+        A heading this creates registers in the memo, so a later
+        `parent: "## Notes"` in the same batch nests under this block
+        instead of creating a second heading -- `resolve_parent` can't find
+        it, since it walks only the fetched page's blocks, which predate
+        this batch. Keyed on the stored text (TODO prefix included, if any)
+        so the memo agrees with what a later fetch would match."""
+        body, level = split_heading(text)
+        if todo:
+            body = with_state(body, "TODO")
+        uid = self.next_uid()
+        if level is not None:
+            self._headings.setdefault((page, level, body), uid)
+        return _create(uid, page, parent, idx, body, level)
+
+    def creates(self, blocks: Sequence[BlockNode], page: str,
+                parent: str | None, items: list[tuple[int, str]], todo: bool,
+                parent_off_page: bool = False) -> list[CreateOp]:
+        """Plan appended creates for `items` (depth, text) pairs under the
+        resolved `parent` uid (`None` = page top level), maintaining a
+        depth->uid stack so a nested item attaches to the most recently
+        created ancestor at the right depth. `todo` marks depth-0 items
+        only.
+
+        `parent_off_page` is `bump`'s flag for `parent`. Every block this
+        call creates is off-page too, so nesting under one starts at 0; the
+        `created` set below is what tracks them."""
         ops: list[CreateOp] = []
         created: set[str] = set()
-        if missing_heading is not None:
-            level, text = missing_heading
-            heading_key = (page, level, text)
-            if heading_key in self._headings:
-                parent = self._headings[heading_key]
-            else:
-                parent = self.next_uid()
-                ops.append(_create(parent, page, None,
-                                   self.bump(blocks, page, None, in_batch),
-                                   text, level))
-                self._headings[heading_key] = parent
-            created.add(parent)
         stack: list[str | None] = [parent]
-        first = True
         for depth, text in items:
             del stack[depth + 1:]
             target = stack[depth]
-            body, level = split_heading(text)
-            if todo and depth == 0:
-                body = with_state(body, "TODO")
-            uid = self.next_uid()
-            if depth == 0 and first and index is not None:
-                idx = index
-            else:
-                idx = self.bump(blocks, page, target,
-                                in_batch | frozenset(created))
-            first = False
-            ops.append(_create(uid, page, target, idx, body, level))
-            if level is not None:
-                # So a later `parent: "## Notes"` in the same batch nests
-                # under this block instead of creating a second heading.
-                # `resolve_parent` can't find it: it walks only the
-                # fetched page's blocks, which predate this batch. Keyed
-                # on the stored text (TODO prefix included, if any) so
-                # the memo agrees with what a later fetch would match.
-                self._headings.setdefault((page, level, body), uid)
-            created.add(uid)
+            off_page = target in created \
+                or (target == parent and parent_off_page)
+            op = self._one(page, target,
+                           self.bump(blocks, page, target, off_page),
+                           text, todo and depth == 0)
+            ops.append(op)
+            created.add(op.uid)
             if len(stack) == depth + 1:
-                stack.append(uid)
+                stack.append(op.uid)
             else:
-                stack[depth + 1] = uid
+                stack[depth + 1] = op.uid
         return ops
+
+    def create_at(self, page: str, parent: str | None, index: int, text: str,
+                  todo: bool) -> CreateOp:
+        """One create whose `order_idx` is `index` verbatim -- the server
+        splices siblings at/after it on insert. Only single-item
+        `create`/`todo` batch commands ask for this; `outline` and
+        `plan_save` always append.
+
+        Deliberately leaves the append counter alone: mixing an indexed
+        create with plain appends under the same parent in one batch may
+        interleave, since the appends keep counting from the page's
+        original child count rather than accounting for the index. See
+        `pkm batch --help`."""
+        return self._one(page, parent, index, text, todo)
 
 
 def plan_save(blocks: Sequence[BlockNode], page_title: str,
               parent_spec: str | None, text: str, todo: bool,
               uids: Iterator[str]) -> list[CreateOp]:
     """Plan the create ops for `pkm save`: an outline of `text` nested
-    under `parent_spec` (page top level if None)."""
+    under `parent_spec` (page top level if None). A "## Heading" spec not
+    yet on the page is created first, at page top level, so the whole save
+    is one atomic batch either way."""
     items = parse_outline(text)
     if not items:
         raise BuildError("nothing to save: text is empty")
-    return _Planner(uids).creates(blocks, page_title, parent_spec, items, todo)
+    planner = _Planner(uids)
+    parent, missing = resolve_parent(blocks, parent_spec)
+    head: list[CreateOp] = []
+    if missing is not None:
+        parent, head = planner.heading(blocks, page_title, *missing)
+    return [*head, *planner.creates(blocks, page_title, parent, items, todo,
+                                    parent_off_page=missing is not None)]
 
 
 class _NotGiven:
@@ -360,6 +394,16 @@ def _alias_uid(value: str, aliases: dict[str, str]) -> str:
             raise BuildError(f"unknown alias: {m.group(1)}")
         return aliases[m.group(1)]
     return value
+
+
+def _in_batch_uid(spec: str | None, created: set[str]) -> str | None:
+    """The uid of a `((uid))` spec naming a block created earlier in this
+    batch, else None. Those uids are on none of the fetched pages, so
+    `resolve_parent` would reject the spec and `next_child_idx` could not
+    count the block's children -- both consult the fetched blocks, which
+    predate the batch."""
+    uid = parse_uid_spec(spec)
+    return uid if uid is not None and uid in created else None
 
 
 # -- Batch command schema -----------------------------------------------
@@ -527,67 +571,108 @@ def referenced_pages(commands: Sequence[BatchCommand]) -> list[str]:
 PageBlocks = Mapping[str, Sequence[BlockNode]]
 
 
-def _fetch_blocks(title: str, pages: PageBlocks) -> Sequence[BlockNode]:
-    if title not in pages:
-        raise BuildError(f"page not fetched: {title}")
-    return pages[title]
+@dataclass
+class _BatchCtx:
+    """The state `plan_batch` threads through its per-command planners: the
+    one `_Planner` they share (append counters and heading memo), the pages
+    the shell fetched, the `{{alias}}` -> uid map that `as` params fill in,
+    and the uids created so far in this batch -- which are on none of those
+    fetched pages."""
+    planner: _Planner
+    pages: PageBlocks
+    aliases: dict[str, str] = field(default_factory=dict)
+    created: set[str] = field(default_factory=set)
+
+    def blocks(self, title: str) -> Sequence[BlockNode]:
+        if title not in self.pages:
+            raise BuildError(f"page not fetched: {title}")
+        return self.pages[title]
+
+    def record(self, ops: Sequence[BlockOp]) -> None:
+        """Remember the uids `ops` create, so a later command's `((uid))`
+        parent or move target resolves against them."""
+        self.created.update(o.uid for o in ops if isinstance(o, CreateOp))
+
+    def resolve_parent(
+        self, blocks: Sequence[BlockNode], page: str, spec: str | None
+    ) -> tuple[str | None, bool, list[CreateOp]]:
+        """A create/outline command's parent spec resolved to
+        (parent uid, whether it is off-page, ops creating a missing
+        heading). Three cases, in precedence order: a `((uid))` from earlier
+        in this batch, which `resolve_parent` cannot see; a spec that
+        resolves on the fetched page; a "## Heading" that isn't there yet,
+        which the planner creates or reuses from its memo -- off-page either
+        way, since the fetched blocks predate this batch."""
+        in_batch = _in_batch_uid(spec, self.created)
+        if in_batch is not None:
+            return in_batch, True, []
+        parent, missing = resolve_parent(blocks, spec)
+        if missing is None:
+            return parent, False, []
+        uid, ops = self.planner.heading(blocks, page, *missing)
+        return uid, True, ops
 
 
-def _batch_create(cmd: CreateCommand | TodoCommand, pages: PageBlocks,
-                  planner: _Planner, aliases: dict[str, str],
-                  created: set[str]) -> list[CreateOp]:
+def _batch_create(cmd: CreateCommand | TodoCommand,
+                  ctx: _BatchCtx) -> list[CreateOp]:
     p = cmd.params
-    blocks = _fetch_blocks(p.page, pages)
-    spec = _resolve_alias(p.parent, aliases)
-    new = planner.creates(blocks, p.page, spec, [(0, p.text)],
-                          todo=(cmd.command == "todo"),
-                          in_batch=frozenset(created), index=p.index)
+    blocks = ctx.blocks(p.page)
+    spec = _resolve_alias(p.parent, ctx.aliases)
+    parent, off_page, ops = ctx.resolve_parent(blocks, p.page, spec)
+    todo = cmd.command == "todo"
+    if p.index is None:
+        ops = [*ops, *ctx.planner.creates(blocks, p.page, parent,
+                                          [(0, p.text)], todo, off_page)]
+    else:
+        ops = [*ops, ctx.planner.create_at(p.page, parent, p.index, p.text,
+                                           todo)]
     if p.as_:
-        aliases[p.as_] = new[-1].uid
-    return new
+        # The content block, never a heading this command had to create
+        # first: the alias names what the caller asked for.
+        ctx.aliases[p.as_] = ops[-1].uid
+    return ops
 
 
-def _batch_outline(cmd: OutlineCommand, pages: PageBlocks,
-                   planner: _Planner, aliases: dict[str, str],
-                   created: set[str]) -> list[CreateOp]:
+def _batch_outline(cmd: OutlineCommand, ctx: _BatchCtx) -> list[CreateOp]:
     p = cmd.params
-    blocks = _fetch_blocks(p.page, pages)
-    items = _nested_items(p.items)
-    spec = _resolve_alias(p.parent, aliases)
-    return planner.creates(blocks, p.page, spec, items, todo=False,
-                           in_batch=frozenset(created))
+    blocks = ctx.blocks(p.page)
+    spec = _resolve_alias(p.parent, ctx.aliases)
+    parent, off_page, ops = ctx.resolve_parent(blocks, p.page, spec)
+    return [*ops, *ctx.planner.creates(blocks, p.page, parent,
+                                       _nested_items(p.items), todo=False,
+                                       parent_off_page=off_page)]
 
 
-def _batch_update(cmd: UpdateCommand,
-                  aliases: dict[str, str]) -> list[BlockOp]:
+def _batch_update(cmd: UpdateCommand, ctx: _BatchCtx) -> list[BlockOp]:
     p = cmd.params
-    uid = _alias_uid(p.uid, aliases)
-    return plan_update(uid, p.text)
+    return plan_update(_alias_uid(p.uid, ctx.aliases), p.text)
 
 
-def _batch_move(cmd: MoveCommand, pages: PageBlocks, planner: _Planner,
-                aliases: dict[str, str], created: set[str]) -> list[MoveOp]:
+def _batch_move(cmd: MoveCommand, ctx: _BatchCtx) -> list[MoveOp]:
     p = cmd.params
-    blocks = _fetch_blocks(p.page, pages)
-    uid = _alias_uid(p.uid, aliases)
-    spec = _resolve_alias(p.parent, aliases)
-    m = _UID_SPEC.match(spec) if spec else None
-    if m and m.group(1) in created:
-        parent: str | None = m.group(1)
+    blocks = ctx.blocks(p.page)
+    uid = _alias_uid(p.uid, ctx.aliases)
+    spec = _resolve_alias(p.parent, ctx.aliases)
+    # Not `ctx.resolve_parent`: `move` never creates its target. A missing
+    # heading here means the caller named a section that doesn't exist,
+    # which is a mistake rather than an instruction.
+    in_batch = _in_batch_uid(spec, ctx.created)
+    if in_batch is not None:
+        parent, off_page = in_batch, True
     else:
         parent, missing = resolve_parent(blocks, spec)
         if missing is not None:
             raise BuildError("move target heading does not exist")
-    idx = p.index
-    if idx is None:
-        idx = planner.bump(blocks, p.page, parent, frozenset(created))
+        off_page = False
+    idx = p.index if p.index is not None \
+        else ctx.planner.bump(blocks, p.page, parent, off_page)
     return [MoveOp(op="move", uid=uid, parent_uid=parent, order_idx=idx,
                    page_title=None if parent else p.page)]
 
 
-def _batch_delete(cmd: DeleteCommand,
-                  aliases: dict[str, str]) -> list[DeleteOp]:
-    return [DeleteOp(op="delete", uid=_alias_uid(cmd.params.uid, aliases))]
+def _batch_delete(cmd: DeleteCommand, ctx: _BatchCtx) -> list[DeleteOp]:
+    return [DeleteOp(op="delete",
+                     uid=_alias_uid(cmd.params.uid, ctx.aliases))]
 
 
 def plan_batch(commands: Sequence[object], pages: PageBlocks,
@@ -601,31 +686,27 @@ def plan_batch(commands: Sequence[object], pages: PageBlocks,
 
     `create`/`todo` accept an `as` alias so later commands in the same
     batch can reference the block just created via `parent: "{{alias}}"`.
-    Those in-batch uids are tracked in `created` and threaded through as
-    `_Planner.creates`'s `in_batch` set, since they don't exist on the
-    fetched pages that `resolve_parent`/`next_child_idx` consult.
+    Those in-batch uids live in `_BatchCtx.created`, since they don't exist
+    on the fetched pages that `resolve_parent`/`next_child_idx` consult.
     """
     parsed = [_parse_command(cmd, i) for i, cmd in enumerate(commands)]
-    planner = _Planner(uids)
-    aliases: dict[str, str] = {}
-    created: set[str] = set()
+    ctx = _BatchCtx(planner=_Planner(uids), pages=pages)
     ops: list[BlockOp] = []
 
     for cmd in parsed:
+        new: Sequence[BlockOp]
         if isinstance(cmd, CreateCommand | TodoCommand):
-            new = _batch_create(cmd, pages, planner, aliases, created)
-            ops.extend(new)
-            created.update(o.uid for o in new)
+            new = _batch_create(cmd, ctx)
         elif isinstance(cmd, OutlineCommand):
-            new = _batch_outline(cmd, pages, planner, aliases, created)
-            ops.extend(new)
-            created.update(o.uid for o in new)
+            new = _batch_outline(cmd, ctx)
         elif isinstance(cmd, UpdateCommand):
-            ops.extend(_batch_update(cmd, aliases))
+            new = _batch_update(cmd, ctx)
         elif isinstance(cmd, MoveCommand):
-            ops.extend(_batch_move(cmd, pages, planner, aliases, created))
+            new = _batch_move(cmd, ctx)
         else:
-            ops.extend(_batch_delete(cmd, aliases))
+            new = _batch_delete(cmd, ctx)
+        ops.extend(new)
+        ctx.record(new)
     return ops
 
 

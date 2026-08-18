@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { BacklinkBatchPayload, BacklinkBatchState } from "./backlinkBatchWalk";
-import { walkBacklinkBatches } from "./backlinkBatchWalk";
+import { mergeBacklinkResult, walkBacklinkBatches } from "./backlinkBatchWalk";
 
 function batch(over: Partial<BacklinkBatchPayload["backlinks"]> = {},
                refTexts: BacklinkBatchPayload["block_ref_texts"] = {}): BacklinkBatchPayload {
@@ -196,6 +196,75 @@ it("fetches a single batch and stops when nextLimit only allows one (loadMore-st
   });
   expect(fetchBatch).toHaveBeenCalledTimes(1);
   expect(fetchBatch).toHaveBeenCalledWith(0, 20);
+});
+
+it("mergeBacklinkResult merges a walk result onto the latest state without dropping either side", () => {
+  const current: BacklinkBatchState = {
+    groups: [{ page_id: 3, page_title: "C", items: [{ uid: "c1", text: "c", breadcrumbs: [] }] }],
+    totalPages: 3,
+    refTexts: { rc: { text: "ref c", page_title: "C" } },
+  };
+  const result: BacklinkBatchState = {
+    groups: [
+      { page_id: 1, page_title: "A", items: [{ uid: "a1", text: "a", breadcrumbs: [] }] },
+      { page_id: 2, page_title: "B", items: [{ uid: "b1", text: "b", breadcrumbs: [] }] },
+    ],
+    totalPages: 3,
+    refTexts: { ra: { text: "ref a", page_title: "A" } },
+  };
+
+  expect(mergeBacklinkResult(current, result)).toEqual({
+    groups: [
+      { page_id: 3, page_title: "C", items: [{ uid: "c1", text: "c", breadcrumbs: [] }] },
+      { page_id: 1, page_title: "A", items: [{ uid: "a1", text: "a", breadcrumbs: [] }] },
+      { page_id: 2, page_title: "B", items: [{ uid: "b1", text: "b", breadcrumbs: [] }] },
+    ],
+    totalPages: 3,
+    refTexts: {
+      rc: { text: "ref c", page_title: "C" },
+      ra: { text: "ref a", page_title: "A" },
+    },
+  });
+});
+
+it("mergeBacklinkResult is order-independent for two concurrent results (loadMore/loadAll race)", () => {
+  // simulates: loadAll's result committed first, then loadMore's own
+  // (independently-fetched, overlapping) result merges on top -- and the
+  // reverse order -- converging to the same union either way.
+  const initial: BacklinkBatchState = {
+    groups: [{ page_id: 1, page_title: "A", items: [{ uid: "a1", text: "a", breadcrumbs: [] }] }],
+    totalPages: 3,
+    refTexts: {},
+  };
+  const loadAllResult: BacklinkBatchState = {
+    groups: [
+      { page_id: 1, page_title: "A", items: [{ uid: "a1", text: "a", breadcrumbs: [] }] },
+      { page_id: 2, page_title: "B", items: [{ uid: "b1", text: "b", breadcrumbs: [] }] },
+      { page_id: 3, page_title: "C", items: [{ uid: "c1", text: "c", breadcrumbs: [] }] },
+    ],
+    totalPages: 3,
+    refTexts: {},
+  };
+  const loadMoreResult: BacklinkBatchState = {
+    // loadMore started from the stale 1-group snapshot and only fetched one
+    // more batch -- it never saw page C.
+    groups: [
+      { page_id: 1, page_title: "A", items: [{ uid: "a1", text: "a", breadcrumbs: [] }] },
+      { page_id: 2, page_title: "B", items: [{ uid: "b1", text: "b", breadcrumbs: [] }] },
+    ],
+    totalPages: 3,
+    refTexts: {},
+  };
+
+  const loadAllThenLoadMore =
+    mergeBacklinkResult(mergeBacklinkResult(initial, loadAllResult), loadMoreResult);
+  const loadMoreThenLoadAll =
+    mergeBacklinkResult(mergeBacklinkResult(initial, loadMoreResult), loadAllResult);
+
+  // page C must survive regardless of which settles last.
+  expect(loadAllThenLoadMore.groups.map((g) => g.page_id)).toEqual([1, 2, 3]);
+  expect(loadMoreThenLoadAll.groups.map((g) => g.page_id)).toEqual([1, 2, 3]);
+  expect(loadAllThenLoadMore).toEqual(loadMoreThenLoadAll);
 });
 
 it("makes no fetch when nextLimit immediately says to stop", async () => {

@@ -68,3 +68,27 @@ export async function walkBacklinkBatches(
   }
   return current;
 }
+
+/**
+ * Merge a walk's result onto the latest state rather than replacing it
+ * outright. `loadMore` and `loadAll` each start their walk from a snapshot
+ * of state taken before any await and guard only against a concurrent
+ * refresh (via `isStale`), not against each other -- so both can be in
+ * flight at once, and whichever settles last must not discard the other's
+ * progress. `mergeGroups` dedupes by page_id/uid, so merging is commutative
+ * and idempotent: applying either order, or re-applying a batch the other
+ * caller already folded in, converges to the same union.
+ *
+ * `refresh` does not use this -- it replaces wholesale, because dropping a
+ * group that no longer exists server-side is the whole point of a refresh,
+ * and a merge can only ever add.
+ */
+export function mergeBacklinkResult(
+  current: BacklinkBatchState, result: BacklinkBatchState,
+): BacklinkBatchState {
+  return {
+    groups: mergeGroups(current.groups, result.groups),
+    totalPages: result.totalPages,
+    refTexts: { ...current.refTexts, ...result.refTexts },
+  };
+}

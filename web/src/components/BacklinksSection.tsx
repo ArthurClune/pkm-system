@@ -5,7 +5,7 @@ import type { Backlinks } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
 
 import type { BacklinkBatchState } from "./backlinkBatchWalk";
-import { walkBacklinkBatches } from "./backlinkBatchWalk";
+import { mergeBacklinkResult, walkBacklinkBatches } from "./backlinkBatchWalk";
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, toggleChip,
          type FilterState } from "./backlinkFilter";
 import { BacklinkGroupList } from "./BacklinkGroupList";
@@ -50,7 +50,10 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
         (_state, batchesFetched) => (batchesFetched === 0 ? initial.limit : null),
         () => epoch !== refreshEpoch.current);
       if (result === "stale" || epoch !== refreshEpoch.current) return;
-      setBacklinks(result);
+      // Merge onto the latest state, not the stale snapshot the walk
+      // started from: loadMore and loadAll guard only against a concurrent
+      // refresh, not against each other, so both can be in flight at once.
+      setBacklinks((current) => mergeBacklinkResult(current, result));
     } catch (loadFailure: unknown) {
       if (epoch === refreshEpoch.current) setError(String(loadFailure));
     } finally {
@@ -71,7 +74,7 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
         (state) => (state.groups.length < state.totalPages ? 100 : null),
         () => epoch !== refreshEpoch.current);
       if (result === "stale" || epoch !== refreshEpoch.current) return;
-      setBacklinks(result);
+      setBacklinks((current) => mergeBacklinkResult(current, result));
     } catch (loadFailure: unknown) {
       if (epoch === refreshEpoch.current) setError(String(loadFailure));
     } finally {

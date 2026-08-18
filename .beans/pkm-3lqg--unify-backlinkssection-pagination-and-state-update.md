@@ -79,3 +79,19 @@ on 2 of 4 verify attempts and confirmed unrelated: it passes in isolation
 without coverage (887ms) and passes fully instrumented alone with no
 contention (4571ms, under its own 5000ms budget); the full gate passed clean
 on the final attempt.
+
+## Fix round 1 (review finding)
+
+`loadMore`/`loadAll` guarded only against a concurrent `refresh`, not
+against each other, so two ordinary clicks (Show more, then Filter, before
+the first request resolved) could race; whichever walk committed last did
+an outright `setBacklinks(result)` replace and silently discarded the
+other's already-loaded groups, potentially wedging the filter panel in a
+permanent loading state. Fixed by merging each walk's result onto the
+latest state (`mergeBacklinkResult`, new export in `backlinkBatchWalk.ts`)
+for `loadMore`/`loadAll`; `refresh` keeps its full replace since dropping
+stale groups is its whole point, and stays safe because a concurrent
+refresh already turns any in-flight loadMore/loadAll into `"stale"`. Added
+2 unit tests for `mergeBacklinkResult` and 1 component-level regression
+test reproducing the exact race; confirmed the regression test fails
+without the fix and passes with it.

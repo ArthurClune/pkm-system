@@ -130,10 +130,8 @@ class DescribeService:
         """Fire-and-forget enqueue on upload; no-op when disabled, the mime
         can never be described (oversized still enqueues so the failure is
         recorded honestly), or the sha is already queued/in-flight."""
-        if (self.enabled and describe_action(mime, size) != "skip"
-                and sha256 not in self._active):
-            self._active.add(sha256)
-            self._queue.put_nowait(sha256)
+        if self.enabled:
+            self._enqueue_if_eligible(sha256, mime, size)
 
     def scan(self, db: sqlite3.Connection, force: bool = False) -> int:
         """Enqueue every undescribed eligible asset; force retries failures.
@@ -146,13 +144,20 @@ class DescribeService:
             sql += " AND describe_error IS NULL"
         queued = 0
         for row in db.execute(sql).fetchall():
-            sha = row["sha256"]
-            if (describe_action(row["mime"], row["size"]) != "skip"
-                    and sha not in self._active):
-                self._active.add(sha)
-                self._queue.put_nowait(sha)
+            if self._enqueue_if_eligible(row["sha256"], row["mime"], row["size"]):
                 queued += 1
         return queued
+
+    def _enqueue_if_eligible(self, sha256: str, mime: str, size: int) -> bool:
+        """Shared enqueue ritual for `maybe_enqueue` and `scan`: skip a mime
+        that can never be described, and skip a sha already queued or
+        mid-attempt (pkm-1wv1) so a repeat call never double-queues it.
+        Returns whether it actually queued the sha."""
+        if describe_action(mime, size) == "skip" or sha256 in self._active:
+            return False
+        self._active.add(sha256)
+        self._queue.put_nowait(sha256)
+        return True
 
     async def drain(self) -> None:
         """Test helper: resolve once every queued item has been processed."""

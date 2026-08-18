@@ -41,6 +41,13 @@ def read_tool_names() -> list[str]:
 
 
 def all_tool_names() -> list[str]:
+    """The full read+write tool set. No production caller: `claude_engine`
+    passes `read_tool_names()` for `allowed_tools` and gates writes at
+    confirm-time by `classify_tool`, never by an explicit write allowlist.
+    This function exists so `test_tool_names_namespaced`'s 11-count assertion
+    has something to call -- it is a tripwire that fails loudly if a tool is
+    added to READ_TOOLS/WRITE_TOOLS without updating that count. Keep it,
+    even though nothing in `src/` imports it."""
     return [mcp_tool_name(t) for t in READ_TOOLS + WRITE_TOOLS]
 
 

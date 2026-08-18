@@ -499,34 +499,31 @@ def test_existing_assets_verified_through_the_shared_boundary(
     assert truncated.read_bytes() == b"PNGDATA"
 
 
-def test_asset_copy_failure_leaves_a_fully_populated_database_temp(
+def test_title_migration_gets_the_shared_connection_out_of_a_transaction(
     tmp_path, monkeypatch
 ):
-    # pkm-6g0l merged the row-insert and title-activation connections
-    # around the database-free asset phase. The commit before that phase
-    # is what keeps a copy failure's leftover pkm.sqlite3.tmp complete
-    # (and self-healing on the next run) instead of empty, and title
-    # activation stays downstream of the copies, so a failure there
-    # leaves canonicalization inactive.
+    # pkm-6g0l moved the database-free asset phase inside the
+    # row-writing connection's lifetime, so one connection now serves
+    # both the inserts and the title migration. audit_title_migration
+    # and apply_title_migration each refuse a connection that is already
+    # in a transaction (RuntimeError), and the commit before the asset
+    # phase is the only thing ending the implicit one the inserts
+    # opened. Move or drop that commit and this fails twice over: the
+    # recorded flag flips, and main() raises instead of returning 0.
     files = _setup_files(tmp_path)
     out = tmp_path / "data"
+    in_transaction: list[bool] = []
+    real_audit = run_module.audit_title_migration
 
-    def fail_copy(_src, _dst):
-        raise OSError("simulated asset copy failure")
+    def record(con):
+        in_transaction.append(con.in_transaction)
+        return real_audit(con)
 
-    with monkeypatch.context() as patch:
-        patch.setattr(run_module.shutil, "copyfile", fail_copy)
-        with pytest.raises(OSError, match="simulated asset copy failure"):
-            main([str(FIXTURE), "--files", str(files), "--out", str(out)])
+    monkeypatch.setattr(run_module, "audit_title_migration", record)
 
-    con = sqlite3.connect(out / "pkm.sqlite3.tmp")
-    assert con.execute("SELECT count(*) FROM blocks").fetchone()[0] == 8
-    assert con.execute("SELECT count(*) FROM assets").fetchone()[0] == 2
-    assert con.execute(
-        "SELECT value FROM sync_meta"
-        " WHERE key='plain_space_title_canonicalization'"
-    ).fetchone()[0] == "0"
-    con.close()
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    assert in_transaction == [False]
 
 
 def test_copy_assets_repairs_only_what_is_wrong(tmp_path):

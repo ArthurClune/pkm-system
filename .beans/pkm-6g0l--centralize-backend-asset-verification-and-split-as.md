@@ -51,8 +51,11 @@ because `importer/assets.py` and `routes_assets.py` already exist.
   sources, assets)`, routed through the boundary. Because that phase touches
   no database, it moved inside the row-writing connection's lifetime, so the
   two identical `connect/try/finally/close` blocks around it collapsed into
-  one. The `con.commit()` before it is what keeps a copy failure's leftover
-  `pkm.sqlite3.tmp` complete; title activation still runs after the copies.
+  one. That makes the `con.commit()` before it load-bearing beyond durability:
+  `audit_title_migration` and `apply_title_migration` both raise `RuntimeError`
+  on a connection already in a transaction, and the commit is the only thing
+  ending the implicit one the inserts opened. Title activation still runs
+  after the copies.
 - **`export/writer.py`**: the staging loop is now `_stage_assets(wanted, *,
   assets_dir, stage_assets, live_assets_dir)`, returning its own
   `assets_copied` / `assets_repaired` / `assets_missing_source_on_repair`
@@ -63,14 +66,15 @@ because `importer/assets.py` and `routes_assets.py` already exist.
 - **Tests**: new `tests/test_assets_disk.py` (missing / not-a-regular-file /
   size mismatch / same-size hash mismatch / valid, plus a spy proving the
   short circuit). New importer tests: boundary routing and short circuit via
-  a spy on the shared hasher, a fully-populated-tmp-DB guard for the merged
-  connection, and a standalone `_copy_assets` unit test. New exporter tests:
+  a spy on the shared hasher, a merged-connection guard asserting the title
+  migration is handed a connection with no open transaction, and a standalone
+  `_copy_assets` unit test. New exporter tests:
   the same spy-based routing/short-circuit proof and a standalone
   `_stage_assets` test covering both the fresh-copy and hardlink paths.
 - **`docs/architecture/backend.md`**: `assets_disk.py` added to the module
   map; the Markdown-export and importer prose now name the shared boundary
   and the pure decision it feeds; the importer bullet gains the
-  commit-before-the-asset-phase invariant.
+  commit-before-the-migration invariant and why it is load-bearing.
 
 Verification (from `server/`): `uv run pytest -q` → 1470 passed, coverage
 96.98% (gate 95%); `uv run pyrefly check` → 0 errors; `uv run ruff check` →

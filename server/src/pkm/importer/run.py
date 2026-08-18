@@ -158,11 +158,14 @@ def main(argv: list[str] | None = None) -> int:
         con.commit()
 
         # Asset copying touches no database, so it runs inside this same
-        # connection's lifetime rather than between two of them. The
-        # commit above is what makes a copy failure here leave a
-        # self-healing, fully populated pkm.sqlite3.tmp behind. Title
-        # activation must follow it: the migration rewrites block text
-        # that already references these files.
+        # connection's lifetime rather than between two of them. That
+        # makes the commit above load-bearing beyond durability: it is
+        # the only thing ending the implicit transaction the inserts
+        # opened, and audit_title_migration/apply_title_migration below
+        # both raise RuntimeError when handed a connection already in
+        # one. Move or drop it and every import fails. Title activation
+        # must also stay after the copies: the migration rewrites block
+        # text that already references these files.
         _copy_assets(out / "assets", paths, unique_assets)
 
         try:

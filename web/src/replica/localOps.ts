@@ -9,9 +9,9 @@
 // (reconcile.ts); ops carry titles, so negative ids never go on the wire.
 
 import type { BlockOp } from "../api/ops";
+import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb } from "./db";
 import { plainSpaceTitleCanonicalizationActive } from "./meta";
-import { extractRefs } from "./refs";
 import { canonicalizeTitle, findOpTitleViolation,
          type OpTitleViolation, titleSyntaxReason } from "./titles";
 
@@ -62,18 +62,14 @@ export function getOrCreateLocalPage(db: ReplicaDb, title: string,
 
 const reindexRefs = (db: ReplicaDb, uid: string, text: string,
                      nowMs: number): void => {
-  const { refs, blockRefs } = extractRefs(text);
+  // pkm-d31f/pkm-t3qw: the block-level index is the composition apply.ts
+  // shares; it hands back the parse so the page-level refs below reuse it.
+  const { refs } = reindexBlockRefs(db, uid, text);
   db.exec("DELETE FROM refs WHERE src_block_uid = ?", [uid]);
   for (const ref of refs) {
     const pageId = getOrCreateLocalPage(db, ref.title, nowMs);
     db.exec("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
             [uid, pageId, ref.kind]);
-  }
-  // pkm-d31f: the block-level index. Mirrors the server's ReindexRefs
-  // effect; targets may dangle (unresolved ((uid)) is legal).
-  db.exec("DELETE FROM block_refs WHERE src_block_uid = ?", [uid]);
-  for (const target of blockRefs) {
-    db.exec("INSERT OR IGNORE INTO block_refs VALUES (?,?)", [uid, target]);
   }
 };
 

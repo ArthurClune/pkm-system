@@ -19,7 +19,7 @@ Backend A2 and frontend A5. The invariant that refs and block refs are rebuilt f
 ## Acceptance criteria
 
 - [x] Add a server `store.reindex_refs_for_text(db, uid, text, now_ms)` composition and use it from operation application and snapshot rewriting
-- [ ] Add a replica `reindexBlockRefs(db, uid, text)` composition and use it from both remote apply and local operation application
-- [ ] Preserve blank-ref handling, page creation/index semantics, timestamps, and transaction ownership
-- [ ] Add focused tests that would fail if either call site drifted from its shared implementation
+- [x] Add a replica `reindexBlockRefs(db, uid, text)` composition and use it from both remote apply and local operation application
+- [x] Preserve blank-ref handling, page creation/index semantics, timestamps, and transaction ownership
+- [x] Add focused tests that would fail if either call site drifted from its shared implementation
 - [ ] Check server/TypeScript parity explicitly and update sync/backend architecture invariants

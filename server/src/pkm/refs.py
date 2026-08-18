@@ -22,7 +22,7 @@ _INLINE_CODE = re.compile(r"`[^`\n]*`")
 # over an overlapping class is O(n^2) to fail on an all-whitespace run of
 # length n (every one of the n split points between the two groups gets
 # its own full lazy re-scan). A block that is one large fenced code block
-# collapses to exactly such a run once _strip_code() blanks it out
+# collapses to exactly such a run once strip_code() blanks it out
 # (pkm-7myl: a ~258KB pasted block took ~224s to `.match()` here).
 _ATTRIBUTE = re.compile(r"([^\[\]{}:\n]+?)::")
 _HASHTAG = re.compile(r"(?:^|(?<=[\s(]))#([\w/.\-]+)")
@@ -95,9 +95,56 @@ class ParsedRefs:
     embeds: int
 
 
-def _strip_code(text: str) -> str:
+def strip_code(text: str) -> str:
+    """Blank out fenced and inline code, keeping every other offset put.
+
+    Each run is replaced by spaces of its own length, so a span located on
+    the stripped copy indexes the original text unchanged -- that is what
+    lets `rename.py` find refs here and splice the real text there.
+    """
     text = _CODE_FENCE.sub(lambda m: " " * len(m.group()), text)
     return _INLINE_CODE.sub(lambda m: " " * len(m.group()), text)
+
+
+@dataclass(frozen=True)
+class AttributeSpan:
+    """A leading `Title::` attribute: where it sits and both its spellings.
+
+    `start` is the first character of the attribute name and `end` is just
+    past the `::`, so the whitespace a block is indented by is never inside
+    the span. `raw_title` is the name as written (outer whitespace trimmed);
+    `title` is the page it refers to, i.e. `raw_title` normalized. Holding
+    both is the point: a rewriter matches the spelling in the text while an
+    extractor records the normalized identity.
+    """
+
+    start: int
+    end: int
+    raw_title: str
+    title: str
+
+
+def attribute_title_span(text: str) -> AttributeSpan | None:
+    """Locate the leading `Title::` attribute of code-stripped block text.
+
+    Sole owner of the attribute's whitespace anchoring: leading whitespace is
+    removed by a linear `lstrip()` and the pattern is then matched once at
+    that offset, rather than folded into the regex (see `_ATTRIBUTE` for what
+    that costs). Because the scan starts past every leading whitespace
+    character, the captured name always begins with a non-whitespace one, so
+    `title` is never blank -- callers rely on that instead of re-checking.
+    """
+    offset = len(text) - len(text.lstrip())
+    match = _ATTRIBUTE.match(text, offset)
+    if match is None:
+        return None
+    raw_title = match.group(1).strip()
+    return AttributeSpan(
+        start=match.start(1),
+        end=match.end(),
+        raw_title=raw_title,
+        title=normalize_title(raw_title),
+    )
 
 
 def _scan_brackets(text: str, nested: bool = False) -> list[tuple[str, bool]]:
@@ -128,20 +175,16 @@ def _scan_brackets(text: str, nested: bool = False) -> list[tuple[str, bool]]:
 
 
 def extract(text: str) -> ParsedRefs:
-    clean = _strip_code(text)
+    clean = strip_code(text)
     refs: list[Ref] = []
-    # Leading whitespace is stripped here (a plain, linear str.lstrip()) so
-    # _ATTRIBUTE only ever has to match once, at a fixed start position --
-    # see the comment on _ATTRIBUTE for why folding this into the regex
-    # itself is quadratic on pathological input.
     # Every title goes through normalize_title, and one that is blank once
     # normalized is not a reference at all (`[[]]`, `[[\n]]`, and `[[   ]]`
     # used to mint blank-titled pages). Hashtag titles cannot hold
     # whitespace, so the call is a no-op there -- applied anyway to keep
-    # the rule uniform.
-    if m := _ATTRIBUTE.match(clean.lstrip()):
-        if title := normalize_title(m.group(1).strip()):
-            refs.append(Ref(title, "attribute"))
+    # the rule uniform. The attribute's own normalization, and the leading
+    # whitespace it has to survive, belong to attribute_title_span().
+    if (attribute := attribute_title_span(clean)) is not None:
+        refs.append(Ref(attribute.title, "attribute"))
     for title, is_tag in _scan_brackets(clean):
         normalized = normalize_title(title)
         if not is_blank_title(normalized):

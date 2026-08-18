@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Mapping, Sequence
 
 from pkm.importer.parse_export import Block, Export, Page
 from pkm.refs import (
-    _ATTRIBUTE,
-    _scan_brackets,
-    _strip_code,
     extract,
     is_blank_title,
     normalize_title,
@@ -138,33 +135,14 @@ def _walk_block(block: Block) -> tuple[Block, ...]:
     )
 
 
-def _rewrite_import_title_refs(text: str, title_map: dict[str, str]) -> str:
-    """Adapt extractor-normalized targets to the opaque rename helper."""
-    clean = _strip_code(text)
-    replacements = dict(title_map)
-    for raw_title, _ in _scan_brackets(clean):
-        normalized_title = normalize_title(raw_title)
-        if normalized_title in title_map:
-            replacements[raw_title] = title_map[normalized_title]
-
-    attribute_start = len(clean) - len(clean.lstrip())
-    attribute = _ATTRIBUTE.match(clean[attribute_start:])
-    if attribute is None:
-        return rewrite_title_refs_map(text, replacements)
-
-    raw_title = attribute.group(1).strip()
-    normalized_title = normalize_title(raw_title)
-    if normalized_title in title_map:
-        replacements[raw_title] = title_map[normalized_title]
-    return text[:attribute_start] + rewrite_title_refs_map(
-        text[attribute_start:], replacements
-    )
-
-
 def _rewrite_block(block: Block, title_map: dict[str, str]) -> Block:
+    # Every lookup normalizes first, which reaches both halves of title_map's
+    # key set -- see _collect_title_locations for why that is safe.
     return Block(
         uid=block.uid,
-        text=_rewrite_import_title_refs(block.text, title_map),
+        text=rewrite_title_refs_map(
+            block.text, title_map, normalize=normalize_title
+        ),
         heading=block.heading,
         view_type=block.view_type,
         open=block.open,
@@ -174,8 +152,21 @@ def _rewrite_block(block: Block, title_map: dict[str, str]) -> Block:
     )
 
 
-def sanitize_export_titles(export: Export) -> SanitizedImport:
-    """Sanitize all imported title identities before rows or I/O are created."""
+def _collect_title_locations(export: Export) -> dict[str, list[str]]:
+    """Every title spelling the export mentions, and where each was seen.
+
+    Page titles come first so a page's own location wins the one that decides
+    the refusal message; block refs are recorded in walk order after them.
+
+    The two kinds of key are spelled differently, and _rewrite_block depends
+    on it. A page title is recorded raw, so a key here can hold control
+    whitespace that extract() would never report; a block ref is recorded as
+    extract() normalized it. The rewriter looks up normalized spellings only,
+    so a raw key is reached through its normalized twin -- which exists for
+    any spelling block text contains, because extract() read that same text.
+    A raw key with no twin is one no block mentions, and only the page's own
+    retitling looks it up.
+    """
     locations: dict[str, list[str]] = {}
     for index, page in enumerate(export.pages):
         _record_location(locations, page.title, f"page[{index}]")
@@ -187,31 +178,23 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
     for block in _walk_blocks(export.orphan_blocks):
         for ref in extract(block.text).refs:
             _record_location(locations, ref.title, f"block {block.uid}")
+    return locations
 
-    title_map = {
-        title: sanitize_import_title(title, location=title_locations[0])
-        for title, title_locations in locations.items()
-    }
 
-    rebuilt_sources = [
-        (
-            page,
-            Page(
-                title=title_map[page.title],
-                created_at=page.created_at,
-                edited_at=page.edited_at,
-                children=tuple(
-                    _rewrite_block(child, title_map) for child in page.children
-                ),
-            ),
-        )
-        for page in export.pages
-    ]
+def _merge_sanitized_pages(
+    rebuilt_sources: Sequence[tuple[Page, Page]],
+) -> tuple[tuple[Page, ...], set[str]]:
+    """Collapse pages that sanitized to one title; report which titles merged.
+
+    Survivor is the source that already carried the sanitized spelling, else
+    the first in export order: its timestamps are kept and its blocks lead,
+    with the other sources' blocks following in export order.
+    """
     grouped: dict[str, list[tuple[Page, Page]]] = {}
     for source in rebuilt_sources:
         grouped.setdefault(source[1].title, []).append(source)
 
-    rebuilt_pages: list[Page] = []
+    merged_pages: list[Page] = []
     merged_titles: set[str] = set()
     for sanitized_title, sources in grouped.items():
         if len(sources) > 1:
@@ -230,7 +213,7 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
             for index, source in enumerate(sources)
             if index != survivor_index
         ]
-        rebuilt_pages.append(
+        merged_pages.append(
             Page(
                 title=sanitized_title,
                 created_at=survivor.created_at,
@@ -242,17 +225,28 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
                 ),
             )
         )
+    return tuple(merged_pages), merged_titles
 
+
+def _title_changes(
+    title_map: Mapping[str, str],
+    locations: Mapping[str, list[str]],
+    merged_pages_titles: set[str],
+) -> tuple[ImportTitleChange, ...]:
+    """One record per changed spelling, in sorted original-title order.
+
+    A title is `merged` when pages collapsed onto it or when several
+    spellings did -- two refs reaching one page count even if no page moved.
+    """
     spellings_by_sanitized: dict[str, set[str]] = {}
     for original_title, sanitized_title in title_map.items():
         spellings_by_sanitized.setdefault(sanitized_title, set()).add(original_title)
-    merged_titles.update(
+    merged_titles = merged_pages_titles | {
         sanitized_title
         for sanitized_title, spellings in spellings_by_sanitized.items()
         if len(spellings) > 1
-    )
-
-    title_changes = tuple(
+    }
+    return tuple(
         ImportTitleChange(
             original_title=original_title,
             sanitized_title=sanitized_title,
@@ -262,9 +256,33 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
         for original_title, sanitized_title in sorted(title_map.items())
         if original_title != sanitized_title
     )
+
+
+def sanitize_export_titles(export: Export) -> SanitizedImport:
+    """Sanitize all imported title identities before rows or I/O are created."""
+    locations = _collect_title_locations(export)
+    title_map = {
+        title: sanitize_import_title(title, location=title_locations[0])
+        for title, title_locations in locations.items()
+    }
+    rebuilt_sources = [
+        (
+            page,
+            Page(
+                title=title_map[page.title],
+                created_at=page.created_at,
+                edited_at=page.edited_at,
+                children=tuple(
+                    _rewrite_block(child, title_map) for child in page.children
+                ),
+            ),
+        )
+        for page in export.pages
+    ]
+    rebuilt_pages, merged_pages_titles = _merge_sanitized_pages(rebuilt_sources)
     return SanitizedImport(
         export=Export(
-            pages=tuple(rebuilt_pages),
+            pages=rebuilt_pages,
             orphan_block_count=export.orphan_block_count,
             skipped_entities=export.skipped_entities,
             attr_counts=dict(export.attr_counts),
@@ -272,5 +290,5 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
                 _rewrite_block(block, title_map) for block in export.orphan_blocks
             ),
         ),
-        title_changes=title_changes,
+        title_changes=_title_changes(title_map, locations, merged_pages_titles),
     )

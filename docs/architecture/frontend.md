@@ -111,6 +111,7 @@ web/src/
 │   │                                      apply, negative-id remap, recovery FIFO
 │   ├── localApi/             Shell        Offline read shims: the routes' exact JSON
 │   ├── localOps.ts           Shell        Optimistic apply (server timestamp rules)
+│   ├── blockRefs.ts          Shell        block_refs re-derivation, shared by both applies
 │   ├── errors.ts             Core         The availability taxonomy
 │   ├── openRetry.ts / poolCapacity.ts  Core  OPFS open policy
 │   ├── titles.ts             Core         Title canonicalization

@@ -7,12 +7,12 @@
 // search index on every upsert.
 
 import type { components } from "../api/types";
+import { reindexBlockRefs } from "./blockRefs";
 import type { ReplicaDb, SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
 import { getMeta, setMeta, setPlainSpaceTitleCanonicalization } from "./meta";
 import { allBatches } from "./queue";
 import { reconcileActivationPageTitles, reconcilePage } from "./reconcile";
-import { extractRefs } from "./refs";
 
 export type Changes = components["schemas"]["ChangesPayload"];
 export type Snapshot = components["schemas"]["SnapshotPayload"];
@@ -50,13 +50,9 @@ const upsertBlock = (db: ReplicaDb, b: SyncBlock): void => {
     db.exec("INSERT OR IGNORE INTO refs VALUES (?,?,?)",
             [b.uid, r.target_page_id, r.kind] as SqlValue[]);
   }
-  // block_refs are never shipped over sync: targets are uids (no id
-  // resolution, unlike refs' dependency pages) and the extractor is
-  // parity-pinned, so local derivation matches the server (pkm-d31f).
-  db.exec("DELETE FROM block_refs WHERE src_block_uid = ?", [b.uid]);
-  for (const target of extractRefs(b.text).blockRefs) {
-    db.exec("INSERT OR IGNORE INTO block_refs VALUES (?,?)", [b.uid, target]);
-  }
+  // block_refs are never shipped over sync (pkm-d31f): derived locally here
+  // and in localOps.ts through the one composition (see blockRefs.ts).
+  reindexBlockRefs(db, b.uid, b.text);
 };
 
 export function applySnapshot(db: ReplicaDb, snap: Snapshot,

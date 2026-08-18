@@ -83,11 +83,10 @@ read transaction:
   order, then hydrated. Blocks ship with their refs, plus any "dependency
   pages" those refs target, so a window boundary cannot deliver a block whose
   target page the client has never seen. Entities that no longer exist ship
-  as tombstones. `block_refs` rows are **never shipped**: both sides
-  re-derive them from block text — the server in `ops_apply.py`, the client
-  in `localOps.ts` (optimistic writes) and `apply.ts` (synced upserts, plus a
-  wipe on snapshot apply). Targets are uids needing no id resolution, and
-  the extractor is parity-pinned, so local derivation matches the server.
+  as tombstones. `block_refs` rows are **never shipped**: their targets are
+  uids needing no id resolution, and the parity-pinned extractor lets each side
+  derive them from block text instead (see
+  [Offline editing and reconnect](#offline-editing-and-reconnect)).
 - Hydration is batched, not per-id. `sync_core.chunk_ids` splits the window's
   ids into groups of at most 500, under SQLite's historic 999-parameter cap.
   `hydrate_in_order` then restores the caller's order and drops ids nothing was
@@ -186,6 +185,18 @@ row contents. `localOps.ts` mirrors the server by leaving `blocks.updated_at` an
 [backend.md](backend.md#the-write-path)); every real change stamps both. If only
 one side excluded collapse, a collapse made offline would reorder the replica's
 recently-changed lists, then silently un-reorder them on the next resync.
+
+The two derived-index tables are mirrored to different depths, and that is on
+purpose. `refs` rows arrive hydrated in the feed, because their target is a page
+id only the server mints, so `apply.ts` writes what the payload says.
+`localOps.ts` derives `refs` itself only for its own optimistic writes,
+resolving titles to negative local page ids that `reconcile.ts` remaps later.
+`block_refs` never ships, so both replica paths derive it, and both go through
+`reindexBlockRefs` (`replica/blockRefs.ts`) — the counterpart of the server's
+`store.reindex_refs_for_text` (see
+[backend.md](backend.md#the-write-path)). Neither composition opens a
+transaction: the caller already owns one, and the delete and re-insert must
+land together.
 
 Two invariants inside the shim are easy to break:
 

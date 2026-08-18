@@ -10,14 +10,13 @@ from datetime import date
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OpBatch, UpdateTextOp)
-from pkm.refs import extract
 from pkm.server.ops_core import (BlockInfo, DeleteBlocks, Effect, InsertBlock,
                                  OpContext, OpError, ReindexRefs, SetCollapsed,
                                  SetHeading, SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  find_op_title_violation, plan_op)
-from pkm.server.store import (BlankTitleError, get_or_create_page, index_ref,
-                              reindex_block_refs)
+from pkm.server.store import (BlankTitleError, get_or_create_page,
+                              reindex_refs_for_text)
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
@@ -177,11 +176,7 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
             "UPDATE blocks SET view_type = ?, updated_at = ? WHERE uid = ?",
             (eff.view_type, now_ms, eff.uid))
     elif isinstance(eff, ReindexRefs):
-        parsed = extract(eff.text)
-        db.execute("DELETE FROM refs WHERE src_block_uid = ?", (eff.uid,))
-        for ref in parsed.refs:
-            index_ref(db, eff.uid, ref.title, ref.kind, now_ms)
-        reindex_block_refs(db, eff.uid, parsed.block_refs)
+        reindex_refs_for_text(db, eff.uid, eff.text, now_ms)
     elif isinstance(eff, TouchPage):
         db.execute("UPDATE pages SET updated_at = ? WHERE id = ?",
                    (now_ms, eff.page_id))

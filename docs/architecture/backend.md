@@ -227,11 +227,16 @@ Key mechanics:
   `ShiftSiblings` effect — bump every sibling ≥ the target index — before
   placing the block. Cross-page moves re-page the whole subtree and touch
   both pages, and a parent-chain check prevents cycles.
-- **Refs re-derivation.** Every text change emits `ReindexRefs`: delete the
-  block's refs, re-extract with `refs.py`, get-or-create referenced pages,
-  re-insert. The same handler re-derives `block_refs`
-  (`store.reindex_block_refs`), as does the rename rewrite. The asset-token
-  strip (`routes_assets.py`) and the one-off mermaid migration script rewrite
+- **Refs re-derivation.** Every text change emits `ReindexRefs`, and
+  `store.reindex_refs_for_text` is the only implementation of it: delete the
+  block's `refs`, re-extract with `refs.py`, get-or-create referenced pages,
+  re-insert, then rebuild `block_refs` from the same parse
+  (`store.reindex_block_refs`). The rename/merge
+  and title-migration rewrite (`store.rewrite_snapshotted_blocks`) calls that
+  same function on the rewritten text. Keeping one composition is what stops
+  either site drifting from the extractor or the schema. It never commits, and
+  `now_ms` stamps only the pages a `[[link]]` creates. The asset-token strip
+  (`routes_assets.py`) and the one-off mermaid migration script rewrite
   text without re-deriving either index — the strip is safe because asset
   tokens and `((uid))` are disjoint syntaxes.
 - **Timestamps: what counts as a change.** Blocks and pages both carry
@@ -379,11 +384,11 @@ The shared fixtures pin the pair with the case
 the padded-but-nonblank ` Valid ` is kept byte-exact.
 
 `store.index_ref()` also catches `BlankTitleError` and skips the ref —
-defense in depth at the store boundary. Both places that resolve an extracted
-`Ref` onto a page route through it (`ops_apply.py`'s `ReindexRefs` handling
-and `store.py`'s `rewrite_referencing_blocks`) rather than calling
-`get_or_create_page()` directly, because nothing above them catches
-`BlankTitleError` (symptom table).
+defense in depth at the store boundary. Every extracted `Ref` reaches a page
+through it, because `store.reindex_refs_for_text` is the only re-derivation
+path and it calls nothing else. Resolving one with `get_or_create_page()`
+directly would surface `BlankTitleError` to a caller that does not catch it
+(symptom table).
 
 ## Auth
 

@@ -9,7 +9,8 @@ import { useConfirm } from "./ConfirmDialog";
 
 export function OfflineIndicator() {
   const { status, canEdit, pending, readOnlyReason, problem,
-          retryProblem, dismissProblem, resetReplica } = useSync();
+          retryProblem, dismissProblem, discardProblem,
+          resetReplica } = useSync();
   const { confirm, dialog } = useConfirm();
 
   // A reload destroys the in-memory fallback lane, which in an online-only
@@ -105,9 +106,16 @@ export function OfflineIndicator() {
         <>Server rejected a change (HTTP {problem.event.status}).
           {" "}Repairing local state… Keep the app open until this finishes.</>
       ) : problem.repair === "mark-failed" ? (
+        // Retry cannot succeed while the replica stays unopenable, and the
+        // retained intent it retries wedges every future session with it.
+        // Discard is the escape (pkm-tu5k): the rejected change is already
+        // lost server-side, so giving up on marking it loses nothing more.
         <>Server rejected a change (HTTP {problem.event.status}): {problem.event.message}.{" "}
           Saving rejected-change recovery failed: {problem.error}
           <button type="button" onClick={() => { void retryProblem(); }}>Retry</button>
+          <button type="button" onClick={() => { void discardProblem(); }}>
+            Discard rejected change
+          </button>
         </>
       ) : problem.repair === "failed" ? (
         <>Server rejected a change (HTTP {problem.event.status}): {problem.event.message}.{" "}

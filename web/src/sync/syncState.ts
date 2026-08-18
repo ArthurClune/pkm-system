@@ -45,6 +45,7 @@ export type SyncEvent =
   | { type: "repair-succeeded"; event: PoisonEvent }
   | { type: "repair-failed"; event: PoisonEvent; error: string }
   | { type: "poison-discovery-failed"; error: string }
+  | { type: "poison-intents-discarded" }
   | { type: "replica-unavailable"; error: string }
   | { type: "poison-discovery-cleared" }
   | { type: "legacy-repair-started"; error: string }
@@ -127,6 +128,14 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       });
     case "poison-discovery-failed":
       return problem(state, { kind: "poison-discovery", error: event.error });
+    case "poison-intents-discarded":
+      // pkm-tu5k: the user discarded retained poison-mark intents, so the
+      // mark-failed problem reporting them is now stale. Only that exact
+      // phase clears — replica-unavailable never stomps another kind (below),
+      // so a leftover mark-failed banner would otherwise outlive its intents.
+      return state.problem?.kind === "rejected-batch"
+          && state.problem.repair === "mark-failed"
+        ? problem(state, undefined) : { state, effects: [] };
     case "replica-unavailable": {
       // A background "this session is online-only" report must not stomp a
       // delivery problem the user can act on — overwriting a failed

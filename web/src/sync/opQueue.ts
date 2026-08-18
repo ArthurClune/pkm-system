@@ -111,6 +111,11 @@ export interface OpQueue {
   poisonMarkIntents(): readonly PoisonEvent[];
   /** Retry only durable poison marking. Never performs an ops POST. */
   retryPoisonMarks(): Promise<readonly PoisonEvent[]>;
+  /** Drop retained mark intents without marking them (pkm-tu5k). The escape
+   * from a profile whose replica can never open: needs no replica call. If
+   * the replica later opens, the unmarked batch redelivers, the server
+   * rejects it again, and the normal poison → repair flow handles it then. */
+  discardPoisonIntents(): void;
 }
 
 type Listener<T> = (value: T) => void;
@@ -725,6 +730,10 @@ function createReplicaQueue(replica: Replica,
     onPoison: poison.add,
     poisonMarkIntents: () => [...poisonMarkIntents],
     retryPoisonMarks: markRetainedPoison,
+    discardPoisonIntents: () => {
+      poisonMarkIntents = [];
+      writePoisonMarkIntents(poisonMarkIntents);
+    },
   };
 }
 

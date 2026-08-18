@@ -13,6 +13,7 @@ function syncWith(overrides: Partial<Sync>): Sync {
     unsentInMemory: 0,
     retryProblem: () => Promise.resolve(),
     dismissProblem: () => undefined,
+    discardProblem: () => Promise.resolve(),
     resetReplica: () => Promise.resolve(),
     enqueue: () => ({
       id: "test-write", scope: [],
@@ -134,6 +135,29 @@ it("failed durable poison marking is visible and offers Retry", () => {
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(retryProblem).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+});
+
+it("failed durable poison marking offers a discard escape (pkm-tu5k)", () => {
+  // Retry can never succeed while the replica stays unopenable, and the
+  // intent it retries is what wedges every future session. Discard is the
+  // way out; its label owns the consequence.
+  const discardProblem = vi.fn(async () => undefined);
+  const { rerender } = renderWith({
+    problem: {
+      ...rejected, repair: "mark-failed", error: "local worker unavailable",
+    } as unknown as Sync["problem"],
+    discardProblem,
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Discard rejected change" }));
+  expect(discardProblem).toHaveBeenCalledTimes(1);
+
+  // The escape belongs to the unmarkable-intent state alone: a failed local
+  // repair has a working Retry and must not offer to give up instead.
+  rerender(indicator(syncWith({
+    problem: { ...rejected, repair: "failed", error: "snapshot unavailable" },
+  })));
+  expect(screen.queryByRole("button", { name: "Discard rejected change" }))
+    .toBeNull();
 });
 
 it("an online-only session says so and offers a Reload, not a Retry", async () => {

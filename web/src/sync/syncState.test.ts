@@ -129,6 +129,35 @@ describe("transitionSync rejected-batch repair", () => {
     expect(t.effects).toEqual([]);
   });
 
+  it("clears a mark-failed problem when its retained intents are discarded", () => {
+    // pkm-tu5k: the discard escape hatch. replica-unavailable deliberately
+    // never stomps another problem kind, so without this event the stale
+    // mark-failed banner would outlive the intents it reports on.
+    const t = transitionSync(withProblem({
+      kind: "rejected-batch", event, repair: "mark-failed", error: "rpc down",
+    }), { type: "poison-intents-discarded" });
+    expect(t.state.problem).toBeUndefined();
+    expect(t.effects).toEqual([]);
+  });
+
+  it("leaves non-mark-failed problems untouched on intent discard", () => {
+    // Discard is only offered on the mark-failed banner; a racing repair or
+    // an unrelated problem must not lose its state to a late click.
+    const running = transitionSync(withProblem({
+      kind: "rejected-batch", event, repair: "running",
+    }), { type: "poison-intents-discarded" });
+    expect(running.state.problem).toEqual({
+      kind: "rejected-batch", event, repair: "running",
+    });
+
+    const stalled = transitionSync(withProblem({
+      kind: "replica-stalled", error: "stall", reset: "idle",
+    }), { type: "poison-intents-discarded" });
+    expect(stalled.state.problem).toEqual({
+      kind: "replica-stalled", error: "stall", reset: "idle",
+    });
+  });
+
   it("dismisses only a repaired problem", () => {
     const repaired = transitionSync(withProblem({
       kind: "rejected-batch", event, repair: "repaired",

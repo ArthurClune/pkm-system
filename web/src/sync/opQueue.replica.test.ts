@@ -796,6 +796,30 @@ async () => {
   expect(published).toEqual([]);
 });
 
+test("discarding retained mark intents clears them without touching the replica",
+async () => {
+  // pkm-tu5k: the escape from a permanently-wedged profile. Discard must not
+  // require an openable replica — that impossibility is the whole scenario.
+  const wedged: PoisonEvent = {
+    rowId: 1, batchId: "bad-batch", ops: [op("bad")], status: 400,
+    message: "request failed: 400 /api/ops",
+  };
+  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+    version: 1, intents: [wedged],
+  }));
+  const replica = memReplica();
+  const mark = vi.fn(async () => { throw new Error("unopenable"); });
+  (replica as unknown as { markPoisoned: typeof mark }).markPoisoned = mark;
+  const q = createOpQueue(replica, () => undefined);
+
+  q.discardPoisonIntents();
+
+  expect(q.poisonMarkIntents()).toEqual([]);
+  expect(localStorage.getItem("pkm.poison-mark-intents.v1")).toBeNull();
+  await expect(q.retryPoisonMarks()).resolves.toEqual([]);
+  expect(mark).not.toHaveBeenCalled();
+});
+
 test("corrupt retained mark metadata is ignored safely", async () => {
   localStorage.setItem("pkm.poison-mark-intents.v1", "{not-json");
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);

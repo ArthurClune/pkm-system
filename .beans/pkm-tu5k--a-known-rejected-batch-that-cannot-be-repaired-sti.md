@@ -1,11 +1,11 @@
 ---
 # pkm-tu5k
 title: A known-rejected batch that cannot be repaired still strands edits in memory
-status: todo
+status: in-progress
 type: bug
 priority: normal
 created_at: 2026-08-04T11:32:28Z
-updated_at: 2026-08-04T12:54:50Z
+updated_at: 2026-08-18T19:33:58Z
 parent: pkm-q2jj
 ---
 
@@ -24,14 +24,27 @@ Reachability: needs a batch rejected in a previous session whose marking did not
 ## Options
 
 [ ] Say it plainly: a banner that states changes are not being saved, not just that a check failed
-[ ] beforeunload guard while the fallback lane is non-empty
-[ ] Consider whether the intent itself can be repaired without the replica (post the rejection's repair through the server directly), which would remove the gate rather than annotate it
+[x] beforeunload guard while the fallback lane is non-empty — shipped separately by pkm-0htf (`unloadGuard.ts`)
+[x] Consider whether the intent itself can be repaired without the replica (post the rejection's repair through the server directly), which would remove the gate rather than annotate it — considered and rejected 2026-08-18: repair is client-local (rebase + `deleteBatch` inside the replica); the server already rejected the batch and holds nothing to fix, so there is no server-side repair to post. See Decision below.
+
+## Decision (2026-08-18, approved)
+
+Add a user-initiated **discard** of an unmarkable intent — the escape the adversarial
+review asked for. Safe because the intent is belt-and-braces: if the replica ever
+opens again, the unmarked bad batch redelivers, the server rejects it again, and the
+existing in-session poison → repair flow handles it. Discard rejoins existing paths:
+clear intents, then `continueStartup([])` (discovery → pkm-bjae online-only fallback
+when the replica is unusable). Plain labeled button on the mark-failed banner, no
+confirm dialog, following the replica-stalled "Discard and reset" precedent.
 
 ## Checklist
 
-[ ] Decide which signal to add
-[ ] Cover with a SyncProvider unit test alongside the existing pin
-[ ] Update docs/architecture/sync-and-offline.md ("One case deliberately still holds the gate")
+[x] Decide which signal to add — decided: explicit discard affordance (see Decision)
+[x] opQueue: `discardPoisonIntents()` clears memory + localStorage intents
+[x] SyncProvider: `discardProblem()` wired to `queue.discardPoisonIntents()` then `continueStartup([])` (startup-blocked arm) or `resume("recovery")` (mid-session arm)
+[x] OfflineIndicator: "Discard rejected change" button on the mark-failed banner arm
+[x] Cover with a SyncProvider unit test alongside the existing pin
+[x] Update docs/architecture/sync-and-offline.md ("One case deliberately still holds the gate")
 
 
 ## The gate is STICKY, not transient (adversarial review, 2026-08-04)

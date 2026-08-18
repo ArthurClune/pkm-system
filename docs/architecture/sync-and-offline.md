@@ -485,8 +485,16 @@ gets a fresh worker and runs poison discovery in the right order.
 `localStorage`, not the replica, so they survive an unopenable database. If
 `retryPoisonMarks()` fails while intents exist, a rejected batch is *known* to
 exist and cannot be repaired. Delivering past it would post ahead of a batch the
-server already refused. So that path keeps its barrier and its "Checking rejected
-changes failed: …" Retry banner.
+server already refused. So that path keeps its barrier and its "Saving
+rejected-change recovery failed: …" Retry banner.
+
+That banner also offers **Discard rejected change** (`Sync.discardProblem()`),
+because the intent clears only after a successful `markPoisoned` — a profile
+whose replica never opens would otherwise boot wedged forever. Discard drops the
+retained intents and rejoins startup, so an unopenable replica falls into the
+online-only fallback above. Giving up on marking is safe: if the replica later
+opens, the unmarked batch redelivers, the server rejects it again, and the
+normal poison → repair flow handles it then.
 
 This is the one place where the queue's own policy holds accepted edits in memory
 while the socket is up. An online-only session that loses connectivity ends up
@@ -619,7 +627,7 @@ fix installed. The bean has the full investigation.
 | Startup wedges: edits accepted, nothing delivered, socket up | the recovery barrier was held on an RPC that could never answer, and the lane was never drained | pkm-bjae |
 | Unsent edits vanish on reload in an online-only session | the lane is their only home. `useUnloadGuard` interrupts the reload, but an iOS standalone PWA ignores `beforeunload`, so on iPad the banner's own Reload confirm is the only warning | pkm-bjae, pkm-0htf |
 | "Server rejected a change (HTTP 400)" on reconnect, a `create` of a uid that already exists | a lost enqueue reply once split one batch into two ids — the worker minted the durable row's id, the lane copy got a fresh one, and the replay dedup never matched. The id is now minted main-thread and shared | pkm-ybgt |
-| A profile stays wedged across sessions after a rejected batch | the retained mark intent in `localStorage` clears only after a successful `markPoisoned`, which an unopenable replica can never do. Open by design | pkm-tu5k |
+| A profile stays wedged across sessions after a rejected batch | the retained mark intent in `localStorage` clears only after a successful `markPoisoned`, which an unopenable replica can never do. The banner's "Discard rejected change" releases it | pkm-tu5k |
 | Two tabs; one tab's `update_text` overwrote the other's with no `[[conflict]]` sibling | the op carried no `base_text_hash`, so the server took its legacy branch and plain last-write-wins | pkm-4ubd |
 | A collapse made offline reorders recently-changed lists, then un-reorders on resync | one side stamped `updated_at` for `set_collapsed` and the other did not | pkm-r7k8 |
 | A breadcrumb read offline differs from the same read online; descendants orphaned after an offline delete or cross-page move | a depth cap on the replica's recursive walks (both were `depth < 100`) | — |

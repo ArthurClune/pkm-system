@@ -5,10 +5,13 @@ from pathlib import Path
 import pytest
 
 from pkm.refs import (
+    AttributeSpan,
     Ref,
+    attribute_title_span,
     canonicalize_title,
     extract,
     normalize_title,
+    strip_code,
     title_syntax_reason,
 )
 
@@ -38,7 +41,7 @@ def test_ref_ordering_and_types():
 
 
 # pkm-7myl: a block whose entire text is one large fenced code block gets
-# blanked by _strip_code() into one long run of whitespace (fences keep
+# blanked by strip_code() into one long run of whitespace (fences keep
 # their length so asset/ref offsets elsewhere stay stable). The attribute
 # regex used to be `^\s*([^\[\]{}:\n]+?)::` -- since `\s` is a near-subset
 # of the negated class, a long whitespace run with no "::" anywhere forces
@@ -56,6 +59,53 @@ def test_extract_is_linear_on_a_large_all_whitespace_run():
     assert elapsed < 2.0, f"extract() took {elapsed:.2f}s -- expected sub-second, linear time"
     assert parsed.refs == ()
     assert parsed.block_refs == ()
+
+
+def test_strip_code_blanks_code_without_moving_what_follows():
+    # Length preservation is what lets a caller locate spans on the stripped
+    # copy and slice the original at those offsets.
+    text = "`[[A]]` and ```\n[[B]]\n``` and [[C]]"
+    stripped = strip_code(text)
+    assert len(stripped) == len(text)
+    assert stripped.index("[[C]]") == text.index("[[C]]")
+    assert "[[A]]" not in stripped
+    assert "[[B]]" not in stripped
+
+
+def test_attribute_title_span_starts_at_the_title_not_at_the_indent():
+    assert attribute_title_span("  Tags:: [[B]]") == AttributeSpan(
+        start=2, end=8, raw_title="Tags", title="Tags"
+    )
+
+
+def test_attribute_title_span_pairs_the_written_title_with_the_normalized_one():
+    span = attribute_title_span("Bad\tTitle:: v")
+    assert span is not None
+    assert (span.raw_title, span.title) == ("Bad\tTitle", "Bad Title")
+    # The name group ends at the colons, so padding inside it is trimmed but
+    # still inside the span -- a rewrite replaces "Bad\tTitle ::" entire.
+    padded = attribute_title_span("Name :: v")
+    assert padded is not None
+    assert (padded.raw_title, padded.start, padded.end) == ("Name", 0, 7)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "   ", "no attribute here", "[[A]]:: v", "  ::", "x\nName:: v"],
+)
+def test_attribute_title_span_absent(text):
+    assert attribute_title_span(text) is None
+
+
+@pytest.mark.parametrize(
+    "text", ["\xa0Name:: v", "  \tName:: v", "\x0bName:: v", "A:: v"]
+)
+def test_attribute_title_span_never_reports_a_blank_title(text):
+    # Callers rely on this: the scan starts past every leading whitespace
+    # char, so the name it captures cannot normalize away to nothing.
+    span = attribute_title_span(text)
+    assert span is not None
+    assert span.title
 
 
 def test_extract_attribute_still_recognised_after_leading_whitespace():

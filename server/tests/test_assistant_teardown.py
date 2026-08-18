@@ -9,6 +9,7 @@ generators, not in any one of them.
 """
 
 import asyncio
+import contextlib
 import logging
 from typing import cast
 
@@ -174,6 +175,47 @@ def test_cancelled_consumer_stays_cancelled_and_still_abandons_the_turn(
     asyncio.run(scenario())
 
 
+def test_teardown_completes_through_a_repeated_cancellation(
+    tmp_path, quick_interrupt_timeout
+):
+    # A real disconnect is not one cancellation. Starlette runs the response
+    # body inside an anyio cancel scope, and anyio's _deliver_cancellation
+    # re-cancels every task still in the scope on every loop cycle
+    # (call_soon), so each await in teardown is cancelled as soon as it
+    # starts. A plain task.cancel() is delivered once and hides this
+    # completely: verified against a real uvicorn disconnect, interrupt() was
+    # called, its bounded wait was cancelled rather than timing out, and
+    # `healthy` stayed True -- so the conversation the teardown exists to
+    # retire stayed in the registry, harness and credential file included.
+    async def scenario():
+        turn = await ParkedTurn(tmp_path, HangingInterruptClient, keepalive=30.0).start()
+
+        async def consume() -> None:
+            async for _ in turn.frames:
+                pass  # pragma: no cover - the turn is parked
+
+        consumer = asyncio.create_task(consume())
+        for _ in range(5):
+            await asyncio.sleep(0)  # let the read park inside the keepalive wait
+
+        async def storm() -> None:
+            for _ in range(10_000):  # bounded so a regression fails rather than hangs
+                if consumer.done():
+                    return
+                consumer.cancel()
+                await asyncio.sleep(0)
+
+        storming = asyncio.create_task(storm())
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(consumer, timeout=5)
+        await storming
+
+        turn.assert_turn_was_abandoned()
+        await turn.assert_confirm_was_declined()
+
+    asyncio.run(scenario())
+
+
 def test_a_failing_stream_close_is_logged_not_raised(caplog):
     # Teardown runs while a GeneratorExit (or a cancellation) is already in
     # flight. Letting the cleanup's own failure out would replace the
@@ -252,6 +294,56 @@ def test_a_cancelled_stream_close_is_logged_not_re_raised(caplog):
     with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
         asyncio.run(scenario())
     assert any("close cancelled" in r.message for r in caplog.records)
+
+
+def test_teardown_gives_up_on_a_close_that_never_finishes(monkeypatch, caplog):
+    # The wait is not free -- under a cancellation storm each pass costs a
+    # cancelled shield per loop cycle -- so a cleanup that never returns must
+    # not hold the response task (and a core) until the process restarts.
+    monkeypatch.setattr(routes, "TEARDOWN_TIMEOUT_S", 0.05)
+
+    async def stream():
+        try:
+            yield TextDelta(text="hi")
+        finally:
+            await asyncio.Event().wait()  # never set: a wedged close
+
+    async def scenario():
+        gen = stream()
+        assert await anext(gen) == TextDelta(text="hi")
+        await routes._abandon_stream(gen, None)
+
+    with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
+        asyncio.run(scenario())
+    assert any("unfinished after" in r.message for r in caplog.records)
+
+
+def test_teardown_gives_up_on_a_read_that_never_finishes(monkeypatch, caplog):
+    # Same for the first step: a read that will not end leaves the generator
+    # running, so the close is skipped rather than attempted and logged as a
+    # spurious failure.
+    monkeypatch.setattr(routes, "TEARDOWN_TIMEOUT_S", 0.05)
+
+    async def stream():
+        yield TextDelta(text="hi")
+
+    async def stubborn() -> TextDelta:
+        # ignores teardown's cancel, then goes quietly on the test's own
+        for _ in range(2):
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.Event().wait()  # never set
+        return TextDelta(text="never read")
+
+    async def scenario():
+        pending = asyncio.ensure_future(stubborn())
+        await asyncio.sleep(0)
+        await routes._abandon_stream(stream(), pending)
+        pending.cancel()
+
+    with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
+        asyncio.run(scenario())
+    assert any("unfinished after" in r.message for r in caplog.records)
+    assert not [r for r in caplog.records if "close failed" in r.message]
 
 
 def test_teardown_drops_a_failed_pending_read_rather_than_raising_from_it():

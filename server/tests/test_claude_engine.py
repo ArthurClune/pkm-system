@@ -548,6 +548,41 @@ def test_interrupt_that_raises_marks_conversation_unhealthy(tmp_path):
     assert conv.healthy is False
 
 
+def test_interrupt_abandoned_by_a_second_cancellation_marks_unhealthy(tmp_path, caplog):
+    # A cancellation landing in the bounded interrupt wait says as little
+    # about the harness as a timeout does, and `except Exception` does not
+    # catch it. Left unhandled it skipped the health verdict entirely, so the
+    # service kept the conversation and handed it a later turn -- which is how
+    # a real client disconnect behaved, because Starlette's cancel scope
+    # re-delivers its cancellation on every loop cycle.
+    engine = make_engine(tmp_path, factory=HangingInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+
+        async def consume():
+            async for _ in conv.send("hi"):  # no messages fed: blocks forever
+                pass
+
+        task = asyncio.create_task(consume())
+        for _ in range(3):
+            await asyncio.sleep(0)
+        task.cancel()  # first cancellation: starts the abandon-turn protocol
+        for _ in range(3):
+            await asyncio.sleep(0)  # let it reach the interrupt that never lands
+        assert FakeSDKClient.instances[0].interrupts == 1
+        task.cancel()  # second cancellation: lands in the interrupt wait
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
+        await conv.close()
+        return conv
+
+    with caplog.at_level(logging.WARNING, logger="pkm.assistant"):
+        conv = asyncio.run(scenario())
+    assert conv.healthy is False
+    assert any("abandoned by a cancellation" in r.message for r in caplog.records)
+
+
 def test_acknowledged_interrupt_leaves_conversation_healthy(tmp_path):
     # a consumer drop that the harness *does* acknowledge promptly is not
     # terminal -- only a failed/timed-out interrupt should retire the

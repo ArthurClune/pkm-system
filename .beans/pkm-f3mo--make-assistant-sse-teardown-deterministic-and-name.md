@@ -68,12 +68,30 @@ used to make mid-function while mutating `model`. Routing still keys on
 there. `describe/service.py`'s shutdown machinery (shielded wait, the
 `cancelling()` probe) gained the explanation it had none of.
 
-**Tests.** `tests/test_assistant_teardown.py` (8 tests) drives the real chain
+**A second defect, found by live-checking against real uvicorn.** With the
+closes in place the interrupt fired but the conversation still was not
+retired. Starlette runs the response body inside an anyio cancel scope, and
+that scope re-cancels every task inside it on every loop cycle, so the bounded
+interrupt wait was cancelled instead of timing out and `healthy` never got a
+verdict (`except TimeoutError`/`except Exception` do not catch
+`CancelledError`). Two changes: `routes._wait_out` runs each teardown step as
+its own task, outside that scope, and waits with `asyncio.wait` (capped by
+`TEARDOWN_TIMEOUT_S`, so a wedged cleanup cannot hold a response task and a
+core forever); and `_abandon_turn` now treats a cancelled interrupt wait like
+a timed-out one and re-raises. Live-verified after the fix: wedged interrupt ->
+warning logged, conversation retired, 0600 credential file gone, registry
+empty; acknowledged interrupt -> conversation kept, healthy, and it accepts a
+second turn (200). The server answered an unrelated request in 0.02s while
+teardown was still running.
+
+**Tests.** `tests/test_assistant_teardown.py` (11 tests) drives the real chain
 -- `ClaudeConversation` over a fake SDK client, the real `AssistantService`,
 the real SSE frame generator -- and asserts the decline, the interrupt, the
 unhealthy flag and the retirement with no `await` between the close and the
 assertions, so nothing can be credited to the collector. Four of them fail
-against the previous code. `tests/test_assistant_harness_env.py` (6 tests)
+against the previous code, including one that reproduces the anyio storm by
+re-cancelling the consumer on every loop cycle.
+`tests/test_assistant_harness_env.py` (6 tests)
 covers the pure resolver. SDK doubles moved to `tests/fake_sdk_client.py`.
 
 **Docs.** `assistant-and-files.md` gains a "Teardown when the client
@@ -82,5 +100,5 @@ which absorbs the two lifecycle bullets that were in the harness-confinement
 list; `harness_env.py` is in the module table; the admission section points at
 `CREATE_TIMEOUT_S` for the arithmetic.
 
-Verification: `pytest -q` 1476 passed, coverage 97.05% (gate 95%);
+Verification: `pytest -q` 1480 passed, coverage 97.06% (gate 95%);
 `pyrefly check` 0 errors; `ruff check` clean.

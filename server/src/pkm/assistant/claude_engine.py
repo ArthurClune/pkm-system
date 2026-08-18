@@ -225,6 +225,17 @@ class ClaudeConversation:
             # this handle unhealthy so the caller (AssistantService) tears it
             # down instead of handing it a later turn (pkm-rwwc).
             self.healthy = False
+        except asyncio.CancelledError:
+            # An abandoned wait says as little about the harness as a
+            # timed-out one, so the verdict is the same. The cancellation is
+            # re-raised, never swallowed -- the caller keeps unwinding, and
+            # sees a handle it must retire. The SSE layer runs this protocol
+            # in a task of its own so cancellation is not the normal case
+            # (routes._wait_out).
+            logger.warning("assistant interrupt abandoned by a cancellation; "
+                           "retiring the harness")
+            self.healthy = False
+            raise
         except Exception:
             logger.exception("assistant interrupt failed; retiring the harness")
             self.healthy = False

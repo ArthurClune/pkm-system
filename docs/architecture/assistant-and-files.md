@@ -107,13 +107,25 @@ raising them, because it runs while a `GeneratorExit` or a cancellation is
 already unwinding the caller, and anything raised there would replace the
 disconnect and skip the rest of the teardown.
 
+A disconnect also does not arrive once. Starlette runs the response body
+inside an anyio cancel scope, and that scope re-cancels every task still
+inside it on every loop cycle. A plain `await` during teardown is therefore
+cancelled as soon as it starts: `interrupt()` issued, its bounded wait
+abandoned, `healthy` left without a verdict. `_wait_out` runs each teardown
+step as a task of its own, outside that scope, and waits for it with
+`asyncio.wait`, which leaves the task running when our own wait is cut short.
+The waiting is capped by `TEARDOWN_TIMEOUT_S`; past that the cleanup finishes
+on its own rather than holding the response task, and a core, indefinitely.
+
 **`ClaudeConversation._abandon_turn` declines every parked confirm future
 first, and only then awaits `interrupt()`** (bounded by
 `INTERRUPT_TIMEOUT_S`). The order matters and is easy to get backwards: a
 harness sitting in `can_use_tool` cannot acknowledge an interrupt until it
 gets its decision, so interrupting first wedges it forever.
 `FakeSDKClient.interrupt()` returns instantly, which hides this entirely, so
-the regression tests use a subclass whose `interrupt()` never returns.
+the regression tests use a subclass whose `interrupt()` never returns. A wait
+cut short by a cancellation counts the same as one that timed out, since the
+harness is equally uncertain either way.
 
 An unacknowledged interrupt retires the conversation, not just the turn. If
 `interrupt()` times out or raises, the subprocess may still be running the
@@ -327,3 +339,4 @@ fix installed. The bean has the full investigation.
 | Symptom | Cause | Ref |
 |---|---|---|
 | The assistant never calls any pkm tool; every turn is plain text | with `tools=[]`, the SDK deferred MCP tool discovery behind its own ToolSearch meta-tool unless `ENABLE_TOOL_SEARCH=false` was set | pkm-wn2s |
+| A tab closed mid-turn left the conversation in the registry, its harness subprocess and 0600 token file alive, and a later turn was handed that harness | the SSE layer stopped iterating instead of closing the event stream, so the abandon-turn protocol waited on async-generator finalization; the response task's repeated cancellation then cut short the bounded interrupt, leaving `healthy` unset | pkm-f3mo |

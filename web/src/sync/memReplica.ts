@@ -32,9 +32,10 @@ export function memReplica(over: Partial<Replica> = {}): Replica & {
       rows.splice(rows.findIndex((r) => r.id === id), 1);
       return { pending: pending() };
     },
-    markPoisoned: async (id) => {
-      rows.find((r) => r.id === id)!.poisoned = true;
-      return { pending: pending() };
+    markPoisoned: async (id, _error, batchId) => {
+      const row = rows.find((r) => r.id === id && r.batch_id === batchId);
+      if (row) row.poisoned = true;
+      return { pending: pending(), matched: row !== undefined };
     },
     pendingCount: async () => pending(),
     localApi: async () => ({ handled: false as const }),

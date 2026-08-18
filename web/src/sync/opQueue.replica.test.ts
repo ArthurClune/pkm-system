@@ -118,7 +118,10 @@ test("a 4xx raises the internal poison barrier before durable mark resolves", as
       markStarted();
       await markGate;
       replica.rows.find((row) => row.id === id)!.poisoned = true;
-      return { pending: replica.rows.filter((row) => !row.poisoned).length };
+      return {
+        pending: replica.rows.filter((row) => !row.poisoned).length,
+        matched: true,
+      };
     },
   });
   const q = createOpQueue(replica, () => undefined);
@@ -595,7 +598,10 @@ async () => {
       markAttempts += 1;
       if (markAttempts === 1) throw error;
       replica.rows.find((row) => row.id === id)!.poisoned = true;
-      return { pending: replica.rows.filter((row) => !row.poisoned).length };
+      return {
+        pending: replica.rows.filter((row) => !row.poisoned).length,
+        matched: true,
+      };
     },
   });
   const q = createOpQueue(replica, () => undefined);
@@ -645,7 +651,10 @@ async () => {
       markAttempts += 1;
       if (markAttempts === 1) throw new Error("worker disappeared");
       replica.rows.find((row) => row.id === id)!.poisoned = true;
-      return { pending: replica.rows.filter((row) => !row.poisoned).length };
+      return {
+        pending: replica.rows.filter((row) => !row.poisoned).length,
+        matched: true,
+      };
     },
   });
   const firstPage = createOpQueue(replica, () => undefined);
@@ -702,7 +711,10 @@ test("retained mark intents are deduplicated and retried oldest-first", async ()
   replica.markPoisoned = async (id) => {
     marked.push(id);
     replica.rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: replica.rows.filter((row) => !row.poisoned).length };
+    return {
+      pending: replica.rows.filter((row) => !row.poisoned).length,
+      matched: true,
+    };
   };
   const q = createOpQueue(replica, () => undefined);
   const published: PoisonEvent[] = [];
@@ -733,7 +745,7 @@ test("a stale post-mark intent is retried idempotently without delivery", async 
   replica.rows.push({
     id: 1, batch_id: "batch-1", ops: [op("bad")], poisoned: true,
   });
-  const mark = vi.fn(async () => ({ pending: 0 }));
+  const mark = vi.fn(async () => ({ pending: 0, matched: true }));
   replica.markPoisoned = mark;
   const q = createOpQueue(replica, () => undefined);
   const recovery = q as unknown as {
@@ -760,7 +772,7 @@ async () => {
   replica.rows.push({
     id: 1, batch_id: "replacement-batch", ops: [op("new")], poisoned: false,
   });
-  const mark = vi.fn(async (id: number, _error: string, batchId?: string) => {
+  const mark = vi.fn(async (id: number, _error: string, batchId: string) => {
     const row = replica.rows.find((candidate) =>
       candidate.id === id && candidate.batch_id === batchId);
     if (row) row.poisoned = true;
@@ -1350,7 +1362,10 @@ async () => {
     markAttempts += 1;
     if (markAttempts === 1) throw new Error("worker disappeared");
     replica.rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: replica.rows.filter((row) => !row.poisoned).length };
+    return {
+      pending: replica.rows.filter((row) => !row.poisoned).length,
+      matched: true,
+    };
   };
   const q = createOpQueue(replica, () => undefined);
   q.setOnline(false);

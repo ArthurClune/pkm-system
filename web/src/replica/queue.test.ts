@@ -143,7 +143,7 @@ describe("queue reads and lifecycle", () => {
                  99, "batch-2");
     expect(nextBatch(t.db)?.batch_id).toBe("batch-1");
     const first = nextBatch(t.db)!;
-    markPoisoned(t.db, first.id, "400: bad op");
+    markPoisoned(t.db, first.id, "400: bad op", first.batch_id);
     expect(nextBatch(t.db)?.batch_id).toBe("batch-2");
     expect(pendingCount(t.db)).toBe(1); // poisoned rows don't count
     expect(allBatches(t.db).length).toBe(2); // ...but recovery still sees them
@@ -163,7 +163,7 @@ describe("queue reads and lifecycle", () => {
     const rejected = nextBatch(t.db)!;
     markPoisoned(t.db, rejected.id, JSON.stringify({
       status: 422, message: "request failed: 422 /api/ops",
-    }));
+    }), "batch-rejected");
 
     expect("poisonedBatches" in queue).toBe(true);
     const poisonedBatches = (queue as unknown as {

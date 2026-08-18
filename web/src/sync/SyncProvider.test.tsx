@@ -137,7 +137,7 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     pendingBatches: async () => [],
     poisonedBatches: async () => [],
     deleteBatch: async () => ({ pending: 0 }),
-    markPoisoned: async () => ({ pending: 0 }),
+    markPoisoned: async () => ({ pending: 0, matched: true }),
     pendingCount: async () => 0,
     localApi: async () => ({ handled: false as const }),
     prepareRecovery: async () => ({ token: "lease-1", batches: [] }),
@@ -766,7 +766,7 @@ test("rejected batch repair finishes before resync and later delivery", async ()
   replica.markPoisoned = async (id) => {
     trace.push("mark poison");
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
   replica.pendingBatches = async () => [...rows];
@@ -899,7 +899,7 @@ async () => {
     markAttempts += 1;
     if (markAttempts <= 2) throw new Error(`mark unavailable ${markAttempts}`);
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.poisonedBatches = async () => {
     poisonDiscoveryCalls += 1;
@@ -995,7 +995,7 @@ test("startup repairs returned marks even when poison discovery fails", async ()
   let initCalls = 0;
   replica.markPoisoned = async (id) => {
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.poisonedBatches = async () => {
     discoveryCalls += 1;
@@ -1447,7 +1447,7 @@ test("failed poison repair stays visible and Retry succeeds without reapplying i
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.markPoisoned = async (id) => {
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
   replica.pendingBatches = async () => [...rows];
@@ -1543,7 +1543,7 @@ test("applySync reads the freshest problem for same-tick dispatches: a dismiss "
   replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
   replica.markPoisoned = async (id) => {
     rows.find((row) => row.id === id)!.poisoned = true;
-    return { pending: rows.filter((row) => !row.poisoned).length };
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
   };
   replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
   replica.pendingBatches = async () => [...rows];

@@ -316,14 +316,14 @@ function createReplicaQueue(replica: Replica,
     const intents = [...poisonMarkIntents];
     if (intents.length === 0) return [];
     dispatch({ type: "pause" });
-    let result: { pending: number; matched?: boolean } | null = null;
+    let result: { pending: number; matched: boolean } | null = null;
     const matchedIntents: PoisonEvent[] = [];
     for (const event of intents) {
       try {
         result = await replica.markPoisoned(event.rowId, JSON.stringify({
           status: event.status, message: event.message,
         }), event.batchId);
-        if (result.matched !== false) matchedIntents.push(event);
+        if (result.matched) matchedIntents.push(event);
       } catch (error: unknown) {
         // Same fact, learned from a different call. An unmarkable intent still
         // holds the gate: knowing the replica is gone does not make delivering
@@ -592,7 +592,7 @@ function createReplicaQueue(replica: Replica,
               status: "failed", error: new Error("op queue disposed"),
             });
           } else {
-            deliveries.set(result.batchId, resolveDelivery);
+            deliveries.set(batchId, resolveDelivery);
           }
           emitPending();
           resolve({ status: "persisted", pending: pendingCount });

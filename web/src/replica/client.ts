@@ -70,7 +70,7 @@ export interface Replica {
   poisonedBatches(): Promise<PoisonedBatch[]>;
   deleteBatch(id: number): Promise<{ pending: number }>;
   markPoisoned(id: number, error: string, batchId: string): Promise<{
-    pending: number; matched?: boolean;
+    pending: number; matched: boolean;
   }>;
   pendingCount(): Promise<number>;
   /** Offline API shim: handled:false = route not shimmed (online-only). */

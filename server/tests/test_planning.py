@@ -3,13 +3,13 @@ import itertools
 import pytest
 
 from pkm.batch import plan_batch, referenced_pages, validate_batch
+from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
+                               SetHeadingOp, UpdateTextOp, text_hash)
+from pkm.contracts.responses import BlockNode, PagePayload
 from pkm.planning import (BuildError, create_page_ops, next_child_idx,
                           parse_outline, plan_mark, plan_save, plan_update,
                           resolve_parent, split_heading)
 from pkm.render import render_page
-from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
-                               SetHeadingOp, UpdateTextOp, text_hash)
-from pkm.contracts.responses import BlockNode, PagePayload
 
 
 def _node(uid, text, children=(), heading=None) -> BlockNode:

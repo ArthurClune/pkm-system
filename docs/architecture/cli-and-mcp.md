@@ -148,10 +148,13 @@ as bare text, which still finds the block by exact text whatever its level.
 ## Headings are text
 
 Text is the source of truth for a block's heading level on every CLI/MCP
-write. `split_heading` runs in `Planner._one` — the one call site every
-create path funnels through — and in `plan_update`. So `## X` is never stored
-as literal text, and `render_page`/`render_block`'s `## text` output reads back
-as a heading.
+write. `split_heading` runs in `Planner._one` — reached by every block a
+caller explicitly asks to create (`creates`, `create_at`) — and in
+`plan_update`. A `## Heading` parent spec that doesn't exist yet is instead
+created by `Planner.heading()` from the spec `resolve_parent` reports
+missing, which matches the same marker itself rather than calling
+`split_heading`. Either way, `## X` is never stored as literal text, and
+`render_page`/`render_block`'s `## text` output reads back as a heading.
 
 Deliberate exclusions: `#Tag` (no space), `#### ` and deeper (blocks carry
 levels 1-3), and multi-line text, which stays verbatim in one block. The

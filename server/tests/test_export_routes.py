@@ -14,49 +14,9 @@ from pathlib import Path
 from urllib.parse import quote
 
 import pytest
-from fastapi.testclient import TestClient
+from app_seed import seeded_client
 
 from pkm.server import routes_export
-from pkm.server.app import create_app
-from pkm.server.auth_core import hash_password
-from pkm.server.config import Config
-from pkm.server.db import init_db, open_db
-
-# Kept as its own copy rather than importing conftest.py's constants: pytest
-# resolves that import fine via rootdir insertion, but pyrefly's module
-# resolution does not, and these two values are trivial to duplicate.
-_TEST_PASSWORD = "test-pw"
-_TEST_SALT = bytes.fromhex("00" * 16)
-
-
-def _client(tmp_path, pages, blocks, refs=()):
-    """A logged-in TestClient over a from-scratch seed, for scenarios
-    (nested/cyclic refs, query blocks) that would otherwise bloat the
-    shared conftest fixture other test files also rely on."""
-    db_path = tmp_path / "pkm.sqlite3"
-    init_db(db_path)
-    con = open_db(db_path)
-    con.executemany("INSERT INTO pages VALUES (?,?,?,?)", pages)
-    con.executemany(
-        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
-        " heading, collapsed, created_at, updated_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?)", blocks)
-    con.executemany("INSERT INTO refs VALUES (?,?,?)", refs)
-    con.commit()
-    con.close()
-    (tmp_path / "assets").mkdir()
-    config = Config(
-        db_path=db_path,
-        assets_dir=tmp_path / "assets",
-        password_salt=_TEST_SALT.hex(),
-        password_hash=hash_password(_TEST_PASSWORD, _TEST_SALT),
-        session_secret="cd" * 32,
-        cookie_secure=False,
-    )
-    tc = TestClient(create_app(config))
-    r = tc.post("/api/login", json={"password": _TEST_PASSWORD})
-    assert r.status_code == 200
-    return tc
 
 
 def test_export_page_markdown_returns_rendered_page(client):
@@ -168,7 +128,7 @@ def test_export_page_markdown_resolves_refs_two_levels_deep(tmp_path):
     # export of P1 must show uid_c1's actual text, not stop at uid_b1's raw
     # ((uid_c1)). (uids are >= 6 chars: server/src/pkm/refs.py's
     # _BLOCK_REF regex requires it, matching real Roam-style uids.)
-    tc = _client(
+    tc = seeded_client(
         tmp_path,
         pages=[(1, "P1", None, None), (2, "P2", None, None)],
         blocks=[
@@ -185,7 +145,7 @@ def test_export_page_markdown_resolves_refs_two_levels_deep(tmp_path):
 def test_export_page_markdown_cyclic_refs_terminate(tmp_path):
     # uid_a1 <-> uid_b1 on P2, reached from P1's uid_root: must not hang,
     # and must fall back to a raw ((ref)) once the depth cap trips.
-    tc = _client(
+    tc = seeded_client(
         tmp_path,
         pages=[(1, "P1", None, None), (2, "P2", None, None)],
         blocks=[
@@ -200,7 +160,7 @@ def test_export_page_markdown_cyclic_refs_terminate(tmp_path):
 
 
 def test_export_page_markdown_resolves_query_block(tmp_path):
-    tc = _client(
+    tc = seeded_client(
         tmp_path,
         pages=[(1, "Source", None, None), (2, "Tag", None, None),
               (3, "Matched Page", None, None)],
@@ -220,7 +180,7 @@ def test_export_page_markdown_resolves_query_block(tmp_path):
 
 
 def test_export_page_markdown_query_with_no_results(tmp_path):
-    tc = _client(
+    tc = seeded_client(
         tmp_path,
         pages=[(1, "Source", None, None)],
         blocks=[

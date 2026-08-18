@@ -1,15 +1,15 @@
 ---
 name: beans
-description: Track Henderson development work with beans issue tracker. Use when working on Henderson's code, implementing features, fixing bugs, or when user asks to create/manage issues.
+description: Track development work with beans issue tracker. Use when working on code, implementing features, fixing bugs, or when user asks to create/manage issues.
 ---
 
 # Beans Issue Tracker
 
-Use this skill when working on Henderson development tasks. Beans tracks issues, features, bugs, and tasks for this project.
+Use this skill when working on development tasks. Beans tracks issues, features, bugs, and tasks for this project.
 
 ## When to Use
 
-- Working on Henderson's code or configuration
+- Working on code or configuration
 - Implementing new features or fixing bugs in this repo
 - User explicitly asks to create an issue or track work
 

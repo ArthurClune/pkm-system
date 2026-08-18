@@ -6,9 +6,10 @@ from pkm.batch import plan_batch, referenced_pages, validate_batch
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                SetHeadingOp, UpdateTextOp, text_hash)
 from pkm.contracts.responses import BlockNode, PagePayload
-from pkm.planning import (BuildError, create_page_ops, next_child_idx,
-                          parse_outline, plan_mark, plan_save, plan_update,
-                          resolve_parent, split_heading)
+from pkm.planning import (BuildError, asset_block_text, create_page_ops,
+                          next_child_idx, parse_outline, plan_mark,
+                          plan_save, plan_update, resolve_parent,
+                          split_heading)
 from pkm.render import render_page
 
 
@@ -152,6 +153,22 @@ def test_create_page_ops():
 
 def test_create_page_ops_empty():
     assert create_page_ops([]) == []
+
+
+def test_asset_block_text_image_embeds():
+    assert asset_block_text("cat.png", "image/png", "/api/assets/1") == \
+        "![cat.png](/api/assets/1)"
+
+
+def test_asset_block_text_pdf_uses_the_pdf_macro():
+    assert asset_block_text("report.pdf", "application/pdf",
+                            "/api/assets/2") == \
+        "{{[[pdf]]: /api/assets/2}}"
+
+
+def test_asset_block_text_other_mimes_are_a_plain_link():
+    assert asset_block_text("notes.txt", "text/plain", "/api/assets/3") == \
+        "[notes.txt](/api/assets/3)"
 
 
 def test_referenced_pages():

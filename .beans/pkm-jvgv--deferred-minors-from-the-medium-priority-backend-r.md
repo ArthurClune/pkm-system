@@ -1,11 +1,11 @@
 ---
 # pkm-jvgv
 title: Deferred minors from the medium-priority backend reviews
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-08-18T18:34:47Z
-updated_at: 2026-08-18T18:34:54Z
+updated_at: 2026-08-18T18:45:33Z
 parent: pkm-wvvu
 ---
 
@@ -31,5 +31,4 @@ Typing/shape:
 Coverage:
 - [ ] planning.py pre-existing uncovered lines: asset_block_text's pdf-macro and plain-link arms are a real hole in a user-visible output shape
 
-Larger, own judgement call (split out if picked up):
-- [ ] rename._matching_bracket_end/_scan_range still duplicate refs._scan_brackets' depth walk; unifying means exposing a positioned span tree — materially bigger, behaviour-preservation risk. When done, also refine the titles.py invariant clause to 'any spelling extract() recognizes'.
+The larger walker-dedup item was split out to pkm-mutr.

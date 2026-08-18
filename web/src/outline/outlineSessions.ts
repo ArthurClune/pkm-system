@@ -2,6 +2,13 @@
 // Per-title external store for flushed trees, authoritative read causality,
 // scoped delivery tickets, and the single editable view lease. Registry
 // acquisition happens from effects, never render.
+//
+// Two machines the sessions drive live beside this file rather than in it:
+// `parentReadElection.ts` (who starts the next full-payload parent read, and
+// what waiters are told when nobody can) and `repairEpochs.ts` (the global
+// post-settlement repair pass). This module owns what is left: the registry,
+// handle refcounts, the editor lease, loader election, write tracking, and
+// read causality.
 import type { BlockNode, PagePayload } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { WriteTicket } from "../sync/opQueue";
@@ -17,9 +24,22 @@ import {
   type OutlineState,
   type ReadToken,
 } from "./outlineState";
+import {
+  createParentReadElection,
+  type ParentReadElection,
+  type ParentReadiness,
+} from "./parentReadElection";
+import {
+  activeRepairCompletion,
+  isRepairActive,
+  runRepair,
+  type RepairCohort,
+  type RepairTarget,
+} from "./repairEpochs";
 import { findNode } from "./tree";
 
 export type { ReadToken } from "./outlineState";
+export type { ParentReadiness } from "./parentReadElection";
 export type AuthoritativeReadSource =
   "parent" | "resync" | "cross-page-move" | "write-settled";
 
@@ -53,11 +73,6 @@ export interface SharedOutlineSnapshot {
 export interface EditorLease {
   readonly granted: boolean;
   subscribe(listener: () => void): () => void;
-  release(): void;
-}
-
-export interface ParentReadiness {
-  promise: Promise<PagePayload>;
   release(): void;
 }
 
@@ -102,13 +117,6 @@ interface RegisteredLoader {
   load: () => Promise<BlockNode[]>;
 }
 
-interface ParentWaiter {
-  owner: symbol;
-  afterRequestId: number;
-  resolve: (payload: PagePayload) => void;
-  reject: (error: unknown) => void;
-}
-
 interface Session {
   title: string;
   state: OutlineState;
@@ -126,14 +134,11 @@ interface Session {
   loaders: Map<symbol, RegisteredLoader>;
   trackedWrites: Set<string>;
   manualReads: Set<number>;
-  parentPayload: { requestId: number; payload: PagePayload } | null;
-  parentWaiters: Set<ParentWaiter>;
-  parentControllers: Map<symbol, () => void>;
-  parentElectionScheduled: boolean;
-  parentElectionStarting: boolean;
-  parentRecoveryAttempted: boolean;
-  parentRecoveryRequestId: number | null;
-  parentFailure: unknown;
+  /** Who starts this title's next full-payload parent read. */
+  election: ParentReadElection;
+  /** This session as a repair epoch sees it; identity is stable for the
+   * session's lifetime, which is what the epoch keys its bookkeeping on. */
+  repairTarget: RepairTarget;
 }
 
 const sessions = new Map<string, Session>();
@@ -159,17 +164,6 @@ function replayFor(
   return unresolved.capturedByTitle.get(title) ??
     [{ type: "ops", ops: unresolved.ops }];
 }
-
-interface RepairEpoch {
-  id: number;
-  repairedState: Map<Session, OutlineState>;
-  inFlight: Map<Session, Promise<void>>;
-  onStable: Set<() => void>;
-  completion: Promise<void>;
-}
-
-let nextRepairEpoch = 1;
-let activeRepairEpoch: RepairEpoch | null = null;
 
 function maybeDeleteSession(session: Session): void {
   if (session.handles === 0 && session.reservations === 0 &&
@@ -199,13 +193,7 @@ function applyTransition(
 }
 
 function expireManualReadsBefore(session: Session, requestId: number): void {
-  // A spent parent recovery becomes reusable only when another authoritative
-  // controller takes ownership from that still-live elected request.
-  if (session.parentRecoveryRequestId !== null &&
-      session.parentRecoveryRequestId < requestId) {
-    session.parentRecoveryRequestId = null;
-    session.parentRecoveryAttempted = false;
-  }
+  session.election.expireRecoveryBefore(requestId);
   let expired = 0;
   for (const id of session.manualReads) {
     if (id >= requestId) continue;
@@ -262,80 +250,9 @@ function finishManualRead(
       : false;
   } finally {
     session.reservations -= 1;
-    scheduleParentElection(session);
+    session.election.schedule();
     maybeDeleteSession(session);
   }
-}
-
-function publishParentPayload(
-  session: Session,
-  token: ReadToken,
-  payload: PagePayload,
-): void {
-  const accepted = {
-    requestId: token.requestId,
-    payload: { ...payload, blocks: session.snapshot.blocks },
-  };
-  session.parentPayload = accepted;
-  session.parentFailure = null;
-  session.parentRecoveryAttempted = false;
-  session.parentRecoveryRequestId = null;
-  for (const waiter of [...session.parentWaiters]) {
-    if (waiter.afterRequestId > accepted.requestId) continue;
-    session.parentWaiters.delete(waiter);
-    waiter.resolve(accepted.payload);
-  }
-}
-
-function rejectParentWaiters(session: Session, error: unknown): void {
-  for (const waiter of session.parentWaiters) waiter.reject(error);
-  session.parentWaiters.clear();
-}
-
-function scheduleParentElection(session: Session): void {
-  if (session.parentElectionScheduled) return;
-  session.parentElectionScheduled = true;
-  void Promise.resolve().then(() => {
-    session.parentElectionScheduled = false;
-    if (session.parentWaiters.size === 0 ||
-        session.activatedCaptures.has(session.state.latestRequestId) ||
-        session.manualReads.size > 0 ||
-        activeRepairEpoch !== null) return;
-    const controller = [...session.parentControllers.values()].at(-1);
-    if (!controller || session.parentRecoveryAttempted) {
-      rejectParentWaiters(
-        session,
-        session.parentFailure ?? new Error(
-          `No parent read controller for active outline ${session.title}`,
-        ),
-      );
-      return;
-    }
-    session.parentRecoveryAttempted = true;
-    session.parentElectionStarting = true;
-    const previousRequestId = session.state.latestRequestId;
-    try {
-      controller();
-      const electedRequestId = session.state.latestRequestId;
-      if (electedRequestId > previousRequestId &&
-          session.manualReads.has(electedRequestId)) {
-        session.parentRecoveryRequestId = electedRequestId;
-      }
-    } catch (error) {
-      session.parentFailure = error;
-      rejectParentWaiters(session, error);
-    } finally {
-      session.parentElectionStarting = false;
-    }
-    if (session.manualReads.size === 0 && session.parentWaiters.size > 0) {
-      rejectParentWaiters(
-        session,
-        session.parentFailure ?? new Error(
-          `Parent read controller did not start for ${session.title}`,
-        ),
-      );
-    }
-  });
 }
 
 function abandonManualRead(
@@ -345,14 +262,8 @@ function abandonManualRead(
 ): boolean {
   const current = session.manualReads.has(token.requestId) &&
     token.requestId === session.state.latestRequestId;
-  const electedRecovery = current &&
-    session.parentRecoveryRequestId === token.requestId;
   finishManualRead(session, token);
-  if (electedRecovery) session.parentRecoveryRequestId = null;
-  if (current) {
-    session.parentFailure = error;
-    scheduleParentElection(session);
-  }
+  session.election.noteReadAbandoned(token.requestId, error, current);
   return current;
 }
 
@@ -371,7 +282,8 @@ function requestAuthoritative(
   session: Session,
   load?: () => Promise<BlockNode[]>,
 ): Promise<void> {
-  if (activeRepairEpoch) return activeRepairEpoch.completion;
+  const repairing = activeRepairCompletion();
+  if (repairing) return repairing;
   if (session.authoritativeRead) return session.authoritativeRead;
   const loader = load ?? electLoader(session);
   if (!loader) return Promise.resolve();
@@ -382,94 +294,74 @@ function requestAuthoritative(
     .finally(() => {
       if (session.authoritativeRead === request) {
         session.authoritativeRead = null;
-        if (session.authoritativeAgain && !activeRepairEpoch) {
+        if (session.authoritativeAgain && !isRepairActive()) {
           session.authoritativeAgain = false;
           void requestAuthoritative(session).catch(() => undefined);
         }
-        scheduleParentElection(session);
+        session.election.schedule();
         maybeDeleteSession(session);
       }
     });
   session.authoritativeRead = request;
-  scheduleParentElection(session);
+  session.election.schedule();
   return request;
 }
 
-function repairEpochSession(
-  epoch: RepairEpoch,
-  session: Session,
-): Promise<void> {
-  const current = epoch.inFlight.get(session);
-  if (current) return current;
-  const previous = session.authoritativeRead;
-  session.authoritativeAgain = false;
-  // The epoch owns the next controller. Invalidate every older automatic or
-  // manual token immediately, then wait for existing transport to wind down.
-  startAuthoritativeRead(session);
-  const run = (async () => {
-    if (previous) await previous.catch(() => undefined);
-    if (session.handles === 0) return;
-    const loader = electLoader(session);
-    if (!loader) {
-      throw new Error(
-        `No authoritative loader for active outline ${session.title}`,
-      );
-    }
-    const token = startAuthoritativeRead(session);
-    let adopted = false;
-    const request = loader().then((blocks) => {
-      adopted = receiveAuthoritativeRepair(session, token, blocks);
-    });
-    session.authoritativeRead = request;
-    try {
-      await request;
-    } finally {
-      if (session.authoritativeRead === request) {
-        session.authoritativeRead = null;
-      }
-    }
-    if (adopted) epoch.repairedState.set(session, session.state);
-  })().finally(() => {
-    epoch.inFlight.delete(session);
-    maybeDeleteSession(session);
-  });
-  epoch.inFlight.set(session, run);
-  return run;
+/** How a repair epoch drives one session. The synchronous prelude runs before
+ * the returned promise exists: the epoch owns the next controller, so every
+ * older automatic or manual token is invalidated at once and only then does
+ * this wait for the existing transport to wind down. */
+function repairTargetFor(session: Session): RepairTarget {
+  return {
+    currentState: () => session.state,
+    isActive: () => session.handles > 0,
+    settle: () => { maybeDeleteSession(session); },
+    repairRead: () => {
+      const previous = session.authoritativeRead;
+      session.authoritativeAgain = false;
+      startAuthoritativeRead(session);
+      return (async () => {
+        if (previous) await previous.catch(() => undefined);
+        if (session.handles === 0) return null;
+        const loader = electLoader(session);
+        if (!loader) {
+          throw new Error(
+            `No authoritative loader for active outline ${session.title}`,
+          );
+        }
+        const token = startAuthoritativeRead(session);
+        let adopted = false;
+        const request = loader().then((blocks) => {
+          adopted = receiveAuthoritativeRepair(session, token, blocks);
+        });
+        session.authoritativeRead = request;
+        try {
+          await request;
+        } finally {
+          if (session.authoritativeRead === request) {
+            session.authoritativeRead = null;
+          }
+        }
+        return adopted ? session.state : null;
+      })();
+    },
+  };
 }
 
-async function runRepairEpoch(epoch: RepairEpoch): Promise<void> {
-  // Rejected delivery resolves before its settlement callbacks remove replay
-  // data. Begin cohort selection only after those callbacks have run.
-  await Promise.resolve();
-  while (activeRepairEpoch === epoch) {
-    const cohort = [...sessions.values()].filter(
-      (session) => session.handles > 0,
-    );
-    const pending = cohort.filter(
-      (session) => epoch.repairedState.get(session) !== session.state,
-    );
-    if (pending.length > 0) {
-      await Promise.all(pending.map((session) =>
-        repairEpochSession(epoch, session)));
-      continue;
+/** The registry as a repair epoch scans it. */
+const repairCohort: RepairCohort = {
+  targets: () => [...sessions.values()].map((session) => session.repairTarget),
+  epochEnded: () => {
+    for (const session of sessions.values()) {
+      session.election.schedule();
+      maybeDeleteSession(session);
     }
-
-    // Let acquisitions/releases queued by the completed loaders run, then
-    // rescan. The final callbacks (including queue resume) run synchronously
-    // while this epoch is still active, closing the cohort/resume race.
-    await Promise.resolve();
-    const stable = [...sessions.values()]
-      .filter((session) => session.handles > 0)
-      .every((session) => epoch.repairedState.get(session) === session.state);
-    if (!stable) continue;
-    for (const callback of epoch.onStable) callback();
-    return;
-  }
-}
+  },
+};
 
 function runEffects(session: Session, effects: readonly OutlineEffect[]): void {
   if (effects.some((effect) => effect.type === "request-authoritative")) {
-    if (activeRepairEpoch) return;
+    if (isRepairActive()) return;
     if (session.authoritativeRead) {
       // Settlement requires a post-delivery read. Supersede the current token
       // immediately so its pre-delivery response can never publish while the
@@ -547,6 +439,48 @@ function canBootstrapExistingSession(session: Session): boolean {
     !session.authoritativeAgain;
 }
 
+/** Both attached machines query the session they belong to, so the session
+ * exists before they do; nothing reads either field before this returns. */
+type SessionCore = Omit<Session, "election" | "repairTarget">;
+
+function createSession(
+  title: string,
+  bootstrap: BlockNode[] | null,
+): Session {
+  const state = createOutlineState(title, bootstrap ?? []);
+  const core: SessionCore = {
+    title,
+    state,
+    snapshot: { blocks: state.blocks, revision: state.revision },
+    bootstrapped: bootstrap !== null,
+    handles: 0,
+    listeners: new Set(),
+    editor: null,
+    waiters: [],
+    seenRemote: new WeakSet(),
+    authoritativeRead: null,
+    authoritativeAgain: false,
+    reservations: 0,
+    activatedCaptures: new Set(),
+    loaders: new Map(),
+    trackedWrites: new Set(),
+    manualReads: new Set(),
+  };
+  const session = core as Session;
+  session.election = createParentReadElection({
+    title,
+    latestRequestId: () => session.state.latestRequestId,
+    hasActivatedCapture: (requestId) =>
+      session.activatedCaptures.has(requestId),
+    manualReadCount: () => session.manualReads.size,
+    hasManualRead: (requestId) => session.manualReads.has(requestId),
+    repairActive: isRepairActive,
+    publishedBlocks: () => session.snapshot.blocks,
+  });
+  session.repairTarget = repairTargetFor(session);
+  return session;
+}
+
 /** Acquire a title session from an effect. The first real bootstrap wins;
  * later mounts observe that established tree instead of replacing it. `null`
  * reserves editor ownership without supplying a page snapshot. */
@@ -556,33 +490,7 @@ export function acquireOutlineSession(
 ): OutlineSessionHandle {
   let session = sessions.get(title);
   if (!session) {
-    const state = createOutlineState(title, bootstrap ?? []);
-    session = {
-      title,
-      state,
-      snapshot: { blocks: state.blocks, revision: state.revision },
-      bootstrapped: bootstrap !== null,
-      handles: 0,
-      listeners: new Set(),
-      editor: null,
-      waiters: [],
-      seenRemote: new WeakSet(),
-      authoritativeRead: null,
-      authoritativeAgain: false,
-      reservations: 0,
-      activatedCaptures: new Set(),
-      loaders: new Map(),
-      trackedWrites: new Set(),
-      manualReads: new Set(),
-      parentPayload: null,
-      parentWaiters: new Set(),
-      parentControllers: new Map(),
-      parentElectionScheduled: false,
-      parentElectionStarting: false,
-      parentRecoveryAttempted: false,
-      parentRecoveryRequestId: null,
-      parentFailure: null,
-    };
+    session = createSession(title, bootstrap);
     sessions.set(title, session);
   } else if (!session.bootstrapped && bootstrap !== null &&
              canBootstrapExistingSession(session)) {
@@ -602,7 +510,7 @@ export function acquireOutlineSession(
   const subscriptions = new Set<() => void>();
   const leases = new Set<LeaseRecord>();
   const loaders = new Set<symbol>();
-  const parentControllers = new Set<symbol>();
+  const parentControllers = new Set<() => void>();
   const handleId = Symbol(`outline-handle:${title}`);
 
   const handle: OutlineSessionHandle = {
@@ -655,11 +563,7 @@ export function acquireOutlineSession(
       };
     },
     beginAuthoritativeRead: () => {
-      if (!session.parentElectionStarting) {
-        session.parentRecoveryAttempted = false;
-        session.parentRecoveryRequestId = null;
-        session.parentFailure = null;
-      }
+      session.election.noteReadBeginning();
       const token = startAuthoritativeRead(session);
       session.manualReads.add(token.requestId);
       session.reservations += 1;
@@ -669,7 +573,7 @@ export function acquireOutlineSession(
       finishManualRead(session, token, blocks),
     receiveParentAuthoritative: (token, payload) => {
       const accepted = finishManualRead(session, token, payload.blocks);
-      if (accepted) publishParentPayload(session, token, payload);
+      if (accepted) session.election.publish(token, payload);
       return accepted;
     },
     failAuthoritativeRead: (token, error) =>
@@ -680,14 +584,9 @@ export function acquireOutlineSession(
       new Error(`Parent read cancelled for ${session.title}`),
     ),
     registerParentReadiness: (token) => {
-      const accepted = session.parentPayload;
-      if (accepted && accepted.requestId >= token.requestId) {
-        return {
-          promise: Promise.resolve(accepted.payload),
-          release: () => undefined,
-        };
-      }
-      if (released) {
+      // An answer this read can already have is served whatever the handle's
+      // state; only a waiter needs the handle to still be live.
+      if (released && !session.election.hasAcceptedFor(token)) {
         return {
           promise: Promise.reject(
             new Error(`Outline handle released for ${title}`),
@@ -695,47 +594,15 @@ export function acquireOutlineSession(
           release: () => undefined,
         };
       }
-      let active = true;
-      let waiter!: ParentWaiter;
-      const promise = new Promise<PagePayload>((resolve, reject) => {
-        waiter = {
-          owner: handleId,
-          afterRequestId: token.requestId,
-          resolve: (payload) => {
-            if (!active) return;
-            active = false;
-            resolve(payload);
-          },
-          reject: (error) => {
-            if (!active) return;
-            active = false;
-            reject(error);
-          },
-        };
-        session.parentWaiters.add(waiter);
-      });
-      scheduleParentElection(session);
-      return {
-        promise,
-        release: () => {
-          if (!active) return;
-          active = false;
-          session.parentWaiters.delete(waiter);
-        },
-      };
+      return session.election.awaitPayload(handleId, token);
     },
     setParentReadController: (start) => {
       if (released) return () => undefined;
-      const token = Symbol(`parent-controller:${title}`);
-      session.parentControllers.set(token, start);
-      parentControllers.add(token);
-      let active = true;
+      const remove = session.election.addController(start);
+      parentControllers.add(remove);
       return () => {
-        if (!active) return;
-        active = false;
-        session.parentControllers.delete(token);
-        parentControllers.delete(token);
-        scheduleParentElection(session);
+        parentControllers.delete(remove);
+        remove();
       };
     },
     setAuthoritativeLoader: (kind, load) => {
@@ -790,15 +657,11 @@ export function acquireOutlineSession(
       leases.clear();
       for (const token of loaders) session.loaders.delete(token);
       loaders.clear();
-      for (const token of parentControllers) {
-        session.parentControllers.delete(token);
-      }
+      for (const remove of [...parentControllers]) remove();
       parentControllers.clear();
-      for (const waiter of [...session.parentWaiters]) {
-        if (waiter.owner === handleId) session.parentWaiters.delete(waiter);
-      }
+      session.election.releaseWaiters(handleId);
       session.handles -= 1;
-      scheduleParentElection(session);
+      session.election.schedule();
       maybeDeleteSession(session);
     },
   };
@@ -899,7 +762,7 @@ export function captureActiveOutlineReads(
           session.activatedCaptures.delete(reserved.token.requestId);
         }
         session.reservations -= 1;
-        scheduleParentElection(session);
+        session.election.schedule();
         maybeDeleteSession(session);
       },
     });
@@ -916,24 +779,5 @@ export function isOutlineSessionActive(title: string): boolean {
 export function repairActiveOutlineSessions(
   onStable?: () => void,
 ): Promise<void> {
-  if (activeRepairEpoch) {
-    if (onStable) activeRepairEpoch.onStable.add(onStable);
-    return activeRepairEpoch.completion;
-  }
-  const epoch: RepairEpoch = {
-    id: nextRepairEpoch++,
-    repairedState: new Map(),
-    inFlight: new Map(),
-    onStable: new Set(onStable ? [onStable] : []),
-    completion: Promise.resolve(),
-  };
-  activeRepairEpoch = epoch;
-  epoch.completion = runRepairEpoch(epoch).finally(() => {
-    if (activeRepairEpoch === epoch) activeRepairEpoch = null;
-    for (const session of sessions.values()) {
-      scheduleParentElection(session);
-      maybeDeleteSession(session);
-    }
-  });
-  return epoch.completion;
+  return runRepair(repairCohort, onStable);
 }

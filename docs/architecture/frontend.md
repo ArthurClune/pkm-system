@@ -76,6 +76,8 @@ web/src/
 │   ├── loadOutlineBlocks.ts  Shell        The one blocks-only page read behind every
 │   │                                      registered authoritative loader
 │   ├── outlineSessions.ts    Shell        Per-title shared sessions (see State management)
+│   ├── parentReadElection.ts Shell        Who starts a title's next parent read
+│   ├── repairEpochs.ts       Shell        The global post-settlement repair pass
 │   ├── useOutlinePageLoad.ts Shell        The shared single-page load controller
 │   ├── useBlockDraft.ts      Shell        The focused block's draft session
 │   ├── useAutocomplete.ts    Shell        The popup's shared state
@@ -308,6 +310,16 @@ There is no Redux/Zustand; state lives in three layers:
    no relevant write ticket is unsettled. Otherwise it is retained and
    reconsidered after settlement. The pure reducer behind it is
    `outlineState.ts::transitionOutline`.
+
+Two machines the sessions drive sit beside that module rather than in it.
+`parentReadElection.ts` decides which surface starts a title's next
+full-payload parent read, and what a waiter is told when no read will ever
+arrive. `repairEpochs.ts` runs the post-settlement repair pass described in
+[sync-and-offline.md](sync-and-offline.md#what-the-queue-and-the-ui-do-with-it).
+Each reaches its sessions through one interface — `ParentReadHost`,
+`RepairTarget` — so both can be exercised without a session registry, and
+`outlineSessions.ts` keeps the registry, the editor lease, loader election and
+read causality.
 
 Driving a session correctly from a view is subtle, so the two **single-page**
 surfaces share one implementation of it: `outline/useOutlinePageLoad.ts`,

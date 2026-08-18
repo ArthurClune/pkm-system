@@ -455,6 +455,14 @@ a check on the availability type, and must not become one. A starved pool's
 let it reach `onDesync`. That repair wipes the active outline back to the
 server's edit-less state and detaches the editor mid-keystroke.
 
+The repair itself is the outline repair epoch (`outline/repairEpochs.ts`):
+every live outline re-reads the server's tree and rebases its still-unsettled
+writes onto it (see [frontend.md](frontend.md#state-management)). The epoch is
+a fixed point rather than a single pass, so an outline whose tree moved while
+its own read was in flight is read again. Delivery resumes from the epoch's
+`onStable` callback, which is what stops a batch being posted against a tree
+the repair has not settled.
+
 Kept ops join an ordered **in-memory fallback lane**. The ordinary drain
 delivers them, under the same connectivity, backoff and recovery-barrier policy
 as durable rows. There is no storage-full mode, and no signal to build one from:

@@ -254,6 +254,99 @@ def test_sanitize_export_titles_prefers_exact_clean_collision_survivor() -> None
     )
 
 
+def test_sanitize_export_titles_leaves_titles_inside_code_alone() -> None:
+    export = Export(
+        pages=(
+            Page(
+                "Project [[Acme]]",
+                1,
+                2,
+                (
+                    _block(
+                        "uid-code",
+                        "`[[Project [[Acme]]]]` then "
+                        "```\n[[Project [[Acme]]]]\n``` then "
+                        "[[Project [[Acme]]]]",
+                    ),
+                ),
+            ),
+        ),
+        orphan_block_count=0,
+        skipped_entities=0,
+        attr_counts={},
+    )
+
+    result = sanitize_export_titles(export)
+
+    assert result.export.pages[0].children[0].text == (
+        "`[[Project [[Acme]]]]` then "
+        "```\n[[Project [[Acme]]]]\n``` then "
+        "[[Project Acme]]"
+    )
+    # The coded copies are not locations either -- extract() never saw them.
+    assert result.title_changes == (
+        ImportTitleChange(
+            original_title="Project [[Acme]]",
+            sanitized_title="Project Acme",
+            locations=("page[0]", "block uid-code"),
+            merged=False,
+        ),
+    )
+
+
+def test_sanitize_export_titles_keeps_merge_sources_in_export_order() -> None:
+    export = Export(
+        pages=(
+            Page("[[Acme]]", 1, 2, (_block("uid-first", "first"),)),
+            Page("Acme", 10, 11, (_block("uid-clean", "clean"),)),
+            Page("#Acme", 20, 21, (_block("uid-third", "third"),)),
+        ),
+        orphan_block_count=0,
+        skipped_entities=0,
+        attr_counts={},
+    )
+
+    result = sanitize_export_titles(export)
+
+    survivor = result.export.pages[0]
+    assert [page.title for page in result.export.pages] == ["Acme"]
+    assert (survivor.created_at, survivor.edited_at) == (10, 11)
+    # Survivor's blocks lead; the rest follow in export order.
+    assert [block.uid for block in survivor.children] == [
+        "uid-clean",
+        "uid-first",
+        "uid-third",
+    ]
+    assert result.title_changes == (
+        ImportTitleChange("#Acme", "Acme", ("page[2]",), True),
+        ImportTitleChange("[[Acme]]", "Acme", ("page[0]",), True),
+    )
+
+
+def test_sanitize_export_titles_marks_merged_spellings_without_a_page_collision() -> None:
+    export = Export(
+        pages=(
+            Page(
+                "Home",
+                1,
+                2,
+                (_block("uid-root", "see [[Acme]] and [[Ac#me]]"),),
+            ),
+        ),
+        orphan_block_count=0,
+        skipped_entities=0,
+        attr_counts={},
+    )
+
+    result = sanitize_export_titles(export)
+
+    # Two ref spellings collapse onto one page even though no page merged.
+    assert result.export.pages[0].children[0].text == "see [[Acme]] and [[Acme]]"
+    assert result.title_changes == (
+        ImportTitleChange("Ac#me", "Acme", ("block uid-root",), True),
+    )
+
+
 def test_sanitize_export_titles_uses_first_source_when_no_exact_page_exists() -> None:
     export = Export(
         pages=(

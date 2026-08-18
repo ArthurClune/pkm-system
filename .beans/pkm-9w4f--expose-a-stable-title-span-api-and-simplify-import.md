@@ -1,14 +1,14 @@
 ---
 # pkm-9w4f
 title: Expose a stable title-span API and simplify import title sanitization
-status: todo
+status: in-progress
 type: task
 priority: normal
 tags:
     - review
     - backend
 created_at: 2026-08-17T20:55:21Z
-updated_at: 2026-08-17T20:55:21Z
+updated_at: 2026-08-18T16:29:04Z
 parent: pkm-wvvu
 ---
 

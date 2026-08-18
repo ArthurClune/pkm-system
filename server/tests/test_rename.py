@@ -14,14 +14,6 @@ GRAMMAR_FIXTURE = (
 GRAMMAR_CASES = json.loads(GRAMMAR_FIXTURE.read_text())["cases"]
 
 
-def test_bare_tag_matches_hashtag_capture_class():
-    # _BARE_TAG hand-duplicates _HASHTAG's capture class so _tag_form() can
-    # test a bare new_title the same way _HASHTAG would match it. If either
-    # regex changes without the other, this must fail loudly rather than
-    # let the two silently drift apart.
-    assert refs._HASHTAG.pattern == rf"(?:^|(?<=[\s(]))#({rename._BARE_TAG.pattern})"
-
-
 def test_link_rewritten():
     assert rewrite_title_refs("see [[Old]] now", "Old", "New") == \
         "see [[New]] now"

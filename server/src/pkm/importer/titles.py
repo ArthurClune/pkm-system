@@ -163,8 +163,10 @@ def _collect_title_locations(export: Export) -> dict[str, list[str]]:
     whitespace that extract() would never report; a block ref is recorded as
     extract() normalized it. The rewriter looks up normalized spellings only,
     so a raw key is reached through its normalized twin -- which exists for
-    any spelling block text contains, because extract() read that same text.
-    A raw key with no twin is one no block mentions, and only the page's own
+    any spelling extract() recognizes, and the rewriter recognizes nothing
+    else: both read the grammar out of refs (bracket_spans, tag_spans,
+    attribute_title_span), so neither can find a ref the other missed. A raw
+    key with no twin is one no block mentions, and only the page's own
     retitling looks it up.
     """
     locations: dict[str, list[str]] = {}

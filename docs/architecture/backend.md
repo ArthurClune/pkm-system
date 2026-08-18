@@ -25,7 +25,8 @@ pkm/
 ├── schema.py            Core   Single source of DDL: BASE_DDL (replicated to clients)
 │                               + SERVER_DDL (journal, idempotency) = DDL
 ├── refs.py              Core   Ref grammar: [[links]], #tags, attr::, ((refs)), {{embeds}}
-│                               + title normalization and the attribute_title_span() boundary
+│                               + title normalization, and the positioned spans (bracket
+│                               tree, tags, attribute) the rewriter scans with
 ├── rename.py            Core   one-pass, opaque-value title-ref rewrite for page rename/merge;
 │                               callers pass the normalizer that spells their replacement keys
 ├── title_migration.py   Core   boundary-space grouping, blockers, survivor plan + digest
@@ -287,9 +288,13 @@ composable functions that never commit; routes own the transaction.
 `POST /api/page/{title}/rename` rewrites all referencing block text via
 `rename.py`, and merges by concatenating blocks when `allow_merge` is set.
 
-`rename.py` locates refs through `refs.strip_code()` and
-`refs.attribute_title_span()` rather than its own copy of that grammar, so an
-indented `Title::` is a ref to the extractor and the rewriter alike. Its
+`rename.py` keeps no copy of the grammar. It locates refs through
+`refs.strip_code()`, `refs.bracket_spans()`, `refs.tag_spans()` and
+`refs.attribute_title_span()`, so neither module can find a ref the other
+missed: an indented `Title::` is a ref to the extractor and the rewriter
+alike. What is left in `rename.py` is which span wins when refs nest — a
+replaced title takes its whole `[[..]]` run, so the refs inside it are never
+visited — and how to spell the replacement. Its
 `normalize` argument says how a spelling in the text maps onto a replacement
 key. Rename and the title migration take the default and match the stored
 title byte for byte, padding and all. The importer passes

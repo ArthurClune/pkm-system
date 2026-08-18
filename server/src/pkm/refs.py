@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Iterable, Iterator, Literal
 
 # A ``` run followed by a word character is a fence *opener* with an info
 # string (```css, ```mermaid), never a closer -- without the lookahead, an
@@ -25,7 +25,12 @@ _INLINE_CODE = re.compile(r"`[^`\n]*`")
 # block collapses to exactly such a run once strip_code() blanks it out
 # (pkm-7myl: a ~258KB pasted block took ~224s to `.match()` here).
 _ATTRIBUTE = re.compile(r"([^\[\]{}:\n]+?)::")
-_HASHTAG = re.compile(r"(?:^|(?<=[\s(]))#([\w/.\-]+)")
+# The tag name and the hashtag that carries it are one definition, so a
+# rewriter can ask "would this title read back as a bare #tag?" (see
+# is_bare_tag_title) without hand-copying the class.
+_TAG_NAME = r"[\w/.\-]+"
+_BARE_TAG = re.compile(_TAG_NAME)
+_HASHTAG = re.compile(rf"(?:^|(?<=[\s(]))#({_TAG_NAME})")
 _BLOCK_REF = re.compile(r"\(\(([a-zA-Z0-9_-]{6,})\)\)")
 _EMBED = re.compile(r"\{\{\s*(?:\[\[)?embed(?:\]\])?\s*[:}]")
 # pkm-hjhy: control whitespace in a page title makes the page unreachable.
@@ -149,15 +154,59 @@ def attribute_title_span(text: str) -> AttributeSpan | None:
     )
 
 
-def _scan_brackets(text: str, nested: bool = False) -> list[tuple[str, bool]]:
-    """Balanced [[...]] scan. Nested links yield outer then inner titles.
-    Returns (title, is_tag) pairs; is_tag when written as #[[...]]."""
-    out: list[tuple[str, bool]] = []
-    i, n = 0, len(text)
-    while i < n - 1:
+@dataclass(frozen=True)
+class BracketSpan:
+    """One balanced `[[...]]` run and the runs nested inside it.
+
+    `start`/`end` bracket the whole run, brackets included; `inner_start`/
+    `inner_end` bracket the title text between them, which is where the
+    `children` were scanned from. `is_tag` is the `#[[...]]` spelling, and
+    only a top-level run can carry it -- a `#` inside a title is title text.
+
+    Positions are the point. An extractor only wants the titles, but a
+    rewriter needs to splice the *original* text, and the two must agree on
+    which runs exist. Offsets index whatever text was scanned, so passing
+    `strip_code()`'s output yields spans that index the original (see
+    `strip_code`), which is what `rename.py` does.
+    """
+
+    start: int
+    end: int
+    inner_start: int
+    inner_end: int
+    is_tag: bool
+    children: tuple[BracketSpan, ...]
+
+
+@dataclass(frozen=True)
+class TagSpan:
+    """A `#tag`: the whole match, and the name as written after the `#`."""
+
+    start: int
+    end: int
+    raw_title: str
+
+
+def bracket_spans(text: str) -> tuple[BracketSpan, ...]:
+    """Sole owner of the balanced-bracket depth walk (extractor and rewriter
+    alike): the top-level `[[...]]` runs in `text`, each holding its own.
+
+    An unbalanced `[[` is not a run and does not stop the scan -- the walk
+    resumes one character on, so `[[A and [[B]]` still reports `B`, and
+    `[[[C]]` reports the single run whose title is `[C`.
+    """
+    return _scan_bracket_spans(text, 0, len(text), nested=False)
+
+
+def _scan_bracket_spans(
+    text: str, start: int, stop: int, *, nested: bool
+) -> tuple[BracketSpan, ...]:
+    out: list[BracketSpan] = []
+    i = start
+    while i < stop - 1:
         if text[i] == "[" and text[i + 1] == "[":
             depth, j = 1, i + 2
-            while j < n - 1 and depth:
+            while j < stop - 1 and depth:
                 pair = text[j : j + 2]
                 if pair == "[[":
                     depth, j = depth + 1, j + 2
@@ -166,14 +215,50 @@ def _scan_brackets(text: str, nested: bool = False) -> list[tuple[str, bool]]:
                 else:
                     j += 1
             if depth == 0:
-                inner = text[i + 2 : j - 2]
-                is_tag = not nested and i > 0 and text[i - 1] == "#"
-                out.append((inner, is_tag))
-                out.extend(_scan_brackets(inner, nested=True))
+                out.append(BracketSpan(
+                    start=i,
+                    end=j,
+                    inner_start=i + 2,
+                    inner_end=j - 2,
+                    is_tag=not nested and i > 0 and text[i - 1] == "#",
+                    children=_scan_bracket_spans(
+                        text, i + 2, j - 2, nested=True
+                    ),
+                ))
                 i = j
                 continue
         i += 1
-    return out
+    return tuple(out)
+
+
+def iter_bracket_spans(spans: Iterable[BracketSpan]) -> Iterator[BracketSpan]:
+    """Flatten a span tree outer-first, which is the order refs are reported
+    in: a nested link yields the outer title before the inner one."""
+    for span in spans:
+        yield span
+        yield from iter_bracket_spans(span.children)
+
+
+def tag_spans(
+    text: str, start: int = 0, stop: int | None = None
+) -> tuple[TagSpan, ...]:
+    """Sole owner of `#tag` recognition, over `text[start:stop]`.
+
+    The bounds are a window, not a slice: the lookbehind still reads the
+    character before `start`, so a caller scanning the inside of a bracket
+    run gets the same answer the whole-text scan would give there.
+    """
+    return tuple(
+        TagSpan(m.start(), m.end(), m.group(1))
+        for m in _HASHTAG.finditer(text, start, len(text) if stop is None else stop)
+    )
+
+
+def is_bare_tag_title(title: str) -> bool:
+    """True when `title` would read back as a bare `#title`, i.e. when
+    `tag_spans()` would report exactly it. A rewriter asks before keeping
+    the bare form (`rename._tag_form`) instead of copying the name class."""
+    return _BARE_TAG.fullmatch(title) is not None
 
 
 def extract(text: str) -> ParsedRefs:
@@ -187,12 +272,12 @@ def extract(text: str) -> ParsedRefs:
     # whitespace it has to survive, belong to attribute_title_span().
     if (attribute := attribute_title_span(clean)) is not None:
         refs.append(Ref(attribute.title, "attribute"))
-    for title, is_tag in _scan_brackets(clean):
-        normalized = normalize_title(title)
+    for span in iter_bracket_spans(bracket_spans(clean)):
+        normalized = normalize_title(clean[span.inner_start : span.inner_end])
         if not is_blank_title(normalized):
-            refs.append(Ref(normalized, "tag" if is_tag else "link"))
-    for m in _HASHTAG.finditer(clean):
-        if title := normalize_title(m.group(1)):
+            refs.append(Ref(normalized, "tag" if span.is_tag else "link"))
+    for tag in tag_spans(clean):
+        if title := normalize_title(tag.raw_title):
             refs.append(Ref(title, "tag"))
     seen: set[tuple[str, str]] = set()
     deduped = [r for r in refs

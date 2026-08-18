@@ -1,10 +1,9 @@
 // pattern: Functional Core
-// The op queue's connectivity + retry-backoff policy. Both the replica-backed
-// and legacy in-memory queues embed the identical rules for when a drain is
+// The op queue's connectivity + retry-backoff policy: when a drain is
 // terminally blocked, when a retryable failure schedules an escalating retry,
 // and how online/pause/resume/dispose transitions cancel or reset that retry.
-// The shells own the actual timers, promises, deliveries, and persistence;
-// this module only decides. Behaviour matches the former inline flag mutations
+// The queue shell owns the actual timers, promises, deliveries, and
+// persistence; this module only decides. Behaviour matches the former inline flag mutations
 // exactly (Task 1-3 semantics).
 
 export type QueueBlockReason = "offline" | "retryable" | "recovering" | "disposed";

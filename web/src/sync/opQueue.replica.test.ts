@@ -1,63 +1,17 @@
-// The replica-backed pump: durable batches with batch_id, poison handling,
-// retention of failed local persistence. The in-memory legacy path is covered
-// in opQueue.test.ts.
+// The queue: durable batches with batch_id, poison handling, retention of
+// failed local persistence, and the connectivity/backoff/recovery policy every
+// drain obeys. The fake Replica it drives lives in ./memReplica.
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
-import type { PendingBatch, Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnavailableError,
          RpcLifecycleError } from "../replica/errors";
 import { jsonResponse } from "../test-helpers";
+import { memReplica } from "./memReplica";
 import { clientId, createOpQueue, type PoisonEvent } from "./opQueue";
 
 const op = (uid: string): BlockOp => ({ op: "delete", uid });
 
 beforeEach(() => { localStorage.clear(); });
-
-/** In-memory replica queue mirroring queue.ts semantics. `enqueued` records
- * batch ids in enqueue order: the ids are caller-minted now, so assertions
- * read them back instead of pinning literals. */
-function memReplica(over: Partial<Replica> = {}): Replica & {
-  rows: PendingBatch[]; enqueued: string[];
-} {
-  const rows: PendingBatch[] = [];
-  const enqueued: string[] = [];
-  let nextId = 1;
-  const pending = () => rows.filter((r) => !r.poisoned).length;
-  const replica: Replica & { rows: PendingBatch[]; enqueued: string[] } = {
-    rows,
-    enqueued,
-    init: async () => ({ empty: false, cursor: 0,
-                         schemaMismatch: false, pendingBatches: [] }),
-    applySnapshot: async () => undefined,
-    applyChanges: async () => ({ status: "applied", cursor: 0 }),
-    enqueue: async (ops, batchId) => {
-      const id = batchId ?? `batch-${nextId}`;
-      enqueued.push(id);
-      rows.push({ id: nextId, batch_id: id, ops, poisoned: false });
-      nextId += 1;
-      return { pending: pending(), batchId: id };
-    },
-    nextBatch: async () => rows.find((r) => !r.poisoned) ?? null,
-    pendingBatches: async () => [...rows],
-    poisonedBatches: async () => [],
-    deleteBatch: async (id) => {
-      rows.splice(rows.findIndex((r) => r.id === id), 1);
-      return { pending: pending() };
-    },
-    markPoisoned: async (id) => {
-      rows.find((r) => r.id === id)!.poisoned = true;
-      return { pending: pending() };
-    },
-    pendingCount: async () => pending(),
-    localApi: async () => ({ handled: false as const }),
-    prepareRecovery: async () => ({ token: "lease-1", batches: [...rows] }),
-    commitRecovery: async () => undefined,
-    abortRecovery: async () => undefined,
-    reset: async () => undefined,
-    dispose: async () => undefined,
-  };
-  return Object.assign(replica, over);
-}
 
 function fetchSeq(responses: Array<() => Response | Promise<Response>>) {
   const bodies: { url: string; body: unknown }[] = [];
@@ -77,6 +31,10 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
+
+test("clientId is stable and uid-shaped", () => {
+  expect(clientId).toMatch(/^[a-zA-Z0-9_-]{6,32}$/);
+});
 
 test("drains each persisted batch as one POST carrying its batch_id", async () => {
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
@@ -1543,4 +1501,239 @@ async () => {
   await q.settled();
   expect(pendingCounts.at(-1)).toBe(1);
   expect(unsentCounts.at(-1)).toBe(0); // a durable row is not in-memory-only
+});
+
+// --- Connectivity, barrier and backoff policy (pkm-w5gf). These rules used to
+// be pinned only against the in-memory queue that ran when no Replica existed;
+// they are the queue's policy, not that implementation's, so they are pinned
+// here against the one queue that ships. onDesync is reached from a lane 4xx:
+// a durable row's rejection takes the poison path instead. ---
+
+/** A queue whose local persistence always fails, so every enqueue lands in the
+ * in-memory lane — the only delivery path whose 4xx reaches onDesync. */
+const laneOnlyReplica = () => memReplica({
+  enqueue: async () => { throw new Error(CANTOPEN); },
+});
+
+test("ops re-enqueued synchronously from onDesync are not stranded", async () => {
+  const { bodies } = fetchSeq([
+    () => jsonResponse({ detail: "bad op" }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  let q!: ReturnType<typeof createOpQueue>;
+  q = createOpQueue(laneOnlyReplica(), () => {
+    q.enqueue([op("u9")]);
+    q.resume("recovery");
+  });
+  const rejected = q.enqueue([op("u1")]);
+  await q.settled();
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering",
+  });
+  await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+  await vi.waitFor(() => { expect(bodies).toHaveLength(2); });
+  expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("u9")]);
+  q.dispose();
+});
+
+test("an async recovery resume hands a missed kick to the next drain owner",
+async () => {
+  const { bodies } = fetchSeq([
+    () => jsonResponse({ detail: "bad op" }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  let q!: ReturnType<typeof createOpQueue>;
+  q = createOpQueue(laneOnlyReplica(), () => {
+    void Promise.resolve().then(() => q.resume("recovery"));
+  });
+  q.setOnline(false);
+  const rejected = q.enqueue([op("rejected")]);
+  const later = q.enqueue([op("later")]);
+  await q.settled();
+
+  try {
+    q.setOnline(true);
+    await expect(rejected.delivered).resolves.toMatchObject({ status: "failed" });
+    // nobody drains again from the outside: the resume's own kick must deliver
+    await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+    expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("later")]);
+  } finally {
+    q.dispose();
+  }
+});
+
+test("a throwing onDesync does not poison the queue or drain()", async () => {
+  const { bodies } = fetchSeq([
+    () => jsonResponse({ detail: "bad op" }, 400),
+    () => jsonResponse({ ok: true }),
+  ]);
+  const q = createOpQueue(laneOnlyReplica(), () => {
+    throw new Error("desync handler exploded");
+  });
+  q.enqueue([op("u1")]);
+  await q.settled();
+  // must resolve, not reject: the drain owner is not the repair owner
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering",
+  });
+
+  q.resume("recovery");
+  const later = q.enqueue([op("u2")]);
+  await q.settled();
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+  expect(bodies).toHaveLength(2);
+});
+
+/** A fetch whose first POST parks until released, so a test can act while one
+ * batch is genuinely in flight. `started` resolves once that POST is entered. */
+function gatedFetch(firstResponse: () => Response) {
+  const bodies: unknown[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((done) => { release = done; });
+  let entered!: () => void;
+  const started = new Promise<void>((done) => { entered = done; });
+  const mock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    if (bodies.length === 1) {
+      entered();
+      await gate;
+      return firstResponse();
+    }
+    return jsonResponse({ ok: true });
+  });
+  vi.stubGlobal("fetch", mock);
+  return { bodies, mock, started, release: () => release() };
+}
+
+test("an in-flight POST completes after going offline without starting a new pump",
+async () => {
+  const { bodies, started, release } =
+    gatedFetch(() => jsonResponse({ ok: true }));
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(false);
+  const first = q.enqueue([op("u1")]);
+  await q.settled();
+  q.setOnline(true);       // connected: the pump starts, POST for u1 in flight
+  await started;
+  q.setOnline(false);      // socket drops while the POST is outstanding
+  q.enqueue([op("u2")]);   // persisted while offline -> must stay pending
+  await q.settled();
+  release();               // the in-flight POST's response arrives
+
+  await expect(q.drain()).resolves.toEqual({
+    status: "blocked", reason: "offline", pending: 1,
+  });
+  await expect(first.delivered).resolves.toEqual({ status: "delivered" });
+  expect(bodies).toHaveLength(1); // u2 did NOT start a new pump
+
+  q.setOnline(true);       // reconnect flushes the preserved batch
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u2")]);
+});
+
+test("a missed in-flight kick remains barred by recovery until explicit resume",
+async () => {
+  const { bodies, started, release } =
+    gatedFetch(() => jsonResponse({ ok: true }));
+  const q = createOpQueue(memReplica(), () => undefined);
+  q.setOnline(false);
+  const first = q.enqueue([op("u1")]);
+  await q.settled();
+  q.setOnline(true);
+  await started;
+  const later = q.enqueue([op("u2")]); // its kick is recorded on the live run
+  await q.settled();
+  q.pause("recovery");
+
+  release();
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "recovering", pending: 1,
+  });
+  await expect(first.delivered).resolves.toEqual({ status: "delivered" });
+  expect(bodies).toHaveLength(1);
+
+  q.resume("recovery");
+  await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+  expect(bodies).toHaveLength(2);
+});
+
+test("dispose drops a missed in-flight kick without another POST", async () => {
+  const { bodies, started, release } =
+    gatedFetch(() => jsonResponse({ ok: true }));
+  const q = createOpQueue(memReplica(), () => undefined);
+  q.setOnline(false);
+  q.enqueue([op("u1")]);
+  await q.settled();
+  q.setOnline(true);
+  await started;
+  const later = q.enqueue([op("u2")]);
+  await q.settled();
+  q.dispose();
+
+  release();
+  await expect(later.delivered).resolves.toMatchObject({ status: "failed" });
+  await expect(q.drain()).resolves.toMatchObject({
+    status: "blocked", reason: "disposed",
+  });
+  expect(bodies).toHaveLength(1);
+});
+
+test("a missed in-flight kick does not bypass the scheduled 5xx backoff",
+async () => {
+  vi.useFakeTimers();
+  try {
+    const { bodies, started, release } =
+      gatedFetch(() => jsonResponse({ detail: "busy" }, 503));
+    const q = createOpQueue(memReplica(), () => undefined);
+    q.setOnline(false);
+    q.enqueue([op("u1")]);
+    await q.settled();
+    q.setOnline(true);
+    await started;
+    const later = q.enqueue([op("u2")]);
+    await q.settled();     // kick recorded while the failing POST is in flight
+
+    release();
+    await expect(q.drain()).resolves.toMatchObject({
+      status: "blocked", reason: "retryable", pending: 2,
+    });
+    expect(bodies).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(bodies).toHaveLength(1); // the kick waited for the armed retry
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(later.delivered).resolves.toEqual({ status: "delivered" });
+    expect(bodies).toHaveLength(3); // the retry resends u1, then u2 follows
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("reconnect resets the retry delay to 250ms", async () => {
+  vi.useFakeTimers();
+  try {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls += 1;
+      return jsonResponse({ detail: "busy" }, 503);
+    }));
+    const q = createOpQueue(memReplica(), () => undefined);
+    await q.enqueue([op("u1")]).settled;
+    await expect(q.drain()).resolves.toMatchObject({ reason: "retryable" });
+    await vi.advanceTimersByTimeAsync(250); // second failure schedules 1s
+    expect(calls).toBe(2);
+
+    q.setOnline(false);
+    q.setOnline(true); // immediate failure; reconnect resets the backoff
+    await expect(q.drain()).resolves.toMatchObject({ reason: "retryable" });
+    expect(calls).toBe(3);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(calls).toBe(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toBe(4);
+    q.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
 });

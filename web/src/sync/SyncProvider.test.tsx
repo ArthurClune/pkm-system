@@ -1740,8 +1740,12 @@ test("StrictMode effect replay keeps the queue live", async () => {
   act(() => lastWs().open());
 
   const write = sync.enqueue([{ op: "delete", uid: "u1" }]);
-  await expect(write.settled).resolves.toMatchObject({ status: "persisted" });
-  await act(async () => { await Promise.resolve(); });
+  // With no replica there is nothing to persist into, so the op rides the
+  // in-memory lane; liveness is that the queue still delivers it after
+  // StrictMode has replayed the mount effects.
+  await act(async () => {
+    await expect(write.delivered).resolves.toEqual({ status: "delivered" });
+  });
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });

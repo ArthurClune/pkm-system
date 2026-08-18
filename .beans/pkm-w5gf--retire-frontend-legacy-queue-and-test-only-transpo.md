@@ -1,14 +1,14 @@
 ---
 # pkm-w5gf
 title: Retire frontend legacy queue and test-only transport compatibility
-status: in-progress
+status: completed
 type: task
 priority: high
 tags:
     - review
     - frontend
 created_at: 2026-08-17T20:55:22Z
-updated_at: 2026-08-18T12:11:49Z
+updated_at: 2026-08-18T13:55:14Z
 parent: pkm-wvvu
 ---
 

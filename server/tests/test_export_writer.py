@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from pkm.export.writer import export_graph
+import pkm.assets_disk as assets_disk
+from pkm.export.writer import _stage_assets, export_graph
 from pkm.schema import DDL
 
 
@@ -382,6 +383,64 @@ def test_valid_existing_asset_is_still_hardlinked_not_recopied(graph):
     after = export / "assets" / sha / "pic.png"
     assert after.read_bytes() == b"png"
     assert after.stat().st_ino == before_inode
+
+
+def test_existing_asset_verified_through_the_shared_boundary(
+        graph, monkeypatch):
+    # pkm-6g0l: the exporter and the importer share one on-disk
+    # verification ritual, and the size-before-hash short circuit has to
+    # survive the move. Both are visible in what gets hashed: an intact
+    # existing asset's bytes are read and hashed before it is hardlinked
+    # forward, a truncated one's are not.
+    db, live_assets, export, sha = graph
+    export_graph(db, live_assets, export)
+
+    hashed: list[bytes] = []
+    real = assets_disk.sha256_hex
+    monkeypatch.setattr(
+        assets_disk, "sha256_hex",
+        lambda data: (hashed.append(data), real(data))[1])
+
+    export_graph(db, live_assets, export)
+    assert hashed == [b"png"]
+
+    hashed.clear()
+    (export / "assets" / sha / "pic.png").write_bytes(b"pn")  # truncated
+    counts = export_graph(db, live_assets, export)
+
+    assert hashed == []
+    assert counts["assets_repaired"] == 1
+
+
+def test_stage_assets_stands_alone(tmp_path):
+    # The extracted staging phase is usable without an export run: no
+    # database, no publish, no staging-directory lifecycle.
+    sha = hashlib.sha256(b"png").hexdigest()
+    live, previous, stage = (tmp_path / "live", tmp_path / "prev",
+                            tmp_path / "stage")
+    (live / sha[:2]).mkdir(parents=True)
+    (live / sha[:2] / sha).write_bytes(b"png")
+    stage.mkdir()
+    wanted = {sha: ("pic.png", 3)}
+
+    fresh = _stage_assets(wanted, assets_dir=previous, stage_assets=stage,
+                          live_assets_dir=live)
+
+    assert fresh == {"assets_copied": 1, "assets_repaired": 0,
+                     "assets_missing_source_on_repair": 0}
+    assert (stage / sha / "pic.png").read_bytes() == b"png"
+
+    # Now with that staged tree standing in as the previous export: a
+    # verified file is hardlinked, not re-copied.
+    again = tmp_path / "stage2"
+    again.mkdir()
+    reused = _stage_assets(wanted, assets_dir=stage, stage_assets=again,
+                          live_assets_dir=live)
+
+    assert reused == {"assets_copied": 0, "assets_repaired": 0,
+                      "assets_missing_source_on_repair": 0}
+    assert ((again / sha / "pic.png").stat().st_ino
+            == (stage / sha / "pic.png").stat().st_ino)
 
 
 def test_cross_subtree_publish_failure_recovers_on_next_run(graph, monkeypatch):

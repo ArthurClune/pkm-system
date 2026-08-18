@@ -4,9 +4,8 @@ import hashlib
 import pytest
 
 from pkm.assets_core import (
-    asset_needs_repair, classify_export_asset_transfer,
-    export_limit_violation, mime_category, sha256_hex, strip_asset_tokens,
-    type_where, zip_arcnames)
+    asset_needs_repair, export_limit_violation, mime_category, sha256_hex,
+    strip_asset_tokens, type_where, zip_arcnames)
 
 SHA = "ab" * 32
 URL = f"/assets/{SHA}/pic.png"
@@ -179,13 +178,6 @@ def test_zip_arcnames_mass_duplicates_fall_back_to_numeric_suffix():
 
 
 # --- sha256_hex / asset_needs_repair (pkm-x3l7) ---
-
-@pytest.mark.parametrize(
-    ("was_present", "expected"), [(False, "copied"), (True, "repaired")]
-)
-def test_classifies_export_asset_transfer(was_present, expected):
-    assert classify_export_asset_transfer(was_present) == expected
-
 
 def test_sha256_hex_matches_hashlib():
     assert sha256_hex(b"hello") == hashlib.sha256(b"hello").hexdigest()

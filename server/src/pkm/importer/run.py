@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 
-from pkm.assets_core import asset_needs_repair, sha256_hex
+from pkm.assets_disk import asset_on_disk_needs_repair
 from pkm.edn import EdnError, parse_edn
 from pkm.filenames import safe_filename
 from pkm.importer.assets import UID_PREFIX_LEN, Asset, rewrite_asset_urls
@@ -49,6 +49,31 @@ def _index_files(files_dir: Path) -> tuple[dict[str, Asset], dict[str, Path]]:
     for path in all_files:
         by_name.setdefault(path.name[:UID_PREFIX_LEN].lower(), by_name[path.name.lower()])
     return by_name, paths
+
+
+def _copy_assets(assets_dir: Path, sources: dict[str, Path],
+                 assets: dict[str, Asset]) -> None:
+    """Materialise every linked file into the content-addressed store
+    under `assets_dir`, keyed by sha256.
+
+    An existing destination is verified rather than trusted just because
+    it's present -- pkm-x3l7: a previously truncated/corrupted file must
+    not survive forever. Imports are one-shot manual runs, not a nightly
+    job, so re-hashing every already-present asset every run isn't worth
+    optimizing away.
+
+    Touches no database, which is what lets the caller run it in the
+    middle of one connection's lifetime (see `main`)."""
+    for sha, src in sources.items():
+        dest = assets_dir / sha[:2] / sha
+        if not asset_on_disk_needs_repair(dest, sha, assets[sha].size):
+            continue
+        # Missing, or present but corrupt (size/hash mismatch): (re)write
+        # it atomically from the known-good source file.
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest_tmp = dest.with_name(dest.name + ".tmp")
+        shutil.copyfile(src, dest_tmp)
+        os.replace(dest_tmp, dest)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -113,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     tmp = out / "pkm.sqlite3.tmp"
     tmp.unlink(missing_ok=True)
+    blocked_migration: BlockedTitleMigration | None = None
     con = sqlite3.connect(tmp)
     con.row_factory = sqlite3.Row
     try:
@@ -130,35 +156,15 @@ def main(argv: list[str] | None = None) -> int:
             " VALUES (?,?,?,?,NULL)",
             [(a.sha256, a.filename, a.mime, a.size) for a in unique_assets.values()])
         con.commit()
-    finally:
-        con.close()
 
-    # An existing destination is verified (size, then sha256 if the size
-    # already matches) rather than trusted just because it's present --
-    # pkm-x3l7: a previously truncated/corrupted file must not survive
-    # forever. Imports are one-shot manual runs, not a nightly job, so
-    # re-hashing every already-present asset every run isn't worth
-    # optimizing away.
-    for sha, src in paths.items():
-        dest = out / "assets" / sha[:2] / sha
-        if dest.is_file():
-            expected_size = unique_assets[sha].size
-            actual_size = dest.stat().st_size
-            actual_sha = (sha256_hex(dest.read_bytes())
-                         if actual_size == expected_size else None)
-            if not asset_needs_repair(sha, expected_size, actual_size, actual_sha):
-                continue
-        # Missing, or present but corrupt (size/hash mismatch): (re)write
-        # it atomically from the known-good source file.
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest_tmp = dest.with_name(dest.name + ".tmp")
-        shutil.copyfile(src, dest_tmp)
-        os.replace(dest_tmp, dest)
+        # Asset copying touches no database, so it runs inside this same
+        # connection's lifetime rather than between two of them. The
+        # commit above is what makes a copy failure here leave a
+        # self-healing, fully populated pkm.sqlite3.tmp behind. Title
+        # activation must follow it: the migration rewrites block text
+        # that already references these files.
+        _copy_assets(out / "assets", paths, unique_assets)
 
-    blocked_migration: BlockedTitleMigration | None = None
-    con = sqlite3.connect(tmp)
-    con.row_factory = sqlite3.Row
-    try:
         try:
             plan = audit_title_migration(con)
             apply_title_migration(con, plan.digest, now_ms=int(time.time() * 1000))

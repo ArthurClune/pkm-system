@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { SyncContext, type Sync } from "../sync/SyncProvider";
+import { SyncContext, type Sync, type SyncProblem } from "../sync/SyncProvider";
 import { OfflineIndicator } from "./OfflineIndicator";
 
 function syncWith(overrides: Partial<Sync>): Sync {
@@ -375,4 +375,106 @@ it("uses the singular for one unsent blocked change", () => {
   });
   expect(screen.getByRole("alert"))
     .toHaveTextContent("1 unsent change could not be delivered.");
+});
+
+it("reports a running legacy repair as a status, with no action offered", () => {
+  renderWith({
+    problem: {
+      kind: "legacy-rejected", repair: "running",
+      error: "request failed: 400 /api/ops",
+    },
+  });
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Server rejected a change. Repairing active outlines…");
+  expect(screen.queryByRole("button")).toBeNull();
+});
+
+it("a repaired legacy rejection keeps its note until Dismiss", () => {
+  const dismissProblem = vi.fn();
+  renderWith({
+    problem: {
+      kind: "legacy-rejected", repair: "repaired",
+      error: "request failed: 400 /api/ops",
+    },
+    dismissProblem,
+  });
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Server rejected a change. Active outlines repaired.");
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(dismissProblem).toHaveBeenCalledTimes(1);
+});
+
+// The banner matrix, pinned in one place: every problem kind in every state it
+// can be rendered in, with the role that decides whether a screen reader
+// interrupts the user, and the actions that state may offer. role="alert" is
+// for states the user must act on; everything else is role="status".
+const matrix: Array<[string, SyncProblem, "alert" | "status", string[], string]> = [
+  ["poison-discovery", { kind: "poison-discovery", error: "worker read failed" },
+   "alert", ["Retry"], "Checking rejected changes failed: worker read failed"],
+  ["replica-unavailable",
+   { kind: "replica-unavailable", error: "no access handles" },
+   "status", ["Reload"],
+   "Working online only — offline editing is unavailable for now."],
+  ["legacy-rejected/running",
+   { kind: "legacy-rejected", repair: "running", error: "400" },
+   "status", [], "Repairing active outlines…"],
+  ["legacy-rejected/failed",
+   { kind: "legacy-rejected", repair: "failed", error: "400",
+     repairError: "page read failed" },
+   "alert", ["Retry"], "Authoritative repair failed: page read failed"],
+  ["legacy-rejected/repaired",
+   { kind: "legacy-rejected", repair: "repaired", error: "400" },
+   "status", ["Dismiss"], "Active outlines repaired."],
+  ["rejected-batch/running",
+   { kind: "rejected-batch", event: rejected.event, repair: "running" },
+   "status", [],
+   "Repairing local state… Keep the app open until this finishes."],
+  ["rejected-batch/mark-failed",
+   { kind: "rejected-batch", event: rejected.event, repair: "mark-failed",
+     error: "no worker" },
+   "alert", ["Retry"], "Saving rejected-change recovery failed: no worker"],
+  ["rejected-batch/failed",
+   { kind: "rejected-batch", event: rejected.event, repair: "failed",
+     error: "snapshot 503" },
+   "alert", ["Retry"], "Local repair failed: snapshot 503"],
+  ["rejected-batch/repaired",
+   { kind: "rejected-batch", event: rejected.event, repair: "repaired" },
+   "status", ["Dismiss"], "Local state repaired."],
+  ["replica-stalled/idle",
+   { kind: "replica-stalled", error: "db locked", reset: "idle" },
+   "alert", ["Reset local data"], "Local sync is stuck: db locked"],
+  ["replica-stalled/running",
+   { kind: "replica-stalled", error: "db locked", reset: "running" },
+   "alert", ["Reset local data"], "Local sync is stuck: db locked"],
+  ["replica-stalled/failed",
+   { kind: "replica-stalled", error: "db locked", reset: "failed",
+     resetError: "disk full" },
+   "alert", ["Reset local data"], "Reset failed: disk full."],
+  ["replica-stalled/blocked",
+   { kind: "replica-stalled", error: "db locked", reset: "blocked", pending: 3 },
+   "alert", ["Discard and reset", "Keep waiting"],
+   "3 unsent changes could not be delivered."],
+];
+
+it.each(matrix)("%s renders one %s banner with its own actions",
+(_name, problem, role, buttons, copy) => {
+  // status "connected" with a clean queue keeps the connectivity banner off
+  // the screen, so the only banner rendered is the one under test.
+  renderWith({ problem, status: "connected", pending: 0 });
+  const banner = screen.getByRole(role);
+  expect(banner).toHaveTextContent(copy);
+  expect(within(banner).queryAllByRole("button")
+    .map((button) => button.textContent?.trim())).toEqual(buttons);
+});
+
+it("a problem banner renders above the connectivity banner", () => {
+  // Order is the contract the offline online-only assertions above rely on
+  // when they read getAllByRole("status")[0].
+  renderWith({
+    status: "reconnecting", canEdit: true, pending: 2,
+    problem: { kind: "replica-unavailable", error: "no access handles" },
+  });
+  const [problemBanner, connectivity] = screen.getAllByRole("status");
+  expect(problemBanner).toHaveTextContent("Working online only");
+  expect(connectivity).toHaveTextContent("Offline — 2 changes pending");
 });

@@ -1750,6 +1750,37 @@ test("StrictMode effect replay keeps the queue live", async () => {
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+test("StrictMode effect replay leaves exactly one live connect lifecycle", async () => {
+  // The replayed setup builds a second socket and a second reconnect flow; the
+  // first mount's cleanup must have detached its own (mountedRef false, drain
+  // observer cleared, socket closed) or a reconnect would finish twice and bump
+  // resyncSeq twice. Deliberately paired with "StrictMode effect replay keeps
+  // the queue live": that one pins what replay must NOT tear down, this one
+  // pins what it must not leave running.
+  vi.useFakeTimers();
+  try {
+    let sync!: Sync;
+    function Grab() {
+      sync = useSync();
+      return <div data-testid="strict-lifecycle">{sync.status}:{sync.resyncSeq}</div>;
+    }
+    render(
+      <StrictMode>
+        <SyncProvider replica={null}><Grab /></SyncProvider>
+      </StrictMode>);
+    act(() => lastWs().open());
+    expect(screen.getByTestId("strict-lifecycle").textContent).toBe("connected:0");
+
+    act(() => lastWs().drop());
+    act(() => { vi.advanceTimersByTime(2_000); }); // reconnect timer -> new socket
+    await act(async () => { lastWs().open(); });
+
+    expect(screen.getByTestId("strict-lifecycle").textContent).toBe("connected:1");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a blocked reconnect drain does not pull the feed or bump resync", async () => {
   vi.useFakeTimers();
   try {

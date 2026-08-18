@@ -36,7 +36,7 @@ collisions at push time.
 | WS hub | `server/.../ws.py`, `notify.py` | Post-commit push of `{type:"seq",seq}`; metadata-only generation rotation adds `force:true,generation`; applied-op echoes; 1 s send timeout, stalled clients dropped |
 | Replica | `web/src/replica/` (worker, OPFS) | sqlite-wasm copy of the graph (BASE_DDL only) in a worker on the OPFS SAHPool VFS |
 | Op queue | `web/src/sync/opQueue.ts`, `web/src/replica/queue.ts` | Durable `pending_ops` rows in the replica DB; optimistic local apply; drain-on-reconnect |
-| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncSeq`) |
+| Sync orchestration | `web/src/sync/SyncProvider.tsx`, `useSocketLifecycle.ts`, `reconnectFlow.ts`, `replicaSync.ts` | Connect/reconnect ordering, cursor pull loop, recovery, view refetch (`resyncSeq`) |
 | Offline API shim | `web/src/replica/localApi/` | Serves the read API's exact JSON shapes from the replica when offline (pinned byte-identical by `shared/fixtures/shim_parity.json`, and statically by the generated return types described below) |
 
 ## An online edit, end to end
@@ -249,9 +249,12 @@ sequenceDiagram
     Q->>U: bump resyncSeq → views refetch
 ```
 
-The reconnect ordering in `SyncProvider` is fixed: **drain the queue first,
+The reconnect ordering in `reconnectFlow.ts` is fixed: **drain the queue first,
 then pull, then refetch views.** The pull then observes server state that
-already includes this client's own offline edits.
+already includes this client's own offline edits. One completion is shared by
+both entrants: a socket reconnect, and the queue's drain observer, which is
+what finishes a reconnect whose first drain was blocked and whose retry later
+got through.
 
 Conflict resolution happens entirely server-side at push time
 (`ops_core.plan_op`), per block:
@@ -394,7 +397,7 @@ online-only instead of stalling startup. Two things the shapes do not show:
 ### Availability: two values, one owner
 
 Startup must decide the replica is viable before it can protect the replica's
-contents. `SyncProvider`'s mount effect pauses the queue on the recovery barrier
+contents. `SyncProvider`'s startup effect pauses the queue on the recovery barrier
 and holds it until `queue.retryPoisonMarks()` and `replica.poisonedBatches()`
 have run. Both are replica RPCs, so both reject when the pool can never be
 opened. Something has to make that rejection lift the barrier instead of

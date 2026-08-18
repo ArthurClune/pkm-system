@@ -2,11 +2,11 @@ import itertools
 
 import pytest
 
-from pkm.cli.build import (BuildError, create_page_ops, next_child_idx,
-                           parse_outline, plan_batch, plan_mark, plan_save,
-                           plan_update, referenced_pages, resolve_parent,
-                           split_heading, validate_batch)
-from pkm.cli.render import render_page
+from pkm.batch import plan_batch, referenced_pages, validate_batch
+from pkm.planning import (BuildError, create_page_ops, next_child_idx,
+                          parse_outline, plan_mark, plan_save, plan_update,
+                          resolve_parent, split_heading)
+from pkm.render import render_page
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                SetHeadingOp, UpdateTextOp, text_hash)
 from pkm.contracts.responses import BlockNode, PagePayload
@@ -97,7 +97,7 @@ def test_resolve_parent_duplicate_headings_picks_first_in_document_order():
     # at page top level after that block -- pinning pre-order (depth
     # first) document order, not top-level list order, as the tie-break.
     # This matches the in-batch memoization's first-write rule
-    # (_Planner._headings.setdefault).
+    # (Planner._headings.setdefault).
     blocks = [
         _node("container", "Some section",
               children=[_node("first", "Notes", heading=2)]),

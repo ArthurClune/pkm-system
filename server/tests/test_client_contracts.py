@@ -2,9 +2,11 @@
 transport-neutral request/response models the server also serializes with
 (pkm-0wr8). Two things are guarded here:
 
-* dependency direction: nothing under pkm.client/pkm.cli/pkm.mcp may
+* dependency direction: nothing on the client side -- the two shells, the
+  shared HTTP client, and the transport-neutral planners/renderers -- may
   import pkm.server.*, so the client half of the codebase can never again
-  reach into server internals for a shape it needs;
+  reach into server internals for a shape it needs; and the shared half
+  may not import a shell back, which is the arrow its placement asserts;
 * response validation: PkmClient hands back validated model instances, so
   a server whose payload drifts from the contract fails loudly on the
   client with a message naming the endpoint and the offending field --
@@ -21,7 +23,10 @@ import pytest
 from pkm.client.core import ApiError, ResponseSchemaError
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "pkm"
-CLIENT_SIDE_PACKAGES = ("client", "cli", "mcp")
+# The planners and renderers are shared by both shells and the client
+# workflows, which is why they sit outside all three rather than under one.
+SHARED_PLANNERS = ("planning.py", "batch.py", "render.py")
+CLIENT_SIDE = ("client", "cli", "mcp", *SHARED_PLANNERS)
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -35,26 +40,45 @@ def _imported_modules(path: Path) -> set[str]:
     return names
 
 
-def _imports_of(pkg: str, prefixes: tuple[str, ...]) -> list[str]:
+def _imports_of(target: str, prefixes: tuple[str, ...]) -> list[str]:
+    """Every import in `target` -- one module file, or a package walked
+    recursively -- that starts with one of `prefixes`."""
+    path_or_dir = SRC / target
+    files = [path_or_dir] if path_or_dir.is_file() \
+        else sorted(path_or_dir.rglob("*.py"))
+    assert files, f"nothing to check at {target} — did a module move?"
     return [f"{path.relative_to(SRC)} -> {mod}"
-            for path in sorted((SRC / pkg).rglob("*.py"))
+            for path in files
             for mod in sorted(_imported_modules(path))
             if any(mod == p or mod.startswith(p + ".") for p in prefixes)]
 
 
 def test_client_side_packages_never_import_server_internals():
-    offenders = [bad for pkg in CLIENT_SIDE_PACKAGES
-                 for bad in _imports_of(pkg, ("pkm.server",))]
+    offenders = [bad for target in CLIENT_SIDE
+                 for bad in _imports_of(target, ("pkm.server",))]
     assert offenders == [], (
         "client-side code must depend on pkm.contracts (shared with the "
         "server), never on pkm.server internals: " + ", ".join(offenders))
 
 
+def test_shared_planners_never_import_a_shell():
+    # pkm.planning/pkm.batch/pkm.render moved out of pkm.cli precisely
+    # because the MCP server and the client workflows plan and render
+    # through them too. An import back into any shell re-inverts that.
+    offenders = [bad for target in SHARED_PLANNERS
+                 for bad in _imports_of(target, ("pkm.cli", "pkm.mcp",
+                                                 "pkm.client"))]
+    assert offenders == [], (
+        "the shared planners/renderers must not depend on a shell: "
+        + ", ".join(offenders))
+
+
 def test_contracts_depend_on_neither_side():
     # What makes it safe for both halves to depend on the contracts: they
     # are plain domain models with no idea a server or a client exists.
-    offenders = _imports_of("contracts",
-                            ("pkm.server", "pkm.client", "pkm.cli", "pkm.mcp"))
+    offenders = _imports_of(
+        "contracts", ("pkm.server", "pkm.client", "pkm.cli", "pkm.mcp",
+                      "pkm.planning", "pkm.batch", "pkm.render"))
     assert offenders == [], (
         "pkm.contracts must stay independent of both sides: "
         + ", ".join(offenders))

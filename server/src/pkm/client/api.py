@@ -291,7 +291,7 @@ class PkmClient:
 
     def post_ops(self, ops: Sequence[BlockOp | Mapping[str, Any]],
                  batch_id: str) -> OpsAck:
-        """Apply `ops` as one atomic batch. The planners in `pkm.cli.build`
+        """Apply `ops` as one atomic batch. The planners in `pkm.planning`
         hand over contract models; raw mappings are accepted too (tests and
         one-off scripts write ops by hand) and validated identically by
         OpBatch, so a malformed op fails here with 422 rather than on the

@@ -1,4 +1,4 @@
-from pkm.cli.render import (clip_depth, render_assets, render_backlinks,
+from pkm.render import (clip_depth, render_assets, render_backlinks,
                             render_block, render_groups, render_page,
                             render_search, render_title_migration_apply,
                             render_title_migration_audit)
@@ -144,7 +144,7 @@ def test_render_empty_text_block():
 
 
 def test_resolve_ref_texts_inlines_and_keeps_uid():
-    from pkm.cli.render import resolve_ref_texts
+    from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
     ref_map = {"u9": BlockRefText(text="the target", page_title="P")}
     assert resolve_ref_texts("see ((u9)) here", ref_map) == \
@@ -152,12 +152,12 @@ def test_resolve_ref_texts_inlines_and_keeps_uid():
 
 
 def test_resolve_ref_texts_unknown_uid_untouched():
-    from pkm.cli.render import resolve_ref_texts
+    from pkm.render import resolve_ref_texts
     assert resolve_ref_texts("see ((zz)) here", {}) == "see ((zz)) here"
 
 
 def test_resolve_ref_texts_nested_and_cyclic():
-    from pkm.cli.render import resolve_ref_texts
+    from pkm.render import resolve_ref_texts
     from pkm.contracts.responses import BlockRefText
     ref_map = {"a": BlockRefText(text="A says ((b))", page_title="P"),
                "b": BlockRefText(text="B says ((a))", page_title="P")}
@@ -357,19 +357,19 @@ def _section_blocks() -> list[BlockNode]:
 
 
 def test_select_section_marked_spec_matches_heading_level_and_text():
-    from pkm.cli.render import select_section
+    from pkm.render import select_section
     [sec] = select_section(_section_blocks(), "## Notes")
     assert sec.uid == "h2a"
 
 
 def test_select_section_marked_spec_selects_different_level_same_text():
-    from pkm.cli.render import select_section
+    from pkm.render import select_section
     [sec] = select_section(_section_blocks(), "### Notes")
     assert sec.uid == "h3"
 
 
 def test_select_section_bare_spec_is_heading_agnostic_and_picks_first_in_document_order():
-    from pkm.cli.render import select_section
+    from pkm.render import select_section
     [sec] = select_section(_section_blocks(), "Notes")
     assert sec.uid == "plain"
 
@@ -377,7 +377,7 @@ def test_select_section_bare_spec_is_heading_agnostic_and_picks_first_in_documen
 def test_select_section_miss_lists_available_marked_headings_in_document_order():
     import pytest
 
-    from pkm.cli.render import RenderError, select_section
+    from pkm.render import RenderError, select_section
     with pytest.raises(RenderError) as exc_info:
         select_section(_section_blocks(), "# Notes")
     message = str(exc_info.value)

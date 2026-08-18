@@ -1,6 +1,6 @@
 import pytest
 
-from pkm.cli.build import BuildError
+from pkm.planning import BuildError
 from pkm.client.core import ApiError
 from pkm.mcp import server as mcp_server
 

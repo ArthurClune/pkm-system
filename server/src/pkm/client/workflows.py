@@ -10,9 +10,8 @@ returns strings, and each shell keeps its own argument handling (stdin,
 argparse exit codes, MCP's tool docstrings). These functions return
 values -- created ops, an applied count -- for the shells to phrase.
 
-(The pure planners these call still live in `pkm.cli.build`; despite the
-package name they have always been shared with the MCP server, and they
-import nothing from either shell.)"""
+The pure planners they call are `pkm.planning` and `pkm.batch`, which sit
+outside every shell for the same reason this module does."""
 from __future__ import annotations
 
 import uuid
@@ -20,13 +19,13 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from pkm.cli.build import (asset_block_text, create_page_ops, plan_batch,
-                           plan_mark, plan_save, plan_update,
-                           referenced_pages, resolve_parent, validate_batch)
+from pkm.batch import plan_batch, referenced_pages, validate_batch
 from pkm.client.api import PkmClient, new_uid
 from pkm.client.core import ApiError
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockOp, CreateOp
+from pkm.planning import (asset_block_text, create_page_ops, plan_mark,
+                          plan_save, plan_update, resolve_parent)
 
 
 def _uids():

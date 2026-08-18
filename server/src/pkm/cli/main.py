@@ -1,7 +1,7 @@
 # pattern: Imperative Shell
 """`pkm` CLI: argparse dispatch over PkmClient. Output shaping lives in
-cli.render, op planning in cli.build; this file is wiring, stdin/stdout,
-and exit codes."""
+pkm.render, op planning in pkm.planning / pkm.batch (all shared with
+`pkm-mcp`); this file is wiring, stdin/stdout, and exit codes."""
 from __future__ import annotations
 
 import argparse
@@ -15,12 +15,6 @@ from pathlib import Path
 import httpx2
 from pydantic import BaseModel
 
-from pkm.cli.build import BuildError
-from pkm.cli.render import (RenderError, clip_depth, render_assets,
-                            render_backlinks, render_block, render_groups,
-                            render_page, render_search,
-                            render_title_migration_apply,
-                            render_title_migration_audit, select_section)
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
@@ -28,6 +22,12 @@ from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import UID_RE
+from pkm.planning import BuildError
+from pkm.render import (RenderError, clip_depth, render_assets,
+                        render_backlinks, render_block, render_groups,
+                        render_page, render_search,
+                        render_title_migration_apply,
+                        render_title_migration_audit, select_section)
 
 _RELATIVE = {"today": 0, "yesterday": -1, "tomorrow": 1}
 

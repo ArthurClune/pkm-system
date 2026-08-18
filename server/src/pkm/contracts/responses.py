@@ -12,6 +12,7 @@ Keep every field required (no defaults): the routes always populate them, and
 optionality here would surface as `?:` in the generated TypeScript."""
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -36,6 +37,16 @@ class BlockNode(BaseModel):
     created_at: int | None
     updated_at: int | None
     children: list[BlockNode]
+
+
+def walk_blocks(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
+    """Every block in a page's tree, in document (pre-)order. Lives with
+    the model rather than with either of the two callers that search a
+    fetched page -- the planners and the renderers -- which had a private
+    copy each."""
+    for n in nodes:
+        yield n
+        yield from walk_blocks(n.children)
 
 
 class BacklinkItem(BaseModel):

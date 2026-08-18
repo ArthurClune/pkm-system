@@ -43,6 +43,9 @@ web/src/
 ├── useBlockStampsPref.ts     Shell        Owns the single instance behind BlockStampsContext
 ├── uid.ts / uidCore.ts       Shell/Core   uid minting; the alphanumeric-first rule
 ├── theme.ts / useTheme.ts    Core/Shell   Theme cycle; data-theme stamping
+├── popoverPosition.ts        Core         clampPopoverPosition — viewport clamping
+├── Popover.tsx               Shell        The shared anchored-popover chrome
+├── useDismiss.ts             Shell        Outside-mousedown + Escape dismissal
 ├── styles.css                —            All styling — owned by styling.md
 │
 ├── api/                      The typed HTTP layer (see API layer)
@@ -205,6 +208,39 @@ the item on `/page/*`.
 The main pane and a sidebar panel can show *the same page at the same time*.
 That fact drives the outline-session design below.
 
+### Popovers and menus
+
+`Popover.tsx` is the chrome every anchored popover renders through: a
+`role="dialog"` on `.block-ref-popover`, `position: fixed` at its anchor
+point, measured after layout and clamped inside the viewport by
+`clampPopoverPosition`. An overflowing fixed element grows no scrollbar to
+recover it, so the clamp is the only thing keeping it reachable. Its one prop that is not
+chrome is `remeasure` — the caller's list of values whose change resizes the
+content, and so invalidates the clamp. A re-render the caller did not declare
+there is not re-measured, so a popover cannot drift under the pointer.
+
+`useDismiss(ref, onDismiss, options)` is the dismissal half on its own: a
+`mousedown` outside `ref`, or Escape, closes the surface. Both listeners sit
+on `document`. Mousedown rather than click, so the surface goes on press
+rather than waiting for a release that may never land over it; Escape at the
+document level, so dismissal still works once focus has left the surface.
+`enabled` is for a surface whose component stays mounted while closed;
+`preventDefaultOnEscape` for one that claims the keystroke outright.
+
+| Surface | Chrome | Dismissal |
+|---|---|---|
+| `BlockRefBacklinksPopover`, `FileCardPopovers` | `Popover` | `Popover`'s own `useDismiss` |
+| `BlockMenu` | `.block-menu` | `useDismiss`; roving focus and Tab stay in the component |
+| `TopBar`'s page menu, `SearchBar` | own markup | `useDismiss` with `enabled` |
+| `ConfirmDialog`, `ImageOverlay` | own modal markup | hand-rolled: `window` listener, Enter/Tab, scroll lock, focus restore |
+| `AutocompletePopup`, `DatePickerPopup` | own markup | none of their own — `BlockInput` owns their keys |
+
+**Hand-roll dismissal only for a modal surface, or one whose keys another
+component owns.** Modal here means it traps focus, locks page scrolling, or
+answers keys beyond Escape. The last two table rows are the standing examples
+of each case. Everything else takes the hook, so the app has one answer to
+what "outside" means.
+
 ### The `/files` browser
 
 `/files` is a plain table over `/api/assets/search`, with filters (text over
@@ -312,10 +348,9 @@ The popover renders through `BacklinkGroupList`, the one renderer for
 backlink-group markup, shared with `BacklinksSection` and the `/files` refs
 popover. Navigation is
 read-only-safe, so the badge and popover render in `fallback` trees too.
-After render the popover measures itself and clamps its fixed position into
-the viewport (`popoverPosition.ts`) — the badge anchors at the right end of
-its row, and an overflowing `position: fixed` element grows no scrollbar to
-recover it.
+Chrome, clamping and dismissal come from the shared `Popover` shell. The
+badge anchors at the right end of its row, which is what makes the clamp
+load-bearing here.
 
 **Which way the editor's dependencies point.** Everything the UI can ask the
 editor to do is the `OutlineHandlers` port in `outline/handlers.ts` — about

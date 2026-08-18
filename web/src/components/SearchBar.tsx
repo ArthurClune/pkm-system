@@ -6,6 +6,7 @@ import type { SearchPayload } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { parseSnippet } from "../grammar/snippet";
 import { pagePath } from "../paths";
+import { useDismiss } from "../useDismiss";
 import { SearchIcon } from "./icons";
 
 interface ResultRow {
@@ -90,22 +91,9 @@ export function SearchBar() {
 
   // While engaged: an outside click cancels, and Escape cancels at the
   // document level so the search can be dismissed even when focus has
-  // wandered off the input.
-  useEffect(() => {
-    if (!open) return;
-    const onMouseDown = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) cancel();
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") cancel();
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
+  // wandered off the input. Escape does not preventDefault here — the input
+  // is a real text field with its own Escape handling.
+  useDismiss(wrapRef, cancel, { enabled: open });
 
   useEffect(() => {
     const trimmed = query.trim();

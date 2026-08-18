@@ -5,6 +5,7 @@ import { apiDelete } from "../api/typedClient";
 import { BlockStampsContext, SidebarContext } from "../contexts";
 import { encodeTitle, titleFromPathname } from "../paths";
 import { PAGE_ROUTE_PREFIX, ROUTES, routeMetaFor } from "../routeMeta";
+import { useDismiss } from "../useDismiss";
 import { useConfirm } from "./ConfirmDialog";
 import { HelpCircleIcon, MoreHorizontalIcon, PanelLeftIcon } from "./icons";
 import { SearchBar } from "./SearchBar";
@@ -68,21 +69,10 @@ export function TopBar({ sidebarCollapsed, onToggleSidebar }: {
   // open/visible.
   useEffect(() => { setMenuOpen(false); setDeleteError(null); }, [pathname]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onOutsideClick = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onOutsideClick);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onOutsideClick);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuOpen]);
+  // Escape here does not preventDefault: the confirm dialog this menu opens
+  // owns the keystroke while it is up, and the menu closing underneath it is
+  // incidental.
+  useDismiss(menuRef, () => setMenuOpen(false), { enabled: menuOpen });
 
   return (
     <>

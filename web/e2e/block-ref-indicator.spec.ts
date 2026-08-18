@@ -71,10 +71,24 @@ test("badge shows the incoming count and its popover navigates", async ({ page }
   // rely on (web/e2e/assistant-asset-link.spec.ts).
   await expect(page.locator(`[data-uid="${sourceUid}"]`)).toHaveClass(/flash-target/);
 
-  // Escape-dismiss on a fresh open
+  // Both dismiss paths of the shared popover shell (pkm-2i6a), in a real
+  // browser: Escape from the document, and a mousedown outside the dialog.
   await page.goto(`/page/${encodeURIComponent(target)}`);
   await page.locator(".block-ref-badge").click();
   await expect(page.getByRole("dialog", { name: "References" })).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "References" })).toHaveCount(0);
+
+  await page.locator(".block-ref-badge").click();
+  const reopened = page.getByRole("dialog", { name: "References" });
+  await expect(reopened).toBeVisible();
+  // a click inside the dialog must NOT dismiss it -- the containment check is
+  // the half of outside-click detection that a naive listener gets wrong.
+  // The dialog's own top-left padding, not a child: every child here is a
+  // link or a navigable row.
+  await reopened.click({ position: { x: 2, y: 2 } });
+  await expect(reopened).toBeVisible();
+  // the top-bar label is inert chrome, so this is a pure outside click
+  await page.locator(".top-bar-title").click();
   await expect(page.getByRole("dialog", { name: "References" })).toHaveCount(0);
 });

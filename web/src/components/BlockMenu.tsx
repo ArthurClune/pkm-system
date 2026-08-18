@@ -1,8 +1,11 @@
 // pattern: Imperative Shell
 // Dumb fixed-position context menu for a block (opened from its bullet).
-// Owns focus, keyboard navigation, and dismissal: Escape/click-away call
-// onClose; picking an item runs its action, then closes.
+// Owns focus and roving keyboard navigation; picking an item runs its action,
+// then closes. Escape/click-away dismissal is the shared contract
+// (useDismiss.ts), so the keydown listener below handles only the
+// menu-specific keys.
 import { Fragment, useEffect, useRef } from "react";
+import { useDismiss } from "../useDismiss";
 
 export interface BlockMenuItem {
   label: string;
@@ -16,6 +19,7 @@ export function BlockMenu({ x, y, items, onClose }: {
   x: number; y: number; items: BlockMenuItem[]; onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
+  useDismiss(ref, onClose, { preventDefaultOnEscape: true });
   useEffect(() => {
     const enabledItems = () => Array.from(
       ref.current?.querySelectorAll<HTMLButtonElement>(
@@ -23,15 +27,7 @@ export function BlockMenu({ x, y, items, onClose }: {
       ) ?? [],
     );
     enabledItems()[0]?.focus();
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
-    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-        return;
-      }
       if (e.key === "Tab") {
         onClose();
         return;
@@ -46,12 +42,8 @@ export function BlockMenu({ x, y, items, onClose }: {
       else if (e.key === "ArrowDown") buttons[(current + 1) % buttons.length].focus();
       else buttons[(current - 1 + buttons.length) % buttons.length].focus();
     };
-    document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
     <div className="block-menu" role="menu" aria-label="Block actions" ref={ref}

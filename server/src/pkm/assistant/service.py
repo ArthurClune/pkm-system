@@ -19,18 +19,19 @@ from pkm.assistant.policy import available_models as _policy_available_models
 logger = logging.getLogger("pkm.assistant")
 
 # Bounds engine.create_conversation() (spawns the harness subprocess and
-# waits for it to connect) while the admission lock is held -- see the
-# comment on _admission_lock below. pkm-rovq review round 1.
+# waits for it to connect) while the admission lock is held, so one wedged
+# harness fails one request instead of wedging every future create().
+# pkm-rovq review round 1.
 #
-# Not a hard ceiling on how long the lock is held: asyncio.wait_for does not
-# return until the task it cancelled has actually finished unwinding, so if
-# the handshake is still wedged at CREATE_TIMEOUT_S, create_conversation's
-# own cancellation-triggered cleanup (disconnecting the partially-connected
-# client, pkm-4zq4) runs to completion first, under the lock, before
-# TimeoutError reaches create() below. That cleanup rides on the SDK
+# THE LOCK-HOLD STORY, once, here: this is not a ceiling on how long the lock
+# is held. asyncio.wait_for does not return until the task it cancelled has
+# finished unwinding, so a handshake still wedged at CREATE_TIMEOUT_S gets
+# create_conversation's own cancellation-triggered cleanup (disconnecting the
+# partially-connected client, pkm-4zq4) run to completion first, under the
+# lock, before TimeoutError reaches create() below. That cleanup rides the SDK
 # transport's own bounded close (~20s worst case per claude_agent_sdk's
-# SubprocessCLITransport), so the true worst-case lock hold is
-# CREATE_TIMEOUT_S plus that -- roughly 80s, not 60s. pkm-4zq4 fix round 1.
+# SubprocessCLITransport), so the true worst-case hold is CREATE_TIMEOUT_S
+# plus that -- roughly 80s, not 60s. pkm-4zq4 fix round 1.
 CREATE_TIMEOUT_S = 60.0
 
 
@@ -88,17 +89,12 @@ class AssistantService:
         # failed or cancelled creation never leaves admission stuck.
         #
         # The lock spans a subprocess spawn: engine.create_conversation()
-        # starts the Claude CLI harness and awaits its connect handshake.
-        # That await is bounded by CREATE_TIMEOUT_S below so a wedged
-        # harness can't hold the lock (and therefore every future create())
-        # hostage forever -- though see CREATE_TIMEOUT_S's own comment:
-        # cancellation-triggered cleanup inside create_conversation
-        # (pkm-4zq4) still runs under this lock, so the true bound is
-        # CREATE_TIMEOUT_S plus that cleanup, not CREATE_TIMEOUT_S alone.
-        # The other unbounded await under the old code -- closing a
-        # reaped/evicted conversation's harness -- is moved out of the
-        # locked section entirely below: eviction correctness only needs the
-        # `_entries` pop to be atomic with the cap check, not for the old
+        # starts the Claude CLI harness and awaits its connect handshake,
+        # bounded by CREATE_TIMEOUT_S -- see that constant's comment for what
+        # the bound actually costs. The other await that used to run under
+        # this lock, closing a reaped or evicted conversation's harness, is
+        # deferred to create()'s outer finally: eviction correctness needs the
+        # `_entries` pop to be atomic with the cap check, not the old
         # harness's teardown to finish before admission proceeds.
         self._admission_lock = asyncio.Lock()
 
@@ -141,10 +137,9 @@ class AssistantService:
                 logger.info("assistant conversation %s created (model=%s)", cid, resolved)
                 return cid, resolved
         finally:
-            # Runs after the admission lock has already been released (the
-            # `async with` above exits, and therefore releases it, before
-            # control reaches this outer `finally`), so a slow-to-close
-            # harness delays only this request, never other admissions.
+            # The `async with` above has already exited, and so released the
+            # lock, before control reaches this outer `finally`: a
+            # slow-to-close harness delays only this request.
             #
             # Every entry here was already popped from `_entries` under the
             # lock (by _reap_idle/_evict_oldest_idle above) -- nothing else

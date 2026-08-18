@@ -23,7 +23,8 @@ threat model: [`docs/SECURITY.md`](../SECURITY.md).
 |---|---|---|
 | `events.py` | Core | The event union routes and the web UI speak (`TextDelta`, `ToolStarted`/`ToolFinished`, `ConfirmRequest`, `TurnDone`, `ErrorEvent`) + `encode_sse()`. Nothing engine-specific leaks upward |
 | `policy.py` | Core | The tool gate (seven read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` default / `opus` / `haiku` / `glm`; `available_models()` drops `glm` when no z.ai key is configured), tool-activity summaries and write-op previews, and the system prompt |
-| `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend (or the test double) plugs into |
+| `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend (or the test double) plugs into. `send()` is typed as an async generator because the caller closes it |
+| `harness_env.py` | Core | `resolve_harness_env()`: requested model + available key → the alias handed to the SDK and the harness subprocess's env (tool loading, provider overrides) |
 | `service.py` | Shell | In-memory conversation registry: 3-conversation cap, lazy 15-minute idle reap, per-conversation lock (a second concurrent turn is a 409); `close_all()` runs on app-lifespan shutdown |
 | `claude_engine.py` | Shell | The Claude Agent SDK adapter — the only engine today |
 | `routes.py` | Shell | The HTTP/SSE endpoints; an engine failure mid-stream is reported in-band as an `error` SSE event, not a broken response. `_with_keepalive()` interleaves a comment frame (`events.SSE_COMMENT`) every `KEEPALIVE_INTERVAL_S` idle seconds |
@@ -64,9 +65,10 @@ under a single `asyncio.Lock`; without it, two concurrent creations could
 both observe free capacity before either registered, bypassing the cap or
 double-evicting. The lock spans a subprocess spawn, so it is bounded by
 `create_timeout` (`CREATE_TIMEOUT_S`, 60s default): a wedged harness fails
-that one request instead of wedging every future `create()`. The bound is the
-timeout *plus* the cancelled task's own cleanup — `asyncio.wait_for` waits
-for it — which rides the SDK transport's bounded close.
+that one request instead of wedging every future `create()`. The real hold is
+longer than the timeout, because `asyncio.wait_for` waits for the cancelled
+task's own cleanup; `CREATE_TIMEOUT_S`'s comment has that arithmetic, and is
+the one place that keeps it.
 
 Closing a reaped or evicted conversation's harness runs *after* the lock is
 released; the registry pop alone is what enforces the cap, so a hung teardown
@@ -76,6 +78,54 @@ retry it, and a cancellation landing mid-`close()` keeps closing the rest of
 the queue before being re-raised. Only admission is serialized — sending a
 turn, confirming a tool call and deleting a conversation are unaffected.
 
+### Teardown when the client disappears
+
+A tab closed mid-turn, a navigation, or the panel's Stop button all end the
+same way: Starlette closes or cancels the response body. Each layer of the SSE
+path then closes the next explicitly, rather than dropping it for CPython's
+async-generator finalizer to collect.
+
+```mermaid
+flowchart LR
+    R["StreamingResponse<br/>close or cancel"] --> F["routes._sse_frames"]
+    F -->|aclosing| K["routes._with_keepalive"]
+    K -->|_abandon_stream| S["service._stream"]
+    S -->|aclosing| C["ClaudeConversation.send"]
+    C --> A["_abandon_turn"]
+```
+
+Finalization would run every `finally` eventually, which is not the same as
+running them in order. `_stream` reads `handle.healthy` as it unwinds, and a
+dropped handle generator has not run its own cleanup by then, so that read
+sees the value from before it. An unacknowledged interrupt would then leave
+the conversation in the registry for a later turn to reuse.
+
+`_abandon_stream` cancels *and awaits* the in-flight read before closing the
+stream: `aclose()` on a generator with an `__anext__` still in flight raises
+"asynchronous generator is already running". It logs failures instead of
+raising them, because it runs while a `GeneratorExit` or a cancellation is
+already unwinding the caller, and anything raised there would replace the
+disconnect and skip the rest of the teardown.
+
+**`ClaudeConversation._abandon_turn` declines every parked confirm future
+first, and only then awaits `interrupt()`** (bounded by
+`INTERRUPT_TIMEOUT_S`). The order matters and is easy to get backwards: a
+harness sitting in `can_use_tool` cannot acknowledge an interrupt until it
+gets its decision, so interrupting first wedges it forever.
+`FakeSDKClient.interrupt()` returns instantly, which hides this entirely, so
+the regression tests use a subclass whose `interrupt()` never returns.
+
+An unacknowledged interrupt retires the conversation, not just the turn. If
+`interrupt()` times out or raises, the subprocess may still be running the
+abandoned turn, so `ClaudeConversation` flips `healthy` to `False` and the
+conversation must never be handed a later turn. `AssistantService._stream()`
+checks `healthy` right after clearing the busy flag — synchronously, so it
+cannot race a concurrent admission's reap or evict. It pops the conversation,
+and closes the harness only if its own pop removed the entry, so one already
+torn down by an explicit `delete()` (the pagehide beacon, say) cannot be
+double-closed. The next `send()` for that id gets a plain
+`UnknownConversationError` (404).
+
 ### How `claude_engine.py` confines the harness
 
 - **One SDK subprocess per conversation**, with `tools=[]` plus a single MCP
@@ -83,7 +133,9 @@ turn, confirming a tool call and deleting a conversation are unaffected.
   the pkm verbs. `ENABLE_TOOL_SEARCH=false` is required alongside `tools=[]`,
   so the MCP tools load eagerly instead of being deferred behind a
   ToolSearch tool.
-- **Provider routing**: `model="glm"` runs the same harness against z.ai's
+- **Provider routing** is decided by `harness_env.resolve_harness_env()`
+  before anything is spawned, keyed on `policy.ZAI_MODELS` membership rather
+  than a `glm` literal. `model="glm"` runs the same harness against z.ai's
   Anthropic-compatible endpoint, via `ANTHROPIC_BASE_URL` and
   `ANTHROPIC_AUTH_TOKEN` in the subprocess env. The SDK is passed the
   `sonnet` alias: z.ai maps Claude aliases to its plan-default GLM
@@ -113,24 +165,8 @@ turn, confirming a tool call and deleting a conversation are unaffected.
   Startup failure and normal teardown share one code path instead of two.
 - **Write confirmation** is the parked-future flow in the diagram above. A
   denial returns "the user declined" to the model instead of erroring the
-  turn.
-- **Dropped-consumer cleanup, in this order**: decline every pending confirm
-  future, *then* await `interrupt()` (bounded by `INTERRUPT_TIMEOUT_S`). The
-  order matters and is easy to get backwards. A harness sitting in
-  `can_use_tool` cannot acknowledge an interrupt until it gets its decision, so
-  interrupting first wedges the harness forever. `FakeSDKClient.interrupt()`
-  returns instantly, which hides this entirely, so the regression tests use a
-  subclass whose `interrupt()` never returns.
-- **An unacknowledged interrupt retires the conversation, not just the turn.**
-  If `interrupt()` times out or raises, the subprocess may still be running
-  the abandoned turn. `ClaudeConversation` therefore flips `healthy` to
-  `False`, and the conversation must never be handed a later turn.
-  `AssistantService._stream()` checks `healthy` right after clearing the
-  busy flag — synchronously, so it cannot race a concurrent admission's
-  reap or evict. It pops the conversation, and closes the harness only if
-  its own pop removed the entry, so one already torn down by an explicit
-  `delete()` (the pagehide beacon, say) cannot be double-closed. The next
-  `send()` for that id gets a plain `UnknownConversationError` (404).
+  turn. Cleanup when the consumer vanishes mid-confirm is
+  [Teardown when the client disappears](#teardown-when-the-client-disappears).
 - **Silent turns are the norm, not the exception.** Long model reasoning,
   large tool payloads and a parked confirm can all write nothing for minutes,
   so `routes._with_keepalive()` keeps the SSE connection warm with the

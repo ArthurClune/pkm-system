@@ -1,7 +1,7 @@
 from pkm.render import (clip_depth, render_assets, render_backlinks,
-                            render_block, render_groups, render_page,
-                            render_search, render_title_migration_apply,
-                            render_title_migration_audit)
+                        render_block, render_groups, render_page,
+                        render_search, render_title_migration_apply,
+                        render_title_migration_audit)
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
                                      BlockNode, BlockPayload, GroupsPayload,
                                      PagePayload, QueryPayload, SearchPayload,

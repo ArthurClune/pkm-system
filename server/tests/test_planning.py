@@ -282,6 +282,29 @@ def test_plan_batch_todo_with_index_under_parent():
     assert ops[0].text == "{{TODO}} urgent"
 
 
+def test_plan_batch_indexed_create_leaves_later_appends_counting_from_the_page():
+    # `pkm batch --help` warns against mixing an indexed create with plain
+    # appending creates under the same parent, because the plain ones count
+    # from the parent's ORIGINAL child count and can interleave with the
+    # indexed block instead of landing after it. That warning is only honest
+    # while `create_at` leaves the append counter alone: the appends here
+    # must be 2 and 3, the page's two existing top-level blocks and one
+    # more, not 3 and 4 as they would be if the indexed create had bumped
+    # the counter on its way past.
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "spliced in",
+                    "index": 0}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "appended first"}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "appended second"}},
+    ]
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    assert [o.parent_uid for o in ops] == [None, None, None]
+    assert [o.order_idx for o in ops] == [0, 2, 3]
+
+
 def test_plan_batch_alias_as_uid():
     cmds = [
         {"command": "create",

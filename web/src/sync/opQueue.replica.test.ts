@@ -3,6 +3,7 @@
 // drain obeys. The fake Replica it drives lives in ./memReplica.
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
+import type { Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnavailableError,
          RpcLifecycleError } from "../replica/errors";
 import { jsonResponse } from "../test-helpers";
@@ -31,6 +32,18 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
+
+/** The exhausted-SAH-pool shape (pkm-ndcu): local storage is unavailable, and
+ * that is never a server rejection. */
+const CANTOPEN =
+  "SQLITE_CANTOPEN: sqlite3 result code 14: unable to open database file";
+
+/** A queue whose local persistence always fails, so every enqueue lands in the
+ * in-memory lane. */
+const laneOnlyReplica = (over: Partial<Replica> = {}) => memReplica({
+  enqueue: async () => { throw new Error(CANTOPEN); },
+  ...over,
+});
 
 test("clientId is stable and uid-shaped", () => {
   expect(clientId).toMatch(/^[a-zA-Z0-9_-]{6,32}$/);
@@ -281,12 +294,7 @@ test("an exhausted SAH pool enqueue failure is retained, not desynced", async ()
   // is not an availability failure at all — which is why the rule cannot be a
   // check on the availability type.
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
-  const replica = memReplica({
-    enqueue: async () => {
-      throw new Error(
-        "SQLITE_CANTOPEN: sqlite3 result code 14: unable to open database file");
-    },
-  });
+  const replica = laneOnlyReplica();
   const desyncs: unknown[] = [];
   const q = createOpQueue(replica, (e) => desyncs.push(e));
   const ticket = q.enqueue([op("u1")]);
@@ -899,17 +907,10 @@ test("replica retry delays are 250ms, 1s, then 5s capped and success resets", as
 // --- pkm-49eh: an enqueue that cannot persist locally joins an ordered
 // in-memory lane instead of being POSTed directly from enqueue(). ---
 
-/** The exhausted-SAH-pool shape (pkm-ndcu): local storage is unavailable, and
- * that is never a server rejection. */
-const CANTOPEN =
-  "SQLITE_CANTOPEN: sqlite3 result code 14: unable to open database file";
-
 test("an unpersistable enqueue is retained offline and delivered on reconnect",
 async () => {
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
-  const replica = memReplica({
-    enqueue: async () => { throw new Error(CANTOPEN); },
-  });
+  const replica = laneOnlyReplica();
   const desyncs: unknown[] = [];
   const q = createOpQueue(replica, (e) => desyncs.push(e));
   q.setOnline(false);
@@ -1059,6 +1060,30 @@ async () => {
   await expect(retained.delivered).resolves.toEqual({ status: "delivered" });
 });
 
+test("a successful out-of-band flush settles an orphaned durable ticket",
+async () => {
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  q.setOnline(false);
+
+  const flushed = q.enqueue([op("flushed")]);
+  const remaining = q.enqueue([op("remaining")]);
+  await q.settled();
+  replica.rows.splice(0, 1); // a successfully POSTed recovery/reset flush
+
+  let flushedOutcome: unknown;
+  void flushed.delivered.then((outcome) => { flushedOutcome = outcome; });
+  q.setOnline(true);
+  await expect(q.drain()).resolves.toEqual({ status: "drained" });
+  await expect(remaining.delivered).resolves.toEqual({ status: "delivered" });
+  await Promise.resolve();
+
+  expect(bodies.map((entry) => (entry.body as { ops: unknown[] }).ops))
+    .toEqual([[op("remaining")]]);
+  expect(flushedOutcome).toEqual({ status: "delivered" });
+});
+
 test("a rebase-flushed durable queue leaves no phantom ahead of a later retained op",
 async () => {
   // A rebase flushes the durable queue behind the queue's back, so the batches
@@ -1126,9 +1151,7 @@ async () => {
       () => jsonResponse({ detail: "busy" }, 503),
       () => jsonResponse({ ok: true }),
     ]);
-    const replica = memReplica({
-      enqueue: async () => { throw new Error(CANTOPEN); },
-    });
+    const replica = laneOnlyReplica();
     const q = createOpQueue(replica, () => undefined);
     const ticket = q.enqueue([op("u1")]);
     await q.settled();
@@ -1160,9 +1183,7 @@ test("a transport failure on a retained op keeps it for the next drain", async (
     if (calls === 1) throw new TypeError("network down");
     return jsonResponse({ ok: true });
   }));
-  const replica = memReplica({
-    enqueue: async () => { throw new Error(CANTOPEN); },
-  });
+  const replica = laneOnlyReplica();
   const desyncs: unknown[] = [];
   const q = createOpQueue(replica, (e) => desyncs.push(e));
   const ticket = q.enqueue([op("u1")]);
@@ -1185,9 +1206,7 @@ async () => {
     () => jsonResponse({ detail: "bad op" }, 400),
     () => jsonResponse({ ok: true }),
   ]);
-  const replica = memReplica({
-    enqueue: async () => { throw new Error(CANTOPEN); },
-  });
+  const replica = laneOnlyReplica();
   const desyncs: unknown[] = [];
   const q = createOpQueue(replica, (e) => desyncs.push(e));
   const bad = q.enqueue([op("bad")]);
@@ -1212,8 +1231,7 @@ async () => {
   // An over-count only delays the entry, and the clamp on an observed-empty
   // durable queue is what guarantees it still goes out.
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
-  const replica = memReplica({
-    enqueue: async () => { throw new Error(CANTOPEN); },
+  const replica = laneOnlyReplica({
     pendingCount: async () => 3,   // no rows exist, but the count claims three
   });
   const q = createOpQueue(replica, () => undefined);
@@ -1228,9 +1246,7 @@ test("going offline mid-drain holds the rest of the lane at the barrier",
 async () => {
   // Between retained entries the lane re-checks connectivity exactly like the
   // durable pump: one delivered entry must not license posting the next.
-  const replica = memReplica({
-    enqueue: async () => { throw new Error(CANTOPEN); },
-  });
+  const replica = laneOnlyReplica();
   const q = createOpQueue(replica, () => undefined);
   const { bodies } = fetchSeq([() => {
     q.setOnline(false); // the socket drops while the first POST is in flight
@@ -1255,7 +1271,7 @@ test("an enqueue that has not started when dispose lands never reaches the repli
 async () => {
   fetchSeq([() => jsonResponse({ ok: true })]);
   const enqueue = vi.fn(async () => { throw new Error(CANTOPEN); });
-  const q = createOpQueue(memReplica({ enqueue }), () => undefined);
+  const q = createOpQueue(laneOnlyReplica({ enqueue }), () => undefined);
   const ticket = q.enqueue([op("u1")]);
   q.dispose();          // before the persist chain's microtask even runs
 
@@ -1270,7 +1286,7 @@ test("an enqueue that fails after dispose settles instead of hanging", async () 
   const gate = new Promise<void>((r) => { release = r; });
   let entered!: () => void;
   const started = new Promise<void>((r) => { entered = r; });
-  const replica = memReplica({
+  const replica = laneOnlyReplica({
     enqueue: async () => { entered(); await gate; throw new Error(CANTOPEN); },
   });
   const q = createOpQueue(replica, () => undefined);
@@ -1294,8 +1310,7 @@ async () => {
   const gate = new Promise<void>((r) => { release = r; });
   let entered!: () => void;
   const counting = new Promise<void>((r) => { entered = r; });
-  const replica = memReplica({
-    enqueue: async () => { throw new Error(CANTOPEN); },
+  const replica = laneOnlyReplica({
     pendingCount: async () => { entered(); await gate; return 0; },
   });
   const q = createOpQueue(replica, () => undefined);
@@ -1314,9 +1329,7 @@ async () => {
 test("retained ops count as pending and are failed exactly once by dispose",
 async () => {
   fetchSeq([() => jsonResponse({ ok: true })]);
-  const replica = memReplica({
-    enqueue: async () => { throw new Error(CANTOPEN); },
-  });
+  const replica = laneOnlyReplica();
   const q = createOpQueue(replica, () => undefined);
   const counts: number[] = [];
   q.onPending((n) => counts.push(n));
@@ -1457,9 +1470,7 @@ async (reason, transition) => {
 test("a persist failure retained in the lane emits 1 on onUnsentInMemory; delivering it returns to 0",
 async () => {
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
-  const replica = memReplica({
-    enqueue: async () => { throw new Error(CANTOPEN); },
-  });
+  const replica = laneOnlyReplica();
   const q = createOpQueue(replica, () => undefined);
   const unsentCounts: number[] = [];
   q.onUnsentInMemory((n) => unsentCounts.push(n));
@@ -1492,12 +1503,6 @@ async () => {
 // they are the queue's policy, not that implementation's, so they are pinned
 // here against the one queue that ships. onDesync is reached from a lane 4xx:
 // a durable row's rejection takes the poison path instead. ---
-
-/** A queue whose local persistence always fails, so every enqueue lands in the
- * in-memory lane — the only delivery path whose 4xx reaches onDesync. */
-const laneOnlyReplica = () => memReplica({
-  enqueue: async () => { throw new Error(CANTOPEN); },
-});
 
 test("ops re-enqueued synchronously from onDesync are not stranded", async () => {
   const { bodies } = fetchSeq([
@@ -1572,22 +1577,21 @@ test("a throwing onDesync does not poison the queue or drain()", async () => {
 /** A fetch whose first POST parks until released, so a test can act while one
  * batch is genuinely in flight. `started` resolves once that POST is entered. */
 function gatedFetch(firstResponse: () => Response) {
-  const bodies: unknown[] = [];
-  let release!: () => void;
-  const gate = new Promise<void>((done) => { release = done; });
-  let entered!: () => void;
-  const started = new Promise<void>((done) => { entered = done; });
-  const mock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-    bodies.push(JSON.parse(String(init?.body)));
-    if (bodies.length === 1) {
-      entered();
-      await gate;
+  const started = deferred<void>();
+  const release = deferred<void>();
+  const sequence = fetchSeq([
+    async () => {
+      started.resolve();
+      await release.promise;
       return firstResponse();
-    }
-    return jsonResponse({ ok: true });
-  });
-  vi.stubGlobal("fetch", mock);
-  return { bodies, mock, started, release: () => release() };
+    },
+    () => jsonResponse({ ok: true }),
+  ]);
+  return {
+    ...sequence,
+    started: started.promise,
+    release: () => release.resolve(),
+  };
 }
 
 test("an in-flight POST completes after going offline without starting a new pump",
@@ -1614,7 +1618,7 @@ async () => {
 
   q.setOnline(true);       // reconnect flushes the preserved batch
   await expect(q.drain()).resolves.toEqual({ status: "drained" });
-  expect((bodies[1] as { ops: unknown[] }).ops).toEqual([op("u2")]);
+  expect((bodies[1].body as { ops: unknown[] }).ops).toEqual([op("u2")]);
 });
 
 test("a missed in-flight kick remains barred by recovery until explicit resume",

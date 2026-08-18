@@ -18,9 +18,11 @@ import { toPortLike } from "../replica/rpc";
 import { clientId, createOpQueue, type DrainOutcome,
          type PoisonEvent, type WriteTicket } from "./opQueue";
 import { createReplicaSync, ResetBlockedError, type ReplicaState } from "./replicaSync";
-import { connectSocket, type WsBatch } from "./socket";
+import { planRetry } from "./retryPolicy";
+import type { WsBatch } from "./socket";
 import { computeEditability, transitionSync,
          type SyncEvent, type SyncStatus, type SyncProblem } from "./syncState";
+import { useSocketLifecycle } from "./useSocketLifecycle";
 import { useUnloadGuard } from "./unloadGuard";
 
 export type { SyncStatus, SyncProblem } from "./syncState";
@@ -159,8 +161,17 @@ export function SyncProvider({ children, replica }: {
   const [unsentInMemory, setUnsentInMemory] = useState(0);
   const [problem, setProblem] = useState<SyncProblem>();
   const subsRef = useRef(new Set<(b: WsBatch) => void>());
-  const everConnectedRef = useRef(false);
   const mountedRef = useRef(true);
+  // Declared here, above every closure that reads them, so no later
+  // reordering can leave one in its temporal dead zone. Both are written
+  // synchronously rather than derived from state: the offline gateway's
+  // decisions and the replica-state callback must not lag a transition by a
+  // React render (a bootstrap fetch fires inside the socket-open handler,
+  // before state has re-rendered). `statusRef` is written in the socket
+  // lifecycle's onStatus; `modeRef` on every render, just below.
+  const statusRef = useRef<SyncStatus>("connecting");
+  const modeRef = useRef(replicaState.mode);
+  modeRef.current = replicaState.mode;
   const drainObserverRef = useRef<(outcome: DrainOutcome) => void>(
     () => undefined);
   const startupRunRef = useRef<Promise<void>>(Promise.resolve());
@@ -434,14 +445,9 @@ export function SyncProvider({ children, replica }: {
   }, [replicaState.mode]);
 
   // Offline routing (spec section 4): while the socket is down, apiFetch
-  // serves shimmed reads (and page create) from the replica. Refs keep the
-  // gateway's view of status/mode current without re-registering.
-  // updated synchronously in onStatus: gateway decisions must not lag a
-  // transition by a React render (a bootstrap fetch fires inside the
-  // socket-open handler, before state has re-rendered)
-  const statusRef = useRef<SyncStatus>("connecting");
-  const modeRef = useRef(replicaState.mode);
-  modeRef.current = replicaState.mode;
+  // serves shimmed reads (and page create) from the replica. statusRef/modeRef
+  // (declared at the top of the component) keep the gateway's view of
+  // status/mode current without re-registering.
   useEffect(() => {
     const r = replicaRef.current;
     if (!r) return;
@@ -474,96 +480,33 @@ export function SyncProvider({ children, replica }: {
     return () => setOfflineGateway(null);
   }, []);
 
-  useEffect(() => {
-    mountedRef.current = true;
+  // Connect/reconnect lifecycle: mount-time pending bootstrap, the reconnect
+  // single-flight protocol, drain observation, socket status, and
+  // StrictMode-safe teardown (useSocketLifecycle.ts / reconnectFlow.ts).
+  useSocketLifecycle({
+    queue,
+    replicaSync,
     // Leftovers from a previous page load (a reload can kill an in-flight
     // POST): read before the first connect can start draining them.
-    const initialPending: Promise<number> =
-      replicaRef.current?.pendingCount().catch(() => 0) ?? Promise.resolve(0);
-    // Reconnect after a gap: flush the preserved ops first, then pull the
-    // changes feed, then bump resyncSeq so views refetch state that already
-    // reflects both (flush -> pull -> resync).
-    let reconnectPending = false;
-    let finishRun: Promise<void> | null = null;
-    const finishReconnect = (): Promise<void> => {
-      if (!mountedRef.current) return Promise.resolve();
-      if (!reconnectPending) return finishRun ?? Promise.resolve();
-      reconnectPending = false;
-      if (finishRun) return finishRun;
-      finishRun = (async () => {
-        await replicaSync?.start();
-        await replicaSync?.idle();
-        if (mountedRef.current) setResyncSeq((n) => n + 1);
-      })().finally(() => { finishRun = null; });
-      return finishRun;
-    };
-    drainObserverRef.current = (outcome) => {
-      if (outcome.status === "drained") {
-        void finishReconnect().catch(() => undefined);
-      }
-    };
-    const reconnectFlow = async (): Promise<void> => {
-      reconnectPending = true;
-      const outcome = await queue.drain();
-      if (outcome.status !== "drained" || !mountedRef.current) return;
-      await finishReconnect();
-    };
-    const handle = connectSocket({
-      onBatch: (batch) => {
-        if (batch.client_id === clientId) return; // our own echo
-        subsRef.current.forEach((fn) => fn(batch));
-      },
-      onSeq: (frame) => replicaSync?.onSeq(frame.seq, frame.force === true),
-      onStatus: (up) => {
-        // Drive the queue's connectivity synchronously here (not via a status
-        // effect, which would race child refetch effects): the pump must be
-        // paused/resumed at the exact transition.
-        queue.setOnline(up);
-        statusRef.current = up ? "connected" : "reconnecting";
-        if (up) {
-          if (everConnectedRef.current) {
-            void reconnectFlow();
-          } else {
-            // A first connect with a non-empty durable queue IS a reconnect
-            // after a gap — the gap just spans page loads. Views have already
-            // fetched server state that predates the flush, and the flushed
-            // batches echo back under this tab's own clientId (filtered), so
-            // only the resync bump can refresh them.
-            void initialPending.then(async (n) => {
-              await startupRunRef.current;
-              if (n > 0) await reconnectFlow();
-            });
-          }
-          everConnectedRef.current = true;
-          if (mountedRef.current) setStatus("connected");
-        } else {
-          if (mountedRef.current) setStatus("reconnecting");
-        }
-      },
-    });
-    return () => {
-      mountedRef.current = false;
-      drainObserverRef.current = () => undefined;
-      handle.close();
-      // React StrictMode immediately replays effects in development while
-      // preserving memoized resources. Defer terminal ownership cleanup one
-      // microtask so the replayed setup can keep them alive; a real unmount
-      // leaves mountedRef false and performs cleanup exactly once.
-      queueMicrotask(() => {
-        if (mountedRef.current) return;
-        // A stopped instance's in-flight pull may still finish, but must not
-        // reschedule another backoff retry that outlives this component.
-        replicaSync?.stop();
-        queue.dispose();
-        const owned = ownedReplicaRef.current;
-        ownedReplicaRef.current = null;
-        if (owned) void owned.replica.dispose();
-      });
-    };
-    // queue and replicaSync are both mount-stable useMemo values; listing
-    // them satisfies the dependency check without letting this connect/
-    // reconnect effect re-run (they never change identity for this mount).
-  }, [queue, replicaSync]);
+    readInitialPending: () =>
+      replicaRef.current?.pendingCount().catch(() => 0) ?? Promise.resolve(0),
+    startupRun: () => startupRunRef.current,
+    mountedRef,
+    statusRef,
+    drainObserverRef,
+    onBatch: (batch) => {
+      if (batch.client_id === clientId) return; // our own echo
+      subsRef.current.forEach((fn) => fn(batch));
+    },
+    onSeq: (frame) => replicaSync?.onSeq(frame.seq, frame.force === true),
+    onStatus: setStatus,
+    onResync: () => setResyncSeq((n) => n + 1),
+    disposeOwned: () => {
+      const owned = ownedReplicaRef.current;
+      ownedReplicaRef.current = null;
+      if (owned) void owned.replica.dispose();
+    },
+  });
 
   // Connected: editing always allowed (server-authoritative, as before).
   // Offline: allowed only with a ready replica, otherwise the editor is frozen
@@ -575,93 +518,104 @@ export function SyncProvider({ children, replica }: {
   // banner component is mounted to show the corresponding copy (pkm-0htf).
   useUnloadGuard(unsentInMemory);
 
-  const api = useMemo<Sync>(() => ({
-    status,
-    resyncSeq,
-    replicaMode: replicaState.mode,
-    canEdit,
-    pending,
-    unsentInMemory,
-    readOnlyReason,
-    problem,
-    retryProblem: () => {
-      const currentProblem = problemRef.current;
-      if (currentProblem?.kind === "legacy-rejected" &&
-          currentProblem.repair === "failed") {
-        return repairLegacyRef.current(legacyRejectedRef.current);
-      }
-      if (currentProblem?.kind === "rejected-batch" &&
-          currentProblem.repair === "mark-failed") {
-        const retryBlockedStartup = startupDiscoveringPoisonRef.current;
-        return (async () => {
-          try {
-            const marked = await queue.retryPoisonMarks();
-            if (retryBlockedStartup) {
-              await continueStartupRef.current(marked);
-              return;
-            }
-          } catch {
-            return;
-          }
-          await (repairRunRef.current ?? Promise.resolve());
-          if (repairSucceededRef.current) await replicaSync?.start();
-        })();
-      }
-      if (currentProblem?.kind === "poison-discovery") {
-        return continueStartupRef.current([]);
-      }
-      if (currentProblem?.kind !== "rejected-batch" ||
-          currentProblem.repair !== "failed") return Promise.resolve();
-      return repairEventsRef.current(repairTargetsRef.current).then(async () => {
-        if (repairSucceededRef.current) await replicaSync?.start();
-      });
-    },
-    dismissProblem: () => {
-      const currentProblem = problemRef.current;
-      if (currentProblem?.kind === "legacy-rejected" &&
-          currentProblem.repair === "repaired") {
-        legacyRejectedRef.current = undefined;
-      } else if (currentProblem?.kind === "rejected-batch" &&
-          currentProblem.repair === "repaired") {
-        repairTargetsRef.current = [];
-      } else if (currentProblem?.kind === "replica-stalled" &&
-          (currentProblem.reset === "blocked" || currentProblem.reset === "failed")) {
-        // No local ref cleanup needed here: acknowledging a blocked/failed
-        // reset just clears the banner — a later stall re-report re-raises
-        // it fresh (see syncState's "dismiss"/"replica-stalled" handling).
-      } else {
-        return;
-      }
-      applySync({ type: "dismiss" });
-    },
-    resetReplica: async (discardPending = false) => {
-      applySync({ type: "reset-started" });
-      try {
-        await replicaSync?.resetLocalData({ discardPending });
-        applySync({ type: "reset-succeeded" });
-      } catch (e: unknown) {
-        if (e instanceof ResetBlockedError) {
-          applySync({ type: "reset-blocked", pending: e.pending });
-        } else {
-          applySync({ type: "reset-failed", error: String(e) });
+  const api = useMemo<Sync>(() => {
+    // Every Retry path ends the same way, and the condition is the point: the
+    // replica may only resume syncing once a repair actually succeeded — a
+    // restart after a failed one would sync past rows still awaiting repair.
+    const restartAfterRepair = async (): Promise<void> => {
+      if (repairSucceededRef.current) await replicaSync?.start();
+    };
+    return {
+      status,
+      resyncSeq,
+      replicaMode: replicaState.mode,
+      canEdit,
+      pending,
+      unsentInMemory,
+      readOnlyReason,
+      problem,
+      retryProblem: () => {
+        // Which recovery this click means is a pure decision (retryPolicy.ts);
+        // only its execution — the queue, the replica and the startup gate —
+        // belongs here. The freshest problem is read from problemRef for the
+        // same reason applySync does: a same-tick dispatch must not be judged
+        // against the value still pending in React's batched state update.
+        const plan = planRetry(problemRef.current, {
+          startupDiscoveringPoison: startupDiscoveringPoisonRef.current,
+        });
+        switch (plan.kind) {
+          case "legacy-repair":
+            return repairLegacyRef.current(legacyRejectedRef.current);
+          case "retry-poison-marks":
+            return (async () => {
+              try {
+                const marked = await queue.retryPoisonMarks();
+                if (plan.continueStartup) {
+                  await continueStartupRef.current(marked);
+                  return;
+                }
+              } catch {
+                return;
+              }
+              await (repairRunRef.current ?? Promise.resolve());
+              await restartAfterRepair();
+            })();
+          case "continue-startup":
+            return continueStartupRef.current([]);
+          case "repair-targets":
+            return repairEventsRef.current(repairTargetsRef.current)
+              .then(restartAfterRepair);
+          case "none":
+            return Promise.resolve();
         }
-      }
-    },
-    enqueue: (ops, scope) => {
-      const ticket = queue.enqueue(ops, scope);
-      trackActiveOutlineWrite(ticket, ops);
-      return ticket;
-    },
-    attachOutlineReplay: (ticket, title, replay) => {
-      attachActiveOutlineWriteReplay(ticket, title, replay);
-    },
-    subscribe: (fn) => {
-      subsRef.current.add(fn);
-      return () => { subsRef.current.delete(fn); };
-    },
-    settled: () => queue.settled(),
-  }), [status, resyncSeq, replicaState, canEdit, pending, unsentInMemory,
-       readOnlyReason, problem, queue, replicaSync]);
+      },
+      dismissProblem: () => {
+        const currentProblem = problemRef.current;
+        if (currentProblem?.kind === "legacy-rejected" &&
+            currentProblem.repair === "repaired") {
+          legacyRejectedRef.current = undefined;
+        } else if (currentProblem?.kind === "rejected-batch" &&
+            currentProblem.repair === "repaired") {
+          repairTargetsRef.current = [];
+        } else if (currentProblem?.kind === "replica-stalled" &&
+            (currentProblem.reset === "blocked" || currentProblem.reset === "failed")) {
+          // No local ref cleanup needed here: acknowledging a blocked/failed
+          // reset just clears the banner — a later stall re-report re-raises
+          // it fresh (see syncState's "dismiss"/"replica-stalled" handling).
+        } else {
+          return;
+        }
+        applySync({ type: "dismiss" });
+      },
+      resetReplica: async (discardPending = false) => {
+        applySync({ type: "reset-started" });
+        try {
+          await replicaSync?.resetLocalData({ discardPending });
+          applySync({ type: "reset-succeeded" });
+        } catch (e: unknown) {
+          if (e instanceof ResetBlockedError) {
+            applySync({ type: "reset-blocked", pending: e.pending });
+          } else {
+            applySync({ type: "reset-failed", error: String(e) });
+          }
+        }
+      },
+      enqueue: (ops, scope) => {
+        const ticket = queue.enqueue(ops, scope);
+        trackActiveOutlineWrite(ticket, ops);
+        return ticket;
+      },
+      attachOutlineReplay: (ticket, title, replay) => {
+        attachActiveOutlineWriteReplay(ticket, title, replay);
+      },
+      subscribe: (fn) => {
+        subsRef.current.add(fn);
+        return () => { subsRef.current.delete(fn); };
+      },
+      settled: () => queue.settled(),
+    };
+  }, [status, resyncSeq, replicaState, canEdit, pending, unsentInMemory,
+      readOnlyReason, problem, queue, replicaSync]);
 
   return <SyncContext.Provider value={api}>{children}</SyncContext.Provider>;
 }

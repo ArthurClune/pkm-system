@@ -103,11 +103,16 @@ web/src/
 │   └── client.ts / useAssistant.ts / AssistantPanel.tsx — Shell: stream, state, panel
 │
 ├── sync/                     Delivery + connectivity (see sync-and-offline.md)
-│   ├── SyncProvider.tsx      Shell        The global context; reconnect ordering
+│   ├── SyncProvider.tsx      Shell        The global context; repair orchestration
+│   ├── useSocketLifecycle.ts Shell        Connect lifecycle: pending bootstrap,
+│   │                                      socket status, StrictMode teardown
+│   ├── reconnectFlow.ts      Shell        Reconnect single-flight: drain → pull →
+│   │                                      resync, shared with the drain observer
 │   ├── opQueue.ts            Shell        Durable-queue driver (+ queueState.ts Core)
 │   ├── replicaSync.ts        Shell        Cursor pull loop
 │   ├── socket.ts             Shell        WebSocket + reconnect
 │   ├── syncState.ts          Core         Editability/health FSM
+│   ├── retryPolicy.ts        Core         Which recovery a banner Retry means
 │   └── assets.ts             Shell        Multipart upload
 │
 ├── replica/                  The offline engine (see sync-and-offline.md)

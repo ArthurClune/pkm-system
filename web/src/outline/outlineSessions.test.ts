@@ -204,7 +204,7 @@ it("invalidates an automatic read at final delivery settlement before replacing 
   const session = acquireOutlineSession(
     "Settlement supersedes", [block("u1", "old")],
   );
-  const removeLoader = session.setAuthoritativeLoader(load);
+  const removeLoader = session.setAuthoritativeLoader("editable", load);
   const published: string[] = [];
   session.subscribe(() => {
     published.push(session.getSnapshot().blocks[0]?.text ?? "empty");
@@ -363,14 +363,14 @@ it("routes a cross-page ticket to source and fallback target but not another tit
   const other = acquireOutlineSession("Other", [block("o", "old other")]);
   const loadSource = vi.fn(async () => [block("s", "new source")]);
   const loadTarget = vi.fn(async () => [block("t", "new target")]);
-  const removeSourceLoader = source.setAuthoritativeLoader(loadSource);
-  const removeTargetLoader = target.setAuthoritativeLoader(loadTarget);
+  const removeSourceLoader = source.setAuthoritativeLoader("editable", loadSource);
+  const removeTargetLoader = target.setAuthoritativeLoader("editable", loadTarget);
   const settled = deferred<WriteOutcome>();
   const delivered = deferred<DeliveryOutcome>();
   trackActiveOutlineWrite({
     id: "cross-page", scope: ["page", "Source", "Target"],
     settled: settled.promise, delivered: delivered.promise,
-  });
+  }, []);
   const sourceToken = source.beginAuthoritativeRead("parent");
   const targetToken = target.beginAuthoritativeRead("parent");
   const otherToken = other.beginAuthoritativeRead("parent");
@@ -406,13 +406,13 @@ it("attaches an unresolved scoped ticket when its target session opens later", a
     id: "move-to-closed-target", scope: ["page", "Source", "Late target"],
     settled: Promise.resolve({ status: "persisted", pending: 1 }),
     delivered: delivered.promise,
-  });
+  }, []);
 
   const target = acquireOutlineSession(
     "Late target", [block("u1", "opened optimistic target")],
   );
   const loadTarget = vi.fn(async () => [block("u1", "post-delivery target")]);
-  const removeLoader = target.setAuthoritativeLoader(loadTarget);
+  const removeLoader = target.setAuthoritativeLoader("editable", loadTarget);
   const staleToken = target.beginAuthoritativeRead("cross-page-move");
   target.receiveAuthoritative(staleToken, [block("u1", "pre-POST target")]);
 
@@ -435,7 +435,7 @@ it("waits for active session loaders at the legacy repair boundary", async () =>
     "Legacy repair", [block("u1", "optimistic")],
   );
   const load = vi.fn(() => response.promise);
-  const removeLoader = session.setAuthoritativeLoader(load);
+  const removeLoader = session.setAuthoritativeLoader("editable", load);
 
   const repairing = repairActiveOutlineSessions();
   let repaired = false;
@@ -459,7 +459,7 @@ it("legacy repair supersedes and awaits an existing automatic read", async () =>
     "Forced after existing", [block("u1", "optimistic")],
   );
   const loadForced = vi.fn(() => forced.promise);
-  const removeLoader = session.setAuthoritativeLoader(loadForced);
+  const removeLoader = session.setAuthoritativeLoader("editable", loadForced);
   const existing = session.requestAuthoritative(() => stale.promise);
 
   const repairing = repairActiveOutlineSessions();
@@ -503,7 +503,7 @@ it("legacy repair adopts server state and reapplies a wholly later ticket", asyn
     block("u1", "later local"),
     block("u2", "server repaired", { order_idx: 1 }),
   ]);
-  const removeLoader = session.setAuthoritativeLoader(load);
+  const removeLoader = session.setAuthoritativeLoader("editable", load);
 
   rejected.resolve({ status: "failed", error: new Error("rejected") });
   await rejected.promise;
@@ -542,7 +542,7 @@ it("keeps repair pending when a remote revision advances during its GET", async 
     "Repair remote advance", [block("u1", "before repair")],
   );
   const load = vi.fn(() => responses.shift()!);
-  const removeLoader = session.setAuthoritativeLoader(load);
+  const removeLoader = session.setAuthoritativeLoader("editable", load);
   const repairing = repairActiveOutlineSessions();
   try {
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
@@ -579,7 +579,7 @@ it("enrolls sessions acquired during a repair and ignores released newcomers", a
     block("u1", "first optimistic"),
   ]);
   const firstLoad = vi.fn(() => firstResponse.promise);
-  const removeFirstLoader = first.setAuthoritativeLoader(firstLoad);
+  const removeFirstLoader = first.setAuthoritativeLoader("editable", firstLoad);
   const repairing = repairActiveOutlineSessions();
   let second: ReturnType<typeof acquireOutlineSession> | undefined;
   let removeSecondLoader: (() => void) | undefined;
@@ -589,7 +589,7 @@ it("enrolls sessions acquired during a repair and ignores released newcomers", a
       block("u2", "second optimistic"),
     ]);
     const secondLoad = vi.fn(() => secondResponse.promise);
-    removeSecondLoader = second.setAuthoritativeLoader(secondLoad);
+    removeSecondLoader = second.setAuthoritativeLoader("editable", secondLoad);
     const released = acquireOutlineSession("Repair cohort released", [
       block("gone", "released immediately"),
     ]);
@@ -624,7 +624,7 @@ it("reports a missing loader for a live session that joins a repair", async () =
     block("u1", "first optimistic"),
   ]);
   const removeLoader = first.setAuthoritativeLoader(
-    vi.fn(() => firstResponse.promise),
+    "editable", vi.fn(() => firstResponse.promise),
   );
   const repairing = repairActiveOutlineSessions();
   let missing: ReturnType<typeof acquireOutlineSession> | undefined;
@@ -691,10 +691,10 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     delivered: editDelivery.promise,
   }, [{ op: "update_text", uid: "child", text: "later child edit" }]);
 
-  const removeSourceLoader = source.setAuthoritativeLoader(async () => [
+  const removeSourceLoader = source.setAuthoritativeLoader("editable", async () => [
     block("source-root", "server repaired", { children: [moved] }),
   ]);
-  const removeTargetLoader = target.setAuthoritativeLoader(async () => [
+  const removeTargetLoader = target.setAuthoritativeLoader("editable", async () => [
     block("target-root", "target", { children: [] }),
   ]);
   try {
@@ -722,6 +722,144 @@ it("rebases a cross-page target subtree and later ticket in ticket order", async
     await Promise.resolve();
     source.release();
     target.release();
+  }
+});
+
+// pkm-jk21: applyLocal records the write's replay itself and then hands the
+// same ticket to write tracking. Tracking must announce that write with the
+// ops it just applied, never with an empty replay, or a repair rebase drops
+// the local edit for any ticket the delivery registry has not pre-tracked.
+it("rebases a local write tracked only through applyLocal", async () => {
+  const delivered = deferred<DeliveryOutcome>();
+  const session = acquireOutlineSession("Self-tracked replay", [
+    block("u1", "server"),
+  ]);
+  session.applyLocal({
+    id: "self-tracked", scope: ["page", "Self-tracked replay"],
+    settled: Promise.resolve({ status: "persisted", pending: 1 }),
+    delivered: delivered.promise,
+  }, [update("local edit")]);
+  const removeLoader = session.setAuthoritativeLoader(
+    "editable", async () => [block("u1", "server")],
+  );
+  try {
+    await repairActiveOutlineSessions();
+
+    expect(session.getSnapshot().blocks[0].text).toBe("local edit");
+  } finally {
+    removeLoader();
+    delivered.resolve({ status: "delivered" });
+    await delivered.promise;
+    await Promise.resolve();
+    session.release();
+  }
+});
+
+/** Settle a write on `title` so its settlement effect asks the session for an
+ * authoritative read — the production path that elects a registered loader. */
+async function settleWriteOn(
+  session: ReturnType<typeof acquireOutlineSession>,
+  title: string,
+  id: string,
+): Promise<void> {
+  const delivered = deferred<DeliveryOutcome>();
+  session.applyLocal({
+    id, scope: ["page", title],
+    settled: Promise.resolve({ status: "persisted", pending: 1 }),
+    delivered: delivered.promise,
+  }, [update(`edit for ${id}`)]);
+  delivered.resolve({ status: "delivered" });
+  await delivered.promise;
+  await Promise.resolve();
+}
+
+it("elects the page loader over an editable one whatever the mount order", async () => {
+  const title = "Loader precedence";
+  const pageLoad = vi.fn(async () => [block("u1", "page loader")]);
+  const editableLoad = vi.fn(async () => [block("u1", "editable loader")]);
+  const first = acquireOutlineSession(title, [block("u1", "old")]);
+  const second = acquireOutlineSession(title, null);
+  const removePage = first.setAuthoritativeLoader("page", pageLoad);
+  // Registered last, so "last mounted wins" would have elected this one.
+  const removeEditable = second.setAuthoritativeLoader(
+    "editable", editableLoad,
+  );
+
+  await settleWriteOn(first, title, "precedence-write");
+
+  await vi.waitFor(() => expect(pageLoad).toHaveBeenCalledTimes(1));
+  expect(editableLoad).not.toHaveBeenCalled();
+  await vi.waitFor(() => {
+    expect(first.getSnapshot().blocks[0].text).toBe("page loader");
+  });
+  removeEditable();
+  removePage();
+  second.release();
+  first.release();
+});
+
+it("falls back through day to editable as higher-precedence loaders go away", async () => {
+  const title = "Loader fallback";
+  const dayLoad = vi.fn(async () => [block("u1", "day loader")]);
+  const editableLoad = vi.fn(async () => [block("u1", "editable loader")]);
+  const session = acquireOutlineSession(title, [block("u1", "old")]);
+  const removeDay = session.setAuthoritativeLoader("day", dayLoad);
+  // Registered after the day loader, so registration order would elect it.
+  const removeEditable = session.setAuthoritativeLoader(
+    "editable", editableLoad,
+  );
+
+  await settleWriteOn(session, title, "fallback-day");
+  await vi.waitFor(() => expect(dayLoad).toHaveBeenCalledTimes(1));
+  expect(editableLoad).not.toHaveBeenCalled();
+
+  removeDay();
+  await settleWriteOn(session, title, "fallback-editable");
+
+  await vi.waitFor(() => expect(editableLoad).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() => {
+    expect(session.getSnapshot().blocks[0].text).toBe("editable loader");
+  });
+  removeEditable();
+  session.release();
+});
+
+it("elects the newest loader of the winning kind", async () => {
+  const title = "Loader same kind";
+  const older = vi.fn(async () => [block("u1", "older page")]);
+  const newer = vi.fn(async () => [block("u1", "newer page")]);
+  const session = acquireOutlineSession(title, [block("u1", "old")]);
+  const removeOlder = session.setAuthoritativeLoader("page", older);
+  const removeNewer = session.setAuthoritativeLoader("page", newer);
+
+  await settleWriteOn(session, title, "same-kind-write");
+
+  await vi.waitFor(() => expect(newer).toHaveBeenCalledTimes(1));
+  expect(older).not.toHaveBeenCalled();
+  removeNewer();
+  removeOlder();
+  session.release();
+});
+
+it("repairs through the elected loader, not the last one registered", async () => {
+  const title = "Repair precedence";
+  const pageLoad = vi.fn(async () => [block("u1", "page repaired")]);
+  const editableLoad = vi.fn(async () => [block("u1", "editable repaired")]);
+  const session = acquireOutlineSession(title, [block("u1", "optimistic")]);
+  const removePage = session.setAuthoritativeLoader("page", pageLoad);
+  const removeEditable = session.setAuthoritativeLoader(
+    "editable", editableLoad,
+  );
+  try {
+    await repairActiveOutlineSessions();
+
+    expect(pageLoad).toHaveBeenCalledTimes(1);
+    expect(editableLoad).not.toHaveBeenCalled();
+    expect(session.getSnapshot().blocks[0].text).toBe("page repaired");
+  } finally {
+    removeEditable();
+    removePage();
+    session.release();
   }
 });
 

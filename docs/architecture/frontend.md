@@ -70,6 +70,8 @@ web/src/
 │   ├── baseTextHash.ts       Core         Stamps update_text ops at build time
 │   ├── missingPage.ts        Core         The missing-page policy (see State management)
 │   ├── useOutline.ts         Shell        Implements OutlineHandlers
+│   ├── loadOutlineBlocks.ts  Shell        The one blocks-only page read behind every
+│   │                                      registered authoritative loader
 │   ├── outlineSessions.ts    Shell        Per-title shared sessions (see State management)
 │   ├── useOutlinePageLoad.ts Shell        The shared single-page load controller
 │   ├── useBlockDraft.ts      Shell        The focused block's draft session
@@ -279,13 +281,46 @@ The Journal is the third surface showing editable outlines, and does not use
 the hook: it loads many days in one batched `/api/journal` request and
 delivers each day's blocks through its own capture-ticket path.
 
+A session also starts reads nobody asked it for: after a write settles, when a
+remote cross-page move names a uid it does not hold, and once per session in a
+repair epoch. Those go through a loader the surfaces register on it, and
+several surfaces of one title are usually mounted at once — a page and its
+`EditablePage` child, a journal day and its child. `LOADER_PRECEDENCE`
+(`outlineSessions.ts`) picks between them by kind:
+
+| Kind | Registered by | Missing-page policy it applies |
+|---|---|---|
+| `page` | `useOutlinePageLoad` | the policy its surface was constructed with |
+| `day` | `Journal` | `substituteMissingDay` |
+| `editable` | `useOutline`, so every mounted `EditablePage` | `substituteMissingDaily` |
+
+The highest kind in that order wins, and the newest registration within a
+kind, so a remounted surface replaces its predecessor. Mount order is a
+temporal accident and must not decide which fetch a session performs.
+
 What a *failed* read means is a policy decision, not something each surface
 reimplements. The pure `outline/missingPage.ts::substituteMissingDaily` turns
 a 404 on a daily title into an empty editable page, because a daily nobody
 has written to yet is not an error anywhere it is displayed. The server
 auto-creates only today's daily; the first edit creates every other one's
-row. Every other missing page stays an error. `reload("resync")` is how `PageView` answers a
+row. Every other missing page stays an error. `substituteMissingDay` is the
+same rule for a title `/api/journal` already named as a day, where the date
+check is redundant. Both the view's own read and its registered loader apply
+the policy through `outline/loadOutlineBlocks.ts`, because the loader — not
+the view-level guard — is what repair epochs and settlement reads hit.
+`reload("resync")` is how `PageView` answers a
 `resyncSeq` bump; the sidebar does not subscribe to resync.
+
+A repair epoch adopts the server's tree and then reapplies every write still
+unsettled for that title, so each tracked write carries a **replay**: the
+batch's own ops, or the `OutlineReplayAction` metadata the UI that did the
+local tree surgery captured through `attachOutlineReplay` (drag-and-drop
+supplies the moved subtree, which no wire op describes). Two paths announce a
+write to a session: `applyLocal` for an edit made here, and the delivery
+registry for one whose scope names this title. Both must state the replay. A
+write announced without one loses its edit at the next repair, and neither
+path can be assumed to run first — a ticket already relevant to the session
+keeps the replay it was recorded with.
 
 The block tree itself is the generated `BlockNode` shape (recursive
 `{uid, text, children[], order_idx, heading, collapsed, view_type}`). All

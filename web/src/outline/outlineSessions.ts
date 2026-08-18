@@ -23,6 +23,28 @@ export type { ReadToken } from "./outlineState";
 export type AuthoritativeReadSource =
   "parent" | "resync" | "cross-page-move" | "write-settled";
 
+/** Which surface registered a blocks-only loader:
+ *  * `page` — the page-load controller (`useOutlinePageLoad`), the surface
+ *    that owns this title's full-payload parent read and its missing-page
+ *    policy;
+ *  * `day` — the journal's per-day loader, which knows a day title is a daily
+ *    by construction;
+ *  * `editable` — the editable outline itself (`useOutline`), registered by
+ *    every mounted `EditablePage`.
+ * Several surfaces of the same title are mounted at once — a page and its
+ * `EditablePage` child, a journal day and its child — so the session must
+ * choose. */
+export type OutlineLoaderKind = "page" | "day" | "editable";
+
+/** Election order for reads the session starts itself (repair epochs, write
+ * settlement, cross-page-move catch-up), most authoritative first. It is
+ * this list and not registration order: mount and remount order is a
+ * temporal accident, and a change to it must not swap fetch behaviour. Within
+ * one kind the newest registration wins, so a remounted surface of the same
+ * kind replaces its predecessor. */
+const LOADER_PRECEDENCE: readonly OutlineLoaderKind[] =
+  ["page", "day", "editable"];
+
 export interface SharedOutlineSnapshot {
   blocks: BlockNode[];
   revision: number;
@@ -50,7 +72,9 @@ export interface OutlineSessionHandle {
   cancelAuthoritativeRead(token: ReadToken): boolean;
   registerParentReadiness(token: ReadToken): ParentReadiness;
   setParentReadController(start: () => void): () => void;
-  setAuthoritativeLoader(load: () => Promise<BlockNode[]>): () => void;
+  setAuthoritativeLoader(
+    kind: OutlineLoaderKind, load: () => Promise<BlockNode[]>,
+  ): () => void;
   applyLocal(ticket: WriteTicket, ops: readonly BlockOp[]): void;
   applyOptimistic(blocks: BlockNode[]): void;
   applyRemote(batch: WsBatch): {
@@ -71,6 +95,11 @@ interface LeaseRecord {
   granted: boolean;
   released: boolean;
   listeners: Set<() => void>;
+}
+
+interface RegisteredLoader {
+  kind: OutlineLoaderKind;
+  load: () => Promise<BlockNode[]>;
 }
 
 interface ParentWaiter {
@@ -94,7 +123,7 @@ interface Session {
   authoritativeAgain: boolean;
   reservations: number;
   activatedCaptures: Set<number>;
-  loaders: Map<symbol, () => Promise<BlockNode[]>>;
+  loaders: Map<symbol, RegisteredLoader>;
   trackedWrites: Set<string>;
   manualReads: Set<number>;
   parentPayload: { requestId: number; payload: PagePayload } | null;
@@ -108,10 +137,28 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>();
-const unresolvedWrites = new Map<string, {
+
+interface UnresolvedWrite {
   ticket: WriteTicket;
-  replayByTitle: Map<string, readonly OutlineReplayAction[]>;
-}>();
+  /** The batch's wire ops: every scoped title's replay unless the UI that did
+   * the local tree surgery captured something more precise. */
+  ops: readonly BlockOp[];
+  capturedByTitle: Map<string, readonly OutlineReplayAction[]>;
+}
+
+const unresolvedWrites = new Map<string, UnresolvedWrite>();
+
+/** What a repair should reapply to `title` for this still-unresolved write.
+ * There is always an answer — captured optimistic metadata when the UI
+ * supplied it, the batch's own wire ops otherwise — so no caller has to
+ * substitute an empty replay and lose the write's rebase data. */
+function replayFor(
+  unresolved: UnresolvedWrite,
+  title: string,
+): readonly OutlineReplayAction[] {
+  return unresolved.capturedByTitle.get(title) ??
+    [{ type: "ops", ops: unresolved.ops }];
+}
 
 interface RepairEpoch {
   id: number;
@@ -309,13 +356,24 @@ function abandonManualRead(
   return current;
 }
 
+/** The registered loader a session-started read uses: highest-precedence kind
+ * present, newest registration within it. */
+function electLoader(session: Session): (() => Promise<BlockNode[]>) | null {
+  const registered = [...session.loaders.values()];
+  for (const kind of LOADER_PRECEDENCE) {
+    const elected = registered.filter((entry) => entry.kind === kind).at(-1);
+    if (elected) return elected.load;
+  }
+  return null;
+}
+
 function requestAuthoritative(
   session: Session,
   load?: () => Promise<BlockNode[]>,
 ): Promise<void> {
   if (activeRepairEpoch) return activeRepairEpoch.completion;
   if (session.authoritativeRead) return session.authoritativeRead;
-  const loader = load ?? [...session.loaders.values()].at(-1);
+  const loader = load ?? electLoader(session);
   if (!loader) return Promise.resolve();
   const token = startAuthoritativeRead(session);
   let request!: Promise<void>;
@@ -351,7 +409,7 @@ function repairEpochSession(
   const run = (async () => {
     if (previous) await previous.catch(() => undefined);
     if (session.handles === 0) return;
-    const loader = [...session.loaders.values()].at(-1);
+    const loader = electLoader(session);
     if (!loader) {
       throw new Error(
         `No authoritative loader for active outline ${session.title}`,
@@ -427,10 +485,14 @@ function scopeContainsTitle(scope: readonly string[], title: string): boolean {
   return scope[0] === "page" && scope.slice(1).includes(title);
 }
 
+/** Retain a scoped ticket on one session until delivery. `replay` is what a
+ * repair would reapply to this title, and has no default: every caller knows
+ * it, and an empty stand-in would be indistinguishable from a write that
+ * genuinely has nothing to rebase. */
 function trackWrite(
   session: Session,
   ticket: WriteTicket,
-  replay: readonly OutlineReplayAction[] = [],
+  replay: readonly OutlineReplayAction[],
 ): void {
   if (!scopeContainsTitle(ticket.scope, session.title) ||
       session.trackedWrites.has(ticket.id)) return;
@@ -533,11 +595,7 @@ export function acquireOutlineSession(
   }
   session.handles += 1;
   for (const unresolved of unresolvedWrites.values()) {
-    trackWrite(
-      session,
-      unresolved.ticket,
-      unresolved.replayByTitle.get(title) ?? [],
-    );
+    trackWrite(session, unresolved.ticket, replayFor(unresolved, title));
   }
 
   let released = false;
@@ -680,10 +738,10 @@ export function acquireOutlineSession(
         scheduleParentElection(session);
       };
     },
-    setAuthoritativeLoader: (load) => {
+    setAuthoritativeLoader: (kind, load) => {
       if (released) return () => undefined;
-      const token = Symbol(`authoritative:${title}`);
-      session.loaders.set(token, load);
+      const token = Symbol(`authoritative:${kind}:${title}`);
+      session.loaders.set(token, { kind, load });
       loaders.add(token);
       let active = true;
       return () => {
@@ -698,7 +756,10 @@ export function acquireOutlineSession(
       applyTransition(session, transitionOutline(session.state, {
         type: "local-ops", ticketId: ticket.id, ops, nowMs: Date.now(),
       }));
-      trackWrite(session, ticket);
+      // Same replay the local-ops transition just recorded, so tracking a
+      // ticket the delivery registry has not pre-tracked still leaves this
+      // session able to rebase the edit onto a repaired server tree.
+      trackWrite(session, ticket, [{ type: "ops", ops: [...ops] }]);
     },
     applyOptimistic: (blocks) => {
       if (released) return;
@@ -762,15 +823,13 @@ export function isOutlineEditorActive(title: string): boolean {
  * from the unresolved registry, including read-only cross-page targets. */
 export function trackActiveOutlineWrite(
   ticket: WriteTicket,
-  ops: readonly BlockOp[] = [],
+  ops: readonly BlockOp[],
 ): void {
   if (ticket.scope[0] !== "page") return;
   if (!unresolvedWrites.has(ticket.id)) {
-    const genericReplay = new Map<string, readonly OutlineReplayAction[]>();
-    for (const title of new Set(ticket.scope.slice(1))) {
-      genericReplay.set(title, [{ type: "ops", ops: [...ops] }]);
-    }
-    unresolvedWrites.set(ticket.id, { ticket, replayByTitle: genericReplay });
+    unresolvedWrites.set(ticket.id, {
+      ticket, ops: [...ops], capturedByTitle: new Map(),
+    });
     void ticket.delivered.finally(() => {
       if (unresolvedWrites.get(ticket.id)?.ticket === ticket) {
         unresolvedWrites.delete(ticket.id);
@@ -781,9 +840,7 @@ export function trackActiveOutlineWrite(
   if (!unresolved || unresolved.ticket !== ticket) return;
   for (const title of new Set(ticket.scope.slice(1))) {
     const session = sessions.get(title);
-    if (session) {
-      trackWrite(session, ticket, unresolved.replayByTitle.get(title) ?? []);
-    }
+    if (session) trackWrite(session, ticket, replayFor(unresolved, title));
   }
 }
 
@@ -798,7 +855,7 @@ export function attachActiveOutlineWriteReplay(
   if (!unresolved || unresolved.ticket !== ticket ||
       !scopeContainsTitle(ticket.scope, title)) return;
   const captured = [...replay];
-  unresolved.replayByTitle.set(title, captured);
+  unresolved.capturedByTitle.set(title, captured);
   const session = sessions.get(title);
   if (session?.trackedWrites.has(ticket.id)) {
     applyTransition(session, transitionOutline(session.state, {

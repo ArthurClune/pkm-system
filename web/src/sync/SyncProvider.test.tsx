@@ -348,7 +348,7 @@ test("legacy repair rebases an unmounted cross-page target before resuming its m
     await sourceRepairGate;
     return sourceTree;
   });
-  const removeSourceLoader = source.setAuthoritativeLoader(sourceLoad);
+  const removeSourceLoader = source.setAuthoritativeLoader("editable", sourceLoad);
   let target: ReturnType<typeof acquireOutlineSession> | undefined;
   let removeTargetLoader: (() => void) | undefined;
   let targetAtResume: ReturnType<
@@ -394,7 +394,7 @@ test("legacy repair rebases an unmounted cross-page target before resuming its m
     await vi.waitFor(() => expect(sourceLoad).toHaveBeenCalledTimes(1));
     target = acquireOutlineSession(targetTitle, targetTree);
     const targetLoad = vi.fn(async () => targetTree);
-    removeTargetLoader = target.setAuthoritativeLoader(targetLoad);
+    removeTargetLoader = target.setAuthoritativeLoader("editable", targetLoad);
     expect(postCount).toBe(1);
 
     releaseSourceRepair();
@@ -439,7 +439,7 @@ test("legacy rejection resumes later delivery only after active outline repair",
     await repairGate;
     return [];
   });
-  const removeLoader = session.setAuthoritativeLoader(load);
+  const removeLoader = session.setAuthoritativeLoader("editable", load);
   let sync!: Sync;
   function Grab() {
     sync = useSync();
@@ -499,7 +499,7 @@ test("legacy repair waits for a forced read after an existing stale automatic re
     "Legacy forced target", [block("u1", "optimistic")],
   );
   const loadForced = vi.fn(() => forced.promise);
-  const removeLoader = session.setAuthoritativeLoader(loadForced);
+  const removeLoader = session.setAuthoritativeLoader("editable", loadForced);
   let sync!: Sync;
   function Grab() {
     sync = useSync();
@@ -558,7 +558,7 @@ test("legacy repair enrolls a session opened before queue resume", async () => {
     await firstGate;
     return [];
   });
-  const removeFirstLoader = first.setAuthoritativeLoader(firstLoad);
+  const removeFirstLoader = first.setAuthoritativeLoader("editable", firstLoad);
   let sync!: Sync;
   function Grab() {
     sync = useSync();
@@ -581,7 +581,7 @@ test("legacy repair enrolls a session opened before queue resume", async () => {
       await secondGate;
       return [];
     });
-    removeSecondLoader = second.setAuthoritativeLoader(secondLoad);
+    removeSecondLoader = second.setAuthoritativeLoader("editable", secondLoad);
     const later = sync.enqueue([{ op: "delete", uid: "later" }]);
     expect(postCount).toBe(1);
 
@@ -632,7 +632,7 @@ test("the Sync enqueue boundary registers a page ticket before its session opens
     ));
     target = acquireOutlineSession(targetTitle, [block("u1", "opened")]);
     const load = vi.fn(async () => [block("u1", "post-delivery")]);
-    removeLoader = target.setAuthoritativeLoader(load);
+    removeLoader = target.setAuthoritativeLoader("editable", load);
     other = acquireOutlineSession(otherTitle, [block("u2", "other old")]);
     const targetToken = target.beginAuthoritativeRead("parent");
     const otherToken = other.beginAuthoritativeRead("parent");
@@ -667,7 +667,7 @@ test("failed legacy outline repair stays visible and Retry releases delivery", a
   }));
   const session = acquireOutlineSession("Retry legacy repair", []);
   let loadCount = 0;
-  const removeLoader = session.setAuthoritativeLoader(async () => {
+  const removeLoader = session.setAuthoritativeLoader("editable", async () => {
     loadCount += 1;
     if (loadCount === 1) throw new Error("page read failed");
     return [];

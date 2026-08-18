@@ -30,3 +30,9 @@ export const substituteMissingDaily: MissingPagePolicy = (title, status) =>
   status === 404 && dateForTitle(title) !== null
     ? emptyPagePayload(title)
     : null;
+
+/** The same rule for a title the journal already knows is a day: /api/journal
+ * only ever names dailies, so the date check is redundant there and a 404 is
+ * an empty day whatever the title looks like. */
+export const substituteMissingDay: MissingPagePolicy = (title, status) =>
+  status === 404 ? emptyPagePayload(title) : null;

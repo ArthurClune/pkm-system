@@ -40,8 +40,11 @@ export type OutlineEvent =
       nowMs: number }
   | { type: "local-tree"; blocks: BlockNode[] }
   | { type: "remote-ops"; ops: readonly BlockOp[]; nowMs: number }
+  // The replay is what a repair rebases this write onto a fresh server tree
+  // with, so every announcement must state it — `[]` only when the write
+  // genuinely has nothing to reapply here.
   | { type: "write-started"; ticketId: string; scope: readonly string[];
-      replay?: readonly OutlineReplayAction[]; ops?: readonly BlockOp[] }
+      replay: readonly OutlineReplayAction[] }
   | { type: "write-replay"; ticketId: string;
       replay: readonly OutlineReplayAction[] }
   | { type: "authoritative"; token: ReadToken; blocks: BlockNode[] }
@@ -173,117 +176,123 @@ function stampBumped(blocks: BlockNode[], ops: readonly BlockOp[],
   return walk(blocks);
 }
 
+/** Every event is handled by its own `case` so that adding a variant is a
+ * compile error here, not a silent fall-through into write settlement. */
 export function transitionOutline(
   state: OutlineState,
   event: OutlineEvent,
 ): OutlineTransition {
-  if (event.type === "local-ops") {
-    const relevantWrites = new Set(state.relevantWrites);
-    relevantWrites.add(event.ticketId);
-    const relevantWriteReplays = new Map(state.relevantWriteReplays);
-    relevantWriteReplays.set(event.ticketId, [{
-      type: "ops", ops: [...event.ops],
-    }]);
-    const applied = stampBumped(
-      applyOps(state.blocks, [...event.ops], state.title),
-      event.ops, event.nowMs);
-    return {
-      state: {
-        ...withBlocks(state, applied),
-        relevantWrites,
-        relevantWriteReplays,
-      },
-      effects: [],
-    };
-  }
-  if (event.type === "local-tree") {
-    return { state: withBlocks(state, event.blocks), effects: [] };
-  }
-  if (event.type === "remote-ops") {
-    return {
-      state: withBlocks(state, stampBumped(
-        applyOps(state.blocks, [...event.ops], state.title),
-        event.ops, event.nowMs)),
-      effects: [],
-    };
-  }
-  if (event.type === "write-started") {
-    if (!scopeContainsTitle(event.scope, state.title) ||
-        state.relevantWrites.has(event.ticketId)) {
-      return { state, effects: [] };
-    }
-    const relevantWrites = new Set(state.relevantWrites);
-    relevantWrites.add(event.ticketId);
-    const relevantWriteReplays = new Map(state.relevantWriteReplays);
-    if (event.replay !== undefined) {
-      relevantWriteReplays.set(event.ticketId, [...event.replay]);
-    } else if (event.ops !== undefined) {
+  switch (event.type) {
+    case "local-ops": {
+      const relevantWrites = new Set(state.relevantWrites);
+      relevantWrites.add(event.ticketId);
+      const relevantWriteReplays = new Map(state.relevantWriteReplays);
       relevantWriteReplays.set(event.ticketId, [{
         type: "ops", ops: [...event.ops],
       }]);
+      const applied = stampBumped(
+        applyOps(state.blocks, [...event.ops], state.title),
+        event.ops, event.nowMs);
+      return {
+        state: {
+          ...withBlocks(state, applied),
+          relevantWrites,
+          relevantWriteReplays,
+        },
+        effects: [],
+      };
     }
-    return {
-      state: { ...state, relevantWrites, relevantWriteReplays }, effects: [],
-    };
-  }
-  if (event.type === "write-replay") {
-    if (!state.relevantWrites.has(event.ticketId)) {
-      return { state, effects: [] };
-    }
-    const relevantWriteReplays = new Map(state.relevantWriteReplays);
-    relevantWriteReplays.set(event.ticketId, [...event.replay]);
-    return { state: { ...state, relevantWriteReplays }, effects: [] };
-  }
-  if (event.type === "authoritative" || event.type === "authoritative-repair") {
-    if (event.token.requestId !== state.latestRequestId) {
-      return { state, effects: [] };
-    }
-    if (event.type === "authoritative-repair") {
-      if (state.revision !== event.token.revisionAtDispatch) {
+    case "local-tree":
+      return { state: withBlocks(state, event.blocks), effects: [] };
+    case "remote-ops":
+      return {
+        state: withBlocks(state, stampBumped(
+          applyOps(state.blocks, [...event.ops], state.title),
+          event.ops, event.nowMs)),
+        effects: [],
+      };
+    case "write-started": {
+      // A ticket already relevant here keeps the replay it was recorded with:
+      // `local-ops` records the real ops the moment the edit applies, and the
+      // delivery registry then announces the same ticket with whatever it
+      // holds. Re-recording would lose the newer of the two.
+      if (!scopeContainsTitle(event.scope, state.title) ||
+          state.relevantWrites.has(event.ticketId)) {
         return { state, effects: [] };
       }
-      let rebased = event.blocks;
-      for (const ticketId of state.relevantWrites) {
-        const replay = state.relevantWriteReplays.get(ticketId);
-        if (replay && replay.length > 0) {
-          rebased = replayActions(rebased, replay, state.title);
-        }
+      const relevantWrites = new Set(state.relevantWrites);
+      relevantWrites.add(event.ticketId);
+      const relevantWriteReplays = new Map(state.relevantWriteReplays);
+      relevantWriteReplays.set(event.ticketId, [...event.replay]);
+      return {
+        state: { ...state, relevantWrites, relevantWriteReplays }, effects: [],
+      };
+    }
+    case "write-replay": {
+      if (!state.relevantWrites.has(event.ticketId)) {
+        return { state, effects: [] };
       }
-      return { state: adopt(state, rebased), effects: [] };
+      const relevantWriteReplays = new Map(state.relevantWriteReplays);
+      relevantWriteReplays.set(event.ticketId, [...event.replay]);
+      return { state: { ...state, relevantWriteReplays }, effects: [] };
     }
-    if (state.revision === event.token.revisionAtDispatch &&
-        state.relevantWrites.size === 0) {
-      return { state: adopt(state, event.blocks), effects: [] };
+    case "authoritative":
+    case "authoritative-repair": {
+      if (event.token.requestId !== state.latestRequestId) {
+        return { state, effects: [] };
+      }
+      if (event.type === "authoritative-repair") {
+        if (state.revision !== event.token.revisionAtDispatch) {
+          return { state, effects: [] };
+        }
+        let rebased = event.blocks;
+        for (const ticketId of state.relevantWrites) {
+          const replay = state.relevantWriteReplays.get(ticketId);
+          if (replay && replay.length > 0) {
+            rebased = replayActions(rebased, replay, state.title);
+          }
+        }
+        return { state: adopt(state, rebased), effects: [] };
+      }
+      if (state.revision === event.token.revisionAtDispatch &&
+          state.relevantWrites.size === 0) {
+        return { state: adopt(state, event.blocks), effects: [] };
+      }
+      const deferred = {
+        state: {
+          ...state,
+          deferredAuthoritative: { token: event.token, blocks: event.blocks },
+        },
+        effects: [] as readonly OutlineEffect[],
+      };
+      if (state.relevantWrites.size > 0) return deferred;
+      return {
+        ...deferred,
+        effects: [{
+          type: "request-authoritative", reason: "revision-advanced",
+        }],
+      };
     }
-    const deferred = {
-      state: {
-        ...state,
-        deferredAuthoritative: { token: event.token, blocks: event.blocks },
-      },
-      effects: [] as readonly OutlineEffect[],
-    };
-    if (state.relevantWrites.size > 0) return deferred;
-    return {
-      ...deferred,
-      effects: [{
-        type: "request-authoritative", reason: "revision-advanced",
-      }],
-    };
+    case "write-settled": {
+      if (!state.relevantWrites.has(event.ticketId)) {
+        return { state, effects: [] };
+      }
+      const relevantWrites = new Set(state.relevantWrites);
+      relevantWrites.delete(event.ticketId);
+      const relevantWriteReplays = new Map(state.relevantWriteReplays);
+      relevantWriteReplays.delete(event.ticketId);
+      const settled = { ...state, relevantWrites, relevantWriteReplays };
+      if (relevantWrites.size > 0) return { state: settled, effects: [] };
+      return {
+        state: { ...settled, deferredAuthoritative: null },
+        effects: [{ type: "request-authoritative", reason: "write-settled" }],
+      };
+    }
+    default: {
+      const exhaustive: never = event;
+      throw new Error(`unhandled outline event: ${String(exhaustive)}`);
+    }
   }
-
-  if (!state.relevantWrites.has(event.ticketId)) {
-    return { state, effects: [] };
-  }
-  const relevantWrites = new Set(state.relevantWrites);
-  relevantWrites.delete(event.ticketId);
-  const relevantWriteReplays = new Map(state.relevantWriteReplays);
-  relevantWriteReplays.delete(event.ticketId);
-  const settled = { ...state, relevantWrites, relevantWriteReplays };
-  if (relevantWrites.size > 0) return { state: settled, effects: [] };
-  return {
-    state: { ...settled, deferredAuthoritative: null },
-    effects: [{ type: "request-authoritative", reason: "write-settled" }],
-  };
 }
 
 export function validateOutlineFocus(

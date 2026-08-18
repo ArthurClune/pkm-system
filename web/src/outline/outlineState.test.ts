@@ -93,6 +93,7 @@ describe("outline causality", () => {
     const second = beginAuthoritativeRead(first.state);
     const pending = transitionOutline(second.state, {
       type: "write-started", ticketId: "write-1", scope: ["page", "Page"],
+      replay: [],
     }).state;
     const afterFirst = transitionOutline(pending, {
       type: "authoritative", token: first.token,
@@ -113,6 +114,7 @@ describe("outline causality", () => {
     );
     const pending = transitionOutline(started.state, {
       type: "write-started", ticketId: "write-1", scope: ["page", "Page"],
+      replay: [],
     }).state;
     const deferred = transitionOutline(pending, {
       type: "authoritative", token: started.token,
@@ -159,7 +161,7 @@ describe("outline causality", () => {
     );
     const unrelated = transitionOutline(started.state, {
       type: "write-started", ticketId: "write-b",
-      scope: ["page", "Page B"],
+      scope: ["page", "Page B"], replay: [],
     }).state;
 
     const result = transitionOutline(unrelated, {
@@ -244,7 +246,7 @@ describe("outline causality", () => {
         block("u1", "server before later"),
         block("u2", "server repaired", { order_idx: 1 }),
       ],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(repaired.state.blocks.map((node) => node.text)).toEqual([
       "later local", "server repaired",
@@ -263,7 +265,7 @@ describe("outline causality", () => {
     const stale = transitionOutline(advanced, {
       type: "authoritative-repair", token: started.token,
       blocks: [block("u1", "stale repair")],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(stale.state.blocks[0].text).toBe("remote advance");
     expect(stale.state.revision).toBe(advanced.revision);
@@ -282,7 +284,7 @@ describe("outline causality", () => {
         type: "insert-subtree", node: moved,
         parentUid: "target", orderIdx: 0,
       }],
-    } as Parameters<typeof transitionOutline>[1]).state;
+    }).state;
     const childEdit = transitionOutline(moveTracked, {
       type: "local-ops", ticketId: "edit", nowMs: 0,
       ops: [{ op: "update_text", uid: "child", text: "later child edit" }],
@@ -292,7 +294,7 @@ describe("outline causality", () => {
     const repaired = transitionOutline(started.state, {
       type: "authoritative-repair", token: started.token,
       blocks: [targetParent],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(repaired.state.blocks[0].children[0]).toMatchObject({
       uid: "moved",
@@ -314,14 +316,14 @@ describe("outline causality", () => {
           type: "insert-subtree", node: moved,
           parentUid: "target", orderIdx: 0,
         }],
-      } as Parameters<typeof transitionOutline>[1],
+      },
     ).state;
     const started = beginAuthoritativeRead(tracked);
 
     const repaired = transitionOutline(started.state, {
       type: "authoritative-repair", token: started.token,
       blocks: [moved, target],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(repaired.state.blocks.map((node) => node.uid)).toEqual(["target"]);
     expect(repaired.state.blocks[0].children.map((node) => node.uid))
@@ -363,6 +365,57 @@ describe("outline causality", () => {
     });
   });
 
+  // pkm-jk21: `local-ops` records a ticket's replay, and the delivery
+  // registry then announces the same ticket with whatever replay it holds.
+  // The already-relevant guard in `write-started` is the only thing standing
+  // between that announcement and the recorded replay, so a rebase would
+  // silently lose the local edit if the guard ever went away.
+  it("keeps a recorded replay when the same ticket is announced again", () => {
+    const recorded = transitionOutline(
+      createOutlineState("Page", [block("u1", "old")]),
+      { type: "local-ops", ticketId: "write-1", nowMs: 0,
+        ops: [update("local edit")] },
+    ).state;
+    const announced = transitionOutline(recorded, {
+      type: "write-started", ticketId: "write-1", scope: ["page", "Page"],
+      replay: [],
+    }).state;
+    const started = beginAuthoritativeRead(announced);
+
+    const repaired = transitionOutline(started.state, {
+      type: "authoritative-repair", token: started.token,
+      blocks: [block("u1", "server")],
+    });
+
+    expect(repaired.state.blocks[0].text).toBe("local edit");
+  });
+
+  it("keeps captured replay metadata when the ticket is announced again", () => {
+    const target = block("target", "target", { children: [] });
+    const tracked = transitionOutline(
+      createOutlineState("Target", [target]),
+      {
+        type: "write-started", ticketId: "move",
+        scope: ["page", "Source", "Target"],
+        replay: [{
+          type: "insert-subtree", node: block("moved", "moved"),
+          parentUid: "target", orderIdx: 0,
+        }],
+      },
+    ).state;
+    const reannounced = transitionOutline(tracked, {
+      type: "write-started", ticketId: "move",
+      scope: ["page", "Source", "Target"], replay: [],
+    }).state;
+    const started = beginAuthoritativeRead(reannounced);
+
+    const repaired = transitionOutline(started.state, {
+      type: "authoritative-repair", token: started.token, blocks: [target],
+    });
+
+    expect(findNode(repaired.state.blocks, "moved")).not.toBeNull();
+  });
+
   it("does not replay explicit subtree metadata after its ticket settles", () => {
     const target = block("target", "target", { children: [] });
     const tracked = transitionOutline(
@@ -374,7 +427,7 @@ describe("outline causality", () => {
           type: "insert-subtree", node: block("moved", "rejected"),
           parentUid: "target", orderIdx: 0,
         }],
-      } as Parameters<typeof transitionOutline>[1],
+      },
     ).state;
     const settled = transitionOutline(tracked, {
       type: "write-settled", ticketId: "terminal-move",
@@ -383,7 +436,7 @@ describe("outline causality", () => {
 
     const repaired = transitionOutline(started.state, {
       type: "authoritative-repair", token: started.token, blocks: [target],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(findNode(repaired.state.blocks, "moved")).toBeNull();
   });

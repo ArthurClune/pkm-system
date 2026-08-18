@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import type { BlockOp } from "../api/ops";
+import type { BlockNode } from "../api/payloads";
 import { block } from "../test-helpers";
-import { applyOps, findNode, insertSubtree, locate, removeSubtree, visibleNeighbor, visibleUids } from "./tree";
+import { ancestorChain, applyOps, applyOpsWithChange, blocksEqual, findNode,
+         insertSubtree, locate, removeSubtree, visibleNeighbor,
+         visibleUids } from "./tree";
 
 // Siblings with order_idx GAPS (0, 5, 7) — the server leaves gaps after
 // shifts; every helper must key on order_idx values, never array positions.
@@ -187,5 +190,131 @@ describe("applyOps mirrors ops_apply.py", () => {
     const insertedNode = findNode(next, "n")!;
     expect(insertedNode.children.length).toBe(1);
     expect(insertedNode.children[0].uid).toBe("c1");
+  });
+});
+
+describe("ancestorChain", () => {
+  test("returns the path from the outermost ancestor down to the uid", () => {
+    expect(ancestorChain(tree(), "b2")).toEqual(["b", "b2"]);
+    expect(ancestorChain(tree(), "a")).toEqual(["a"]);
+  });
+
+  test("pops branches it abandoned, so no unrelated ancestor is reported", () => {
+    // c1 sits under c; a DFS that forgot to pop would prefix a and b.
+    expect(ancestorChain(tree(), "c1")).toEqual(["c", "c1"]);
+  });
+
+  test("returns nothing for a uid this tree does not hold", () => {
+    expect(ancestorChain(tree(), "zz")).toEqual([]);
+  });
+});
+
+describe("blocksEqual", () => {
+  test("holds for separate clones of the same tree and for one array twice", () => {
+    const same = tree();
+    expect(blocksEqual(same, same)).toBe(true);
+    expect(blocksEqual(tree(), tree())).toBe(true);
+  });
+
+  test("fails on sibling count and on sibling order", () => {
+    const a = [block("x", "X", { order_idx: 0 }),
+               block("y", "Y", { order_idx: 1 })];
+    expect(blocksEqual(a, [a[0]])).toBe(false);
+    expect(blocksEqual(a, [a[1], a[0]])).toBe(false);
+  });
+
+  test("fails on a difference in any BlockNode field", () => {
+    // A field this compare forgets would be a silently missed change, so the
+    // sweep is over the node's real keys: a new payload field fails here.
+    const base = block("u1", "text", {
+      heading: 2, view_type: "numbered", collapsed: true, order_idx: 3,
+      created_at: 1, updated_at: 2, children: [block("kid", "K")],
+    });
+    for (const field of Object.keys(base)) {
+      const value = base[field as keyof BlockNode];
+      const other = typeof value === "string" ? `${value}!`
+        : typeof value === "number" ? value + 1
+        : typeof value === "boolean" ? !value
+        : [];
+      expect(blocksEqual([base], [{ ...base, [field]: other } as BlockNode]),
+             `blocksEqual ignored ${field}`).toBe(false);
+    }
+  });
+});
+
+describe("applyOpsWithChange reports exactly what a serialize-compare would", () => {
+  // The change flag replaced a JSON.stringify compare of the whole tree in
+  // outlineState, so the flag is asserted against that very compare: a no-op
+  // op reported as a change would re-render (and bump the revision) for
+  // nothing, and a real change reported as none would strand the edit.
+  const cases: [string, BlockOp][] = [
+    ["a create for this page", { op: "create", uid: "n1", page_title: "P",
+                                 parent_uid: null, order_idx: 5, text: "new" }],
+    ["a create for another page", { op: "create", uid: "n1",
+                                    page_title: "Other", parent_uid: null,
+                                    order_idx: 0, text: "new" }],
+    ["a create replaying a uid already here", {
+      op: "create", uid: "b", page_title: "P", parent_uid: null,
+      order_idx: 5, text: "B" }],
+    ["a create under a parent this tree does not hold", {
+      op: "create", uid: "n1", page_title: "P", parent_uid: "zz",
+      order_idx: 0, text: "new" }],
+    ["a page creation", { op: "create_page", page_title: "Other" }],
+    ["update_text to a different text", {
+      op: "update_text", uid: "a", text: "A!" }],
+    ["update_text to the text already there", {
+      op: "update_text", uid: "a", text: "A" }],
+    ["set_collapsed flipping the flag", {
+      op: "set_collapsed", uid: "a", collapsed: true }],
+    ["set_collapsed to the value already there", {
+      op: "set_collapsed", uid: "a", collapsed: false }],
+    ["set_heading to a heading", { op: "set_heading", uid: "a", heading: 2 }],
+    ["set_heading clearing an already-absent heading", {
+      op: "set_heading", uid: "a", heading: null }],
+    ["set_view_type to a view", {
+      op: "set_view_type", uid: "a", view_type: "numbered" }],
+    ["a delete", { op: "delete", uid: "b" }],
+    ["a delete of a uid not here", { op: "delete", uid: "zz" }],
+    ["a move that shifts a later sibling", {
+      op: "move", uid: "a", parent_uid: null, order_idx: 5 }],
+    ["a move that lands a top-level block back where it was", {
+      op: "move", uid: "c", parent_uid: null, order_idx: 7 }],
+    ["a move that lands a nested block back where it was", {
+      op: "move", uid: "b2", parent_uid: "b", order_idx: 3 }],
+    ["a move that reparents", {
+      op: "move", uid: "a", parent_uid: "b", order_idx: 3 }],
+    ["a move whose page_title names another page", {
+      op: "move", uid: "b", parent_uid: null, order_idx: 0,
+      page_title: "Elsewhere" }],
+    ["a move under a parent this tree does not hold", {
+      op: "move", uid: "a", parent_uid: "zz", order_idx: 0 }],
+    ["a move of a uid not here", {
+      op: "move", uid: "zz", parent_uid: null, order_idx: 0 }],
+  ];
+
+  for (const [name, op] of cases) {
+    test(name, () => {
+      const before = tree();
+      const applied = applyOpsWithChange(before, [op], "P");
+      expect(applied.changed)
+        .toBe(JSON.stringify(before) !== JSON.stringify(applied.blocks));
+    });
+  }
+
+  test("a batch changed if any single op changed", () => {
+    const before = tree();
+    const applied = applyOpsWithChange(before, [
+      { op: "update_text", uid: "a", text: "A" },   // no-op
+      { op: "update_text", uid: "a", text: "A!" },  // real
+      { op: "delete", uid: "zz" },                  // other page
+    ], "P");
+    expect(applied.changed).toBe(true);
+    expect(findNode(applied.blocks, "a")!.text).toBe("A!");
+  });
+
+  test("applyOps is the same application without the flag", () => {
+    const op: BlockOp = { op: "update_text", uid: "a", text: "A!" };
+    expect(applyOps(tree(), [op], "P"))
+      .toEqual(applyOpsWithChange(tree(), [op], "P").blocks);
   });
 });

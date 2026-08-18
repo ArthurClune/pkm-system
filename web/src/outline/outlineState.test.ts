@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
+import type { BlockNode } from "../api/payloads";
 import { block } from "../test-helpers";
 import {
   beginAuthoritativeRead,
@@ -503,3 +504,151 @@ describe("block stamps (pkm-4ler)", () => {
     expect(state.blocks.map((b) => b.uid)).toEqual(["u2"]);
   });
 });
+
+describe("outline change detection (pkm-nvxh)", () => {
+  const nested = () => [
+    block("u1", "one", { order_idx: 0, children: [block("u1c", "child")] }),
+    block("u2", "two", { order_idx: 1 }),
+  ];
+
+  it("returns the identical state for a remote op that changes nothing", () => {
+    const state = createOutlineState("Page", nested());
+
+    const result = transitionOutline(state, {
+      type: "remote-ops", nowMs: 9000,
+      ops: [{ op: "set_collapsed", uid: "u1", collapsed: false }],
+    });
+
+    expect(result.state).toBe(state); // React re-renders on identity
+    expect(result.state.revision).toBe(0);
+  });
+
+  it("returns the identical state for a tree rebuilt with the same content", () => {
+    const state = createOutlineState("Page", nested());
+
+    const result = transitionOutline(state, {
+      type: "local-tree", blocks: nested(), // equal content, fresh objects
+    });
+
+    expect(result.state).toBe(state);
+  });
+
+  it("adopts a tree whose content differs, keeping the given array", () => {
+    const state = createOutlineState("Page", nested());
+    const moved = [nested()[1], nested()[0]];
+
+    const result = transitionOutline(state, {
+      type: "local-tree", blocks: moved,
+    });
+
+    expect(result.state.blocks).toBe(moved);
+    expect(result.state.revision).toBe(1);
+  });
+
+  it("registers a local write whose ops changed nothing, without a revision", () => {
+    const state = createOutlineState("Page", nested());
+
+    const result = transitionOutline(state, {
+      type: "local-ops", ticketId: "w1", nowMs: 9000,
+      ops: [{ op: "set_collapsed", uid: "u1", collapsed: false }],
+    });
+
+    expect(result.state.relevantWrites.has("w1")).toBe(true);
+    expect(result.state.revision).toBe(0);
+    expect(result.state.blocks).toBe(state.blocks);
+  });
+
+  it("counts the stamp as a change when a no-op text edit bumps updated_at", () => {
+    // The server bumps updated_at for every update_text without comparing the
+    // text (ops_apply.py's UpdateText), so the mirror here must too: the tree
+    // really did change even though the op was a no-op.
+    const state = createOutlineState("Page", [
+      block("u1", "same", { updated_at: 2000 })]);
+
+    const result = transitionOutline(state, {
+      type: "remote-ops", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "u1", text: "same" }],
+    });
+
+    expect(result.state.blocks[0].updated_at).toBe(9000);
+    expect(result.state.revision).toBe(1);
+  });
+
+  it("returns the identical state when even the stamp lands on the same ms", () => {
+    const state = createOutlineState("Page", [
+      block("u1", "same", { updated_at: 9000 })]);
+
+    const result = transitionOutline(state, {
+      type: "remote-ops", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "u1", text: "same" }],
+    });
+
+    expect(result.state).toBe(state);
+  });
+
+  it("keeps the existing blocks when an authoritative read matches them", () => {
+    const started = beginAuthoritativeRead(createOutlineState("Page", nested()));
+
+    const result = transitionOutline(started.state, {
+      type: "authoritative", token: started.token, blocks: nested(),
+    });
+
+    expect(result.state.blocks).toBe(started.state.blocks);
+    expect(result.state.revision).toBe(0);
+    expect(result.state.deferredAuthoritative).toBeNull();
+  });
+
+  it("never serializes the tree to decide whether it changed", () => {
+    const state = createOutlineState("Page", nested());
+    const spy = vi.spyOn(JSON, "stringify");
+
+    let next = transitionOutline(state, {
+      type: "local-ops", ticketId: "w1", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "u1c", text: "typed" }],
+    }).state;
+    next = transitionOutline(next, {
+      type: "remote-ops", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "elsewhere", text: "other page" }],
+    }).state;
+    next = transitionOutline(next, { type: "local-tree", blocks: nested() })
+      .state;
+    const serializations = spy.mock.calls.length;
+    spy.mockRestore();
+
+    expect(serializations).toBe(0);
+  });
+
+  it("passes over the previous tree at most once per op transition", () => {
+    // A keystroke batch names what it changed, so applying it is the only
+    // pass the previous tree needs. Counting reads of a field every walk
+    // touches catches a second full-tree pass (a compare, a serialization)
+    // creeping back in: the JSON.stringify compare this replaced made two.
+    let reads = 0;
+    const watched = watchFieldReads(nested(), () => { reads += 1; });
+    const nodes = 3;
+    const state = createOutlineState("Page", watched);
+
+    transitionOutline(state, {
+      type: "local-ops", ticketId: "w1", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "u1c", text: "typed" }],
+    });
+
+    expect(reads).toBeLessThanOrEqual(nodes);
+  });
+});
+
+/** The same tree with every node's `text` behind a counting getter. Only the
+ * outermost objects are instrumented: applyOps clones by spreading, so the
+ * clones are plain and the count is exactly the passes over THIS tree. */
+function watchFieldReads(nodes: BlockNode[], onRead: () => void): BlockNode[] {
+  return nodes.map((node) => {
+    const text = node.text;
+    const watched: BlockNode = { ...node,
+                                 children: watchFieldReads(node.children, onRead) };
+    Object.defineProperty(watched, "text", {
+      enumerable: true, configurable: true,
+      get: () => { onRead(); return text; },
+    });
+    return watched;
+  });
+}

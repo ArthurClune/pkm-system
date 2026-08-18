@@ -328,6 +328,18 @@ mutations go through the pure `applyOps` (`outline/tree.ts`), which mirrors
 the server's op semantics — the same ops drive the screen, the replica, and
 the server.
 
+`applyOpsWithChange` is that same application plus a verdict on whether
+anything moved, and the verdict is exact: an op resolving to what the tree
+already held reports no change, so `false` means the returned tree is
+`blocksEqual` to the input. `transitionOutline` advances `revision` only for a
+batch that changed something and returns the identical state object otherwise,
+which is what stops a re-render — and what keeps a read dispatched at this
+revision adoptable. A stamp counts as a change: `update_text` bumps
+`updated_at` whether or not the text differs, mirroring the server's
+`UpdateText`. A tree that arrives whole — a drag-and-drop result, a server
+read — has no ops to ask, so those paths reach the same verdict by comparing
+structurally with `blocksEqual`.
+
 ## The editor
 
 **Textarea-based, not contenteditable.** Only the focused block is a live,
@@ -335,6 +347,13 @@ auto-growing `<textarea>` holding raw markdown; every other block is
 rendered HTML (`EditableBlockTree` → `EditableBlock` → `BlockInput`, the last
 of these its own file). This is the central performance decision: a 500-block
 page is one textarea plus cheap static HTML.
+
+A keystroke batch re-renders every row, so each row's decisions have to be
+constant-time. The one that is not naturally: a table macro block shows its
+raw editable rows while focus sits anywhere inside it. `EditableBlockTree`
+walks `ancestorChain(blocks, focus.uid)` once at the root and passes the set
+down as `focusChain`, so the row-level test is a lookup instead of a walk of
+that row's own subtree.
 
 Rows with incoming `((uid))` references carry a count badge
 (`RefCountBadge`, between the text and the stamp cell). The counts arrive as

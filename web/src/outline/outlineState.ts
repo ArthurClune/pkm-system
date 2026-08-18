@@ -6,7 +6,8 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import type { FocusTarget } from "./edits";
 import type { TextSelection } from "./keyEdits";
-import { applyOps, findNode, insertSubtree } from "./tree";
+import { applyOps, applyOpsWithChange, blocksEqual, findNode,
+         insertSubtree } from "./tree";
 import { bumpedUids } from "./blockStamps";
 
 export interface ReadToken {
@@ -120,19 +121,42 @@ function scopeContainsTitle(scope: readonly string[], title: string): boolean {
   return scope[0] === "page" && scope.slice(1).includes(title);
 }
 
-function changed(before: BlockNode[], after: BlockNode[]): boolean {
-  return JSON.stringify(before) !== JSON.stringify(after);
+/** A tree that changed advances the revision; one that didn't leaves the
+ * state object identical, so React skips the render and the causality checks
+ * against `revisionAtDispatch` still see an unmoved outline. Callers own the
+ * `changed` verdict because they know where the tree came from. */
+function withBlocks(state: OutlineState, blocks: BlockNode[],
+                    changed: boolean): OutlineState {
+  if (!changed) return state;
+  return { ...state, blocks, revision: state.revision + 1 };
 }
 
-function withBlocks(state: OutlineState, blocks: BlockNode[]): OutlineState {
-  if (!changed(state.blocks, blocks)) return state;
-  return { ...state, blocks, revision: state.revision + 1 };
+/** For a tree that arrived whole — a drag/drop result, a server read — with
+ * no op set to say what it altered. A structural compare is the only signal
+ * available; the op paths have a cheaper one and must not come through here. */
+function withComparedBlocks(state: OutlineState,
+                            blocks: BlockNode[]): OutlineState {
+  return withBlocks(state, blocks, !blocksEqual(state.blocks, blocks));
 }
 
 function adopt(state: OutlineState, blocks: BlockNode[]): OutlineState {
   return {
-    ...withBlocks(state, blocks),
+    ...withComparedBlocks(state, blocks),
     deferredAuthoritative: null,
+  };
+}
+
+/** The tree an op batch leaves behind, plus whether anything moved. Two
+ * sources of change: the ops themselves, and the stamps pkm-4ler puts on the
+ * blocks they touched — a batch whose ops all resolve to what was already
+ * there can still bump updated_at, exactly as the server does. */
+function applyBatch(state: OutlineState, ops: readonly BlockOp[],
+                    nowMs: number): { blocks: BlockNode[]; changed: boolean } {
+  const applied = applyOpsWithChange(state.blocks, [...ops], state.title);
+  const stamped = stampBumped(applied.blocks, ops, nowMs);
+  return {
+    blocks: stamped,
+    changed: applied.changed || stamped !== applied.blocks,
   };
 }
 
@@ -163,16 +187,26 @@ function replayActions(
  * the tree AFTER applyOps, so a uid the batch deleted, or an op aimed at
  * another page, is skipped simply by not being here. The clock arrives with
  * the event: this module stays pure, and a remote edit stamps exactly like a
- * local one because both flow through here. */
+ * local one because both flow through here.
+ *
+ * Structure-shares: a subtree with nothing to stamp is returned by reference,
+ * so `result === blocks` is an exact "nothing was stamped" signal — which is
+ * how applyBatch tells a stamp-only change from no change at all. */
 function stampBumped(blocks: BlockNode[], ops: readonly BlockOp[],
                      nowMs: number): BlockNode[] {
   const bumped = new Set(bumpedUids(ops));
   if (bumped.size === 0) return blocks;
-  const walk = (nodes: BlockNode[]): BlockNode[] => nodes.map((n) => ({
-    ...n,
-    updated_at: bumped.has(n.uid) ? nowMs : n.updated_at,
-    children: walk(n.children),
-  }));
+  const walk = (nodes: BlockNode[]): BlockNode[] => {
+    let dirty = false;
+    const stamped = nodes.map((n) => {
+      const children = walk(n.children);
+      const stamp = bumped.has(n.uid) && n.updated_at !== nowMs;
+      if (!stamp && children === n.children) return n;
+      dirty = true;
+      return { ...n, updated_at: stamp ? nowMs : n.updated_at, children };
+    });
+    return dirty ? stamped : nodes;
+  };
   return walk(blocks);
 }
 
@@ -190,12 +224,10 @@ export function transitionOutline(
       relevantWriteReplays.set(event.ticketId, [{
         type: "ops", ops: [...event.ops],
       }]);
-      const applied = stampBumped(
-        applyOps(state.blocks, [...event.ops], state.title),
-        event.ops, event.nowMs);
+      const applied = applyBatch(state, event.ops, event.nowMs);
       return {
         state: {
-          ...withBlocks(state, applied),
+          ...withBlocks(state, applied.blocks, applied.changed),
           relevantWrites,
           relevantWriteReplays,
         },
@@ -203,14 +235,13 @@ export function transitionOutline(
       };
     }
     case "local-tree":
-      return { state: withBlocks(state, event.blocks), effects: [] };
-    case "remote-ops":
+      return { state: withComparedBlocks(state, event.blocks), effects: [] };
+    case "remote-ops": {
+      const applied = applyBatch(state, event.ops, event.nowMs);
       return {
-        state: withBlocks(state, stampBumped(
-          applyOps(state.blocks, [...event.ops], state.title),
-          event.ops, event.nowMs)),
-        effects: [],
+        state: withBlocks(state, applied.blocks, applied.changed), effects: [],
       };
+    }
     case "write-started": {
       // A ticket already relevant here keeps the replay it was recorded with:
       // `local-ops` records the real ops the moment the edit applies, and the

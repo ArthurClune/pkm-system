@@ -1,14 +1,14 @@
 ---
 # pkm-wvvu
 title: Implementation quality follow-ups from 2026-08-17 reviews
-status: todo
+status: completed
 type: epic
 priority: high
 tags:
     - review
     - architecture
 created_at: 2026-08-17T20:54:48Z
-updated_at: 2026-08-18T18:58:54Z
+updated_at: 2026-08-18T20:15:49Z
 ---
 
 ## Context
@@ -24,12 +24,12 @@ This epic owns all confirmed work from both reviews. Child beans group findings 
 
 ## Working agreement
 
-- [ ] Complete the high-priority invariant and lifecycle children first
-- [ ] Use red-green-refactor for behavior changes and regression fixes
-- [ ] Preserve server/replica parity where the same invariant exists on both sides
-- [ ] Update the relevant `docs/architecture/` owner when a boundary or invariant changes
-- [ ] Run focused verification for every child and the full server/web gates before completing the epic
-- [ ] Complete every child bean or explicitly record why it was scrapped or deferred
+- [x] Complete the high-priority invariant and lifecycle children first
+- [x] Use red-green-refactor for behavior changes and regression fixes
+- [x] Preserve server/replica parity where the same invariant exists on both sides
+- [x] Update the relevant `docs/architecture/` owner when a boundary or invariant changes
+- [x] Run focused verification for every child and the full server/web gates before completing the epic
+- [x] Complete every child bean or explicitly record why it was scrapped or deferred
 
 ## Completion
 
@@ -67,3 +67,7 @@ The epic is complete only when every child has a terminal status, all retained a
 ## Status note (2026-08-18, frontend slice)
 
 All six normal-priority frontend children are completed and merged to main at 55c7be1: pkm-3lqg, pkm-nqve, pkm-d5re, pkm-2i6a, pkm-jk21, pkm-nvxh (four --no-ff lane merges: 4e29f97, 2787f0b, 6a7e704, 55c7be1). Full web verify green after every merge. Whole-branch review: no Critical/Important findings. Review-deferred follow-ups filed as pkm-ub5s (frontend deferred minors) and pkm-a4wf (applyOps other-page clone).
+
+## Summary of Changes
+
+All children closed. The final low-priority review sweep (2026-08-18) landed the last eight children — pkm-b2wb, pkm-mutr, pkm-a4wf, pkm-ij2s, pkm-nny1, pkm-kk0t, pkm-vpvf, pkm-ub5s — each on its own --no-ff-merged branch from an isolated worktree. Combined verification on the merged tree: server 1595 passed at 97.31% coverage plus pyrefly/ruff clean; web pnpm verify green end to end (2281 unit tests, 54 Playwright e2e) including the concurrently merged pkm-tu5k discard-intent work.

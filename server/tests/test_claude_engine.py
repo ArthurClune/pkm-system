@@ -20,7 +20,7 @@ from claude_agent_sdk import (
 # fake_sdk_client.py: the SSE-teardown tests drive the same real engine.
 from fake_sdk_client import FakeSDKClient, HangingInterruptClient, make_engine, make_result
 
-from pkm.assistant import claude_engine
+from pkm.assistant import claude_engine, harness_env
 from pkm.assistant.claude_engine import TurnMapper
 from pkm.assistant.events import ConfirmRequest, ErrorEvent, TextDelta, ToolFinished, ToolStarted, TurnDone
 from pkm.assistant.policy import SYSTEM_PROMPT
@@ -120,10 +120,10 @@ def test_glm_routes_to_zai_endpoint(tmp_path):
 
 
 def test_zai_routing_covers_every_zai_model(tmp_path, monkeypatch):
-    # policy.ZAI_MODELS is the set of z.ai-routed models; the engine must
+    # policy.ZAI_MODELS is the set of z.ai-routed models; resolution must
     # consult it rather than a "glm" literal, or a future entry would
     # silently run on the Claude subscription instead.
-    monkeypatch.setattr(claude_engine, "ZAI_MODELS", ("glm", "glm-air"))
+    monkeypatch.setattr(harness_env, "ZAI_MODELS", ("glm", "glm-air"))
     engine = make_engine(tmp_path, zai_token="zk-test")
 
     async def scenario():

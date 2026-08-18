@@ -38,8 +38,8 @@ from pkm.assistant.events import (
     ToolStarted,
     TurnDone,
 )
+from pkm.assistant.harness_env import resolve_harness_env
 from pkm.assistant.policy import (
-    ZAI_MODELS,
     classify_tool,
     ops_preview,
     read_tool_names,
@@ -51,12 +51,6 @@ from pkm.server.auth_core import sign_session
 logger = logging.getLogger("pkm.assistant")
 
 MAX_TURNS = 40
-
-# z.ai's Anthropic-compatible endpoint (GLM Coding Plan). It maps the Claude
-# model aliases to its plan-default GLM server-side, so requesting "sonnet"
-# through it always gets the plan's current GLM — no version name to go stale.
-ZAI_BASE_URL = "https://api.z.ai/api/anthropic"
-ZAI_SDK_MODEL = "sonnet"
 
 # A harness parked inside can_use_tool cannot acknowledge an interrupt until
 # the permission decision arrives, and it may be wedged for other reasons
@@ -297,26 +291,14 @@ class ClaudeEngine:
         return path
 
     async def create_conversation(self, system_prompt: str, model: str) -> ClaudeConversation:
-        # the CLI defers MCP tools behind ToolSearch by default, which
-        # tools=[] would make unreachable -- disabling tool search loads
-        # the pkm tools eagerly; verified live 2026-07-27
-        env = {"ENABLE_TOOL_SEARCH": "false"}
-        requested = model
-        if model in ZAI_MODELS:
-            # Reject before the credential file or any subprocess exists;
-            # routes surface this as a 400. The models endpoint hides these
-            # models from the picker in this state, so only a hand-crafted
-            # request gets here.
-            if not self._zai_token:
-                raise ValueError(f"model {model!r} requires a z.ai key (zai_api_key_file)")
-            env["ANTHROPIC_BASE_URL"] = ZAI_BASE_URL
-            env["ANTHROPIC_AUTH_TOKEN"] = self._zai_token
-            model = ZAI_SDK_MODEL
+        # Resolved first: a model this deployment has no key for must be
+        # rejected before the credential file or any subprocess exists.
+        harness = resolve_harness_env(model, self._zai_token)
         config_path = self._write_cli_config()
         conversation = ClaudeConversation(config_path)
         try:
             options = ClaudeAgentOptions(
-                model=model,
+                model=harness.sdk_model,
                 system_prompt=system_prompt,
                 tools=[],
                 allowed_tools=read_tool_names(),
@@ -332,7 +314,7 @@ class ClaudeEngine:
                 setting_sources=[],
                 include_partial_messages=True,
                 max_turns=MAX_TURNS,
-                env=env,
+                env=harness.env,
             )
             client = self._client_factory(options)
             conversation.attach(client)
@@ -351,5 +333,5 @@ class ClaudeEngine:
             raise
         # the requested name, not the SDK alias: a glm harness must not log
         # as a real sonnet run
-        logger.info("assistant harness started (model=%s)", requested)
+        logger.info("assistant harness started (model=%s)", model)
         return conversation

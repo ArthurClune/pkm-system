@@ -6,6 +6,7 @@ page/uid ordering must agree -- these tests pin that agreement against the
 two executions drifting apart again.
 """
 from app_seed import seeded_client
+from fastapi.testclient import TestClient
 
 # "Zulu Page" is page 3 and "Alpha Page" page 4, so results ordered by page
 # title cannot be mistaken for results ordered by page id or insertion order.
@@ -24,7 +25,7 @@ _REFS = [(uid, 2, "tag") for uid, *_ in _BLOCKS]
 _EXPR = "{and: [[Tag]]}"
 
 
-def _client(tmp_path):
+def _client(tmp_path) -> TestClient:
     return seeded_client(tmp_path, _PAGES, _BLOCKS, _REFS)
 
 

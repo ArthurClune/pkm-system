@@ -274,8 +274,8 @@ def sanitize_export_titles(export: Export) -> SanitizedImport:
     }
     rebuilt_sources = [
         _PageRebuild(
-            page,
-            Page(
+            original=page,
+            rebuilt=Page(
                 title=title_map[page.title],
                 created_at=page.created_at,
                 edited_at=page.edited_at,

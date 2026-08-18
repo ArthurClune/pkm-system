@@ -1,7 +1,11 @@
+# pattern: Imperative Shell
 """Shared logged-in TestClient seeder (same convention as fake_engine.py):
 for test files that build their own from-scratch graph -- nested/cyclic
 refs, query blocks -- rather than the shared conftest fixture other test
 files rely on."""
+from collections.abc import Iterable
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from pkm.server.app import create_app
@@ -16,7 +20,12 @@ _TEST_PASSWORD = "test-pw"
 _TEST_SALT = bytes.fromhex("00" * 16)
 
 
-def seeded_client(tmp_path, pages, blocks, refs=()) -> TestClient:
+def seeded_client(
+    tmp_path: Path,
+    pages: Iterable[tuple],
+    blocks: Iterable[tuple],
+    refs: Iterable[tuple] = (),
+) -> TestClient:
     db_path = tmp_path / "pkm.sqlite3"
     init_db(db_path)
     con = open_db(db_path)

@@ -109,10 +109,10 @@ def test_attribute_title_span_never_reports_a_blank_title(text):
 
 
 def test_attribute_title_span_pins_a_zero_width_space_title():
-    # U+200B is not whitespace to str.lstrip(), unlike every char in the
-    # parametrized cases above -- so the leading-whitespace scan does not
-    # skip past it, and the captured (and normalized) title is the
-    # zero-width space itself, not blank.
+    # U+200B is not whitespace to str.lstrip(), unlike the whitespace cases
+    # above -- so the leading-whitespace scan does not skip past it, and the
+    # captured (and normalized) title is the zero-width space itself, not
+    # blank.
     span = attribute_title_span("​:: v")
     assert span is not None
     assert span.title == "​"

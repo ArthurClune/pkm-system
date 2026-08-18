@@ -1,28 +1,32 @@
 // pattern: Imperative Shell
-// Title options for the [[ / # popup: debounced fetch with a stale-response
-// token (same pattern as SearchModal), plus the dumb popup list itself.
-import { useEffect, useRef, useState } from "react";
+// Title options for the [[ / # popup: debounced fetch behind the shared
+// stale-response guard (useStaleGuard, same as SearchBar), plus the dumb
+// popup list itself.
+import { useEffect, useState } from "react";
 import { apiGet } from "../api/typedClient";
+import { useStaleGuard } from "../useStaleGuard";
 
 const DEBOUNCE_MS = 150;
 
 export function useTitleOptions(query: string | null): string[] {
   const [options, setOptions] = useState<string[]>([]);
-  const seqRef = useRef(0);
+  const guard = useStaleGuard();
   useEffect(() => {
     if (query === null || query === "") {
-      seqRef.current++;
+      guard.cancel(); // an emptied query must not be repopulated by an answer
       setOptions([]);
       return;
     }
-    const token = ++seqRef.current;
+    // The token is taken when the keystroke arrives, not when the debounce
+    // fires, so a superseded request is already stale before it is sent.
+    const token = guard.begin();
     const timer = setTimeout(() => {
       apiGet("/api/titles", { query: { q: query } })
-        .then((p) => { if (token === seqRef.current) setOptions(p.titles); })
-        .catch(() => { if (token === seqRef.current) setOptions([]); });
+        .then((p) => { if (!guard.isStale(token)) setOptions(p.titles); })
+        .catch(() => { if (!guard.isStale(token)) setOptions([]); });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, guard]);
   return options;
 }
 

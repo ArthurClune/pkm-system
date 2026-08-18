@@ -1,8 +1,9 @@
 // pattern: Imperative Shell
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { OfflineError } from "../api/client";
 import { apiGet } from "../api/typedClient";
 import type { BlockGroup } from "../api/payloads";
+import { useStaleGuard } from "../useStaleGuard";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
@@ -18,35 +19,35 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
   const [total, setTotal] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Every expression load is stamped with a monotonically increasing request
-  // id. A response is applied only if it is still current when it resolves;
-  // this drops stale responses even when the offline gateway does not honor an
+  // Every expression load is stamped with a stale-response token. A response
+  // is applied only if it is still current when it resolves; this drops
+  // stale responses even when the offline gateway does not honor an
   // AbortController.
-  const requestIdRef = useRef(0);
+  const guard = useStaleGuard();
 
-  const load = useCallback(async (requestId: number) => {
+  const load = useCallback(async (token: number) => {
     try {
       const p = await apiGet("/api/query", { query: { expr } });
-      if (requestId !== requestIdRef.current) return;
+      if (guard.isStale(token)) return;
       setGroups(p.groups);
       setTotal(p.total);
       setError(null);
     } catch (e: unknown) {
-      if (requestId !== requestIdRef.current) return;
+      if (guard.isStale(token)) return;
       // query blocks are online-only in v1 (spec section 4)
       setError(e instanceof OfflineError ? "query unavailable offline"
                                          : String(e));
     }
-  }, [expr]);
+  }, [expr, guard]);
 
   useEffect(() => {
     if (capped) return;
-    const requestId = ++requestIdRef.current;
+    const token = guard.begin();
     setGroups([]);
     setTotal(null);
     setError(null);
-    void load(requestId);
-  }, [capped, load]);
+    void load(token);
+  }, [capped, load, guard]);
 
   if (capped) {
     // Inert placeholder matching the pre-live fallback: no fetch, no results.

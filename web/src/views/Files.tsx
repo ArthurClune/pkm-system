@@ -22,6 +22,14 @@ import type { FileFilters } from "./filesCore";
 // a response that lands after a newer generation started is discarded
 // instead of mixing result sets, overwriting totals, or selecting files
 // outside the now-visible filter.
+//
+// Deliberately NOT the shared useStaleGuard (pkm-kk0t): that guard's
+// contract is "one live request at a time", where begin() invalidates its
+// predecessor. Here the generation is a query key for the current FILTER
+// set, and loadMore/selectAll join the generation reload started rather
+// than beginning their own -- several requests are legitimately valid at
+// once. Routing this through begin() would make each of them cancel the
+// others.
 function bumpGeneration(gen: { current: number }): number {
   return ++gen.current;
 }

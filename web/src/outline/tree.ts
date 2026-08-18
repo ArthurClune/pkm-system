@@ -43,6 +43,52 @@ export function visibleUids(blocks: BlockNode[]): string[] {
   return out;
 }
 
+/** The uid path from the outermost ancestor down to `uid` inclusive; empty
+ * when the uid is not in this tree. One depth-first pass, so a renderer that
+ * needs a per-row "is the focus inside my subtree?" test builds a Set from
+ * this once at the root instead of re-walking every row's own subtree. */
+export function ancestorChain(blocks: BlockNode[], uid: string): string[] {
+  const path: string[] = [];
+  const walk = (nodes: BlockNode[]): boolean => {
+    for (const node of nodes) {
+      path.push(node.uid);
+      if (node.uid === uid || walk(node.children)) return true;
+      path.pop();
+    }
+    return false;
+  };
+  return walk(blocks) ? path : [];
+}
+
+/** Whether two trees hold the same blocks in the same order with the same
+ * field values. Short-circuits on reference-equal arrays and nodes and at the
+ * first difference; every BlockNode field is compared, so this is the verdict
+ * a JSON.stringify compare of both trees would reach without serializing
+ * either (see outlineState's change signal). */
+export function blocksEqual(a: readonly BlockNode[],
+                            b: readonly BlockNode[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!nodeEqual(a[i], b[i])) return false;
+  }
+  return true;
+}
+
+function nodeEqual(a: BlockNode, b: BlockNode): boolean {
+  return a === b || (
+    a.uid === b.uid
+    && a.text === b.text
+    && a.heading === b.heading
+    && a.view_type === b.view_type
+    && a.collapsed === b.collapsed
+    && a.order_idx === b.order_idx
+    && a.created_at === b.created_at
+    && a.updated_at === b.updated_at
+    && blocksEqual(a.children, b.children)
+  );
+}
+
 /** Reduce a uid set to its "roots": the uids with no ancestor also in the
  * set, in the given order. Acting on a root (move, delete) carries its whole
  * subtree along, so a listed descendant needs no op of its own. */
@@ -86,25 +132,59 @@ function shiftFrom(siblings: BlockNode[], fromIdx: number, except?: string): voi
   }
 }
 
+export interface AppliedOps {
+  blocks: BlockNode[];
+  /** Whether the ops altered anything. Exact rather than conservative: an op
+   * that resolves to what the tree already held (text set to itself, a
+   * collapse to the current state, a move that lands the block back where it
+   * was) reports false, so `false` means the returned tree is `blocksEqual`
+   * to the input and a caller may discard it and keep its own state. */
+  changed: boolean;
+}
+
 /** Apply committed ops to a client tree — the single source of truth for op
  * semantics on the client; both optimistic local edits and remote websocket
  * batches go through here. Ops that don't concern this page are skipped:
  * create is filtered by page_title, everything else by uid presence (the
  * websocket broadcasts ops for ALL pages); create_page never touches a
- * block tree and is always skipped. Returns a new tree. */
-export function applyOps(blocks: BlockNode[], ops: BlockOp[],
-                         pageTitle: string): BlockNode[] {
+ * block tree and is always skipped. Returns a new tree either way — an
+ * unchanged result is still a fresh clone. */
+export function applyOpsWithChange(blocks: BlockNode[], ops: BlockOp[],
+                                   pageTitle: string): AppliedOps {
   const tree = clone(blocks);
-  for (const op of ops) applyOne(tree, op, pageTitle);
-  return tree;
+  let changed = false;
+  for (const op of ops) changed = applyOne(tree, op, pageTitle) || changed;
+  return { blocks: tree, changed };
 }
 
-function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
+/** applyOpsWithChange for the callers that only want the tree. */
+export function applyOps(blocks: BlockNode[], ops: BlockOp[],
+                         pageTitle: string): BlockNode[] {
+  return applyOpsWithChange(blocks, ops, pageTitle).blocks;
+}
+
+/** One sibling array as it stands, node identities plus the order_idx values
+ * about to be overwritten in place — enough to tell a move that reshuffled
+ * something from one that put the block back exactly where it was. */
+type Layout = { node: BlockNode; orderIdx: number }[];
+
+function layoutOf(siblings: BlockNode[]): Layout {
+  return siblings.map((node) => ({ node, orderIdx: node.order_idx }));
+}
+
+function layoutHeld(before: Layout, siblings: BlockNode[]): boolean {
+  return before.length === siblings.length
+    && before.every(({ node, orderIdx }, i) =>
+      node === siblings[i] && orderIdx === siblings[i].order_idx);
+}
+
+/** Applies one op in place; returns whether the tree actually changed. */
+function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): boolean {
   if (op.op === "create") {
-    if (op.page_title !== pageTitle) return;
-    if (locate(tree, op.uid)) return; // replay of a block we already have
+    if (op.page_title !== pageTitle) return false;
+    if (locate(tree, op.uid)) return false; // replay of a block we already have
     const siblings = siblingsOf(tree, op.parent_uid ?? null);
-    if (siblings === null) return;    // parent unknown here: skip
+    if (siblings === null) return false;    // parent unknown here: skip
     shiftFrom(siblings, op.order_idx);
     siblings.push({
       uid: op.uid, text: op.text, heading: op.heading ?? null,
@@ -112,18 +192,23 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
       created_at: null, updated_at: null, children: [],
     });
     sortSiblings(siblings);
-    return;
+    return true;
   }
-  if (op.op === "create_page") return; // page creation: no block tree to update here
+  if (op.op === "create_page") return false; // page creation: no block tree here
   const found = locate(tree, op.uid);
-  if (!found) return; // op for another page: skip
+  if (!found) return false; // op for another page: skip
   if (op.op === "update_text") {
+    if (found.node.text === op.text) return false;
     found.node.text = op.text;
   } else if (op.op === "set_collapsed") {
+    if (found.node.collapsed === op.collapsed) return false;
     found.node.collapsed = op.collapsed;
   } else if (op.op === "set_heading") {
-    found.node.heading = op.heading ?? null;
+    const heading = op.heading ?? null;
+    if (found.node.heading === heading) return false;
+    found.node.heading = heading;
   } else if (op.op === "set_view_type") {
+    if (found.node.view_type === op.view_type) return false;
     found.node.view_type = op.view_type;
   } else if (op.op === "delete") {
     found.siblings.splice(found.index, 1);
@@ -131,16 +216,23 @@ function applyOne(tree: BlockNode[], op: BlockOp, pageTitle: string): void {
     if (op.page_title != null && op.page_title !== pageTitle) {
       // this outline is the SOURCE of a cross-page move: just remove
       found.siblings.splice(found.index, 1);
-      return;
+      return true;
     }
     const target = siblingsOf(tree, op.parent_uid);
-    if (target === null) return;
+    if (target === null) return false;
+    // A move only ever rewrites the source and target sibling arrays, so
+    // comparing those two is the whole verdict — and both are bounded by
+    // sibling count, never by tree size.
+    const source = layoutOf(found.siblings);
+    const before = found.siblings === target ? source : layoutOf(target);
     shiftFrom(target, op.order_idx, op.uid);
     found.siblings.splice(found.index, 1);
     found.node.order_idx = op.order_idx;
     target.push(found.node);
     sortSiblings(target);
+    return !(layoutHeld(source, found.siblings) && layoutHeld(before, target));
   }
+  return true;
 }
 
 /** Detach uid's subtree. Returns the new tree and the detached node

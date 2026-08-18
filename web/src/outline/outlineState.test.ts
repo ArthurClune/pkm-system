@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
+import type { BlockNode } from "../api/payloads";
 import { block } from "../test-helpers";
 import {
   beginAuthoritativeRead,
@@ -93,6 +94,7 @@ describe("outline causality", () => {
     const second = beginAuthoritativeRead(first.state);
     const pending = transitionOutline(second.state, {
       type: "write-started", ticketId: "write-1", scope: ["page", "Page"],
+      replay: [],
     }).state;
     const afterFirst = transitionOutline(pending, {
       type: "authoritative", token: first.token,
@@ -113,6 +115,7 @@ describe("outline causality", () => {
     );
     const pending = transitionOutline(started.state, {
       type: "write-started", ticketId: "write-1", scope: ["page", "Page"],
+      replay: [],
     }).state;
     const deferred = transitionOutline(pending, {
       type: "authoritative", token: started.token,
@@ -159,7 +162,7 @@ describe("outline causality", () => {
     );
     const unrelated = transitionOutline(started.state, {
       type: "write-started", ticketId: "write-b",
-      scope: ["page", "Page B"],
+      scope: ["page", "Page B"], replay: [],
     }).state;
 
     const result = transitionOutline(unrelated, {
@@ -244,7 +247,7 @@ describe("outline causality", () => {
         block("u1", "server before later"),
         block("u2", "server repaired", { order_idx: 1 }),
       ],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(repaired.state.blocks.map((node) => node.text)).toEqual([
       "later local", "server repaired",
@@ -263,7 +266,7 @@ describe("outline causality", () => {
     const stale = transitionOutline(advanced, {
       type: "authoritative-repair", token: started.token,
       blocks: [block("u1", "stale repair")],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(stale.state.blocks[0].text).toBe("remote advance");
     expect(stale.state.revision).toBe(advanced.revision);
@@ -282,7 +285,7 @@ describe("outline causality", () => {
         type: "insert-subtree", node: moved,
         parentUid: "target", orderIdx: 0,
       }],
-    } as Parameters<typeof transitionOutline>[1]).state;
+    }).state;
     const childEdit = transitionOutline(moveTracked, {
       type: "local-ops", ticketId: "edit", nowMs: 0,
       ops: [{ op: "update_text", uid: "child", text: "later child edit" }],
@@ -292,7 +295,7 @@ describe("outline causality", () => {
     const repaired = transitionOutline(started.state, {
       type: "authoritative-repair", token: started.token,
       blocks: [targetParent],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(repaired.state.blocks[0].children[0]).toMatchObject({
       uid: "moved",
@@ -314,14 +317,14 @@ describe("outline causality", () => {
           type: "insert-subtree", node: moved,
           parentUid: "target", orderIdx: 0,
         }],
-      } as Parameters<typeof transitionOutline>[1],
+      },
     ).state;
     const started = beginAuthoritativeRead(tracked);
 
     const repaired = transitionOutline(started.state, {
       type: "authoritative-repair", token: started.token,
       blocks: [moved, target],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(repaired.state.blocks.map((node) => node.uid)).toEqual(["target"]);
     expect(repaired.state.blocks[0].children.map((node) => node.uid))
@@ -363,6 +366,57 @@ describe("outline causality", () => {
     });
   });
 
+  // pkm-jk21: `local-ops` records a ticket's replay, and the delivery
+  // registry then announces the same ticket with whatever replay it holds.
+  // The already-relevant guard in `write-started` is the only thing standing
+  // between that announcement and the recorded replay, so a rebase would
+  // silently lose the local edit if the guard ever went away.
+  it("keeps a recorded replay when the same ticket is announced again", () => {
+    const recorded = transitionOutline(
+      createOutlineState("Page", [block("u1", "old")]),
+      { type: "local-ops", ticketId: "write-1", nowMs: 0,
+        ops: [update("local edit")] },
+    ).state;
+    const announced = transitionOutline(recorded, {
+      type: "write-started", ticketId: "write-1", scope: ["page", "Page"],
+      replay: [],
+    }).state;
+    const started = beginAuthoritativeRead(announced);
+
+    const repaired = transitionOutline(started.state, {
+      type: "authoritative-repair", token: started.token,
+      blocks: [block("u1", "server")],
+    });
+
+    expect(repaired.state.blocks[0].text).toBe("local edit");
+  });
+
+  it("keeps captured replay metadata when the ticket is announced again", () => {
+    const target = block("target", "target", { children: [] });
+    const tracked = transitionOutline(
+      createOutlineState("Target", [target]),
+      {
+        type: "write-started", ticketId: "move",
+        scope: ["page", "Source", "Target"],
+        replay: [{
+          type: "insert-subtree", node: block("moved", "moved"),
+          parentUid: "target", orderIdx: 0,
+        }],
+      },
+    ).state;
+    const reannounced = transitionOutline(tracked, {
+      type: "write-started", ticketId: "move",
+      scope: ["page", "Source", "Target"], replay: [],
+    }).state;
+    const started = beginAuthoritativeRead(reannounced);
+
+    const repaired = transitionOutline(started.state, {
+      type: "authoritative-repair", token: started.token, blocks: [target],
+    });
+
+    expect(findNode(repaired.state.blocks, "moved")).not.toBeNull();
+  });
+
   it("does not replay explicit subtree metadata after its ticket settles", () => {
     const target = block("target", "target", { children: [] });
     const tracked = transitionOutline(
@@ -374,7 +428,7 @@ describe("outline causality", () => {
           type: "insert-subtree", node: block("moved", "rejected"),
           parentUid: "target", orderIdx: 0,
         }],
-      } as Parameters<typeof transitionOutline>[1],
+      },
     ).state;
     const settled = transitionOutline(tracked, {
       type: "write-settled", ticketId: "terminal-move",
@@ -383,7 +437,7 @@ describe("outline causality", () => {
 
     const repaired = transitionOutline(started.state, {
       type: "authoritative-repair", token: started.token, blocks: [target],
-    } as Parameters<typeof transitionOutline>[1]);
+    });
 
     expect(findNode(repaired.state.blocks, "moved")).toBeNull();
   });
@@ -450,3 +504,151 @@ describe("block stamps (pkm-4ler)", () => {
     expect(state.blocks.map((b) => b.uid)).toEqual(["u2"]);
   });
 });
+
+describe("outline change detection (pkm-nvxh)", () => {
+  const nested = () => [
+    block("u1", "one", { order_idx: 0, children: [block("u1c", "child")] }),
+    block("u2", "two", { order_idx: 1 }),
+  ];
+
+  it("returns the identical state for a remote op that changes nothing", () => {
+    const state = createOutlineState("Page", nested());
+
+    const result = transitionOutline(state, {
+      type: "remote-ops", nowMs: 9000,
+      ops: [{ op: "set_collapsed", uid: "u1", collapsed: false }],
+    });
+
+    expect(result.state).toBe(state); // React re-renders on identity
+    expect(result.state.revision).toBe(0);
+  });
+
+  it("returns the identical state for a tree rebuilt with the same content", () => {
+    const state = createOutlineState("Page", nested());
+
+    const result = transitionOutline(state, {
+      type: "local-tree", blocks: nested(), // equal content, fresh objects
+    });
+
+    expect(result.state).toBe(state);
+  });
+
+  it("adopts a tree whose content differs, keeping the given array", () => {
+    const state = createOutlineState("Page", nested());
+    const moved = [nested()[1], nested()[0]];
+
+    const result = transitionOutline(state, {
+      type: "local-tree", blocks: moved,
+    });
+
+    expect(result.state.blocks).toBe(moved);
+    expect(result.state.revision).toBe(1);
+  });
+
+  it("registers a local write whose ops changed nothing, without a revision", () => {
+    const state = createOutlineState("Page", nested());
+
+    const result = transitionOutline(state, {
+      type: "local-ops", ticketId: "w1", nowMs: 9000,
+      ops: [{ op: "set_collapsed", uid: "u1", collapsed: false }],
+    });
+
+    expect(result.state.relevantWrites.has("w1")).toBe(true);
+    expect(result.state.revision).toBe(0);
+    expect(result.state.blocks).toBe(state.blocks);
+  });
+
+  it("counts the stamp as a change when a no-op text edit bumps updated_at", () => {
+    // The server bumps updated_at for every update_text without comparing the
+    // text (ops_apply.py's UpdateText), so the mirror here must too: the tree
+    // really did change even though the op was a no-op.
+    const state = createOutlineState("Page", [
+      block("u1", "same", { updated_at: 2000 })]);
+
+    const result = transitionOutline(state, {
+      type: "remote-ops", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "u1", text: "same" }],
+    });
+
+    expect(result.state.blocks[0].updated_at).toBe(9000);
+    expect(result.state.revision).toBe(1);
+  });
+
+  it("returns the identical state when even the stamp lands on the same ms", () => {
+    const state = createOutlineState("Page", [
+      block("u1", "same", { updated_at: 9000 })]);
+
+    const result = transitionOutline(state, {
+      type: "remote-ops", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "u1", text: "same" }],
+    });
+
+    expect(result.state).toBe(state);
+  });
+
+  it("keeps the existing blocks when an authoritative read matches them", () => {
+    const started = beginAuthoritativeRead(createOutlineState("Page", nested()));
+
+    const result = transitionOutline(started.state, {
+      type: "authoritative", token: started.token, blocks: nested(),
+    });
+
+    expect(result.state.blocks).toBe(started.state.blocks);
+    expect(result.state.revision).toBe(0);
+    expect(result.state.deferredAuthoritative).toBeNull();
+  });
+
+  it("never serializes the tree to decide whether it changed", () => {
+    const state = createOutlineState("Page", nested());
+    const spy = vi.spyOn(JSON, "stringify");
+
+    let next = transitionOutline(state, {
+      type: "local-ops", ticketId: "w1", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "u1c", text: "typed" }],
+    }).state;
+    next = transitionOutline(next, {
+      type: "remote-ops", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "elsewhere", text: "other page" }],
+    }).state;
+    next = transitionOutline(next, { type: "local-tree", blocks: nested() })
+      .state;
+    const serializations = spy.mock.calls.length;
+    spy.mockRestore();
+
+    expect(serializations).toBe(0);
+  });
+
+  it("passes over the previous tree at most once per op transition", () => {
+    // A keystroke batch names what it changed, so applying it is the only
+    // pass the previous tree needs. Counting reads of a field every walk
+    // touches catches a second full-tree pass (a compare, a serialization)
+    // creeping back in: the JSON.stringify compare this replaced made two.
+    let reads = 0;
+    const watched = watchFieldReads(nested(), () => { reads += 1; });
+    const nodes = 3;
+    const state = createOutlineState("Page", watched);
+
+    transitionOutline(state, {
+      type: "local-ops", ticketId: "w1", nowMs: 9000,
+      ops: [{ op: "update_text", uid: "u1c", text: "typed" }],
+    });
+
+    expect(reads).toBeLessThanOrEqual(nodes);
+  });
+});
+
+/** The same tree with every node's `text` behind a counting getter. Only the
+ * outermost objects are instrumented: applyOps clones by spreading, so the
+ * clones are plain and the count is exactly the passes over THIS tree. */
+function watchFieldReads(nodes: BlockNode[], onRead: () => void): BlockNode[] {
+  return nodes.map((node) => {
+    const text = node.text;
+    const watched: BlockNode = { ...node,
+                                 children: watchFieldReads(node.children, onRead) };
+    Object.defineProperty(watched, "text", {
+      enumerable: true, configurable: true,
+      get: () => { onRead(); return text; },
+    });
+    return watched;
+  });
+}

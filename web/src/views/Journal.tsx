@@ -1,11 +1,12 @@
 // pattern: Imperative Shell
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError } from "../api/client";
 import { apiGet, apiPost } from "../api/typedClient";
 import type { BlockRefText, JournalDay, PagePayload } from "../api/payloads";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { JournalDayReferences } from "../components/JournalDayReferences";
+import { loadOutlineBlocks } from "../outline/loadOutlineBlocks";
+import { substituteMissingDay } from "../outline/missingPage";
 import { acquireOutlineSession,
          captureActiveOutlineReads,
          isOutlineSessionActive,
@@ -22,16 +23,9 @@ const SERVER_MAX_DAYS = 31; // get_journal clamps `days`; asking for more is moo
 // A day's authoritative page fetch 404s when it's been deleted (or never
 // created) underneath us — an empty-daily prune, or the server's
 // today-only auto-create (pkm-fy52) declining a non-today title. Either
-// way that's an empty day, not a failed load.
-async function fetchDayBlocks(title: string): Promise<PagePayload["blocks"]> {
-  try {
-    const page = await apiGet("/api/page/{title}", { path: { title } });
-    return page.blocks;
-  } catch (e: unknown) {
-    if (e instanceof ApiError && e.status === 404) return [];
-    throw e;
-  }
-}
+// way that's an empty day, not a failed load (substituteMissingDay).
+const fetchDayBlocks = (title: string): Promise<PagePayload["blocks"]> =>
+  loadOutlineBlocks(title, substituteMissingDay);
 
 export function Journal() {
   const [days, setDays] = useState<JournalDay[]>([]);
@@ -64,7 +58,7 @@ export function Journal() {
       session = acquireOutlineSession(title, null);
       sessionsRef.current.set(title, session);
       sessionLoaderCleanupRef.current.set(title,
-        session.setAuthoritativeLoader(() => fetchDayBlocks(title)));
+        session.setAuthoritativeLoader("day", () => fetchDayBlocks(title)));
     }
     return session;
   }, []);

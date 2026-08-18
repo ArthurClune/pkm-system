@@ -4,14 +4,11 @@
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
-import { ApiError } from "../api/client";
-import { apiGet } from "../api/typedClient";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
-import { dateForTitle } from "../replica/daily";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSync } from "../sync/SyncProvider";
 import { newUid } from "../uid";
@@ -23,6 +20,8 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          type FocusTarget } from "./edits";
 import type { OutlineHandlers } from "./handlers";
 import { invertOps } from "./history";
+import { loadOutlineBlocks } from "./loadOutlineBlocks";
+import { substituteMissingDaily } from "./missingPage";
 import { planOutlinePaste } from "./paste";
 import { applyOps, findNode, insertSubtree, removeSubtree,
          visibleNeighbor } from "./tree";
@@ -96,24 +95,13 @@ export function useOutline(
       setFocus((current) => validateOutlineFocus(current, shared));
     };
     const unsubscribe = handle.subscribe(adoptShared);
-    const removeLoader = handle.setAuthoritativeLoader(async () => {
-      try {
-        const page = await apiGet("/api/page/{title}", {
-          path: { title: pageTitle },
-        });
-        return page.blocks;
-      } catch (e: unknown) {
-        // A missing (non-today) daily 404s (pkm-fy52: today-only
-        // auto-create) — a deleted-underneath-us day, not a failed load.
-        // Every EditablePage registers its own loader here, and the last
-        // one registered wins for default-loader reads (repair epochs,
-        // remote-ops catch-up) — so this guard, not just the view-level
-        // one, is what those paths actually hit once mounted.
-        if (e instanceof ApiError && e.status === 404 &&
-            dateForTitle(pageTitle) !== null) return [];
-        throw e;
-      }
-    });
+    // Registered as the "editable" kind: the session prefers a page-load or
+    // journal-day loader when one is mounted for this title, and reads for
+    // this outline still go through the shared missing-daily policy either
+    // way (see outlineSessions' LOADER_PRECEDENCE).
+    const removeLoader = handle.setAuthoritativeLoader(
+      "editable", () => loadOutlineBlocks(pageTitle, substituteMissingDaily),
+    );
     const lease = editorOwner ? handle.claimEditor(editorOwner) : null;
     const updateLease = () => setOwnsEditor(lease?.granted ?? false);
     const unsubscribeLease = lease?.subscribe(updateLease);
@@ -256,12 +244,9 @@ export function useOutline(
   const refetch = useCallback(() => {
     const handle = sessionRef.current;
     if (!handle) return;
-    void handle.requestAuthoritative(async () => {
-      const page = await apiGet("/api/page/{title}", {
-        path: { title: pageTitle },
-      });
-      return page.blocks;
-    })
+    void handle
+      .requestAuthoritative(() =>
+        loadOutlineBlocks(pageTitle, substituteMissingDaily))
       .catch(() => undefined); // next resync will repair
   }, [pageTitle]);
 

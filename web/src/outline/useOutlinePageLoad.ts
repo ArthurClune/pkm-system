@@ -38,9 +38,9 @@
 //    releases the session — in that order, so cancellation can never elect
 //    a controller belonging to the unmounting surface.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError } from "../api/client";
 import { apiGet } from "../api/typedClient";
 import type { PagePayload } from "../api/payloads";
+import { loadOutlineBlocks, statusOf } from "./loadOutlineBlocks";
 import type { MissingPagePolicy } from "./missingPage";
 import {
   acquireOutlineSession,
@@ -64,9 +64,6 @@ export interface OutlinePageLoad {
   /** Start a fresh guarded read, e.g. after a resync bump. */
   reload: (source: AuthoritativeReadSource) => void;
 }
-
-const statusOf = (error: unknown): number | null =>
-  error instanceof ApiError ? error.status : null;
 
 export function useOutlinePageLoad(
   title: string,
@@ -162,16 +159,14 @@ export function useOutlinePageLoad(
     setErrorState(null);
     const handle = acquireOutlineSession(title, null);
     sessionRef.current = handle;
-    const removeLoader = handle.setAuthoritativeLoader(async () => {
-      try {
-        const page = await apiGet("/api/page/{title}", { path: { title } });
-        return page.blocks;
-      } catch (e: unknown) {
-        const substitute = missingPageRef.current(title, statusOf(e));
-        if (substitute) return substitute.blocks;
-        throw e;
-      }
-    });
+    // The "page" kind outranks every other loader for this title (see
+    // outlineSessions' LOADER_PRECEDENCE): this surface owns the full-payload
+    // parent read, so session-started reads should use the same fetch and the
+    // same injected missing-page policy the view was constructed with.
+    const removeLoader = handle.setAuthoritativeLoader(
+      "page",
+      () => loadOutlineBlocks(title, (t, s) => missingPageRef.current(t, s)),
+    );
     const removeParentController = handle.setParentReadController(
       () => load("parent", handle),
     );

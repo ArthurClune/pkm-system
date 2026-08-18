@@ -14,7 +14,7 @@ import { tokenizeBlock } from "../grammar/tokenize";
 import { decideSelectionKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
-import { findNode } from "../outline/tree";
+import { ancestorChain, findNode } from "../outline/tree";
 import { formatStamp, formatStampTitle, stampBand,
          stampTs } from "../outline/blockStamps";
 import { BlockInput } from "./BlockInput";
@@ -88,6 +88,12 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   } | null>(null);
   const selected = !fallback && selection
     ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
+  // The focused block and its ancestors, walked ONCE for the whole tree. Each
+  // row asks "is the focus inside my subtree?" to decide whether a table block
+  // shows its table or its raw editable rows; asking by walking its own
+  // subtree cost the tree a pass per row on every keystroke's re-render.
+  const focusChain = !fallback && focus
+    ? new Set(ancestorChain(blocks, focus.uid)) : EMPTY_SET;
   const closeMenu = () => {
     menu?.trigger.focus();
     setMenu(null);
@@ -151,6 +157,7 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
          tabIndex={selection ? -1 : undefined} onKeyDown={onKeyDown}>
       {blocks.map((b, index) => (
         <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
+                       focusChain={focusChain}
                        handlers={handlers} readOnly={readOnly}
                        fallback={fallback} onRequestUpload={requestUpload}
                        viewMode="document" number={index + 1}
@@ -225,12 +232,6 @@ function blockMenuItems(
   ];
 }
 
-function focusInSubtree(node: BlockNode, focusUid: string | null): boolean {
-  if (focusUid === null) return false;
-  if (node.uid === focusUid) return true;
-  return node.children.some((child) => focusInSubtree(child, focusUid));
-}
-
 /** The margin cell: always rendered when the column is on, even with no
  * timestamp to show. A missing span would let that row's text claim the
  * gutter and break the column's alignment. */
@@ -268,12 +269,16 @@ function RefCountBadge({ uid, count, onOpen }: {
   );
 }
 
-function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
-                         onRequestUpload, viewMode, number, openMenuUid,
-                         stamps, nowMs, refCounts, onOpenMenu,
+function EditableBlock({ node, focus, selected, focusChain, handlers, readOnly,
+                         fallback, onRequestUpload, viewMode, number,
+                         openMenuUid, stamps, nowMs, refCounts, onOpenMenu,
                          onOpenRefPopover }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
+  /** The focused block plus its ancestors, from the tree root (pkm-nvxh):
+   * membership is this block's constant-time "focus is in my subtree" test.
+   * Empty in a fallback tree, which never reveals a table's raw rows. */
+  focusChain: ReadonlySet<string>;
   handlers: OutlineHandlers; readOnly: boolean; fallback: boolean;
   /** Click the tree-owned upload input for `uid`, splicing at offset `at`
    * once files are chosen (pkm-gbsb) — see EditableBlockTree for why the
@@ -300,7 +305,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
   const quoted = quoteContent(node.text);
   const childrenView = effectiveChildView(node.view_type);
   const tableRows = roamTableRows(node);
-  const editingTableSubtree = !fallback && focusInSubtree(node, focus?.uid ?? null);
+  const editingTableSubtree = focusChain.has(node.uid);
   const showTable = !editingTableSubtree && tableRows !== null;
   const WrapperTag: "h1" | "h2" | "h3" | "div" = showTable ? "div" : Tag;
   const hidesChildren = hasChildren && node.collapsed && tableRows === null;
@@ -389,6 +394,7 @@ function EditableBlock({ node, focus, selected, handlers, readOnly, fallback,
         <div className={`block-children ${childrenView}-view`}>
           {node.children.map((c, index) => (
             <EditableBlock key={c.uid} node={c} focus={focus} selected={selected}
+                           focusChain={focusChain}
                            handlers={handlers} readOnly={readOnly}
                            fallback={fallback} onRequestUpload={onRequestUpload}
                            viewMode={childrenView} number={index + 1}

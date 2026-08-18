@@ -34,6 +34,8 @@ pkm/
 ├── edn.py               Core   Minimal EDN parser for Roam exports
 ├── schema_dump.py       Shell  Generates web/src/replica/baseSchema.gen.ts
 ├── refs_parity_dump.py  Shell  Generates shared/fixtures/refs_parity.json
+├── assets_disk.py       Shell  asset_on_disk_needs_repair(): stats/hashes a stored asset
+│                               file for assets_core.asset_needs_repair() to judge
 │
 ├── contracts/           Core   The wire contract, depended on by BOTH sides:
 │                               ops.py (op models + UID_RE + text_hash),
@@ -536,8 +538,12 @@ instant whole-database export into minutes (symptom table).
 
 A previously-exported asset's mere presence at its content-addressed path is
 never trusted. It is verified against the `assets` row's known size and sha256
-(`assets_core.asset_needs_repair` — a cheap stat first, a full hash only once
-the size matches) before being hardlinked into the new tree. A mismatch is
+before being hardlinked into the new tree.
+`assets_disk.asset_on_disk_needs_repair` does a cheap stat first and reads the
+bytes for a full hash only once the size matches, then
+`assets_core.asset_needs_repair` rules on the pair. The importer's asset copy
+calls the same function, so neither side can drift out of that order. A
+mismatch is
 re-copied from the live store instead. A truncated or corrupted file from a
 past export therefore doesn't survive forever. A successful fresh transfer
 increments only `assets_copied`; a successful corrupt replacement increments
@@ -678,8 +684,13 @@ Stage notes — each one a behaviour a change could break:
 - **Asset copying trusts nothing already on disk.** An existing
   content-addressed destination is verified against the source's size and
   sha256 and rewritten atomically on mismatch — the same
-  `assets_core.asset_needs_repair` check the export writer uses (see
-  [Markdown export](#markdown-export)).
+  `assets_disk.asset_on_disk_needs_repair` check the export writer uses (see
+  [Markdown export](#markdown-export)). The phase touches no database, so it
+  runs inside the row-writing connection's lifetime rather than between two
+  connections. That makes the `commit()` before it load-bearing beyond
+  durability. `audit_title_migration` and `apply_title_migration` both refuse
+  a connection that is already in a transaction, and that commit is the only
+  thing ending the implicit one the inserts opened.
 - **Publication is two ordered atomic replaces** — database first, then
   report. A failure before the first leaves the published pair untouched; a
   failure between them is repaired by the next successful run, and stale

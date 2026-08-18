@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import PurePosixPath
-from typing import Literal
 
 # Office + JSON mimes that count as "document" alongside text/*. Keep in
 # step with ALLOWED_UPLOAD_MIME in routes_assets.py.
@@ -72,16 +71,14 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def classify_export_asset_transfer(
-        destination_was_present: bool) -> Literal["copied", "repaired"]:
-    """Classify a successful export transfer by its prior destination."""
-    return "repaired" if destination_was_present else "copied"
-
-
 def asset_needs_repair(expected_sha256: str, expected_size: int,
                        actual_size: int, actual_sha256: str | None) -> bool:
     """Whether a content-addressed asset file on disk must be rewritten
     from its known-good source.
+
+    Production callers reach this through
+    `assets_disk.asset_on_disk_needs_repair`, which owns the stat/read
+    side of the ritual; this is the decision it feeds.
 
     Callers gather `actual_size` with a plain stat() first -- a size
     mismatch alone already proves corruption (e.g. truncation), so pass

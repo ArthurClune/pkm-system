@@ -42,17 +42,19 @@ hashes are copied from the live store, and vanished hashes are simply left
 out of the new tree (pruned).
 
 An asset already present is only hardlinked after it passes verification
-against the assets row's known sha256/size (pkm-x3l7): a cheap stat-based
-size check first, and only once that matches, a full sha256 of its bytes.
-A file that fails either check is never hardlinked forward -- the loop
+against the assets row's known sha256/size (pkm-x3l7), via the shared
+`assets_disk.asset_on_disk_needs_repair` boundary the importer's asset
+copy also runs: a cheap stat-based size check first, and only once that
+matches, a full sha256 of its bytes. A file that fails either check is
+never hardlinked forward -- the loop
 falls through to the same branch used for a brand-new hash and re-copies
 correct bytes from `live_assets_dir`, so a corrupted "existing" asset is
 transparently repaired by the time this run's `_publish_dir(stage_assets,
 assets_dir)` lands. Hashing the whole previously-present set every run
 costs a full read of each file, but at this graph's scale (order ~1e3
 images) that's a low-single-digit-second tax on a nightly job, not
-something worth a sampling scheme -- see assets_core.asset_needs_repair
-for where the size check saves a read outright. A successful fresh transfer
+something worth a sampling scheme -- see the boundary above for where
+the size check saves a read outright. A successful fresh transfer
 increments only `assets_copied`; a successful corrupt replacement increments
 only `assets_repaired`.
 
@@ -78,8 +80,7 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from pkm.assets_core import (
-    asset_needs_repair, classify_export_asset_transfer, sha256_hex)
+from pkm.assets_disk import asset_on_disk_needs_repair
 from pkm.contracts.daily import date_for_title
 from pkm.export.markdown import page_filename, render_page
 from pkm.filenames import safe_filename
@@ -120,6 +121,51 @@ def _publish_dir(staged: Path, target: Path) -> None:
         shutil.rmtree(stale)
 
 
+def _stage_assets(wanted: dict[str, tuple[str, int]], *, assets_dir: Path,
+                  stage_assets: Path, live_assets_dir: Path) -> dict[str, int]:
+    """Fill `stage_assets` with every wanted asset, and report how each
+    one got there.
+
+    An asset already in the live export (`assets_dir`) is hardlinked
+    forward, but only once its bytes verify against the `assets` row's
+    sha256/size; one that fails verification falls through to the same
+    branch a brand-new hash takes and is re-copied from
+    `live_assets_dir`. See the module docstring for the counters and for
+    the case where a failed file has no source left to repair from."""
+    counts = {"assets_copied": 0, "assets_repaired": 0,
+             "assets_missing_source_on_repair": 0}
+    for sha, (fname, size) in wanted.items():
+        dest = stage_assets / sha / fname
+        existing = assets_dir / sha / fname
+        was_present = existing.is_file()
+        if not asset_on_disk_needs_repair(existing, sha, size):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.link(existing, dest)
+            continue
+        src = live_assets_dir / sha[:2] / sha
+        if not src.is_file():
+            if was_present:
+                # Present but failed verification, and now nothing to
+                # repair it from either: unlike the case below, this
+                # asset didn't just vanish quietly -- surface it.
+                counts["assets_missing_source_on_repair"] += 1
+                logger.warning(
+                    "export: asset %s (%s) failed verification against"
+                    " the previous export and has no live-store source"
+                    " to repair from -- dropping it from this export",
+                    sha, fname)
+            # else: a DB row whose file was never captured at import
+            # time -- known, ordinary import residue, not a new failure.
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        if was_present:
+            counts["assets_repaired"] += 1
+        else:
+            counts["assets_copied"] += 1
+    return counts
+
+
 def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
                  export_dir: Path) -> dict:
     pages_dir = export_dir / "pages"
@@ -137,9 +183,7 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         if row is not None:
             uid_to_text[uid] = row["text"]
 
-    counts = {"pages": 0, "journal": 0, "assets_copied": 0,
-             "assets_repaired": 0, "assets_pruned": 0,
-             "assets_missing_source_on_repair": 0}
+    counts = {"pages": 0, "journal": 0, "assets_pruned": 0}
     rendered: dict[tuple[str, str], str] = {}  # (kind, filename) -> body
     taken: set[str] = set()
     for page in db.execute("SELECT id, title FROM pages ORDER BY title"):
@@ -173,37 +217,9 @@ def export_graph(db: sqlite3.Connection, live_assets_dir: Path,
         for (kind, fname), body in rendered.items():
             (staging / kind / fname).write_text(body, encoding="utf-8")
 
-        for sha, (fname, size) in wanted.items():
-            dest = stage_assets / sha / fname
-            existing = assets_dir / sha / fname
-            was_present = existing.is_file()
-            if was_present:
-                actual_size = existing.stat().st_size
-                actual_sha = (sha256_hex(existing.read_bytes())
-                             if actual_size == size else None)
-                if not asset_needs_repair(sha, size, actual_size, actual_sha):
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    os.link(existing, dest)
-                    continue
-            src = live_assets_dir / sha[:2] / sha
-            if not src.is_file():
-                if was_present:
-                    # Present but failed verification, and now nothing to
-                    # repair it from either: unlike the case below, this
-                    # asset didn't just vanish quietly -- surface it.
-                    counts["assets_missing_source_on_repair"] += 1
-                    logger.warning(
-                        "export: asset %s (%s) failed verification against"
-                        " the previous export and has no live-store source"
-                        " to repair from -- dropping it from this export",
-                        sha, fname)
-                # else: a DB row whose file was never captured at import
-                # time -- known, ordinary import residue, not a new failure.
-                continue
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
-            transfer = classify_export_asset_transfer(was_present)
-            counts[f"assets_{transfer}"] += 1
+        counts.update(_stage_assets(
+            wanted, assets_dir=assets_dir, stage_assets=stage_assets,
+            live_assets_dir=live_assets_dir))
 
         # Publish only now that every render and copy above has succeeded.
         # Each call is atomic on its own, but the three together are not

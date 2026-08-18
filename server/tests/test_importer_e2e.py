@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
+import pkm.assets_disk as assets_disk
 import pkm.importer.run as run_module
+from pkm.importer.assets import Asset
 from pkm.importer.rows import RECOVERY_PAGE_TITLE
 from pkm.importer.run import main
 from pkm.refs import title_syntax_reason
@@ -468,6 +470,91 @@ def test_valid_existing_asset_is_not_rewritten(tmp_path, monkeypatch):
 
     assert dest.stat().st_mtime_ns == before_mtime
     assert dest.read_bytes() == b"PNGDATA"
+
+
+def test_existing_assets_verified_through_the_shared_boundary(
+    tmp_path, monkeypatch
+):
+    # pkm-6g0l: importer and exporter now share one on-disk verification
+    # ritual, and its size-before-hash short circuit has to survive the
+    # move. Both provable from what actually gets hashed on a re-run: the
+    # intact asset's bytes are read and hashed, the truncated one's are
+    # not (its size alone already condemns it).
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+    png_sha = hashlib.sha256(b"PNGDATA").hexdigest()
+    truncated = out / "assets" / png_sha[:2] / png_sha
+    truncated.write_bytes(b"PNGDA")
+
+    hashed: list[bytes] = []
+    real = assets_disk.sha256_hex
+    monkeypatch.setattr(
+        assets_disk, "sha256_hex",
+        lambda data: (hashed.append(data), real(data))[1])
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    assert hashed == [b"PDFDATA"]
+    assert truncated.read_bytes() == b"PNGDATA"
+
+
+def test_title_migration_gets_the_shared_connection_out_of_a_transaction(
+    tmp_path, monkeypatch
+):
+    # pkm-6g0l moved the database-free asset phase inside the
+    # row-writing connection's lifetime, so one connection now serves
+    # both the inserts and the title migration. audit_title_migration
+    # and apply_title_migration each refuse a connection that is already
+    # in a transaction (RuntimeError), and the commit before the asset
+    # phase is the only thing ending the implicit one the inserts
+    # opened. Move or drop that commit and this fails twice over: the
+    # recorded flag flips, and main() raises instead of returning 0.
+    files = _setup_files(tmp_path)
+    out = tmp_path / "data"
+    in_transaction: list[bool] = []
+    real_audit = run_module.audit_title_migration
+
+    def record(con):
+        in_transaction.append(con.in_transaction)
+        return real_audit(con)
+
+    monkeypatch.setattr(run_module, "audit_title_migration", record)
+
+    assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
+
+    assert in_transaction == [False]
+
+
+def test_copy_assets_repairs_only_what_is_wrong(tmp_path):
+    # The extracted phase stands on its own: no export, no database.
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    payloads = {"good": b"GOODDATA", "bad": b"BADDDATA"}
+    sources: dict[str, Path] = {}
+    assets: dict[str, Asset] = {}
+    for name, payload in payloads.items():
+        path = src_dir / name
+        path.write_bytes(payload)
+        sha = hashlib.sha256(payload).hexdigest()
+        sources[sha] = path
+        assets[sha] = Asset(sha, name, "application/octet-stream", len(payload))
+
+    store = tmp_path / "assets"
+    run_module._copy_assets(store, sources, assets)
+    good_sha = hashlib.sha256(payloads["good"]).hexdigest()
+    bad_sha = hashlib.sha256(payloads["bad"]).hexdigest()
+    good = store / good_sha[:2] / good_sha
+    bad = store / bad_sha[:2] / bad_sha
+    assert good.read_bytes() == payloads["good"]
+    good_mtime = good.stat().st_mtime_ns
+    bad.write_bytes(b"CORRUPTX")  # same length, wrong bytes
+
+    run_module._copy_assets(store, sources, assets)
+
+    assert bad.read_bytes() == payloads["bad"]
+    assert good.stat().st_mtime_ns == good_mtime  # untouched
+    assert list(store.rglob("*.tmp")) == []
 
 
 def test_missing_export_file_reports_friendly_error(tmp_path, capsys):

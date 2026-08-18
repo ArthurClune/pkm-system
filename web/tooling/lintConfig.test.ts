@@ -86,6 +86,11 @@ const cases: readonly FixtureCase[] = [
   },
 ];
 
+// Each ESLint spawn here takes ~2s under coverage instrumentation, close
+// enough to the 5s default that this file flaked repeatedly during parallel
+// verify runs. An explicit timeout gives it real headroom.
+const ESLINT_TIMEOUT_MS = 20000;
+
 describe("eslint flat config", () => {
   it("each bad fixture reports its named rule", async () => {
     const linter = makeLinter();
@@ -95,7 +100,7 @@ describe("eslint flat config", () => {
       expect(ruleIds, `${c.file} messages: ${JSON.stringify(ruleIds)}`)
         .toContain(c.rule);
     }
-  });
+  }, ESLINT_TIMEOUT_MS);
 
   it("each corrected variant is diagnostic-free", async () => {
     const linter = makeLinter();
@@ -107,5 +112,5 @@ describe("eslint flat config", () => {
       expect(messages, `${c.file} messages: ${JSON.stringify(messages)}`)
         .toHaveLength(0);
     }
-  });
+  }, ESLINT_TIMEOUT_MS);
 });

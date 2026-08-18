@@ -1033,6 +1033,11 @@ test("resetLocalData without discardPending surfaces a blocked reset when flush 
 
   expect(caught).toBeInstanceOf(ResetBlockedError);
   expect((caught as ResetBlockedError).pending).toBe(1);
+  // The original flush failure survives as `cause`: a transport failure and
+  // a server rejection must stay distinguishable behind one message.
+  expect((caught as ResetBlockedError).cause).toBeInstanceOf(Error);
+  expect(((caught as ResetBlockedError).cause as Error).message)
+    .toBe("flush offline");
   expect(replica.calls).toContain("abortRecovery");
   expect(replica.calls).not.toContain("commitRecovery");
   expect(snapshotCalls).toBe(0);

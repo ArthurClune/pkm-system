@@ -76,6 +76,34 @@ it("does not let an old target refetch erase a split made after dispatch", async
   expect(outline.focus?.uid).toBe(created.uid);
 });
 
+it("adopts an empty daily rather than rejecting when the cross-page-move catch-up read 404s", async () => {
+  const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ detail: "not found" }, 404)));
+  vi.stubGlobal("fetch", fetchMock);
+  const sync = makeSync();
+  let outline!: Outline;
+  render(
+    <SyncContext.Provider value={sync}>
+      <Harness title="August 17th, 2026" initial={[block("u1", "old")]}
+        onReady={(value) => { outline = value; }} />
+    </SyncContext.Provider>,
+  );
+
+  // A move op naming this page for a uid never seen here (session.snapshot
+  // has only "u1") is the cross-page-move target case: outlineSessions'
+  // needsAuthoritative fires and useOutline's refetch calls loadOutlineBlocks
+  // with substituteMissingDaily. That policy turns this 404 into an empty
+  // page instead of a rejection that refetch's own catch(() => undefined)
+  // would otherwise swallow, leaving the stale "old" block behind.
+  act(() => sync.emit({
+    client_id: "other", ts: 1,
+    ops: [{ op: "move", uid: "incoming", parent_uid: null, order_idx: 0,
+            page_title: "August 17th, 2026" }],
+  }));
+
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  await vi.waitFor(() => expect(outline.blocks).toHaveLength(0));
+});
+
 it("adopts Page A while only Page B has an unsettled write", () => {
   const sync = makeSync("connected", { pending: 1 });
   let pageA!: Outline;

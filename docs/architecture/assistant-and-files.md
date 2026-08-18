@@ -114,8 +114,12 @@ cancelled as soon as it starts: `interrupt()` issued, its bounded wait
 abandoned, `healthy` left without a verdict. `_wait_out` runs each teardown
 step as a task of its own, outside that scope, and waits for it with
 `asyncio.wait`, which leaves the task running when our own wait is cut short.
-The waiting is capped by `TEARDOWN_TIMEOUT_S`; past that the cleanup finishes
-on its own rather than holding the response task, and a core, indefinitely.
+The waiting is capped by `TEARDOWN_TIMEOUT_S`, so a cleanup that never
+returns cannot hold the response task, and a core, past that bound; instead
+it is left to finish on its own. The entry stays in `_entries` with
+`busy=True` until it does: a later turn on that conversation gets a 409 in
+the meantime, and `lifespan`'s `close_all()` still closes it on shutdown
+regardless.
 
 **`ClaudeConversation._abandon_turn` declines every parked confirm future
 first, and only then awaits `interrupt()`** (bounded by

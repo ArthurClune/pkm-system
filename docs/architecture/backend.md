@@ -384,11 +384,11 @@ The shared fixtures pin the pair with the case
 the padded-but-nonblank ` Valid ` is kept byte-exact.
 
 `store.index_ref()` also catches `BlankTitleError` and skips the ref —
-defense in depth at the store boundary. Every extracted `Ref` reaches a page
-through it, because `store.reindex_refs_for_text` is the only re-derivation
-path and it calls nothing else. Resolving one with `get_or_create_page()`
-directly would surface `BlankTitleError` to a caller that does not catch it
-(symptom table).
+defense in depth at the store boundary. On the write path, every extracted
+`Ref` reaches a page through it, because operation application and snapshot
+rewriting both go through `store.reindex_refs_for_text` and nothing else.
+Resolving one with `get_or_create_page()` directly would surface
+`BlankTitleError` to a caller that does not catch it (symptom table).
 
 ## Auth
 

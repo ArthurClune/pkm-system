@@ -235,6 +235,10 @@ class ClaudeConversation:
             logger.warning("assistant interrupt abandoned by a cancellation; "
                            "retiring the harness")
             self.healthy = False
+            # Re-raising here skips send()'s own pump-cancel lines below this
+            # call, which is safe only because healthy = False above sends
+            # this handle to retirement, and close() cancels self._pump_task
+            # itself.
             raise
         except Exception:
             logger.exception("assistant interrupt failed; retiring the harness")

@@ -151,7 +151,8 @@ def test_get_block_by_uid(run):
 
 
 def test_get_uid_shaped_page_title_falls_back(run, pkm_client):
-    pkm_client.create_page("uidlike")
+    pkm_client.post_ops([{"op": "create_page", "page_title": "uidlike"}],
+                        batch_id="t-uidlike-page")
     code, out, _ = run("get", "uidlike")
     assert code == 0
     assert out.startswith("# uidlike\n")
@@ -503,8 +504,8 @@ def test_migrate_titles_apply_preserves_existing_409_exit_behavior(
 
 
 def test_get_section_on_uid_shaped_page_title(run, pkm_client):
-    pkm_client.create_page("Databases")
-    pkm_client.post_ops([{"op": "create", "uid": "sec_head_0001",
+    pkm_client.post_ops([{"op": "create_page", "page_title": "Databases"},
+                         {"op": "create", "uid": "sec_head_0001",
                           "page_title": "Databases", "parent_uid": None,
                           "order_idx": 0, "text": "Vendors", "heading": 2}],
                         batch_id="t-sec-uidlike")

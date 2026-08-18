@@ -10,12 +10,12 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from pkm.cli.render import (render_assets, render_backlinks, render_block,
-                            render_groups, render_page, render_search)
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
+from pkm.render import (render_assets, render_backlinks, render_block,
+                        render_groups, render_page, render_search)
 
 mcp = FastMCP("pkm")
 

@@ -31,7 +31,7 @@ from pkm.contracts.ops import BlockOp, OpBatch
 from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
                                      BlockNode, BlockPayload, GroupsPayload,
-                                     OpsAck, PageMeta, PagePayload,
+                                     OpsAck, PagePayload,
                                      QueryPayload, ScanPayload, SearchPayload,
                                      TitleMigrationApplyRequest,
                                      TitleMigrationApplyResponse,
@@ -221,7 +221,10 @@ class PkmClient:
         it into the same OpBatch as whatever else the batch does, so
         creation commits atomically with the rest instead of persisting
         from a separate request even when the batch later fails
-        validation (pkm-w80k).
+        validation (pkm-w80k). This client deliberately exposes no
+        page-creation method at all -- `POST /api/pages` is the web app's
+        route -- so that separate-request shape has nowhere to come back
+        from.
 
         Blocks are all a planner needs, and are the only part of a page
         payload a missing page could honestly stand in for -- there is no
@@ -269,10 +272,6 @@ class PkmClient:
         return self._request("GET", "/api/todos", GroupsPayload,
                              params=params)
 
-    def create_page(self, title: str) -> PageMeta:
-        return self._request("POST", "/api/pages", PageMeta,
-                             json={"title": title})
-
     def audit_title_migration(self) -> TitleMigrationAuditPayload:
         return self._request("GET", "/api/migrations/title-canonicalization",
                              TitleMigrationAuditPayload)
@@ -292,7 +291,7 @@ class PkmClient:
 
     def post_ops(self, ops: Sequence[BlockOp | Mapping[str, Any]],
                  batch_id: str) -> OpsAck:
-        """Apply `ops` as one atomic batch. The planners in `pkm.cli.build`
+        """Apply `ops` as one atomic batch. The planners in `pkm.planning`
         hand over contract models; raw mappings are accepted too (tests and
         one-off scripts write ops by hand) and validated identically by
         OpBatch, so a malformed op fails here with 422 rather than on the

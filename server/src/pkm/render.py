@@ -1,7 +1,8 @@
 # pattern: Functional Core
 """Render API responses as terminal markdown. Pure text shaping over
 `pkm.contracts.responses` models; the CLI/MCP shells decide what to fetch
-and whether to include uids.
+and whether to include uids. Transport-neutral on purpose: `pkm` and
+`pkm-mcp` both render through here, so this module imports neither.
 
 Takes the contract models rather than dicts (pkm-0wr8): a renderer
 reading a field the server no longer sends is now a type error here, not
@@ -9,7 +10,7 @@ a KeyError in front of the user mid-command."""
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      BlockPayload, BlockRefText, GroupsPayload,
@@ -17,7 +18,7 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationBlocker,
-                                     TitleMigrationPage)
+                                     TitleMigrationPage, walk_blocks)
 
 _REF_TOKEN = re.compile(r"\(\(([\w-]+)\)\)")
 _SECTION_MARKER = re.compile(r"^(#{1,3}) (.*)$")
@@ -27,12 +28,6 @@ RefMap = Mapping[str, BlockRefText]
 
 class RenderError(ValueError):
     pass
-
-
-def _walk(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
-    for n in nodes:
-        yield n
-        yield from _walk(n.children)
 
 
 def resolve_ref_texts(text: str, ref_map: RefMap,
@@ -243,11 +238,11 @@ def select_section(blocks: Sequence[BlockNode],
     marked = _SECTION_MARKER.fullmatch(spec)
     heading = len(marked.group(1)) if marked else None
     text = marked.group(2) if marked else spec
-    for n in _walk(blocks):
+    for n in walk_blocks(blocks):
         if n.text == text and (heading is None or n.heading == heading):
             return [n]
     headings = ", ".join(f"{'#' * n.heading} {n.text}"
-                         for n in _walk(blocks) if n.heading)
+                         for n in walk_blocks(blocks) if n.heading)
     raise RenderError(f"no block titled {spec!r} on the page"
                       f" (headings: {headings or 'none'})")
 

@@ -31,6 +31,11 @@ pkm/
 ├── title_migration.py   Core   boundary-space grouping, blockers, survivor plan + digest
 ├── todo.py              Core   {{TODO}}/{{DONE}} marker parsing (mirrors web/src/grammar/todo.ts)
 ├── filenames.py         Core   safe_filename() shared by upload + export
+├── planning.py          Core   Plans one write as /api/ops ops: outlines, missing
+│                               headings, text updates, task markers
+├── batch.py             Core   The `pkm batch` command language: per-command schema
+│                               + dispatch onto planning.py
+├── render.py            Core   API payloads -> terminal markdown (^uid annotated)
 ├── assets_core.py       Core   Asset-browser helpers: reference-token stripping,
 │                               MIME categorisation (+ its SQL twin), zip arcnames
 ├── edn.py               Core   Minimal EDN parser for Roam exports
@@ -49,7 +54,7 @@ pkm/
 │                        mermaid_preservation.py Core validation/planning
 ├── export/              Markdown export (markdown.py Core render, writer.py Shell)
 ├── backup/              Nightly backup job (__main__.py Shell, rotation.py Core)
-├── cli/                 `pkm` CLI (main.py Shell; build.py/render.py Core planners)
+├── cli/                 `pkm` CLI (main.py Shell: argparse, stdin/stdout, exit codes)
 ├── client/              Shared HTTP client (api.py Shell PkmClient, core.py Core,
 │                        workflows.py Shell: the write workflows CLI+MCP share)
 ├── mcp/                 `pkm-mcp` FastMCP stdio server over the same client
@@ -63,8 +68,13 @@ pkm/
 `contracts` imports neither side. The op models, the uid regex and the
 daily-title spelling are transport contracts, not server internals, so they
 live in `pkm/contracts/`; `pkm.server` still owns everything that acts on
-them (`ops_core.plan_op`, `server/daily.py`'s journal-day selection). Two
-tests in `tests/test_client_contracts.py` enforce the direction by parsing
+them (`ops_core.plan_op`, `server/daily.py`'s journal-day selection).
+
+`planning.py`, `batch.py` and `render.py` sit at the top level for the same
+reason: all three are shared by both shells and by `client/workflows.py`, so
+living under any one of them would point the arrow at a package name that is
+not the truth. They import `contracts` and each other, never a shell. Three
+tests in `tests/test_client_contracts.py` enforce both directions by parsing
 imports, so a re-crossing fails the suite rather than review.
 
 Inside `pkm/server/`:

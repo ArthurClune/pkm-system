@@ -1,4 +1,4 @@
-# CLI and MCP server (`pkm/cli/`, `pkm/mcp/`, `pkm/client/`)
+# CLI and MCP server (`pkm/cli/`, `pkm/mcp/`, `pkm/client/` + the shared planners)
 
 `pkm` (CLI) and `pkm-mcp` (FastMCP stdio server) are thin shells over the same
 HTTP client. They talk to the running server's API, never to SQLite directly,
@@ -73,17 +73,34 @@ itself is covered in
 
 ## Pure planners
 
-`cli/build.py` (Core) holds the planners:
+Three top-level Core modules, under no shell because the CLI, the MCP server
+and `client/workflows.py` all use all three: `planning.py` plans a write,
+`batch.py` plans a multi-command batch on top of it, `render.py` renders API
+payloads to terminal markdown.
+
+`planning.py`:
 
 - `plan_save` — indented outline text → create ops
-- `plan_batch` — the `pkm batch` command language (`create`, `todo`,
-  `update`, `move`, `delete`, `outline`, `as`-aliases, matched-or-created
-  `## Heading` parents)
 - `plan_update` — a text replacement → `update_text` + `set_heading`
 - `plan_mark` — a task-marker change → `update_text` with the marker applied,
-  plus a `base_text_hash` guard, and deliberately never `set_heading`
+  plus a `base_text_hash` guard, and never `set_heading`
 - `split_heading` — strips `#`/`##`/`###` off a line into a heading level 1-3
 - `asset_block_text` — MIME → image embed / `{{[[pdf]]}}` macro / link
+- `Planner` — the append counter per (page, parent) and the heading memo that
+  consecutive commands share
+
+Every `Planner` method takes a parent *uid*, already resolved. Turning a
+parent *spec* into one stays with the caller: aliases and in-batch uids are
+batch bookkeeping, and `batch.py` is what knows them.
+
+`batch.py` owns the `pkm batch` command language: `create`, `todo`, `update`,
+`move`, `delete`, `outline`, `as`-aliases, matched-or-created `## Heading`
+parents. `plan_batch` walks the commands threading a `_BatchCtx` — the shared
+`Planner`, the fetched pages, the alias map, and the uids created so far in
+this batch. Those uids are on none of the fetched pages. `_in_batch_uid`
+recognises a `((uid))` spec naming one, before `resolve_parent` — which walks
+fetched blocks only — would reject it. The first child of such a parent starts
+at `order_idx` 0, because no fetched page can supply its child count.
 
 A `## Heading` parent spec matches on level and text together, taking the
 first block in document order if more than one matches. The in-batch memo for
@@ -91,7 +108,11 @@ headings created earlier in the same batch follows the same rule, so a heading
 resolves to the same parent whether it came from the fetched page or from
 earlier in the batch.
 
-`cli/render.py` (Core) renders API payloads to terminal markdown.
+`Planner.create_at` is the one create that skips the append counter: it takes
+the batch `index` param as `order_idx` verbatim, for the server to splice
+siblings after. Leaving the counter alone is why an indexed create and plain
+appends under the same parent in one batch can interleave — the appends keep
+counting from the page's original child count. `pkm batch --help` says so.
 
 Batch bodies are validated before anything else happens. `validate_batch`
 parses the whole envelope against a discriminated-union command schema, with
@@ -127,7 +148,7 @@ as bare text, which still finds the block by exact text whatever its level.
 ## Headings are text
 
 Text is the source of truth for a block's heading level on every CLI/MCP
-write. `split_heading` runs in `_Planner.creates` — the one call site every
+write. `split_heading` runs in `Planner._one` — the one call site every
 create path funnels through — and in `plan_update`. So `## X` is never stored
 as literal text, and `render_page`/`render_block`'s `## text` output reads back
 as a heading.
@@ -170,7 +191,7 @@ request. `PkmClient.get_page_blocks` returns `([], True)` — an empty block
 list plus a "missing" flag; blocks are all a planner needs, and the only part
 of a page payload a missing page can honestly stand in for. The shared
 workflows (`save_blocks`, `apply_batch`, `upload_and_link`) prepend a
-`create_page` op (`build.create_page_ops`) to the same `OpBatch` the planned
+`create_page` op (`planning.create_page_ops`) to the same `OpBatch` the planned
 blocks ride in. That keeps the one-atomic-transaction contract real: a batch
 that fails validation later leaves neither the page nor its blocks behind.
 The lookup uses `refs.normalize_title(title)`, not the verbatim title. A

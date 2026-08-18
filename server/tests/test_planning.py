@@ -2,11 +2,11 @@ import itertools
 
 import pytest
 
-from pkm.cli.build import (BuildError, create_page_ops, next_child_idx,
-                           parse_outline, plan_batch, plan_mark, plan_save,
-                           plan_update, referenced_pages, resolve_parent,
-                           split_heading, validate_batch)
-from pkm.cli.render import render_page
+from pkm.batch import plan_batch, referenced_pages, validate_batch
+from pkm.planning import (BuildError, create_page_ops, next_child_idx,
+                          parse_outline, plan_mark, plan_save, plan_update,
+                          resolve_parent, split_heading)
+from pkm.render import render_page
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                SetHeadingOp, UpdateTextOp, text_hash)
 from pkm.contracts.responses import BlockNode, PagePayload
@@ -97,7 +97,7 @@ def test_resolve_parent_duplicate_headings_picks_first_in_document_order():
     # at page top level after that block -- pinning pre-order (depth
     # first) document order, not top-level list order, as the tie-break.
     # This matches the in-batch memoization's first-write rule
-    # (_Planner._headings.setdefault).
+    # (Planner._headings.setdefault).
     blocks = [
         _node("container", "Some section",
               children=[_node("first", "Notes", heading=2)]),
@@ -245,6 +245,24 @@ def test_plan_batch_move_rejects_wrong_level_heading():
         plan_batch(cmds, {"Machine Learning": blocks}, uid_gen())
 
 
+def test_plan_batch_move_under_a_block_created_in_the_same_batch():
+    # The move target is a uid created earlier in the same batch, so it is
+    # on no fetched page: the append position has to start at 0 instead of
+    # asking the page for that block's child count, which would raise.
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "New home",
+                    "as": "home"}},
+        {"command": "move",
+         "params": {"uid": "u1", "page": "Machine Learning",
+                    "parent": "{{home}}"}},
+    ]
+    ops = plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen())
+    home = as_create(ops[0]).uid
+    assert ops[1] == MoveOp(op="move", uid="u1", parent_uid=home,
+                            order_idx=0, page_title=None)
+
+
 def test_plan_batch_create_with_index():
     cmds = [{"command": "create",
              "params": {"page": "Machine Learning", "text": "top",
@@ -262,6 +280,29 @@ def test_plan_batch_todo_with_index_under_parent():
     assert ops[0].order_idx == 0
     assert ops[0].parent_uid == "u2"
     assert ops[0].text == "{{TODO}} urgent"
+
+
+def test_plan_batch_indexed_create_leaves_later_appends_counting_from_the_page():
+    # `pkm batch --help` warns against mixing an indexed create with plain
+    # appending creates under the same parent, because the plain ones count
+    # from the parent's ORIGINAL child count and can interleave with the
+    # indexed block instead of landing after it. That warning is only honest
+    # while `create_at` leaves the append counter alone: the appends here
+    # must be 2 and 3, the page's two existing top-level blocks and one
+    # more, not 3 and 4 as they would be if the indexed create had bumped
+    # the counter on its way past.
+    cmds = [
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "spliced in",
+                    "index": 0}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "appended first"}},
+        {"command": "create",
+         "params": {"page": "Machine Learning", "text": "appended second"}},
+    ]
+    ops = creates(plan_batch(cmds, {"Machine Learning": BLOCKS}, uid_gen()))
+    assert [o.parent_uid for o in ops] == [None, None, None]
+    assert [o.order_idx for o in ops] == [0, 2, 3]
 
 
 def test_plan_batch_alias_as_uid():

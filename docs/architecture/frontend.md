@@ -397,9 +397,12 @@ open outline, so the common batch is one this tree has nothing to do with:
 when no op names a uid it holds and none creates on this page, the whole batch
 is skipped before the clone and the input array is returned as-is.
 `transitionOutline` advances `revision` only for a
-batch that changed something and returns the identical state object otherwise,
-which is what stops a re-render — and what keeps a read dispatched at this
-revision adoptable. A stamp counts as a change: `update_text` bumps
+batch that changed something, and for a remote batch returns the identical
+state object otherwise. A local batch always returns a new state object
+either way, since it must record the write ticket, but its `revision` is
+just as unmoved when nothing changed. `revision` is the field a re-render and
+a dispatched read's adoptability actually key on. A stamp counts as a
+change: `update_text` bumps
 `updated_at` whether or not the text differs, mirroring the server's
 `UpdateText`. A tree that arrives whole — a drag-and-drop result, a server
 read — has no ops to ask, so those paths reach the same verdict by comparing

@@ -21,6 +21,10 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   const [backlinks, setBacklinks] = useState<BacklinkBatchState>({
     groups: initial.groups, totalPages: initial.total_pages, refTexts: {},
   });
+  // Shared by loadMore and loadAll, not per-caller: if both are ever in
+  // flight together the first to settle re-enables both buttons early. Both
+  // walks are idempotent, so a stray extra click just repeats a batch fetch
+  // — cosmetic, not a correctness bug.
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -91,6 +95,10 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
       // Replace everything from scratch: the first batch's size depends on
       // whether the filter panel needs every page loaded, then (only while
       // the panel stays open) the walk continues in full-size batches.
+      // totalPages: Infinity is safe here only because nextLimit's
+      // batchesFetched === 0 branch below returns unconditionally, never
+      // reading state.totalPages first — a check that ran before the first
+      // batch landed would never see anything but Infinity and loop forever.
       const result = await walkBacklinkBatches(
         fetchBatch, { groups: [], totalPages: Infinity, refTexts: {} },
         (state, batchesFetched) => (batchesFetched === 0

@@ -301,6 +301,19 @@ describe("applyOpsWithChange reports exactly what a serialize-compare would", ()
     });
   }
 
+  // set_view_type's wire type has no null (SetViewTypeOp.view_type is
+  // "numbered" | "document" only, unlike BlockNode.view_type), so its no-op
+  // variant needs a block already holding one of those views -- tree()'s
+  // blocks all start at the default null and can't exercise it.
+  test("set_view_type to the view already there", () => {
+    const before = tree().map((n) =>
+      n.uid === "a" ? { ...n, view_type: "numbered" as const } : n);
+    const op: BlockOp = { op: "set_view_type", uid: "a", view_type: "numbered" };
+    const applied = applyOpsWithChange(before, [op], "P");
+    expect(applied.changed)
+      .toBe(JSON.stringify(before) !== JSON.stringify(applied.blocks));
+  });
+
   test("a batch changed if any single op changed", () => {
     const before = tree();
     const applied = applyOpsWithChange(before, [

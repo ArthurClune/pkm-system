@@ -52,10 +52,12 @@ export interface ReplicaSync {
 
 /** Thrown by resetLocalData when discardPending is false and the pending-batch
  * flush fails: the caller must re-ask with discardPending true to proceed, or
- * leave the (still-intact) database alone. */
+ * leave the (still-intact) database alone. `cause` carries the flush failure
+ * itself, so a transport failure and a server rejection stay distinguishable
+ * behind the one "reset blocked" message. */
 export class ResetBlockedError extends Error {
-  constructor(readonly pending: number) {
-    super("unsent changes not delivered");
+  constructor(readonly pending: number, options?: { cause?: unknown }) {
+    super("unsent changes not delivered", options);
   }
 }
 
@@ -244,13 +246,18 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       );
       return;
     }
-    try {
-      await flushBatches([...lease.batches], () => undefined);
-    } catch {
-      throw new ResetBlockedError(
-        lease.batches.filter((b) => !b.poisoned).length,
-      );
+    if (policy === "blocking") {
+      try {
+        await flushBatches([...lease.batches], () => undefined);
+      } catch (cause: unknown) {
+        throw new ResetBlockedError(
+          lease.batches.filter((b) => !b.poisoned).length, { cause },
+        );
+      }
+      return;
     }
+    const exhaustive: never = policy;
+    throw new Error(`unhandled flush policy: ${String(exhaustive)}`);
   };
 
   /** The one recovery-lease lifecycle: barrier, lease, flush, snapshot,

@@ -63,6 +63,13 @@ export interface Sync {
   retryProblem(): Promise<void>;
   /** Clear repaired details. Failed/running problems cannot be dismissed. */
   dismissProblem(): void;
+  /** Give up on a mark-failed rejected batch: drop its retained intents and
+   * release the recovery barrier they held (pkm-tu5k). The escape from a
+   * profile whose replica can never open — without it the intent can never
+   * clear and every future session boots wedged. Safe to give up because the
+   * unmarked batch redelivers if the replica ever opens again, and the server
+   * rejects it back into the normal poison → repair flow. */
+  discardProblem(): Promise<void>;
   /** Manual recovery for a stalled replica (Fix A): flushes pending writes
    * then rebuilds from a fresh snapshot. Pass discardPending=true to proceed
    * even when the flush cannot be delivered. */
@@ -85,6 +92,7 @@ export const SyncContext = createContext<Sync>({
   unsentInMemory: 0,
   retryProblem: () => Promise.resolve(),
   dismissProblem: () => undefined,
+  discardProblem: () => Promise.resolve(),
   resetReplica: () => Promise.resolve(),
   enqueue: () => {
     // a silent default would drop writes without a trace
@@ -568,6 +576,25 @@ export function SyncProvider({ children, replica }: {
           case "none":
             return Promise.resolve();
         }
+      },
+      discardProblem: () => {
+        const currentProblem = problemRef.current;
+        if (currentProblem?.kind !== "rejected-batch" ||
+            currentProblem.repair !== "mark-failed") return Promise.resolve();
+        queue.discardPoisonIntents();
+        applySync({ type: "poison-intents-discarded" });
+        if (startupDiscoveringPoisonRef.current) {
+          // Rejoin the normal startup: discovery runs against the replica,
+          // and an unopenable one falls into the pkm-bjae online-only
+          // fallback.
+          return continueStartupRef.current([]);
+        }
+        // Mid-session the still-unmarked durable row is simply handed out
+        // again once the barrier lifts: the server rejects it again and the
+        // flow re-enters rejectDurableBatch, whose per-batch effects are
+        // idempotent across repeats (rememberPoisonMark).
+        queue.resume("recovery");
+        return Promise.resolve();
       },
       dismissProblem: () => {
         const currentProblem = problemRef.current;

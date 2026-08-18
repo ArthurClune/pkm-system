@@ -1407,6 +1407,62 @@ async () => {
   expect(replica.initCalls()).toBe(0);
 });
 
+test("discarding an unmarkable intent releases the wedge into online-only",
+async () => {
+  // pkm-tu5k: the gate above is correct but was inescapable — the intent
+  // clears only after a successful markPoisoned, which an unopenable replica
+  // can never perform, wedging every future session. Discard is the explicit
+  // way out: drop the intents, then rejoin the pkm-bjae online-only fallback.
+  // Safe because the unmarked batch redelivers if the replica ever opens
+  // again, and the server rejects it into the normal poison → repair flow.
+  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+    version: 1,
+    intents: [{ rowId: 1, batchId: "bad-batch",
+                ops: [{ op: "delete", uid: "bad" }],
+                status: 400, message: "request failed: 400 /api/ops" }],
+  }));
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      posts.push((JSON.parse(String(init?.body)) as { batch_id: string }).batch_id);
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = unopenableReplica();
+  replica.markPoisoned = async () => {
+    throw new Error("Access Handles cannot be created");
+  };
+  let sync!: Sync;
+  function Grab() { sync = useSync(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); await Promise.resolve(); });
+  await act(async () => {
+    sync.enqueue([{ op: "delete", uid: "typed-while-wedged" }]);
+  });
+  await act(async () => { await Promise.resolve(); });
+  expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "mark-failed",
+  });
+  expect(posts).toEqual([]);
+
+  await act(async () => { await sync.discardProblem(); });
+  await act(async () => { await Promise.resolve(); });
+
+  expect(localStorage.getItem("pkm.poison-mark-intents.v1")).toBeNull();
+  // The edit typed while wedged delivers instead of dying with the tab.
+  expect(posts).toHaveLength(1);
+  // Never the rejected batch itself: nothing may deliver what the server
+  // already rejected.
+  expect(posts).not.toContain("bad-batch");
+  expect(sync.problem).toMatchObject({ kind: "replica-unavailable" });
+  expect(sync.replicaMode).toBe("no-replica");
+});
+
 test("failed poison repair stays visible and Retry succeeds without reapplying it", async () => {
   let snapshotCalls = 0;
   const posts: string[] = [];

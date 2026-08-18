@@ -78,7 +78,8 @@ Inside `pkm/server/`:
 | `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py` |
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
-| `tree.py`, `backlinks.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py` | Core | Pure helpers: tree building, backlink shaping, journal-day selection + empty-daily test, FTS queries, `{{[[query]]}}` evaluation, sync windowing and hydration ordering, MIME sniffing |
+| `query_exec.py` | Shell | Runs a `query.py` plan: `count_matches`, `execute_plan`. Owns the filter that keeps a `{{query}}` block out of its own results and the page-title/uid row order, for both surfaces that execute a plan (`/api/query`, the resolved page export) |
+| `tree.py`, `grouping.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py` | Core | Pure helpers: tree building, `{page_id, page_title, items}` group shaping (`group_by_page` for query/todo/unlinked rows, `group_backlinks` for backlink rows with breadcrumbs), journal-day selection + empty-daily test, FTS queries, `{{[[query]]}}` parsing and SQL planning, sync windowing and hydration ordering, MIME sniffing |
 | `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
 | `tempfile_response.py` | Shell | `CleanupFileResponse`: a `FileResponse` whose cleanup callback runs even on a missing/unreadable file or a send-time error, not only after a completed transfer (used by the zip export routes; see [assistant-and-files.md](assistant-and-files.md#assets-and-the-file-browser)) |
 | `request_log.py` / `logfmt.py` | Shell / Core | The `pkm.access` request log — one line per request, with durations (see [Logging](#logging-and-observability)) |
@@ -490,7 +491,7 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 ### Breadcrumbs and recursive traversal
 
 `routes_pages.py::_fetch_ancestors` builds the breadcrumb trail behind
-`GET /api/block/{uid}` and, via `backlinks.py`, every backlink group. It walks
+`GET /api/block/{uid}` and, via `grouping.py`, every backlink group. It walks
 parents with a recursive CTE. Its termination condition is a **visited path,
 not a depth limit**: the CTE carries `path` as `,uid,uid,…,`, and the
 recursive arm keeps a row only while `instr(a.path, ',' || b.uid || ',') = 0`.
@@ -599,9 +600,11 @@ download reads like what a reader of the live page would see.
 
 - `((refs))` resolve recursively, not one level, and are inlined as plain text
   rather than wrapped in parens.
-- `{{query: ...}}` and `{{[[query]]: ...}}` macros execute — via `query.py`'s
-  `parse_query`/`plan_sql`, the same plan live `/api/query` runs — and render
-  as a results list grouped by page.
+- `{{query: ...}}` and `{{[[query]]: ...}}` macros execute and render as a
+  results list grouped by page. The path is the one live `/api/query` takes:
+  `query.py`'s `parse_query`/`plan_sql`, then `query_exec.execute_plan`. Only
+  the result shape differs — the export's own immutable types name pages by
+  title alone.
 - Depth caps mirror the live UI's own recursion guards exactly, so nesting
   behaves identically to the browser: `BlockRef.tsx`'s `MAX_DEPTH = 3` for
   refs, `QueryBlock.tsx`'s `MAX_DEPTH = 2` for nested queries.

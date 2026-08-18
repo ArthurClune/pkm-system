@@ -1,7 +1,17 @@
+import json
+from pathlib import Path
+
+import pytest
+
 from pkm import rename
 from pkm import refs
 from pkm.refs import normalize_title
 from pkm.rename import rewrite_title_refs, rewrite_title_refs_map
+
+GRAMMAR_FIXTURE = (
+    Path(__file__).parents[2] / "shared" / "fixtures" / "ref_grammar.json"
+)
+GRAMMAR_CASES = json.loads(GRAMMAR_FIXTURE.read_text())["cases"]
 
 
 def test_bare_tag_matches_hashtag_capture_class():
@@ -155,6 +165,116 @@ def test_outer_replacement_wins_over_a_tag_nested_inside_it():
     assert rewrite_title_refs_map(
         "[[A #Old]]", {"A #Old": "Outer", "Old": "New"}
     ) == "[[Outer]]"
+
+
+# --- walker pins -------------------------------------------------------
+# The bracket depth walk is shared with refs.py (refs.bracket_spans). These
+# pin the rewriter's half of the contract -- how the walk is *consumed* --
+# so a change to the shared walker cannot quietly alter a rewrite.
+
+
+def test_descent_reaches_a_title_nested_two_levels_deep():
+    assert rewrite_title_refs("[[A [[B [[Old]]]]]]", "Old", "New") == \
+        "[[A [[B [[New]]]]]]"
+
+
+def test_a_replaced_middle_title_swallows_the_ref_nested_inside_it():
+    # Outer-wins applies at every depth, not just the top: the middle bracket
+    # is replaced whole, so the "Old" inside it is never visited.
+    assert rewrite_title_refs_map(
+        "[[A [[B [[Old]]]]]]", {"B [[Old]]": "Inner", "Old": "New"}
+    ) == "[[A [[Inner]]]]"
+    assert rewrite_title_refs_map(
+        "[[A [[B [[Old]]]]]]", {"A [[B [[Old]]]]": "Top", "Old": "New"}
+    ) == "[[Top]]"
+
+
+def test_every_sibling_inside_an_unreplaced_title_is_visited():
+    assert rewrite_title_refs("[[A [[Old]] B [[Old]]]]", "Old", "New") == \
+        "[[A [[New]] B [[New]]]]"
+
+
+def test_an_unclosed_bracket_does_not_stop_the_scan():
+    # The walk gives up on the unbalanced "[[" and resumes one character
+    # later, so the balanced ref behind it is still found.
+    assert rewrite_title_refs("[[A and [[Old]]", "Old", "New") == \
+        "[[A and [[New]]"
+    assert rewrite_title_refs("[[Old", "Old", "New") == "[[Old"
+    assert rewrite_title_refs("]]Old[[", "Old", "New") == "]]Old[["
+
+
+def test_a_stray_open_bracket_is_title_text_of_the_ref_that_closes():
+    # "[[[Old]]" closes once, so the title is "[Old" -- not "Old".
+    assert rewrite_title_refs("[[[Old]]", "Old", "New") == "[[[Old]]"
+    assert rewrite_title_refs("[[[Old]]", "[Old", "New") == "[[New]]"
+
+
+def test_a_trailing_close_bracket_is_left_where_it_was():
+    assert rewrite_title_refs("[[Old]]]]", "Old", "New") == "[[New]]]]"
+
+
+def test_doubled_brackets_nest_rather_than_pair_across():
+    assert rewrite_title_refs("[[[[Old]]]]", "Old", "New") == "[[[[New]]]]"
+    assert rewrite_title_refs("[[[[Old]]]]", "[[Old]]", "Inner") == "[[Inner]]"
+
+
+def test_a_hash_bracket_tag_is_rewritten_wherever_the_hash_sits():
+    # The "#" is not part of what gets spliced -- it stays put and the
+    # bracket run is replaced -- so a "#[[..]]" that no lookbehind would call
+    # a tag still keeps its written form.
+    assert rewrite_title_refs("a#[[Old]] b", "Old", "New") == "a#[[New]] b"
+    assert rewrite_title_refs("[[A #[[Old]]]]", "Old", "New") == \
+        "[[A #[[New]]]]"
+
+
+def test_a_bare_tag_ends_where_a_bracket_run_begins():
+    assert rewrite_title_refs("#Old[[Old]]", "Old", "New") == "#New[[New]]"
+
+
+def test_a_bare_tag_needs_a_boundary_in_front_of_it():
+    assert rewrite_title_refs("a#Old b", "Old", "New") == "a#Old b"
+    assert rewrite_title_refs("(#Old) b", "Old", "New") == "(#New) b"
+    assert rewrite_title_refs("[[A]]#Old", "Old", "New") == "[[A]]#Old"
+
+
+def test_a_tag_inside_an_unreplaced_title_is_rewritten_at_any_depth():
+    assert rewrite_title_refs("[[A [[]] #Old]]", "Old", "New") == \
+        "[[A [[]] #New]]"
+    assert rewrite_title_refs("[[ #Old]]", "Old", "New") == "[[ #New]]"
+
+
+def test_block_refs_and_embeds_are_not_bracket_runs():
+    assert rewrite_title_refs_map(
+        "{{[[embed]]: ((abcdef123))}} [[Old]]",
+        {"Old": "New", "embed": "E"},
+    ) == "{{[[E]]: ((abcdef123))}} [[New]]"
+
+
+def test_tag_form_is_chosen_exactly_when_extract_would_read_it_back_as_a_tag():
+    # _tag_form() downgrades "#New" to "#[[New]]" for any title the hashtag
+    # grammar could not read back. Both sides ask refs, so the two cannot
+    # disagree: the bare form is used iff extract() reports that exact title.
+    for title in ("New", "a.b", "a/b", "a-b", "New Name", "a]b", "a#b", "a(b"):
+        bare = rename._tag_form(title) == f"#{title}"
+        read_back = refs.Ref(title, "tag") in refs.extract(f"x #{title}").refs
+        assert bare == read_back, title
+
+
+@pytest.mark.parametrize(
+    "case", GRAMMAR_CASES, ids=[c["name"] for c in GRAMMAR_CASES]
+)
+def test_the_rewriter_reaches_every_ref_the_extractor_reports(case):
+    # The importer's title map is keyed by what extract() reported, and it
+    # relies on the rewriter finding those same spellings (importer/titles.py
+    # documents the invariant). Both sides now read the grammar out of refs,
+    # so the fixture that pins extraction pins reachability too: renaming any
+    # one reported title must change the text it was reported from.
+    text = case["text"]
+    for ref in refs.extract(text).refs:
+        rewritten = rewrite_title_refs_map(
+            text, {ref.title: "Sentinel"}, normalize=normalize_title
+        )
+        assert rewritten != text, (ref, text)
 
 
 def test_no_refs_no_change():

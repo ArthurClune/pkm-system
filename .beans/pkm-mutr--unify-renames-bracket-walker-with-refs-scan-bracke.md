@@ -1,11 +1,11 @@
 ---
 # pkm-mutr
 title: Unify rename's bracket walker with refs._scan_brackets
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-08-18T18:45:23Z
-updated_at: 2026-08-18T18:45:33Z
+updated_at: 2026-08-18T19:32:00Z
 parent: pkm-wvvu
 ---
 

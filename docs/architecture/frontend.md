@@ -368,7 +368,11 @@ the server.
 `applyOpsWithChange` is that same application plus a verdict on whether
 anything moved, and the verdict is exact: an op resolving to what the tree
 already held reports no change, so `false` means the returned tree is
-`blocksEqual` to the input. `transitionOutline` advances `revision` only for a
+`blocksEqual` to the input. The websocket broadcasts every page's ops to every
+open outline, so the common batch is one this tree has nothing to do with:
+when no op names a uid it holds and none creates on this page, the whole batch
+is skipped before the clone and the input array is returned as-is.
+`transitionOutline` advances `revision` only for a
 batch that changed something and returns the identical state object otherwise,
 which is what stops a re-render — and what keeps a read dispatched at this
 revision adoptable. A stamp counts as a change: `update_text` bumps

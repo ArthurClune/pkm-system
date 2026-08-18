@@ -142,15 +142,52 @@ export interface AppliedOps {
   changed: boolean;
 }
 
+/** Whether any op in the batch could touch this page's tree — the same test
+ * applyOne makes per op (create by page_title, create_page never, the rest by
+ * uid presence), asked of the batch as a whole before anything is cloned.
+ *
+ * Relevance, not outcome: a create for this page counts even when it will
+ * apply nothing, so the skip can never disagree with what applyOne would have
+ * done. Safe to read against the PRE-apply tree because a batch with no
+ * relevant create adds no uids, and the ops that remove them only ever shrink
+ * the set this is asking about. */
+function opsTouchPage(blocks: BlockNode[], ops: BlockOp[],
+                      pageTitle: string): boolean {
+  const uids = new Set<string>();
+  for (const op of ops) {
+    if (op.op === "create_page") continue;
+    if (op.op === "create") {
+      if (op.page_title === pageTitle) return true;
+      continue;
+    }
+    uids.add(op.uid);
+  }
+  return uids.size > 0 && holdsAny(blocks, uids);
+}
+
+/** One depth-first pass, stopping at the first uid the batch names. */
+function holdsAny(nodes: BlockNode[], uids: ReadonlySet<string>): boolean {
+  for (const n of nodes) {
+    if (uids.has(n.uid) || holdsAny(n.children, uids)) return true;
+  }
+  return false;
+}
+
 /** Apply committed ops to a client tree — the single source of truth for op
  * semantics on the client; both optimistic local edits and remote websocket
  * batches go through here. Ops that don't concern this page are skipped:
  * create is filtered by page_title, everything else by uid presence (the
  * websocket broadcasts ops for ALL pages); create_page never touches a
- * block tree and is always skipped. Returns a new tree either way — an
- * unchanged result is still a fresh clone. */
+ * block tree and is always skipped.
+ *
+ * A batch where every op is skipped that way — the common case, since every
+ * open outline sees every other page's broadcasts — returns the input tree
+ * itself and allocates nothing (pkm-a4wf). Anything else returns a fresh
+ * clone, which may still be `blocksEqual` to the input when the ops resolved
+ * to what was already there; `changed` is the verdict either way. */
 export function applyOpsWithChange(blocks: BlockNode[], ops: BlockOp[],
                                    pageTitle: string): AppliedOps {
+  if (!opsTouchPage(blocks, ops, pageTitle)) return { blocks, changed: false };
   const tree = clone(blocks);
   let changed = false;
   for (const op of ops) changed = applyOne(tree, op, pageTitle) || changed;

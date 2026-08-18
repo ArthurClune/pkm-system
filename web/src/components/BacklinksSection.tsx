@@ -1,34 +1,36 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "../api/typedClient";
-import type { BacklinkGroup, Backlinks, BlockRefText } from "../api/payloads";
+import type { Backlinks } from "../api/payloads";
 import { BlockRefContext } from "../contexts";
 
+import type { BacklinkBatchState } from "./backlinkBatchWalk";
+import { walkBacklinkBatches } from "./backlinkBatchWalk";
 import { applyFilter, chipCounts, EMPTY_FILTER, isFiltering, toggleChip,
          type FilterState } from "./backlinkFilter";
 import { BacklinkGroupList } from "./BacklinkGroupList";
-import { mergeGroups } from "./groups";
 
 export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     { title: string; initial: Backlinks; refreshGeneration?: number }) {
   const base = useContext(BlockRefContext);
-  const [groups, setGroups] = useState<BacklinkGroup[]>(initial.groups);
-  const [extraRefTexts, setExtraRefTexts] =
-    useState<Record<string, BlockRefText>>({});
+  // groups, total page count, and extra ref texts change in lockstep -- one
+  // state value so a partial update can't happen. total_pages can shrink or
+  // grow server-side (multi-tab sync) between mount and panel open; it's
+  // tracked here (not frozen from the initial prop) so completion is
+  // derived from the latest known value.
+  const [backlinks, setBacklinks] = useState<BacklinkBatchState>({
+    groups: initial.groups, totalPages: initial.total_pages, refTexts: {},
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [filter, setFilter] = useState<FilterState>(EMPTY_FILTER);
-  // total_pages can shrink or grow server-side (multi-tab sync) between
-  // mount and panel open; track it in state so completion is derived from
-  // the latest known value, not whatever was frozen at mount.
-  const [totalPages, setTotalPages] = useState(initial.total_pages);
   const refreshEpoch = useRef(0);
   const refreshInFlight = useRef(false);
   const seenRefreshGeneration = useRef(refreshGeneration);
-  const hasMore = groups.length < totalPages;
+  const hasMore = backlinks.groups.length < backlinks.totalPages;
   const fullyLoaded = !hasMore;
 
   const fetchBatch = useCallback((offset: number, limit: number) =>
@@ -43,14 +45,12 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     setLoading(true);
     setError(null);
     try {
-      const payload = await fetchBatch(groups.length, initial.limit);
-      if (epoch !== refreshEpoch.current) return;
-      setGroups((current) => mergeGroups(current, payload.backlinks.groups));
-      setTotalPages(payload.backlinks.total_pages);
-      setExtraRefTexts((current) => ({
-        ...current,
-        ...payload.block_ref_texts,
-      }));
+      const result = await walkBacklinkBatches(
+        fetchBatch, backlinks,
+        (_state, batchesFetched) => (batchesFetched === 0 ? initial.limit : null),
+        () => epoch !== refreshEpoch.current);
+      if (result === "stale" || epoch !== refreshEpoch.current) return;
+      setBacklinks(result);
     } catch (loadFailure: unknown) {
       if (epoch === refreshEpoch.current) setError(String(loadFailure));
     } finally {
@@ -66,23 +66,12 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     setLoading(true);
     setError(null);
     try {
-      let all = groups;
-      let total = totalPages;
-      let refTexts = { ...extraRefTexts };
-      while (all.length < total) {
-        const payload = await fetchBatch(all.length, 100);
-        if (epoch !== refreshEpoch.current) return;
-        total = payload.backlinks.total_pages;
-        refTexts = { ...refTexts, ...payload.block_ref_texts };
-        if (payload.backlinks.groups.length === 0) break;
-        const before = all.length;
-        all = mergeGroups(all, payload.backlinks.groups);
-        if (all.length === before) break;
-      }
-      if (epoch !== refreshEpoch.current) return;
-      setGroups(all);
-      setTotalPages(total);
-      setExtraRefTexts(refTexts);
+      const result = await walkBacklinkBatches(
+        fetchBatch, backlinks,
+        (state) => (state.groups.length < state.totalPages ? 100 : null),
+        () => epoch !== refreshEpoch.current);
+      if (result === "stale" || epoch !== refreshEpoch.current) return;
+      setBacklinks(result);
     } catch (loadFailure: unknown) {
       if (epoch === refreshEpoch.current) setError(String(loadFailure));
     } finally {
@@ -96,25 +85,17 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
     setRefreshing(true);
     setRefreshError(null);
     try {
-      let payload = await fetchBatch(0, panelOpen ? 100 : initial.limit);
-      if (epoch !== refreshEpoch.current) return;
-      let nextGroups = payload.backlinks.groups;
-      let nextTotal = payload.backlinks.total_pages;
-      let nextRefTexts = { ...payload.block_ref_texts };
-      while (panelOpen && nextGroups.length < nextTotal) {
-        payload = await fetchBatch(nextGroups.length, 100);
-        if (epoch !== refreshEpoch.current) return;
-        nextTotal = payload.backlinks.total_pages;
-        nextRefTexts = { ...nextRefTexts, ...payload.block_ref_texts };
-        if (payload.backlinks.groups.length === 0) break;
-        const before = nextGroups.length;
-        nextGroups = mergeGroups(nextGroups, payload.backlinks.groups);
-        if (nextGroups.length === before) break;
-      }
-      if (epoch !== refreshEpoch.current) return;
-      setGroups(nextGroups);
-      setTotalPages(nextTotal);
-      setExtraRefTexts(nextRefTexts);
+      // Replace everything from scratch: the first batch's size depends on
+      // whether the filter panel needs every page loaded, then (only while
+      // the panel stays open) the walk continues in full-size batches.
+      const result = await walkBacklinkBatches(
+        fetchBatch, { groups: [], totalPages: Infinity, refTexts: {} },
+        (state, batchesFetched) => (batchesFetched === 0
+          ? (panelOpen ? 100 : initial.limit)
+          : (panelOpen && state.groups.length < state.totalPages ? 100 : null)),
+        () => epoch !== refreshEpoch.current);
+      if (result === "stale" || epoch !== refreshEpoch.current) return;
+      setBacklinks(result);
     } catch (refreshFailure: unknown) {
       if (epoch === refreshEpoch.current) setRefreshError(String(refreshFailure));
     } finally {
@@ -138,7 +119,8 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   };
 
   const filtering = isFiltering(filter);
-  const visible = useMemo(() => applyFilter(groups, filter), [groups, filter]);
+  const visible = useMemo(() => applyFilter(backlinks.groups, filter),
+    [backlinks.groups, filter]);
   const chips = useMemo(
     () => panelOpen && fullyLoaded
       ? chipCounts(visible, [title, ...filter.include, ...filter.exclude])
@@ -153,12 +135,12 @@ export function BacklinksSection({ title, initial, refreshGeneration = 0 }:
   );
 
   return (
-    <BlockRefContext.Provider value={{ ...base, ...extraRefTexts }}>
+    <BlockRefContext.Provider value={{ ...base, ...backlinks.refTexts }}>
       <section className="backlinks">
         <h2 className="section-header">
           Linked references ({filtering
-            ? `${visible.length} of ${totalPages}` : totalPages})
-          {totalPages > 0 && (
+            ? `${visible.length} of ${backlinks.totalPages}` : backlinks.totalPages})
+          {backlinks.totalPages > 0 && (
             <button className="filter-toggle btn-secondary" aria-expanded={panelOpen}
                     onClick={() => (panelOpen ? setPanelOpen(false) : openPanel())}
                     disabled={refreshing && !panelOpen}>

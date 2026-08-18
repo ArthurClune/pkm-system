@@ -25,7 +25,9 @@ pkm/
 ├── schema.py            Core   Single source of DDL: BASE_DDL (replicated to clients)
 │                               + SERVER_DDL (journal, idempotency) = DDL
 ├── refs.py              Core   Ref grammar: [[links]], #tags, attr::, ((refs)), {{embeds}}
-├── rename.py            Core   one-pass, opaque-value title-ref rewrite for page rename/merge
+│                               + title normalization and the attribute_title_span() boundary
+├── rename.py            Core   one-pass, opaque-value title-ref rewrite for page rename/merge;
+│                               callers pass the normalizer that spells their replacement keys
 ├── title_migration.py   Core   boundary-space grouping, blockers, survivor plan + digest
 ├── todo.py              Core   {{TODO}}/{{DONE}} marker parsing (mirrors web/src/grammar/todo.ts)
 ├── filenames.py         Core   safe_filename() shared by upload + export
@@ -273,6 +275,15 @@ Page-level mutations (create, delete, rename, merge) live in `store.py` as
 composable functions that never commit; routes own the transaction.
 `POST /api/page/{title}/rename` rewrites all referencing block text via
 `rename.py`, and merges by concatenating blocks when `allow_merge` is set.
+
+`rename.py` locates refs through `refs.strip_code()` and
+`refs.attribute_title_span()` rather than its own copy of that grammar, so an
+indented `Title::` is a ref to the extractor and the rewriter alike. Its
+`normalize` argument says how a spelling in the text maps onto a replacement
+key. Rename and the title migration take the default and match the stored
+title byte for byte, padding and all; the importer passes
+`refs.normalize_title` because its keys come from `extract()`, which
+normalizes every title it reports.
 
 Sidebar pinning is a separate write path. `POST /api/sidebar` takes SQLite's
 writer reservation with `BEGIN IMMEDIATE` before it checks title uniqueness
@@ -781,6 +792,7 @@ its fix installed. The bean has the full investigation.
 | A breadcrumb trail or backlink group truncates at 100 levels on a deeply nested page | `_fetch_ancestors`'s CTE guarded on `depth < 100` instead of a visited-path check | pkm-8kw2 |
 | A whole-database export takes minutes instead of being instant, on one large fenced code block | the attribute regex paired a greedy `\s*` with an overlapping lazy class, quadratic to *fail* against a long `::`-free run | pkm-7myl |
 | A spaces-only `[[   ]]` ref typed in the editor 500s the whole write, or crashes a rename | `get_or_create_page()` raised `BlankTitleError` with nothing above it to catch it; `routes_ops.py` catches only `OpError`, rename only `sqlite3.IntegrityError` | test_blank_titles.py |
+| Renaming a page leaves an indented `Title::` attribute pointing at the old name, or moves the indent onto the new one | the rewriter matched the attribute at column 0 while `extract()` matched it after leading whitespace, so the two disagreed about what was a ref | test_rename.py |
 | A newly added `pkm.*` logger's INFO lines never appear in the server log | nothing configured that logger's ancestor before the parent-logger policy existed; each addition needed its own individual fix | pkm-5g3d |
 
 ## Testing

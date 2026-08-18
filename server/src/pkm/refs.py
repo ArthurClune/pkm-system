@@ -17,12 +17,12 @@ from typing import Literal
 # (pkm-9qgk). Punctuation and whitespace after ``` still close as before.
 _CODE_FENCE = re.compile(r"```.*?```(?!\w)", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
-# No leading `\s*` here (see extract() below): `\s` is a near-subset of
-# this negated class, and pairing a greedy `\s*` with a lazy quantifier
-# over an overlapping class is O(n^2) to fail on an all-whitespace run of
-# length n (every one of the n split points between the two groups gets
-# its own full lazy re-scan). A block that is one large fenced code block
-# collapses to exactly such a run once strip_code() blanks it out
+# No leading `\s*` here (see attribute_title_span() below): `\s` is a
+# near-subset of this negated class, and pairing a greedy `\s*` with a lazy
+# quantifier over an overlapping class is O(n^2) to fail on an all-whitespace
+# run of length n (every one of the n split points between the two groups
+# gets its own full lazy re-scan). A block that is one large fenced code
+# block collapses to exactly such a run once strip_code() blanks it out
 # (pkm-7myl: a ~258KB pasted block took ~224s to `.match()` here).
 _ATTRIBUTE = re.compile(r"([^\[\]{}:\n]+?)::")
 _HASHTAG = re.compile(r"(?:^|(?<=[\s(]))#([\w/.\-]+)")
@@ -125,7 +125,9 @@ class AttributeSpan:
 
 
 def attribute_title_span(text: str) -> AttributeSpan | None:
-    """Locate the leading `Title::` attribute of code-stripped block text.
+    """Locate the leading `Title::` attribute in code-free text: either real
+    code-stripped block text, or a synthetic `f"{title}::"` probe such as
+    `rename._attribute_form`'s round-trip check.
 
     Sole owner of the attribute's whitespace anchoring: leading whitespace is
     removed by a linear `lstrip()` and the pattern is then matched once at

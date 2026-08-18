@@ -20,9 +20,9 @@ Test hygiene:
 - [x] test_planning.py:5-12 first-party import order not alphabetised
 
 Docstrings/comments:
-- [ ] refs.attribute_title_span docstring says 'code-stripped block text' but rename._attribute_form legitimately passes a synthetic '{title}::' probe; widen the wording
-- [ ] refs.py:20 _ATTRIBUTE comment still points at extract() for the no-leading-\s* rationale, which now lives in attribute_title_span
-- [ ] docs/architecture/cli-and-mcp.md ~line 151 loose claim about Planner._one (inherited wording)
+- [x] refs.attribute_title_span docstring says 'code-stripped block text' but rename._attribute_form legitimately passes a synthetic '{title}::' probe; widen the wording
+- [x] refs.py:20 _ATTRIBUTE comment still points at extract() for the no-leading-\s* rationale, which now lives in attribute_title_span
+- [x] docs/architecture/cli-and-mcp.md ~line 151 loose claim about Planner._one (inherited wording)
 
 Typing/shape:
 - [ ] importer/titles.py _title_changes takes set[str]; AbstractSet/frozenset matches read-only intent and sibling signatures

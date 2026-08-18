@@ -25,6 +25,7 @@ const fixture = JSON.parse(readFileSync(
 ) as Fixture;
 
 const IMPLEMENTED = (_name: string) => true; // search included (pkm-blz2)
+const DEPS = { newBatchId: () => "parity-batch" };
 
 let t: TestDb;
 beforeAll(async () => {
@@ -54,7 +55,7 @@ describe("local API parity with the server routes", () => {
     test(c.name, () => {
       const result = handleLocalApi(t.db, {
         method: "GET", path: c.path, nowMs: 1752364800000, // 2025-07-13 UTC
-      });
+      }, DEPS);
       expect(result.handled).toBe(true);
       if (result.handled) {
         expect(result.status).toBe(200);

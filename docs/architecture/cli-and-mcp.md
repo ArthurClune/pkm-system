@@ -146,7 +146,7 @@ bare, because their response models (`GroupItem`, `BacklinkItem`,
 one of those verbs into `pkm update`/`update_block` therefore demotes it
 silently — a documented gap (symptom table), judged out of proportion to fix:
 three new response fields, new query columns in
-`backlinks.py`/`routes_search.py`, and an openapi/gen-types regen for a
+`grouping.py`/`routes_search.py`, and an openapi/gen-types regen for a
 CLI-only papercut.
 
 ## Writes, uids and missing pages

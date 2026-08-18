@@ -17,7 +17,7 @@ from pkm.contracts.responses import (
 from pkm.refs import canonicalize_title, is_blank_title, title_syntax_reason
 from pkm.server import notify
 from pkm.server.auth import require_auth
-from pkm.server.backlinks import group_backlinks
+from pkm.server.grouping import group_backlinks, group_by_page
 from pkm.server.daily import (is_page_empty, past_week_dates,
                               select_journal_days)
 from pkm.server.db import get_db
@@ -354,17 +354,7 @@ def get_unlinked(title: str, limit: int = 20, offset: int = 0,
         f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
             {where} ORDER BY p.title, b.uid LIMIT ? OFFSET ?""",
         (*params, limit, offset)).fetchall()
-    groups: list[dict] = []
-    index: dict[int, dict] = {}
-    for r in rows:
-        group = index.get(r["page_id"])
-        if group is None:
-            group = {"page_id": r["page_id"], "page_title": r["page_title"],
-                     "items": []}
-            index[r["page_id"]] = group
-            groups.append(group)
-        group["items"].append({"uid": r["uid"], "text": r["text"]})
-    return {"groups": groups, "total": total}
+    return {"groups": group_by_page(rows), "total": total}
 
 
 _HOUR_MS = 60 * 60 * 1000

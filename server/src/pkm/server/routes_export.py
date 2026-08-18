@@ -36,8 +36,9 @@ from pkm.refs import canonicalize_title
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
 from pkm.server.db import get_config, get_db
-from pkm.server.query import (
-    QUERY_SOURCE_FILTER, parse_query, plan_sql, QueryParseError)
+from pkm.server.grouping import group_by_page
+from pkm.server.query import parse_query, plan_sql, QueryParseError
+from pkm.server.query_exec import execute_plan
 from pkm.server.store import fetch_page
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
 from pkm.server.tempfile_response import CleanupFileResponse
@@ -53,40 +54,26 @@ _BLOCK_COLS = ("uid, parent_uid, order_idx, text, heading, collapsed,"
 
 
 def _run_query(db: sqlite3.Connection, expr: str) -> QueryResult | None:
-    """Execute one {{query: ...}} expression, shaped for the resolved
-    renderer. None on a bad expression (e.g. stale/hand-edited syntax) --
-    the caller then leaves the macro's raw text in place, same fallback as
-    an unresolved ((ref)). Mirrors routes_search.run_query's SQL, kept as
-    its own copy (a routes module importing another routes module's
-    handler internals would be the wrong direction of coupling); the
-    exclusion filter and query plan themselves are shared via query.py."""
+    """Execute one {{query: ...}} expression, reshaped for the resolved
+    renderer: the same execution and grouping the live /api/query endpoint
+    performs (query_exec, grouping), then this route's own immutable
+    result types, which name pages by title only and carry no page_id.
+
+    None on a bad expression (e.g. stale/hand-edited syntax) -- the caller
+    then leaves the macro's raw text in place, the same fallback as an
+    unresolved ((ref))."""
     try:
         sql, params = plan_sql(parse_query(expr))
     except QueryParseError:
         return None
-    total = db.execute(
-        f"""SELECT count(*) FROM ({sql}) m
-              JOIN blocks b ON b.uid = m.uid
-             WHERE {QUERY_SOURCE_FILTER}""",
-        params).fetchone()[0]
-    rows = db.execute(
-        f"""SELECT b.uid, b.text, p.title AS page_title
-              FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
-              JOIN pages p ON p.id = b.page_id
-             WHERE {QUERY_SOURCE_FILTER}
-             ORDER BY p.title, b.uid""",
-        params).fetchall()
-    order: list[str] = []
-    items_by_page: dict[str, list[QueryResultItem]] = {}
-    for r in rows:
-        items = items_by_page.setdefault(r["page_title"], [])
-        if not items:
-            order.append(r["page_title"])
-        items.append(QueryResultItem(uid=r["uid"], text=r["text"]))
-    groups = tuple(QueryResultGroup(page_title=title,
-                                    items=tuple(items_by_page[title]))
-                   for title in order)
-    return QueryResult(total=total, groups=groups)
+    matches = execute_plan(db, sql, params)
+    groups = tuple(
+        QueryResultGroup(
+            page_title=g["page_title"],
+            items=tuple(QueryResultItem(uid=i["uid"], text=i["text"])
+                        for i in g["items"]))
+        for g in group_by_page(matches.rows))
+    return QueryResult(total=matches.total, groups=groups)
 
 
 def _gather_resolution_data(

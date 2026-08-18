@@ -11,9 +11,10 @@ from pkm.contracts.responses import (
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
+from pkm.server.grouping import group_by_page
 from pkm.server.query import (
-    QUERY_SOURCE_FILTER, QueryNode, page_operands, parse_query, plan_sql,
-    QueryParseError)
+    QueryNode, page_operands, parse_query, plan_sql, QueryParseError)
+from pkm.server.query_exec import count_matches, execute_plan
 from pkm.todo import is_todo
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -51,39 +52,15 @@ def run_query(expr: str, expand: bool = False,
         sql, params = plan_sql(node, expand)
     except QueryParseError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    ref_counts = {}
-    for title in page_operands(node):
-        osql, oparams = plan_sql(QueryNode("page", title), expand)
-        ref_counts[title] = db.execute(
-            f"""SELECT count(*) FROM ({osql}) m
-                  JOIN blocks b ON b.uid = m.uid
-                 WHERE {QUERY_SOURCE_FILTER}""",
-            oparams).fetchone()[0]
-    total = db.execute(
-        f"""SELECT count(*) FROM ({sql}) m
-              JOIN blocks b ON b.uid = m.uid
-             WHERE {QUERY_SOURCE_FILTER}""",
-        params,
-    ).fetchone()[0]
-    rows = db.execute(
-        f"""SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title
-              FROM ({sql}) m JOIN blocks b ON b.uid = m.uid
-              JOIN pages p ON p.id = b.page_id
-             WHERE {QUERY_SOURCE_FILTER}
-             ORDER BY p.title, b.uid""",
-        params,
-    ).fetchall()
-    groups: list[dict] = []
-    index: dict[int, dict] = {}
-    for r in rows:
-        group = index.get(r["page_id"])
-        if group is None:
-            group = {"page_id": r["page_id"], "page_title": r["page_title"],
-                     "items": []}
-            index[r["page_id"]] = group
-            groups.append(group)
-        group["items"].append({"uid": r["uid"], "text": r["text"]})
-    return {"groups": groups, "total": total, "ref_counts": ref_counts}
+    # QueryPayload.ref_counts: each operand re-planned on its own and
+    # counted the same way as the whole expression's total.
+    ref_counts = {
+        title: count_matches(db, *plan_sql(QueryNode("page", title), expand))
+        for title in page_operands(node)
+    }
+    matches = execute_plan(db, sql, params)
+    return {"groups": group_by_page(matches.rows), "total": matches.total,
+            "ref_counts": ref_counts}
 
 
 @router.get("/api/titles", response_model=TitlesPayload)
@@ -126,14 +103,4 @@ def todos(page: str | None = None,
     sql += " ORDER BY p.title, b.uid"
     rows = [r for r in db.execute(sql, params).fetchall()
             if is_todo(r["text"])]
-    groups: list[dict] = []
-    index: dict[int, dict] = {}
-    for r in rows:
-        group = index.get(r["page_id"])
-        if group is None:
-            group = {"page_id": r["page_id"],
-                     "page_title": r["page_title"], "items": []}
-            index[r["page_id"]] = group
-            groups.append(group)
-        group["items"].append({"uid": r["uid"], "text": r["text"]})
-    return {"groups": groups, "total": len(rows)}
+    return {"groups": group_by_page(rows), "total": len(rows)}

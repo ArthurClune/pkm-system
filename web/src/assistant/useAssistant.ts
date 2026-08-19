@@ -65,9 +65,16 @@ export type ChatItem =
 
 export type PendingConfirm = { toolUseId: string; opsPreview: string };
 
+/** What the busy line shows (pkm-e9ok): the server's phase label ("reasoning",
+ * "preparing save_note", "replying") or null for the unlabelled stretches
+ * (before the first stream event; while a tool runs), plus when the current
+ * stretch started, so the panel can tick an elapsed clock from it. */
+export type PhaseInfo = { label: string | null; since: number };
+
 export function useAssistant() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [status, setStatus] = useState<"idle" | "busy" | "confirm">("idle");
+  const [phase, setPhase] = useState<PhaseInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [model, setModelState] = useState("sonnet");
   // The claude trio is always servable, so it doubles as the offline/failed
@@ -143,6 +150,11 @@ export function useAssistant() {
         break;
       case "tool_started":
         setItems((prev) => [...prev, { kind: "tool", name: ev.name, summary: ev.summary, done: false }]);
+        // the tool's own line takes over from a stale "preparing …" label
+        setPhase({ label: null, since: Date.now() });
+        break;
+      case "phase":
+        setPhase({ label: ev.label, since: Date.now() });
         break;
       case "tool_finished":
         setItems((prev) => {
@@ -224,6 +236,7 @@ export function useAssistant() {
       const current = () => gen === turnGen.current;
       setError(null);
       setStatus("busy");
+      setPhase({ label: null, since: Date.now() });
       setItems((prev) => [...prev, { kind: "user", text }]);
       stopRequested.current = false;
       const run = (async () => {
@@ -241,6 +254,7 @@ export function useAssistant() {
           if (current()) {
             setPendingConfirm(null);
             setStatus("idle");
+            setPhase(null);
           }
         }
       })();
@@ -267,6 +281,9 @@ export function useAssistant() {
       if (id === null || pending === null) return;
       setPendingConfirm(null);
       setStatus("busy");
+      // the parked stretch was the user's silence, not the model's: restart
+      // the busy line's clock rather than resume a stale label
+      setPhase({ label: null, since: Date.now() });
       try {
         await confirmTool(id, pending.toolUseId, allow);
       } catch (err) {
@@ -304,6 +321,7 @@ export function useAssistant() {
     setItems([]);
     setError(null);
     setStatus("idle");
+    setPhase(null);
     setPendingConfirm(null);
     setModelLocked(false);
     controller?.abort();
@@ -334,6 +352,7 @@ export function useAssistant() {
   return {
     items,
     status,
+    phase,
     error,
     model,
     setModel,

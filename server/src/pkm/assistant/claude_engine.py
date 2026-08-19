@@ -33,6 +33,7 @@ from pkm.assistant.events import (
     AssistantEvent,
     ConfirmRequest,
     ErrorEvent,
+    Phase,
     TextDelta,
     ToolFinished,
     ToolStarted,
@@ -57,6 +58,20 @@ MAX_TURNS = 40
 # too. Cleanup after a dropped consumer must never hang on it (pkm-mbcc).
 INTERRUPT_TIMEOUT_S = 5.0
 
+# The SDK's model request has no first-token timeout: on a dead network the
+# turn waits forever and only the user's patience ends it (2026-07-31 outage:
+# 7.5 minutes of "thinking..." dead air). Total SDK-message silence this long
+# is unambiguously a stall -- during honest reasoning both harnesses emit a
+# steady flow of thinking_delta stream events (verified live 2026-08-19,
+# pkm-e9ok) -- EXCEPT while a confirm is parked on the user, whose silence is
+# never a stall (see _pump).
+STALL_TIMEOUT_S = 300.0
+
+
+def stall_message(seconds: float) -> str:
+    window = f"{int(seconds // 60)} minutes" if seconds >= 120 and seconds % 60 == 0 else f"{seconds:g} seconds"
+    return f"No response from the model for {window} — network problem? The turn was stopped."
+
 
 class TurnMapper:
     """Pure-ish mapping from SDK messages to AssistantEvents.
@@ -77,6 +92,19 @@ class TurnMapper:
                 if delta.get("type") == "text_delta" and delta.get("text"):
                     self._saw_delta = True
                     return [TextDelta(text=delta["text"])]
+            elif event.get("type") == "content_block_start":
+                # The block's start arrives tens of seconds before the SDK
+                # assembles the whole block into an AssistantMessage -- for a
+                # tool_use block that gap is the longest silent stretch of the
+                # turn, so the phase label must come from here (pkm-e9ok).
+                block = event.get("content_block") or {}
+                block_type = block.get("type")
+                if block_type == "thinking":
+                    return [Phase(label="reasoning")]
+                if block_type == "tool_use" and block.get("name"):
+                    return [Phase(label=f"preparing {short_tool_name(block['name'])}")]
+                if block_type == "text":
+                    return [Phase(label="replying")]
             return []
         if isinstance(msg, AssistantMessage):
             out: list[AssistantEvent] = []
@@ -245,13 +273,65 @@ class ClaudeConversation:
             self.healthy = False
 
     async def _pump(self, mapper: TurnMapper) -> None:
+        stream = self._client.receive_response()
+        pending: asyncio.Task[Any] | None = None
         try:
-            async for msg in self._client.receive_response():
+            while True:
+                if pending is None:
+                    pending = asyncio.ensure_future(anext(stream))
+                # asyncio.wait (unlike wait_for) leaves the read running on
+                # timeout, so a suspended deadline never loses a message.
+                done, _ = await asyncio.wait({pending}, timeout=STALL_TIMEOUT_S)
+                if not done:
+                    if self._pending:
+                        # Parked on a confirm: the harness sits inside
+                        # can_use_tool and cannot emit anything, so this
+                        # silence is the user's, not the model's. Fresh
+                        # window each pass; never a stall.
+                        continue
+                    await self._stall()
+                    return
+                settled, pending = pending, None
+                try:
+                    msg = settled.result()
+                except StopAsyncIteration:
+                    return
                 for event in mapper.map(msg):
                     await self._queue.put(event)
         except Exception as exc:  # subprocess died, JSON decode, etc.
             logger.exception("assistant turn failed")
             await self._queue.put(ErrorEvent(message=str(exc)))
+        finally:
+            if pending is not None and not pending.done():
+                pending.cancel()
+                with contextlib.suppress(Exception, asyncio.CancelledError):
+                    await pending
+
+    async def _stall(self) -> None:
+        """Kill a turn the model has gone totally silent on (pkm-e9ok D).
+
+        Interrupt FIRST, then report: the ErrorEvent ends the consumer's
+        loop (send() treats it as the turn's end and cancels this pump), so
+        reporting first would cancel the interrupt mid-flight.
+        """
+        logger.warning(
+            "assistant turn stalled: no SDK message for %ss; interrupting", STALL_TIMEOUT_S
+        )
+        try:
+            await asyncio.wait_for(self._client.interrupt(), INTERRUPT_TIMEOUT_S)
+        except TimeoutError:
+            # same verdict as _abandon_turn: an unacknowledged interrupt is
+            # not proof the subprocess stopped, so retire the handle
+            logger.warning(
+                "assistant interrupt not acknowledged in %ss after a stall; "
+                "retiring the harness",
+                INTERRUPT_TIMEOUT_S,
+            )
+            self.healthy = False
+        except Exception:
+            logger.exception("assistant interrupt failed after a stall; retiring the harness")
+            self.healthy = False
+        await self._queue.put(ErrorEvent(message=stall_message(STALL_TIMEOUT_S)))
 
     async def close(self) -> None:
         self._decline_pending()

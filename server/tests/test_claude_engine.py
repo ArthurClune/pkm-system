@@ -22,7 +22,15 @@ from fake_sdk_client import FakeSDKClient, HangingInterruptClient, make_engine, 
 
 from pkm.assistant import claude_engine, harness_env
 from pkm.assistant.claude_engine import TurnMapper
-from pkm.assistant.events import ConfirmRequest, ErrorEvent, TextDelta, ToolFinished, ToolStarted, TurnDone
+from pkm.assistant.events import (
+    ConfirmRequest,
+    ErrorEvent,
+    Phase,
+    TextDelta,
+    ToolFinished,
+    ToolStarted,
+    TurnDone,
+)
 from pkm.assistant.policy import SYSTEM_PROMPT
 
 
@@ -685,6 +693,153 @@ def test_turn_mapper_prefers_partial_deltas():
     # ...so the later full TextBlock is NOT duplicated
     msg = AssistantMessage(content=[TextBlock(text="Found.")], model="sonnet")
     assert mapper.map(msg) == []
+
+
+# --- pkm-e9ok option D: a turn with NO SDK messages at all for the stall
+# window is a dead network, not a thinking model (verified live 2026-08-19:
+# both harnesses emit a steady flow of thinking_delta stream events during
+# honest reasoning). The 2026-07-31 outage sat like this for 7.5 minutes
+# with the panel showing "thinking..."; the watchdog kills the turn instead
+# of waiting on the user's patience. ---
+
+
+def test_stalled_turn_times_out_with_an_error_event(tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        events = [ev async for ev in conv.send("hi")]  # nothing ever fed
+        await conv.close()
+        return conv, client, events
+
+    conv, client, events = asyncio.run(scenario())
+    assert len(events) == 1
+    assert isinstance(events[0], ErrorEvent)
+    assert "no response from the model" in events[0].message.lower()
+    # the abandoned query must not keep executing in the subprocess
+    assert client.interrupts == 1
+    # the interrupt was acknowledged, so the harness is still reusable
+    assert conv.healthy is True
+
+
+def test_stalled_turn_with_wedged_interrupt_marks_unhealthy(tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(claude_engine, "INTERRUPT_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path, factory=HangingInterruptClient)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        events = [ev async for ev in conv.send("hi")]
+        await conv.close()
+        return conv, events
+
+    conv, events = asyncio.run(scenario())
+    assert len(events) == 1
+    assert isinstance(events[0], ErrorEvent)
+    assert conv.healthy is False
+
+
+def test_sdk_messages_reset_the_stall_deadline(tmp_path, monkeypatch):
+    from claude_agent_sdk import StreamEvent
+
+    monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 0.25)
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+
+        async def feed_slowly():
+            # each gap is well inside the window, but the turn as a whole
+            # outlives it -- only total silence may trip the watchdog
+            for _ in range(4):
+                await asyncio.sleep(0.1)
+                client.feed(StreamEvent(uuid="u", session_id="s",
+                                        event={"type": "content_block_delta",
+                                               "delta": {"type": "text_delta", "text": "x"}}))
+            await asyncio.sleep(0.1)
+            client.feed(make_result())
+
+        feeder = asyncio.create_task(feed_slowly())
+        events = [ev async for ev in conv.send("hi")]
+        await feeder
+        await conv.close()
+        return events
+
+    events = asyncio.run(scenario())
+    assert not any(isinstance(ev, ErrorEvent) for ev in events)
+    assert isinstance(events[-1], TurnDone)
+
+
+def test_stall_message_renders_minutes_for_the_production_window():
+    assert claude_engine.stall_message(300.0) == (
+        "No response from the model for 5 minutes — network problem? The turn was stopped."
+    )
+    # sub-minute windows (tests, tuning) render as seconds, not "0 minutes"
+    assert "0.05 seconds" in claude_engine.stall_message(0.05)
+
+
+def test_stall_watchdog_suspended_while_confirm_parked(tmp_path, monkeypatch):
+    # A user sitting on an approval for ten minutes is normal, not a stall:
+    # while a confirm is parked, no SDK messages can flow (the harness is
+    # inside can_use_tool), and the watchdog must not kill the turn for it.
+    monkeypatch.setattr(claude_engine, "STALL_TIMEOUT_S", 0.05)
+    engine = make_engine(tmp_path)
+
+    async def scenario():
+        conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")
+        client = FakeSDKClient.instances[0]
+        events = []
+
+        async def consume():
+            async for ev in conv.send("hi"):
+                events.append(ev)
+
+        task = asyncio.create_task(consume())
+        decision_task = asyncio.create_task(
+            conv.can_use_tool("mcp__pkm__save_note", {"title": "x"}, None)
+        )
+        await asyncio.sleep(0.2)  # 4x the stall window, parked the whole time
+        assert not task.done()
+        confirm = next(ev for ev in events if isinstance(ev, ConfirmRequest))
+        conv.resolve_confirm(confirm.tool_use_id, True)
+        await decision_task
+        client.feed(make_result())
+        await asyncio.wait_for(task, timeout=2)
+        await conv.close()
+        return events
+
+    events = asyncio.run(scenario())
+    assert not any(isinstance(ev, ErrorEvent) for ev in events)
+    assert isinstance(events[-1], TurnDone)
+
+
+def test_turn_mapper_emits_phase_on_content_block_start():
+    """content_block_start opens the silent window pkm-e9ok is about: the
+    thinking/tool_use block's start arrives ~25-50s before the assembled
+    AssistantMessage, so the phase label must come from here. Shapes match
+    live dumps from both harnesses (claude + z.ai glm, 2026-08-19)."""
+    from claude_agent_sdk import StreamEvent
+
+    def start(content_block):
+        return StreamEvent(uuid="u1", session_id="s1",
+                           event={"type": "content_block_start", "content_block": content_block})
+
+    mapper = TurnMapper()
+    assert mapper.map(start({"type": "thinking", "thinking": "", "signature": ""})) == [
+        Phase(label="reasoning")
+    ]
+    assert mapper.map(start({"type": "tool_use", "id": "t1", "name": "mcp__pkm__save_note",
+                             "input": {}})) == [Phase(label="preparing save_note")]
+    assert mapper.map(start({"type": "text", "text": ""})) == [Phase(label="replying")]
+    # unknown block types (future API additions) map to nothing rather than
+    # a nonsense label
+    assert mapper.map(start({"type": "server_tool_use", "id": "t2", "name": "web_search"})) == []
+    # a malformed frame with no content_block maps to nothing
+    se = StreamEvent(uuid="u1", session_id="s1", event={"type": "content_block_start"})
+    assert mapper.map(se) == []
 
 
 def test_turn_mapper_error_result():

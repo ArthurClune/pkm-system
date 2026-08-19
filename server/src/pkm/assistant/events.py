@@ -34,6 +34,17 @@ class ConfirmRequest:
 
 
 @dataclass(frozen=True)
+class Phase:
+    """What the model is doing during an otherwise silent stretch (pkm-e9ok).
+
+    The label is display text built server-side (precedent: ToolStarted's
+    summary): "reasoning", "preparing <tool>", "replying".
+    """
+
+    label: str
+
+
+@dataclass(frozen=True)
 class TurnDone:
     usage: dict | None = None
 
@@ -43,12 +54,15 @@ class ErrorEvent:
     message: str
 
 
-AssistantEvent = TextDelta | ToolStarted | ToolFinished | ConfirmRequest | TurnDone | ErrorEvent
+AssistantEvent = (
+    TextDelta | ToolStarted | ToolFinished | Phase | ConfirmRequest | TurnDone | ErrorEvent
+)
 
 _EVENT_NAMES: dict[type, str] = {
     TextDelta: "text_delta",
     ToolStarted: "tool_started",
     ToolFinished: "tool_finished",
+    Phase: "phase",
     ConfirmRequest: "confirm_request",
     TurnDone: "turn_done",
     ErrorEvent: "error",

@@ -44,6 +44,15 @@ describe("createSseParser", () => {
     ]);
   });
 
+  // pkm-e9ok: a name missing from EVENT_TYPES is silently dropped, so the
+  // phase event needs its own proof of life here.
+  test("parses phase", () => {
+    const p = createSseParser();
+    expect(p.push('event: phase\ndata: {"label": "preparing save_note"}\n\n')).toEqual([
+      { type: "phase", label: "preparing save_note" },
+    ]);
+  });
+
   test("parses confirm_request", () => {
     const p = createSseParser();
     expect(

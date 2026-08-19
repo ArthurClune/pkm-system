@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { InlineSegments } from "../components/InlineSegments";
 import { tokenizeBlock } from "../grammar/tokenize";
+import { elapsedLabel } from "./elapsed";
 import { stripCaretBlockRefs } from "./normalizeRefs";
 import { useAssistant } from "./useAssistant";
 
@@ -55,6 +56,17 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
   const assistant = useAssistant();
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+
+  // ticks the busy line's elapsed clock (pkm-e9ok); idle/confirm renders no
+  // clock, so no interval runs then
+  const busy = assistant.status === "busy";
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!busy) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [busy]);
 
   useEffect(() => {
     const list = listRef.current;
@@ -139,7 +151,13 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
           />
         )}
         {assistant.error && <div className="assistant-error">{assistant.error}</div>}
-        {assistant.status === "busy" && <div className="assistant-tool-line">thinking…</div>}
+        {assistant.status === "busy" && (
+          <div className="assistant-tool-line">
+            {assistant.phase
+              ? `${assistant.phase.label ?? "thinking"}… ${elapsedLabel(assistant.phase.since, now)}`
+              : "thinking…"}
+          </div>
+        )}
       </div>
       <div className="assistant-input">
         <textarea

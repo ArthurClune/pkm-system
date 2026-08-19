@@ -5,6 +5,7 @@ export type AssistantEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_started"; name: string; summary: string }
   | { type: "tool_finished"; name: string }
+  | { type: "phase"; label: string }
   | { type: "confirm_request"; tool_use_id: string; ops_preview: string }
   | { type: "turn_done"; usage: Record<string, unknown> | null }
   | { type: "error"; message: string };
@@ -13,6 +14,7 @@ const EVENT_TYPES = new Set([
   "text_delta",
   "tool_started",
   "tool_finished",
+  "phase",
   "confirm_request",
   "turn_done",
   "error",

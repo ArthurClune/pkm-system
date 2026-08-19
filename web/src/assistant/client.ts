@@ -49,6 +49,32 @@ export async function confirmTool(
   });
 }
 
+// pkm-e9ok leg 2: the server writes a keepalive comment frame into the
+// stream every 15s (routes.py KEEPALIVE_INTERVAL_S), so a full minute with
+// no bytes at all means the link to the server is dead -- a state a stalled
+// fetch stream can otherwise sit in indefinitely without erroring. Four
+// missed keepalives is comfortably past any scheduling jitter.
+const STREAM_STALL_TIMEOUT_MS = 60_000;
+
+/** Deliberately NOT an AbortError: useAssistant treats an AbortError after
+ * Stop as success, and this is the opposite of success. */
+async function readWithStallGuard(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timer!: ReturnType<typeof setTimeout>;
+  const stalled = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("Lost connection to the server — nothing received for a minute.")),
+      STREAM_STALL_TIMEOUT_MS,
+    );
+  });
+  try {
+    return await Promise.race([reader.read(), stalled]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function streamMessage(
   id: string,
   text: string,
@@ -70,10 +96,16 @@ export async function streamMessage(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   const parser = createSseParser();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    for (const ev of parser.push(decoder.decode(value, { stream: true }))) onEvent(ev);
+  try {
+    for (;;) {
+      const { done, value } = await readWithStallGuard(reader);
+      if (done) break;
+      for (const ev of parser.push(decoder.decode(value, { stream: true }))) onEvent(ev);
+    }
+  } finally {
+    // on a stall (or any mid-stream throw), release the dead connection; a
+    // cancelled reader resolves its pending read rather than rejecting it
+    await reader.cancel().catch(() => {});
   }
   for (const ev of parser.push(decoder.decode())) onEvent(ev);
 }

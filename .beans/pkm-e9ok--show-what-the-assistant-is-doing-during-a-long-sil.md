@@ -1,7 +1,7 @@
 ---
 # pkm-e9ok
 title: Show what the assistant is doing during a long silent turn
-status: todo
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-30T20:51:31Z
@@ -136,7 +136,77 @@ old set before claiming done:
 
 Option A touches none of this, which is most of its appeal.
 
+## Decisions (2026-08-19, brainstormed with Arthur)
+
+- Scope is **A + B + D**. C (streaming the thinking text) is out.
+- D covers **both legs**: a server-side watchdog (no SDK stream message for
+  5 minutes → error event + interrupt the turn, i.e. kill it, matching the
+  abandon protocol's health verdict) and a client-side watchdog (no bytes at
+  all — keepalives count — for 60s → "lost connection to the server").
+- The server watchdog is **suspended while a confirm is parked**
+  (`self._pending` non-empty): a user sitting on an approval for 10 minutes
+  is normal, not a stall.
+- B is one new `phase` event with a server-built display label
+  (precedent: `ToolStarted.summary`): `content_block_start` of type
+  `thinking` → "reasoning", `tool_use` → "preparing <short_tool_name>",
+  `text` → "replying".
+- A: the busy line becomes `{label ?? "thinking"}… {N}s`, ticking once a
+  second, elapsed measured from when the current label started.
+- No phase label for the pre-first-event window by design — the timer and
+  the watchdog cover it.
+- Verification step 0 must run against **both harnesses**: claude
+  (Anthropic) and glm (z.ai) — confirm each forwards `content_block_start`
+  before building B around it.
+
 ## Plan
 
-Deliberately empty. Answer the open questions first, then
-`/superpowers:brainstorming` before any implementation plan.
+- [x] Step 0: dump raw StreamEvents from a live turn on claude AND glm;
+      confirm content_block_start (with tool name) is forwarded by both.
+      VERIFIED 2026-08-19: both forward content_block_start with
+      content_block.type thinking/text/tool_use (tool_use carries name).
+      Bonus fact: during pure reasoning both providers emit a steady flow of
+      thinking_delta stream events, so 5 min of NO SDK messages is
+      unambiguously a stall, never honest thinking.
+- [x] Server: `Phase` event in events.py + TurnMapper content_block_start
+      mapping (TDD)
+- [x] Server: 5-min stall watchdog in claude_engine.py, confirm-parked
+      exemption, interrupt + health verdict on fire (TDD)
+- [x] Web: sse.ts union + EVENT_TYPES; useAssistant phase state; panel busy
+      line with ticking elapsed (TDD)
+- [x] Web: client.ts 60s no-bytes watchdog, error distinct from AbortError
+      (TDD)
+- [x] Docs: the events enumeration lives in assistant-and-files.md now (module
+      table, sequence diagram, silent-turns bullets, symptom row) plus
+      backend.md /messages row and frontend.md assistant-panel section
+- [x] Full verification: server pytest (1602, 97.31% cov) + pyrefly + ruff;
+      web pnpm verify (typecheck, unit coverage, 54 e2e) — all green
+- [x] Live smoke: scratch server on 8975 with the real engine, fresh DB,
+      self-minted cookie; phase frames observed live on BOTH harnesses
+      ("reasoning" / "preparing search" / "preparing get_page" / "replying"
+      on glm; "preparing search" / "replying" on sonnet). Timer/label
+      rendering is unit-tested with fake timers; eyeball in a real browser
+      on deploy.
+
+## Summary of Changes
+
+Options A + B + D from the bean; C (streaming thinking text) rejected.
+
+- `events.py`: new `Phase(label)` event (`phase` on the wire).
+- `claude_engine.py`: `TurnMapper` maps `content_block_start` →
+  `Phase("reasoning" | "preparing <tool>" | "replying")`, surfacing the tool
+  name ~25-50s earlier than `ToolStarted`. New `STALL_TIMEOUT_S` (5 min)
+  watchdog in the pump: total SDK-message silence interrupts the harness
+  (bounded, with the `_abandon_turn` health verdict) and reports an in-band
+  error; suspended while a confirm is parked.
+- Web: `sse.ts` + `useAssistant.ts` carry the `phase` event into
+  `phase: {label, since}` state; the panel busy line is now
+  `<label>… <elapsed>` ticking every second (`elapsed.ts`), clock restarting
+  on label change / tool start / confirm resume. `client.ts::streamMessage`
+  errors after 60s with no bytes (keepalives count; error deliberately not
+  an AbortError).
+- Docs: assistant-and-files.md (module table, sequence diagram, silent-turn
+  bullets, symptom row), backend.md `/messages` row, frontend.md
+  assistant-panel section.
+
+Verified: server 1602 tests / 97.31% cov / pyrefly / ruff; web pnpm verify
+(typecheck, unit coverage, 54 e2e); live SSE smoke on both harnesses.

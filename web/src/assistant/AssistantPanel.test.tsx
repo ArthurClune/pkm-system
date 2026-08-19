@@ -1,14 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { stubFetch } from "../test-helpers";
-import type { ChatItem, PendingConfirm } from "./useAssistant";
+import type { ChatItem, PendingConfirm, PhaseInfo } from "./useAssistant";
 
 const state = vi.hoisted(() => ({
   current: {
     items: [] as ChatItem[],
     status: "idle" as "idle" | "busy" | "confirm",
+    phase: null as PhaseInfo | null,
     error: null as string | null,
     model: "sonnet",
     setModel: vi.fn(),
@@ -27,9 +28,11 @@ vi.mock("./useAssistant", () => ({ useAssistant: () => state.current }));
 import { AssistantPanel } from "./AssistantPanel";
 
 afterEach(() => {
+  vi.useRealTimers(); // a failed fake-timer test must not poison later ones
   vi.clearAllMocks();
   state.current.items = [];
   state.current.status = "idle";
+  state.current.phase = null;
   state.current.error = null;
   state.current.modelLocked = false;
   state.current.pendingConfirm = null;
@@ -114,6 +117,37 @@ describe("AssistantPanel", () => {
     state.current.error = "cap reached";
     render(<AssistantPanel open onClose={() => {}} />);
     expect(screen.getByText(/cap reached/)).toBeInTheDocument();
+  });
+
+  // pkm-e9ok: the busy line answers "is it stuck?" -- phase label plus an
+  // elapsed clock that visibly ticks.
+  test("busy line shows the phase label and a ticking elapsed clock", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    state.current.status = "busy";
+    state.current.phase = { label: "reasoning", since: 995_000 };
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(screen.getByText("reasoning… 5s")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(screen.getByText("reasoning… 8s")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  test("busy line falls back to thinking… before the first phase event", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    state.current.status = "busy";
+    state.current.phase = { label: null, since: 935_000 };
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(screen.getByText("thinking… 1m 5s")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  test("busy line renders plain thinking… with no phase info at all", () => {
+    state.current.status = "busy";
+    state.current.phase = null;
+    render(<AssistantPanel open onClose={() => {}} />);
+    expect(screen.getByText("thinking…")).toBeInTheDocument();
   });
 
   test("Stop button appears while busy and calls stop() (pkm-c98s item 3)", () => {

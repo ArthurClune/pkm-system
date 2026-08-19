@@ -172,6 +172,105 @@ describe("useAssistant", () => {
     expect(latest.error).toBe("network down");
   });
 
+  // pkm-e9ok: the phase drives the busy line's label and its elapsed clock.
+  test("phase events update the label mid-turn; turn end clears it", async () => {
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    let release!: () => void;
+    const gate = () => new Promise<void>((r) => (release = r));
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent({ type: "phase", label: "reasoning" });
+        await gate();
+        onEvent({ type: "phase", label: "preparing save_note" });
+        await gate();
+        onEvent({ type: "turn_done", usage: null });
+      },
+    );
+    render(<Harness />);
+    let sendDone!: Promise<void>;
+    await act(async () => {
+      sendDone = latest.send("tidy this page");
+      await Promise.resolve();
+    });
+    expect(latest.phase).toEqual({ label: "reasoning", since: expect.any(Number) });
+    await act(async () => release());
+    expect(latest.phase).toEqual({ label: "preparing save_note", since: expect.any(Number) });
+    await act(async () => {
+      release();
+      await sendDone;
+    });
+    expect(latest.phase).toBeNull();
+    expect(latest.status).toBe("idle");
+  });
+
+  test("send opens an unlabelled phase; tool_started resets back to it", async () => {
+    // The pre-first-event window has no label by design (the busy line reads
+    // plain "thinking…"), and a running tool's own line takes over from any
+    // stale "preparing …" label.
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    let release!: () => void;
+    const gate = () => new Promise<void>((r) => (release = r));
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        await gate();
+        onEvent({ type: "phase", label: "preparing search" });
+        await gate();
+        onEvent({ type: "tool_started", name: "search", summary: 'searching "x"' });
+        await gate();
+        onEvent({ type: "turn_done", usage: null });
+      },
+    );
+    render(<Harness />);
+    let sendDone!: Promise<void>;
+    await act(async () => {
+      sendDone = latest.send("find x");
+      await Promise.resolve();
+    });
+    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) });
+    await act(async () => release());
+    expect(latest.phase).toEqual({ label: "preparing search", since: expect.any(Number) });
+    await act(async () => release());
+    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) });
+    await act(async () => {
+      release();
+      await sendDone;
+    });
+    expect(latest.phase).toBeNull();
+  });
+
+  test("resuming from a confirm restarts the phase clock unlabelled", async () => {
+    // The parked stretch was the user's silence, not the model's; its
+    // duration must not leak into the next busy stretch's elapsed display.
+    mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
+    let release!: () => void;
+    mocks.streamMessage.mockImplementation(
+      async (_id: string, _text: string, onEvent: (ev: AssistantEvent) => void) => {
+        onEvent({ type: "phase", label: "preparing save_note" });
+        onEvent({ type: "confirm_request", tool_use_id: "t1", ops_preview: "save_note(...)" });
+        await new Promise<void>((r) => (release = r));
+        onEvent({ type: "turn_done", usage: null });
+      },
+    );
+    mocks.confirmTool.mockResolvedValue(undefined);
+    render(<Harness />);
+    let sendDone!: Promise<void>;
+    await act(async () => {
+      sendDone = latest.send("please write");
+      await Promise.resolve();
+    });
+    expect(latest.status).toBe("confirm");
+    await act(async () => {
+      await latest.respondConfirm(true);
+    });
+    expect(latest.status).toBe("busy");
+    expect(latest.phase).toEqual({ label: null, since: expect.any(Number) });
+    await act(async () => {
+      release();
+      await sendDone;
+    });
+    expect(latest.phase).toBeNull();
+  });
+
   test("error event surfaces and unlocks", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     feed([{ type: "error", message: "boom" }]);

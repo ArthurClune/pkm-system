@@ -21,7 +21,7 @@ threat model: [`docs/SECURITY.md`](../SECURITY.md).
 
 | File | Pattern | Role |
 |---|---|---|
-| `events.py` | Core | The event union routes and the web UI speak (`TextDelta`, `ToolStarted`/`ToolFinished`, `ConfirmRequest`, `TurnDone`, `ErrorEvent`) + `encode_sse()`. Nothing engine-specific leaks upward |
+| `events.py` | Core | The event union routes and the web UI speak (`TextDelta`, `ToolStarted`/`ToolFinished`, `Phase`, `ConfirmRequest`, `TurnDone`, `ErrorEvent`) + `encode_sse()`. Nothing engine-specific leaks upward |
 | `policy.py` | Core | The tool gate (seven read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` default / `opus` / `haiku` / `glm`; `available_models()` drops `glm` when no z.ai key is configured), tool-activity summaries and write-op previews, and the system prompt |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend (or the test double) plugs into. `send()` is typed as an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model + available key → the alias handed to the SDK and the harness subprocess's env (tool loading, provider overrides) |
@@ -46,7 +46,7 @@ sequenceDiagram
     R->>H: send turn
     loop while the turn runs
         H-->>R: deltas + tool activity
-        R-->>B: text_delta / tool_started / tool_finished
+        R-->>B: phase / text_delta / tool_started / tool_finished
         Note over R,B: comment keepalive every 15 idle s
     end
     H->>H: model calls a write tool —<br/>can_use_tool parks it on a future
@@ -188,9 +188,21 @@ double-closed. The next `send()` for that id gets a plain
   so `routes._with_keepalive()` keeps the SSE connection warm with the
   comment frame. Forcing a periodic write also surfaces a client that
   vanished without a clean close, instead of the confirmation prompt being
-  written into a dead socket. Thinking content is deliberately *not* streamed
-  (`TurnMapper.map` forwards only `text_delta`); the panel's own "thinking…"
-  line is the liveness signal.
+  written into a dead socket. Thinking *content* is not streamed; instead
+  `TurnMapper.map` turns each `content_block_start` into a `phase` event with
+  a display label — "reasoning", "preparing `<tool>`", "replying" — which the
+  panel's busy line shows with a ticking elapsed clock. Both harnesses
+  (Anthropic and z.ai) forward `content_block_start`, with the tool name in
+  it, tens of seconds before the assembled tool call arrives.
+- **Total SDK silence is a dead network, never honest thinking** — during
+  real reasoning the harness emits a steady flow of stream events. When no
+  SDK message at all arrives for `STALL_TIMEOUT_S` (5 minutes), the pump
+  interrupts the harness (same bounded wait and `healthy` verdict as
+  `_abandon_turn`) and reports the stall as an in-band `error`. The deadline
+  is suspended while a confirm is parked: that silence is the user's, and a
+  slow approval must never kill the turn. The web client has a matching
+  guard on its own leg: `streamMessage` errors after 60s with no bytes at
+  all, four missed keepalives.
 - **Deployment prerequisite**: the SDK bundles its own `claude` binary and
   authenticates with the machine's logged-in Claude subscription. There is
   deliberately no `ANTHROPIC_API_KEY` in the service environment. The `glm`
@@ -344,3 +356,4 @@ fix installed. The bean has the full investigation.
 |---|---|---|
 | The assistant never calls any pkm tool; every turn is plain text | with `tools=[]`, the SDK deferred MCP tool discovery behind its own ToolSearch meta-tool unless `ENABLE_TOOL_SEARCH=false` was set | pkm-wn2s |
 | A tab closed mid-turn left the conversation in the registry, its harness subprocess and 0600 token file alive, and a later turn was handed that harness | the SSE layer stopped iterating instead of closing the event stream, so the abandon-turn protocol waited on async-generator finalization; the response task's repeated cancellation then cut short the bounded interrupt, leaving `healthy` unset | pkm-f3mo |
+| The panel sat at "thinking…" indefinitely on a dead network (7.5 minutes in one outage), with only a manual Stop ending the turn | the SDK's model request has no first-token timeout, and nothing distinguished a stuck request from a thinking model; fixed by the stall watchdog and the client's no-bytes guard | pkm-e9ok |

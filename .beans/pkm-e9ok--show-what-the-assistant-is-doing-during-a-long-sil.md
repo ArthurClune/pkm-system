@@ -167,15 +167,17 @@ Option A touches none of this, which is most of its appeal.
       Bonus fact: during pure reasoning both providers emit a steady flow of
       thinking_delta stream events, so 5 min of NO SDK messages is
       unambiguously a stall, never honest thinking.
-- [ ] Server: `Phase` event in events.py + TurnMapper content_block_start
+- [x] Server: `Phase` event in events.py + TurnMapper content_block_start
       mapping (TDD)
-- [ ] Server: 5-min stall watchdog in claude_engine.py, confirm-parked
+- [x] Server: 5-min stall watchdog in claude_engine.py, confirm-parked
       exemption, interrupt + health verdict on fire (TDD)
-- [ ] Web: sse.ts union + EVENT_TYPES; useAssistant phase state; panel busy
+- [x] Web: sse.ts union + EVENT_TYPES; useAssistant phase state; panel busy
       line with ticking elapsed (TDD)
-- [ ] Web: client.ts 60s no-bytes watchdog, error distinct from AbortError
+- [x] Web: client.ts 60s no-bytes watchdog, error distinct from AbortError
       (TDD)
-- [ ] Docs: backend.md events table + /messages row; frontend.md assistant
-      panel section (seven-place enumeration)
-- [ ] Full verification: server pytest/pyrefly/ruff + web pnpm verify
+- [x] Docs: the events enumeration lives in assistant-and-files.md now (module
+      table, sequence diagram, silent-turns bullets, symptom row) plus
+      backend.md /messages row and frontend.md assistant-panel section
+- [x] Full verification: server pytest (1602, 97.31% cov) + pyrefly + ruff;
+      web pnpm verify (typecheck, unit coverage, 54 e2e) — all green
 - [ ] Live smoke on dev server: watch a real long turn show phases/timer

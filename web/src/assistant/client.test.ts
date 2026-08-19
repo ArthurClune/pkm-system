@@ -17,6 +17,7 @@ function sseResponse(frames: string[]): Response {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   setUnauthorizedHandler(defaultUnauthorizedHandler);
 });
@@ -64,6 +65,48 @@ describe("streamMessage", () => {
     setUnauthorizedHandler(handler);
     await expect(streamMessage("c1", "hi", () => {})).rejects.toThrow("401");
     expect(handler).toHaveBeenCalledOnce();
+  });
+
+  // pkm-e9ok leg 2: the server writes a keepalive every 15s, so a full
+  // minute with no bytes at all is a dead client<->server link -- which a
+  // stalled fetch stream never surfaces on its own.
+  test("a minute with no bytes surfaces a lost-connection error instead of hanging", async () => {
+    vi.useFakeTimers();
+    const silent = new ReadableStream<Uint8Array>({ start() {} }); // never emits
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(silent, { status: 200 }));
+    const turn = streamMessage("c1", "hi", () => {});
+    const failure = expect(turn).rejects.toThrow(/lost connection to the server/i);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await failure;
+  });
+
+  test("the stall error is not an AbortError (Stop-button success must stay distinguishable)", async () => {
+    vi.useFakeTimers();
+    const silent = new ReadableStream<Uint8Array>({ start() {} });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(silent, { status: 200 }));
+    const turn = streamMessage("c1", "hi", () => {}).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const err = await turn;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).not.toBe("AbortError");
+  });
+
+  test("any received bytes -- keepalives included -- reset the stall guard", async () => {
+    vi.useFakeTimers();
+    const encoder = new TextEncoder();
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(c) { controller = c; } });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(stream, { status: 200 }));
+    const seen: string[] = [];
+    const turn = streamMessage("c1", "hi", (ev) => seen.push(ev.type));
+    // 50s gaps: each inside the window, though the turn as a whole outlives it
+    await vi.advanceTimersByTimeAsync(50_000);
+    controller.enqueue(encoder.encode(": keepalive\n\n"));
+    await vi.advanceTimersByTimeAsync(50_000);
+    controller.enqueue(encoder.encode('event: turn_done\ndata: {"usage": null}\n\n'));
+    controller.close();
+    await expect(turn).resolves.toBeUndefined();
+    expect(seen).toEqual(["turn_done"]);
   });
 
   test("passes an AbortSignal through to fetch (pkm-c98s item 3: Stop button)", async () => {

@@ -502,7 +502,7 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 | GET | `/api/assistant/models` | Models the picker may offer + the default; `glm` appears only when a z.ai key is configured |
 | POST | `/api/assistant/conversations` | Create a conversation (`model`: `sonnet` default / `opus` / `haiku` / `glm`); 400 for a model not offered, 409 over the 3-conversation cap |
 | POST | `/api/assistant/conversations/{id}` | Beacon cleanup close (`navigator.sendBeacon`): delete the conversation, shut down its harness, and return `AssistantAck` |
-| POST | `/api/assistant/conversations/{id}/messages` | Send one user turn → SSE stream of `text_delta` / `tool_started` / `tool_finished` / `confirm_request` / `turn_done` / `error` events; 409 while a turn is in flight |
+| POST | `/api/assistant/conversations/{id}/messages` | Send one user turn → SSE stream of `text_delta` / `tool_started` / `tool_finished` / `phase` / `confirm_request` / `turn_done` / `error` events; 409 while a turn is in flight |
 | POST | `/api/assistant/conversations/{id}/confirm` | Answer a pending write confirmation (`tool_use_id`, `allow`) |
 | DELETE | `/api/assistant/conversations/{id}` | Close the conversation and shut down its harness |
 | **Assets** (see [assistant-and-files.md](assistant-and-files.md#assets-and-the-file-browser)) | | |

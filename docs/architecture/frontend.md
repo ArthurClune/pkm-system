@@ -670,15 +670,30 @@ entry.
   render tool-activity lines ("searching …"), and `confirm_request` shows an
   Allow/Deny card with the write's ops preview. The tool call is held
   server-side until answered.
+- The busy line is `phase` state, not a constant: it shows the server's
+  current phase label ("reasoning", "preparing save_note", "replying") or
+  "thinking…" before the first one, plus an elapsed clock
+  (`elapsed.ts::elapsedLabel`) ticking once a second while status is busy.
+  The clock restarts whenever the label changes, when a tool starts (the
+  tool's own line takes over), and on resuming from a confirm. A parked
+  approval is the user's silence; it must not inflate the next stretch's
+  elapsed display.
+- `streamMessage` also errors the turn if *nothing* arrives for 60s. The
+  server writes a keepalive comment frame every 15 idle seconds, so four
+  missed ones mean the link to the server is dead — a state a stalled fetch
+  stream never surfaces on its own. The error is deliberately not an
+  `AbortError`: `useAssistant` treats an `AbortError` after Stop as success.
 - Assistant bubbles render through the shared block grammar
   (`tokenizeBlock` → `InlineSegments`), with `stripCaretBlockRefs`
   (`assistant/normalizeRefs.ts`) applied to the raw text first. Tool output
   labels blocks with trailing `^uid` markers and some models copy the caret
   into their citations; the grammar rejects `((^uid))` on purpose, so the
   fix lives here, not in `scan.ts`.
-- `sse.ts` drops any frame whose `event:` name is not one of the six known
+- `sse.ts` drops any frame whose `event:` name is not one of the seven known
   types. That is what makes the server's keepalive comment frames, sent every
-  15 idle seconds, invisible here. Keep it that way.
+  15 idle seconds, invisible here. Keep it that way — but remember it also
+  silently drops any newly added server event type until `EVENT_TYPES`
+  learns the name.
 - `streamMessage` bypasses `apiFetch` (which consumes the body as JSON) but
   replicates its 401 handling; the other assistant JSON calls use the typed
   client helpers. The assistant is online-only — `/api/assistant/*` has no

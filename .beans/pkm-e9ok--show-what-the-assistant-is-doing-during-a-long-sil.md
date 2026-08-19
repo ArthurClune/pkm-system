@@ -1,7 +1,7 @@
 ---
 # pkm-e9ok
 title: Show what the assistant is doing during a long silent turn
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-07-30T20:51:31Z
@@ -180,4 +180,33 @@ Option A touches none of this, which is most of its appeal.
       backend.md /messages row and frontend.md assistant-panel section
 - [x] Full verification: server pytest (1602, 97.31% cov) + pyrefly + ruff;
       web pnpm verify (typecheck, unit coverage, 54 e2e) — all green
-- [ ] Live smoke on dev server: watch a real long turn show phases/timer
+- [x] Live smoke: scratch server on 8975 with the real engine, fresh DB,
+      self-minted cookie; phase frames observed live on BOTH harnesses
+      ("reasoning" / "preparing search" / "preparing get_page" / "replying"
+      on glm; "preparing search" / "replying" on sonnet). Timer/label
+      rendering is unit-tested with fake timers; eyeball in a real browser
+      on deploy.
+
+## Summary of Changes
+
+Options A + B + D from the bean; C (streaming thinking text) rejected.
+
+- `events.py`: new `Phase(label)` event (`phase` on the wire).
+- `claude_engine.py`: `TurnMapper` maps `content_block_start` →
+  `Phase("reasoning" | "preparing <tool>" | "replying")`, surfacing the tool
+  name ~25-50s earlier than `ToolStarted`. New `STALL_TIMEOUT_S` (5 min)
+  watchdog in the pump: total SDK-message silence interrupts the harness
+  (bounded, with the `_abandon_turn` health verdict) and reports an in-band
+  error; suspended while a confirm is parked.
+- Web: `sse.ts` + `useAssistant.ts` carry the `phase` event into
+  `phase: {label, since}` state; the panel busy line is now
+  `<label>… <elapsed>` ticking every second (`elapsed.ts`), clock restarting
+  on label change / tool start / confirm resume. `client.ts::streamMessage`
+  errors after 60s with no bytes (keepalives count; error deliberately not
+  an AbortError).
+- Docs: assistant-and-files.md (module table, sequence diagram, silent-turn
+  bullets, symptom row), backend.md `/messages` row, frontend.md
+  assistant-panel section.
+
+Verified: server 1602 tests / 97.31% cov / pyrefly / ruff; web pnpm verify
+(typecheck, unit coverage, 54 e2e); live SSE smoke on both harnesses.

@@ -1,11 +1,11 @@
 ---
 # pkm-hvss
 title: Esc on expanded image also closes the agent panel
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-08-19T15:51:44Z
-updated_at: 2026-08-19T15:55:53Z
+updated_at: 2026-08-19T15:56:32Z
 ---
 
 In the assistant panel, clicking an image in a result expands it (ImageOverlay). Pressing Esc closes the overlay but the same keypress also reaches AssistantPanel's onKeyDown (React portal events propagate through the React tree), closing the panel too. Trap the first Esc in the overlay so it only closes the image; a second Esc then closes the panel as before. Clicking Close already behaves correctly.

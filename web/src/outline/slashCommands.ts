@@ -25,7 +25,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "todo", label: "to-do" },
   { name: "table", label: "table" },
   { name: "python", label: "python code block" },
-  { name: "bash", label: "bash code block" },
+  // "shell" not "bash": hljs's shell grammar highlights $-prefixed session
+  // transcripts, which is what these blocks usually hold (pkm-4nj1).
+  { name: "shell", label: "shell code block" },
   { name: "javascript", label: "javascript code block" },
   { name: "mermaid", label: "mermaid diagram" },
   // "upload" has no text transform: picking it strips the trigger and opens a
@@ -143,7 +145,7 @@ export function applySlashCommand(
       return content.trim()
         ? { text: content, cursor: content.length }
         : { text: "{{table}}", cursor: "{{table}}".length };
-    case "python": case "bash": case "javascript": case "mermaid":
+    case "python": case "shell": case "javascript": case "mermaid":
       return wrapFence(content, command);
     case "query-and": case "query-or": case "query-and-not":
       return queryPlaceholder(command, content);

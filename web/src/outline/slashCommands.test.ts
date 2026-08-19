@@ -22,7 +22,7 @@ describe("matchSlashCommands", () => {
   });
 });
 
-describe("applySlashCommand: /python /bash /javascript", () => {
+describe("applySlashCommand: /python /shell /javascript", () => {
   test("wraps an empty block in a fence, cursor inside it", () => {
     expect(applySlashCommand("/python", 7, { kind: "command", start: 1, query: "python" }, "python", NOW))
       .toEqual({ text: "```python\n\n```", cursor: 10 });
@@ -34,9 +34,11 @@ describe("applySlashCommand: /python /bash /javascript", () => {
       .toEqual({ text: "```python\nfoo \n```", cursor: 14 });
   });
 
-  test("bash and javascript use their own fence language", () => {
-    expect(applySlashCommand("/bash", 5, { kind: "command", start: 1, query: "bash" }, "bash", NOW))
-      .toEqual({ text: "```bash\n\n```", cursor: 8 });
+  test("shell and javascript use their own fence language", () => {
+    expect(applySlashCommand("/shell", 6, { kind: "command", start: 1, query: "shell" }, "shell", NOW))
+      .toEqual({ text: "```shell\n\n```", cursor: 9 });
+    // /bash is gone: standardised on /shell (pkm-4nj1)
+    expect(matchSlashCommands("bash")).toEqual([]);
     expect(applySlashCommand("/js", 3, { kind: "command", start: 1, query: "js" }, "javascript", NOW))
       .toEqual({ text: "```javascript\n\n```", cursor: 14 });
   });

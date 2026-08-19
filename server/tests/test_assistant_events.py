@@ -3,6 +3,7 @@ import json
 from pkm.assistant.events import (
     ConfirmRequest,
     ErrorEvent,
+    Phase,
     TextDelta,
     ToolFinished,
     ToolStarted,
@@ -19,6 +20,12 @@ def test_event_names():
     assert event_name(ConfirmRequest(tool_use_id="c1", ops_preview="Create note")) == "confirm_request"
     assert event_name(TurnDone(usage=None)) == "turn_done"
     assert event_name(ErrorEvent(message="boom")) == "error"
+    assert event_name(Phase(label="reasoning")) == "phase"
+
+
+def test_encode_sse_phase():
+    out = encode_sse(Phase(label="preparing save_note"))
+    assert out == 'event: phase\ndata: {"label": "preparing save_note"}\n\n'
 
 
 def test_encode_sse_shape():

@@ -25,6 +25,10 @@ export function ImageOverlay({ src, alt, onClose, onError, triggerRef }: {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        // Capture-phase trap: hosts (e.g. the assistant panel) also close on
+        // Escape, and portal events still bubble through the React tree, so
+        // the Escape that dismisses the image must never reach them.
+        event.stopPropagation();
         onClose();
         return;
       }
@@ -33,9 +37,9 @@ export function ImageOverlay({ src, alt, onClose, onError, triggerRef }: {
         closeRef.current?.focus();
       }
     };
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
       document.body.style.overflow = previousOverflow;
       if (trigger?.isConnected) trigger.focus();
     };

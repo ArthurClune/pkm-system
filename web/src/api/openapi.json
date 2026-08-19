@@ -1480,7 +1480,7 @@
     "/api/assistant/models": {
       "get": {
         "summary": "List Models",
-        "description": "Models the picker may offer; glm appears only when a z.ai key is\nconfigured, so the UI can hide rather than error on it.",
+        "description": "Models the picker may offer; glm appears only when a z.ai key is\nconfigured, so the UI can hide rather than error on it. The default is\nglm when offered, sonnet otherwise.",
         "operationId": "list_models_api_assistant_models_get",
         "responses": {
           "200": {

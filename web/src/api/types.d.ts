@@ -673,7 +673,8 @@ export interface paths {
         /**
          * List Models
          * @description Models the picker may offer; glm appears only when a z.ai key is
-         *     configured, so the UI can hide rather than error on it.
+         *     configured, so the UI can hide rather than error on it. The default is
+         *     glm when offered, sonnet otherwise.
          */
         get: operations["list_models_api_assistant_models_get"];
         put?: never;

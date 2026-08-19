@@ -144,6 +144,24 @@ def test_default_available_models_hides_glm_and_rejects_it():
         asyncio.run(service.create("glm"))
 
 
+def test_default_model_follows_availability():
+    # pkm-452i: glm is the preferred default but only when it is servable;
+    # a keyless service (or bare test double) defaults to sonnet.
+    keyless = AssistantService(FakeEngine())
+    assert keyless.default_model == "sonnet"
+    keyed_engine = FakeEngine()
+    keyed = AssistantService(
+        keyed_engine, available_models=["sonnet", "opus", "haiku", "glm"])
+    assert keyed.default_model == "glm"
+
+    async def scenario():
+        return await keyed.create(None)
+
+    _, model = asyncio.run(scenario())
+    assert model == "glm"
+    assert keyed_engine.conversations[0].model == "glm"
+
+
 def test_explicit_available_models_offers_and_accepts_glm():
     engine = FakeEngine()
     service = AssistantService(

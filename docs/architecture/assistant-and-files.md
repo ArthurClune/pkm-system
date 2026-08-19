@@ -22,7 +22,7 @@ threat model: [`docs/SECURITY.md`](../SECURITY.md).
 | File | Pattern | Role |
 |---|---|---|
 | `events.py` | Core | The event union routes and the web UI speak (`TextDelta`, `ToolStarted`/`ToolFinished`, `Phase`, `ConfirmRequest`, `TurnDone`, `ErrorEvent`) + `encode_sse()`. Nothing engine-specific leaks upward |
-| `policy.py` | Core | The tool gate (seven read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` default / `opus` / `haiku` / `glm`; `available_models()` drops `glm` when no z.ai key is configured), tool-activity summaries and write-op previews, and the system prompt |
+| `policy.py` | Core | The tool gate (seven read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` / `opus` / `haiku` / `glm`; `available_models()` drops `glm` when no z.ai key is configured, and `default_model()` picks `glm` when offered, `sonnet` otherwise), tool-activity summaries and write-op previews, and the system prompt |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend (or the test double) plugs into. `send()` is typed as an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model + available key → the alias handed to the SDK and the harness subprocess's env (tool loading, provider overrides) |
 | `service.py` | Shell | In-memory conversation registry: 3-conversation cap, lazy 15-minute idle reap, per-conversation lock (a second concurrent turn is a 409); `close_all()` runs on app-lifespan shutdown |

@@ -27,7 +27,9 @@ def test_requires_auth(anon_client):
     assert r.status_code == 401
 
 
-def test_create_conversation_defaults_to_sonnet(assistant_client):
+def test_create_conversation_defaults_to_sonnet_without_key(assistant_client):
+    # pkm-452i: the default is glm only when a z.ai key makes it servable;
+    # this keyless app must fall back to sonnet, not 400 the default create.
     r = assistant_client.post("/api/assistant/conversations", json={})
     assert r.status_code == 200
     body = r.json()
@@ -64,10 +66,14 @@ def test_models_endpoint_offers_glm_with_key(seeded_config, fake_engine, tmp_pat
         assert c.post("/api/login", json={"password": "test-pw"}).status_code == 200
         r = c.get("/api/assistant/models")
         assert r.json() == {"models": ["sonnet", "opus", "haiku", "glm"],
-                            "default": "sonnet"}
+                            "default": "glm"}
         # and glm is actually creatable in this state
         assert c.post("/api/assistant/conversations",
                       json={"model": "glm"}).status_code == 200
+        # a create with no explicit model resolves to the glm default
+        r = c.post("/api/assistant/conversations", json={})
+        assert r.status_code == 200
+        assert r.json()["model"] == "glm"
 
 
 def test_conversation_cap_evicts_oldest_idle_over_http(assistant_client):

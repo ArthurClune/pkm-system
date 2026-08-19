@@ -500,7 +500,7 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 | WS | `/api/ws` | Push nudges: applied-op broadcasts + real `seq` hints; title generation rotation adds `force:true,generation` without fabricating a cursor |
 | **Assistant** (SSE — see [assistant-and-files.md](assistant-and-files.md#embedded-assistant-pkmassistant)) | | |
 | GET | `/api/assistant/models` | Models the picker may offer + the default; `glm` appears only when a z.ai key is configured |
-| POST | `/api/assistant/conversations` | Create a conversation (`model`: `sonnet` default / `opus` / `haiku` / `glm`); 400 for a model not offered, 409 over the 3-conversation cap |
+| POST | `/api/assistant/conversations` | Create a conversation (`model`: `sonnet` / `opus` / `haiku` / `glm`, defaulting to `glm` when offered, else `sonnet`); 400 for a model not offered, 409 over the 3-conversation cap |
 | POST | `/api/assistant/conversations/{id}` | Beacon cleanup close (`navigator.sendBeacon`): delete the conversation, shut down its harness, and return `AssistantAck` |
 | POST | `/api/assistant/conversations/{id}/messages` | Send one user turn → SSE stream of `text_delta` / `tool_started` / `tool_finished` / `phase` / `confirm_request` / `turn_done` / `error` events; 409 while a turn is in flight |
 | POST | `/api/assistant/conversations/{id}/confirm` | Answer a pending write confirmation (`tool_use_id`, `allow`) |

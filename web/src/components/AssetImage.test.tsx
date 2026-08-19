@@ -105,6 +105,27 @@ it("contains trigger and portalled-overlay clicks inside the interactive island"
   expect(onParentClick).not.toHaveBeenCalled();
 });
 
+it("traps the Escape that closes the overlay away from ancestor key handlers", () => {
+  const onParentKeyDown = vi.fn();
+  render(
+    <div onKeyDown={onParentKeyDown}>
+      <AssetImage src={ASSET} alt="photo" />
+    </div>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Expand image: photo" }));
+  const close = screen.getByRole("button", { name: "Close" });
+
+  fireEvent.keyDown(close, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(onParentKeyDown).not.toHaveBeenCalled();
+
+  fireEvent.keyDown(
+    screen.getByRole("button", { name: "Expand image: photo" }),
+    { key: "Escape" },
+  );
+  expect(onParentKeyDown).toHaveBeenCalledTimes(1);
+});
+
 it("shows the existing placeholder when either image fails", () => {
   const inline = render(<AssetImage src={ASSET} alt="photo" />);
   fireEvent.error(screen.getByRole("img", { name: "photo" }));

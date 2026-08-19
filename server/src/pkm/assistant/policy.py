@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Literal
 
 MCP_SERVER_NAME = "pkm"
@@ -15,7 +16,6 @@ WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch", "upload_as
 # The Claude trio also exists as the web picker's fetch-failure fallback
 # (useAssistant.ts); a rename or addition there must stay in sync.
 MODELS: tuple[str, ...] = ("sonnet", "opus", "haiku", "glm")
-DEFAULT_MODEL = "sonnet"
 
 # Models that route to z.ai's Anthropic-compatible endpoint and are only
 # offered when a z.ai key is configured. The Claude models need no such
@@ -73,9 +73,14 @@ def available_models(*, zai_configured: bool) -> list[str]:
     return [m for m in MODELS if m not in ZAI_MODELS]
 
 
-def resolve_model(name: str | None) -> str:
-    if name is None:
-        return DEFAULT_MODEL
+def default_model(available: Sequence[str]) -> str:
+    """glm when it is servable, else sonnet (pkm-452i). The default depends
+    on availability because glm rides a z.ai key: a keyless deployment must
+    fall back rather than reject every default-model create."""
+    return "glm" if "glm" in available else "sonnet"
+
+
+def resolve_model(name: str) -> str:
     if name not in MODELS:
         raise ValueError(f"unknown model {name!r}; expected one of {', '.join(MODELS)}")
     return name

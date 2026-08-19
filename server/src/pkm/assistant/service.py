@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from pkm.assistant.engine import AgentEngine, ConversationHandle
 from pkm.assistant.events import AssistantEvent
-from pkm.assistant.policy import SYSTEM_PROMPT, resolve_model
+from pkm.assistant.policy import SYSTEM_PROMPT, default_model, resolve_model
 from pkm.assistant.policy import available_models as _policy_available_models
 
 logger = logging.getLogger("pkm.assistant")
@@ -74,6 +74,8 @@ class AssistantService:
         self.available_models = (
             available_models if available_models is not None
             else _policy_available_models(zai_configured=False))
+        # glm when servable, sonnet otherwise -- see policy.default_model
+        self.default_model = default_model(self.available_models)
         self._engine = engine
         self._max = max_conversations
         self._idle_ttl = idle_ttl
@@ -100,7 +102,7 @@ class AssistantService:
         self._admission_lock = asyncio.Lock()
 
     async def create(self, model: str | None) -> tuple[str, str]:
-        resolved = resolve_model(model)
+        resolved = self.default_model if model is None else resolve_model(model)
         if resolved not in self.available_models:
             raise ValueError(
                 f"model {resolved!r} is not available (missing provider key?)")

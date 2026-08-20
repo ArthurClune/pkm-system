@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { jsonResponse, stubFetch } from "../test-helpers";
@@ -14,11 +14,18 @@ const results = {
              snippet: "a <mark>paper</mark> about attention" }],
 };
 
-function renderBar(openInSidebar: (title: string) => void = () => undefined) {
+/** Renders the current path + hash so tests can assert navigation targets. */
+function LocationProbe() {
+  const { pathname, hash } = useLocation();
+  return <p data-testid="location">{pathname + hash}</p>;
+}
+
+function renderBar(openInSidebar: (title: string, uid?: string) => void = () => undefined) {
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS} initialEntries={["/"]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
         <SearchBar />
+        <LocationProbe />
         <Routes>
           <Route path="/" element={<p>home</p>} />
           <Route path="/page/*" element={<p>page view here</p>} />
@@ -72,7 +79,7 @@ it("Shift+Enter on the selected page hit opens it in the sidebar, does not navig
   fireEvent.change(input, { target: { value: "paper" } });
   await screen.findAllByRole("listitem");
   fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
-  expect(openInSidebar).toHaveBeenCalledWith("Paper");
+  expect(openInSidebar).toHaveBeenCalledWith("Paper", undefined); // page hit: no block target
   expect(screen.getByText("home")).toBeInTheDocument(); // no navigation
   expect(input).toHaveValue("");                    // query cleared…
   expect(screen.queryByRole("listitem")).toBeNull(); // …dropdown closed
@@ -85,13 +92,13 @@ it("Shift+click on a result row opens it in the sidebar, does not navigate", asy
   fireEvent.change(input, { target: { value: "paper" } });
   const items = await screen.findAllByRole("listitem");
   fireEvent.click(items[0], { shiftKey: true });
-  expect(openInSidebar).toHaveBeenCalledWith("Paper");
+  expect(openInSidebar).toHaveBeenCalledWith("Paper", undefined); // page hit: no block target
   expect(screen.getByText("home")).toBeInTheDocument(); // no navigation
   expect(input).toHaveValue("");
   expect(screen.queryByRole("listitem")).toBeNull();
 });
 
-it("Shift+Enter on a block-snippet row opens the containing page in the sidebar", async () => {
+it("Shift+Enter on a block-snippet row opens the containing page in the sidebar with the block as flash target", async () => {
   stubFetch([["/api/search?q=paper", results]]);
   const openInSidebar = vi.fn();
   const input = renderBar(openInSidebar);
@@ -99,8 +106,28 @@ it("Shift+Enter on a block-snippet row opens the containing page in the sidebar"
   await screen.findAllByRole("listitem");
   fireEvent.keyDown(input, { key: "ArrowDown" }); // move to the block hit
   fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
-  expect(openInSidebar).toHaveBeenCalledWith("Machine Learning");
+  expect(openInSidebar).toHaveBeenCalledWith("Machine Learning", "uid_b3");
   expect(screen.getByText("home")).toBeInTheDocument();
+});
+
+it("Enter on a block-snippet row navigates with the block uid as the hash", async () => {
+  stubFetch([["/api/search?q=paper", results]]);
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "paper" } });
+  await screen.findAllByRole("listitem");
+  fireEvent.keyDown(input, { key: "ArrowDown" }); // move to the block hit
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(screen.getByTestId("location").textContent)
+    .toBe("/page/Machine%20Learning#uid_b3");
+});
+
+it("Enter on a page hit navigates without a hash", async () => {
+  stubFetch([["/api/search?q=paper", results]]);
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "paper" } });
+  await screen.findAllByRole("listitem");
+  fireEvent.keyDown(input, { key: "Enter" }); // page hit is selected first
+  expect(screen.getByTestId("location").textContent).toBe("/page/Paper");
 });
 
 it("Shift+Enter on the create-page row still creates and navigates", async () => {

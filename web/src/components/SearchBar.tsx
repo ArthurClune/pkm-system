@@ -15,6 +15,7 @@ interface ResultRow {
   title: string;          // navigation target (page title)
   label: string;
   snippet: string | null; // block hits only
+  uid?: string;           // block hits only: jump-to-block target on the page
 }
 
 function toRows(p: SearchPayload): ResultRow[] {
@@ -22,7 +23,8 @@ function toRows(p: SearchPayload): ResultRow[] {
     key: `p-${h.id}`, title: h.title, label: h.title, snippet: null,
   }));
   const blocks: ResultRow[] = p.blocks.map((h) => ({
-    key: `b-${h.uid}`, title: h.page_title, label: h.page_title, snippet: h.snippet,
+    key: `b-${h.uid}`, title: h.page_title, label: h.page_title,
+    snippet: h.snippet, uid: h.uid,
   }));
   return [...pages, ...blocks]; // pages ranked first, then block snippets
 }
@@ -147,8 +149,11 @@ export function SearchBar() {
       return;
     }
     cancel();
-    if (sidebar) openInSidebar(row.title);
-    else navigate(pagePath(row.title));
+    // Block hits carry their uid so both destinations scroll to and flash the
+    // matched block: the main pane reads it from the URL hash (pkm-pzdu), the
+    // sidebar panel takes it directly (pkm-gdi5).
+    if (sidebar) openInSidebar(row.title, row.uid);
+    else navigate(pagePath(row.title) + (row.uid ? `#${row.uid}` : ""));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {

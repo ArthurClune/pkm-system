@@ -351,8 +351,16 @@ export function useOutline(
           // typing during a slow upload (accepted for v1)
           const spliced = spliceUploadedMarkdown(node.text, cursor, inserted);
           const ops: BlockOp[] = [{ op: "update_text", uid, text: spliced.text }];
-          return { blocks: applyOps(b, ops, pageTitle), ops,
-                   focus: { uid, cursor: spliced.selStart } };
+          // Re-focus only if this block still owns focus (pkm-s6i6): paste
+          // and drag-drop fire from that block's own textarea and need the
+          // caret moved past the inserted markdown, but the /upload dialog
+          // already blurred the block before the upload started — refocusing
+          // it here would swap it back to a raw-markdown textarea and hide
+          // the image that should now be rendering. `focus: null` means
+          // "leave focus as it is", not "clear it" (see run(), above).
+          const focus = focusRef.current?.uid === uid
+            ? { uid, cursor: spliced.selStart } : null;
+          return { blocks: applyOps(b, ops, pageTitle), ops, focus };
         });
       })();
     },

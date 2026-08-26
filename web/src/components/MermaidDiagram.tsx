@@ -11,6 +11,7 @@
 import { useEffect, useId, useState } from "react";
 import type { Mermaid } from "mermaid";
 import { CodeBlock } from "./CodeBlock";
+import { mermaidThemeVariables } from "./mermaidTheme";
 
 type RenderState =
   | { status: "loading" }
@@ -21,11 +22,11 @@ type RenderState =
  * theme changes -- a diagram already on screen won't re-theme if the user
  * flips light/dark mid-session, which is an acceptable simplification here
  * (see styles.css / useTheme.ts for how data-theme is stamped). */
-function currentMermaidTheme(): "dark" | "default" {
+function isDarkTheme(): boolean {
   const attr = document.documentElement.getAttribute("data-theme");
-  if (attr === "dark") return "dark";
-  if (attr === "light") return "default";
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "default";
+  if (attr === "dark") return true;
+  if (attr === "light") return false;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
 }
 
 // Loaded and initialized once for the whole page, shared by every diagram
@@ -40,10 +41,18 @@ let mermaidPromise: Promise<Mermaid> | null = null;
 function loadMermaid(): Promise<Mermaid> {
   if (!mermaidPromise) {
     mermaidPromise = import("mermaid").then(({ default: mermaid }) => {
+      // "base" + themeVariables derived from the app's design tokens
+      // (mermaidTheme.ts) instead of mermaid's stock default/dark themes.
+      // Tokens are resolved here, once, so they match whichever palette is
+      // active at load time -- the same mount-time snapshot as before.
+      const style = getComputedStyle(document.documentElement);
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: "strict",
-        theme: currentMermaidTheme(),
+        theme: "base",
+        themeVariables: mermaidThemeVariables(isDarkTheme(), (name) =>
+          style.getPropertyValue(name),
+        ),
       });
       return mermaid;
     });

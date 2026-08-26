@@ -9,9 +9,14 @@ import { InlineSegments } from "./InlineSegments";
 
 // See MermaidDiagram.test.tsx: vi.mock factories are hoisted, so any
 // closed-over variable must be named "mock*" for Vitest to rewire it safely.
-const mockMermaidRender = vi.fn().mockResolvedValue({ svg: "<svg data-testid=\"mermaid-svg\"></svg>" });
+// beautiful-mermaid is the primary renderer, so that's the mock a successful
+// diagram render exercises; stock mermaid is mocked inert as the fallback.
+const mockMermaidRender = vi.fn().mockResolvedValue('<svg data-testid="mermaid-svg"></svg>');
+vi.mock("./beautifulMermaid", () => ({
+  renderMermaid: mockMermaidRender,
+}));
 vi.mock("mermaid", () => ({
-  default: { initialize: vi.fn(), render: mockMermaidRender },
+  default: { initialize: vi.fn(), render: vi.fn() },
 }));
 
 vi.mock("./PdfViewer", () => ({

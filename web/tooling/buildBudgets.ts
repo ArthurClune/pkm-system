@@ -25,6 +25,10 @@ export interface BuildBudgets {
   pdfjsOwnedBytes: number;
   /** Raw bytes of chunks wholly owned by the lazy KaTeX module graph. */
   katexOwnedBytes: number;
+  /** Raw bytes of chunks wholly owned by the lazy beautiful-mermaid module
+   * graph (the primary diagram renderer; elkjs/entities join via
+   * reachability). */
+  beautifulMermaidOwnedBytes: number;
 }
 
 /** One emitted output file: a chunk or an asset. */
@@ -105,6 +109,7 @@ export interface OwnedModuleSets {
   mermaid: ReadonlySet<string>;
   pdfjs: ReadonlySet<string>;
   katex: ReadonlySet<string>;
+  beautifulMermaid: ReadonlySet<string>;
 }
 
 export function evaluateBundleBudgets(
@@ -128,6 +133,8 @@ export function evaluateBundleBudgets(
       ownedChunkBytes(chunks, owned.pdfjs)),
     check("katexOwnedBytes", budgets.katexOwnedBytes,
       ownedChunkBytes(chunks, owned.katex)),
+    check("beautifulMermaidOwnedBytes", budgets.beautifulMermaidOwnedBytes,
+      ownedChunkBytes(chunks, owned.beautifulMermaid)),
   ];
   return {
     ok: checks.every((c) => c.ok),

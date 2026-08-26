@@ -25,7 +25,7 @@ depth — this doc covers them only from the UI side.
 | UI | React 18.3, react-router-dom 6.30 (v7 future flags), TypeScript 5.9 |
 | Build | Vite 6, `vite-plugin-pwa` (Workbox service worker), pnpm (overrides in `pnpm-workspace.yaml` — pnpm 11 ignores `package.json` overrides) |
 | Offline | `@sqlite.org/sqlite-wasm` (replica in a Web Worker on the OPFS SAHPool VFS) |
-| Rendering extras (all lazy-loaded) | KaTeX (math), Mermaid (diagrams), react-pdf/pdf.js (PDF viewer), highlight.js (code) |
+| Rendering extras (all lazy-loaded) | KaTeX (math), beautiful-mermaid + Mermaid fallback (diagrams), react-pdf/pdf.js (PDF viewer), highlight.js (code) |
 | Tests | Vitest + jsdom (enforced coverage), Playwright e2e, Testing Library, type-aware ESLint |
 | API types | `openapi-typescript` via `pnpm gen-types` |
 
@@ -43,6 +43,10 @@ web/src/
 ├── useBlockStampsPref.ts     Shell        Owns the single instance behind BlockStampsContext
 ├── uid.ts / uidCore.ts       Shell/Core   uid minting; the alphanumeric-first rule
 ├── theme.ts / useTheme.ts    Core/Shell   Theme cycle; data-theme stamping
+├── useEffectiveTheme.ts      Shell        Resolved theme observed from the DOM
+│                                          (data-theme MutationObserver + media
+│                                          query) for consumers that must react
+│                                          to flips; useTheme state is per-component
 ├── popoverPosition.ts        Core         clampPopoverPosition — viewport clamping
 ├── Popover.tsx               Shell        The shared anchored-popover chrome
 ├── useDismiss.ts             Shell        Outside-mousedown + Escape dismissal
@@ -595,16 +599,22 @@ flowchart LR
   extraction, TODO detection, autocomplete and slash commands are all thin
   adapters over it. It is pinned to the Python parser by
   `shared/fixtures/ref_grammar.json`.
-- Heavy renderers (KaTeX, Mermaid, pdf.js, highlight.js) are lazy-loaded
+- Heavy renderers (KaTeX, beautiful-mermaid, Mermaid, pdf.js, highlight.js) are lazy-loaded
   behind cached module-level `import()` promises, so they stay out of the
   eager bundle. Their budgeted chunks are still precached, so they work
   offline.
 - Link hrefs are sanitized (`isSafeHref` rejects `javascript:` and
   protocol-relative URLs); Mermaid runs in strict mode.
-- Mermaid diagrams use the app's palette, not mermaid's stock themes:
-  `mermaidTheme.ts` maps the design tokens onto base-theme `themeVariables`,
-  resolved once via `getComputedStyle` when the chunk first loads. A theme
-  flip mid-session does not re-color diagrams already on screen.
+- Diagrams render through beautiful-mermaid first (ELK layout; the chunk is
+  named by the `beautifulMermaid.ts` re-export barrel). Any render failure
+  falls back silently to stock mermaid. That fallback is what keeps diagram
+  families beautiful-mermaid lacks (gantt, pie, mindmap, ...) working --
+  don't "simplify" the second renderer away. Both fail -> the raw-source
+  error block. `mermaidTheme.ts` maps the design tokens onto each renderer's
+  theming surface (`beautifulMermaidOptions` / base-theme `themeVariables`).
+  The beautiful-mermaid path re-resolves tokens and re-renders on theme
+  flips (`useEffectiveTheme`); the stock fallback keeps its historical
+  initialize-time snapshot.
 - `PdfViewer` guards its load/reset race with a generation counter. When
   `href` changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps
   the counter **synchronously during render**, not in an effect, and every

@@ -80,9 +80,10 @@ export default defineConfig({
     // Vite's advisory >500kB chunk-size warning is superseded by the hard
     // raw-byte budgets in tooling/budgets.json (enforced by budgetPlugin()
     // above, which fails the build); set just above the current largest
-    // chunk (largestAssetBytes: 907990 raw, ~887kB) so the advisory warning
-    // stays silent while the real guard still fails the build on regression.
-    chunkSizeWarningLimit: 900,
+    // chunk (beautifulMermaid-*.js, 1540789 raw, ~1505kB) so the advisory
+    // warning stays silent while the real guard still fails the build on
+    // regression.
+    chunkSizeWarningLimit: 1550,
   },
   // sqlite-wasm must not be pre-bundled: its wasm asset URL resolution
   // breaks under dep optimization (upstream guidance)

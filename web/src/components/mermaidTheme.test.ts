@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mermaidThemeVariables } from "./mermaidTheme";
+import { beautifulMermaidOptions, mermaidThemeVariables } from "./mermaidTheme";
 
 // A lookup that returns a distinct recognisable value per token name, so
 // each assertion proves which token feeds which mermaid variable.
@@ -42,5 +42,38 @@ describe("mermaidThemeVariables", () => {
   it("trims whitespace getComputedStyle leaves on custom property values", () => {
     const vars = mermaidThemeVariables(false, () => "  #3f4758 ");
     expect(vars.lineColor).toBe("#3f4758");
+  });
+});
+
+describe("beautifulMermaidOptions", () => {
+  it("maps app design tokens onto beautiful-mermaid's RenderOptions", () => {
+    const opts = beautifulMermaidOptions(byName);
+    expect(opts.bg).toBe("var(--color-bg-surface)-value");
+    expect(opts.fg).toBe("var(--color-text)-value");
+    expect(opts.line).toBe("var(--color-text-muted)-value");
+    expect(opts.muted).toBe("var(--color-text-muted)-value");
+    expect(opts.surface).toBe("var(--color-bg-subtle)-value");
+    expect(opts.border).toBe("var(--color-border-strong)-value");
+    expect(opts.accent).toBe("var(--color-accent)-value");
+  });
+
+  it("always sets the app font stack", () => {
+    expect(beautifulMermaidOptions(() => "").font).toContain("-apple-system");
+  });
+
+  it("always renders transparent so diagrams inherit the block background", () => {
+    // Stock mermaid SVGs have no background; without this the SVG paints an
+    // opaque --bg card that seams against row hover/focus tints.
+    expect(beautifulMermaidOptions(byName).transparent).toBe(true);
+  });
+
+  it("omits options whose token resolves empty so the library derives its own", () => {
+    const opts = beautifulMermaidOptions(() => "");
+    expect("bg" in opts).toBe(false);
+    expect("line" in opts).toBe(false);
+  });
+
+  it("trims whitespace from resolved token values", () => {
+    expect(beautifulMermaidOptions(() => " #ec6f35 ").accent).toBe("#ec6f35");
   });
 });

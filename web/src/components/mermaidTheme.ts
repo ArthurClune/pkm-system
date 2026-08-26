@@ -44,3 +44,36 @@ export function mermaidThemeVariables(
   }
   return vars;
 }
+
+/** Which design token feeds which beautiful-mermaid RenderOptions slot.
+ * No dark flag: light vs dark is carried entirely by the resolved token
+ * values, so callers just re-resolve when the effective theme changes. */
+const BM_OPTION_TOKENS: Record<string, string> = {
+  bg: "--color-bg-surface",
+  fg: "--color-text",
+  line: "--color-text-muted",
+  muted: "--color-text-muted",
+  surface: "--color-bg-subtle",
+  border: "--color-border-strong",
+  accent: "--color-accent",
+};
+
+/** RenderOptions for beautiful-mermaid's renderMermaid(). Same empty-token
+ * rule as mermaidThemeVariables: absent beats "" (the library falls back to
+ * its own bg/fg defaults and two-color derivation). */
+export function beautifulMermaidOptions(
+  token: (name: string) => string,
+): Record<string, string | boolean> {
+  // transparent: stock mermaid SVGs paint no background; an opaque --bg card
+  // would seam against block-row hover/focus tints, so let the page show
+  // through here too.
+  const opts: Record<string, string | boolean> = {
+    font: APP_FONT_STACK,
+    transparent: true,
+  };
+  for (const [option, tokenName] of Object.entries(BM_OPTION_TOKENS)) {
+    const value = token(tokenName).trim();
+    if (value) opts[option] = value;
+  }
+  return opts;
+}

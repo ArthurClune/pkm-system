@@ -101,9 +101,18 @@ function collectOwned(graph: ModuleGraph, isSeed: (id: string) => boolean): Set<
   return owned;
 }
 
+/** True when `id` is a module of the named npm package: the package name
+ * must sit directly under a node_modules/ segment. A bare name match
+ * anywhere in the path is not enough -- checkout directories can carry a
+ * package's name (this repo's worktrees do, e.g.
+ * .claude/worktrees/beautiful-mermaid/), which would make every module in
+ * the checkout a seed and let the owned-bytes cap absorb unrelated chunks. */
+const isPackageModule = (id: string, pkg: string): boolean =>
+  new RegExp(`[\\\\/]node_modules[\\\\/]${pkg}[\\\\/]`).test(id);
+
 /** Mermaid graph seeds: mermaid package modules under node_modules. */
-const isMermaidSeed = (id: string): boolean =>
-  id.includes("node_modules") && /[\\/]mermaid[\\/]/.test(id);
+export const isMermaidSeed = (id: string): boolean =>
+  isPackageModule(id, "mermaid");
 
 /** PDF viewer graph seeds: the lazily-imported viewer module itself plus the
  * react-pdf/pdfjs-dist packages. Seeding PdfViewer.tsx is what lets the
@@ -112,13 +121,21 @@ const isMermaidSeed = (id: string): boolean =>
  * via reachability. Note the pdf.js WORKER is an emitted asset, not a chunk,
  * so it is guarded by largestAssetBytes/totalOutputBytes/precacheBytes, not
  * by this cap. */
-const isPdfjsSeed = (id: string): boolean =>
-  (id.includes("node_modules") && /[\\/](react-pdf|pdfjs-dist)[\\/]/.test(id)) ||
+export const isPdfjsSeed = (id: string): boolean =>
+  isPackageModule(id, "react-pdf") ||
+  isPackageModule(id, "pdfjs-dist") ||
   /[\\/]src[\\/]components[\\/]PdfViewer\.tsx$/.test(id);
 
+/** beautiful-mermaid graph seeds: the package's own modules under
+ * node_modules. Its dependencies (elkjs, entities) and the app-side
+ * beautifulMermaid.ts re-export barrel join via reachability. */
+export const isBeautifulMermaidSeed = (id: string): boolean =>
+  isPackageModule(id, "beautiful-mermaid") ||
+  /[\\/]src[\\/]components[\\/]beautifulMermaid\.ts$/.test(id);
+
 /** KaTeX graph seeds: katex package modules under node_modules. */
-const isKatexSeed = (id: string): boolean =>
-  id.includes("node_modules") && /[\\/]katex[\\/]/.test(id);
+export const isKatexSeed = (id: string): boolean =>
+  isPackageModule(id, "katex");
 
 /**
  * Vite/Rollup plugin: enforce the production bundle budgets in generateBundle,
@@ -149,6 +166,7 @@ export function budgetPlugin(): Plugin {
         mermaid: collectOwned(graph, isMermaidSeed),
         pdfjs: collectOwned(graph, isPdfjsSeed),
         katex: collectOwned(graph, isKatexSeed),
+        beautifulMermaid: collectOwned(graph, isBeautifulMermaidSeed),
       };
       const report = evaluateBundleBudgets(files, chunks, owned);
       const text = formatReport("bundle", report);

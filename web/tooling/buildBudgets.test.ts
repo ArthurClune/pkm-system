@@ -13,12 +13,13 @@ import {
 const budgets: BuildBudgets = {
   initialEntryBytes: 700,
   largestAssetBytes: 800,
-  totalOutputBytes: 2700,
+  totalOutputBytes: 3300,
   precacheBytes: 1500,
   precacheEntries: 3,
   mermaidOwnedBytes: 500,
   pdfjsOwnedBytes: 400,
   katexOwnedBytes: 300,
+  beautifulMermaidOwnedBytes: 600,
 };
 
 // Baseline bundle: entry 700, largest asset 800 (a wasm), one fully
@@ -28,6 +29,7 @@ const owned = {
   mermaid: new Set(["m1", "m2"]),
   pdfjs: new Set(["p1", "p2"]),
   katex: new Set(["k1", "k2"]),
+  beautifulMermaid: new Set(["b1", "b2"]),
 };
 function baselineChunks(): OutputChunkInfo[] {
   return [
@@ -35,6 +37,7 @@ function baselineChunks(): OutputChunkInfo[] {
     { fileName: "mermaid-abc.js", bytes: 500, isEntry: false, moduleIds: ["m1", "m2"] },
     { fileName: "PdfViewer-abc.js", bytes: 400, isEntry: false, moduleIds: ["p1", "p2"] },
     { fileName: "katex-abc.js", bytes: 300, isEntry: false, moduleIds: ["k1", "k2"] },
+    { fileName: "beautifulMermaid-abc.js", bytes: 600, isEntry: false, moduleIds: ["b1", "b2"] },
   ];
 }
 function baselineFiles(): OutputFile[] {
@@ -44,6 +47,7 @@ function baselineFiles(): OutputFile[] {
     { fileName: "mermaid-abc.js", bytes: 500 },
     { fileName: "PdfViewer-abc.js", bytes: 400 },
     { fileName: "katex-abc.js", bytes: 300 },
+    { fileName: "beautifulMermaid-abc.js", bytes: 600 },
   ];
 }
 
@@ -86,7 +90,19 @@ describe("evaluateBundleBudgets", () => {
     const total = (r: typeof a) =>
       r.checks.find((c) => c.name === "totalOutputBytes")!.actual;
     expect(total(a)).toBe(total(b));
-    expect(total(a)).toBe(2700);
+    expect(total(a)).toBe(3300);
+  });
+
+  it("fails when the beautiful-mermaid chunk is one byte over", () => {
+    const chunks = baselineChunks();
+    const bm = chunks.findIndex((c) => c.fileName.startsWith("beautifulMermaid"));
+    chunks[bm] = { ...chunks[bm], bytes: 601 };
+    const files = baselineFiles();
+    files[files.length - 1] = { ...files[files.length - 1], bytes: 601 };
+    const report = evaluateBundleBudgets(files, chunks, owned, budgets);
+    const c = report.checks.find((c) => c.name === "beautifulMermaidOwnedBytes")!;
+    expect(c.ok).toBe(false);
+    expect(c.delta).toBe(1);
   });
 
   it("reports largest contributors, biggest first", () => {

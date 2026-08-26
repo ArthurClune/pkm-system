@@ -20,7 +20,22 @@ vi.mock("mermaid", () => ({
 
 afterEach(() => {
   mockRender.mockReset();
-  mockInitialize.mockReset();
+  // mockInitialize is deliberately NOT reset: loadMermaid() caches the
+  // module-level promise, so initialize fires exactly once per test file --
+  // its first recorded call is the only record any test can assert on.
+});
+
+it("initializes mermaid with the base theme and token-derived themeVariables", async () => {
+  mockRender.mockResolvedValue({ svg: "<svg></svg>" });
+  render(<MermaidDiagram code={"graph TD\na-->b"} />);
+  await waitFor(() => expect(mockInitialize).toHaveBeenCalled());
+  const [config] = mockInitialize.mock.calls[0];
+  expect(config.theme).toBe("base");
+  expect(config.securityLevel).toBe("strict");
+  expect(config.themeVariables.fontFamily).toContain("-apple-system");
+  // jsdom has no styles.css, so darkMode falls out of the light default;
+  // the point is that the flag is wired through, not its value here.
+  expect(config.themeVariables.darkMode).toBe(false);
 });
 
 it("renders the SVG mermaid.render() resolves with", async () => {

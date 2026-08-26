@@ -99,7 +99,7 @@ web/src/
 │   │                         BlockRefBacklinksPopover, BlockMenu, DatePickerPopup…)
 │   └── pure halves           Core         Beside their component: pdfViewerCore,
 │                                          roamTableRows, backlinkFilter, groups,
-│                                          backlinkBatchWalk, bluesky…
+│                                          backlinkBatchWalk, bluesky, mermaidTheme…
 │
 ├── views/                    One Shell file per route (see Views and navigation);
 │   │                         EditablePage = one editable outline, shared by the main
@@ -601,6 +601,10 @@ flowchart LR
   offline.
 - Link hrefs are sanitized (`isSafeHref` rejects `javascript:` and
   protocol-relative URLs); Mermaid runs in strict mode.
+- Mermaid diagrams use the app's palette, not mermaid's stock themes:
+  `mermaidTheme.ts` maps the design tokens onto base-theme `themeVariables`,
+  resolved once via `getComputedStyle` when the chunk first loads. A theme
+  flip mid-session does not re-color diagrams already on screen.
 - `PdfViewer` guards its load/reset race with a generation counter. When
   `href` changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps
   the counter **synchronously during render**, not in an effect, and every

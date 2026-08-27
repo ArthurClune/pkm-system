@@ -650,8 +650,21 @@ mark.highlight { background: var(--color-highlight-bg); }
 .mermaid-diagram-error-note { color: var(--color-text-muted); font-size: 13px; margin: 0 0 4px; }
 .math-display { display: block; overflow-x: auto; }
 .math-error { background: var(--color-bg-subtle); border-radius: var(--radius-control); padding: 0 3px; color: var(--color-text-muted); }
-.bluesky-embed { display: block; width: 100%; max-width: 550px; height: 300px;
-  border: none; border-radius: var(--radius-card); margin: 4px 0; }
+/* The wrapper is the true layout box, sized at the visible (scaled) target
+ * dimensions; the iframe inside is laid out at full (1/scale) size and
+ * visually scaled down to exactly fill the wrapper. 600px is a placeholder
+ * height for before the embed page reports its real height. */
+.bluesky-embed-box { --bluesky-scale: 0.5; display: block; width: 100%;
+  max-width: calc(550px * var(--bluesky-scale));
+  height: calc(var(--bluesky-height, 600px) * var(--bluesky-scale));
+  margin: 4px 0; }
+@media (max-width: 600px) {
+  .bluesky-embed-box { --bluesky-scale: 1; }
+}
+.bluesky-embed { display: block; width: calc(100% / var(--bluesky-scale));
+  height: calc(100% / var(--bluesky-scale)); border: none;
+  border-radius: var(--radius-card); transform: scale(var(--bluesky-scale));
+  transform-origin: top left; }
 .todo-checkbox { margin-right: 6px; vertical-align: middle; }
 .query-pending { color: var(--color-text-muted); font-style: italic; }
 

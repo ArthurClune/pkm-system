@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-import { useEffect, useId, useState } from "react";
+import { type CSSProperties, useEffect, useId, useState } from "react";
 import { blueskyEmbedSrc, parseBlueskyPostUrl } from "./bluesky";
 
 const EMBED_ORIGIN = "https://embed.bsky.app";
@@ -82,16 +82,24 @@ export function BlueskyEmbed({ href }: { href: string }) {
     // resolving, or resolution failed: the post link is still useful
     return <a href={href} target="_blank" rel="noreferrer">{href}</a>;
   }
+  // The reported height is carried as a CSS custom property on the wrapper
+  // rather than as inline height on the iframe itself, because the iframe
+  // is visually scaled down (transform: scale) on desktop; the wrapper is
+  // the true layout box and the iframe is laid out at 1/scale of it.
+  const boxStyle = {
+    "--bluesky-height": height === null ? undefined : `${height}px`,
+  } as CSSProperties;
   return (
-    <iframe
-      src={blueskyEmbedSrc(href, did, embedId)!}
-      className="bluesky-embed"
-      title="Bluesky post"
-      style={height === null ? undefined : { height }}
-      // allow-same-origin is required: with an opaque origin the embed
-      // page renders blank (pkm-es9o); this matches Bluesky's official
-      // embed.js, which uses no sandbox at all
-      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-    />
+    <div className="bluesky-embed-box" style={boxStyle}>
+      <iframe
+        src={blueskyEmbedSrc(href, did, embedId)!}
+        className="bluesky-embed"
+        title="Bluesky post"
+        // allow-same-origin is required: with an opaque origin the embed
+        // page renders blank (pkm-es9o); this matches Bluesky's official
+        // embed.js, which uses no sandbox at all
+        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      />
+    </div>
   );
 }

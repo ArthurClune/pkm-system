@@ -21,6 +21,10 @@ function embedSrc(container: HTMLElement): URL | null {
   return src ? new URL(src) : null;
 }
 
+function embedBox(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>(".bluesky-embed-box");
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -106,8 +110,17 @@ it("adopts the height the embed page reports for this embed's id", () => {
       data: { id, height: 543 },
     }));
   });
-  const iframe = container.querySelector<HTMLIFrameElement>("iframe.bluesky-embed")!;
-  expect(iframe.style.height).toBe("543px");
+  const box = embedBox(container)!;
+  expect(box.style.getPropertyValue("--bluesky-height")).toBe("543px");
+});
+
+it("wraps the iframe in a scaling box", () => {
+  stubResolve({ ok: true, did: DID });
+  const href = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
+  const { container } = render(<BlueskyEmbed href={href} />);
+  const box = embedBox(container);
+  expect(box).not.toBeNull();
+  expect(box!.querySelector("iframe.bluesky-embed")).not.toBeNull();
 });
 
 it("renders nothing for a non-post href", () => {
@@ -175,10 +188,10 @@ it("resets the reported height when href changes to a different post", () => {
       data: { id: idA, height: 700 },
     }));
   });
-  expect(container.querySelector<HTMLIFrameElement>("iframe.bluesky-embed")!.style.height).toBe("700px");
+  expect(embedBox(container)!.style.getPropertyValue("--bluesky-height")).toBe("700px");
 
   rerender(<BlueskyEmbed href={hrefB} />);
-  expect(container.querySelector<HTMLIFrameElement>("iframe.bluesky-embed")!.style.height).toBe("");
+  expect(embedBox(container)!.style.getPropertyValue("--bluesky-height")).toBe("");
 });
 
 it("resolves the DID for a valid href after starting from an invalid href", () => {

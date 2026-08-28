@@ -14,7 +14,7 @@
 // document-wide query: the same page can be open in the main window at
 // the same time, with its own element carrying that data-uid.
 import { useRef } from "react";
-import { BlockRefContext } from "../contexts";
+import { BlockRefProvider } from "./BlockRefProvider";
 import { substituteMissingDaily } from "../outline/missingPage";
 import { useOutlinePageLoad } from "../outline/useOutlinePageLoad";
 import { useScrollFlashTarget } from "../useScrollFlashTarget";
@@ -30,9 +30,9 @@ export function EditableSidebarPanel({ title, uid }: { title: string; uid?: stri
   if (!payload) return <p className="loading">Loading…</p>;
   return (
     <div ref={containerRef}>
-      <BlockRefContext.Provider value={payload.block_ref_texts}>
+      <BlockRefProvider seed={payload.block_ref_texts}>
         <EditablePage title={title} initial={payload.blocks} />
-      </BlockRefContext.Provider>
+      </BlockRefProvider>
     </div>
   );
 }

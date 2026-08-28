@@ -340,7 +340,10 @@ a `"parent"` read publishes through, the authoritative loader and parent read
 controller registered on the session, and the cleanup order at unmount. It
 returns just `{payload, error, reload}`. The two surfaces
 differ only in presentation and in where they scroll. A second copy of this
-controller is how they silently drifted apart before.
+controller is how they silently drifted apart before. Both must also mount
+`BlockRefProvider` (not the bare `BlockRefContext.Provider`) around the
+content they render from that payload, or `((uid))` refs typed on that
+surface never resolve until the surface remounts (pkm-0one).
 
 The Journal is the third surface showing editable outlines, and does not use
 the hook: it loads many days in one batched `/api/journal` request and

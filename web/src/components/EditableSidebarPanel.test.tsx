@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, test, vi } from "vitest";
@@ -290,6 +290,31 @@ test("no uid prop: no scroll/flash side effect", async () => {
     </MemoryRouter>);
   await screen.findByText("target block");
   expect(scrollIntoView).not.toHaveBeenCalled();
+});
+
+// pkm-0one: a ((uid)) typed into a sidebar block must resolve live, the
+// same as it does in the main pane -- not only after the panel is reopened.
+test("a ((uid)) ref missing from the seed map resolves live in the panel", async () => {
+  stubFetch([
+    ["/api/page/Paper", pagePayload("Paper", [
+      block("uid_s1", "see ((ref_zz9))", { order_idx: 0 }),
+    ])],
+    ["/api/block-refs", {
+      block_ref_texts: { ref_zz9: { text: "the target block", page_title: "Paper" } },
+    }],
+  ]);
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <SyncContext.Provider value={makeSync()}>
+        <EditableSidebarPanel title="Paper" />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+
+  await screen.findByText("((ref_zz9))");
+  await waitFor(() => {
+    expect(screen.getByText("the target block")).toBeInTheDocument();
+  });
+  expect(screen.queryByText("((ref_zz9))")).not.toBeInTheDocument();
 });
 
 test("releases a failed parent read when the panel unmounts", async () => {

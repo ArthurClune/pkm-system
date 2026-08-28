@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
 import { AssistantPanel } from "./assistant/AssistantPanel";
+import { ExternalLinkInterceptor } from "./components/ExternalLinkInterceptor";
 import { MenuIcon } from "./components/icons";
 import { NavPageLink } from "./components/NavPageLink";
 import { NavRouteLink } from "./components/NavRouteLink";
@@ -153,6 +154,7 @@ export function App() {
               + (sidebarCollapsed ? " nav-collapsed" : "")
               + (rightSidebarOpen ? "" : " no-sidebar")}>
               <UndoRedoKeys />
+              <ExternalLinkInterceptor />
               <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
               <button className="hamburger" aria-label="menu"
                       ref={hamburgerRef}

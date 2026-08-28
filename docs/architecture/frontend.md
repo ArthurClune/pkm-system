@@ -57,6 +57,8 @@ web/src/
 │                                          useTitleOptions); Files keeps its own
 ├── useScrollFlashTarget.ts   Shell        Scroll a data-uid into view and flash it,
 │                                          document-wide or scoped to a panel root
+├── externalLink.ts           Core         iOS-standalone predicate; click → x-safari-
+│                                          http(s) URL decision (see below)
 ├── styles.css                —            All styling — owned by styling.md
 │
 ├── api/                      The typed HTTP layer (see API layer)
@@ -101,6 +103,8 @@ web/src/
 │   │                         roamTable…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
 │   │                         OfflineIndicator, Composer, BacklinksSection, BacklinkGroupList,
 │   │                         BlockRefBacklinksPopover, BlockMenu, DatePickerPopup…)
+│   ├── ExternalLinkInterceptor.tsx  Shell  Capture-phase document click listener,
+│   │                                       mounted only in iOS standalone (see below)
 │   └── pure halves           Core         Beside their component: pdfViewerCore,
 │                                          roamTableRows, backlinkFilter, groups,
 │                                          backlinkBatchWalk, bluesky, mermaidTheme…
@@ -144,6 +148,21 @@ web/src/
 ├── dnd/                      Shell        Drag-and-drop context + drop zones
 └── contexts.ts, sidebar.ts, paths.ts, router.ts, help/ — small shared modules
 ```
+
+### External links in the iOS standalone app
+
+An installed iOS/iPadOS home-screen app opens external links in the WKWebView
+in-app browser overlay, not Safari, and Apple ships no supported way to
+change that. `ExternalLinkInterceptor` (mounted in `App.tsx` next to `UndoRedoKeys`)
+works around it with a capture-phase `document` click listener. Only when
+`externalLink.ts`'s `isIosStandalone` predicate is true, it rewrites the
+click's navigation to the undocumented `x-safari-https://`/`x-safari-http://`
+scheme, which hands the URL to the real Safari app. This is a click-time interceptor, not an href rewrite:
+anchors keep their canonical `https://` hrefs everywhere (copy link, share,
+non-iOS browsers). The scheme is iOS 17+ and unrecognised on older iOS,
+where the tap becomes a no-op; the listener only attaches in iOS standalone,
+so it is otherwise inert. Nothing else in the codebase references the
+`x-safari-` prefix, so it is not dead code to clean up.
 
 ## Views and navigation
 

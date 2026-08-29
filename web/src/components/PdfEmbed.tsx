@@ -8,7 +8,7 @@
 import { type ComponentType, useEffect, useState } from "react";
 import { PdfFallbackLink } from "./PdfFallbackLink";
 
-type ViewerProps = { href: string; label: string };
+type ViewerProps = { href: string; label: string; onClose?: () => void };
 
 let viewerPromise: Promise<ComponentType<ViewerProps>> | null = null;
 
@@ -27,7 +27,7 @@ type ViewerState =
   | { status: "ok"; Viewer: ComponentType<ViewerProps> }
   | { status: "error" };
 
-export function PdfEmbed({ href, label }: ViewerProps) {
+export function PdfEmbed({ href, label, onClose }: ViewerProps) {
   const [state, setState] = useState<ViewerState>({ status: "loading" });
 
   useEffect(() => {
@@ -50,5 +50,5 @@ export function PdfEmbed({ href, label }: ViewerProps) {
     return <PdfFallbackLink href={href} label={label} note="Couldn't load the PDF viewer." />;
   }
   const { Viewer } = state;
-  return <Viewer href={href} label={label} />;
+  return <Viewer href={href} label={label} onClose={onClose} />;
 }

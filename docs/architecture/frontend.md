@@ -288,7 +288,12 @@ filename and description, type, date range, linked/orphan), offset pagination,
 and multi-select for delete and zip export.
 
 Cards are interactive. An image thumb expands in the shared
-`ImageOverlay` (extracted from `AssetImage`). The refs and described/failed
+`ImageOverlay` (extracted from `AssetImage`). A PDF thumb opens `PdfViewer`
+in its overlay-only mode (the `onClose` prop) through the lazy `PdfEmbed`
+shim, so PDFs open in-app on every surface. Document and other thumbs stay
+plain new-tab anchors; the server serves those MIME types as
+`Content-Disposition: attachment`, so the browser downloads them instead of
+navigating. The refs and described/failed
 status badges open popovers (`views/FileCardPopovers.tsx`): the refs popover
 fetches block text through `GET /api/block-refs` — chunked at its 50-uid cap
 by `filesCore.refUidChunks` — and renders through `BacklinkGroupList`, the
@@ -362,7 +367,7 @@ differ only in presentation and in where they scroll. A second copy of this
 controller is how they silently drifted apart before. Both must also mount
 `BlockRefProvider` (not the bare `BlockRefContext.Provider`) around the
 content they render from that payload, or `((uid))` refs typed on that
-surface never resolve until the surface remounts (pkm-0one).
+surface never resolve until the surface remounts.
 
 The Journal is the third surface showing editable outlines, and does not use
 the hook: it loads many days in one batched `/api/journal` request and
@@ -794,6 +799,8 @@ its fix installed. The bean has the full investigation.
 | A multi-block selection made while editable stays deletable after the outline switches to read-only | Backspace/Delete invoked `onDeleteBlockSelection()` unconditionally; every mutating selection branch must gate on `!readOnly` | pkm-rckh |
 | The references popover renders clipped off the right window edge, and no scrollbar appears to reach it | its fixed position applied the badge anchor verbatim; the popover must clamp its measured rect into the viewport (`popoverPosition.ts`) | pkm-7iv7 |
 | An assistant reply shows a block citation as literal `((^uid))` text instead of a link | the model copied the `^uid` marker from tool output into the citation; `stripCaretBlockRefs` must run on assistant text before `tokenizeBlock` | pkm-wx86 |
+| Tapping a PDF in the iOS standalone PWA replaces the whole app with the PDF, with no way back | the `/files` PDF card was a same-origin `target="_blank"` anchor, which `ExternalLinkInterceptor` ignores; PDF cards must open the in-app `PdfViewer` overlay instead | pkm-5o11 |
+| A `((uid))` ref typed in a sidebar panel stays unresolved until the panel remounts | the sidebar mounted the bare `BlockRefContext.Provider`, so nothing watched for newly resolved texts; outline surfaces must mount `BlockRefProvider` | pkm-0one |
 
 ## Testing and quality gates
 

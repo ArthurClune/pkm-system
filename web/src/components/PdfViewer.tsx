@@ -143,7 +143,16 @@ function PdfPages({ numPages, aspect, onCurrentPage, scrollRegionLabel }: {
  * the overlay chrome. */
 const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function PdfViewer({ href, label }: { href: string; label: string }) {
+/**
+ * Inline-then-expand viewer for PDF embeds in block content. With `onClose`
+ * set it instead renders as a fullscreen overlay dialog from the first
+ * frame (no inline frame, no Expand): the /files browser uses this so a PDF
+ * card opens in-app on every surface -- in the iOS standalone PWA a plain
+ * same-origin navigation would take over the app with no way back. In that
+ * mode Close/Escape call `onClose`; the parent owns unmounting.
+ */
+export function PdfViewer({ href, label, onClose }:
+    { href: string; label: string; onClose?: () => void }) {
   const [doc, setDoc] = useState<DocState | null>(null);
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -177,20 +186,29 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
   }
   const gen = genRef.current;
 
-  // Modal behaviour while expanded: focus moves into the dialog (and back to
-  // Expand on close), Tab is trapped inside it, Escape closes it, and the
-  // page behind can't scroll. The listener lives on window because clicks on
-  // non-focusable overlay content can drop focus to <body>, where a dialog-
-  // scoped handler would miss the next Tab.
+  // Overlay-only mode never renders the inline frame, so its dialog is
+  // "open" for the component's whole lifetime.
+  const overlayOpen = onClose !== undefined || expanded;
+  // Latest dismiss action for the modal-behaviour effect, held in a ref so
+  // an unstable onClose prop can't re-run the effect (which would re-steal
+  // focus to Close on every parent render).
+  const dismissRef = useRef<() => void>(() => {});
+  dismissRef.current = onClose ?? (() => setExpanded(false));
+
+  // Modal behaviour while the overlay is open: focus moves into the dialog
+  // (and back to Expand on close, when Expand exists), Tab is trapped inside
+  // it, Escape dismisses it, and the page behind can't scroll. The listener
+  // lives on window because clicks on non-focusable overlay content can drop
+  // focus to <body>, where a dialog-scoped handler would miss the next Tab.
   useEffect(() => {
-    if (!expanded) return;
+    if (!overlayOpen) return;
     const expandButton = expandRef.current;
     closeRef.current?.focus();
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setExpanded(false);
+        dismissRef.current();
         return;
       }
       if (e.key !== "Tab" || !overlayRef.current) return;
@@ -211,7 +229,7 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
       document.body.style.overflow = prevOverflow;
       expandButton?.focus();
     };
-  }, [expanded]);
+  }, [overlayOpen]);
 
   const onLoadSuccess = (pdf: LoadedPdf) => {
     if (gen !== genRef.current) return; // stale: href moved on before this load finished
@@ -233,6 +251,52 @@ export function PdfViewer({ href, label }: { href: string; label: string }) {
     if (gen !== genRef.current) return; // stale: href moved on before this load failed
     setFailed(true);
   };
+
+  if (onClose !== undefined) {
+    return createPortal(
+      <div
+        className="pdf-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label={label || "PDF"}
+        ref={overlayRef}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="pdf-overlay-bar">
+          <span className="pdf-overlay-title">{label || "PDF"}</span>
+          {doc !== null && (
+            <span className="pdf-page-indicator">
+              Page {currentPage} of {doc.numPages}
+            </span>
+          )}
+          <a href={href} download className="pdf-download">Download</a>
+          <button type="button" className="btn-secondary" ref={closeRef} onClick={onClose}>
+            Close
+          </button>
+        </div>
+        {failed ? (
+          <PdfFallbackLink href={href} label={label} note="Couldn't render this PDF." />
+        ) : (
+          <Document
+            file={href}
+            onLoadSuccess={onLoadSuccess}
+            onLoadError={onLoadError}
+            loading={<span className="pdf-loading-note">Loading PDF…</span>}
+          >
+            {doc !== null && (
+              <PdfPages
+                numPages={doc.numPages}
+                aspect={doc.aspect}
+                onCurrentPage={setCurrentPage}
+                scrollRegionLabel={label || "PDF"}
+              />
+            )}
+          </Document>
+        )}
+      </div>,
+      document.body,
+    );
+  }
 
   if (failed) {
     return <PdfFallbackLink href={href} label={label} note="Couldn't render this PDF." />;

@@ -11,6 +11,16 @@ import { Files } from "./Files";
 
 vi.mock("../api/client", () => ({ apiFetch: vi.fn() }));
 vi.mock("../sync/SyncProvider", () => ({ useSync: vi.fn() }));
+// The real PdfEmbed lazy-imports react-pdf/pdfjs; stub it with a dialog that
+// exposes its props so these tests only assert the card -> viewer wiring.
+vi.mock("../components/PdfEmbed", () => ({
+  PdfEmbed: ({ href, label, onClose }:
+      { href: string; label: string; onClose?: () => void }) => (
+    <div role="dialog" aria-label={`PDF: ${label}`} data-href={href}>
+      <button type="button" onClick={onClose}>Close</button>
+    </div>
+  ),
+}));
 
 import { apiFetch } from "../api/client";
 import { useSync } from "../sync/SyncProvider";
@@ -363,17 +373,37 @@ describe("Files", () => {
       .not.toBeInTheDocument();
   });
 
-  it("keeps the new-tab link for non-image files", async () => {
+  it("opens a PDF in the in-app viewer instead of a tab (pkm-5o11)",
+     async () => {
+    const url = `/assets/${"cd".repeat(32)}/notes.pdf`;
     mockFetch.mockResolvedValueOnce(payload([item({
       sha256: "cd".repeat(32), filename: "notes.pdf",
-      mime: "application/pdf",
+      mime: "application/pdf", url,
     })]));
     renderFiles();
-    await screen.findByText("notes.pdf");
-    const label = screen.getByText("pdf");
+    const thumb = await screen.findByRole("button",
+                                          { name: "Open PDF: notes.pdf" });
+    expect(thumb.closest("a")).toBeNull();
+    fireEvent.click(thumb);
+    const dialog = screen.getByRole("dialog", { name: "PDF: notes.pdf" });
+    expect(dialog).toHaveAttribute("data-href", url);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "PDF: notes.pdf" }))
+      .not.toBeInTheDocument();
+    expect(thumb).toHaveFocus();
+  });
+
+  it("keeps the new-tab link for document and other files", async () => {
+    mockFetch.mockResolvedValueOnce(payload([item({
+      sha256: "cd".repeat(32), filename: "notes.txt",
+      mime: "text/plain",
+    })]));
+    renderFiles();
+    await screen.findByText("notes.txt");
+    const label = screen.getByText("document");
     const link = label.closest("a");
     expect(link).toHaveAttribute("target", "_blank");
-    expect(screen.queryByRole("button", { name: /Expand image/ }))
+    expect(screen.queryByRole("button", { name: /Expand image|Open PDF/ }))
       .not.toBeInTheDocument();
   });
 

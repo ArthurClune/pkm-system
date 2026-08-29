@@ -65,34 +65,46 @@ function createDeferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
 }
 
 vi.mock("react-pdf", async () => {
-  const { useEffect } = await import("react");
+  const { useEffect, useState } = await import("react");
   const fakePdf = {
     numPages: 3,
     getPage: () =>
       Promise.resolve({ getViewport: () => ({ width: 612, height: 792 }) }),
   };
-  function Document({ file, onLoadSuccess, onLoadError, children }: {
+  function Document({ file, onLoadSuccess, onLoadError, loading, children }: {
     file?: string;
     onLoadSuccess?: (pdf: { numPages: number; getPage: () => Promise<{ getViewport: (o: { scale: number }) => Viewport }> }) => void;
     onLoadError?: (err: Error) => void;
+    loading?: ReactNode;
     children?: ReactNode;
   }) {
+    // Like the real react-pdf Document, render the `loading` node instead of
+    // children until the load settles (the overlay-only mode's chrome-first
+    // behaviour depends on this).
+    const [settled, setSettled] = useState(false);
     useEffect(() => {
       if (manual) {
         const pageDeferred = createDeferred<{ getViewport: (o: { scale: number }) => Viewport }>();
         pendingLoads.push({
           file: file ?? "",
-          resolveSuccess: (numPages) =>
-            onLoadSuccess?.({ numPages, getPage: () => pageDeferred.promise }),
-          resolveError: () => onLoadError?.(new Error("bad pdf")),
+          resolveSuccess: (numPages) => {
+            setSettled(true);
+            onLoadSuccess?.({ numPages, getPage: () => pageDeferred.promise });
+          },
+          resolveError: () => {
+            setSettled(true);
+            onLoadError?.(new Error("bad pdf"));
+          },
           resolvePage: (viewport) => pageDeferred.resolve({ getViewport: () => viewport }),
         });
         return;
       }
+      setSettled(true);
       if (failLoad) onLoadError?.(new Error("bad pdf"));
       else onLoadSuccess?.(fakePdf);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [file]);
+    if (!settled) return <>{loading}</>;
     return <div data-testid="pdf-document">{children}</div>;
   }
   function Page({ pageNumber, onRenderSuccess }: {
@@ -400,6 +412,61 @@ it("a stale load error from the previous document does not mark the new document
   act(() => pendingLoads[0].resolveError());
   expect(screen.queryByText("Couldn't render this PDF.")).toBeNull();
   expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+});
+
+// ---- pkm-5o11: overlay-only mode (used by /files) ----------------------
+
+it("with onClose renders the fullscreen overlay immediately, with no inline frame or Expand", async () => {
+  manual = true;
+  render(<PdfViewer href={href} label="Notes" onClose={() => {}} />);
+  await act(async () => {});
+  // the dialog chrome is up before the document has loaded
+  expect(document.querySelector(".pdf-overlay")).not.toBeNull();
+  expect(screen.getByText("Loading PDF…")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Expand" })).toBeNull();
+  act(() => pendingLoads[0].resolveSuccess(3));
+  await act(async () => {
+    pendingLoads[0].resolvePage({ width: 612, height: 792 });
+  });
+  // pages render inside the overlay, and only there -- no inline frame
+  expect(document.querySelectorAll(".pdf-frame")).toHaveLength(1);
+  expect(document.querySelector(".pdf-overlay .pdf-frame")).not.toBeNull();
+  expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+});
+
+it("overlay mode: Close and Escape call onClose instead of collapsing", async () => {
+  const onClose = vi.fn();
+  render(<PdfViewer href={href} label="Notes" onClose={onClose} />);
+  await act(async () => {});
+  expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+  // unmounting is the parent's job -- the overlay must not self-collapse
+  expect(document.querySelector(".pdf-overlay")).not.toBeNull();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(onClose).toHaveBeenCalledTimes(2);
+});
+
+it("overlay mode: a failed load shows the fallback link inside the overlay, Close still works", async () => {
+  failLoad = true;
+  const onClose = vi.fn();
+  render(<PdfViewer href={href} label="Notes" onClose={onClose} />);
+  await act(async () => {});
+  expect(document.querySelector(".pdf-overlay")).not.toBeNull();
+  expect(screen.getByText("Couldn't render this PDF.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", href);
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+it("overlay mode: locks body scrolling on mount and restores the prior value on unmount", async () => {
+  document.body.style.overflow = "auto";
+  const { unmount } = render(<PdfViewer href={href} label="Notes" onClose={() => {}} />);
+  await act(async () => {});
+  expect(document.body.style.overflow).toBe("hidden");
+  unmount();
+  expect(document.body.style.overflow).toBe("auto");
 });
 
 it("StrictMode double-invocation still guards a slow getPage(1) from the previous document", async () => {

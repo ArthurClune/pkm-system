@@ -645,6 +645,9 @@ mark.highlight { background: var(--color-highlight-bg); }
 .pdf-overlay-title { font-weight: 600; margin-right: auto; }
 .pdf-overlay .pdf-frame { flex: 1; height: auto; border: none; border-radius: 0;
   overscroll-behavior: contain; }
+/* overlay-only mode renders its loading note / fallback link directly in the
+ * overlay, where the frame's padding doesn't exist */
+.pdf-overlay > .pdf-loading-note, .pdf-overlay > .pdf-embed { padding: 16px; }
 .mermaid-diagram { display: block; margin: 4px 0; overflow-x: auto; }
 .mermaid-diagram svg { max-width: 100%; }
 .mermaid-diagram-error-note { color: var(--color-text-muted); font-size: 13px; margin: 0 0 4px; }

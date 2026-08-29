@@ -4,6 +4,7 @@ import { apiDelete, apiGet, apiPost } from "../api/typedClient";
 import type { AssetSearchItem } from "../api/payloads";
 import { useConfirm } from "../components/ConfirmDialog";
 import { ImageOverlay } from "../components/ImageOverlay";
+import { PdfEmbed } from "../components/PdfEmbed";
 import { SearchIcon } from "../components/icons";
 import { useSync } from "../sync/SyncProvider";
 import {
@@ -72,6 +73,12 @@ function FileCard({ item, checked, onToggle, onCopy }: {
     setExpanded(false);
     setBroken(true);
   }, []);
+  // ImageOverlay restores focus via triggerRef; the PDF overlay leaves it to
+  // its parent, so restore the thumb's focus here.
+  const closePdf = useCallback(() => {
+    setExpanded(false);
+    thumbRef.current?.focus();
+  }, []);
   const when = item.created_at
     ? ` · ${new Date(item.created_at).toLocaleDateString()}` : "";
   return (
@@ -83,16 +90,28 @@ function FileCard({ item, checked, onToggle, onCopy }: {
           <img src={item.url} alt={item.filename} loading="lazy"
                onError={() => setBroken(true)} />
         </button>
+      ) : category === "pdf" ? (
+        // In-app viewer on every surface: a same-origin navigation would
+        // take over the iOS standalone PWA with no way back (pkm-5o11).
+        <button type="button" className="file-thumb" ref={thumbRef}
+                aria-label={`Open PDF: ${item.filename}`}
+                onClick={() => setExpanded(true)}>
+          <span className="file-type-label">{category}</span>
+        </button>
       ) : (
         <a className="file-thumb" href={item.url} target="_blank"
            rel="noreferrer">
           <span className="file-type-label">{category}</span>
         </a>
       )}
-      {expanded && (
+      {expanded && category === "image" && (
         <ImageOverlay src={item.url} alt={item.filename}
                       onClose={closeOverlay} onError={overlayError}
                       triggerRef={thumbRef} />
+      )}
+      {expanded && category === "pdf" && (
+        <PdfEmbed href={item.url} label={item.filename}
+                  onClose={closePdf} />
       )}
       {popover?.kind === "refs" && (
         <FileRefsPopover refs={item.refs} x={popover.x} y={popover.y}

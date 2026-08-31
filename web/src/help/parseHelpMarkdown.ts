@@ -2,9 +2,12 @@
 /** Parser for the narrow markdown subset used by docs/keyboard.md: #/##/###
  * headings, paragraphs (consecutive plain lines joined with a space), pipe
  * tables, and inline backtick code spans. Deliberately not the app's block
- * grammar (grammar/tokenize.ts) -- the doc has literal `[[page]]` and
- * `((...))` inside backticks that grammar would linkify, and not a markdown
- * dependency -- the subset is small and fixed. */
+ * grammar (grammar/tokenize.ts) -- that grammar is inline-only over a single
+ * block's text (block structure comes from the outline, so it offers no
+ * headings, paragraphs, or pipe tables to a multi-line doc) -- and
+ * deliberately not a markdown dependency -- the subset is small and fixed.
+ * The doc's literal `[[page]]`/`((...))` in backticks would be safe either
+ * way: grammar/scan.ts blanks code spans before reference recognition. */
 
 export interface InlineSegment {
   code: boolean;

@@ -1,6 +1,6 @@
 ---
 name: pkm
-description: Use when reading or writing PKM content from a session — pages, blocks, daily notes/journal, TODOs, backlinks, search, uploads — or when tempted to query pkm.sqlite3, curl /api endpoints, or mint session cookies by hand
+description: Use when reading or writing PKM content from a session — pages, blocks, daily notes/journal, TODOs, backlinks, search, uploads, tables — or when tempted to query pkm.sqlite3, curl /api endpoints, mint session cookies by hand, or read web/src to work out how block text renders
 ---
 
 # Driving the PKM with the pkm CLI
@@ -90,6 +90,54 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   created block so later commands can target it as `"parent": "{{name}}"`
   or, for `update`/`move`/`delete`, as `"uid": "{{name}}"`; repeated
   `"## Heading"` parents on the same page resolve to one heading.
+
+## Tables
+
+**Markdown pipe tables do not render.** `| a | b |` is stored and shown as
+literal text — the block grammar has no pipe-table rule, and the one pipe-table
+parser in the tree (`web/src/help/parseHelpMarkdown.ts`) serves only the static
+`/help` page, never block content. The sole table the renderer draws is the Roam
+macro, and its columns are built out of nesting:
+
+- The macro block's text is exactly `{{table}}` or `{{[[table]]}}`
+  (case-insensitive, surrounding whitespace ignored — anything else on the line
+  and it is not a table), and it has at least one child. The app's own `/table`
+  slash command inserts this text.
+- Each **direct child is a row**; the first row is the header.
+- A row's **cells are the chain of single children** beneath it, so an
+  N-column table nests N levels deep.
+- Any cell with **more than one child** silently disables the whole table — it
+  falls back to a plain outline. This is the usual reason a table "doesn't
+  render".
+- Rows may be ragged; short ones are padded with blank cells on the right.
+- Cell text runs through the **same** inline renderer as any other block, so
+  anything that renders in a block renders in a cell — `[[links]]`, `((refs))`,
+  `[text](url)`, bold, code spans, images, KaTeX.
+- `collapsed` has no effect on a valid macro block. While the cursor is anywhere
+  inside the table's subtree the editor shows the raw outline instead, which is
+  how you edit one.
+
+Two spaces of indent per column, so `pkm save` writes one directly:
+
+    uv run --project server pkm save -p "Page" - <<'EOF'
+    {{table}}
+      Tool
+        Licence
+      ripgrep
+        MIT
+      fd
+        Apache-2.0
+    EOF
+
+`parse_outline` drops blank lines, so an **interior blank cell is not
+expressible** this way — the chain closes up and every later cell in that row
+shifts left. Put a placeholder in the cell, or build that row with `pkm batch`.
+
+Because columns are nesting, a wide table is a deep one, and deep tables are
+miserable to reorder or re-sort by hand. When the content is wide, or your
+partner has said they intend to sort it themselves, offer the outliner-native
+shape too — one bullet per row with `Attribute:: value` children — and let them
+pick.
 
 ## Title syntax
 

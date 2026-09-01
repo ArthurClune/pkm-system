@@ -103,14 +103,27 @@ async function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
  * replica shim exactly as a dropped connection does. */
 export const READ_TIMEOUT_MS = 15_000;
 
+export interface ApiFetchOptions {
+  /** How long this read may hang, overriding READ_TIMEOUT_MS. `null` means
+   * untimed: for a response whose size is unbounded -- the whole-graph
+   * `/api/sync/snapshot` -- a deadline chosen for small reads just restarts
+   * the same download on a slow link, forever. Only for callers that retry
+   * with backoff, since nothing else will notice a dead link. */
+  timeoutMs?: number | null;
+}
+
 /** The timeout applies to reads only. A mutation that is aborted after the
  * server applied it is worse than a slow one -- the op queue would retry a
  * batch it cannot know landed -- so anything with an explicit non-GET method
  * is left to run to completion. A caller's own signal is honoured alongside
  * the timeout, whichever fires first. */
-function readTimeoutSignal(init?: RequestInit): AbortSignal | null {
+function readTimeoutSignal(
+  init?: RequestInit, opts?: ApiFetchOptions,
+): AbortSignal | null {
+  const ms = opts?.timeoutMs === undefined ? READ_TIMEOUT_MS : opts.timeoutMs;
+  if (ms === null) return null;
   if ((init?.method ?? "GET").toUpperCase() !== "GET") return null;
-  const timeout = AbortSignal.timeout(READ_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(ms);
   return init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
 }
 
@@ -123,12 +136,14 @@ function readTimeoutSignal(init?: RequestInit): AbortSignal | null {
  * here. The schema's other non-JSON write, POST /api/assets/export.zip
  * (x-www-form-urlencoded), does not go through either one -- it is a real
  * hidden <form> submit in views/Files.tsx. */
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(
+  path: string, init?: RequestInit, opts?: ApiFetchOptions,
+): Promise<T> {
   if (gateway?.offline()) {
     return localFetch<T>(path, init);
   }
   let res: Response;
-  const signal = readTimeoutSignal(init);
+  const signal = readTimeoutSignal(init, opts);
   try {
     res = await fetch(path, signal ? { ...init, signal } : init);
   } catch (e: unknown) {

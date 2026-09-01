@@ -69,7 +69,11 @@ test("start on an empty replica bootstraps from the snapshot then is ready", asy
   const { states, onState } = collector();
   const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
   await sync.start();
-  expect(fetchJson).toHaveBeenCalledWith("/api/sync/snapshot");
+  // untimed: a cold-start whole-graph download on a slow link must not be
+  // abandoned at the ordinary read deadline (pkm-d6i6)
+  expect(fetchJson).toHaveBeenCalledWith(
+    "/api/sync/snapshot", undefined, { timeoutMs: null },
+  );
   expect(replica.calls).toContain("applySnapshot");
   expect(states.at(-1)).toEqual({ mode: "ready" });
 });
@@ -436,7 +440,9 @@ test("a needs-bootstrap feed answer re-bootstraps when the queue is empty", asyn
   await sync.start();
   expect(replica.calls).toContain("prepareRecovery");
   expect(replica.calls).toContain("commitRecovery");
-  expect(fetchJson).toHaveBeenCalledWith("/api/sync/snapshot");
+  expect(fetchJson).toHaveBeenCalledWith(
+    "/api/sync/snapshot", undefined, { timeoutMs: null },
+  );
 });
 
 test("schema mismatch flushes pending batches before reset, in order", async () => {

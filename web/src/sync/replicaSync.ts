@@ -8,6 +8,7 @@
 // database: degraded beats data loss.
 
 import { ApiError } from "../api/client";
+import type { ApiFetchOptions } from "../api/client";
 import type { Changes, Snapshot } from "../replica/apply";
 import type {
   PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
@@ -66,10 +67,20 @@ export const PENDING_CHANGED_CAP = 20;
 export const RETRY_BASE_MS = 1000;
 export const RETRY_MAX_MS = 60000;
 
+/** The snapshot is the one read here that is exempt from the ordinary read
+ * deadline (pkm-d6i6): its size grows with the graph, so on a slow link a
+ * cold-start bootstrap can legitimately outlast any deadline picked for small
+ * reads, and aborting it only restarts the same download. A link that is dead
+ * rather than slow is still caught -- by noteFailure's backoff for the pull
+ * path, and by the recovery entrants' own error handling. */
+const UNTIMED: ApiFetchOptions = { timeoutMs: null };
+
 export interface ReplicaSyncDeps {
   replica: Replica;
   /** apiFetch-shaped; typed loosely so tests can hand in plain mocks. */
-  fetchJson: (path: string, init?: RequestInit) => Promise<unknown>;
+  fetchJson: (
+    path: string, init?: RequestInit, opts?: ApiFetchOptions,
+  ) => Promise<unknown>;
   clientId: string;
   onState: (s: ReplicaState) => void;
   /** Delivery is paused while the worker recovery lease owns the database. */
@@ -207,8 +218,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // before that mark therefore cannot flush its stale pre-mark batch list.
   queue.onPoisonPending?.(() => { authoritativeRepair = "poison"; });
 
+  const fetchSnapshot = async (): Promise<Snapshot> =>
+    (await fetchJson("/api/sync/snapshot", undefined, UNTIMED)) as Snapshot;
+
   const bootstrap = async (): Promise<void> => {
-    const snap = (await fetchJson("/api/sync/snapshot")) as Snapshot;
+    const snap = await fetchSnapshot();
     await replica.applySnapshot(snap);
     cursor = snap.seq;
   };
@@ -273,7 +287,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       const lease = await replica.prepareRecovery();
       token = lease.token;
       await flushLease(lease, options.flush);
-      const snapshot = (await fetchJson("/api/sync/snapshot")) as Snapshot;
+      const snapshot = await fetchSnapshot();
       await replica.commitRecovery(token, { kind, snapshot });
       token = null; // commit released the worker gate
       cursor = snapshot.seq;

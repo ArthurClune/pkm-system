@@ -303,11 +303,15 @@ def test_default_thresholds_keep_a_backlogged_client():
         hub = ws_module.Hub()
         client = _StallingWS()
         await hub.connect(cast(WebSocket, client))
-        # Four times the pre-decision bound of 8. No awaits between the
-        # calls, so the drain task never gets a turn and the backlog is
-        # real (see the overflow test below).
+        # Four times the pre-decision bound of 8. broadcast() only ever
+        # put_nowait()s, so awaiting it yields no turn to the stalled
+        # drain task and the backlog is real -- asserted below rather
+        # than argued, since the exact depth depends only on whether the
+        # drain task took one frame before blocking on its send.
         for i in range(32):
             await hub.broadcast({"seq": i})
+        queued = hub._clients[cast(WebSocket, client)].queue.qsize()
+        assert queued > 8, f"backlog never built: {queued} queued"
         assert cast(WebSocket, client) in hub._conns
         assert not client.closed
 

@@ -96,12 +96,38 @@ describe("connectSocket reconnect policy", () => {
 
   it("reconnects immediately when the browser reports the network is back", () => {
     connect();
+    // a socket that lived a while before dying: the schedule's delay has
+    // already elapsed since the attempt, so 'online' is honoured at once
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
     latest().drop();
     window.dispatchEvent(new Event("online"));
     expect(created()).toBe(2);
     // the superseded backoff timer must not open a second socket
     vi.advanceTimersByTime(10 * 60_000);
     expect(created()).toBe(2);
+  });
+
+  it("holds repeated 'online' events to the backoff schedule while hidden", () => {
+    connect();
+    hidden = true;
+    latest().drop();
+    // A flapping AP or a wifi/cellular handover fires 'online' over and over.
+    // A hidden tab defers instead of scheduling, so without a rate limit every
+    // event gets its own zero-delay attempt with the backoff counter pinned.
+    const start = Date.now();
+    const attemptsAt: number[] = [];
+    let seen = created();
+    for (let i = 0; i < 60; i += 1) {
+      vi.advanceTimersByTime(1000);
+      window.dispatchEvent(new Event("online"));
+      if (created() > seen) {
+        seen = created();
+        attemptsAt.push(Date.now() - start);
+        latest().drop();
+      }
+    }
+    // the cumulative backoff schedule: 2s, +4s, +8s, +16s, +30s
+    expect(attemptsAt).toEqual([2000, 6000, 14000, 30000, 60000]);
   });
 
   it("ignores 'online' while connected or while an attempt is in flight", () => {

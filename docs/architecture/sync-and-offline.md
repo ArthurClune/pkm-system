@@ -623,8 +623,11 @@ that succeeds keeps delivery paused, and the provider resumes it.
   (`reconnectBackoff.ts` — 2 s doubling to a 30 s cap, reset by any successful
   open), with a 30 s ping keepalive. Nothing is scheduled while
   `document.hidden`: the due attempt is held and started when the tab becomes
-  visible, or when `window` fires `online`. Either short-circuit only ever cuts
-  a wait short, so neither can open a second socket over a live one.
+  visible, or when `window` fires `online`. The `online` path is rate-limited to
+  the delay the schedule would have used, because a flapping link fires it
+  repeatedly and a hidden tab has no timer to hold it back. Either short-circuit
+  only ever cuts a wait short, so neither can open a second socket over a live
+  one.
   `resyncSeq` — a React counter bumped
   on reconnect-after-gap or repair — is what makes visible views refetch. It
   is separate from the replica's persisted cursor.

@@ -216,7 +216,8 @@ export function Journal() {
               {/* the first loaded day is today by construction */}
               <EditablePage title={day.title} initial={day.blocks}
                             composer={i === 0} refCounts={refCounts} />
-              <JournalDayReferences title={day.title} />
+              <JournalDayReferences title={day.title}
+                                   backlinks={day.backlinks} />
             </section>
           ))}
       </BlockRefProvider>

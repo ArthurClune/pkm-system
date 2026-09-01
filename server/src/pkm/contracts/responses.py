@@ -125,10 +125,16 @@ class QueryPayload(GroupsPayload):
 
 
 class JournalDay(BaseModel):
+    """One day of the journal scroll, complete: the day renders from this
+    alone. `backlinks` is a preview page of the day's linked references
+    (pkm-vvta) -- carried here because fetching them per day turned a scroll
+    of N days into N page reads (pkm-5fak)."""
+
     date: str
     title: str
     exists: bool
     blocks: list[BlockNode]
+    backlinks: Backlinks
 
 
 class JournalPayload(BaseModel):

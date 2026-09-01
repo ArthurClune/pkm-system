@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: high
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T23:16:35Z
+updated_at: 2026-09-01T23:25:53Z
 parent: pkm-fgjg
 ---
 
@@ -30,7 +30,7 @@ Re-run `ws-probe.mjs` (flapping window): changes-pulls per reconnect stays 1.0, 
 
 ## Checklist
 - [x] Reproduce with a unit test: empty drain + no cursor advance must not call onResync
-- [ ] Journal day loading no longer N+1
+- [x] Journal day loading no longer N+1
 - [ ] Journal resync refetches only changed days
 - [ ] Re-measure with ws-probe.mjs / perf.mjs scenario I
-- [ ] Architecture docs updated
+- [x] Architecture docs updated

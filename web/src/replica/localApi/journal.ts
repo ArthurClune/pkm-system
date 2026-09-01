@@ -8,7 +8,7 @@ import type { JournalDay, JournalPayload } from "../../api/payloads";
 import { dateForTitle, selectJournalDays, titleForDate } from "../daily";
 import type { ReplicaDb } from "../db";
 import { getOrCreateLocalPage } from "../localOps";
-import { fetchPage } from "./pages";
+import { backlinks, fetchPage } from "./pages";
 import { BLOCK_COLS, type BlockRow, blockRefCounts, blockRefTexts,
          buildTree } from "./tree";
 
@@ -28,6 +28,12 @@ const NONEMPTY_DAILY_SQL =
 // [[links]] to it, so a reminder written elsewhere surfaces on its day.
 const REFERENCED_DAILY_SQL =
   "SELECT DISTINCT p.title FROM pages p JOIN refs r ON r.target_page_id = p.id";
+
+// Same number as the server's JOURNAL_BACKLINK_PREVIEW: how many referencing
+// pages each day carries inline, so a scroll of N days is not N page reads
+// (pkm-5fak). Both engines must agree — the client renders "Show more" from
+// the limit the payload states.
+const BACKLINK_PREVIEW = 5;
 
 /** null = invalid `before` date (the caller 400s). */
 export function journalPayload(db: ReplicaDb, before: string | null,
@@ -69,10 +75,13 @@ export function journalPayload(db: ReplicaDb, before: string | null,
     if (page === null) continue; // unreachable: selected days exist
     const blocks = db.select<BlockRow>(
       `SELECT ${BLOCK_COLS} FROM blocks WHERE page_id = ?`, [page.id]);
-    texts.push(...blocks.map((r) => r.text));
+    const bl = backlinks(db, page.id, 0, BACKLINK_PREVIEW);
+    texts.push(...blocks.map((r) => r.text), ...bl.texts);
     uids.push(...blocks.map((r) => r.uid));
     out.push({ date: isoDate(d), title: page.title, exists: true,
-               blocks: buildTree(blocks) });
+               blocks: buildTree(blocks),
+               backlinks: { groups: bl.groups, total_pages: bl.total,
+                            offset: 0, limit: BACKLINK_PREVIEW } });
   }
   return { days: out, block_ref_texts: blockRefTexts(db, texts),
            block_ref_counts: blockRefCounts(db, uids) };

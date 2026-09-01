@@ -1,7 +1,7 @@
 import { expect, vi } from "vitest";
 import { acquireOutlineSession } from "./outline/outlineSessions";
 import type { BlockOp } from "./api/ops";
-import type { BlockNode, PagePayload } from "./api/payloads";
+import type { Backlinks, BlockNode, PagePayload } from "./api/payloads";
 import type { WsBatch } from "./sync/socket";
 import type { Sync, SyncStatus } from "./sync/SyncProvider";
 import type { WriteTicket } from "./sync/opQueue";
@@ -69,12 +69,20 @@ export function block(uid: string, text: string,
            created_at: 1000, updated_at: 2000, children: [], ...over };
 }
 
+/** A backlinks page, empty by default: what a payload carries for a page or
+ * journal day nothing links to. `total_pages` follows the groups given, so a
+ * caller only states it to model a page with more still to fetch. */
+export function backlinks(groups: Backlinks["groups"] = [],
+                          over: Partial<Backlinks> = {}): Backlinks {
+  return { groups, total_pages: groups.length, offset: 0, limit: 20, ...over };
+}
+
 export function pagePayload(title: string, blocks: BlockNode[],
                             over: Partial<PagePayload> = {}): PagePayload {
   return {
     page: { id: 1, title, created_at: 1000, updated_at: 2000 },
     blocks,
-    backlinks: { groups: [], total_pages: 0, offset: 0, limit: 20 },
+    backlinks: backlinks(),
     block_ref_texts: {},
     block_ref_counts: {},
     ...over,

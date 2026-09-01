@@ -114,31 +114,53 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
 function reapplyPending(db: ReplicaDb, nowMs: number): void {
   const batches = allBatches(db).filter((b) => !b.poisoned);
   if (batches.length === 0) return; // nothing to reapply, nothing to check
-  const before = fkViolations(db); // empty unless the feed itself dangles
+  let before = fkViolations(db); // empty unless the feed itself dangles
   for (const b of batches) {
     db.exec("SAVEPOINT reapply_batch");
-    let keep: boolean;
+    let result: { after: Set<string> } | null;
     try {
       applyLocalOps(db, b.ops, nowMs);
-      keep = !addsFkViolation(db, before);
+      const after = fkViolations(db);
+      result = addsFkViolation(before, after) ? null : { after };
     } catch {
-      keep = false;
+      result = null;
     }
-    if (!keep) db.exec("ROLLBACK TO reapply_batch");
+    if (result !== null) {
+      // A kept batch added no violation, so `after` is always a subset of
+      // `before` (it may also be a strict subset, if the batch's ops
+      // happened to resolve one the feed itself shipped). Tightening the
+      // baseline to it only ever shrinks what a later batch is allowed to
+      // add -- it can't cause a batch that would otherwise be kept to be
+      // rejected.
+      before = result.after;
+    } else {
+      db.exec("ROLLBACK TO reapply_batch");
+    }
     db.exec("RELEASE reapply_batch");
   }
 }
 
 /** Identities of the rows currently violating an FK. Readable inside a
  * transaction and independent of the enforcement pragmas, which is what makes
- * it usable under both deferred FKs and the reset path's `foreign_keys=OFF`. */
+ * it usable under both deferred FKs and the reset path's `foreign_keys=OFF`.
+ *
+ * `PRAGMA foreign_key_check` reports `rowid = NULL` for a WITHOUT ROWID
+ * child (`refs`, `block_refs`), so distinct violating rows on those tables
+ * can collapse to the same Set key. That's acceptable here: a baseline
+ * non-empty on those tables can only come from a windowed feed shipping a
+ * dangling row (an un-upgraded or dependency-incomplete server) -- that
+ * fails deferred enforcement at COMMIT regardless of what this pragma saw
+ * mid-transaction (`isFkFailure`). It cannot arise on the reset path: that
+ * path's snapshot always ships the whole graph, so every ref's target page
+ * is in the same payload -- there is nothing left for this collapse to
+ * hide. */
 const fkViolations = (db: ReplicaDb): Set<string> =>
   new Set(db.select<{ table: string; rowid: SqlValue; parent: string;
                       fkid: number }>("PRAGMA foreign_key_check")
     .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid])));
 
-const addsFkViolation = (db: ReplicaDb, before: Set<string>): boolean => {
-  for (const v of fkViolations(db)) if (!before.has(v)) return true;
+const addsFkViolation = (before: Set<string>, after: Set<string>): boolean => {
+  for (const v of after) if (!before.has(v)) return true;
   return false;
 };
 
@@ -166,6 +188,17 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
     // one that predates the parent-completion fix). The transaction rolled
     // back, cursor included, so retrying the pull would refetch this same
     // window forever. Bootstrap past it instead.
+    //
+    // Narrowing this catch to "a COMMIT-time deferred FK failure, and
+    // nothing else" depends on `PRAGMA defer_foreign_keys = ON` being the
+    // very first statement applyWindow's transaction runs: with nothing
+    // ahead of it to enforce FKs immediately, no statement in the body can
+    // raise 787 -- only the COMMIT can. Moving that pragma out of first
+    // place would let an in-body statement throw the same error this catch
+    // assumes only COMMIT can produce.
+    console.warn(
+      "applyChanges: window failed its deferred FK check, rebootstrapping",
+      e);
     return { status: "needs-bootstrap" };
   }
   return { status: "applied", cursor: feed.next_since };

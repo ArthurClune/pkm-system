@@ -88,9 +88,10 @@ read transaction:
   replica's window COMMIT fails its deferred FK check and the cursor wedges.
   Entities that no longer exist ship as tombstones; a dependency block that
   no longer exists is simply absent — never a tombstone, since its own
-  journal row produces one in its own window. `block_refs` rows are **never shipped**: their targets are
-  uids needing no id resolution, and the parity-pinned extractor lets each side
-  derive them from block text instead (see
+  journal row produces one in its own window. `block_refs` rows are **never
+  shipped**: their targets are uids needing no id resolution, and the
+  parity-pinned extractor lets each side derive them from block text
+  instead (see
   [Offline editing and reconnect](#offline-editing-and-reconnect)).
 - Hydration is batched, not per-id. `sync_core.chunk_ids` splits the window's
   ids into groups of at most 500, under SQLite's historic 999-parameter cap.

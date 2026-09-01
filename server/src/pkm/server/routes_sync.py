@@ -75,7 +75,8 @@ def _with_parent_closure(db: sqlite3.Connection,
     an earlier window. `queried` tracks every uid ever fetched -- found or
     not -- so a cycle or a dangling parent_uid (an ancestor that no longer
     exists; not a dependency to ship, its own tombstone covers it) can't
-    cause re-fetching or an infinite loop."""
+    cause re-fetching or an infinite loop. Mutates `block_rows` in place
+    and returns that same dict."""
     queried = set(block_rows)
     frontier = missing_parent_uids(
         (row["parent_uid"] for row in block_rows.values()), queried)

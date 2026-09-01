@@ -2125,6 +2125,38 @@ test("repeated pull failures surface a replica-stalled problem", async () => {
   }
 });
 
+test("repeated OfflineError pull failures (network down) do not surface replica-stalled (pkm-gw5r)", async () => {
+  // Reproduces the pkm-gw5r banner bug through the real production wiring:
+  // apiFetch's own fetch-failure fallback (client.ts) routes to the offline
+  // gateway when `fetch` itself rejects, and the gateway's localApi doesn't
+  // serve /api/sync/changes, so this throws a genuine OfflineError -- not a
+  // stand-in. Before the fix this crossed STALL_AFTER_FAILURES and raised
+  // "Local sync is stuck ... Reset local data" for a plain network outage.
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplicaForProvider();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+      throw new TypeError("Failed to fetch"); // changes calls: network down
+    }));
+    let sync!: Sync;
+    function Grab() { sync = useSync(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { await Promise.resolve(); }); // pull 1 fails
+    expect(sync.problem).toBeUndefined();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); }); // pull 2 fails
+    expect(sync.problem).toBeUndefined();
+
+    // pull 3 fails -- before the fix this is where replica-stalled appeared
+    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); });
+    expect(sync.problem).toBeUndefined();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a recovered pull clears the replica-stalled problem", async () => {
   vi.useFakeTimers();
   try {

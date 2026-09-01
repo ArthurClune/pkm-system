@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: normal
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T21:27:09Z
+updated_at: 2026-09-01T23:58:27Z
 parent: pkm-fgjg
 ---
 
@@ -23,6 +23,6 @@ Side effect: the 60 s-capped retry keeps rescheduling while offline (~1 wakeup/m
 Exclude `OfflineError` (or `status === 0`) from `isStallShaped`; don't reschedule the pull retry while `statusRef` is `"reconnecting"` (the reconnect flow restarts it). Add the missing test with a real `OfflineError`. Add a symptom row to `sync-and-offline.md`.
 
 ## Checklist
-- [ ] Failing test: 3× OfflineError does not produce mode "stalled"
-- [ ] Fix + banner check offline
-- [ ] Symptom row in sync-and-offline.md
+- [x] Failing test: 3× OfflineError does not produce mode "stalled"
+- [x] Fix + banner check offline (verified via a SyncProvider unit test with a real fetch-failure-triggered OfflineError, not a manual browser check)
+- [x] Symptom row in sync-and-offline.md

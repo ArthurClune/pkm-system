@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { ApiError } from "../api/client";
+import { ApiError, OfflineError } from "../api/client";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { PendingBatch, Replica, ReplicaInit } from "../replica/client";
 import { ReplicaError, ReplicaUnavailableError } from "../replica/errors";
@@ -863,6 +863,73 @@ test("pulls failing with ReplicaError still stall at 3 (pkm-80ds finding 2)", as
 
     await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); // failure 3 -> stalled
     expect(states.at(-1)).toEqual({ mode: "stalled", error: "replica rpc failed" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("OfflineError pull failures never stall, however many retries (pkm-gw5r)", async () => {
+  // The offline gateway throws a real OfflineError (status 0, extends
+  // ApiError) for any route it does not serve locally -- the classifier used
+  // to accept any ApiError, so three offline pulls crossed STALL_AFTER_FAILURES
+  // and raised the "Local sync is stuck / Reset local data" banner for a plain
+  // network outage.
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica();
+    const fetchJson = vi.fn(async (path: string) => { throw new OfflineError(path); });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // failure 1
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); // failure 2
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS * 2); // failure 3 -- still not stalled
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+    expect(states.at(-1)).toEqual({ mode: "ready" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("the retry does not reschedule while offline, and reconnect resumes it (pkm-gw5r)", async () => {
+  // Side effect of the misclassification: the 60 s-capped retry kept
+  // rescheduling for the whole offline session even though nothing but the
+  // reconnect flow's own start() call could ever make it succeed. isOffline
+  // is the connectivity signal replicaSync is handed (mirrors the offline
+  // gateway's own `statusRef.current === "reconnecting"` predicate).
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica();
+    let offline = true;
+    let fail = true;
+    const fetchJson = vi.fn(async (path: string) => {
+      if (fail) throw new OfflineError(path);
+      return feed();
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({
+      replica, fetchJson, clientId: "c1", onState, isOffline: () => offline,
+    });
+    await sync.start(); // failure 1, while offline
+    const callsWhileOffline = fetchJson.mock.calls.length;
+
+    // No retry timer was armed while offline: waiting well past even the
+    // capped backoff produces no further pull attempts.
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * 4);
+    expect(fetchJson.mock.calls.length).toBe(callsWhileOffline);
+
+    // Reconnect: the reconnect flow calls start() again on the next successful
+    // connect (reconnectFlow.ts), which resumes the pull without needing the
+    // suppressed retry timer.
+    offline = false;
+    fail = false;
+    await sync.start();
+    expect(fetchJson.mock.calls.length).toBeGreaterThan(callsWhileOffline);
+    expect(states.at(-1)).toEqual({ mode: "ready" });
   } finally {
     vi.useRealTimers();
   }

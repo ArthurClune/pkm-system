@@ -1,0 +1,33 @@
+[
+  {
+    "window": "E-repeat: WS refused + HTTP 8s->503",
+    "sec": 60,
+    "wsAttemptsPerMin": 30,
+    "wsConnectedPerMin": 0,
+    "changesGetPerMin": 0,
+    "changesPerSuccessfulReconnect": null,
+    "httpReqPerMin": 0,
+    "setTimeoutPerMin": 30,
+    "timerFiresPerMin": 30,
+    "cpuPct": 1.2,
+    "longtasks": 0,
+    "requestsByPath": {}
+  },
+  {
+    "window": "E-b: WS flapping every ~5s, HTTP healthy",
+    "sec": 60,
+    "wsAttemptsPerMin": 12,
+    "wsConnectedPerMin": 12,
+    "changesGetPerMin": 12,
+    "changesPerSuccessfulReconnect": 1,
+    "httpReqPerMin": 24,
+    "setTimeoutPerMin": 48,
+    "timerFiresPerMin": 12,
+    "cpuPct": 3.4,
+    "longtasks": 0,
+    "requestsByPath": {
+      "/api/sync/changes": 12,
+      "/api/page/Perf%20Big%20Page": 12
+    }
+  }
+]

@@ -1,0 +1,741 @@
+{
+  "H": {
+    "name": "H cold load",
+    "loadMs": 39,
+    "firstBlockMs": 168,
+    "domContentLoadedMs": 37,
+    "loadEventMs": 37,
+    "jsChunks": 5,
+    "jsTransferKB": 0,
+    "jsDecodedKB": 2283,
+    "cssFiles": 2,
+    "cssTransferKB": 0,
+    "wasmFiles": 0,
+    "wasmTransferKB": 0,
+    "totalResources": 14,
+    "totalTransferKB": 101,
+    "longtasks": 0,
+    "longtaskMs": 0,
+    "maxLongtaskMs": 0,
+    "timersScheduled": 6,
+    "rafScheduled": 0,
+    "jsHeapMB": 21.1,
+    "nodes": 3697,
+    "taskDurationS": 0.2,
+    "scriptDurationS": 0.07,
+    "requests": {
+      "/page/Perf%20Big%20Page": 1,
+      "/app-assets/index-sunRFWpW.js": 1,
+      "/app-assets/index-9_Kbw5_A.css": 1,
+      "/app-assets/workbox-window.prod.es5-BBnX5xw4.js": 1,
+      "/app-assets/worker-DWImy7O7.js": 1,
+      "/api/sidebar": 1,
+      "/api/page/Perf%20Big%20Page": 1,
+      "/app-assets/sqlite3-BVKGSWc-.wasm": 1,
+      "/app-assets/katex-XNAKybZ8.css": 1,
+      "/app-assets/beautifulMermaid-BeeJDHB5.js": 1,
+      "/app-assets/katex-BTI-AXqd.js": 1,
+      "/app-assets/KaTeX_Math-Italic-t53AETM-.woff2": 1,
+      "/app-assets/KaTeX_Main-Regular-B22Nviop.woff2": 1,
+      "/app-assets/KaTeX_Size2-Regular-Dy4dx90m.woff2": 1,
+      "/css2": 1
+    },
+    "requestTotal": 15
+  },
+  "H2": {
+    "name": "H2 cold load (SW blocked)",
+    "loadMs": 26,
+    "firstBlockMs": 158,
+    "jsChunks": 5,
+    "jsTransferKB": 1759,
+    "jsDecodedKB": 2538,
+    "wasmTransferKB": 0,
+    "wasmDecodedKB": 0,
+    "totalTransferKB": 2137,
+    "totalResources": 16,
+    "longtasks": 0,
+    "longtaskMs": 0,
+    "maxLongtaskMs": 0,
+    "jsHeapMB": 19.6,
+    "nodes": 3679,
+    "taskDurationS": 0.21,
+    "scriptDurationS": 0.07,
+    "layoutDurationS": 0.02,
+    "recalcStyleDurationS": 0.01,
+    "requestTotal": 24
+  },
+  "workers": [
+    "http://127.0.0.1:8977/app-assets/worker-DWImy7O7.js"
+  ],
+  "A idle big page": {
+    "name": "A idle big page",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 0,
+        "siFired": 2,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788296330572
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 2,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.03404099999999999,
+        "ScriptDuration": 0.0002970000000000056,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "JSHeapUsedSize": 15662708,
+        "Nodes": 3671,
+        "JSEventListeners": 1342
+      }
+    ],
+    "browserCpuPct": 0.9,
+    "browserRssMB": 997,
+    "browserProcs": 8,
+    "serverCpuPct": 0.15
+  },
+  "B idle journal": {
+    "name": "B idle journal",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 0,
+        "siFired": 2,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788296395734
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 2,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.022556999999999994,
+        "ScriptDuration": 0.0004289999999999988,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "JSHeapUsedSize": 9934244,
+        "Nodes": 678,
+        "JSEventListeners": 362
+      }
+    ],
+    "browserCpuPct": 0.4,
+    "browserRssMB": 989,
+    "browserProcs": 8,
+    "serverCpuPct": 0.13
+  },
+  "C idle hidden": {
+    "name": "C idle hidden",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 0,
+        "siFired": 2,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788296460009
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 2,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.03590399999999999,
+        "ScriptDuration": 0.00042499999999998095,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "JSHeapUsedSize": 15712696,
+        "Nodes": 3671,
+        "JSEventListeners": 1342
+      }
+    ],
+    "browserCpuPct": 0.4,
+    "browserRssMB": 1122,
+    "browserProcs": 9,
+    "serverCpuPct": 0.12
+  },
+  "F typing 200ch": {
+    "name": "F typing 200ch",
+    "wallSec": 14.6,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 206,
+        "si": 0,
+        "raf": 0,
+        "stFired": 1,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 3,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 200,
+        "mutOutside": 0,
+        "fetchUrls": {
+          "/api/ops": 1,
+          "/api/page/Perf%20Big%20Page": 1,
+          "/api/sync/changes": 1
+        },
+        "wsUrls": {},
+        "resetAt": 1788296524318
+      }
+    ],
+    "bags": [
+      {
+        "requests": {
+          "/api/ops": 1,
+          "/api/page/Perf%20Big%20Page": 1,
+          "/api/sync/changes": 1
+        },
+        "requestTotal": 3,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 2,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 1.318587,
+        "ScriptDuration": 0.18809300000000004,
+        "LayoutDuration": 0.121691,
+        "RecalcStyleDuration": 0.04261,
+        "LayoutCount": 600,
+        "RecalcStyleCount": 401,
+        "JSHeapUsedSize": 19723412,
+        "Nodes": 3680,
+        "JSEventListeners": 1351
+      }
+    ],
+    "browserCpuPct": 19.9,
+    "browserRssMB": 1055,
+    "browserProcs": 8,
+    "serverCpuPct": 0.21,
+    "chars": 200
+  },
+  "G multitab type50": {
+    "name": "G multitab type50",
+    "wallSec": 7.2,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 57,
+        "si": 0,
+        "raf": 0,
+        "stFired": 1,
+        "siFired": 1,
+        "rafFired": 0,
+        "fetch": 4,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {
+          "/api/ops": 1,
+          "/api/sync/changes": 2,
+          "/api/page/Perf%20Big%20Page": 1
+        },
+        "wsUrls": {},
+        "resetAt": 1788296545273
+      },
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 0,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788296545274
+      }
+    ],
+    "bags": [
+      {
+        "requests": {
+          "/api/ops": 1,
+          "/api/sync/changes": 2,
+          "/api/page/Perf%20Big%20Page": 1
+        },
+        "requestTotal": 4,
+        "wsOpened": 0,
+        "wsSent": 1,
+        "wsRecv": 2,
+        "wsClosed": 0
+      },
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 2,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.3950770000000001,
+        "ScriptDuration": 0.070015,
+        "LayoutDuration": 0.030972,
+        "RecalcStyleDuration": 0.010730000000000003,
+        "LayoutCount": 147,
+        "RecalcStyleCount": 98,
+        "JSHeapUsedSize": 19257664,
+        "Nodes": 3689,
+        "JSEventListeners": 1348
+      },
+      {
+        "TaskDuration": 0.01146999999999998,
+        "ScriptDuration": 0.006167000000000006,
+        "LayoutDuration": 0.00020399999999999932,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 1,
+        "RecalcStyleCount": 0,
+        "JSHeapUsedSize": 19995424,
+        "Nodes": 3698,
+        "JSEventListeners": 1347
+      }
+    ],
+    "browserCpuPct": 14.1,
+    "browserRssMB": 1298,
+    "browserProcs": 9,
+    "serverCpuPct": 0.55
+  },
+  "I journal scroll": {
+    "name": "I journal scroll",
+    "wallSec": 12.2,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 0,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 32,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {
+          "/api/journal": 6,
+          "/api/page/August%2027th%2C%202026": 1,
+          "/api/page/August%2026th%2C%202026": 1,
+          "/api/page/August%2025th%2C%202026": 1,
+          "/api/page/August%2024th%2C%202026": 1,
+          "/api/page/August%2023rd%2C%202026": 1,
+          "/api/page/August%2022nd%2C%202026": 1,
+          "/api/page/August%2021st%2C%202026": 1,
+          "/api/page/August%2020th%2C%202026": 1,
+          "/api/page/August%2019th%2C%202026": 1,
+          "/api/page/August%2018th%2C%202026": 1,
+          "/api/page/August%2017th%2C%202026": 1,
+          "/api/page/August%2016th%2C%202026": 1,
+          "/api/page/August%2015th%2C%202026": 1,
+          "/api/page/August%2014th%2C%202026": 1,
+          "/api/page/August%2013th%2C%202026": 1,
+          "/api/page/August%2012th%2C%202026": 1,
+          "/api/page/August%2011th%2C%202026": 1,
+          "/api/page/August%2010th%2C%202026": 1,
+          "/api/page/August%209th%2C%202026": 1,
+          "/api/page/August%208th%2C%202026": 1,
+          "/api/page/August%207th%2C%202026": 1,
+          "/api/page/August%206th%2C%202026": 1,
+          "/api/page/August%205th%2C%202026": 1,
+          "/api/page/August%204th%2C%202026": 1,
+          "/api/page/August%203rd%2C%202026": 1,
+          "/api/page/August%202nd%2C%202026": 1
+        },
+        "wsUrls": {},
+        "resetAt": 1788296558669
+      }
+    ],
+    "bags": [
+      {
+        "requests": {
+          "/api/journal": 6,
+          "/api/page/August%2027th%2C%202026": 1,
+          "/api/page/August%2026th%2C%202026": 1,
+          "/api/page/August%2025th%2C%202026": 1,
+          "/api/page/August%2024th%2C%202026": 1,
+          "/api/page/August%2023rd%2C%202026": 1,
+          "/api/page/August%2022nd%2C%202026": 1,
+          "/api/page/August%2021st%2C%202026": 1,
+          "/api/page/August%2020th%2C%202026": 1,
+          "/api/page/August%2019th%2C%202026": 1,
+          "/api/page/August%2018th%2C%202026": 1,
+          "/api/page/August%2017th%2C%202026": 1,
+          "/api/page/August%2016th%2C%202026": 1,
+          "/api/page/August%2015th%2C%202026": 1,
+          "/api/page/August%2014th%2C%202026": 1,
+          "/api/page/August%2013th%2C%202026": 1,
+          "/api/page/August%2012th%2C%202026": 1,
+          "/api/page/August%2011th%2C%202026": 1,
+          "/api/page/August%2010th%2C%202026": 1,
+          "/api/page/August%209th%2C%202026": 1,
+          "/api/page/August%208th%2C%202026": 1,
+          "/api/page/August%207th%2C%202026": 1,
+          "/api/page/August%206th%2C%202026": 1,
+          "/api/page/August%205th%2C%202026": 1,
+          "/api/page/August%204th%2C%202026": 1,
+          "/api/page/August%203rd%2C%202026": 1,
+          "/api/page/August%202nd%2C%202026": 1
+        },
+        "requestTotal": 32,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.3531170000000001,
+        "ScriptDuration": 0.139575,
+        "LayoutDuration": 0.010780000000000012,
+        "RecalcStyleDuration": 0.007870000000000002,
+        "LayoutCount": 13,
+        "RecalcStyleCount": 50,
+        "JSHeapUsedSize": 12198388,
+        "Nodes": 4424,
+        "JSEventListeners": 1474
+      }
+    ],
+    "browserCpuPct": 11.5,
+    "browserRssMB": 1035,
+    "browserProcs": 8,
+    "serverCpuPct": 1.8
+  },
+  "D offline idle": {
+    "name": "D offline idle",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 0,
+        "siFired": 2,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788296577086
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 2,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.002946999999999811,
+        "ScriptDuration": 0.00022200000000005549,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "JSHeapUsedSize": 16450828,
+        "Nodes": 3672,
+        "JSEventListeners": 1342
+      }
+    ],
+    "browserCpuPct": 60.2,
+    "browserRssMB": 1037,
+    "browserProcs": 8,
+    "serverCpuPct": 0.07
+  },
+  "D2 offline hidden": {
+    "name": "D2 offline hidden",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 0,
+        "siFired": 2,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788296638202
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 2,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.005606999999999918,
+        "ScriptDuration": 0.00015299999999995872,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "JSHeapUsedSize": 16472440,
+        "Nodes": 3672,
+        "JSEventListeners": 1342
+      }
+    ],
+    "browserCpuPct": 100.1,
+    "browserRssMB": 1158,
+    "browserProcs": 9,
+    "serverCpuPct": 0.02
+  },
+  "E degraded idle": {
+    "name": "E degraded idle",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 41,
+        "si": 0,
+        "raf": 0,
+        "stFired": 35,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788296707368
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.1823870000000003,
+        "ScriptDuration": 0.08675900000000003,
+        "LayoutDuration": 0.0010430000000000161,
+        "RecalcStyleDuration": 0.004415000000000002,
+        "LayoutCount": 1,
+        "RecalcStyleCount": 2,
+        "JSHeapUsedSize": 18545508,
+        "Nodes": 3374,
+        "JSEventListeners": 1398
+      }
+    ],
+    "browserCpuPct": 1.2,
+    "browserRssMB": 1036,
+    "browserProcs": 8,
+    "serverCpuPct": 0.13
+  },
+  "E2 degraded pending edit": {
+    "name": "E2 degraded pending edit",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 32,
+        "si": 0,
+        "raf": 0,
+        "stFired": 31,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788296769135
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.07224299999999984,
+        "ScriptDuration": 0.032026,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "JSHeapUsedSize": 20308556,
+        "Nodes": 3389,
+        "JSEventListeners": 1442
+      }
+    ],
+    "browserCpuPct": 0.4,
+    "browserRssMB": 1039,
+    "browserProcs": 8,
+    "serverCpuPct": 0.12
+  }
+}

@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T21:27:09Z
+updated_at: 2026-09-01T22:22:18Z
 parent: pkm-fgjg
 ---
 
@@ -29,7 +29,7 @@ Tier 1 — stop generating flaps and stop hammering a dead link.
 **Server drop policy (Arthur, 2026-09-01): patient.** `SEND_TIMEOUT` 1.0 → 10.0 s, `QUEUE_SIZE` 8 → 64 in `server/src/pkm/server/ws.py`. Rationale: the 1 s / 8 values date from when `broadcast()` awaited each client in turn, so a stalled client delayed every writer; pkm-nn57 moved sends into per-client drain tasks and that cost is gone. What the thresholds bound now is only queued `seq` nudges (bytes) and a lingering drain task per zombie — nothing at single-user scale — while every drop costs the client a full reconnect + changes pull + resyncSeq refetch cycle. Keep the invariant that disconnecting also closes the socket (`_safe_close`); update the module docstring ("proportionate for this single-user server") and `sync-and-offline.md` Hub fan-out to say the values are tuned for flaky links, not LAN. Client-side items (backoff, visibility/online gating, fetch timeout) need no decision — implement as described under Ideas.
 
 ## Checklist
-- [ ] Reconnect backoff + visibility/online gating (unit-tested with fake timers)
+- [x] Reconnect backoff + visibility/online gating (unit-tested with fake timers)
 - [ ] Fetch timeout on sync path
 - [ ] Server `SEND_TIMEOUT` 1.0 → 10.0 s, `QUEUE_SIZE` 8 → 64 (decided 2026-09-01, see Decisions)
 - [ ] Re-measure; docs updated

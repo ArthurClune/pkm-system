@@ -1,11 +1,11 @@
 ---
 # pkm-d6i6
 title: 'Connectivity policy: WS backoff, visibility gating, fetch timeout, server drop threshold'
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T22:30:09Z
+updated_at: 2026-09-01T23:00:06Z
 parent: pkm-fgjg
 ---
 

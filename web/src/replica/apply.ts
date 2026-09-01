@@ -5,6 +5,20 @@
 // intra-window row order never matters. Upserts are idempotent -- re-pulling
 // any window is safe. The base schema's FTS triggers maintain the local
 // search index on every upsert.
+//
+// Deferred FKs move every violation to the outer COMMIT, so neither the
+// savepoints reapplyPending rolls back to nor a try/catch around a single op
+// can see one (pkm-qvlx). Two guards keep that from wedging sync:
+//   - reapplyPending diffs `PRAGMA foreign_key_check` around each batch and
+//     rolls a batch back when it ADDS a violation, so an unappliable optimistic
+//     batch is skipped like any other instead of poisoning the COMMIT. The
+//     pragma reads violations whatever `foreign_keys`/`defer_foreign_keys` say,
+//     so this also protects the reset rebuild, which runs with FKs off.
+//   - applyChanges turns an FK failure at COMMIT into `needs-bootstrap` rather
+//     than throwing: the window rolled back and the cursor never advanced, so
+//     rethrowing would refetch the same dependency-incomplete window forever.
+//     applySnapshot still throws -- a snapshot ships the whole graph, so a
+//     dangling row in one means something is genuinely wrong.
 
 import type { components } from "../api/types";
 import { reindexBlockRefs } from "./blockRefs";
@@ -92,20 +106,72 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * then the provider deletes their rows before delivery resumes.
  * Re-applying is safe: batches flush to the server unchanged, and a batch
  * that can no longer apply (e.g. its rows were superseded or tombstoned)
- * is skipped via savepoint rollback — push-time resolution owns it. */
+ * is skipped via savepoint rollback — push-time resolution owns it. A batch
+ * whose rows dangle counts as no-longer-applicable too: deferred FKs let the
+ * ops themselves succeed, so the violation set is compared around each batch
+ * (see the file header). Rows are never deleted here — the queue is the
+ * user's intent and still flushes to the server. */
 function reapplyPending(db: ReplicaDb, nowMs: number): void {
-  for (const b of allBatches(db)) {
-    if (b.poisoned) continue;
+  const batches = allBatches(db).filter((b) => !b.poisoned);
+  if (batches.length === 0) return; // nothing to reapply, nothing to check
+  let before = fkViolations(db); // empty unless the feed itself dangles
+  for (const b of batches) {
     db.exec("SAVEPOINT reapply_batch");
+    let result: { after: Set<string> } | null;
     try {
       applyLocalOps(db, b.ops, nowMs);
-      db.exec("RELEASE reapply_batch");
+      const after = fkViolations(db);
+      result = addsFkViolation(before, after) ? null : { after };
     } catch {
-      db.exec("ROLLBACK TO reapply_batch");
-      db.exec("RELEASE reapply_batch");
+      result = null;
     }
+    if (result !== null) {
+      // A kept batch added no violation, so `after` is always a subset of
+      // `before` (it may also be a strict subset, if the batch's ops
+      // happened to resolve one the feed itself shipped). Tightening the
+      // baseline to it only ever shrinks what a later batch is allowed to
+      // add -- it can't cause a batch that would otherwise be kept to be
+      // rejected.
+      before = result.after;
+    } else {
+      db.exec("ROLLBACK TO reapply_batch");
+    }
+    db.exec("RELEASE reapply_batch");
   }
 }
+
+/** Identities of the rows currently violating an FK. Readable inside a
+ * transaction and independent of the enforcement pragmas, which is what makes
+ * it usable under both deferred FKs and the reset path's `foreign_keys=OFF`.
+ *
+ * `PRAGMA foreign_key_check` reports `rowid = NULL` for a WITHOUT ROWID
+ * child (`refs`, `block_refs`), so distinct violating rows on those tables
+ * can collapse to the same Set key. That's acceptable here: a baseline
+ * non-empty on those tables can only come from a windowed feed shipping a
+ * dangling row (an un-upgraded or dependency-incomplete server) -- that
+ * fails deferred enforcement at COMMIT regardless of what this pragma saw
+ * mid-transaction (`isFkFailure`). It cannot arise on the reset path: that
+ * path's snapshot always ships the whole graph, so every ref's target page
+ * is in the same payload -- there is nothing left for this collapse to
+ * hide. */
+const fkViolations = (db: ReplicaDb): Set<string> =>
+  new Set(db.select<{ table: string; rowid: SqlValue; parent: string;
+                      fkid: number }>("PRAGMA foreign_key_check")
+    .map((v) => JSON.stringify([v.table, v.rowid, v.parent, v.fkid])));
+
+const addsFkViolation = (before: Set<string>, after: Set<string>): boolean => {
+  for (const v of after) if (!before.has(v)) return true;
+  return false;
+};
+
+/** SQLite reports a deferred violation only at COMMIT, as SQLITE_CONSTRAINT_
+ * FOREIGNKEY (787). Matched on the message because the wrapper surfaces the
+ * engine's error object unchanged. */
+const isFkFailure = (e: unknown): boolean => {
+  const message = String(e); // "SQLite3Error: ... 787: FOREIGN KEY constraint failed"
+  return /FOREIGN KEY constraint failed/i.test(message)
+      || /\bresult code 787\b/.test(message);
+};
 
 export function applyChanges(db: ReplicaDb, feed: Changes,
                              nowMs: number = Date.now()): ApplyResult {
@@ -114,6 +180,31 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
     // whose journal restarted (pkm-o9o5). Never apply mid-journal rows.
     return { status: "needs-bootstrap" };
   }
+  try {
+    applyWindow(db, feed, nowMs);
+  } catch (e) {
+    if (!isFkFailure(e)) throw e;
+    // The window depends on rows it never shipped (an un-upgraded server, or
+    // one that predates the parent-completion fix). The transaction rolled
+    // back, cursor included, so retrying the pull would refetch this same
+    // window forever. Bootstrap past it instead.
+    //
+    // Narrowing this catch to "a COMMIT-time deferred FK failure, and
+    // nothing else" depends on `PRAGMA defer_foreign_keys = ON` being the
+    // very first statement applyWindow's transaction runs: with nothing
+    // ahead of it to enforce FKs immediately, no statement in the body can
+    // raise 787 -- only the COMMIT can. Moving that pragma out of first
+    // place would let an in-body statement throw the same error this catch
+    // assumes only COMMIT can produce.
+    console.warn(
+      "applyChanges: window failed its deferred FK check, rebootstrapping",
+      e);
+    return { status: "needs-bootstrap" };
+  }
+  return { status: "applied", cursor: feed.next_since };
+}
+
+function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
   db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
     for (const p of feed.pages) upsertPage(db, p);
@@ -141,5 +232,4 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
     reconcileActivationPageTitles(db);
     reapplyPending(db, nowMs);
   });
-  return { status: "applied", cursor: feed.next_since };
 }

@@ -10,10 +10,17 @@ per-entity query with bounded `WHERE x IN (...)` set queries (pkm-ldqx):
 chunk_ids splits an id list to stay under SQLite's bound-parameter limit,
 hydrate_in_order puts a dict of fetched rows (keyed by id, in whatever
 order the batched query returned them) back into the caller's original
-order, dropping ids nothing was found for."""
+order, dropping ids nothing was found for.
+
+missing_parent_uids supports the parent-block closure walk (pkm-qvlx): a
+window can ship a block whose parent_uid points at a block only a later
+window would otherwise deliver, so the caller walks the parent_uid chain
+to a fixpoint, ancestor by ancestor, adding every uid it fetches (found or
+not) to `known` before asking again -- that's what makes a cycle or a
+dangling parent_uid terminate the walk instead of looping."""
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -40,6 +47,15 @@ def hydrate_in_order(order: Sequence[K], present: Mapping[K, V]) -> list[V]:
 class Window:
     next_since: int
     entities: tuple[tuple[str, str], ...]  # unique (kind, entity_id)
+
+
+def missing_parent_uids(parent_uids: Iterable[str | None],
+                        known: set[str]) -> set[str]:
+    """Parent uids referenced but not yet in `known`. `known` is every uid
+    already fetched-or-queried this walk (not just found ones) -- callers
+    must add the returned set to `known` before computing the next
+    frontier, or a cycle/dangling parent_uid re-queries forever."""
+    return {p for p in parent_uids if p is not None and p not in known}
 
 
 def dedupe_window(rows: Sequence[tuple[int, str, str]]) -> Window:

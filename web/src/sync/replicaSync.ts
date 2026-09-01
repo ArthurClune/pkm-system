@@ -39,9 +39,15 @@ export interface ReplicaSync {
    *
    * `null` means the question cannot be answered: this session has no usable
    * database, so there is no cursor to compare and the caller must assume the
-   * worst. A failed pull is deliberately NOT null — the cursor is the durable
+   * worst. Two things put it there — a failed open at startup, and a pull that
+   * rejects with the worker's own latched open failure, which is how a database
+   * that dies mid-session announces itself.
+   *
+   * An ordinary failed pull is deliberately NOT null: the cursor is the durable
    * memory of what has been seen, so the next successful reconnect pulls the
-   * same window again and reports the change then. */
+   * same window again and reports the change then. That reasoning only holds
+   * while a later pull can succeed, which is exactly what the latch rules out
+   * (only close() re-arms it) — hence the second null case. */
   appliedVersion(): number | null;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
    * remains paused on return so the provider can delete the poison row, bump
@@ -212,6 +218,15 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   };
 
   const noteFailure = (error: unknown): void => {
+    // The only place after startup where "there is no usable database" can
+    // still be learned: doStart's catch has already run, and a worker that
+    // latches its own failed open mid-session rejects every pull with it until
+    // close(). Without this latch appliedVersion() would freeze at its last
+    // value and answer "nothing moved" for the rest of the session, so no
+    // reconnect would ever refetch a view again (pkm-5fak). Note this is a
+    // report about the database, not about the pull attempt: isStallShaped
+    // still excludes it from the stall count and the retry below still runs.
+    if (availabilityOf(error) === "unusable") usable = false;
     if (isStallShaped(error)) {
       consecutiveFailures += 1;
       if (consecutiveFailures >= STALL_AFTER_FAILURES) {

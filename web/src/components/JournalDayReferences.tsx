@@ -1,4 +1,8 @@
 // pattern: Imperative Shell
+// It does no I/O of its own any more -- the gate below is a pure read of props
+// -- but it renders BacklinksSection, which fetches, so the module stays in the
+// shell: check:fcis forbids a Functional Core module importing a shell one.
+//
 // Surfaces a daily page's linked references inline in the journal scroll
 // (pkm-vvta): "Remind me on [[July 28th, 2026]]" should be visible under
 // that day without clicking through to the page. Reuses BacklinksSection

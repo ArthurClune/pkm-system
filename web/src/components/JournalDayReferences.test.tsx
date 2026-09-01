@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
 import { BlockRefProvider } from "./BlockRefProvider";
-import { backlinks } from "../test-helpers";
+import { journalBacklinks } from "../test-helpers";
 import { JournalDayReferences } from "./JournalDayReferences";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -15,7 +15,7 @@ const PLANS = [{
             breadcrumbs: [] }],
 }];
 
-function show(refs: Parameters<typeof backlinks>[0],
+function show(refs: Parameters<typeof journalBacklinks>[0],
               seed: Record<string, { text: string; page_title: string }> = {}) {
   const fetchMock = vi.fn(() =>
     Promise.reject(new Error("no request may be made for a rendered day")));
@@ -24,7 +24,7 @@ function show(refs: Parameters<typeof backlinks>[0],
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
       <BlockRefProvider seed={seed}>
         <JournalDayReferences title="July 7th, 2026"
-                              backlinks={backlinks(refs, { limit: 5 })} />
+                              backlinks={journalBacklinks(refs)} />
       </BlockRefProvider>
     </MemoryRouter>,
   );

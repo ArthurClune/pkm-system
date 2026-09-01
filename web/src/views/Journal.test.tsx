@@ -9,7 +9,7 @@ import {
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, backlinks, block, jsonResponse, makeSync,
+import { READ_INIT, block, jsonResponse, journalBacklinks, makeSync,
          stubFetch } from "../test-helpers";
 import { Journal } from "./Journal";
 
@@ -36,7 +36,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 function day(date: string, title: string, blocks = [block(`uid_${date}`, `entry ${date}`)],
-             exists = true, refs: JournalDay["backlinks"] = backlinks()): JournalDay {
+             exists = true, refs: JournalDay["backlinks"] = journalBacklinks()): JournalDay {
   return { date, title, exists, blocks: exists ? blocks : [], backlinks: refs };
 }
 
@@ -574,7 +574,7 @@ it("shows a day's linked references from the journal payload, but not for a " +
   const fetchMock = stubFetch([
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal?days=5", { days: [
-      day("2026-07-08", "July 8th, 2026", undefined, true, backlinks([
+      day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
         { page_id: 9, page_title: "Plans", items: [
           { uid: "uid_p1", text: "Remind me on [[July 8th, 2026]]",
             breadcrumbs: [] }] },
@@ -607,7 +607,7 @@ async () => {
   stubFetch([
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal?days=5", {
-      days: [day("2026-07-08", "July 8th, 2026", undefined, true, backlinks([
+      days: [day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
         { page_id: 9, page_title: "Plans", items: [
           { uid: "uid_p1", text: "see ((ref_cccc))", breadcrumbs: [] }] },
       ], { limit: 5 }))],

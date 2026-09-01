@@ -69,12 +69,22 @@ export function block(uid: string, text: string,
            created_at: 1000, updated_at: 2000, children: [], ...over };
 }
 
-/** A backlinks page, empty by default: what a payload carries for a page or
- * journal day nothing links to. `total_pages` follows the groups given, so a
- * caller only states it to model a page with more still to fetch. */
+/** A backlinks page, empty by default: what /api/page carries for a page
+ * nothing links to, `limit` matching that route's default page size.
+ * `total_pages` follows the groups given, so a caller only states it to model a
+ * page with more still to fetch. */
 export function backlinks(groups: Backlinks["groups"] = [],
                           over: Partial<Backlinks> = {}): Backlinks {
   return { groups, total_pages: groups.length, offset: 0, limit: 20, ...over };
+}
+
+/** The same shape as /api/journal carries per day: a preview page of
+ * JOURNAL_BACKLINK_PREVIEW. The size matters — BacklinksSection reads
+ * `initial.limit` to ask for the next batch, so a day fixture built with the
+ * page route's 20 would page the journal wrongly and no test would notice. */
+export function journalBacklinks(groups: Backlinks["groups"] = [],
+                                 over: Partial<Backlinks> = {}): Backlinks {
+  return backlinks(groups, { limit: 5, ...over });
 }
 
 export function pagePayload(title: string, blocks: BlockNode[],

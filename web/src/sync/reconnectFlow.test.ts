@@ -1,6 +1,18 @@
 import { expect, test, vi } from "vitest";
+import type { Changes } from "../replica/apply";
+import { ReplicaUnavailableError } from "../replica/errors";
+import { memReplica } from "./memReplica";
 import { createReconnectFlow } from "./reconnectFlow";
+import { createReplicaSync } from "./replicaSync";
 import type { DrainOutcome } from "./opQueue";
+
+/** A changes window with nothing in it: the flapping-link case, where the
+ * cursor the replica already holds is the latest the server has. */
+const QUIET_FEED: Changes = {
+  reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+  next_since: 0, latest_seq: 0,
+  pages: [], blocks: [], sidebar: [], tombstones: [],
+};
 
 function gate() {
   let release!: () => void;
@@ -223,20 +235,42 @@ test("a replica that cannot say whether anything moved still resyncs "
   expect(trace).toEqual(["drain", "start", "idle", "resync"]);
 });
 
-test("a reconnect that changed nothing still resyncs when the replica became "
-   + "unusable mid-catch-up (pkm-5fak)", async () => {
-  // start() latched the worker's failed open: the version read before it is a
-  // number, the one after is null, and the views must refetch from the server.
-  let usable = true;
+test("a reconnect resyncs once a pull reports the replica has become unusable "
+   + "(pkm-5fak)", async () => {
+  // The real replicaSync, not a fake: a mid-session database death is only
+  // observable through a pull, and the point of the test is that the real one
+  // still reports it. The worker latches its own failed open, so every db()
+  // call rejects with it from here on and no cursor comparison is possible.
+  let latched: Error | null = null;
+  const replica = memReplica({
+    pendingBatches: async () => {
+      if (latched) throw latched;
+      return [];
+    },
+  });
+  const sync = createReplicaSync({
+    replica,
+    fetchJson: async () => QUIET_FEED,
+    clientId: "c1",
+    onState: () => undefined,
+  });
   const { flow, trace } = harness({
     replicaSync: (t) => ({
-      start: async () => { t.push("start"); usable = false; },
-      idle: async () => { t.push("idle"); },
-      appliedVersion: () => (usable ? 7 : null),
+      start: async () => { t.push("start"); await sync.start(); },
+      idle: async () => { t.push("idle"); await sync.idle(); },
+      appliedVersion: () => sync.appliedVersion(),
     }),
   });
 
+  // A healthy reconnect over a quiet feed: pulled, nothing to refetch.
+  await flow.begin();
+  expect(trace).toEqual(["drain", "start", "idle"]);
+
+  latched = new ReplicaUnavailableError("no openable database");
   await flow.begin();
 
-  expect(trace).toEqual(["drain", "start", "idle", "resync"]);
+  expect(trace).toEqual([
+    "drain", "start", "idle", "drain", "start", "idle", "resync",
+  ]);
+  sync.stop(); // the failed pull scheduled a backoff retry
 });

@@ -94,6 +94,39 @@ async function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.body as T;
 }
 
+/** How long a read may hang before it is abandoned (pkm-d6i6). A slow-not-
+ * dead link used to hold a `fetch` open indefinitely; for the sync pull that
+ * is the worst case, because `replicaSync`'s in-flight `pulling` promise
+ * swallows every further `seq` nudge while it lasts. The abort is an ordinary
+ * failure to every caller: the pull's backoff retries it, and a request that
+ * fails while the socket status still says "connected" falls back to the
+ * replica shim exactly as a dropped connection does. */
+export const READ_TIMEOUT_MS = 15_000;
+
+export interface ApiFetchOptions {
+  /** How long this read may hang, overriding READ_TIMEOUT_MS. `null` means
+   * untimed: for a response whose size is unbounded -- the whole-graph
+   * `/api/sync/snapshot` -- a deadline chosen for small reads just restarts
+   * the same download on a slow link, forever. Only for callers that retry
+   * with backoff, since nothing else will notice a dead link. */
+  timeoutMs?: number | null;
+}
+
+/** The timeout applies to reads only. A mutation that is aborted after the
+ * server applied it is worse than a slow one -- the op queue would retry a
+ * batch it cannot know landed -- so anything with an explicit non-GET method
+ * is left to run to completion. A caller's own signal is honoured alongside
+ * the timeout, whichever fires first. */
+function readTimeoutSignal(
+  init?: RequestInit, opts?: ApiFetchOptions,
+): AbortSignal | null {
+  const ms = opts?.timeoutMs === undefined ? READ_TIMEOUT_MS : opts.timeoutMs;
+  if (ms === null) return null;
+  if ((init?.method ?? "GET").toUpperCase() !== "GET") return null;
+  const timeout = AbortSignal.timeout(ms);
+  return init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+}
+
 /** The transport. `T` is whatever the caller names, unchecked against the
  * URL and the method -- prefer `typedClient.ts`'s apiGet/apiPost/apiPut/
  * apiDelete, which derive `T` (and the body, and the parameters) from the
@@ -103,13 +136,16 @@ async function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
  * here. The schema's other non-JSON write, POST /api/assets/export.zip
  * (x-www-form-urlencoded), does not go through either one -- it is a real
  * hidden <form> submit in views/Files.tsx. */
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(
+  path: string, init?: RequestInit, opts?: ApiFetchOptions,
+): Promise<T> {
   if (gateway?.offline()) {
     return localFetch<T>(path, init);
   }
   let res: Response;
+  const signal = readTimeoutSignal(init, opts);
   try {
-    res = await fetch(path, init);
+    res = await fetch(path, signal ? { ...init, signal } : init);
   } catch (e: unknown) {
     // the socket status lags a just-dropped network by up to its reconnect
     // timer; a failed fetch inside that window falls back to the shim

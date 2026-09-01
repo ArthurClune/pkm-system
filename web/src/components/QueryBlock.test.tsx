@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
-import { defer, jsonResponse, stubFetch } from "../test-helpers";
+import { READ_INIT, defer, jsonResponse, stubFetch } from "../test-helpers";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
 import { QueryBlock } from "./QueryBlock";
@@ -38,7 +38,7 @@ it("renders more than seventy results from one request without show more", async
   expect(screen.getByText("71 results")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(fetchMock).toHaveBeenCalledWith(
-    `/api/query?${ENC}`, { method: "GET" });
+    `/api/query?${ENC}`, READ_INIT);
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
 });
 

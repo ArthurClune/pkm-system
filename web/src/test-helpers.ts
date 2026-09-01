@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import { acquireOutlineSession } from "./outline/outlineSessions";
 import type { BlockOp } from "./api/ops";
 import type { BlockNode, PagePayload } from "./api/payloads";
@@ -22,6 +22,11 @@ export function reserveOutlineEditor(title: string): () => void {
     handle.release();
   };
 }
+
+/** What `apiFetch` hands `fetch` for a read: the verb, plus the abort signal
+ * carrying the READ_TIMEOUT_MS deadline (pkm-d6i6). Assert with this rather
+ * than a bare `{ method: "GET" }`, which no longer matches. */
+export const READ_INIT = { method: "GET", signal: expect.any(AbortSignal) };
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

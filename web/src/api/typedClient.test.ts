@@ -4,6 +4,7 @@
 // TypeScript reports an UNUSED suppression as an error of its own, so a probe
 // that stops catching its drift fails the build rather than silently passing.
 import { afterEach, expect, it, vi } from "vitest";
+import { READ_INIT } from "../test-helpers";
 import type { CurrentWorkPayload, JournalPayload, PageMeta,
               PagePayload } from "./payloads";
 import { setOfflineGateway } from "./client";
@@ -141,7 +142,7 @@ it("omits a null query value rather than sending the string \"null\"", async () 
 it("omits the query string entirely when nothing is supplied", async () => {
   const fetchMock = stubFetch();
   await apiGet("/api/current-work");
-  expect(fetchMock.mock.calls[0]).toEqual(["/api/current-work", { method: "GET" }]);
+  expect(fetchMock.mock.calls[0]).toEqual(["/api/current-work", READ_INIT]);
 });
 
 it("sends a JSON body with the method the path declares", async () => {

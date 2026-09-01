@@ -8,8 +8,7 @@ import {
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
-import { block, jsonResponse, makeSync, pagePayload, reserveOutlineEditor,
-         stubFetch } from "../test-helpers";
+import { READ_INIT, block, jsonResponse, makeSync, pagePayload, reserveOutlineEditor, stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { EditablePage } from "../views/EditablePage";
 import { PageView } from "../views/PageView";
@@ -66,7 +65,7 @@ test("a title change cannot mount the previous payload under the new title", asy
 
   view.rerender(tree("Beta"));
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/Beta", { method: "GET" },
+    "/api/page/Beta", READ_INIT,
   ));
   expect(screen.queryByText("alpha tree")).not.toBeInTheDocument();
   expect(screen.getByText("Loading…")).toBeInTheDocument();

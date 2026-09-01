@@ -127,7 +127,9 @@ web/src/
 │   │                                      resync, shared with the drain observer
 │   ├── opQueue.ts            Shell        Durable-queue driver (+ queueState.ts Core)
 │   ├── replicaSync.ts        Shell        Cursor pull loop
-│   ├── socket.ts             Shell        WebSocket + reconnect
+│   ├── socket.ts             Shell        WebSocket + reconnect: nothing while
+│   │                                      hidden, hurried on visible or online
+│   ├── reconnectBackoff.ts   Core         Reconnect delay: 2 s doubling to a 30 s cap
 │   ├── syncState.ts          Core         Editability/health FSM
 │   ├── retryPolicy.ts        Core         Which recovery a banner Retry means
 │   └── assets.ts             Shell        Multipart upload
@@ -743,7 +745,13 @@ entry.
 ## API layer
 
 `apiFetch<T>` handles JSON, the 401 → `/login` redirect, and the offline
-gateway. Types come from the generated `api/types.d.ts` (`pnpm gen-types`
+gateway. Reads also carry a `READ_TIMEOUT_MS` abort signal, so a slow-not-dead
+link cannot hold one open indefinitely. Mutations carry none: an
+aborted-but-applied write would leave the op queue retrying a batch it cannot
+know landed. Nor does the whole-graph `/api/sync/snapshot`, which opts out via
+`{ timeoutMs: null }`: its size grows with the graph, so a deadline picked for
+small reads would abort a legitimate cold-start bootstrap and restart the same
+download forever. Types come from the generated `api/types.d.ts` (`pnpm gen-types`
 over `api/openapi.json`, which the server generates); `api/ops.ts` and
 `api/payloads.ts` are type-only re-exports. **Never hand-write API types** —
 regenerate when the server changes, since the server test suite fails on

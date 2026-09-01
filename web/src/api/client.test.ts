@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { ApiError, OfflineError, apiFetch, defaultUnauthorizedHandler,
-         setOfflineGateway, setUnauthorizedHandler } from "./client";
+import { ApiError, OfflineError, READ_TIMEOUT_MS, apiFetch,
+         defaultUnauthorizedHandler, setOfflineGateway,
+         setUnauthorizedHandler } from "./client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -19,7 +20,10 @@ it("returns parsed json", async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
   vi.stubGlobal("fetch", fetchMock);
   await expect(apiFetch<{ ok: boolean }>("/api/x")).resolves.toEqual({ ok: true });
-  expect(fetchMock).toHaveBeenCalledWith("/api/x", undefined);
+  const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(url).toBe("/api/x");
+  // reads carry the read timeout, and nothing else
+  expect(Object.keys(init)).toEqual(["signal"]);
 });
 
 it("invokes the unauthorized handler and throws on 401", async () => {
@@ -101,4 +105,82 @@ it("rethrows fetch failures when no gateway is installed", async () => {
   const boom = new TypeError("Failed to fetch");
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(boom));
   await expect(apiFetch("/api/x")).rejects.toBe(boom);
+});
+
+/** A fetch that only ever settles by abort, so the test observes exactly what
+ * the caller's signal does — the real one rejects with the signal's reason. */
+function abortOnlyFetch(): ReturnType<typeof vi.fn> {
+  return vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_ok, reject) => {
+    init?.signal?.addEventListener("abort", () => { reject(init.signal?.reason); });
+  }));
+}
+
+it("aborts a read that outlives the read timeout (pkm-d6i6)", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubGlobal("fetch", abortOnlyFetch());
+    const pending = apiFetch("/api/sync/changes?since=0").catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS - 1);
+    expect(await Promise.race([pending, "still waiting"])).toBe("still waiting");
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await pending as Error).name).toBe("TimeoutError");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("leaves mutations untimed: an aborted-but-applied write is worse than a slow one", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetchMock = abortOnlyFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = apiFetch("/api/ops", { method: "POST", body: "{}" })
+      .catch((e: unknown) => e);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(10 * READ_TIMEOUT_MS);
+    expect(await Promise.race([pending, "still waiting"])).toBe("still waiting");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("leaves an opted-out read untimed however long it runs (pkm-d6i6)", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetchMock = abortOnlyFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = apiFetch("/api/sync/snapshot", undefined, { timeoutMs: null })
+      .catch((e: unknown) => e);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit | undefined];
+    expect(init?.signal).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(100 * READ_TIMEOUT_MS);
+    expect(await Promise.race([pending, "still waiting"])).toBe("still waiting");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("honours a caller's own read deadline in place of the default", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubGlobal("fetch", abortOnlyFetch());
+    const pending = apiFetch("/api/x", undefined, { timeoutMs: 500 })
+      .catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(await Promise.race([pending, "still waiting"])).toBe("still waiting");
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await pending as Error).name).toBe("TimeoutError");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keeps a caller's own signal working alongside the read timeout", async () => {
+  vi.stubGlobal("fetch", abortOnlyFetch());
+  const controller = new AbortController();
+  const pending = apiFetch("/api/x", { signal: controller.signal })
+    .catch((e: unknown) => e);
+  controller.abort(new Error("caller gave up"));
+  expect((await pending as Error).message).toBe("caller gave up");
 });

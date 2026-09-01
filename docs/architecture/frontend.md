@@ -830,6 +830,12 @@ Playwright e2e against that build.**
   precache, or the per-library owned bytes (mermaid/pdfjs/katex chunk
   families, attributed by Rollup module reachability) exceed their caps.
   Growing the bundle is an explicit, reviewed decision.
+- **Perf harness** (`web/tooling/perf/`, not a gate): Playwright scripts that
+  count timers, fetches, WebSocket attempts, forced layouts and CPU under
+  idle, degraded-link, typing, multi-tab and journal-scroll scenarios, against
+  a seeded throwaway server. Numbers are for a human to read against
+  `baselines/`; the README has the recipe and the Playwright traps that make
+  naive measurements wrong.
 
 ## Build notes (`vite.config.ts`)
 

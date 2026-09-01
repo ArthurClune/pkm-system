@@ -1,10 +1,11 @@
 ---
 # pkm-qvlx
 title: 'Degraded network: changes-feed window can violate replica FK constraints and wedge sync'
-status: in-progress
+status: completed
 type: bug
+priority: normal
 created_at: 2026-09-01T09:24:25Z
-updated_at: 2026-09-01T09:24:25Z
+updated_at: 2026-09-01T11:53:59Z
 ---
 
 On a degraded network (train wifi) the client shows 'Local sync is stuck: SQLITE foreign key constraint' and Reset local data churns. Suspected root causes: (1) the changes feed hydrates blocks at current state and ships dependency pages but NOT dependency parent blocks, so a window-split (>1000 journal rows behind) can deliver a block whose parent_uid arrives only in a later window; with defer_foreign_keys=ON the window COMMIT fails, the cursor never advances, and every retry refetches the same window — permanently stuck. (2) reapplyPending's savepoint-rollback safety doesn't hold under deferred FKs: a dangling insert (e.g. child of a block created by a poisoned batch) succeeds inside the savepoint and only fails at outer COMMIT, poisoning every window/snapshot apply including reset. Repro tests first, then fix.
@@ -55,3 +56,28 @@ Both halves are needed; neither alone covers all three repros:
 - [x] Client fix: reapplyPending FK-safe; FK COMMIT failure degrades to needs-bootstrap (a52f675)
 - [x] Flip repro tests green; full suites green per task (server pytest 1610 + pyrefly + ruff; web unit 2367 + typecheck)
 - [x] Architecture docs: sync-and-offline.md (dependency rule, reapply FK guard, rebootstrap trigger row, symptom row)
+
+## Summary of Changes
+
+Four commits on `worktree-sync-fk-degraded-network` (final review: ready to merge):
+
+- `04fcece` server: `GET /api/sync/changes` windows are dependency-complete
+  for blocks — transitive `parent_uid` closure (`_with_parent_closure`,
+  cycle-safe, chunked) and each hydrated block's own `page_id` join the
+  existing ref-target dependency pages. Snapshot path provably unaffected.
+- `a52f675` client: `reapplyPending` skips (savepoint-rolls-back) any pending
+  batch that adds an FK violation, via baseline-diffed
+  `PRAGMA foreign_key_check` — enforcement-pragma-independent, so the
+  `foreign_keys=OFF` reset rebuild is covered; `applyChanges` degrades a
+  deferred-FK COMMIT failure to `needs-bootstrap` (rebase recovery advances
+  the cursor past the bad window) instead of wedging. Repro tests
+  (`applyFkHazards.test.ts`) green.
+- `dd8b1a8` docs: sync-and-offline.md dependency rule, reapply FK guard,
+  fourth rebootstrap trigger, symptom row.
+- `6392407` polish: baseline tightening after kept batches, WITHOUT-ROWID
+  lossiness + ordering comments, `console.warn` on the FK fallback,
+  closure docstring, doc rewrap.
+
+Deploy ordering is safe both directions; the client fallback also self-heals
+replicas already corrupted by the old code. Both full suites green
+(server 1610 + pyrefly + ruff; web unit 2367 + typecheck + 54 e2e).

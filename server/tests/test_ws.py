@@ -290,6 +290,49 @@ def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
     asyncio.run(_run())
 
 
+def test_default_thresholds_keep_a_backlogged_client():
+    """pkm-d6i6 (decided 2026-09-01): the DEFAULT drop thresholds are
+    tuned for flaky links, not a LAN, so no monkeypatch here. A client
+    dozens of nudges behind is kept: what a backlog costs this
+    single-user server is queued bytes plus one drain task, while every
+    drop costs the client a full reconnect + changes pull + resyncSeq
+    refetch cycle."""
+    from pkm.server import ws as ws_module
+
+    async def _run():
+        hub = ws_module.Hub()
+        client = _StallingWS()
+        await hub.connect(cast(WebSocket, client))
+        # Four times the pre-decision bound of 8. No awaits between the
+        # calls, so the drain task never gets a turn and the backlog is
+        # real (see the overflow test below).
+        for i in range(32):
+            await hub.broadcast({"seq": i})
+        assert cast(WebSocket, client) in hub._conns
+        assert not client.closed
+
+    asyncio.run(_run())
+
+
+def test_default_send_timeout_waits_out_a_slow_send():
+    """The other half of the pkm-d6i6 decision: a send slower than the
+    pre-decision 1 s SEND_TIMEOUT is waited out rather than dropped. A
+    slow client is far cheaper than a dropped one."""
+    from pkm.server import ws as ws_module
+
+    async def _run():
+        hub = ws_module.Hub()
+        client = _SlowThenFastWS(first_delay=1.2)
+        await hub.connect(cast(WebSocket, client))
+        await hub.broadcast({"seq": 1})
+        await hub.broadcast({"seq": 2})
+        await _until(lambda: client.sent == [{"seq": 1}, {"seq": 2}],
+                     timeout=5.0)
+        assert cast(WebSocket, client) in hub._conns
+
+    asyncio.run(_run())
+
+
 def test_drain_close_survives_concurrent_broadcast_overflow(monkeypatch):
     """pkm-nn57 third-round review: while _drain's except branch has a
     close in flight for a failed client, a concurrent broadcast() that

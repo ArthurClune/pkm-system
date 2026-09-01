@@ -12,8 +12,14 @@ every write that broadcasts).
 
 A client that fails to keep its queue draining (QUEUE_SIZE behind) or
 whose send doesn't complete within SEND_TIMEOUT is disconnected outright
-rather than buffered or waited on further -- proportionate for this
-single-user server's handful of replicas. Disconnecting also closes the
+rather than buffered or waited on further. Those two thresholds are
+deliberately patient -- tuned for a flaky link, not a LAN (pkm-d6i6).
+Since sends moved into per-client drain tasks, a slow client costs this
+single-user server only its queued nudges (bytes) and one lingering
+drain task, while every drop costs the client a full reconnect, changes
+pull and resyncSeq refetch. Patience is the proportionate policy here;
+the bounds exist so a zombie connection is still finite, not to keep
+delivery prompt. Disconnecting also closes the
 socket (`_safe_close`): the connection may still be alive at the
 transport level even though the Hub has given up on it, and closing is
 what makes the web client's `onclose` handler fire so it actually
@@ -35,8 +41,8 @@ from pkm.server.auth_core import verify_session
 
 router = APIRouter()
 
-SEND_TIMEOUT = 1.0  # a stalled client is dropped, not waited on
-QUEUE_SIZE = 8  # a client this far behind is dropped, not buffered forever
+SEND_TIMEOUT = 10.0  # only a wedged client is dropped; a slow one is waited on
+QUEUE_SIZE = 64  # a client this far behind is dropped, not buffered forever
 CLOSE_TIMEOUT = 2.0  # generous: best-effort, and only ever delays a drop
 
 

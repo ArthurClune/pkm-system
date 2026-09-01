@@ -5,7 +5,7 @@ status: todo
 type: task
 priority: normal
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T22:26:57Z
+updated_at: 2026-09-01T22:30:09Z
 parent: pkm-fgjg
 ---
 
@@ -31,5 +31,5 @@ Tier 1 — stop generating flaps and stop hammering a dead link.
 ## Checklist
 - [x] Reconnect backoff + visibility/online gating (unit-tested with fake timers)
 - [x] Fetch timeout on sync path
-- [ ] Server `SEND_TIMEOUT` 1.0 → 10.0 s, `QUEUE_SIZE` 8 → 64 (decided 2026-09-01, see Decisions)
+- [x] Server `SEND_TIMEOUT` 1.0 → 10.0 s, `QUEUE_SIZE` 8 → 64 (decided 2026-09-01, see Decisions)
 - [ ] Re-measure; docs updated

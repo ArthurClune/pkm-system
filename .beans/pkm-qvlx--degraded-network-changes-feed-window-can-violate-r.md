@@ -81,3 +81,37 @@ Four commits on `worktree-sync-fk-degraded-network` (final review: ready to merg
 Deploy ordering is safe both directions; the client fallback also self-heals
 replicas already corrupted by the old code. Both full suites green
 (server 1610 + pyrefly + ruff; web unit 2367 + typecheck + 54 e2e).
+
+## Deferred / skipped (review triage — all judged non-blocking)
+
+From the task reviews and the final whole-branch review; kept here because
+the SDD ledger is gitignored and dies with the worktree.
+
+1. No test for the reapply baseline-tightening edge (`before = after` after a
+   kept batch, `apply.ts`): a faithful repro through the real ops path is
+   blocked (refs self-heal via `getOrCreateLocalPage`; `block_refs` targets
+   carry no FK; `create` doesn't validate `parent_uid` but `move` does).
+   Caveat from re-review: that argument covers ROLLBACK-freed rowids, not
+   DELETE-freed reuse — documentation risk, not code risk (the feed path's
+   COMMIT still catches the state).
+2. `PRAGMA foreign_key_check` is a full scan per pending batch inside the
+   window transaction. Left: the no-pending early return keeps the common
+   case free. If it ever bites: one check after the loop, per-batch re-run
+   only when dirty.
+3. Closure-added parent blocks don't count against the feed `limit`/
+   `MAX_LIMIT` clamp — payload formally unbounded, practically shallow.
+   Revisit if `MAX_LIMIT` is tuned.
+4. `isFkFailure`'s COMMIT-only narrowing holds because
+   `PRAGMA defer_foreign_keys = ON` is the transaction's first statement —
+   enforced by comment at the catch site, not by construction.
+5. `foreign_key_check` reports rowid=NULL for WITHOUT ROWID children
+   (refs/block_refs), so distinct violations can collapse to one Set key —
+   commented in `fkViolations`; unreachable given (1)'s invariants.
+6. `test_sync_window_parents.py` duplicates seed literals (`seen_pages`) —
+   repo convention; nothing imports conftest constants.
+7. Pre-existing: `needs-bootstrap` arriving during an active poison repair
+   refetches until the repair completes — converges, never wedges
+   (`replicaSync.ts` poison guard).
+8. No HTTP-level test for a genuinely-deleted ancestor in the closure —
+   state unreachable while the server runs `foreign_keys=ON` with
+   `ON DELETE CASCADE`; the defensive code stands.

@@ -80,10 +80,15 @@ read transaction:
   entity. Otherwise an entity whose older row shares a window with someone
   else's newer row could be skipped.
 - Within the window, `(kind, entity_id)` pairs are deduped in insertion
-  order, then hydrated. Blocks ship with their refs, plus any "dependency
-  pages" those refs target, so a window boundary cannot deliver a block whose
-  target page the client has never seen. Entities that no longer exist ship
-  as tombstones. `block_refs` rows are **never shipped**: their targets are
+  order, then hydrated. Hydration reads current state, so a stale journal row
+  can name a parent or page whose own journal rows lie beyond the window.
+  Blocks therefore ship with every row they depend on: their refs, the pages
+  those refs target, the block's own page, and the transitive `parent_uid`
+  chain (`_with_parent_closure`, cycle-safe). Without the closure the
+  replica's window COMMIT fails its deferred FK check and the cursor wedges.
+  Entities that no longer exist ship as tombstones; a dependency block that
+  no longer exists is simply absent — never a tombstone, since its own
+  journal row produces one in its own window. `block_refs` rows are **never shipped**: their targets are
   uids needing no id resolution, and the parity-pinned extractor lets each side
   derive them from block text instead (see
   [Offline editing and reconnect](#offline-editing-and-reconnect)).
@@ -343,7 +348,12 @@ from that (`web/src/replica/client.ts`, `recoveryGate.ts`,
   re-checks them immediately before the destructive step, aborting
   non-destructively if they changed. No acknowledged enqueue can be erased.
 - After every snapshot or feed window, pending batches are re-applied on top
-  (`reapplyPending`), so later edits don't capture stale base hashes.
+  (`reapplyPending`), so later edits don't capture stale base hashes. A batch
+  that would introduce an FK violation is rolled back to its savepoint like
+  any other no-longer-applicable batch. The guard diffs
+  `PRAGMA foreign_key_check` around each batch; enforcement pragmas do not
+  affect that check, so it also covers the reset rebuild that runs under
+  `foreign_keys=OFF`.
 - A rejected batch (4xx) is marked *poisoned* and delivery pauses.
   `SyncProvider` then runs an authoritative snapshot repair: reapply the
   non-poisoned batches, drop the poisoned row, resume. Failure stays visible,
@@ -567,19 +577,20 @@ confirm stays.
 
 ### Rebootstrap triggers
 
-Three conditions cause a rebootstrap on their own:
+Four conditions cause a rebootstrap on their own:
 
 | Trigger | Detected by | Kind |
 |---|---|---|
 | App deploy changed the client schema | `SCHEMA_VERSION` = sha256(base + client DDL) vs stored value | `reset` (rebuild file) |
 | Server DB rebuilt or title activation rotated generation | `generation` token mismatch in any feed payload; a forced WS frame makes metadata-only rotation pull immediately | `rebase` (flush queue, re-snapshot) |
 | Cursor ahead of journal | `reset: true` from the feed | `rebase` |
+| Window cannot commit: deferred FK check fails (dependency-incomplete feed, e.g. an older server) | `applyChanges` catches the FK failure at COMMIT and returns `needs-bootstrap` | `rebase` |
 
 Two more rebootstraps happen on request: the authoritative repair of a poisoned
 batch, and the user's own Reset local data.
 
-`runRecovery` (`web/src/sync/replicaSync.ts`) is the single lifecycle behind all
-five — pause delivery, take the worker lease, flush pending batches, fetch a
+`runRecovery` (`web/src/sync/replicaSync.ts`) is the single lifecycle behind every
+one of them — pause delivery, take the worker lease, flush pending batches, fetch a
 snapshot, commit, release the barrier. Entrants differ only in the
 `RecoveryOptions` they pass, so a lease-handling fix lands once:
 
@@ -643,6 +654,7 @@ fix installed. The bean has the full investigation.
 | A collapse made offline reorders recently-changed lists, then un-reorders on resync | one side stamped `updated_at` for `set_collapsed` and the other did not | pkm-r7k8 |
 | A breadcrumb read offline differs from the same read online; descendants orphaned after an offline delete or cross-page move | a depth cap on the replica's recursive walks (both were `depth < 100`) | — |
 | A deleted page keeps showing in replicas until some unrelated edit | a journal-advancing route committed without nudging; add it to `test_journal_advancing_contract.py` | — |
+| "Local sync is stuck: … FOREIGN KEY constraint failed", and Reset local data churns | a changes window shipped a block whose `parent_uid` or `page_id` no window had delivered, or `reapplyPending` re-created a pending block under a row the feed removed — deferred FKs surface both only at COMMIT, past the savepoints | pkm-qvlx |
 | Tempted to add a read-only "storage full" mode | there is no signal to trigger it: the VFS reports `SQLITE_IOERR`. A `quota` flag existed for years that nothing in `web/src` could set | pkm-avag |
 
 ## Why it's debuggable

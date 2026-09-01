@@ -1,4 +1,5 @@
-from pkm.server.sync_core import CHUNK_SIZE, chunk_ids, dedupe_window, hydrate_in_order
+from pkm.server.sync_core import (CHUNK_SIZE, chunk_ids, dedupe_window,
+                                    hydrate_in_order, missing_parent_uids)
 
 
 def test_next_since_is_last_scanned_row_not_last_distinct_entity():
@@ -52,3 +53,15 @@ def test_hydrate_in_order_preserves_order_and_skips_missing():
 
 def test_hydrate_in_order_empty_order_yields_empty():
     assert hydrate_in_order([], {"a": "A"}) == []
+
+
+def test_missing_parent_uids_skips_known_and_none():
+    assert missing_parent_uids(["p1", None, "p2"], {"p1"}) == {"p2"}
+
+
+def test_missing_parent_uids_empty_when_all_known():
+    assert missing_parent_uids(["p1", "p2"], {"p1", "p2"}) == set()
+
+
+def test_missing_parent_uids_dedupes_repeats():
+    assert missing_parent_uids(["p1", "p1", None], set()) == {"p1"}

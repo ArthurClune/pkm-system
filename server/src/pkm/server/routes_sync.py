@@ -18,7 +18,8 @@ from pkm.contracts.responses import (ChangesPayload, SnapshotPayload,
                                         SyncSidebarEntry, SyncTombstone)
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
-from pkm.server.sync_core import chunk_ids, dedupe_window, hydrate_in_order
+from pkm.server.sync_core import (chunk_ids, dedupe_window,
+                                    hydrate_in_order, missing_parent_uids)
 from pkm.server.sync_meta import (
     database_generation,
     plain_space_title_canonicalization_active,
@@ -62,17 +63,45 @@ def _refs_by_block(db: sqlite3.Connection,
     return out
 
 
+def _with_parent_closure(db: sqlite3.Connection,
+                         block_rows: dict[str, sqlite3.Row]
+                         ) -> dict[str, sqlite3.Row]:
+    """Extend block_rows with every ancestor block (parent, grandparent,
+    ...) not already present, walking the parent_uid chain to a fixpoint
+    via chunked queries (pkm-qvlx): a window whose journal rows predate a
+    parent-child move can hydrate a block whose parent_uid points at a
+    block none of this window's rows created, and a replica applying
+    windows under deferred FKs needs that ancestor shipped in the same or
+    an earlier window. `queried` tracks every uid ever fetched -- found or
+    not -- so a cycle or a dangling parent_uid (an ancestor that no longer
+    exists; not a dependency to ship, its own tombstone covers it) can't
+    cause re-fetching or an infinite loop."""
+    queried = set(block_rows)
+    frontier = missing_parent_uids(
+        (row["parent_uid"] for row in block_rows.values()), queried)
+    while frontier:
+        queried |= frontier
+        found = _blocks_by_uid(db, list(frontier))
+        block_rows.update(found)
+        frontier = missing_parent_uids(
+            (row["parent_uid"] for row in found.values()), queried)
+    return block_rows
+
+
 def _block_payloads(db: sqlite3.Connection,
                     uids: list[str]) -> tuple[list[SyncBlock], set[int]]:
-    """Hydrate blocks + their refs; also return every page id referenced
-    by those refs (dependency pages -- spec section 1: a window boundary
-    can split a block+refs from the implicitly-created page it points at,
-    so referenced pages ship with the block). Fetched via chunked
-    `WHERE uid IN (...)` set queries rather than one query per uid
-    (pkm-ldqx) -- a legal window/snapshot can carry thousands of uids."""
+    """Hydrate blocks + their refs, plus their transitive parent-block
+    closure (pkm-qvlx). Also return every page id a shipped block depends
+    on: ref target pages (spec section 1 -- a window boundary can split a
+    block+refs from the implicitly-created page it points at) and each
+    shipped block's OWN page (a block moved to a brand-new page has the
+    same hazard). Fetched via chunked `WHERE uid IN (...)` set queries
+    rather than one query per uid (pkm-ldqx) -- a legal window/snapshot
+    can carry thousands of uids."""
     if not uids:
         return [], set()
     block_rows = _blocks_by_uid(db, uids)
+    block_rows = _with_parent_closure(db, block_rows)
     # refs only for uids that still have a block row: a uid whose block
     # was deleted again since has no row here, and the caller turns its
     # absence into a tombstone -- same as the old per-uid loop skipping
@@ -83,6 +112,7 @@ def _block_payloads(db: sqlite3.Connection,
     for uid, row in block_rows.items():
         refs = refs_by_uid.get(uid, [])
         dep_pages.update(r.target_page_id for r in refs)
+        dep_pages.add(row["page_id"])
         by_uid[uid] = SyncBlock(
             uid=row["uid"], page_id=row["page_id"],
             parent_uid=row["parent_uid"], order_idx=row["order_idx"],
@@ -90,7 +120,11 @@ def _block_payloads(db: sqlite3.Connection,
             view_type=row["view_type"],
             collapsed=row["collapsed"], created_at=row["created_at"],
             updated_at=row["updated_at"], refs=refs)
-    return hydrate_in_order(uids, by_uid), dep_pages
+    requested = set(uids)
+    added_uids = [uid for uid in block_rows if uid not in requested]
+    blocks = (hydrate_in_order(uids, by_uid)
+             + hydrate_in_order(added_uids, by_uid))
+    return blocks, dep_pages
 
 
 def _page_payloads(db: sqlite3.Connection, ids: set[int]) -> list[SyncPage]:

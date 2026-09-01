@@ -743,7 +743,10 @@ entry.
 ## API layer
 
 `apiFetch<T>` handles JSON, the 401 → `/login` redirect, and the offline
-gateway. Types come from the generated `api/types.d.ts` (`pnpm gen-types`
+gateway. Reads also carry a `READ_TIMEOUT_MS` abort signal, so a slow-not-dead
+link cannot hold one open indefinitely. Mutations carry none: an
+aborted-but-applied write would leave the op queue retrying a batch it cannot
+know landed. Types come from the generated `api/types.d.ts` (`pnpm gen-types`
 over `api/openapi.json`, which the server generates); `api/ops.ts` and
 `api/payloads.ts` are type-only re-exports. **Never hand-write API types** —
 regenerate when the server changes, since the server test suite fails on

@@ -157,7 +157,11 @@ path that called `broadcast()`. And delivery to any single client stays in
 `broadcast()` call order, because a single-consumer FIFO cannot reorder itself.
 
 A client is disconnected outright if its queue fills or a send exceeds
-`SEND_TIMEOUT`. It is never buffered without bound or waited on again.
+`SEND_TIMEOUT`. It is never buffered without bound or waited on again. Both
+thresholds are tuned for a flaky link rather than a LAN. Since sends moved to
+per-client drain tasks, a backlogged client costs the server only its queued
+nudges and one drain task, while a drop costs that client a full reconnect,
+changes pull and `resyncSeq` refetch.
 **Disconnecting must also close the socket**, best-effort with errors swallowed.
 The connection can still be alive at the transport level after the Hub gives up
 on it, and without a real close the client's `onclose` never fires. It would
@@ -615,8 +619,13 @@ that succeeds keeps delivery paused, and the provider resumes it.
 
 ## Ancillary details
 
-- **Socket** (`web/src/sync/socket.ts`): fixed 2 s reconnect interval, no
-  backoff, with a 30 s ping keepalive. `resyncSeq` — a React counter bumped
+- **Socket** (`web/src/sync/socket.ts`): reconnects on an exponential backoff
+  (`reconnectBackoff.ts` — 2 s doubling to a 30 s cap, reset by any successful
+  open), with a 30 s ping keepalive. Nothing is scheduled while
+  `document.hidden`: the due attempt is held and started when the tab becomes
+  visible, or when `window` fires `online`. Either short-circuit only ever cuts
+  a wait short, so neither can open a second socket over a live one.
+  `resyncSeq` — a React counter bumped
   on reconnect-after-gap or repair — is what makes visible views refetch. It
   is separate from the replica's persisted cursor.
 - **Connectivity and delivery health are reported independently.** The app

@@ -9,7 +9,7 @@ import {
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync, stubFetch } from "../test-helpers";
+import { READ_INIT, block, jsonResponse, makeSync, stubFetch } from "../test-helpers";
 import { Journal } from "./Journal";
 
 class FakeIntersectionObserver {
@@ -85,7 +85,7 @@ it("renders the first batch newest-first and loads older days on intersect", asy
   // own linked references (pkm-vvta), and that fetch can land after this
   // one settles.
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/journal?days=5&before=2026-07-04", { method: "GET" });
+    "/api/journal?days=5&before=2026-07-04", READ_INIT);
 });
 
 it("keeps today visible for composing even when its page does not exist yet", async () => {
@@ -221,7 +221,7 @@ it("does not adopt a journal payload over an active session changed in flight", 
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/journal?days=5", { method: "GET" },
+    "/api/journal?days=5", READ_INIT,
   ));
 
   active.applyOptimistic([block("u1", "local during request")]);
@@ -235,7 +235,7 @@ it("does not adopt a journal payload over an active session changed in flight", 
   expect(screen.getByText("local during request")).toBeInTheDocument();
   expect(screen.queryByText("stale journal")).not.toBeInTheDocument();
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/July%208th%2C%202026", { method: "GET" },
+    "/api/page/July%208th%2C%202026", READ_INIT,
   ));
   freshPage.resolve(jsonResponse({
     page: { id: 1, title, created_at: 1, updated_at: 1 },
@@ -264,7 +264,7 @@ it("does not adopt an old journal payload into a session created mid-flight", as
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/journal?days=5", { method: "GET" },
+    "/api/journal?days=5", READ_INIT,
   ));
   const active = acquireOutlineSession(
     title, [block("u1", "opened during request")],
@@ -280,7 +280,7 @@ it("does not adopt an old journal payload into a session created mid-flight", as
   expect(screen.getByText("opened during request")).toBeInTheDocument();
   expect(screen.queryByText("stale journal")).not.toBeInTheDocument();
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/page/July%209th%2C%202026", { method: "GET" },
+    "/api/page/July%209th%2C%202026", READ_INIT,
   ));
   freshPage.resolve(jsonResponse({
     page: { id: 1, title, created_at: 1, updated_at: 1 },
@@ -309,7 +309,7 @@ it("does not create a session from a response received after unmount", async () 
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/journal?days=5", { method: "GET" },
+    "/api/journal?days=5", READ_INIT,
   ));
 
   view.unmount();
@@ -344,7 +344,7 @@ it("releases captured session reservations when unmounted in flight", async () =
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>,
   );
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/journal?days=5", { method: "GET" },
+    "/api/journal?days=5", READ_INIT,
   ));
 
   view.unmount();
@@ -376,7 +376,7 @@ it("stops auto-loading when a batch comes back short (journal exhausted)", async
   expect(await screen.findByRole("link", { name: "June 20th, 2026" }))
     .toBeInTheDocument();
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/journal?days=5&before=2026-07-04", { method: "GET" }));
+    "/api/journal?days=5&before=2026-07-04", READ_INIT));
   // exhausted: no sentinel to keep polling, and no manual button either
   await waitFor(() =>
     expect(document.querySelector(".journal-sentinel")).toBeNull());
@@ -419,7 +419,7 @@ it("a resync reloads the whole scrolled window, not just the head batch " +
   rerender(inSync({ ...sync, resyncSeq: 1 }));
   // ten days were on screen, so the reload asks for all ten in one batch
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    "/api/journal?days=10", { method: "GET" }));
+    "/api/journal?days=10", READ_INIT));
   expect(await screen.findByRole("link", { name: "June 20th, 2026" }))
     .toBeInTheDocument();
   expect(screen.getByRole("link", { name: "July 22nd, 2026" }))
@@ -448,7 +448,7 @@ it("treats a 404 on an active session's authoritative refetch as an empty day, "
   let active: ReturnType<typeof acquireOutlineSession> | null = null;
   try {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/journal?days=5", { method: "GET" },
+      "/api/journal?days=5", READ_INIT,
     ));
     // Opened mid-flight (after the journal fetch dispatched, before it
     // resolved): the response processes this title via the "active at

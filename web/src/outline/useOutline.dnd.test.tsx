@@ -4,7 +4,7 @@ import { expect, it } from "vitest";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, makeSync, pagePayload, stubFetch,
+import { READ_INIT, block, makeSync, pagePayload, stubFetch,
          type SyncFake } from "../test-helpers";
 import { findNode } from "./tree";
 import { useOutline, type Outline } from "./useOutline";
@@ -145,7 +145,7 @@ it("starts one target refetch for one remote batch across same-title views", asy
   });
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", { method: "GET" });
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", READ_INIT);
 });
 
 it("quoted TODO controls preserve the quote prefix and update optimistically", () => {
@@ -235,7 +235,7 @@ it("a remote parent-based cross-page move (server-resolved page_title) removes f
   expect(findNode(src.blocks, "moved")).toBeNull();
   expect(src.blocks.map((b) => b.uid)).toEqual(["p"]);
   // target: op carries no block content, so it pulls the authoritative tree
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/Dst", { method: "GET" });
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Dst", READ_INIT);
   expect(dst.blocks.map((b) => b.uid)).toEqual(["tp", "moved"]);
 });
 
@@ -264,7 +264,7 @@ it("target-side refetch ignores global settlement and adopts a safe response", a
     await Promise.resolve();
   });
 
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", { method: "GET" });
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", READ_INIT);
   expect(getOutline().blocks.map((b) => b.uid)).toEqual(["srv"]);
   // the focused uid ("u1") no longer exists in the adopted tree
   expect(getOutline().focus).toBeNull();

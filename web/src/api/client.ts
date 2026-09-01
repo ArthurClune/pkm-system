@@ -94,6 +94,26 @@ async function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.body as T;
 }
 
+/** How long a read may hang before it is abandoned (pkm-d6i6). A slow-not-
+ * dead link used to hold a `fetch` open indefinitely; for the sync pull that
+ * is the worst case, because `replicaSync`'s in-flight `pulling` promise
+ * swallows every further `seq` nudge while it lasts. The abort is an ordinary
+ * failure to every caller: the pull's backoff retries it, and a request that
+ * fails while the socket status still says "connected" falls back to the
+ * replica shim exactly as a dropped connection does. */
+export const READ_TIMEOUT_MS = 15_000;
+
+/** The timeout applies to reads only. A mutation that is aborted after the
+ * server applied it is worse than a slow one -- the op queue would retry a
+ * batch it cannot know landed -- so anything with an explicit non-GET method
+ * is left to run to completion. A caller's own signal is honoured alongside
+ * the timeout, whichever fires first. */
+function readTimeoutSignal(init?: RequestInit): AbortSignal | null {
+  if ((init?.method ?? "GET").toUpperCase() !== "GET") return null;
+  const timeout = AbortSignal.timeout(READ_TIMEOUT_MS);
+  return init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+}
+
 /** The transport. `T` is whatever the caller names, unchecked against the
  * URL and the method -- prefer `typedClient.ts`'s apiGet/apiPost/apiPut/
  * apiDelete, which derive `T` (and the body, and the parameters) from the
@@ -108,8 +128,9 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     return localFetch<T>(path, init);
   }
   let res: Response;
+  const signal = readTimeoutSignal(init);
   try {
-    res = await fetch(path, init);
+    res = await fetch(path, signal ? { ...init, signal } : init);
   } catch (e: unknown) {
     // the socket status lags a just-dropped network by up to its reconnect
     // timer; a failed fetch inside that window falls back to the shim

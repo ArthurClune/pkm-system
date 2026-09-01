@@ -5,7 +5,7 @@ import type { BlockNode } from "../api/payloads";
 import type { DeliveryOutcome, WriteOutcome,
               WriteTicket } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
-import { block, jsonResponse, makeSync, pagePayload } from "../test-helpers";
+import { READ_INIT, block, jsonResponse, makeSync, pagePayload } from "../test-helpers";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ title, initial, onReady }: {
@@ -168,6 +168,6 @@ it("delivery replaces a blocked pre-delivery response with exactly one fresh rea
   delivered.resolve({ status: "delivered" });
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
   expect(fetchMock).toHaveBeenCalledTimes(1);
-  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", { method: "GET" });
+  expect(fetchMock).toHaveBeenCalledWith("/api/page/Page", READ_INIT);
   expect(outline.blocks[0]).toMatchObject({ text: "authoritative", heading: 1 });
 });

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { afterEach, expect, it, vi } from "vitest";
-import { pagePayload, stubFetch } from "../test-helpers";
+import { READ_INIT, pagePayload, stubFetch } from "../test-helpers";
 import { JournalDayReferences } from "./JournalDayReferences";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -23,7 +23,7 @@ it("renders nothing while loading and stays absent when a day has no references"
     // read of the same title (the two can otherwise collide when a page is
     // open in both the journal and elsewhere at once).
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/page/July%207th%2C%202026?bl_limit=5", { method: "GET" });
+      "/api/page/July%207th%2C%202026?bl_limit=5", READ_INIT);
   });
 
 it("renders the reused BacklinksSection once a day's references load",

@@ -328,6 +328,12 @@ per day made a scroll of N days cost N `GET /api/page` reads, each one
 re-fetching blocks the journal payload had already delivered. Paging past the
 preview is still a page read, but that is a click rather than a scroll.
 
+A day already on screen keeps the reference list it first rendered:
+`BacklinksSection` snapshots `initial` into state, and a resync replaces the day
+objects in place under stable keys, so a day's new references appear on the next
+mount rather than in the running scroll. The "day has none" gate is live, since
+`JournalDayReferences` re-reads `total_pages` on every render.
+
 ## State management
 
 There is no Redux/Zustand; state lives in three layers:

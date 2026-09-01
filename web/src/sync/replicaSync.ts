@@ -32,6 +32,17 @@ export interface ReplicaSync {
   onSeq(seq: number, force?: boolean): void;
   /** Resolves when no pull is in flight (tests, reconnect ordering). */
   idle(): Promise<void>;
+  /** Monotonic count of the moments local data actually moved: a changes
+   * window that advanced the cursor, a snapshot bootstrap, or a recovery
+   * rebuild. A reconnect that leaves this unchanged has nothing for any view
+   * to refetch (pkm-5fak) — which is the common case on a flapping link.
+   *
+   * `null` means the question cannot be answered: this session has no usable
+   * database, so there is no cursor to compare and the caller must assume the
+   * worst. A failed pull is deliberately NOT null — the cursor is the durable
+   * memory of what has been seen, so the next successful reconnect pulls the
+   * same window again and reports the change then. */
+  appliedVersion(): number | null;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
    * remains paused on return so the provider can delete the poison row, bump
    * view resync, and only then resume the queue. */
@@ -162,6 +173,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     resume: () => undefined,
   };
   let cursor = 0;
+  // See appliedVersion(): bumped only through adoptCursor, so a new place that
+  // moves the replica forward has to state whether views must refetch.
+  let appliedVersion = 0;
+  let usable = true;
   let started = false;
   let pulling: Promise<void> | null = null;
   let again = false;
@@ -218,13 +233,21 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // before that mark therefore cannot flush its stale pre-mark batch list.
   queue.onPoisonPending?.(() => { authoritativeRepair = "poison"; });
 
+  /** Local data now reflects `seq`. A `"snapshot"` always replaced the
+   * database; a `"window"` only moved it if the feed had rows to apply, which
+   * is exactly when `next_since` advances past the cursor we asked from. */
+  const adoptCursor = (seq: number, source: "window" | "snapshot"): void => {
+    if (source === "snapshot" || seq > cursor) appliedVersion += 1;
+    cursor = seq;
+  };
+
   const fetchSnapshot = async (): Promise<Snapshot> =>
     (await fetchJson("/api/sync/snapshot", undefined, UNTIMED)) as Snapshot;
 
   const bootstrap = async (): Promise<void> => {
     const snap = await fetchSnapshot();
     await replica.applySnapshot(snap);
-    cursor = snap.seq;
+    adoptCursor(snap.seq, "snapshot");
   };
 
   const assertNormalRecoveryStillOwnsFlush = (): void => {
@@ -290,7 +313,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       const snapshot = await fetchSnapshot();
       await replica.commitRecovery(token, { kind, snapshot });
       token = null; // commit released the worker gate
-      cursor = snapshot.seq;
+      adoptCursor(snapshot.seq, "snapshot");
       if (options.forceReadyOnSuccess) {
         started = true;
         noteSuccess({ force: true });
@@ -382,7 +405,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           }
           done = feed.latest_seq <= cursor;
         } else {
-          cursor = res.cursor;
+          adoptCursor(res.cursor, "window");
           done = feed.next_since >= feed.latest_seq;
         }
       }
@@ -416,11 +439,16 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // failure: "we could not ask" is not evidence there is no database, and
       // isStallShaped already excludes it from the stall count.
       if (availabilityOf(error) === "unusable") {
+        // No database this session can ever read, so no cursor to compare:
+        // appliedVersion() goes null and every reconnect refetches views.
+        usable = false;
         onState({ mode: "no-replica" });
         return;
       }
       throw error;
     }
+    // Not adoptCursor: this reads the cursor the database already holds, so
+    // nothing moved and no view has anything new to fetch.
     cursor = init.cursor;
     if (init.schemaMismatch) {
       // deploy changed the DDL: one coordinator flushes and rebuilds under
@@ -458,6 +486,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     },
     idle() {
       return pulling ?? Promise.resolve();
+    },
+    appliedVersion() {
+      return usable ? appliedVersion : null;
     },
     async rebaseAuthoritative(_reason) {
       // Ownership is claimed before the barrier so a concurrent normal

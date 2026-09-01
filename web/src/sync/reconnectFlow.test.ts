@@ -8,9 +8,36 @@ function gate() {
   return { promise, release };
 }
 
+interface FakeReplicaSync {
+  start: () => Promise<void>;
+  idle: () => Promise<void>;
+  appliedVersion: () => number | null;
+}
+
+/** A catch-up that finds changes: its feed pull advances appliedVersion. The
+ * default, because that is the reconnect a resync exists for. */
+function movingReplica(trace: string[]): FakeReplicaSync {
+  let version = 7; // not 0: nothing may key off the counter's absolute value
+  return {
+    start: async () => { trace.push("start"); version += 1; },
+    idle: async () => { trace.push("idle"); },
+    appliedVersion: () => version,
+  };
+}
+
+/** A catch-up that finds nothing: one changes pull, cursor unmoved. */
+function unmovedReplica(trace: string[]): FakeReplicaSync {
+  return {
+    start: async () => { trace.push("start"); },
+    idle: async () => { trace.push("idle"); },
+    appliedVersion: () => 7,
+  };
+}
+
 function harness(opts: {
   drain?: () => Promise<DrainOutcome>;
-  replicaSync?: { start: () => Promise<void>; idle: () => Promise<void> } | null;
+  /** Built from the harness's own trace so every step lands in one order. */
+  replicaSync?: ((trace: string[]) => FakeReplicaSync) | null;
   mounted?: () => boolean;
 } = {}) {
   const trace: string[] = [];
@@ -18,10 +45,9 @@ function harness(opts: {
     trace.push("drain");
     return { status: "drained" as const };
   });
-  const replicaSync = opts.replicaSync === undefined ? {
-    start: async () => { trace.push("start"); },
-    idle: async () => { trace.push("idle"); },
-  } : opts.replicaSync;
+  const replicaSync = opts.replicaSync === undefined
+    ? movingReplica(trace)
+    : opts.replicaSync?.(trace) ?? null;
   const flow = createReconnectFlow({
     queue: { drain: () => drain() },
     replicaSync,
@@ -88,11 +114,13 @@ test("a drain observed with no reconnect intent does nothing", async () => {
 test("overlapping reconnects share one completion and leave no stale intent",
 async () => {
   const feed = gate();
+  let version = 7;
   const { flow, trace } = harness({
-    replicaSync: {
-      start: async () => { trace.push("start"); },
-      idle: async () => { trace.push("idle"); await feed.promise; },
-    },
+    replicaSync: (t) => ({
+      start: async () => { t.push("start"); version += 1; },
+      idle: async () => { t.push("idle"); await feed.promise; },
+      appliedVersion: () => version,
+    }),
   });
 
   const first = flow.begin();
@@ -129,4 +157,86 @@ test("a no-replica session still bumps resync on reconnect (pkm-9x6u)", async ()
   await flow.begin();
 
   expect(trace).toEqual(["drain", "resync"]);
+});
+
+test("a reconnect that changed nothing pulls the feed but does not resync "
+   + "(pkm-5fak)", async () => {
+  // The train symptom: a 2 s blip with an empty queue and nothing on the
+  // server costs one changes pull and no view refetch.
+  const { flow, trace } = harness({ replicaSync: unmovedReplica });
+
+  await flow.begin();
+
+  expect(trace).toEqual(["drain", "start", "idle"]);
+});
+
+test("a stale-views connect resyncs even when nothing moved (pkm-5fak)",
+async () => {
+  // A first connect flushing a previous page load's leftovers: the views read
+  // the server before any of this, and the mount-time catch-up may already
+  // have absorbed the flush, so the cursor has nothing left to report.
+  const { flow, trace } = harness({ replicaSync: unmovedReplica });
+
+  await flow.begin({ viewsAreStale: true });
+
+  expect(trace).toEqual(["drain", "start", "idle", "resync"]);
+});
+
+test("a stale-views connect finished out of band still resyncs (pkm-5fak)",
+async () => {
+  // The intent carries the staleness, not the call: the queue's own retry is
+  // what got the leftovers through, so observeDrain completes this reconnect.
+  const blocked = gate();
+  const { flow, trace } = harness({
+    drain: async () => {
+      await blocked.promise;
+      return { status: "blocked", reason: "retryable", pending: 1 };
+    },
+    replicaSync: unmovedReplica,
+  });
+
+  const running = flow.begin({ viewsAreStale: true });
+  blocked.release();
+  await running;
+
+  flow.observeDrain({ status: "drained" });
+  await vi.waitFor(() => {
+    expect(trace).toEqual(["start", "idle", "resync"]);
+  });
+});
+
+test("a replica that cannot say whether anything moved still resyncs "
+   + "(pkm-5fak)", async () => {
+  // appliedVersion() is null for a session with no usable database: there is
+  // no cursor to compare, so the reconnect must be treated as a change or an
+  // online-only session would never refresh its views again.
+  const { flow, trace } = harness({
+    replicaSync: (t) => ({
+      start: async () => { t.push("start"); },
+      idle: async () => { t.push("idle"); },
+      appliedVersion: () => null,
+    }),
+  });
+
+  await flow.begin();
+
+  expect(trace).toEqual(["drain", "start", "idle", "resync"]);
+});
+
+test("a reconnect that changed nothing still resyncs when the replica became "
+   + "unusable mid-catch-up (pkm-5fak)", async () => {
+  // start() latched the worker's failed open: the version read before it is a
+  // number, the one after is null, and the views must refetch from the server.
+  let usable = true;
+  const { flow, trace } = harness({
+    replicaSync: (t) => ({
+      start: async () => { t.push("start"); usable = false; },
+      idle: async () => { t.push("idle"); },
+      appliedVersion: () => (usable ? 7 : null),
+    }),
+  });
+
+  await flow.begin();
+
+  expect(trace).toEqual(["drain", "start", "idle", "resync"]);
 });

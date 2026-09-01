@@ -5,7 +5,7 @@ status: todo
 type: bug
 priority: high
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T21:27:09Z
+updated_at: 2026-09-01T23:16:35Z
 parent: pkm-fgjg
 ---
 
@@ -29,7 +29,7 @@ On a flapping link, every successful WS reconnect issues exactly one `GET /api/s
 Re-run `ws-probe.mjs` (flapping window): changes-pulls per reconnect stays 1.0, page refetches per reconnect drops to 0 when nothing changed. Re-run scenario I: `/api/page` requests per journal scroll ≈ 0 or 1 batch. Update `docs/architecture/sync-and-offline.md` (resyncSeq description in Ancillary details) and `backend.md` API table if a route is added.
 
 ## Checklist
-- [ ] Reproduce with a unit test: empty drain + no cursor advance must not call onResync
+- [x] Reproduce with a unit test: empty drain + no cursor advance must not call onResync
 - [ ] Journal day loading no longer N+1
 - [ ] Journal resync refetches only changed days
 - [ ] Re-measure with ws-probe.mjs / perf.mjs scenario I

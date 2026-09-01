@@ -264,7 +264,8 @@ then pull, then refetch views.** The pull then observes server state that
 already includes this client's own offline edits. One completion is shared by
 both entrants: a socket reconnect, and the queue's drain observer, which is
 what finishes a reconnect whose first drain was blocked and whose retry later
-got through.
+got through. Whether the last step runs at all depends on the catch-up having
+moved local data (`resyncSeq`, below); the order never varies.
 
 Conflict resolution happens entirely server-side at push time
 (`ops_core.plan_op`), per block:
@@ -628,9 +629,19 @@ that succeeds keeps delivery paused, and the provider resumes it.
   repeatedly and a hidden tab has no timer to hold it back. Either short-circuit
   only ever cuts a wait short, so neither can open a second socket over a live
   one.
-  `resyncSeq` — a React counter bumped
-  on reconnect-after-gap or repair — is what makes visible views refetch. It
-  is separate from the replica's persisted cursor.
+- **`resyncSeq`** is the React counter that makes visible views refetch,
+  separate from the replica's persisted cursor. A repair bumps it
+  unconditionally. A reconnect bumps it only when its catch-up moved local
+  data, which `replicaSync.appliedVersion()` counts: a changes window that
+  advanced the cursor, a snapshot bootstrap, or a recovery rebuild. A blip with
+  an empty queue and nothing on the server therefore costs one changes pull and
+  no refetch. Two callers skip that comparison because it cannot answer for
+  them. A session with no usable replica has no cursor to compare, so
+  `appliedVersion()` returns null and every reconnect refetches. A first
+  connect flushing a previous page load's leftovers passes
+  `begin({ viewsAreStale: true })`: its views read the server before any of
+  this session's catch-up ran, and the mount-time `start()` may already have
+  absorbed the flush.
 - **Connectivity and delivery health are reported independently.** The app
   can be online with delivery blocked by a poisoned batch, and the UI says
   which.
@@ -655,6 +666,7 @@ fix installed. The bean has the full investigation.
 
 | Symptom | Cause | Ref |
 |---|---|---|
+| A flapping link refetches every mounted view after each 2 s blip | `resyncSeq` was bumped after any successful reconnect, whether or not the catch-up found anything to apply | pkm-5fak |
 | Every retry of the OPFS open fails instantly with the same error | the memoised-rejection trap: `forceReinitIfPreviouslyFailed` was dropped | pkm-wi25 |
 | Reads work; every edit fails `SQLITE_CANTOPEN` | the pool installed at capacity 1 and the top-up is missing or ran too late | pkm-ndcu |
 | "Server rejected a change" and the outline reverts, but the server is healthy | a *local* storage failure reached `onDesync`. Retention was once a whitelist matched on error message; the blocklist on `rejected` is what makes an unrecognised storage failure retain by default | pkm-c9hp, pkm-s7af |

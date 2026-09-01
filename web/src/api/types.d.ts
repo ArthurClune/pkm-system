@@ -258,6 +258,10 @@ export interface paths {
          *     the day it points at (pkm-vvta) once that day would otherwise show.
          *     Empty, unreferenced days are omitted, and a batch shorter than `days`
          *     tells the client the journal is exhausted.
+         *
+         *     Each day carries its own linked-references preview
+         *     (JOURNAL_BACKLINK_PREVIEW pages of them), so a scroll of N days is N/batch
+         *     requests rather than one page read per day (pkm-5fak).
          */
         get: operations["get_journal_api_journal_get"];
         put?: never;
@@ -1110,7 +1114,13 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /** JournalDay */
+        /**
+         * JournalDay
+         * @description One day of the journal scroll, complete: the day renders from this
+         *     alone. `backlinks` is a preview page of the day's linked references
+         *     (pkm-vvta) -- carried here because fetching them per day turned a scroll
+         *     of N days into N page reads (pkm-5fak).
+         */
         JournalDay: {
             /** Date */
             date: string;
@@ -1120,6 +1130,7 @@ export interface components {
             exists: boolean;
             /** Blocks */
             blocks: components["schemas"]["BlockNode"][];
+            backlinks: components["schemas"]["Backlinks"];
         };
         /** JournalPayload */
         JournalPayload: {

@@ -520,13 +520,37 @@
                 "updated_at": 2000,
                 "children": []
               }
-            ]
+            ],
+            "backlinks": {
+              "groups": [],
+              "total_pages": 0,
+              "offset": 0,
+              "limit": 5
+            }
           },
           {
             "date": "2026-07-09",
             "title": "July 9th, 2026",
             "exists": true,
-            "blocks": []
+            "blocks": [],
+            "backlinks": {
+              "groups": [
+                {
+                  "page_id": 2,
+                  "page_title": "AI",
+                  "items": [
+                    {
+                      "uid": "uid_b9",
+                      "text": "Remind me on [[July 9th, 2026]] to check this",
+                      "breadcrumbs": []
+                    }
+                  ]
+                }
+              ],
+              "total_pages": 1,
+              "offset": 0,
+              "limit": 5
+            }
           }
         ],
         "block_ref_texts": {
@@ -549,7 +573,25 @@
             "date": "2026-07-09",
             "title": "July 9th, 2026",
             "exists": true,
-            "blocks": []
+            "blocks": [],
+            "backlinks": {
+              "groups": [
+                {
+                  "page_id": 2,
+                  "page_title": "AI",
+                  "items": [
+                    {
+                      "uid": "uid_b9",
+                      "text": "Remind me on [[July 9th, 2026]] to check this",
+                      "breadcrumbs": []
+                    }
+                  ]
+                }
+              ],
+              "total_pages": 1,
+              "offset": 0,
+              "limit": 5
+            }
           }
         ],
         "block_ref_texts": {},

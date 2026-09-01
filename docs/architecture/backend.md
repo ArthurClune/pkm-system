@@ -481,7 +481,7 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 | DELETE | `/api/page/{title}` | Delete page + blocks (+ sidebar entry); inbound links remain as text |
 | POST | `/api/page/{title}/rename` | Rename and rewrite refs; 409 on collision unless `allow_merge`. Returns `RenamePageResponse` (`result: "renamed" \| "merged"`, `title`) |
 | GET | `/api/unlinked?title` | Unlinked mentions of a title |
-| GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll); one `block_ref_counts` map covers all days |
+| GET | `/api/journal?before&days` | Daily-notes feed (infinite scroll); each day carries its blocks and a linked-references preview, and one `block_ref_counts` map covers all days |
 | POST | `/api/journal/cleanup` | Prune empty daily pages (spares today + referenced blocks) |
 | GET | `/api/current-work` | Recently edited pages, bucketed by age |
 | **Migrations** | | |

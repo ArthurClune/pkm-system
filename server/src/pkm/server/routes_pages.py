@@ -406,6 +406,13 @@ _NONEMPTY_DAILY_SQL = (
 _REFERENCED_DAILY_SQL = (
     "SELECT DISTINCT p.title FROM pages p JOIN refs r ON r.target_page_id = p.id")
 
+# How many referencing pages each journal day carries inline. A scroll full of
+# days each listing every referencing page would be noisy; the day's own
+# BacklinksSection pages the rest from /api/page on demand. The offline shim
+# uses the same number (spec section 7), and the web client reads the limit
+# back off the payload rather than hardcoding it.
+JOURNAL_BACKLINK_PREVIEW = 5
+
 
 @router.get("/api/journal", response_model=JournalPayload)
 def get_journal(request: Request, before: str | None = None, days: int = 7,
@@ -418,7 +425,11 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
     non-empty too, so a reminder written on another page surfaces under
     the day it points at (pkm-vvta) once that day would otherwise show.
     Empty, unreferenced days are omitted, and a batch shorter than `days`
-    tells the client the journal is exhausted."""
+    tells the client the journal is exhausted.
+
+    Each day carries its own linked-references preview
+    (JOURNAL_BACKLINK_PREVIEW pages of them), so a scroll of N days is N/batch
+    requests rather than one page read per day (pkm-5fak)."""
     days = max(1, min(days, 31))
     cursor: date | None = None
     if before:
@@ -449,10 +460,16 @@ def get_journal(request: Request, before: str | None = None, days: int = 7,
         blocks = db.execute(
             f"SELECT {_BLOCK_COLS} FROM blocks WHERE page_id = ?",
             (page["id"],)).fetchall()
+        groups, total, bl_texts = _backlinks(
+            db, page["id"], 0, JOURNAL_BACKLINK_PREVIEW)
         texts.extend(r["text"] for r in blocks)
+        texts.extend(bl_texts)
         uids.extend(r["uid"] for r in blocks)
         out.append({"date": d.isoformat(), "title": page["title"],
-                    "exists": True, "blocks": build_tree(blocks)})
+                    "exists": True, "blocks": build_tree(blocks),
+                    "backlinks": {"groups": groups, "total_pages": total,
+                                  "offset": 0,
+                                  "limit": JOURNAL_BACKLINK_PREVIEW}})
     return {"days": out, "block_ref_texts": _block_ref_texts(db, texts),
             "block_ref_counts": _block_ref_counts(db, uids)}
 

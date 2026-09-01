@@ -60,7 +60,10 @@ const CURRENT_WORK_SECTIONS = [
     maxAge: 7 * 24 * HOUR_MS },
 ] as const;
 
-function backlinks(db: ReplicaDb, pageId: number, offset: number, limit: number):
+/** Shared with the journal shim, which previews each day's references from
+ * the same query rather than a page read per day (pkm-5fak). */
+export function backlinks(db: ReplicaDb, pageId: number, offset: number,
+                          limit: number):
     { groups: BacklinkGroup[]; total: number; texts: string[] } {
   const total = Number(db.select<{ n: number }>(
     `SELECT count(DISTINCT b.page_id) AS n FROM refs r

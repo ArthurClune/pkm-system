@@ -8,7 +8,8 @@ import {
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, jsonResponse, makeSync, pagePayload, stubFetch } from "../test-helpers";
+import { READ_INIT, block, journalBacklinks, jsonResponse, makeSync, pagePayload,
+         stubFetch } from "../test-helpers";
 import { EditableSidebarPanel } from "../components/EditableSidebarPanel";
 import { BlockStampsContext } from "../contexts";
 import { Journal } from "./Journal";
@@ -872,6 +873,7 @@ it("a captured Journal response superseding recovery elects one full parent", as
           title,
           exists: true,
           blocks: [block("journal", "captured block-only response")],
+          backlinks: journalBacklinks(),
         }],
         block_ref_texts: {},
       }));
@@ -1018,6 +1020,7 @@ it("a dormant Journal capture cannot strand parent recovery", async () => {
           title,
           exists: true,
           blocks: [block("late-journal", "late dormant capture")],
+          backlinks: journalBacklinks(),
         }],
         block_ref_texts: {},
       }));
@@ -1134,6 +1137,7 @@ it("unmounting Journal releases a hung capture before parent recovery", async ()
           title: lateTitle,
           exists: true,
           blocks: [block("late-journal", "late unmounted journal")],
+          backlinks: journalBacklinks(),
         }],
         block_ref_texts: {},
       }));
@@ -1333,7 +1337,8 @@ it("shows the stamp column on a page but not in the journal or a sidebar panel",
     ["/api/page/Stamps", pagePayload("Stamps", blocks)],
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal", { days: [{ date: "2026-08-03", title: "Stamps",
-                               exists: true, blocks }] }],
+                               exists: true, blocks,
+                               backlinks: journalBacklinks() }] }],
   ]);
   vi.stubGlobal("IntersectionObserver", NoopIntersectionObserver);
   const stampsOn = { stamps: true, toggle: vi.fn() };

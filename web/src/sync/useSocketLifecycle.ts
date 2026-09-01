@@ -79,10 +79,13 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
             // after a gap — the gap just spans page loads. Views have already
             // fetched server state that predates the flush, and the flushed
             // batches echo back under this tab's own clientId (filtered), so
-            // only the resync bump can refresh them.
+            // only the resync bump can refresh them. `viewsAreStale` is what
+            // says so: this session's mount-time catch-up may already have
+            // absorbed the flush, leaving the reconnect's own cursor
+            // comparison with nothing to report (pkm-5fak).
             void initialPending.then(async (n) => {
               await depsRef.current.startupRun();
-              if (n > 0) await reconnect.begin();
+              if (n > 0) await reconnect.begin({ viewsAreStale: true });
             });
           }
           everConnectedRef.current = true;

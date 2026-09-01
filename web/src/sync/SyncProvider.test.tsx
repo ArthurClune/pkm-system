@@ -153,6 +153,21 @@ const EMPTY_FEED = { reset: false, generation: "g1", next_since: 5,
                      latest_seq: 5, pages: [], blocks: [], sidebar: [],
                      tombstones: [] };
 
+/** A fake server journal: a seq that advances when something is written to the
+ * server, and the changes window a pull then reads. Needed because a reconnect
+ * bumps resyncSeq only when its pull actually advances the replica's cursor
+ * (pkm-5fak) — EMPTY_FEED is a server with nothing to say, which is exactly the
+ * case no view has to refetch for, so a test about a reconnect that MUST
+ * refetch has to give the server something new. */
+function fakeServerJournal() {
+  let latest = EMPTY_FEED.latest_seq;
+  return {
+    /** An accepted write: /api/ops landing here, or another tab's edit. */
+    wrote: () => { latest += 1; },
+    window: () => ({ ...EMPTY_FEED, next_since: latest, latest_seq: latest }),
+  };
+}
+
 test("first connect bootstraps an empty replica and reports ready", async () => {
   const fetchMock = stubFetch([
     ["/api/sync/snapshot", SNAPSHOT],
@@ -703,7 +718,9 @@ test("failed legacy outline repair stays visible and Retry releases delivery", a
 test("leftover durable batches flush on first connect, then views resync", async () => {
   // a reload can kill an in-flight POST: the next session's first connect
   // must drain the leftover AND refetch views (they loaded server state
-  // that predates the flush; the WS echo is filtered as this tab's own)
+  // that predates the flush; the WS echo is filtered as this tab's own).
+  // Deliberately a feed with nothing new on it: a first connect resyncs on
+  // `viewsAreStale`, not on anything the cursor comparison could see.
   const fetchMock = stubFetch([
     ["/api/sync/snapshot", SNAPSHOT],
     ["/api/sync/changes", EMPTY_FEED],
@@ -1871,17 +1888,18 @@ test("automatic retry completes reconnect feed pull and resync exactly once", as
   try {
     let opsCalls = 0;
     let changeCalls = 0;
+    const journal = fakeServerJournal();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/ops") {
         opsCalls += 1;
-        return opsCalls === 1
-          ? jsonResponse({ detail: "busy" }, 503)
-          : jsonResponse({ ok: true });
+        if (opsCalls === 1) return jsonResponse({ detail: "busy" }, 503);
+        journal.wrote();
+        return jsonResponse({ ok: true });
       }
       if (url.startsWith("/api/sync/changes")) {
         changeCalls += 1;
-        return jsonResponse(EMPTY_FEED);
+        return jsonResponse(journal.window());
       }
       return jsonResponse({ ok: true });
     }));
@@ -1941,6 +1959,7 @@ test("overlapping reconnects share one completion and leave no stale intent", as
     let feedStarted!: () => void;
     const feedGate = new Promise<void>((resolve) => { releaseFeed = resolve; });
     const started = new Promise<void>((resolve) => { feedStarted = resolve; });
+    const journal = fakeServerJournal();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/sync/changes")) {
@@ -1950,7 +1969,7 @@ test("overlapping reconnects share one completion and leave no stale intent", as
           feedStarted();
           await feedGate;
         }
-        return jsonResponse(EMPTY_FEED);
+        return jsonResponse(journal.window());
       }
       return jsonResponse({ ok: true });
     }));
@@ -1966,6 +1985,9 @@ test("overlapping reconnects share one completion and leave no stale intent", as
     const baselineChanges = changeCalls;
     const baselineResync = sync.resyncSeq;
 
+    // Another tab edited while this one was away, so the reconnect's single
+    // completion has a real change to carry into the views.
+    journal.wrote();
     holdNextFeed = true;
     act(() => lastWs().drop());
     act(() => { vi.advanceTimersByTime(2_000); });
@@ -1986,6 +2008,83 @@ test("overlapping reconnects share one completion and leave no stale intent", as
       await Promise.resolve();
     });
     expect(changeCalls).toBe(baselineChanges + 1);
+    expect(sync.resyncSeq).toBe(baselineResync + 1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a reconnect that found nothing pulls the feed but leaves views alone "
+   + "(pkm-5fak)", async () => {
+  vi.useFakeTimers();
+  try {
+    // The train symptom, end to end: a flapping link with an empty queue and
+    // an unmoving server costs one changes pull per reconnect and no view
+    // refetch. Three flaps used to cost three full refetches of every view.
+    let changeCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/sync/changes")) {
+        changeCalls += 1;
+        return jsonResponse(EMPTY_FEED);
+      }
+      return jsonResponse({ ok: true });
+    }));
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => ({
+      empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+    });
+    let sync!: Sync;
+    function Grab() { sync = useSync(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    const baselineChanges = changeCalls;
+    const baselineResync = sync.resyncSeq;
+
+    for (let flap = 0; flap < 3; flap += 1) {
+      act(() => lastWs().drop());
+      act(() => { vi.advanceTimersByTime(30_000); });
+      await act(async () => { lastWs().open(); await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    }
+
+    expect(changeCalls).toBe(baselineChanges + 3);
+    expect(sync.resyncSeq).toBe(baselineResync);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a reconnect whose feed window carries changes still refetches views",
+async () => {
+  vi.useFakeTimers();
+  try {
+    // The other half of the narrowing: the moment the server has something,
+    // the views must hear about it, so this must not be a blanket suppression.
+    const journal = fakeServerJournal();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/sync/changes")) {
+        return jsonResponse(journal.window());
+      }
+      return jsonResponse({ ok: true });
+    }));
+    const replica = fakeReplicaForProvider();
+    replica.init = async () => ({
+      empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+    });
+    let sync!: Sync;
+    function Grab() { sync = useSync(); return null; }
+    render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+    await act(async () => { lastWs().open(); });
+    const baselineResync = sync.resyncSeq;
+
+    journal.wrote(); // another tab edited while this one was away
+    act(() => lastWs().drop());
+    act(() => { vi.advanceTimersByTime(30_000); });
+    await act(async () => { lastWs().open(); await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
     expect(sync.resyncSeq).toBe(baselineResync + 1);
   } finally {
     vi.useRealTimers();

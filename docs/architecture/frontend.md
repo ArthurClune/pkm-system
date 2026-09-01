@@ -320,8 +320,19 @@ buffering it.
 ### Journal day references
 
 Journal days render their own linked references inline
-(`JournalDayReferences`), lazily per day, hidden when a day has none. This
-reuses `BacklinksSection` rather than adding a second renderer.
+(`JournalDayReferences`), hidden when a day has none. This reuses
+`BacklinksSection` rather than adding a second renderer.
+
+The references arrive with the day, in `/api/journal`'s payload. Fetching them
+per day made a scroll of N days cost N `GET /api/page` reads, each one
+re-fetching blocks the journal payload had already delivered. Paging past the
+preview is still a page read, but that is a click rather than a scroll.
+
+A day already on screen keeps the reference list it first rendered:
+`BacklinksSection` snapshots `initial` into state, and a resync replaces the day
+objects in place under stable keys, so a day's new references appear on the next
+mount rather than in the running scroll. The "day has none" gate is live, since
+`JournalDayReferences` re-reads `total_pages` on every render.
 
 ## State management
 
@@ -801,6 +812,7 @@ its fix installed. The bean has the full investigation.
 
 | Symptom | Cause | Ref |
 |---|---|---|
+| Scrolling the journal issues one `GET /api/page` per day on screen | each day fetched its own linked references; they now arrive with the day in `/api/journal`'s payload | pkm-5fak |
 | Shift-clicking a left-nav page link opens a second browser window instead of the sidebar | a bare `NavLink` let the browser's own shift-click run, since react-router ignores modified clicks; every left-nav link must go through `NavPageLink` or `NavRouteLink` | pkm-10ah |
 | Navigating to a freshly created `[[ref]]` with Ctrl-O/Ctrl-Shift-O leaves the source block empty, its typed text gone | the unmount-only draft flush raced `POST /api/pages`; `ensureRefPageThenOpen` must flush the draft explicitly before creating the page and navigating | pkm-hhbc |
 | Shift-Up/Down with a text selection active at a block's edge collapses the selection and jumps focus to the neighboring block | the boundary-arrow branch excluded Meta/Ctrl/Alt but not Shift, so a growing selection fell through to block navigation instead of escalating to a block selection | pkm-jgtn |

@@ -152,6 +152,39 @@ async () => {
   expect(states.map((s) => s.mode)).toEqual(["no-replica", "no-replica", "no-replica"]);
 });
 
+test("appliedVersion answers 'cannot tell' only for a database that is gone, "
+   + "not for a pull that failed (pkm-5fak)", async () => {
+  // The asymmetry the resync narrowing rests on. An ordinary failed pull keeps
+  // a number: the cursor still remembers what was applied, so the next
+  // successful pull re-reads the same window and reports the change then. The
+  // worker's latched open failure keeps no such promise -- every later pull
+  // replays it until close() -- so the answer has to become null or views
+  // would never refetch again for the rest of the session.
+  let failure: Error | null = null;
+  const replica = fakeReplica({
+    pendingBatches: async () => {
+      if (failure) throw failure;
+      return [];
+    },
+  });
+  const sync = createReplicaSync({
+    replica, fetchJson: async () => EMPTY_FEED, clientId: "c1",
+    onState: () => undefined,
+  });
+  await sync.start();
+  const healthy = sync.appliedVersion();
+  expect(healthy).not.toBeNull();
+
+  failure = new ReplicaError("disk I/O error");
+  await sync.start();
+  expect(sync.appliedVersion()).toBe(healthy);
+
+  failure = new ReplicaUnavailableError("no openable database");
+  await sync.start();
+  expect(sync.appliedVersion()).toBeNull();
+  sync.stop(); // the failed pulls scheduled a backoff retry
+});
+
 test("resetLocalData cannot revive a session whose replica cannot open", async () => {
   // The explicit `disabled` guard is gone; prepareRecovery rejects on the latch
   // before resetLocalData can set `started` or force mode "ready". The

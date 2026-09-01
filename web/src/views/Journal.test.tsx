@@ -9,7 +9,8 @@ import {
   repairActiveOutlineSessions,
 } from "../outline/outlineSessions";
 import { SyncContext } from "../sync/SyncProvider";
-import { READ_INIT, block, jsonResponse, makeSync, stubFetch } from "../test-helpers";
+import { READ_INIT, block, jsonResponse, journalBacklinks, makeSync,
+         stubFetch } from "../test-helpers";
 import { Journal } from "./Journal";
 
 class FakeIntersectionObserver {
@@ -35,8 +36,8 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 function day(date: string, title: string, blocks = [block(`uid_${date}`, `entry ${date}`)],
-             exists = true): JournalDay {
-  return { date, title, exists, blocks: exists ? blocks : [] };
+             exists = true, refs: JournalDay["backlinks"] = journalBacklinks()): JournalDay {
+  return { date, title, exists, blocks: exists ? blocks : [], backlinks: refs };
 }
 
 function intersect() {
@@ -426,6 +427,57 @@ it("a resync reloads the whole scrolled window, not just the head batch " +
     .toBeInTheDocument();
 });
 
+it("loads a scrolled window of days with no request per day (pkm-5fak)",
+async () => {
+  // The journal payload carries everything a day renders — blocks AND its
+  // linked references — so N days on screen must cost the N/BATCH journal
+  // requests that fetched them and nothing else.
+  const head = ["2026-07-22", "2026-07-21", "2026-07-20", "2026-07-19",
+                "2026-07-18"].map((d) => day(d, `Day ${d}`));
+  const older = ["2026-07-17", "2026-07-16", "2026-07-15", "2026-07-14",
+                 "2026-07-13"].map((d) => day(d, `Day ${d}`));
+  const fetchMock = stubFetch([
+    ["/api/journal/cleanup", { deleted: [] }],
+    ["/api/journal?days=5&before=2026-07-18", { days: older }],
+    ["/api/journal?days=5", { days: head }],
+  ]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+  await screen.findByRole("link", { name: "Day 2026-07-22" });
+  intersect();
+  await screen.findByRole("link", { name: "Day 2026-07-13" });
+
+  const perDay = fetchMock.mock.calls
+    .map(([url]) => String(url))
+    .filter((url) => url.startsWith("/api/page/"));
+  expect(perDay).toEqual([]);
+});
+
+it("refetches a resynced window in one request, not one per day (pkm-5fak)",
+async () => {
+  const days = ["2026-07-22", "2026-07-21", "2026-07-20", "2026-07-19",
+                "2026-07-18"].map((d) => day(d, `Day ${d}`));
+  const fetchMock = stubFetch([
+    ["/api/journal/cleanup", { deleted: [] }],
+    ["/api/journal?days=5", { days }],
+  ]);
+  const sync = makeSync();
+  const inSync = (s: typeof sync) => (
+    <SyncContext.Provider value={s}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(inSync(sync));
+  await screen.findByRole("link", { name: "Day 2026-07-22" });
+  const before = fetchMock.mock.calls.length;
+
+  rerender(inSync({ ...sync, resyncSeq: 1 }));
+  await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(before));
+  // The whole on-screen window comes back as one batch (pkm-wstt), and the
+  // five days it replaces add nothing of their own.
+  const sinceResync = fetchMock.mock.calls.slice(before).map(([u]) => String(u));
+  expect(sinceResync).toEqual(["/api/journal?days=5"]);
+});
+
 it("treats a 404 on an active session's authoritative refetch as an empty day, " +
    "not a failed load (pkm-fy52: day deleted underneath us)", async () => {
   const title = "July 8th, 2026";
@@ -515,42 +567,58 @@ it("a repair-triggered day reload treats a 404 as an empty day (pkm-fy52)", asyn
   }
 });
 
-it("shows a day's linked references once they load, but not for a day " +
-   "with none (pkm-vvta)", async () => {
-  stubFetch([
+it("shows a day's linked references from the journal payload, but not for a " +
+   "day with none (pkm-vvta)", async () => {
+  // The references ride along with the day (pkm-5fak), so they are on screen
+  // as soon as it renders — no second request, and none for the empty day.
+  const fetchMock = stubFetch([
     ["/api/journal/cleanup", { deleted: [] }],
     ["/api/journal?days=5", { days: [
-      day("2026-07-08", "July 8th, 2026"),
+      day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
+        { page_id: 9, page_title: "Plans", items: [
+          { uid: "uid_p1", text: "Remind me on [[July 8th, 2026]]",
+            breadcrumbs: [] }] },
+      ], { limit: 5 })),
       day("2026-07-07", "July 7th, 2026"),
     ] }],
-    ["/api/page/July%208th%2C%202026", {
-      page: { id: 1, title: "July 8th, 2026", created_at: 1, updated_at: 1 },
-      blocks: [], block_ref_texts: {},
-      backlinks: {
-        groups: [{ page_id: 9, page_title: "Plans", items: [
-          { uid: "uid_p1", text: "Remind me on [[July 8th, 2026]]",
-            breadcrumbs: [] }] }],
-        total_pages: 1, offset: 0, limit: 20,
-      },
-    }],
-    ["/api/page/July%207th%2C%202026", {
-      page: { id: 2, title: "July 7th, 2026", created_at: 1, updated_at: 1 },
-      blocks: [], block_ref_texts: {},
-      backlinks: { groups: [], total_pages: 0, offset: 0, limit: 20 },
-    }],
   ]);
   render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
-  await screen.findByRole("link", { name: "July 8th, 2026" });
-  await screen.findByRole("link", { name: "July 7th, 2026" });
-
+  // Not findByRole("link", ...): the reference's own "[[July 8th, 2026]]"
+  // renders as a second link with the same name once the day is on screen.
   const daySection = (title: string) => [...document.querySelectorAll(".journal-day")]
     .find((el) => el.querySelector(".page-title")?.textContent === title);
+  await waitFor(() => expect(daySection("July 7th, 2026")).not.toBeUndefined());
+
   expect(await screen.findByText(/linked references \(1\)/i))
     .toBeInTheDocument();
   expect(daySection("July 8th, 2026")?.querySelector(".backlinks"))
     .not.toBeNull();
   expect(daySection("July 7th, 2026")?.querySelector(".backlinks"))
     .toBeNull();
+  expect(fetchMock.mock.calls.map(([url]) => String(url)))
+    .not.toContain("/api/page/July%208th%2C%202026?bl_limit=5");
+});
+
+it("resolves a ((block ref)) inside a day's linked reference (pkm-5fak)",
+async () => {
+  // The server merges each day's backlink item texts into the journal
+  // payload's block_ref_texts, so the refs inside them resolve from the one
+  // map the Journal seeds — the per-day fetch used to carry its own.
+  stubFetch([
+    ["/api/journal/cleanup", { deleted: [] }],
+    ["/api/journal?days=5", {
+      days: [day("2026-07-08", "July 8th, 2026", undefined, true, journalBacklinks([
+        { page_id: 9, page_title: "Plans", items: [
+          { uid: "uid_p1", text: "see ((ref_cccc))", breadcrumbs: [] }] },
+      ], { limit: 5 }))],
+      block_ref_texts: {
+        ref_cccc: { text: "resolved gamma", page_title: "C" },
+      },
+    }],
+  ]);
+  render(<MemoryRouter future={ROUTER_FUTURE_FLAGS}><Journal /></MemoryRouter>);
+
+  expect(await screen.findByText("resolved gamma")).toBeInTheDocument();
 });
 
 it("fires the empty-daily cleanup once on mount", async () => {

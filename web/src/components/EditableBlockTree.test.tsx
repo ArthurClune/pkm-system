@@ -541,6 +541,29 @@ test("Escape and click-away close the block menu (pkm-y6af)", () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
+// pkm-muka: the menu is position:fixed and anchored at viewport coordinates,
+// so it must never render inside a container that imposes layout containment
+// -- such a container becomes the containing block for fixed descendants and
+// displaces the menu by its own offset (styling.md carries the invariant).
+test("the block menu renders in a portal at document.body (pkm-muka)", () => {
+  const { container } = mount(handlers(), null);
+  fireEvent.click(bullet(container, "u1"));
+  expect(container.querySelector(".block-menu")).toBeNull();
+  expect(screen.getByRole("menu").parentElement).toBe(document.body);
+});
+
+// A portal still bubbles its synthetic events through the REACT tree
+// (PdfViewer.tsx documents the hazard), so the menu being out of the DOM
+// subtree is no reason to stop checking that a pick can't reach a row.
+test("a menu item's click does not reach the row's click-to-edit (pkm-muka)", () => {
+  const h = handlers();
+  const { container } = mount(h, null);
+  fireEvent.click(bullet(container, "u1"));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Heading 1" }));
+  expect(h.onSetHeading).toHaveBeenCalledWith("u1", 1);
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+});
+
 // The menu's own keys (roving focus, Tab-to-close) live in a different effect
 // from its Escape/click-away dismissal, so they need coverage that would
 // notice one of the two going missing.

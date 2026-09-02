@@ -5,6 +5,7 @@
 // (useDismiss.ts), so the keydown listener below handles only the
 // menu-specific keys.
 import { Fragment, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useDismiss } from "../useDismiss";
 
 export interface BlockMenuItem {
@@ -45,7 +46,18 @@ export function BlockMenu({ x, y, items, onClose }: {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
-  return (
+  // Portalled to document.body (pkm-muka), for the same reason as Popover:
+  // `x`/`y` are the pointer's viewport coordinates, so any ancestor that
+  // imposes layout containment (`content-visibility`, `contain: layout`)
+  // would become the containing block for this fixed element and displace
+  // it by that ancestor's own offset. See the invariant in
+  // docs/architecture/styling.md; `.journal-day` is only where it was
+  // measured (283x471px) before that containment was rejected.
+  // Nothing about the menu's behaviour depends on its DOM ancestry: its
+  // roving-focus query and useDismiss's outside test both run against
+  // `ref` itself, and its React parentage (hence event bubbling) is
+  // unchanged by the portal.
+  return createPortal(
     <div className="block-menu" role="menu" aria-label="Block actions" ref={ref}
          style={{ left: x, top: y }}>
       {items.map((it, index) => {
@@ -75,6 +87,7 @@ export function BlockMenu({ x, y, items, onClose }: {
           </Fragment>
         );
       })}
-    </div>
+    </div>,
+    document.body,
   );
 }

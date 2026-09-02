@@ -5,6 +5,7 @@
 // (useDismiss.ts). Mouse/touch-only by the accepted popover convention
 // (pkm-3w2h) — there is no focus trap and nothing steals focus on open.
 import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { clampPopoverPosition } from "./popoverPosition";
 import { useDismiss } from "./useDismiss";
 
@@ -48,10 +49,24 @@ export function Popover({ label, x, y, onClose, remeasure, children }: {
 
   useDismiss(ref, onClose, { preventDefaultOnEscape: true });
 
-  return (
+  // Portalled to document.body (pkm-muka), never rendered in place: the
+  // clamp above is in viewport coordinates, and `position: fixed` only
+  // resolves against the viewport while no ancestor imposes layout
+  // containment (`content-visibility`, `contain: layout`). Inside such a
+  // box this popover would paint displaced by that box's own offset --
+  // 283x471px when `content-visibility: auto` was trialled on
+  // `.journal-day` and rejected on the numbers. The invariant, not the one
+  // rule, is what matters: see "Nothing `position: fixed` may render inside
+  // a layout-contained box" in docs/architecture/styling.md.
+  // Dismissal is unaffected: useDismiss's `contains` check is against this
+  // element itself, and React still propagates synthetic events from here
+  // through the REACT tree to whatever rendered the popover (the hazard
+  // PdfViewer.tsx documents), so callers keep their own containment.
+  return createPortal(
     <div className="block-ref-popover" role="dialog" aria-label={label}
          ref={ref} style={{ left: pos.x, top: pos.y }}>
       {children}
-    </div>
+    </div>,
+    document.body,
   );
 }

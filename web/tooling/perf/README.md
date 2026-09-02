@@ -83,5 +83,10 @@ to 8977 in every script. Outputs land in `out/` (gitignored).
 
 ## Baselines
 
-`baselines/<date>/` holds `results.json`, `ws-probe.json` and the written-up
-report from that run. `2026-09-01` is the pre-fix state at commit `5e68dd6`.
+`baselines/<date>/` holds the written-up report plus whatever the run
+produced: `results.json` and `ws-probe.json` for a whole-harness sweep, or a
+`before.json`/`after.json` pair for one change measured either side of itself
+— prefixed (`heavy-before.json`) when a second fixture was measured too.
+`2026-09-01` is the pre-fix state at commit `5e68dd6`. A report may record a
+change that was *not* shipped (`2026-09-02-muka`); the numbers are the point,
+not the outcome.

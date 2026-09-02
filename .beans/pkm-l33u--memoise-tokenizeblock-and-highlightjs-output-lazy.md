@@ -1,11 +1,11 @@
 ---
 # pkm-l33u
 title: Memoise tokenizeBlock and highlight.js output; lazy-load highlight.js
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-09-01T21:28:06Z
-updated_at: 2026-09-01T21:28:06Z
+updated_at: 2026-09-02T00:51:10Z
 parent: pkm-fgjg
 ---
 

@@ -39,6 +39,21 @@ Tier 3 — a bag of small, independent items from the 2026-09-01 investigation. 
       batch touches no FK column") is a redesign of the pkm-qvlx guarantee,
       not hygiene; deliberately not attempted here.
 - [x] 2 Bluesky lazy
-- [ ] 3 Journal content-visibility
+- [ ] 3 Journal content-visibility — NOT done, needs its own bean. `content-visibility:
+      auto` also turns on layout/paint/style containment at all times, not only while a
+      section is skipped, and layout containment makes the element the containing block
+      for `position: fixed` descendants. `.journal-day` contains two of those:
+      `BlockMenu` and `BlockRefBacklinksPopover`, both rendered inline as siblings of the
+      rows inside `EditableBlockTree`'s root div (there is no rows-only wrapper to put
+      the property on instead) and both positioned from viewport `getBoundingClientRect`
+      coordinates. Measured in headless chromium: a `position: fixed` child asking for
+      `top: 100px` lands at viewport y=100 in a plain section and at y=1756 inside a
+      `content-visibility: auto` section whose own top is at y=1656 -- i.e. every block
+      menu and ref popover on the Journal would be displaced by its day's scroll offset.
+      Prerequisite for the perf win: portal `BlockMenu`/`BlockRefBacklinksPopover` to
+      `document.body`, which needs the React-portal-bubbling containment `PdfViewer`
+      already documents (synthetic events still propagate through the React tree into
+      `.block-text`'s onClick) plus e2e cover for menu placement. That is a change to
+      every view, not journal hygiene.
 - [ ] 4 BlockRefProvider store
 - [ ] 5 PdfViewer eviction

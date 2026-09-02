@@ -1,11 +1,11 @@
 ---
 # pkm-cpke
 title: Cache rendered mermaid/KaTeX output; single theme observer
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-09-01T21:28:06Z
-updated_at: 2026-09-01T21:28:06Z
+updated_at: 2026-09-02T02:13:16Z
 parent: pkm-fgjg
 ---
 

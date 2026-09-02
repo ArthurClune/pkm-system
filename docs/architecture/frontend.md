@@ -694,11 +694,15 @@ flowchart LR
   The beautiful-mermaid path re-resolves tokens and re-renders on theme
   flips (`useEffectiveTheme`); the stock fallback keeps its historical
   initialize-time snapshot. The stock fallback bakes its render-id argument
-  into the returned SVG's own `id`; to keep the cached SVG (above) reusable
-  across instances, that render call always uses a fixed placeholder id
-  (`MERMAID_CACHE_RENDER_ID`), with each consumer substituting its own id
-  back in on every use, hit or miss -- so two diagrams on the same page
-  never collide on one DOM id.
+  into the returned SVG's own `id` and looks that id up in `document` while
+  rendering, so two fallback diagrams mounting in the same commit must
+  render with distinct real ids or clobber each other's DOM lookup -- every
+  render still goes out with the instance's own id. Only the copy that gets
+  cached is normalised: on a successful render, the real id is substituted
+  for a fixed placeholder (`MERMAID_CACHE_RENDER_ID`) before it's stored, so
+  the cached SVG is id-independent, and each consumer substitutes its own id
+  back in on every use that reads from state -- hit or miss alike -- so two
+  diagrams on the same page never collide on one DOM id.
 - `PdfViewer` guards its load/reset race with a generation counter. When
   `href` changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps
   the counter **synchronously during render**, not in an effect, and every

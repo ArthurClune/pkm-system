@@ -49,6 +49,15 @@ export interface ReplicaSync {
    * while a later pull can succeed, which is exactly what the latch rules out
    * (only close() re-arms it) — hence the second null case. */
   appliedVersion(): number | null;
+  /** True once doStart has reached "ready": the local database already has
+   * a usable snapshot, whether this call's start() bootstrapped it just now
+   * or it was already populated (this session, or persisted from a previous
+   * one). False for a mount that has never completed a bootstrap -- the
+   * offline-cold-start gap useSocketLifecycle's first-connect gate closes
+   * (pkm-8k2c): a failed start() while offline leaves this false, so the
+   * first connect once online still knows to run the reconnect protocol even
+   * with an empty durable queue. Never goes back to false once true. */
+  hasStarted(): boolean;
   /** Full-snapshot poison repair under the shared recovery lease. Delivery
    * remains paused on return so the provider can delete the poison row, bump
    * view resync, and only then resume the queue. */
@@ -525,6 +534,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     },
     appliedVersion() {
       return usable ? appliedVersion : null;
+    },
+    hasStarted() {
+      return started;
     },
     async rebaseAuthoritative(_reason) {
       // Ownership is claimed before the barrier so a concurrent normal

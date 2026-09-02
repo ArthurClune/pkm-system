@@ -641,7 +641,10 @@ that succeeds keeps delivery paused, and the provider resumes it.
   connect flushing a previous page load's leftovers passes
   `begin({ viewsAreStale: true })`: its views read the server before any of
   this session's catch-up ran, and the mount-time `start()` may already have
-  absorbed the flush.
+  absorbed the flush. The same first-connect gate also fires on an empty
+  durable queue when `replicaSync.hasStarted()` is still false — an offline
+  cold start whose mount-time bootstrap attempt failed — so the replica isn't
+  left un-bootstrapped until a reload once connectivity returns (pkm-8k2c).
 - **Connectivity and delivery health are reported independently.** The app
   can be online with delivery blocked by a poisoned batch, and the UI says
   which.
@@ -682,6 +685,7 @@ fix installed. The bean has the full investigation.
 | "Local sync is stuck: … FOREIGN KEY constraint failed", and Reset local data churns | a changes window shipped a block whose `parent_uid` or `page_id` no window had delivered, or `reapplyPending` re-created a pending block under a row the feed removed — deferred FKs surface both only at COMMIT, past the savepoints | pkm-qvlx |
 | Tempted to add a read-only "storage full" mode | there is no signal to trigger it: the VFS reports `SQLITE_IOERR`. A `quota` flag existed for years that nothing in `web/src` could set | pkm-avag |
 | Offline for ~30 s shows "Local sync is stuck … Reset local data" instead of plain Offline | `OfflineError` (status 0, thrown when the offline gateway has no local route for a request) extends `ApiError`, so it passed the stall classifier's `instanceof ApiError` check like a real server rejection | pkm-gw5r |
+| A first-ever offline load with an empty op queue never bootstraps; views stay empty until a manual reload | the first-connect gate looked at pending-op count alone, so a mount-time bootstrap that failed for being offline was never retried once connectivity returned | pkm-8k2c |
 
 ## Why it's debuggable
 

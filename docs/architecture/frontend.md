@@ -701,6 +701,12 @@ flowchart LR
   expression (e.g. navigating away and back) is a cache lookup, never
   awaiting the renderer's dynamic import. Only successful renders are
   cached; an error is retried on the next mount rather than wedged in place.
+- Every remote element inline content can emit carries `loading="lazy"`:
+  `AssetImage`, the `/files` grid, and `BlueskyEmbed`'s cross-origin iframe.
+  A page of Bluesky embeds would otherwise open one document per embed on
+  mount, each running the embed page's own scripts. `BlueskyEmbed` still
+  learns its height from the embed page's `postMessage` whenever the iframe
+  does load.
 - Link hrefs are sanitized (`isSafeHref` rejects `javascript:` and
   protocol-relative URLs); Mermaid runs in strict mode.
 - Diagrams render through beautiful-mermaid first (ELK layout; the chunk is

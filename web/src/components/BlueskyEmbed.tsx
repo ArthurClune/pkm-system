@@ -95,6 +95,13 @@ export function BlueskyEmbed({ href }: { href: string }) {
         src={blueskyEmbedSrc(href, did, embedId)!}
         className="bluesky-embed"
         title="Bluesky post"
+        // Off-screen embeds cost nothing until scrolled near, matching every
+        // other remote media in the app (AssetImage, Files). A page of these
+        // otherwise opens K cross-origin documents at once, each running the
+        // embed page's own scripts. The height the embed reports on load
+        // still arrives via postMessage once it does load; until then the
+        // wrapper keeps its unmeasured default box, exactly as before.
+        loading="lazy"
         // allow-same-origin is required: with an opaque origin the embed
         // page renders blank (pkm-es9o); this matches Bluesky's official
         // embed.js, which uses no sandbox at all

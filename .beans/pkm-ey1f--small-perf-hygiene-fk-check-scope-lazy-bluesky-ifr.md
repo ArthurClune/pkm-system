@@ -38,7 +38,7 @@ Tier 3 — a bag of small, independent items from the 2026-09-01 investigation. 
       and `block_refs` violations. The only remaining lever ("skip when the
       batch touches no FK column") is a redesign of the pkm-qvlx guarantee,
       not hygiene; deliberately not attempted here.
-- [ ] 2 Bluesky lazy
+- [x] 2 Bluesky lazy
 - [ ] 3 Journal content-visibility
 - [ ] 4 BlockRefProvider store
 - [ ] 5 PdfViewer eviction

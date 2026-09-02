@@ -41,7 +41,7 @@ function loadKatex(): Promise<KatexLib> {
   return katexPromise;
 }
 
-export const MATH_CACHE_LIMIT = 2000;
+const MATH_CACHE_LIMIT = 2000;
 const mathCache = createBoundedCache<string>(MATH_CACHE_LIMIT);
 
 export function MathSpan({ tex, display }: { tex: string; display: boolean }) {

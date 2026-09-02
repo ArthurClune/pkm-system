@@ -76,10 +76,13 @@ it("falls back to stock mermaid rendering when beautiful-mermaid rejects", async
   expect(mockRender.mock.calls[0][1]).toBe(code);
 });
 
-it("calls stock mermaid's render with a stable id (for caching) but still gives each instance a distinct rendered DOM id", async () => {
+it("renders concurrent instances with distinct real ids, never the cache placeholder, so stock mermaid's DOM-based render never collides", async () => {
   mockBmRender.mockRejectedValue(new Error("nope"));
   // The mock stands in for what real mermaid.render() does: bake the id
-  // argument into the returned SVG's own id attribute.
+  // argument into the returned SVG's own id attribute. If both instances
+  // were ever passed the same id (e.g. the cache placeholder), stock
+  // mermaid's real removeExistingElements()/render-by-DOM-id dance would
+  // have the two concurrent renders clobber each other.
   mockRender.mockImplementation((id: string) => Promise.resolve({ svg: `<svg id="${id}"></svg>` }));
   const { container } = render(
     <>
@@ -88,17 +91,36 @@ it("calls stock mermaid's render with a stable id (for caching) but still gives 
     </>,
   );
   await waitFor(() => expect(mockRender).toHaveBeenCalledTimes(2));
-  // Both calls use the same stable placeholder id -- that's what lets the
-  // cached SVG (see below) be reused independent of any one instance's id.
-  expect(mockRender.mock.calls[0][0]).toBe(MERMAID_CACHE_RENDER_ID);
-  expect(mockRender.mock.calls[1][0]).toBe(MERMAID_CACHE_RENDER_ID);
+  const [firstId] = mockRender.mock.calls[0];
+  const [secondId] = mockRender.mock.calls[1];
+  expect(firstId).not.toBe(MERMAID_CACHE_RENDER_ID);
+  expect(secondId).not.toBe(MERMAID_CACHE_RENDER_ID);
+  expect(firstId).not.toBe(secondId);
   const svgs = container.querySelectorAll("svg");
   expect(svgs).toHaveLength(2);
-  // ...but the rendered DOM never shows the placeholder, and each instance
-  // gets its own id, so two diagrams on the same page never collide.
   expect(svgs[0].id).not.toBe(MERMAID_CACHE_RENDER_ID);
   expect(svgs[1].id).not.toBe(MERMAID_CACHE_RENDER_ID);
   expect(svgs[0].id).not.toBe(svgs[1].id);
+});
+
+it("substitutes its own id into a cache hit, never the placeholder and never the first instance's id", async () => {
+  mockBmRender.mockRejectedValue(new Error("nope"));
+  mockRender.mockImplementation((id: string) => Promise.resolve({ svg: `<svg id="${id}"></svg>` }));
+  const code = "gantt\nshared-id-substitution";
+  const first = render(<MermaidDiagram code={code} />);
+  await waitFor(() => expect(mockRender).toHaveBeenCalledTimes(1));
+  const firstSvg = first.container.querySelector("svg");
+  const firstId = firstSvg?.id;
+  expect(firstId).not.toBe(MERMAID_CACHE_RENDER_ID);
+  first.unmount();
+
+  const second = render(<MermaidDiagram code={code} />);
+  // Cache hit: no further render() call at all.
+  expect(mockRender).toHaveBeenCalledTimes(1);
+  const secondSvg = second.container.querySelector("svg");
+  expect(secondSvg?.id).not.toBe(MERMAID_CACHE_RENDER_ID);
+  expect(secondSvg?.id).not.toBe(firstId);
+  expect(secondSvg?.id).toBeTruthy();
 });
 
 it("falls back to a raw code block when both renderers reject, with no uncaught rejection", async () => {

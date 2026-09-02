@@ -35,11 +35,18 @@
 //
 // The stock-mermaid fallback bakes its `renderId` argument into the
 // returned SVG's own id attribute (and any internal same-document
-// references), which would make two different MermaidDiagram instances
-// collide on one DOM id if the cached SVG were reused verbatim. Rendering
-// (for caching purposes only) with the fixed MERMAID_CACHE_RENDER_ID instead
-// of the real per-instance id keeps the cached SVG id-independent; each
-// consumer substitutes its own renderId back in on every use, hit or miss.
+// references) -- and, more importantly, stock mermaid's render() looks that
+// id up in `document`, deletes any existing element with it, appends its
+// own, and reads the result back by id. Two fallback diagrams mounting in
+// the same commit MUST render with distinct real ids (never a shared
+// placeholder) or they clobber each other's DOM lookup. So every render
+// still goes out with this instance's own `renderId` -- the placeholder
+// only replaces it afterwards, for the copy that goes into the cache: on a
+// successful render, `svg.split(renderId).join(MERMAID_CACHE_RENDER_ID)`
+// normalises the id-dependent SVG into an id-independent one before it's
+// stored, and `withRenderId` substitutes the current instance's real id
+// back in on every use that reads from state -- hit or miss alike -- so a
+// cache hit never shows the placeholder or another instance's id.
 import { useEffect, useId, useState } from "react";
 import type { Mermaid } from "mermaid";
 import { CodeBlock } from "./CodeBlock";
@@ -118,13 +125,19 @@ async function renderWithFallback(code: string, renderId: string): Promise<strin
   }
 }
 
-// The id every cached render is computed with (see this file's header
-// comment); exported only so MermaidDiagram.test.tsx can assert it never
-// leaks into rendered DOM. Not a real per-instance id -- every consumer
-// rewrites it via withRenderId() before display.
-export const MERMAID_CACHE_RENDER_ID = "mermaid-render-cache-id";
+// The placeholder id-independent SVG is normalised to before caching (see
+// this file's header comment); exported only so MermaidDiagram.test.tsx can
+// assert it never leaks into rendered DOM or into a real render() call. Not
+// a real per-instance id -- every consumer rewrites it via withRenderId()
+// before display. Private-Use-Area characters (valid in XML/SVG text, but
+// not something a diagram label or the mermaid/KaTeX source would ever
+// contain) bracket the readable part so an ordinary label containing the
+// same words as this string still can't collide with it; withRenderId's
+// plain string substitution has no way to tell a genuine occurrence from an
+// accidental one, so this is a mitigation, not a guarantee.
+export const MERMAID_CACHE_RENDER_ID = "mermaid-render-cache-id";
 
-export const MERMAID_CACHE_LIMIT = 2000;
+const MERMAID_CACHE_LIMIT = 2000;
 const mermaidCache = createBoundedCache<string>(MERMAID_CACHE_LIMIT);
 
 function withRenderId(svg: string, renderId: string): string {
@@ -155,10 +168,17 @@ export function MermaidDiagram({ code }: { code: string }) {
       return;
     }
     setState({ status: "loading" });
-    renderWithFallback(code, MERMAID_CACHE_RENDER_ID).then(
+    // Rendered with this instance's real renderId -- not the placeholder --
+    // so two fallback diagrams mounting at once never collide on stock
+    // mermaid's DOM-based render-by-id lookup (see this file's header
+    // comment). The result is normalised to the placeholder before it's
+    // cached; withRenderId then substitutes the real id back in for
+    // display, exactly as it does on a hit.
+    renderWithFallback(code, renderId).then(
       (svg) => {
-        mermaidCache.set(cacheKey, svg);
-        if (alive) setState({ status: "ok", svg: withRenderId(svg, renderId) });
+        const normalized = svg.split(renderId).join(MERMAID_CACHE_RENDER_ID);
+        mermaidCache.set(cacheKey, normalized);
+        if (alive) setState({ status: "ok", svg: withRenderId(normalized, renderId) });
       },
       () => {
         // Both renderers failed: degrade to the raw-source fallback below

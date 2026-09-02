@@ -109,6 +109,15 @@ min-content — the widest single *word* — and any two-word label wraps once
 text outgrows the 160px `min-width`. Nowrap makes min-content equal
 max-content, so new menu items cost width, not height.
 
+`.block-input` (the outline editor's per-block textarea) sits outside this
+family on purpose -- borderless and transparent, so a focused block reads as
+plain text rather than a form field. While `field-sizing: content` applies
+(the `@supports` block right after it), no code may set an inline `height`
+on it, or it would fight the browser's own auto-grow. `useBlockDraft.ts`'s
+`CSS.supports("field-sizing", "content")` check tests the identical
+declaration as that `@supports` condition, so the JS fallback height logic
+and the native resize can never disagree about which one owns the box.
+
 ## Confirmations
 
 Every confirmation prompt goes through `useConfirm`

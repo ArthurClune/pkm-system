@@ -14,8 +14,18 @@ describe("mayHaveShrunk", () => {
     expect(mayHaveShrunk("a\nb", "ab")).toBe(true);
   });
 
-  test("same length, same newline count: false", () => {
-    expect(mayHaveShrunk("abc", "abd")).toBe(false);
+  // pkm-youp fix round 1: an equal-length, equal-newline-count replacement
+  // can still re-wrap narrower (character widths vary -- a run of "w"s wraps
+  // sooner than the same count of "i"s), so it must reset like a shrink
+  // would. Skipping the reset here previously left `heightChanged` unable to
+  // notice: a measurement clamped to the old (too tall) box never differs
+  // from what's already applied, so the stale height stuck permanently.
+  test("same length, same newline count, different characters: true (may re-wrap narrower)", () => {
+    expect(mayHaveShrunk("wwww", "iiii")).toBe(true);
+  });
+
+  test("same length, one character swapped: true", () => {
+    expect(mayHaveShrunk("abc", "abd")).toBe(true);
   });
 
   test("longer text but with a newline added: false (still growing)", () => {
@@ -26,12 +36,17 @@ describe("mayHaveShrunk", () => {
     expect(mayHaveShrunk("a\nb\nc", "a b c d")).toBe(true);
   });
 
-  test("identical text: false", () => {
-    expect(mayHaveShrunk("same", "same")).toBe(false);
+  // Not strictly necessary (the effect this feeds only runs on an actual
+  // draft change, and React never re-fires it for a same-value string), but
+  // the function's own contract is length-based, and identical text has no
+  // strict growth -- so it resets too. Harmless: the measured height won't
+  // have changed either, so `heightChanged` still no-ops the write.
+  test("identical text: true", () => {
+    expect(mayHaveShrunk("same", "same")).toBe(true);
   });
 
-  test("empty to empty: false", () => {
-    expect(mayHaveShrunk("", "")).toBe(false);
+  test("empty to empty: true", () => {
+    expect(mayHaveShrunk("", "")).toBe(true);
   });
 });
 

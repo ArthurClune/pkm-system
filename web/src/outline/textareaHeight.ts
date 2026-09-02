@@ -10,19 +10,25 @@
 // below by the element's OWN current box height -- once the box has grown to
 // fit a tall paste, `scrollHeight` cannot report a smaller natural content
 // height on a later keystroke until the box is reset to `auto` and
-// remeasured. Growth never needs a reset: `scrollHeight` already reports the
-// larger natural height against the current (smaller or equal) box. So the
-// reset is only worth paying for when the content may have gotten shorter.
+// remeasured, and a clamped measurement is indistinguishable from an
+// unchanged one to `heightChanged` below -- it can only compare what it
+// measured, and a clamped read never differs from what's already applied.
+// So skipping the reset is safe only for the one case where the box is
+// guaranteed not to need to shrink: a strictly longer replacement that lost
+// no newlines. An append or insert can only add wrapped lines, never remove
+// one. Everything else resets, including an equal-length or shorter
+// replacement -- character width varies (a run of "w"s wraps sooner than
+// the same count of "i"s), so even same-length text can re-wrap narrower.
 
-/** Whether `nextText` may render shorter than `prevText` -- the one case
- * where skipping the `height: auto` reset would leave the textarea stuck at
- * its old (too tall) height. Newline count is what actually drives wrapped
- * line count, not raw length: "cat" -> "catches" is height-preserving
- * growth, but "a\nb" -> "ab" is a same-or-longer string that still lost a
- * line. Length is kept as a cheap first check for the far more common case
- * (a plain deletion) so the newline count rarely needs computing. */
+/** Whether `nextText` might need the full `height: auto` remeasure instead
+ * of the cheap grown-only path. Newline count is what actually drives
+ * wrapped line count, not raw length: "one line" -> "one line\nand another"
+ * is growth even though it gained a newline, but "a\nb\nc" -> "a b c d" is a
+ * longer string that still lost two. Length is checked first because it's
+ * the cheap majority case (any non-growth resets, full stop) and the
+ * newline count only needs computing for the strictly-longer case. */
 export function mayHaveShrunk(prevText: string, nextText: string): boolean {
-  if (nextText.length < prevText.length) return true;
+  if (nextText.length <= prevText.length) return true;
   return countNewlines(nextText) < countNewlines(prevText);
 }
 

@@ -25,4 +25,5 @@ Tier 2 — the dominant main-thread cost while typing (measured: 6.6 ms/keystrok
 ## Checklist
 - [x] Measure baseline with perf.mjs F
 - [x] Implement + unit test the height logic
-- [x] Re-measure with perf.mjs F (layouts/keystroke 3 -> 1, styles/keystroke 2 -> ~0). iPad sanity check still pending -- handed to Arthur, cannot be done from this session.
+- [x] Re-measure with perf.mjs F (layouts/keystroke 3 -> 1, styles/keystroke 2 -> ~0)
+- [ ] iPad sanity check (pending -- for Arthur; cannot be done from this session)

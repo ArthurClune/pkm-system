@@ -30,6 +30,10 @@ title + references section = 703px for 26 of the 31 loaded days).
 | layout s | 0.0114 · 0.0113 | 0.0302 · 0.0287 |
 | style recalc s | 0.0056 · 0.0054 | 0.0172 · 0.0166 |
 
+One run per arm is committed as raw JSON — a single run each, never an average. `before.json` is
+standard run 2 (`LayoutCount` 7), `after.json` standard run 2 (45), `heavy-before.json` heavy run 1
+(6), `heavy-after.json` heavy run 1 (33). The remaining runs live only in the tables above.
+
 Every arm separates cleanly rather than overlapping: the layout **count** is the mechanism, and it is
 4-6x higher with the property on. Each section crossing the relevance boundary forces its own layout
 and style recalc as it is rendered and skipped again, and a journal day is plain text -- cheap enough

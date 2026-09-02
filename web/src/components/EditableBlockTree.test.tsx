@@ -542,9 +542,9 @@ test("Escape and click-away close the block menu (pkm-y6af)", () => {
 });
 
 // pkm-muka: the menu is position:fixed and anchored at viewport coordinates,
-// so it must never render inside a container that can become the containing
-// block for fixed descendants -- which is exactly what `.journal-day`'s
-// `content-visibility: auto` (and its implied layout containment) makes it.
+// so it must never render inside a container that imposes layout containment
+// -- such a container becomes the containing block for fixed descendants and
+// displaces the menu by its own offset (styling.md carries the invariant).
 test("the block menu renders in a portal at document.body (pkm-muka)", () => {
   const { container } = mount(handlers(), null);
   fireEvent.click(bullet(container, "u1"));

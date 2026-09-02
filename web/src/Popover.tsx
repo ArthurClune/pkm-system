@@ -52,9 +52,12 @@ export function Popover({ label, x, y, onClose, remeasure, children }: {
   // Portalled to document.body (pkm-muka), never rendered in place: the
   // clamp above is in viewport coordinates, and `position: fixed` only
   // resolves against the viewport while no ancestor imposes layout
-  // containment. `.journal-day`'s `content-visibility: auto` does exactly
-  // that, and a popover rendered inside one paints displaced by the whole
-  // section's offset (measured at 283x471px in e2e/popover-placement).
+  // containment (`content-visibility`, `contain: layout`). Inside such a
+  // box this popover would paint displaced by that box's own offset --
+  // 283x471px when `content-visibility: auto` was trialled on
+  // `.journal-day` and rejected on the numbers. The invariant, not the one
+  // rule, is what matters: see "Nothing `position: fixed` may render inside
+  // a layout-contained box" in docs/architecture/styling.md.
   // Dismissal is unaffected: useDismiss's `contains` check is against this
   // element itself, and React still propagates synthetic events from here
   // through the REACT tree to whatever rendered the popover (the hazard

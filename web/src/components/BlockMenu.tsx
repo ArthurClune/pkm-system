@@ -47,10 +47,12 @@ export function BlockMenu({ x, y, items, onClose }: {
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
   // Portalled to document.body (pkm-muka), for the same reason as Popover:
-  // `x`/`y` are the pointer's viewport coordinates, and any ancestor with
-  // layout containment -- `.journal-day` has it, via
-  // `content-visibility: auto` -- would become the containing block for
-  // this fixed element and displace it by that ancestor's own offset.
+  // `x`/`y` are the pointer's viewport coordinates, so any ancestor that
+  // imposes layout containment (`content-visibility`, `contain: layout`)
+  // would become the containing block for this fixed element and displace
+  // it by that ancestor's own offset. See the invariant in
+  // docs/architecture/styling.md; `.journal-day` is only where it was
+  // measured (283x471px) before that containment was rejected.
   // Nothing about the menu's behaviour depends on its DOM ancestry: its
   // roving-focus query and useDismiss's outside test both run against
   // `ref` itself, and its React parentage (hence event bubbling) is

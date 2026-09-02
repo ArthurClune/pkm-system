@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
-// Ties the websocket, the op queue and the replica into one context. status
-// drives connectivity UI; resyncSeq bumps whenever local state may have
+// Ties the websocket, the op queue and the replica together, and publishes
+// them as four contexts split by rate of change (see SyncContext below).
+// status drives connectivity UI; resyncSeq bumps whenever local state may have
 // diverged (rejected batch, or reconnect after a gap): views refetch
 // authoritative state via useResync. The replica (pkm-y8p0) is kept warm
 // from the changes feed via WS seq nudges; reconnect ordering is flush

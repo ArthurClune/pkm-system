@@ -26,6 +26,20 @@ it("renders the popover chrome: a labelled dialog on the shared class", () => {
   expect(popover).toHaveTextContent("body");
 });
 
+// pkm-muka: the clamp above is in viewport coordinates, which only holds
+// while `position: fixed` resolves against the viewport. A layout-contained
+// ancestor (`.journal-day`'s `content-visibility: auto`) would become the
+// containing block instead and displace the popover by that ancestor's
+// scroll offset, so the shell renders at `document.body`, never in place.
+it("renders in a portal at document.body (pkm-muka)", () => {
+  mockPopoverRect(300, 150);
+  const view = render(<Popover label="References" x={40} y={60} onClose={vi.fn()}
+                               remeasure={[]}>body</Popover>);
+  expect(view.container.querySelector(".block-ref-popover")).toBeNull();
+  expect(screen.getByRole("dialog", { name: "References" }).parentElement)
+    .toBe(document.body);
+});
+
 it("keeps an in-viewport anchor position unchanged", () => {
   mockPopoverRect(300, 150);
   render(<Popover label="References" x={40} y={60} onClose={vi.fn()}

@@ -5,11 +5,13 @@
 // not break: every dragover is preventDefault()ed synchronously, and the drop
 // lands where the indicator is drawn.
 import { act, createEvent, fireEvent, render } from "@testing-library/react";
+import { memo, useRef } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { SyncContext } from "../sync/SyncProvider";
-import { DndProvider } from "./DndContext";
+import { DndProvider, useDnd } from "./DndContext";
+import { useDropZone, type Indicator } from "./useDropZone";
 import { EditablePage } from "../views/EditablePage";
 import { block, makeSync } from "../test-helpers";
 
@@ -183,6 +185,59 @@ it("drops where the indicator is drawn, not where an unprocessed pointer got to"
   expect(sync.sent).toEqual([[
     { op: "move", uid: "u6", parent_uid: null, order_idx: 0 }]]);
   expect(indicatorTop()).toBeNull();
+});
+
+it("does not commit a new indicator object when the position hasn't moved (pkm-fgjg F7)",
+   () => {
+  // setIndicator({top, left}) used to allocate a fresh object on every
+  // throttled process(), so a memoized consumer of `indicator` re-rendered
+  // even when the pointer sample resolved to the exact same line as before
+  // (React's same-value setState bail-out only skips descendants, so the
+  // consumer — not the hook's own owning component — is what has to be
+  // asserted on here).
+  const sync = makeSync();
+  const blocks = [block("u1", "row 1", { order_idx: 0 }),
+                 block("u2", "row 2", { order_idx: 1 })];
+  let dnd!: ReturnType<typeof useDnd>;
+  function Capture() { dnd = useDnd(); return null; }
+  let consumerRenders = 0;
+  const Consumer = memo(function Consumer(
+    { indicator }: { indicator: Indicator | null },
+  ) {
+    consumerRenders++;
+    return indicator ? <div data-testid="indicator" /> : null;
+  });
+  function Harness() {
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const { indicator, zoneProps } = useDropZone("P", () => blocks, containerRef);
+    return <div ref={containerRef} data-testid="zone" {...zoneProps}>
+      <div data-uid="u1" /><div data-uid="u2" />
+      <Consumer indicator={indicator} />
+    </div>;
+  }
+  render(
+    <SyncContext.Provider value={sync}>
+      <DndProvider><Capture /><Harness /></DndProvider>
+    </SyncContext.Provider>);
+  stubRects();
+  act(() => { dnd.startDrag({ uid: "u2", pageTitle: "P" }); });
+
+  const zone = document.querySelector('[data-testid="zone"]')!;
+  const transfer = dt();
+  let now = 0;
+  const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+
+  now = 100; // past THROTTLE_MS since drag start (processedAtRef reset to 0)
+  fireEvent.dragOver(zone, { clientX: 0, clientY: 5, dataTransfer: transfer });
+  const afterFirst = consumerRenders;
+  expect(afterFirst).toBeGreaterThan(0); // the first sample always commits
+
+  now = 300; // past THROTTLE_MS again: this dragover also runs synchronously
+  fireEvent.dragOver(zone, { clientX: 0, clientY: 5, dataTransfer: transfer });
+  // identical top/left: the consumer must not re-render a second time
+  expect(consumerRenders).toBe(afterFirst);
+
+  nowSpy.mockRestore();
 });
 
 it("cancels the pending frame when the drag ends, so nothing lands late",

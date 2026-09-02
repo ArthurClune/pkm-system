@@ -89,9 +89,14 @@ export function useDropZone(pageTitle: string,
     const depth = depthFromX(allowedDepths(rows, boundary),
                              at.x - cache.containerLeft);
     candidateRef.current = { boundary, depth };
-    setIndicator({
-      top: indicatorTopFromRects(rows, rectAt, cache.containerTop, boundary),
-      left: depth * INDENT_PX });
+    const top = indicatorTopFromRects(rows, rectAt, cache.containerTop, boundary);
+    const left = depth * INDENT_PX;
+    // A throttled process() commits every ~50ms of pointer movement inside
+    // the same gap, but the position often hasn't moved: reuse the previous
+    // object so React can bail out instead of re-rendering every row for no
+    // visible change.
+    setIndicator((prev) =>
+      prev && prev.top === top && prev.left === left ? prev : { top, left });
   }, [dnd.drag, getBlocks, pageTitle, containerRef]);
 
   const onDragOver = useCallback((e: React.DragEvent) => {

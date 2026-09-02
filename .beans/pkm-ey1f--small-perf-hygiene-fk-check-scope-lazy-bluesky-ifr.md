@@ -19,8 +19,41 @@ Tier 3 — a bag of small, independent items from the 2026-09-01 investigation. 
 6. No `prefers-reduced-motion` block in `styles.css` — accessibility, not energy; note only.
 
 ## Checklist
-- [ ] 1 FK-check scope (measure first)
-- [ ] 2 Bluesky lazy
-- [ ] 3 Journal content-visibility
-- [ ] 4 BlockRefProvider store
-- [ ] 5 PdfViewer eviction
+- [x] 1 FK-check scope (measure first) — measured, NOT worth scoping, no code change.
+      Timed `PRAGMA foreign_key_check` against the replica schema in the same
+      in-memory sqlite-wasm the replica tests use (50 reps, warmed):
+
+      | blocks | FK-bearing rows | whole-db | blocks | refs | block_refs | sum of the three |
+      |-------:|----------------:|---------:|-------:|-----:|-----------:|-----------------:|
+      |  1 000 |           2 999 | 0.315 ms | 0.068  |0.133 |    0.111   |         0.318 ms |
+      |  5 000 |          14 999 | 1.717 ms | 0.335  |0.768 |    0.623   |         1.723 ms |
+      | 20 000 |          59 999 | 7.537 ms | 1.404  |3.371 |    2.727   |         7.408 ms |
+
+      The scoped remedy the bean proposes provably saves nothing: `blocks`,
+      `refs` and `block_refs` ALL bear FKs, so a correct scoped check must run
+      all three, and the unscoped pragma already visits only FK-bearing tables
+      (whole-db == sum-of-three within noise at every size). Scoping to
+      `blocks` alone would be a correctness regression, not an optimisation --
+      the file header's WITHOUT ROWID reasoning is specifically about `refs`
+      and `block_refs` violations. The only remaining lever ("skip when the
+      batch touches no FK column") is a redesign of the pkm-qvlx guarantee,
+      not hygiene; deliberately not attempted here.
+- [x] 2 Bluesky lazy
+- [ ] 3 Journal content-visibility — NOT done, needs its own bean. `content-visibility:
+      auto` also turns on layout/paint/style containment at all times, not only while a
+      section is skipped, and layout containment makes the element the containing block
+      for `position: fixed` descendants. `.journal-day` contains two of those:
+      `BlockMenu` and `BlockRefBacklinksPopover`, both rendered inline as siblings of the
+      rows inside `EditableBlockTree`'s root div (there is no rows-only wrapper to put
+      the property on instead) and both positioned from viewport `getBoundingClientRect`
+      coordinates. Measured in headless chromium: a `position: fixed` child asking for
+      `top: 100px` lands at viewport y=100 in a plain section and at y=1756 inside a
+      `content-visibility: auto` section whose own top is at y=1656 -- i.e. every block
+      menu and ref popover on the Journal would be displaced by its day's scroll offset.
+      Prerequisite for the perf win: portal `BlockMenu`/`BlockRefBacklinksPopover` to
+      `document.body`, which needs the React-portal-bubbling containment `PdfViewer`
+      already documents (synthetic events still propagate through the React tree into
+      `.block-text`'s onClick) plus e2e cover for menu placement. That is a change to
+      every view, not journal hygiene.
+- [x] 4 BlockRefProvider store
+- [x] 5 PdfViewer eviction

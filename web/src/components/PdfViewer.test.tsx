@@ -160,6 +160,55 @@ it("mounts a page when the mount observer sees it approach", async () => {
   expect(screen.getByTestId("page-3")).toBeInTheDocument();
 });
 
+it("unmounts pages that scroll far from the viewport, restoring their placeholder", async () => {
+  // A long document scrolled end to end used to hold every rasterized
+  // canvas at once: the mounted set only ever grew.
+  manual = true;
+  render(<PdfViewer href={href} label="Notes" />);
+  await act(async () => {});
+  act(() => loadsFor(href)[0].resolveSuccess(30));
+  await act(async () => {
+    for (const load of loadsFor(href)) load.resolvePage({ width: 612, height: 792 });
+  });
+
+  act(() => mountObserver().cb([slotEntry(1, 0.9), slotEntry(2, 0.5)]));
+  expect(screen.getByTestId("page-1")).toBeInTheDocument();
+  expect(screen.getByTestId("page-5")).toBeInTheDocument(); // 2 + radius 3
+  expect(screen.queryByTestId("page-20")).toBeNull();
+
+  // scroll away: pages 1-2 leave the margin, 20-21 enter it
+  act(() => mountObserver().cb([
+    slotEntry(1, 0), slotEntry(2, 0), slotEntry(20, 0.9), slotEntry(21, 0.4),
+  ]));
+
+  expect(screen.getByTestId("page-20")).toBeInTheDocument();
+  expect(screen.getByTestId("page-24")).toBeInTheDocument(); // 21 + radius 3
+  expect(screen.queryByTestId("page-1")).toBeNull();
+  expect(screen.queryByTestId("page-5")).toBeNull();
+  // every page still has its slot, and an unmounted one is a sized
+  // placeholder again so the scrollbar geometry does not collapse
+  expect(document.querySelectorAll("[data-page]")).toHaveLength(30);
+  const slot1 = document.querySelector('[data-page="1"]') as HTMLElement;
+  expect(slot1.style.minHeight).not.toBe("");
+});
+
+it("keeps a page mounted while it is still within the window", async () => {
+  manual = true;
+  render(<PdfViewer href={href} label="Notes" />);
+  await act(async () => {});
+  act(() => loadsFor(href)[0].resolveSuccess(30));
+  await act(async () => {
+    for (const load of loadsFor(href)) load.resolvePage({ width: 612, height: 792 });
+  });
+
+  act(() => mountObserver().cb([slotEntry(10, 0.9)]));
+  expect(screen.getByTestId("page-10")).toBeInTheDocument();
+  // page 9 is not "near" itself, but sits inside page 10's window
+  act(() => mountObserver().cb([slotEntry(9, 0)]));
+  expect(screen.getByTestId("page-9")).toBeInTheDocument();
+  expect(screen.getByTestId("page-10")).toBeInTheDocument();
+});
+
 it("drops the placeholder minHeight once a page has rendered", async () => {
   // Placeholder heights assume all pages match page 1; a rendered canvas is
   // the real height, so keeping minHeight leaves trailing whitespace under

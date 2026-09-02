@@ -42,6 +42,14 @@ it("renders a DID-based post URL as an iframe immediately, with no fetch", () =>
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+it("lazy-loads the embed iframe, like every other remote media in the app", () => {
+  stubResolve({ ok: true, did: DID });
+  const href = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;
+  const { container } = render(<BlueskyEmbed href={href} />);
+  expect(container.querySelector("iframe.bluesky-embed")!.getAttribute("loading"))
+    .toBe("lazy");
+});
+
 it("keeps allow-same-origin in the sandbox: an opaque origin blanks the embed", () => {
   stubResolve({ ok: true, did: DID });
   const href = `https://bsky.app/profile/${DID}/post/3k2abc123xy`;

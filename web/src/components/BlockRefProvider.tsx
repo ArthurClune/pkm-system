@@ -4,11 +4,18 @@
 // asks via BlockRefRequestContext; requests made in one render pass are
 // batched into a single GET /api/block-refs call. Each uid is fetched at
 // most once per mount — a uid the server doesn't know stays unresolved
-// rather than refetching forever.
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+// rather than refetching forever (blockRefStore.ts owns that claim).
+//
+// Fetched texts live in the store, not in provider state, so this component
+// never re-renders on a resolve: consumers subscribe per uid through
+// useBlockRefText and only the resolved ones wake. The payload map is a
+// separate, near-static context value for the same reason.
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { apiGet } from "../api/typedClient";
 import type { BlockRefText } from "../api/payloads";
-import { BlockRefContext, BlockRefRequestContext } from "../contexts";
+import { BlockRefContext, BlockRefRequestContext,
+         BlockRefStoreContext } from "../contexts";
+import { createBlockRefStore } from "./blockRefStore";
 
 // Server rejects >50 uids per request.
 const CHUNK = 50;
@@ -16,14 +23,12 @@ const CHUNK = 50;
 export function BlockRefProvider({ seed, children }: {
   seed: Record<string, BlockRefText>; children: ReactNode;
 }) {
-  const [fetched, setFetched] = useState<Record<string, BlockRefText>>({});
-  const requestedRef = useRef(new Set<string>());
+  const [store] = useState(createBlockRefStore);
   const pendingRef = useRef(new Set<string>());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const request = useCallback((uid: string) => {
-    if (requestedRef.current.has(uid)) return;
-    requestedRef.current.add(uid);
+    if (!store.claimRequest(uid)) return;
     pendingRef.current.add(uid);
     if (timerRef.current !== null) return;
     // One macrotask collects every request from the same render pass.
@@ -34,19 +39,19 @@ export function BlockRefProvider({ seed, children }: {
       for (let i = 0; i < uids.length; i += CHUNK) {
         const batch = uids.slice(i, i + CHUNK);
         apiGet("/api/block-refs", { query: { uids: batch.join(",") } })
-          .then((p) => setFetched((m) => ({ ...m, ...p.block_ref_texts })))
+          .then((p) => store.resolve(p.block_ref_texts))
           .catch(() => undefined); // stays unresolved; renders as ((uid))
       }
     }, 0);
-  }, []);
+  }, [store]);
 
-  // Payload entries win: they are the authoritative, freshest state.
-  const value = useMemo(() => ({ ...fetched, ...seed }), [fetched, seed]);
   return (
-    <BlockRefContext.Provider value={value}>
-      <BlockRefRequestContext.Provider value={request}>
-        {children}
-      </BlockRefRequestContext.Provider>
-    </BlockRefContext.Provider>
+    <BlockRefStoreContext.Provider value={store}>
+      <BlockRefContext.Provider value={seed}>
+        <BlockRefRequestContext.Provider value={request}>
+          {children}
+        </BlockRefRequestContext.Provider>
+      </BlockRefContext.Provider>
+    </BlockRefStoreContext.Provider>
   );
 }

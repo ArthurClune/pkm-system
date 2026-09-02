@@ -1,25 +1,25 @@
 // pattern: Imperative Shell
-// Reads BlockRefContext/BlockRefRequestContext/SidebarContext, requests a
-// missing ref via an effect, and navigates on click -- all runtime React
-// state/effect/navigation, not a pure rendering decision.
+// Reads its text via useBlockRefText, reads BlockRefRequestContext/
+// SidebarContext, requests a missing ref via an effect, and navigates on
+// click -- all runtime React state/effect/navigation, not a pure rendering
+// decision.
 import { useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { BlockRefContext, BlockRefRequestContext,
-         SidebarContext } from "../contexts";
+import { BlockRefRequestContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { pagePath } from "../paths";
 import { InlineSegments } from "./InlineSegments";
+import { useBlockRefText } from "./useBlockRefText";
 
 // Mutually-referencing blocks in the same payload could otherwise recurse
 // forever (A's text embeds B's, whose text embeds A's, ...).
 const MAX_DEPTH = 3;
 
 export function BlockRef({ uid, depth }: { uid: string; depth: number }) {
-  const refTexts = useContext(BlockRefContext);
+  const resolved = useBlockRefText(uid);
   const requestRef = useContext(BlockRefRequestContext);
   const { openInSidebar } = useContext(SidebarContext);
   const navigate = useNavigate();
-  const resolved = refTexts[uid];
   // A uid missing from the map may have been pasted after the payload
   // loaded: ask the provider (if any) to fetch it.
   useEffect(() => {

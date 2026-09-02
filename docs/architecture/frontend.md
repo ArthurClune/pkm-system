@@ -111,7 +111,8 @@ web/src/
 │   │                                       mounted only in iOS standalone (see below)
 │   └── pure halves           Core         Beside their component: pdfViewerCore,
 │                                          roamTableRows, backlinkFilter, groups,
-│                                          backlinkBatchWalk, bluesky, mermaidTheme…
+│                                          backlinkBatchWalk, bluesky, mermaidTheme,
+│                                          blockRefStore…
 │
 ├── views/                    One Shell file per route (see Views and navigation);
 │   │                         EditablePage = one editable outline, shared by the main
@@ -701,6 +702,23 @@ flowchart LR
   expression (e.g. navigating away and back) is a cache lookup, never
   awaiting the renderer's dynamic import. Only successful renders are
   cached; an error is retried on the next mount rather than wedged in place.
+- `((uid))` texts reach a ref through two channels, and the split is what
+  keeps a resolve cheap. Payload texts (a page's `block_ref_texts`, plus a
+  nested `BacklinksSection`'s overlay) ride `BlockRefContext`, which changes
+  only when a payload does. `BlockRefProvider`'s on-demand fetches go into
+  `blockRefStore.ts` instead — a uid-keyed `Map` with per-uid listener sets —
+  and `useBlockRefText` reads it through `useSyncExternalStore`, subscribed
+  to the one uid it renders. So a resolved batch wakes only the refs it
+  resolved rather than every `((uid))` on the page. Payload wins over
+  fetched. The store's `claimRequest` is the fetch-once guard, and it retains
+  claims only for uids the server could not resolve, since a ref holding a
+  text stops asking.
+- Every remote element inline content can emit carries `loading="lazy"`:
+  `AssetImage`, the `/files` grid, and `BlueskyEmbed`'s cross-origin iframe.
+  A page of Bluesky embeds would otherwise open one document per embed on
+  mount, each running the embed page's own scripts. `BlueskyEmbed` still
+  learns its height from the embed page's `postMessage` whenever the iframe
+  does load.
 - Link hrefs are sanitized (`isSafeHref` rejects `javascript:` and
   protocol-relative URLs); Mermaid runs in strict mode.
 - Diagrams render through beautiful-mermaid first (ELK layout; the chunk is
@@ -729,6 +747,16 @@ flowchart LR
   effect would be too late: effects fire child-before-parent, so a `Document`
   child that resolves synchronously can call `onLoadSuccess` before the
   parent's reset effect runs.
+- `PdfViewer` mounts a window of pages, not a growing set: the mount
+  observer's near-the-viewport pages plus `MOUNT_RADIUS` either side
+  (`mountedPageWindow`), so scrolling a long document end to end no longer
+  holds every rasterized canvas at once. An unmounted page drops out of
+  `rendered` too (`retainPages`), which puts its slot back to a
+  `placeholderHeight` estimate — without that the slot would be zero-height
+  and the scrollbar would collapse. The observer accumulates near-ness in a
+  ref, because a callback carries only the pages whose intersection changed,
+  and an empty near set is read as "no callback yet" rather than as a scroll
+  position.
 
 ## Sync and offline (UI-side summary)
 

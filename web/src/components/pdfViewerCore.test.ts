@@ -3,7 +3,9 @@ import {
   DEFAULT_PAGE_ASPECT,
   currentPageFromRatios,
   focusWrapTarget,
+  mountedPageWindow,
   placeholderHeight,
+  retainPages,
 } from "./pdfViewerCore";
 
 describe("currentPageFromRatios", () => {
@@ -62,6 +64,76 @@ describe("focusWrapTarget", () => {
   it("a single focusable always wraps to itself", () => {
     expect(focusWrapTarget([a], a, false)).toBe(a);
     expect(focusWrapTarget([a], a, true)).toBe(a);
+  });
+});
+
+describe("mountedPageWindow", () => {
+  const set = (...pages: number[]) => new Set(pages);
+
+  it("keeps page 1 when nothing is near the viewport yet", () => {
+    expect(mountedPageWindow(set(), 20, 3)).toEqual(set(1));
+  });
+
+  it("keeps a radius either side of the near page", () => {
+    expect(mountedPageWindow(set(10), 20, 3)).toEqual(set(7, 8, 9, 10, 11, 12, 13));
+  });
+
+  it("clamps the window to the document's own page range", () => {
+    expect(mountedPageWindow(set(2), 20, 3)).toEqual(set(1, 2, 3, 4, 5));
+    expect(mountedPageWindow(set(19), 20, 3)).toEqual(set(16, 17, 18, 19, 20));
+  });
+
+  it("unions the windows of several near pages", () => {
+    expect(mountedPageWindow(set(5, 6), 20, 1)).toEqual(set(4, 5, 6, 7));
+  });
+
+  it("does not bridge a gap between two distant near pages", () => {
+    expect(mountedPageWindow(set(2, 18), 20, 1)).toEqual(set(1, 2, 3, 17, 18, 19));
+  });
+
+  it("falls back to page 1 when the near page is not in the document", () => {
+    // A stale near set (a shorter document loaded into the same viewer)
+    // must not leave the viewer with nothing mounted at all.
+    expect(mountedPageWindow(set(99), 3, 1)).toEqual(set(1));
+  });
+
+  it("falls back to page 1 when every near page is out of range", () => {
+    expect(mountedPageWindow(set(0, -4, 99), 3, 1)).toEqual(set(1));
+  });
+
+  it("drops an out-of-range page without falling back when others survive", () => {
+    expect(mountedPageWindow(set(3, 99), 5, 1)).toEqual(set(2, 3, 4));
+  });
+
+  it("keeps everything in a document smaller than the window", () => {
+    expect(mountedPageWindow(set(2), 3, 3)).toEqual(set(1, 2, 3));
+  });
+
+  it("a zero radius keeps only the near pages themselves", () => {
+    expect(mountedPageWindow(set(4, 9), 20, 0)).toEqual(set(4, 9));
+  });
+});
+
+describe("retainPages", () => {
+  it("returns the same set when nothing needs dropping", () => {
+    const rendered = new Set([1, 2]);
+    // identity matters: this feeds a setState, and a fresh equal Set would
+    // re-render every slot on every observer callback
+    expect(retainPages(rendered, new Set([1, 2, 3]))).toBe(rendered);
+  });
+
+  it("drops the pages that are no longer mounted", () => {
+    expect(retainPages(new Set([1, 2, 9]), new Set([1, 2])))
+      .toEqual(new Set([1, 2]));
+  });
+
+  it("returns an empty set when nothing is kept", () => {
+    expect(retainPages(new Set([4]), new Set())).toEqual(new Set());
+  });
+
+  it("returns the same empty set rather than a new one", () => {
+    const rendered = new Set<number>();
+    expect(retainPages(rendered, new Set([1]))).toBe(rendered);
   });
 });
 

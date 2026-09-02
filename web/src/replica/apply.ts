@@ -153,7 +153,16 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
  * mid-transaction (`isFkFailure`). It cannot arise on the reset path: that
  * path's snapshot always ships the whole graph, so every ref's target page
  * is in the same payload -- there is nothing left for this collapse to
- * hide. */
+ * hide.
+ *
+ * Deliberately unscoped. Narrowing it to `foreign_key_check(blocks)` looks
+ * like a free win (reapplyPending calls this K+1 times per window) but is
+ * not: `blocks`, `refs` and `block_refs` all bear FKs, so a correct scoped
+ * check must run all three, and the unscoped pragma already visits only
+ * FK-bearing tables -- measured at 1 000/5 000/20 000 blocks, whole-database
+ * (0.32/1.72/7.54 ms) equals the sum of the three scoped checks
+ * (0.32/1.72/7.41 ms) within noise (pkm-ey1f). Scoping to `blocks` alone
+ * would drop exactly the two tables the paragraph above is about. */
 const fkViolations = (db: ReplicaDb): Set<string> =>
   new Set(db.select<{ table: string; rowid: SqlValue; parent: string;
                       fkid: number }>("PRAGMA foreign_key_check")

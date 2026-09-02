@@ -3,11 +3,15 @@ import { expect, test } from "./fixtures";
 
 // pkm-muka: the block menu and the references popover are `position: fixed`
 // and anchored at viewport coordinates read off the click. Rendering them
-// inside a layout-contained ancestor makes that ancestor their containing
-// block, so they paint displaced by its offset -- which is why `.journal-day`
-// carries `content-visibility: auto` only now that both are portalled to
-// `document.body`. A unit test can see the portal; only a real layout can see
-// that the surface lands where the pointer was.
+// inside a container that imposes layout containment makes that container
+// their containing block, so they paint displaced by its offset -- which is
+// why both portal to `document.body` (the invariant lives in
+// docs/architecture/styling.md; `.journal-day` is where it was measured, on
+// a `content-visibility: auto` trial the numbers rejected). A unit test can
+// see the portal; only a real layout can see that the surface lands where
+// the pointer was. No rule in the shipped stylesheet contains anything
+// today, so reproducing the original RED (dx 283, dy -471) needs that
+// property put back on `.journal-day` first.
 
 const PASSWORD = "e2e-pw";
 // Enough rows per day that a lower day's top sits well above the viewport
@@ -37,10 +41,29 @@ async function login(page: Page) {
   await expect(page.locator(".ws-banner")).toHaveCount(0);
 }
 
+/** Pages this spec created, newest first. The e2e DB is shared between specs
+ * (rename.spec.ts:21-22), and this is the only spec that seeds PAST daily
+ * notes: left behind, they turn `/` from one `.journal-day` into four for
+ * every spec that runs after this one. */
+const created: string[] = [];
+
 async function createPage(page: Page, title: string) {
   const response = await page.request.post("/api/pages", { data: { title } });
   expect(response.ok()).toBeTruthy();
+  created.unshift(title);
 }
+
+// Newest first, so a referencing page goes before the day it points into.
+// Runs even when the test failed, and before the fixtures' own afterEach.
+test.afterEach(async ({ page }) => {
+  while (created.length > 0) {
+    const title = created.shift()!;
+    const response =
+      await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
+    // 404 is fine: the page may never have been written.
+    expect([200, 404], `DELETE ${title}`).toContain(response.status());
+  }
+});
 
 type Op = Record<string, unknown>;
 
@@ -148,7 +171,12 @@ test("menu and references popover stay anchored deep in a scrolled journal",
 
   // --- the bullet menu, opened by a click deep inside a lower day ---
   await recordClicks(page);
-  const lastDay = page.locator(".journal-day").last();
+  // By title, not `.last()`: the oldest loaded day is only one of ours while
+  // no other spec seeds a past daily, and a short day would retarget the
+  // row below into a locator timeout instead of a placement failure.
+  const lastDay = page.locator(".journal-day", {
+    has: page.getByRole("link", { name: dayTitles[PAST_DAYS - 1], exact: true }),
+  });
   await lastDay.locator(".block-row .bullet").nth(ROWS_PER_DAY - 6).click();
   const target = await lastClick(page);
   // The premise of the assertion below: without a portal the menu lands
@@ -169,7 +197,7 @@ test("menu and references popover stay anchored deep in a scrolled journal",
   await expect(menu).toHaveCount(0);
 
   // --- the references popover, opened from a badge deep inside a day ---
-  const badge = page.locator(".journal-day .block-ref-badge").first();
+  const badge = lastDay.locator(".block-ref-badge").first();
   await expect(badge).toHaveText("1");
   await badge.click();
   const badgeClick = await lastClick(page);

@@ -22,10 +22,29 @@
 // stock fallback path keeps its historical initialize-time theme snapshot;
 // re-plumbing it for live flips isn't worth it for a path that only serves
 // exotic diagrams.
+//
+// Rendered SVG is cached by (theme, code): mermaid layout is the most
+// expensive synchronous computation in the app (the beautiful-mermaid chunk
+// alone is 1.5 MB), so remounting a diagram that's already been rendered
+// once (e.g. navigating away and back) should never re-run it. The cache is
+// consulted before renderWithFallback is even called, so a hit never awaits
+// loadBeautifulMermaid()'s dynamic import. Only successful renders are
+// cached -- an error is transient/theme-independent enough (a chunk load
+// blip, a momentarily-bad diagram) that caching it would wedge future
+// remounts into permanent failure.
+//
+// The stock-mermaid fallback bakes its `renderId` argument into the
+// returned SVG's own id attribute (and any internal same-document
+// references), which would make two different MermaidDiagram instances
+// collide on one DOM id if the cached SVG were reused verbatim. Rendering
+// (for caching purposes only) with the fixed MERMAID_CACHE_RENDER_ID instead
+// of the real per-instance id keeps the cached SVG id-independent; each
+// consumer substitutes its own renderId back in on every use, hit or miss.
 import { useEffect, useId, useState } from "react";
 import type { Mermaid } from "mermaid";
 import { CodeBlock } from "./CodeBlock";
 import { beautifulMermaidOptions, mermaidThemeVariables } from "./mermaidTheme";
+import { createBoundedCache } from "./renderCache";
 import { useEffectiveTheme } from "../useEffectiveTheme";
 
 type RenderState =
@@ -99,6 +118,19 @@ async function renderWithFallback(code: string, renderId: string): Promise<strin
   }
 }
 
+// The id every cached render is computed with (see this file's header
+// comment); exported only so MermaidDiagram.test.tsx can assert it never
+// leaks into rendered DOM. Not a real per-instance id -- every consumer
+// rewrites it via withRenderId() before display.
+export const MERMAID_CACHE_RENDER_ID = "mermaid-render-cache-id";
+
+export const MERMAID_CACHE_LIMIT = 2000;
+const mermaidCache = createBoundedCache<string>(MERMAID_CACHE_LIMIT);
+
+function withRenderId(svg: string, renderId: string): string {
+  return svg.split(MERMAID_CACHE_RENDER_ID).join(renderId);
+}
+
 export function MermaidDiagram({ code }: { code: string }) {
   // useId is stable for this component instance and unique across the page,
   // so two fallback diagrams rendered at once never collide on stock
@@ -112,12 +144,27 @@ export function MermaidDiagram({ code }: { code: string }) {
 
   useEffect(() => {
     let alive = true;
+    const cacheKey = `${effectiveTheme} ${code}`;
+    const cached = mermaidCache.get(cacheKey);
+    if (cached !== undefined) {
+      // Cache hit: resolve synchronously, without even calling
+      // renderWithFallback -- so loadBeautifulMermaid()'s dynamic import is
+      // never awaited (or invoked at all) on a remount of an already-seen
+      // diagram.
+      setState({ status: "ok", svg: withRenderId(cached, renderId) });
+      return;
+    }
     setState({ status: "loading" });
-    renderWithFallback(code, renderId).then(
-      (svg) => { if (alive) setState({ status: "ok", svg }); },
+    renderWithFallback(code, MERMAID_CACHE_RENDER_ID).then(
+      (svg) => {
+        mermaidCache.set(cacheKey, svg);
+        if (alive) setState({ status: "ok", svg: withRenderId(svg, renderId) });
+      },
       () => {
         // Both renderers failed: degrade to the raw-source fallback below
-        // rather than crash or leave a blank block.
+        // rather than crash or leave a blank block. Not cached -- a failure
+        // is transient/theme-independent enough that caching it would wedge
+        // future remounts into permanent failure.
         if (alive) setState({ status: "error" });
       },
     );

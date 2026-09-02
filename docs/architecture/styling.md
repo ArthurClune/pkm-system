@@ -217,8 +217,19 @@ Four traps when working on this:
 `#6e7a88` dark / `#959ea4` light, i.e. a visibly grey outline on every button
 and input in both themes, which was judged to cost more than it buys.
 
-Two other stylesheet invariants that are easy to break without noticing:
+Three other stylesheet invariants that are easy to break without noticing:
 
+- **Nothing `position: fixed` may render inside a layout-contained box.**
+  `content-visibility` and `contain: layout` make their element the
+  containing block for fixed descendants. A surface positioned from viewport
+  coordinates then paints displaced by that box's own offset: 283px across
+  and 471px up, for a bullet menu opened deep in a scrolled journal day.
+  `BlockMenu` and `Popover` therefore `createPortal` to
+  `document.body` instead of rendering in place, and
+  `e2e/popover-placement.spec.ts` asserts each lands at its click point.
+  Adding containment anywhere in the app means auditing what renders inside
+  it first; `.journal-day` carries none, and the comment on its rule records
+  the measurement that rejected `content-visibility: auto` there.
 - **Embedded images cap at two-thirds of the text column** (`.asset-image`
   and `.asset-image-trigger`, both `max-width: 67%`). An external URL renders
   as a bare `<img>`, while an uploaded `/assets/` image is wrapped in the
@@ -250,3 +261,4 @@ its fix installed. The bean has the full investigation.
 |---|---|---|
 | On a phone, Tab lands on invisible controls before anything visible | the closed drawer used `transform: translateX(-100%)` alone, which keeps its links tabbable as the page's first tab stops; it must also toggle `visibility` | pkm-cq32 |
 | Page-title rename and the Unlinked references collapse cannot be reached from the keyboard | `onClick` sat on a non-focusable `<h1>`/`<h2>`; the label must be a real `<button>` inside the heading | pkm-cq32 |
+| A bullet menu or references popover in the journal opens hundreds of pixels from the pointer | a `content-visibility` (or `contain: layout`) ancestor became the containing block for the fixed surface; both surfaces must portal to `document.body` | pkm-muka |

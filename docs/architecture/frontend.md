@@ -273,6 +273,14 @@ chrome is `remeasure` — the caller's list of values whose change resizes the
 content, and so invalidates the clamp. A re-render the caller did not declare
 there is not re-measured, so a popover cannot drift under the pointer.
 
+Both `Popover` and `BlockMenu` render through `createPortal` into
+`document.body`, never in place. Their coordinates are the viewport's, and
+`position: fixed` only resolves against the viewport while no ancestor
+imposes layout containment ([styling.md](styling.md) owns that invariant).
+The portal moves the DOM node, not the React node, so synthetic events still
+bubble to whatever rendered the surface — treat a portalled surface as an
+interactive island and stop its own clicks, as `PdfViewer`'s overlay does.
+
 `useDismiss(ref, onDismiss, options)` is the dismissal half on its own: a
 `mousedown` outside `ref`, or Escape, closes the surface. Both listeners sit
 on `document`. Mousedown rather than click, so the surface goes on press
@@ -345,6 +353,12 @@ A day already on screen keeps the reference list it first rendered:
 objects in place under stable keys, so a day's new references appear on the next
 mount rather than in the running scroll. The "day has none" gate is live, since
 `JournalDayReferences` re-reads `total_pages` on every render.
+
+Nothing unmounts a loaded day. There is no virtualisation and no eviction, so
+whatever a day costs — a mounted outline, a `useDismiss` listener, a paint —
+is paid for every day scrolled past, for the life of the session. That is what
+makes per-render work in the outline worth chasing (scenarios `I` and `J` of
+the perf harness) and what a rendering-containment fix would have to beat.
 
 ## State management
 

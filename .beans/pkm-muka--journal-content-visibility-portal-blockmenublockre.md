@@ -1,11 +1,11 @@
 ---
 # pkm-muka
 title: 'Journal content-visibility: portal BlockMenu/BlockRefBacklinksPopover to body first'
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-09-02T03:26:28Z
-updated_at: 2026-09-02T03:26:28Z
+updated_at: 2026-09-02T05:28:25Z
 parent: pkm-fgjg
 ---
 
@@ -21,6 +21,6 @@ Split out of pkm-ey1f item 3 (2026-09-02).
 4. Docs: `styling.md` invariant (no `position: fixed` descendants inside a `content-visibility` container), `frontend.md` Journal note.
 
 ## Checklist
-- [ ] Portal BlockMenu + BlockRefBacklinksPopover to body, e2e placement cover
-- [ ] content-visibility on .journal-day with contain-intrinsic-size
-- [ ] Scenario I before/after; docs
+- [x] Portal BlockMenu + BlockRefBacklinksPopover to body, e2e placement cover
+- [ ] ~~content-visibility on .journal-day with contain-intrinsic-size~~ — measured and rejected: scenario I layouts 8→44 (standard seed) and 6→33 (4× heavier journal), layout time ~3×, CPU +~1pt; numbers in `web/tooling/perf/baselines/2026-09-02-muka/report.md`, rationale in a comment on `.journal-day` in styles.css
+- [x] Scenario I before/after; docs

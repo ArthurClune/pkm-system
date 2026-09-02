@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isBeautifulMermaidSeed,
+  isHljsSeed,
   isKatexSeed,
   isMermaidSeed,
 } from "./viteBudgetPlugin";
@@ -25,6 +26,16 @@ describe("owned-graph seed predicates", () => {
     expect(isKatexSeed(
       `${WT}/node_modules/.pnpm/katex@0.17.0/node_modules/katex/dist/katex.mjs`,
     )).toBe(true);
+    expect(isHljsSeed(
+      `${WT}/node_modules/.pnpm/highlight.js@11.11.1/node_modules/highlight.js/lib/common.js`,
+    )).toBe(true);
+  });
+
+  it("hljs seed does not treat the package name's dot as a wildcard", () => {
+    // isHljsSeed is written with an escaped "\." rather than via
+    // isPackageModule, which would leave the dot unescaped and match any
+    // character -- e.g. "highlightXjs" must NOT be seeded.
+    expect(isHljsSeed(`${WT}/node_modules/highlightXjs/lib/common.js`)).toBe(false);
   });
 
   it("seed the app-side beautifulMermaid.ts barrel so its chunk counts as wholly owned", () => {

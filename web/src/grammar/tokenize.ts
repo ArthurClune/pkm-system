@@ -232,7 +232,33 @@ function tokenizeInline(
   return out;
 }
 
+// Module-level cache in front of tokenizeBlock, keyed on raw block text.
+// tokenizeBlock is a pure function of its input (no scope/theme/context
+// dependency), so memoizing it at module scope introduces no I/O and no
+// external state dependency -- this file stays Functional Core. Every call
+// site (EditableBlockTree, BlockRef, QueryBlock, BacklinkGroupList,
+// UnlinkedSection, roamTable, AssistantPanel) passes the returned array
+// straight into <InlineSegments> as a read-only prop and never mutates it
+// (audited pkm-l33u), so the same cached array can safely be shared across
+// callers and across renders.
+//
+// Bounded by a whole-map clear rather than an LRU: an LRU only earns its
+// complexity when eviction order matters, and it doesn't here -- once the
+// working set of distinct block texts exceeds this size we'd be thrashing
+// either way, so a full reset is the simplest thing that bounds memory.
+export const TOKENIZE_CACHE_LIMIT = 2000;
+const tokenizeCache = new Map<string, BlockSegment[]>();
+
 export function tokenizeBlock(text: string): BlockSegment[] {
+  const cached = tokenizeCache.get(text);
+  if (cached) return cached;
+  const result = tokenizeBlockUncached(text);
+  if (tokenizeCache.size >= TOKENIZE_CACHE_LIMIT) tokenizeCache.clear();
+  tokenizeCache.set(text, result);
+  return result;
+}
+
+function tokenizeBlockUncached(text: string): BlockSegment[] {
   const blockMath = BLOCK_MATH_RE.exec(text.trim());
   if (blockMath && !blockMath[1].includes("$$") && blockMath[1].trim() !== "") {
     return [{ kind: "math", tex: blockMath[1], display: true }];

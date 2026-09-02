@@ -29,6 +29,9 @@ export interface BuildBudgets {
    * graph (the primary diagram renderer; elkjs/entities join via
    * reachability). */
   beautifulMermaidOwnedBytes: number;
+  /** Raw bytes of chunks wholly owned by the lazy highlight.js module
+   * graph (CodeBlock.tsx's dynamic import). */
+  hljsOwnedBytes: number;
 }
 
 /** One emitted output file: a chunk or an asset. */
@@ -110,6 +113,7 @@ export interface OwnedModuleSets {
   pdfjs: ReadonlySet<string>;
   katex: ReadonlySet<string>;
   beautifulMermaid: ReadonlySet<string>;
+  hljs: ReadonlySet<string>;
 }
 
 export function evaluateBundleBudgets(
@@ -135,6 +139,8 @@ export function evaluateBundleBudgets(
       ownedChunkBytes(chunks, owned.katex)),
     check("beautifulMermaidOwnedBytes", budgets.beautifulMermaidOwnedBytes,
       ownedChunkBytes(chunks, owned.beautifulMermaid)),
+    check("hljsOwnedBytes", budgets.hljsOwnedBytes,
+      ownedChunkBytes(chunks, owned.hljs)),
   ];
   return {
     ok: checks.every((c) => c.ok),

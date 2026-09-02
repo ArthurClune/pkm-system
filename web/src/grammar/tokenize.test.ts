@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tokenizeBlock } from "./tokenize";
+import { TOKENIZE_CACHE_LIMIT, tokenizeBlock } from "./tokenize";
 
 describe("tokenizeBlock", () => {
   it("parses page refs, tags and block refs around plain text", () => {
@@ -362,5 +362,41 @@ describe("tokenizeBlock", () => {
     expect(tokenizeBlock("$$[[Page]]$$")).toEqual([
       { kind: "math", tex: "[[Page]]", display: true },
     ]);
+  });
+});
+
+describe("tokenizeBlock caching", () => {
+  it("a cache hit is deep-equal to a fresh tokenize of the same text", () => {
+    const text = "cache me [[Machine Learning]] #AI ((abc123XYZ))";
+    const first = tokenizeBlock(text);
+    const second = tokenizeBlock(text);
+    expect(second).toEqual(first);
+    // Same array instance on a hit -- callers only ever read segments (they
+    // pass them straight into <InlineSegments> as a prop), so sharing the
+    // cached array is safe and proves the second call skipped re-parsing.
+    expect(second).toBe(first);
+  });
+
+  it("does not confuse distinct texts sharing a cache (no key collisions)", () => {
+    const a = tokenizeBlock("distinct text A with #tag");
+    const b = tokenizeBlock("distinct text B with [[Page]]");
+    expect(a).not.toEqual(b);
+    expect(tokenizeBlock("distinct text A with #tag")).toBe(a);
+    expect(tokenizeBlock("distinct text B with [[Page]]")).toBe(b);
+  });
+
+  it("bounds the cache: exceeding the limit clears old entries", () => {
+    const first = "bound-test-entry-0";
+    const firstResult = tokenizeBlock(first);
+    // Fill the cache past its limit with distinct texts -- this triggers the
+    // whole-map clear once TOKENIZE_CACHE_LIMIT is exceeded.
+    for (let i = 1; i <= TOKENIZE_CACHE_LIMIT; i++) {
+      tokenizeBlock(`bound-test-entry-${i}`);
+    }
+    // The clear evicted the original entry, so it's recomputed now: a new
+    // array instance, but still the same (observably identical) content.
+    const afterBound = tokenizeBlock(first);
+    expect(afterBound).not.toBe(firstResult);
+    expect(afterBound).toEqual(firstResult);
   });
 });

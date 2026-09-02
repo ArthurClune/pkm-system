@@ -647,7 +647,11 @@ flowchart LR
 - Heavy renderers (KaTeX, beautiful-mermaid, Mermaid, pdf.js, highlight.js) are lazy-loaded
   behind cached module-level `import()` promises, so they stay out of the
   eager bundle. Their budgeted chunks are still precached, so they work
-  offline.
+  offline. `CodeBlock.tsx` caches each block's highlighted HTML in a bounded
+  module-level `Map` keyed on `(lang, code)`, so hljs runs on a given code
+  block only once. `tokenizeBlock` is fronted by the same bounded-clear
+  cache policy, keyed on raw block text, so re-rendering an unchanged block
+  is a `Map` lookup rather than a re-parse.
 - Link hrefs are sanitized (`isSafeHref` rejects `javascript:` and
   protocol-relative URLs); Mermaid runs in strict mode.
 - Diagrams render through beautiful-mermaid first (ELK layout; the chunk is

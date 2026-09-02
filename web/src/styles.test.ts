@@ -765,3 +765,22 @@ describe("references popover (pkm-d31f)", () => {
       .toContain("background: var(--color-bg-subtle);");
   });
 });
+
+describe("PDF frame contributes no baseline (pkm-vg3y)", () => {
+  // .block-row aligns its items by baseline. WebKit (iPadOS Safari) took the
+  // block-text's first baseline from the bottom edge of the page-1 canvas
+  // INSIDE the overflow:auto frame -- 760px down, past the frame's 480px clip
+  // -- and, because content changes inside a scroller never re-ran the row's
+  // flex layout, the row stayed stretched to that height until something else
+  // forced a relayout. Layout containment makes the frame baseline-less by
+  // spec, so the row's baseline always comes from the footer text instead.
+  test("the inline frame is layout-contained", () => {
+    expect(rulesFor(".pdf-frame")).toMatch(/contain:\s*layout/);
+  });
+  test("nothing position:fixed is declared for the frame's own content", () => {
+    // the containment invariant in styling.md: the overlay is portalled to
+    // body, so the frame must not gain a fixed-position descendant rule
+    expect(rulesFor(".pdf-frame")).not.toMatch(/position:\s*fixed/);
+    expect(rulesFor(".pdf-page-slot")).not.toMatch(/position:\s*fixed/);
+  });
+});

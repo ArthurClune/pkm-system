@@ -627,7 +627,17 @@ mark.highlight { background: var(--color-highlight-bg); }
   color: var(--color-text-muted); font-size: 13px; font-style: italic;
 }
 .pdf-embed { display: block; margin: 4px 0; }
-.pdf-frame { width: 100%; height: 480px; overflow-y: auto;
+/* contain: layout makes the frame baseline-less (pkm-vg3y). The frame sits in
+ * a baseline-aligned .block-row, and iPadOS WebKit took the row's baseline
+ * from the bottom of the page-1 canvas INSIDE this scroller -- 760px down,
+ * well past the 480px clip -- then never re-laid the row out when the
+ * scroller's contents changed, so the row stayed stretched by the hidden part
+ * of the page until a reload or tab switch forced a full relayout. With no
+ * baseline to offer, the row's baseline comes from .pdf-footer's text, which
+ * is where Chromium (and a settled WebKit layout) already put it. Nothing
+ * position:fixed may render inside the frame as a result; the fullscreen
+ * overlay portals to document.body (see styling.md's containment invariant). */
+.pdf-frame { width: 100%; height: 480px; overflow-y: auto; contain: layout;
   border: 1px solid var(--color-border); border-radius: var(--radius-card);
   background: var(--color-bg-subtle); }
 .pdf-page-slot { margin: 0 auto; }

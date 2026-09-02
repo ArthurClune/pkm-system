@@ -10,7 +10,7 @@ import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
-import { useSync } from "../sync/SyncProvider";
+import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import { stampBaseTextHashes } from "./baseTextHash";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
@@ -61,7 +61,12 @@ export function useOutline(
   initial: BlockNode[],
   editorOwner?: symbol,
 ): Outline {
-  const sync = useSync();
+  // Actions and editability only, deliberately: `sync` is a dependency of
+  // run(), handlers and dnd below, so subscribing to the delivery counters
+  // here would rebuild all three — for every mounted Journal day — twice per
+  // flushed edit (pkm-qfee).
+  const sync = useSyncActions();
+  const { canEdit } = useSyncEditability();
   const { confirm, dialog } = useConfirm();
   const [blocks, setBlocks] = useState(initial);
   const [session, setSession] = useState<OutlineSessionHandle | null>(null);
@@ -480,7 +485,7 @@ export function useOutline(
     focus,
     selection,
     // offline editing (pkm-y8p0): the replica persists + renders edits
-    readOnly: !sync.canEdit,
+    readOnly: !canEdit,
     handlers,
     dnd,
     createFirstBlock,

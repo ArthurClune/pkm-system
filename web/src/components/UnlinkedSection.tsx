@@ -7,7 +7,7 @@ import { linkUnlinkedReference } from "../grammar/linkReference";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { sha256Hex } from "../replica/sha256";
 import type { WriteTicket } from "../sync/opQueue";
-import { useSync } from "../sync/SyncProvider";
+import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
 import { mergeGroups } from "./groups";
@@ -22,7 +22,8 @@ export function UnlinkedSection({ title, onLinked }: {
   title: string;
   onLinked?: () => void;
 }) {
-  const sync = useSync();
+  const sync = useSyncActions();
+  const { canEdit, readOnlyReason } = useSyncEditability();
   const [open, setOpen] = useState(false);
   const [groups, setGroups] = useState<BlockGroup[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -61,7 +62,7 @@ export function UnlinkedSection({ title, onLinked }: {
   };
 
   const linkItem = async (group: BlockGroup, item: BlockGroup["items"][number]) => {
-    if (!sync.canEdit || inFlight.current.has(item.uid)) return;
+    if (!canEdit || inFlight.current.has(item.uid)) return;
     const transformed = linkUnlinkedReference(item.text, title);
     if (transformed.status === "no-safe-match") {
       setStatus(item.uid, { state: "error", message: "No linkable occurrence found." });
@@ -150,8 +151,8 @@ export function UnlinkedSection({ title, onLinked }: {
                       </div>
                       <button
                         className="reference-link-button btn-secondary"
-                        disabled={!sync.canEdit || status?.state === "pending"}
-                        title={!sync.canEdit ? sync.readOnlyReason : undefined}
+                        disabled={!canEdit || status?.state === "pending"}
+                        title={!canEdit ? readOnlyReason : undefined}
                         onClick={() => void linkItem(g, item)}
                       >
                         {status?.state === "pending" ? "Linking…" : "Link"}

@@ -9,7 +9,7 @@ import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
 import { dragUids, type DragSource, type DropTarget } from "../outline/dnd";
 import { groupMoveOps } from "../outline/edits";
-import { useSync } from "../sync/SyncProvider";
+import { useSyncActions } from "../sync/SyncProvider";
 
 export interface OutlineDndApi {
   /** Move a group of blocks (a multi-block selection's roots, document
@@ -44,7 +44,9 @@ export function useDnd(): Dnd {
 }
 
 export function DndProvider({ children }: { children: ReactNode }) {
-  const sync = useSync();
+  // Writes only: this value is a dependency of every outline's drop handling,
+  // so it must not churn with the delivery counters (pkm-qfee).
+  const sync = useSyncActions();
   const [drag, setDrag] = useState<DragSource | null>(null);
   const outlinesRef = useRef(new Map<
     string,

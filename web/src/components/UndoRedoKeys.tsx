@@ -10,7 +10,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { performRedo, performUndo,
          setHistoryNavigator } from "../outline/undoManager";
-import { useSync } from "../sync/SyncProvider";
+import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 
 function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement
@@ -19,7 +19,8 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 export function UndoRedoKeys() {
-  const sync = useSync();
+  const sync = useSyncActions();
+  const { canEdit } = useSyncEditability();
   const navigate = useNavigate();
 
   useEffect(() => setHistoryNavigator(navigate), [navigate]);
@@ -30,14 +31,14 @@ export function UndoRedoKeys() {
       if ((!e.metaKey && !e.ctrlKey) || e.altKey
           || e.key.toLowerCase() !== "z") return;
       if (isEditableTarget(e.target)) return;
-      if (!sync.canEdit) return;
+      if (!canEdit) return;
       e.preventDefault();
       if (e.shiftKey) performRedo(sync);
       else performUndo(sync);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [sync]);
+  }, [canEdit, sync]);
 
   return null;
 }

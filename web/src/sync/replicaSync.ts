@@ -7,7 +7,7 @@
 // dedup makes replayed flushes safe), and a failed flush keeps the old
 // database: degraded beats data loss.
 
-import { ApiError } from "../api/client";
+import { ApiError, OfflineError } from "../api/client";
 import type { ApiFetchOptions } from "../api/client";
 import type { Changes, Snapshot } from "../replica/apply";
 import type {
@@ -103,6 +103,14 @@ export interface ReplicaSyncDeps {
   /** Delivery is paused while the worker recovery lease owns the database. */
   queue?: Pick<OpQueue, "pause" | "resume"> &
     Partial<Pick<OpQueue, "onPoisonPending">>;
+  /** True while the socket is down (mirrors the offline gateway's own
+   * `statusRef.current === "reconnecting"` predicate). A failed pull's retry
+   * is pointless here -- every retry while offline just reproduces the same
+   * `OfflineError` -- and the reconnect flow already calls `start()` (hence
+   * `pull()`) the moment the socket comes back up, so nothing is lost by not
+   * arming the timer. Defaults to "never offline" for callers (and tests)
+   * that don't track connectivity. */
+  isOffline?: () => boolean;
 }
 
 const errText = (e: unknown): string =>
@@ -158,7 +166,14 @@ class PullStarvedError extends Error {}
 /** Network-down failures (dropped connection, DNS, an offline fetch) are not
  * wedged-replica symptoms -- the offline banner already owns network-down
  * UX, and counting them here would flip a whole offline session read-only
- * via computeEditability. Availability failures are excluded for the same
+ * via computeEditability. A raw `fetch` rejection (`TypeError`) is excluded
+ * simply by not matching any branch below; `OfflineError` needs its own
+ * check because it extends `ApiError` (status 0, thrown when the offline
+ * gateway has no local route for a request) and would otherwise pass the
+ * `instanceof ApiError` branch as if the server itself had rejected the call
+ * (pkm-gw5r: three offline pulls crossed STALL_AFTER_FAILURES and raised the
+ * "Local sync is stuck / Reset local data" banner for a plain network
+ * outage). Availability failures are excluded for the same offline-banner
  * reason and more sharply: a session that reports `stalled` on top of
  * `no-replica` is reporting a wedged replica it has already concluded does not
  * exist, and computeEditability would take editing away for the rest of the
@@ -169,6 +184,7 @@ class PullStarvedError extends Error {}
  * as stalled. */
 const isStallShaped = (error: unknown): boolean =>
   availabilityOf(error) === null &&
+  !(error instanceof OfflineError) &&
   (error instanceof ApiError || error instanceof ReplicaError ||
     error instanceof PullStarvedError);
 
@@ -178,6 +194,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     pause: () => undefined,
     resume: () => undefined,
   };
+  const isOffline = deps.isOffline ?? (() => false);
   let cursor = 0;
   // See appliedVersion(): bumped only through adoptCursor, so a new place that
   // moves the replica forward has to state whether views must refetch.
@@ -234,7 +251,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
         onState({ mode: "stalled", error: errText(error) });
       }
     }
-    if (!stopped && retryTimer === null) {
+    // No timer while offline: every retry would just reproduce the same
+    // OfflineError, and the reconnect flow's own start() call resumes the
+    // pull the moment the socket reconnects (pkm-gw5r) -- an armed timer here
+    // only costs a wakeup roughly once a minute for nothing.
+    if (!stopped && !isOffline() && retryTimer === null) {
       retryTimer = setTimeout(() => {
         retryTimer = null;
         void pull();

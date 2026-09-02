@@ -287,6 +287,10 @@ export function SyncProvider({ children, replica }: {
       fetchJson: apiFetch,
       clientId,
       queue,
+      // Same predicate as the offline gateway below: a failed pull's retry
+      // is pointless while the socket is down (pkm-gw5r), and reconnect's
+      // own start() call resumes it once statusRef flips back.
+      isOffline: () => statusRef.current === "reconnecting",
       onState: (next) => {
         if (mountedRef.current) setReplicaState(next);
         // Delivery health (Fix A): a wedged replica or a failed recovery

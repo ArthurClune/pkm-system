@@ -165,6 +165,13 @@ export function connectSocket(opts: {
 
   const open = (): void => {
     lastAttemptAt = Date.now();
+    // A socket that opens while the tab is already hidden (initial load in
+    // a background tab, or an `online` event reaching through the hidden
+    // deferral) never sees a hidden *transition*, so onVisibilityChange
+    // would never have stamped hiddenAt for it. Backfill it here, guarded to
+    // the first time, so a later visible transition can still apply the
+    // resume check to this socket (pkm-uue4).
+    if (document.hidden && hiddenAt === 0) hiddenAt = Date.now();
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const sock = new WebSocket(`${proto}//${window.location.host}/api/ws`);
     ws = sock;

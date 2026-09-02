@@ -126,7 +126,22 @@ export class FakeWebSocket {
 
   send(data: string) { this.sent.push(data); }
 
-  close() { this.closedByApp = true; this.readyState = FakeWebSocket.CLOSED; this.onclose?.(); }
+  /** App-initiated close. `closedByApp` flips synchronously -- that much
+   * mirrors calling the real method -- but the resulting close event does
+   * not: a real WebSocket's close is an async task, so `onclose` here is
+   * deferred (setTimeout(0), driven by fake timers) rather than fired
+   * inline. This matters for pkm-uue4's resume heuristic: production code
+   * calls `ws.close()` and then falls through to `reconnectNow()` in the
+   * same synchronous handler, trusting that the close event -- and the
+   * scheduleReconnect() it triggers -- hasn't happened yet. A synchronous
+   * onclose here would let that same-tick reconnectNow() see a freshly
+   * scheduled reconnect timer and hurry it, bypassing the backoff inside
+   * the test double in a way that cannot happen against a real socket. */
+  close() {
+    this.closedByApp = true;
+    this.readyState = FakeWebSocket.CLOSING;
+    setTimeout(() => { this.readyState = FakeWebSocket.CLOSED; this.onclose?.(); }, 0);
+  }
 
   // --- test drivers ---
   open() { this.readyState = FakeWebSocket.OPEN; this.onopen?.(); }

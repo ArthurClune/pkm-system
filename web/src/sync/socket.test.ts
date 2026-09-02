@@ -215,5 +215,44 @@ describe("connectSocket reconnect policy", () => {
 
       expect(sock.closedByApp).toBe(false);
     });
+
+    it("does not bypass the backoff on a resume-triggered close", () => {
+      // A real WebSocket's close event is an async task: onVisibilityChange
+      // calls reconnectNow() in the same synchronous handler as ws.close(),
+      // trusting that no reconnect is scheduled yet. FakeWebSocket.close()
+      // defers its onclose the same way, so this pins that production
+      // doesn't fall back to a bare open() -- the schedule still runs.
+      connect();
+      const sock = latest();
+      sock.open();
+
+      hidden = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(RESUME_STALE_MS);
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      // no new socket the instant the resume dispatch returns
+      expect(created()).toBe(1);
+      vi.advanceTimersByTime(RECONNECT_BASE_MS - 1);
+      expect(created()).toBe(1);
+      vi.advanceTimersByTime(1);
+      expect(created()).toBe(2);
+    });
+
+    it("catches a socket opened while the document was already hidden", () => {
+      // No hidden *transition* ever fires for a tab hidden from page load,
+      // so hiddenAt would otherwise stay at its initial 0 forever and this
+      // socket would never be eligible for the resume check.
+      hidden = true;
+      connect();
+      latest().open();
+
+      vi.advanceTimersByTime(90_000);
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      expect(latest().closedByApp).toBe(true);
+    });
   });
 });

@@ -20,6 +20,6 @@ A first-ever load while offline with an empty op queue runs `startupRun()` but n
 Gate on `n > 0 || !replicaUsable` (or "replica has no snapshot yet") rather than pending count alone. Unit test with fake timers: offline cold start, empty queue, then `online` → replica bootstraps without a reload.
 
 ## Checklist
-- [ ] Failing test for offline cold start with empty queue
-- [ ] Widen the first-connect gate
-- [ ] `sync-and-offline.md` startup sequence note
+- [x] Failing test for offline cold start with empty queue
+- [x] Widen the first-connect gate
+- [x] `sync-and-offline.md` startup sequence note

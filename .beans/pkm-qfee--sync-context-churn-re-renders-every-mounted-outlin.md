@@ -32,6 +32,8 @@ React Profiler with ~30 Journal days loaded: type in one block, count commits an
 - [x] Context split (actions / resyncSeq / editability / health) + emitPending bail-out
 - [x] handlers stable, EditableBlock memoised (plus the row props the tree used to rebuild per render: `selected`, `focusChain`, the upload/menu callbacks, `nowMs`)
 - [x] Re-profile: 94.4 -> 3.4 re-rendered fibers per keystroke, worst commit 2278 -> 32 (`baselines/2026-09-02-qfee/report.md`); frontend.md state-management section now tables the four hooks
+- [x] Review fixes: `pending` has one publisher (the queue) — suppressing an unchanged re-emit is only sound while the cache is what subscribers hold, and SyncProvider had a second writer; whole-value `useSync()` deleted (no app consumer)
 
 ## Not done here
 - `applyOps` deep-clones the block tree, so every node object is new on an edit and `React.memo` cannot spare the edited day's own rows (~300 on a 300-row page). Structural sharing in `outline/tree.ts` would fix it; separate change.
+- A durable count read issued before a concurrent enqueue is still accepted when it answers after it, so the count can be momentarily low. It self-heals on the next durable operation (the replica returns the authoritative row count) and no longer desyncs the emit cache. A proper guard needs a write-generation counter on `countPending`.

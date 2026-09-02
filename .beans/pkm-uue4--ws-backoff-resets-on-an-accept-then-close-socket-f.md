@@ -1,11 +1,11 @@
 ---
 # pkm-uue4
 title: WS backoff resets on an accept-then-close socket; frozen sockets not detected
-status: todo
+status: completed
 type: bug
 priority: low
 created_at: 2026-09-02T03:41:21Z
-updated_at: 2026-09-02T03:41:21Z
+updated_at: 2026-09-02T04:40:25Z
 parent: pkm-fgjg
 ---
 
@@ -20,7 +20,7 @@ Related, same area: a socket frozen by the OS while the tab was backgrounded (iP
 Reset `priorFailures` only after the socket has stayed open past a threshold: first frame received, or a short `setTimeout` cleared by `onclose`. Unit test with fake timers in `reconnectBackoff.test.ts` / `socket.test.ts`: accept-then-close ×5 → attempt gaps grow 2, 4, 8, 16, 30 s.
 
 ## Checklist
-- [ ] Failing test: accept-then-immediate-close does not reset backoff
-- [ ] Reset backoff only after the socket proves live
-- [ ] Decide on a resume-time liveness check for frozen sockets (or file separately)
-- [ ] `sync-and-offline.md` backoff note
+- [x] Failing test: accept-then-immediate-close does not reset backoff
+- [x] Reset backoff only after the socket proves live
+- [x] Decide on a resume-time liveness check for frozen sockets (or file separately)
+- [x] `sync-and-offline.md` backoff note

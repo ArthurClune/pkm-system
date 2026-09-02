@@ -34,10 +34,10 @@ Tier 1 children first (they break the multiplication chain), re-measure, then Ti
 
 All nine original children have landed on main (pkm-d6i6, 5fak, gw5r, youp, l33u, qfee, cpke, ikk0, ey1f), each with a per-task review, plus a whole-branch final review whose fix wave merged as e16120a. Post-fix baselines are under web/tooling/perf/baselines/2026-09-02-*/.
 
-Still open under this epic:
-- pkm-youp and pkm-ikk0 are in-progress only for their iPad physical-device checks (textarea auto-grow; drag). Everything else in them shipped.
-- pkm-muka — Journal content-visibility, split out of pkm-ey1f because it needs BlockMenu/BlockRefBacklinksPopover portalled to body first.
-- pkm-uue4 — backoff resets on accept-then-close sockets; frozen-socket liveness. Found by the final review.
-- pkm-8k2c (unparented bug, pre-existing): offline cold start with an empty queue never bootstraps the replica.
+Follow-ups from the final review also landed (2026-09-02): pkm-uue4 (proof-of-life backoff reset; stale-resume socket restart), pkm-8k2c (offline cold start bootstraps once the socket opens), pkm-muka (BlockMenu/BlockRefBacklinksPopover portalled to body; `content-visibility: auto` on `.journal-day` was measured and rejected — layouts 8→44 on scenario I — numbers in web/tooling/perf/baselines/2026-09-02-muka/).
+
+Still open under this epic — physical-device checks only, nothing left for an agent:
+- pkm-youp: iPad textarea auto-grow check.
+- pkm-ikk0: iPad drag check.
 
 Accepted without change from the final review: DndContext api identity flips twice per drag (two full-tree re-renders at drag start/end); useEffectiveTheme re-reads the DOM per consumer render (one consumer today).

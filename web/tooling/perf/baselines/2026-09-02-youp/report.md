@@ -43,24 +43,40 @@ figures above are read straight off `summarize.mjs`'s table (`layouts/min`
 827.6 after ÷ (200 keystrokes × 60/14.5s) = 1.00/keystroke; `styles/min` 4.1
 after vs. 1647.9 before).
 
+## Correction: this run measured the CSS-only path, not the JS fallback
+
+Playwright's bundled Chromium here is **149.0.7827.55** — well past the 123
+threshold where `field-sizing` shipped — and a direct check
+(`page.evaluate(() => CSS.supports("field-sizing", "content"))`) confirms it
+returns `true` in this browser. So `supportsFieldSizing` is `true` and the
+whole JS effect in `useBlockDraft.ts` returns immediately without running;
+the "after" numbers above are the browser's **native** auto-grow, not the
+`textareaHeight.ts` fallback logic. The fallback path (what the unit tests
+exercise) was not exercised by this browser-driven measurement at all — a
+genuinely old-Chromium/Firefox run would be needed for that, and none was
+available in this environment.
+
+This changes the read on "1 layout/keystroke, not 0": that appears to be
+the true floor for *any* implementation, native or JS. Changing a
+textarea's content requires at least one layout pass to determine its new
+render size regardless of who's driving the resize, so 1/keystroke standing
+even with zero JS on this code path is consistent, not evidence that
+something is still forcing extra layout.
+
 ## Did not improve / needs a caveat
 
-- **Task time per keystroke dropped ~16%, not in proportion to the layout
-  count dropping 3x.** The remaining ~5.6 ms/keystroke is not layout-free:
-  one `scrollHeight` read per keystroke is unavoidable in the JS fallback
-  path (the height must be remeasured whenever text changes), so exactly one
-  forced layout per keystroke is the floor for browsers without
-  `field-sizing` support, not zero. The rest of the task time is React's
-  render pass and the debounce bookkeeping in `useOutline.ts`, untouched by
-  this change.
-- **This machine's Chromium (headed Playwright) does not yet support
-  `field-sizing: content`** (see finding below), so this measurement
-  exercises the JS fallback path, not the CSS-only path. A browser that does
-  support it should show close to zero JS-attributable layout cost here,
-  but that could not be measured on this machine.
+- Task time per keystroke dropped ~16%, not in proportion to the layout
+  count dropping 3x. The remaining ~5.6 ms/keystroke is not layout-free: one
+  layout pass per keystroke is unavoidable (see above), and the rest is
+  React's render pass and the debounce bookkeeping in `useOutline.ts`,
+  untouched by this change.
 - The brief's third idea (`contain: layout` / `content-visibility` on
   sibling day sections) was explicitly out of scope for this task; it was
   not implemented and not measured.
+- The JS fallback path (`textareaHeight.ts`'s decision logic, wired through
+  `useBlockDraft.ts` when `field-sizing` is unsupported) has unit-test
+  coverage but no browser-driven perf measurement in this pass, since this
+  machine's Chromium supports `field-sizing` and always takes the CSS path.
 
 ## field-sizing browser support (checked 2026-09-02, via caniuse)
 

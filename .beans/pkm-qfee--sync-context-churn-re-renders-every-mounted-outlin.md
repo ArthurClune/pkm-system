@@ -28,7 +28,10 @@ Tier 2 — cheap per tick, multiplied by the number of mounted Journal days (unm
 React Profiler with ~30 Journal days loaded: type in one block, count commits and components rendered per flush. Add the measurement to `perf.mjs` (commit count via profiler hook or `__REACT_DEVTOOLS_GLOBAL_HOOK__`).
 
 ## Checklist
-- [ ] Baseline profile (Journal, 30 days)
-- [ ] Context split + emitPending bail-out
-- [ ] handlers stable, EditableBlock memoised
-- [ ] Re-profile; frontend.md state-management section updated if the context shape changes
+- [x] Baseline profile (Journal, 31 days mounted) — perf.mjs scenario J, `baselines/2026-09-02-qfee/before.json`
+- [x] Context split (actions / resyncSeq / editability / health) + emitPending bail-out
+- [x] handlers stable, EditableBlock memoised (plus the row props the tree used to rebuild per render: `selected`, `focusChain`, the upload/menu callbacks, `nowMs`)
+- [x] Re-profile: 94.4 -> 3.4 re-rendered fibers per keystroke, worst commit 2278 -> 32 (`baselines/2026-09-02-qfee/report.md`); frontend.md state-management section now tables the four hooks
+
+## Not done here
+- `applyOps` deep-clones the block tree, so every node object is new on an edit and `React.memo` cannot spare the edited day's own rows (~300 on a 300-row page). Structural sharing in `outline/tree.ts` would fix it; separate change.

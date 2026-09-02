@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeWebSocket } from "../test-helpers";
 import { RECONNECT_BASE_MS, RECONNECT_MAX_MS } from "./reconnectBackoff";
-import { connectSocket, type SocketHandle } from "./socket";
+import { connectSocket, RESUME_STALE_MS, STABLE_MS, type SocketHandle } from "./socket";
 
 const created = (): number => FakeWebSocket.instances.length;
 const latest = (): FakeWebSocket =>
@@ -58,10 +58,32 @@ describe("connectSocket reconnect policy", () => {
     }
   });
 
-  it("resets the backoff once a connection opens", () => {
+  it("keeps backing off when the server accepts then immediately closes (pkm-uue4)", () => {
+    // A socket that opens and closes before it can prove itself (auth
+    // expiry, load shedding, a middlebox completing the handshake then
+    // dropping) must not reset the backoff -- otherwise an unhealthy server
+    // gets hammered at the 2 s base forever.
+    connect();
+    for (const ms of [RECONNECT_BASE_MS, 4000, 8000, 16000, RECONNECT_MAX_MS]) {
+      latest().open(); // accepted...
+      expectNextAttemptAfter(ms); // ...but closed immediately, so the gap keeps growing
+    }
+  });
+
+  it("resets the backoff once a connection stays open past STABLE_MS", () => {
     connect();
     for (const ms of [RECONNECT_BASE_MS, 4000, 8000]) expectNextAttemptAfter(ms);
     latest().open();
+    vi.advanceTimersByTime(STABLE_MS);
+    expectNextAttemptAfter(RECONNECT_BASE_MS);
+  });
+
+  it("resets the backoff as soon as the socket delivers its first frame", () => {
+    connect();
+    for (const ms of [RECONNECT_BASE_MS, 4000, 8000]) expectNextAttemptAfter(ms);
+    const sock = latest();
+    sock.open();
+    sock.message({ client_id: "x", ts: 0, ops: [] }); // proof of life before STABLE_MS elapses
     expectNextAttemptAfter(RECONNECT_BASE_MS);
   });
 
@@ -150,5 +172,48 @@ describe("connectSocket reconnect policy", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     vi.advanceTimersByTime(10 * 60_000);
     expect(created()).toBe(1);
+  });
+
+  describe("frozen-socket resume heuristic (pkm-uue4)", () => {
+    it("closes a nominally-open socket that has been hidden for RESUME_STALE_MS", () => {
+      connect();
+      const sock = latest();
+      sock.open();
+
+      hidden = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(RESUME_STALE_MS);
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      expect(sock.closedByApp).toBe(true);
+    });
+
+    it("leaves an open socket alone if hidden for less than RESUME_STALE_MS", () => {
+      connect();
+      const sock = latest();
+      sock.open();
+
+      hidden = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(RESUME_STALE_MS - 1);
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      expect(sock.closedByApp).toBe(false);
+    });
+
+    it("leaves a socket alone on resume if it never reached OPEN", () => {
+      connect();
+      const sock = latest(); // never opened: readyState stays CONNECTING
+
+      hidden = true;
+      document.dispatchEvent(new Event("visibilitychange"));
+      vi.advanceTimersByTime(RESUME_STALE_MS);
+      hidden = false;
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      expect(sock.closedByApp).toBe(false);
+    });
   });
 });

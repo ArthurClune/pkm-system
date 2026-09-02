@@ -103,9 +103,18 @@ export function pagePayload(title: string, blocks: BlockNode[],
  * opens); tests drive instances via FakeWebSocket.instances. */
 export class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
+  // Mirrors the real WebSocket readyState constants so production code that
+  // branches on `ws.readyState === WebSocket.OPEN` (the frozen-socket resume
+  // heuristic, pkm-uue4) sees the same values under the stubbed global.
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+
   url: string;
   sent: string[] = [];
   closedByApp = false;
+  readyState: number = FakeWebSocket.CONNECTING;
   onopen: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null;
@@ -117,12 +126,12 @@ export class FakeWebSocket {
 
   send(data: string) { this.sent.push(data); }
 
-  close() { this.closedByApp = true; this.onclose?.(); }
+  close() { this.closedByApp = true; this.readyState = FakeWebSocket.CLOSED; this.onclose?.(); }
 
   // --- test drivers ---
-  open() { this.onopen?.(); }
+  open() { this.readyState = FakeWebSocket.OPEN; this.onopen?.(); }
   message(body: unknown) { this.onmessage?.({ data: JSON.stringify(body) }); }
-  drop() { this.onclose?.(); }
+  drop() { this.readyState = FakeWebSocket.CLOSED; this.onclose?.(); }
 }
 
 /** Controllable stand-in for a MediaQueryList; jsdom has no real

@@ -34,6 +34,9 @@ for (const [k, v] of Object.entries(r)) {
     nodes: c.Nodes,
     listeners: c.JSEventListeners,
     mut: p.mut, mutOutside: p.mutOutside,
+    // scenario J only (the React commit hook is installed for it alone)
+    commits: v.react?.[0]?.commits ?? "",
+    renderedFibers: v.react?.[0]?.rendered ?? "",
     rssMB: v.browserRssMB, procs: v.browserProcs,
     fetchUrls: JSON.stringify(p.fetchUrls),
     reqUrls: JSON.stringify(b.requests),

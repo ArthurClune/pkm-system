@@ -73,7 +73,13 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
         statusRef.current = up ? "connected" : "reconnecting";
         if (up) {
           if (everConnectedRef.current) {
-            void reconnect.begin();
+            // Unlike observeDrain (which wraps its own finish() in a .catch),
+            // begin() does not swallow: a throw inside it (e.g. a
+            // non-availability replicaSync.start() failure) must not become
+            // an unhandled rejection here.
+            void reconnect.begin().catch((error: unknown) => {
+              console.error("reconnect.begin() failed", error);
+            });
           } else {
             // A first connect with a non-empty durable queue IS a reconnect
             // after a gap — the gap just spans page loads. Views have already
@@ -86,6 +92,8 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
             void initialPending.then(async (n) => {
               await depsRef.current.startupRun();
               if (n > 0) await reconnect.begin({ viewsAreStale: true });
+            }).catch((error: unknown) => {
+              console.error("first-connect reconnect.begin() failed", error);
             });
           }
           everConnectedRef.current = true;

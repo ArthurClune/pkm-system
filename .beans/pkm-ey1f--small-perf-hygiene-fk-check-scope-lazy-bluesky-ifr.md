@@ -56,4 +56,4 @@ Tier 3 — a bag of small, independent items from the 2026-09-01 investigation. 
       `.block-text`'s onClick) plus e2e cover for menu placement. That is a change to
       every view, not journal hygiene.
 - [x] 4 BlockRefProvider store
-- [ ] 5 PdfViewer eviction
+- [x] 5 PdfViewer eviction

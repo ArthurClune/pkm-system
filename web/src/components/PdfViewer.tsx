@@ -2,9 +2,11 @@
 // PDF.js (via react-pdf) viewer for /assets/*.pdf links: a fixed-height
 // scrollable frame rendering every page fit-to-width, plus a fullscreen
 // overlay reading mode. Offscreen pages are sized placeholders until they
-// near the viewport (IntersectionObserver), so long documents don't
-// rasterize every canvas up front. Text/annotation layers are disabled --
-// this is deliberately a scroll-only viewer (pkm-srek spec).
+// near the viewport (IntersectionObserver), and go back to being
+// placeholders once the scroll leaves them behind, so a long document
+// rasterizes neither every canvas up front nor every canvas it has passed.
+// Text/annotation layers are disabled -- this is deliberately a scroll-only
+// viewer (pkm-srek spec).
 //
 // This module is loaded lazily by PdfEmbed (dynamic import), so react-pdf/
 // pdfjs-dist stay out of the eager entry chunk. The worker resolves to a
@@ -15,7 +17,14 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
 import { PdfFallbackLink } from "./PdfFallbackLink";
-import { currentPageFromRatios, focusWrapTarget, placeholderHeight } from "./pdfViewerCore";
+import { currentPageFromRatios, focusWrapTarget, mountedPageWindow,
+         placeholderHeight, retainPages } from "./pdfViewerCore";
+
+/** How many pages either side of one the mount observer reports near the
+ * viewport stay mounted. The observer's own 150% rootMargin already covers
+ * roughly a viewport and a half; this is the slack on top of it, so a small
+ * scroll never unmounts a page it is about to need again. */
+const MOUNT_RADIUS = 3;
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -59,6 +68,10 @@ function PdfPages({ numPages, aspect, onCurrentPage, scrollRegionLabel }: {
   // whitespace under shorter pages
   const [rendered, setRendered] = useState<ReadonlySet<number>>(new Set());
   const ratiosRef = useRef(new Map<number, number>());
+  // which pages the mount observer currently reports inside its margin,
+  // accumulated because an IntersectionObserver callback carries only the
+  // pages whose intersection CHANGED
+  const nearRef = useRef(new Set<number>());
 
   // fit-to-width: track the frame's content width
   useEffect(() => {
@@ -70,21 +83,30 @@ function PdfPages({ numPages, aspect, onCurrentPage, scrollRegionLabel }: {
     return () => ro.disconnect();
   }, []);
 
-  // One observer mounts pages as they approach (generous margin); a second
-  // tracks visible fractions for the "Page x of y" indicator.
+  // One observer mounts pages as they approach (generous margin) and
+  // unmounts those the scroll left behind; a second tracks visible fractions
+  // for the "Page x of y" indicator.
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
     const pageOf = (t: Element) => Number((t as HTMLElement).dataset.page);
+    nearRef.current.clear(); // a new document's slots are all fresh
     const mounter = new IntersectionObserver(
       (entries) => {
-        const seen = entries.filter((e) => e.isIntersecting).map((e) => pageOf(e.target));
-        if (seen.length === 0) return;
-        setMounted((prev) => {
-          const next = new Set(prev);
-          for (const p of seen) next.add(p);
-          return next;
-        });
+        for (const e of entries) {
+          if (e.isIntersecting) nearRef.current.add(pageOf(e.target));
+          else nearRef.current.delete(pageOf(e.target));
+        }
+        // Nothing near at all is the pre-first-callback state, not a real
+        // scroll position: keep whatever is mounted rather than collapsing
+        // the document to page 1.
+        if (nearRef.current.size === 0) return;
+        const next = mountedPageWindow(nearRef.current, numPages, MOUNT_RADIUS);
+        setMounted(next);
+        // An unmounted page's canvas is gone, so it must go back to being a
+        // sized placeholder -- both to keep the scrollbar geometry and so it
+        // isn't briefly zero-height if the scroll comes back to it.
+        setRendered((prev) => retainPages(prev, next));
       },
       { root: frame, rootMargin: "150% 0px" },
     );

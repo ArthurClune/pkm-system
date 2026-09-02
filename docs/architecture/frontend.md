@@ -747,6 +747,16 @@ flowchart LR
   effect would be too late: effects fire child-before-parent, so a `Document`
   child that resolves synchronously can call `onLoadSuccess` before the
   parent's reset effect runs.
+- `PdfViewer` mounts a window of pages, not a growing set: the mount
+  observer's near-the-viewport pages plus `MOUNT_RADIUS` either side
+  (`mountedPageWindow`), so scrolling a long document end to end no longer
+  holds every rasterized canvas at once. An unmounted page drops out of
+  `rendered` too (`retainPages`), which puts its slot back to a
+  `placeholderHeight` estimate — without that the slot would be zero-height
+  and the scrollbar would collapse. The observer accumulates near-ness in a
+  ref, because a callback carries only the pages whose intersection changed,
+  and an empty near set is read as "no callback yet" rather than as a scroll
+  position.
 
 ## Sync and offline (UI-side summary)
 

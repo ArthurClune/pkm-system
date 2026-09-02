@@ -228,8 +228,13 @@ Three other stylesheet invariants that are easy to break without noticing:
   `document.body` instead of rendering in place, and
   `e2e/popover-placement.spec.ts` asserts each lands at its click point.
   Adding containment anywhere in the app means auditing what renders inside
-  it first; `.journal-day` carries none, and the comment on its rule records
-  the measurement that rejected `content-visibility: auto` there.
+  it first. `.journal-day` carries none, and the comment on its rule records
+  the measurement that rejected `content-visibility: auto` there. `.pdf-frame`
+  is the one box that does carry `contain: layout`, and for a different
+  reason: a layout-contained box offers no baseline, so the baseline-aligned
+  `.block-row` around it takes its baseline from `.pdf-footer`'s text rather
+  than from a canvas inside the scroller. The fullscreen overlay already
+  portals to `document.body`, so nothing fixed renders inside the frame.
 - **Embedded images cap at two-thirds of the text column** (`.asset-image`
   and `.asset-image-trigger`, both `max-width: 67%`). An external URL renders
   as a bare `<img>`, while an uploaded `/assets/` image is wrapped in the
@@ -262,3 +267,4 @@ its fix installed. The bean has the full investigation.
 | On a phone, Tab lands on invisible controls before anything visible | the closed drawer used `transform: translateX(-100%)` alone, which keeps its links tabbable as the page's first tab stops; it must also toggle `visibility` | pkm-cq32 |
 | Page-title rename and the Unlinked references collapse cannot be reached from the keyboard | `onClick` sat on a non-focusable `<h1>`/`<h2>`; the label must be a real `<button>` inside the heading | pkm-cq32 |
 | A bullet menu or references popover in the journal opens hundreds of pixels from the pointer | a `content-visibility` (or `contain: layout`) ancestor became the containing block for the fixed surface; both surfaces must portal to `document.body` | pkm-muka |
+| On iPadOS Safari a PDF block's row runs hundreds of pixels past its footer, leaving blank space before the next block until a reload or tab switch | WebKit took the baseline-aligned `.block-row`'s baseline from the page-1 canvas inside the `.pdf-frame` scroller and never re-laid the row out; `contain: layout` on the frame removes its baseline | pkm-vg3y |

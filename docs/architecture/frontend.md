@@ -767,6 +767,10 @@ flowchart LR
   effect would be too late: effects fire child-before-parent, so a `Document`
   child that resolves synchronously can call `onLoadSuccess` before the
   parent's reset effect runs.
+- `PdfViewer`'s inline `.pdf-frame` is layout-contained so it offers the
+  baseline-aligned block row no baseline of its own
+  ([styling.md](styling.md) owns the rule). Nothing `position: fixed` may
+  render inside the frame; the fullscreen overlay portals to `document.body`.
 - `PdfViewer` mounts a window of pages, not a growing set: the mount
   observer's near-the-viewport pages plus `MOUNT_RADIUS` either side
   (`mountedPageWindow`), so scrolling a long document end to end no longer

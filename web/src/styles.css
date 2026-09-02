@@ -751,6 +751,14 @@ mark.highlight { background: var(--color-highlight-bg); }
 .show-more { margin-top: 8px; }
 
 /* journal */
+/* No `content-visibility: auto` here. The Journal never unmounts a loaded
+ * day, so skipping the off-screen ones looks like the obvious win -- it was
+ * measured on scenario I and is a small, repeatable LOSS (pkm-muka,
+ * tooling/perf/baselines/2026-09-02-muka): a day is plain text and cheap to
+ * lay out, while every section crossing the relevance boundary forces its
+ * own layout and style recalc, so 6-8 layouts per scroll became 31-45 and
+ * browser CPU rose ~1 point on both the standard and a 4x-heavier journal.
+ * Re-measure before trying again; the portals it needs already exist. */
 .journal-day { margin-bottom: 40px; padding-bottom: 16px; border-bottom: 1px solid var(--color-border-subtle); }
 .journal-sentinel { height: 1px; }
 

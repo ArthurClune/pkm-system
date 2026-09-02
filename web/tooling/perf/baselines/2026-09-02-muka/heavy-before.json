@@ -1,0 +1,68 @@
+{
+  "workers": [
+    "http://127.0.0.1:8977/app-assets/worker-CattZnSZ.js"
+  ],
+  "I journal scroll": {
+    "name": "I journal scroll",
+    "wallSec": 12.2,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 1,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 3,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {
+          "/api/journal": 3
+        },
+        "wsUrls": {},
+        "resetAt": 1788325140726
+      }
+    ],
+    "react": [
+      null
+    ],
+    "bags": [
+      {
+        "requests": {
+          "/api/journal": 3
+        },
+        "requestTotal": 3,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.29410400000000003,
+        "ScriptDuration": 0.06189900000000001,
+        "LayoutDuration": 0.011379,
+        "RecalcStyleDuration": 0.005595999999999997,
+        "LayoutCount": 6,
+        "RecalcStyleCount": 6,
+        "JSHeapUsedSize": 18105316,
+        "Nodes": 9090,
+        "JSEventListeners": 3283
+      }
+    ],
+    "browserCpuPct": 9.9,
+    "browserRssMB": 1063,
+    "browserProcs": 8,
+    "serverCpuPct": 0.57
+  }
+}

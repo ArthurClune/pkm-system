@@ -642,9 +642,13 @@ Editing mechanics to know before touching `outline/`:
   the live shared outline without a second editing implementation.
 - **`dragover` is coalesced; `preventDefault` is not.** `useDropZone` runs the
   boundary and indicator geometry at most once per animation frame, and
-  measures each candidate row's rectangle at most once per drag. Rows can be
-  cached that long because nothing edits or collapses the outline while a drag
-  is in progress. `preventDefault` and `dataTransfer.dropEffect` stay
+  measures each candidate row's rectangle at most once per drag. Rows do move
+  under a drag — a remote op, a late image load, a rewrap — so each cached
+  rect is kept against its row's uid and re-measured when that index comes to
+  mean a different row. A create and a delete in one remote batch leave the
+  row count unchanged, which is the case the uid catches and nothing else
+  would. Height changes alone are caught by neither, and are accepted as
+  stale for the rest of the drag. `preventDefault` and `dataTransfer.dropEffect` stay
   synchronous on every event, because HTML5 DnD only honours them inside the
   handler; a deferred one leaves the drop refused. Both are unconditional,
   which is sound because `allowedDepths` never returns empty. A scroll does

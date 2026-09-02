@@ -84,6 +84,7 @@ web/src/
 │   │                                      history, outline paste, drag planning
 │   ├── blockStamps.ts        Core         Stamp bands; which ops count as a change
 │   ├── baseTextHash.ts       Core         Stamps update_text ops at build time
+│   ├── textareaHeight.ts     Core         Auto-grow reset/write decisions (JS fallback)
 │   ├── missingPage.ts        Core         The missing-page policy (see State management)
 │   ├── useOutline.ts         Shell        Implements OutlineHandlers
 │   ├── loadOutlineBlocks.ts  Shell        The one blocks-only page read behind every
@@ -497,7 +498,11 @@ No component holds block-tree state. The most any of them owns is
 `BlockInput`'s *draft* of one block's text, plus the transient popup offsets
 around it. `outline/useBlockDraft.ts` tracks the value, its dirty flag, IME
 composition, adoption of committed text over a clean draft, and caret
-restoration after a programmatic value swap.
+restoration after a programmatic value swap. It also auto-grows the
+textarea. CSS `field-sizing: content` does this natively where supported.
+Elsewhere, a JS fallback resets the height to `auto` only when
+`textareaHeight.ts::mayHaveShrunk` says the content might be shorter, and
+writes the measured height only when it changed.
 
 ```mermaid
 flowchart LR
@@ -821,6 +826,7 @@ its fix installed. The bean has the full investigation.
 | An assistant reply shows a block citation as literal `((^uid))` text instead of a link | the model copied the `^uid` marker from tool output into the citation; `stripCaretBlockRefs` must run on assistant text before `tokenizeBlock` | pkm-wx86 |
 | Tapping a PDF in the iOS standalone PWA replaces the whole app with the PDF, with no way back | the `/files` PDF card was a same-origin `target="_blank"` anchor, which `ExternalLinkInterceptor` ignores; PDF cards must open the in-app `PdfViewer` overlay instead | pkm-5o11 |
 | A `((uid))` ref typed in a sidebar panel stays unresolved until the panel remounts | the sidebar mounted the bare `BlockRefContext.Provider`, so nothing watched for newly resolved texts; outline surfaces must mount `BlockRefProvider` | pkm-0one |
+| Typing on a big page burns a fifth of a CPU core, dominated by layout, not scripting | the textarea auto-grow reset height to `auto` and re-measured on every keystroke regardless of whether the content had grown or shrunk, forcing layout twice per character | pkm-youp |
 
 ## Testing and quality gates
 

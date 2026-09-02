@@ -2,10 +2,10 @@
 
 Playwright scripts that measure what the SPA actually does — timers, fetches,
 WebSocket attempts, forced layouts, long tasks, CPU — under idle, degraded
-network, typing, multi-tab, journal scroll and cold load. Written for the
-2026-09-01 investigation (epic pkm-fgjg); rerun after any change to sync,
-reconnect, the editor keystroke path, or the Journal loader, and compare with
-`baselines/`.
+network, typing, multi-tab, journal scroll, outline drag and cold load.
+Written for the 2026-09-01 investigation (epic pkm-fgjg); rerun after any
+change to sync, reconnect, the editor keystroke path, the Journal loader or
+the drop zone, and compare with `baselines/`.
 
 Not part of `pnpm verify`. Nothing here is a test; the numbers are for a
 human to read.
@@ -19,6 +19,7 @@ cd web/tooling/perf
 node seed.mjs                            # 300-block "Perf Big Page" + 30 daily pages
 HEADLESS=0 DUR=60000 node perf.mjs      # all valid scenarios; pass letters (e.g. `AF`) to pick
 HEADLESS=0 node perf.mjs J               # React commits / re-rendered fibers per keystroke
+HEADLESS=1 node perf.mjs K               # dragover handler ms, commits/s, forced layouts
 node summarize.mjs                       # out/results.json -> markdown table
 HEADLESS=0 WIN=60000 node ws-probe.mjs   # dead-link and flapping-link reconnect accounting
 pkill -f tests/e2e_serve.py
@@ -32,7 +33,7 @@ to 8977 in every script. Outputs land in `out/` (gitignored).
 | `seed.mjs` | seeds content through `POST /api/ops`, same as a client would |
 | `instrument.js` | `addInitScript` payload: wraps timers/fetch/WebSocket, observes long tasks and outline DOM mutations, exposes `window.__perf` |
 | `react-commits.js` | `addInitScript` payload for J: a minimal `__REACT_DEVTOOLS_GLOBAL_HOOK__` counting commits and re-rendered fibers into `window.__react` |
-| `perf.mjs` | scenarios A (idle, big page), B (idle, journal), E (degraded: WS refused, HTTP 8 s → 503), E2 (degraded + pending edit), F (typing), G (two tabs), H (cold load, SW warm and cold), I (journal scroll), J (journal with every seeded day mounted: React commits and re-rendered fibers per keystroke) |
+| `perf.mjs` | scenarios A (idle, big page), B (idle, journal), E (degraded: WS refused, HTTP 8 s → 503), E2 (degraded + pending edit), F (typing), G (two tabs), H (cold load, SW warm and cold), I (journal scroll), J (journal with every seeded day mounted: React commits and re-rendered fibers per keystroke), K (outline drag: dragover handler ms/event, commits/s, forced layouts) |
 | `ws-probe.mjs` | attempts/min on a dead link; changes-pulls and page refetches per successful reconnect on a flapping link |
 | `offline-probe.mjs` | per-process CPU attribution — exists to show why `context.setOffline` is unusable (below) |
 | `summarize.mjs` | table from `out/results.json` (or a path given as argv) |
@@ -53,6 +54,17 @@ to 8977 in every script. Outputs land in `out/` (gitignored).
   `cpu%`. A re-rendered fiber is not a DOM write — React reconciles an
   unchanged render to nothing — so J sees churn that `mut`/`mutOutside`
   cannot.
+- **Scenario K's drag is synthetic, and that is the point.** Playwright's
+  mouse cannot drive a native HTML5 drag loop, so the page dispatches its own
+  `DragEvent`s (one shared `DataTransfer`) straight at the drop zone at a
+  ~60 Hz pace. `dispatchEvent` runs listeners synchronously, so the
+  `performance.now()` bracket around it is the app's `dragover` handler and
+  nothing else — no hit-testing, no drag-image compositing. It therefore does
+  **not** prove anything about a real drag's frame rate, and says nothing
+  about touch DnD: iPad needs a physical-device check (the simulator cannot
+  drive post-lift drag moves). K also installs J's commit hook, so it is
+  opt-in by letter and its `cpu%` is not to be trusted. Headless is fine for
+  K, which measures handler time and commits rather than paint.
 - **`routeWebSocket` replaces `window.WebSocket` after `addInitScript`**, so
   the in-page `newWS` counter reads 0 whenever a WebSocket route is active.
   `ws-probe.mjs` counts attempts in the route handler instead.

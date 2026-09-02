@@ -53,6 +53,25 @@ for (const row of rows) {
 console.log("\n### Cold load\n");
 for (const k of ["H", "H2"]) if (r[k]) console.log(k, JSON.stringify(r[k], null, 1));
 if (r.workers) console.log("\nworkers:", JSON.stringify(r.workers));
+const drags = Object.values(r).filter((v) => v && v.drag);
+if (drags.length > 0) {
+  console.log("\n### K outline drag (handler ms / commits / forced layouts per dragover)\n");
+  const cols = ["scenario", "rows", "events", "pace_ms", "handler_mean_ms",
+                "handler_p50_ms", "handler_p95_ms", "handler_max_ms",
+                "handler_total_ms", "commits/ev", "fibers/ev", "layouts/ev",
+                "commits/s", "worstCommitFibers", "notPrevented"];
+  console.log("| " + cols.join(" | ") + " |");
+  console.log("|" + cols.map(() => "---").join("|") + "|");
+  for (const v of drags) {
+    const d = v.drag, e = v.dragPerEvent ?? {};
+    console.log("| " + [v.name, v.blockRows, d.events, d.paceMs, d.meanMs,
+      d.p50Ms, d.p95Ms, d.maxMs, d.totalHandlerMs, e.commits, e.renderedFibers,
+      e.layouts, v.commitsPerSec, v.react?.[0]?.maxRendered,
+      d.notPrevented].join(" | ") + " |");
+  }
+  console.log("\n`notPrevented` must be 0: an HTML5 drop is only legal if the" +
+              " dragover handler called preventDefault() synchronously.");
+}
 if (r["G multitab type50"]) {
   const g = r["G multitab type50"];
   console.log("\n### G tab-2 (observer tab) detail\n", JSON.stringify({

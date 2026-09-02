@@ -1,0 +1,272 @@
+{
+  "workers": [
+    "http://127.0.0.1:8977/app-assets/worker-CattZnSZ.js"
+  ],
+  "K drag top 60hz": {
+    "name": "K drag top 60hz",
+    "wallSec": 3.8,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 121,
+        "si": 0,
+        "raf": 0,
+        "stFired": 121,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 1,
+        "mutOutside": 1,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788315677284
+      }
+    ],
+    "react": [
+      {
+        "commits": 122,
+        "rendered": 3854,
+        "visited": 18439,
+        "maxRendered": 1687
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.10845899999999997,
+        "ScriptDuration": 0.068493,
+        "LayoutDuration": 0.0010330000000000061,
+        "RecalcStyleDuration": 0.0006390000000000007,
+        "LayoutCount": 9,
+        "RecalcStyleCount": 9,
+        "JSHeapUsedSize": 29058236,
+        "Nodes": 3683,
+        "JSEventListeners": 1343
+      }
+    ],
+    "browserCpuPct": 5.7,
+    "browserRssMB": 601,
+    "browserProcs": 4,
+    "serverCpuPct": 0.26,
+    "blockRows": 300,
+    "events": 120,
+    "paceMs": 16,
+    "fromBottom": false,
+    "drag": {
+      "events": 120,
+      "paceMs": 16,
+      "fromBottom": false,
+      "rows": 300,
+      "notPrevented": 0,
+      "dragstartMs": 0.3,
+      "dragendMs": 0.5,
+      "meanMs": 0.172,
+      "p50Ms": 0.2,
+      "p95Ms": 0.4,
+      "maxMs": 0.7,
+      "totalHandlerMs": 20.6
+    },
+    "dragPerEvent": {
+      "handlerMs": 0.172,
+      "commits": 1.02,
+      "renderedFibers": 32.1,
+      "layouts": 0.07
+    },
+    "commitsPerSec": 32.1
+  },
+  "K2 drag bottom 60hz": {
+    "name": "K2 drag bottom 60hz",
+    "wallSec": 4.3,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 121,
+        "si": 0,
+        "raf": 0,
+        "stFired": 121,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 1,
+        "mutOutside": 1,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788315687312
+      }
+    ],
+    "react": [
+      {
+        "commits": 122,
+        "rendered": 3854,
+        "visited": 18439,
+        "maxRendered": 1687
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.6071880000000001,
+        "ScriptDuration": 0.554217,
+        "LayoutDuration": 0.001126000000000002,
+        "RecalcStyleDuration": 0.0007269999999999985,
+        "LayoutCount": 11,
+        "RecalcStyleCount": 11,
+        "JSHeapUsedSize": 19158588,
+        "Nodes": 3674,
+        "JSEventListeners": 1343
+      }
+    ],
+    "browserCpuPct": 18.3,
+    "browserRssMB": 620,
+    "browserProcs": 4,
+    "serverCpuPct": 0.23,
+    "blockRows": 300,
+    "events": 120,
+    "paceMs": 16,
+    "fromBottom": true,
+    "drag": {
+      "events": 120,
+      "paceMs": 16,
+      "fromBottom": true,
+      "rows": 300,
+      "notPrevented": 0,
+      "dragstartMs": 0.2,
+      "dragendMs": 0,
+      "meanMs": 4.368,
+      "p50Ms": 4,
+      "p95Ms": 7.2,
+      "maxMs": 8,
+      "totalHandlerMs": 524.2
+    },
+    "dragPerEvent": {
+      "handlerMs": 4.368,
+      "commits": 1.02,
+      "renderedFibers": 32.1,
+      "layouts": 0.09
+    },
+    "commitsPerSec": 28.4
+  },
+  "K3 drag bottom 250hz": {
+    "name": "K3 drag bottom 250hz",
+    "wallSec": 2.6,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 121,
+        "si": 0,
+        "raf": 0,
+        "stFired": 121,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 1,
+        "mutOutside": 1,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788315697865
+      }
+    ],
+    "react": [
+      {
+        "commits": 122,
+        "rendered": 3854,
+        "visited": 18439,
+        "maxRendered": 1687
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.445238,
+        "ScriptDuration": 0.40571099999999993,
+        "LayoutDuration": 0.0004369999999999999,
+        "RecalcStyleDuration": 0.00027800000000000047,
+        "LayoutCount": 11,
+        "RecalcStyleCount": 11,
+        "JSHeapUsedSize": 16200840,
+        "Nodes": 3674,
+        "JSEventListeners": 1343
+      }
+    ],
+    "browserCpuPct": 22.5,
+    "browserRssMB": 605,
+    "browserProcs": 4,
+    "serverCpuPct": 0,
+    "blockRows": 300,
+    "events": 120,
+    "paceMs": 4,
+    "fromBottom": true,
+    "drag": {
+      "events": 120,
+      "paceMs": 4,
+      "fromBottom": true,
+      "rows": 300,
+      "notPrevented": 0,
+      "dragstartMs": 0.1,
+      "dragendMs": 0.1,
+      "meanMs": 3.158,
+      "p50Ms": 3,
+      "p95Ms": 4.2,
+      "maxMs": 7,
+      "totalHandlerMs": 379
+    },
+    "dragPerEvent": {
+      "handlerMs": 3.158,
+      "commits": 1.02,
+      "renderedFibers": 32.1,
+      "layouts": 0.09
+    },
+    "commitsPerSec": 46.9
+  }
+}

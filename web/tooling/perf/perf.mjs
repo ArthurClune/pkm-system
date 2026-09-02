@@ -6,6 +6,9 @@
 //     fibers per keystroke. Off by default because its DevTools hook walks
 //     the fiber tree on every commit, which would inflate every other
 //     scenario's CPU.
+//   K outline drag across the big page: dragover handler ms/event, React
+//     commits/s and forced layouts. Off by default for the same reason as J
+//     (it installs the same commit hook).
 //   C (tab hidden) and D (setOffline) are kept for reference but are OFF by
 //   default: neither measures what it claims (README "caveats").
 // Requires: seeded throwaway server on E2E_PORT (default 8977).
@@ -224,7 +227,9 @@ async function main() {
 
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await context.addInitScript(INIT);
-  if (ONLY.includes("J")) await context.addInitScript(REACT_INIT);
+  if (ONLY.includes("J") || ONLY.includes("K")) {
+    await context.addInitScript(REACT_INIT);
+  }
   const page = await context.newPage();
   const bag = freshBag();
   attachCounters(page, bag);
@@ -478,6 +483,130 @@ async function main() {
     }
     await page.keyboard.press("Escape");
     await sleep(2000);
+  }
+
+  // ---- K. outline drag: dragover handler cost across the big page --------
+  // A synthetic HTML5 drag, not a real one: Playwright's mouse cannot drive a
+  // native drag loop, so the page dispatches its own DragEvents with one
+  // shared DataTransfer. That is deliberate rather than a compromise here --
+  // `dispatchEvent` runs listeners synchronously, so the performance.now()
+  // bracket around it is the app's dragover handler and nothing of Chrome's
+  // hit-testing or drag-image compositing. Events go straight at the drop
+  // zone for the same reason.
+  //
+  // Three sweeps, because one number hides the shape of the cost:
+  //   K   page at the top, ~60 Hz -- the everyday drag. `boundaryAt` walks
+  //       rows only until one's midpoint is below the pointer, so near the
+  //       top of the outline it stops after a handful of rows.
+  //   K2  same pace, scrolled to the last row -- the boundary index is now
+  //       ~300, so this is where the O(rows) querySelector + rect walk the
+  //       bean describes actually lands.
+  //   K3  scrolled, but events at ~250 Hz -- a trackpad flick delivers
+  //       dragover faster than frames, which is the case rAF-coalescing is
+  //       for. At 60 Hz there is roughly one frame per event and nothing to
+  //       coalesce, so K/K2 alone would understate the fix.
+  if (ONLY.includes("K")) {
+    // The sweep, run in-page: dragstart on a row's handle, `events`
+    // dragovers with clientY marching down the viewport, then dragend.
+    const SWEEP = async ({ events, paceMs, fromBottom }) => {
+      const zone = document.querySelector(".outline-drop-zone");
+      const rows = zone ? [...zone.querySelectorAll("[data-uid]")] : [];
+      const handle = zone?.querySelector('[data-uid] .bullet[draggable="true"]');
+      if (!zone || !handle || rows.length === 0) {
+        return { error: "no drop zone / drag handle" };
+      }
+      const transfer = new DataTransfer();
+      const fire = (el, type, x, y) => {
+        const ev = new DragEvent(type, { bubbles: true, cancelable: true,
+                                         clientX: x, clientY: y,
+                                         dataTransfer: transfer });
+        // Brackets the handler only. Coalesced geometry runs later, in the
+        // rAF callback, so `ms` is the synchronous half and nothing else:
+        // compare whole-drag cost with the window's cdp ScriptDuration.
+        const t0 = performance.now();
+        el.dispatchEvent(ev);
+        return { ms: performance.now() - t0, prevented: ev.defaultPrevented };
+      };
+      const dragstart = fire(handle, "dragstart", 40, 120);
+      await new Promise((r) => setTimeout(r, 100)); // let the drag state commit
+
+      // clientX past one indent step so depthFromX has a non-trivial answer
+      const top = 80, bottom = window.innerHeight - 40;
+      const ms = [];
+      let notPrevented = 0;
+      for (let i = 0; i < events; i++) {
+        const y = top + ((bottom - top) * i) / (events - 1);
+        const got = fire(zone, "dragover", 200, y);
+        ms.push(got.ms);
+        // The drop is only legal if the handler called preventDefault
+        // synchronously -- coalescing must never defer that (pkm-ikk0).
+        if (!got.prevented) notPrevented++;
+        await new Promise((r) => setTimeout(r, paceMs));
+      }
+      const dragend = fire(handle, "dragend", 200, bottom);
+      const sorted = [...ms].sort((a, b) => a - b);
+      const at = (q) => +sorted[Math.min(sorted.length - 1,
+        Math.floor(q * sorted.length))].toFixed(3);
+      return {
+        events: ms.length, paceMs, fromBottom, rows: rows.length,
+        notPrevented,
+        dragstartMs: +dragstart.ms.toFixed(3), dragendMs: +dragend.ms.toFixed(3),
+        meanMs: +(ms.reduce((s, v) => s + v, 0) / ms.length).toFixed(3),
+        p50Ms: at(0.5), p95Ms: at(0.95), maxMs: +sorted.at(-1).toFixed(3),
+        totalHandlerMs: +ms.reduce((s, v) => s + v, 0).toFixed(1),
+      };
+    };
+
+    const sweep = async (name, cfg) => {
+      await page.goto(BASE + BIG_PAGE);
+      await page.waitForSelector(".block-text", { timeout: 30_000 });
+      await sleep(4000);
+      if (cfg.fromBottom) {
+        await page.locator(".outline-drop-zone [data-uid]").last()
+          .scrollIntoViewIfNeeded();
+        await sleep(1000);
+      }
+      const rowCount = await page.locator(".outline-drop-zone [data-uid]").count();
+      await page.evaluate(() => window.__perfMutStart(".outline-drop-zone, main, #root"));
+      let drag = null;
+      const r = await measure(name, [page], [cdp], [bag], 0, {
+        ...opts,
+        during: async () => {
+          drag = await page.evaluate(SWEEP, cfg);
+          await sleep(1500);
+        },
+        extra: { blockRows: rowCount, ...cfg },
+      });
+      await page.evaluate(() => window.__perfMutStop());
+      r.drag = drag;
+      const rk = r.react[0];
+      if (drag?.error) { console.log(`   ${name}:`, drag.error); return r; }
+      if (rk) {
+        r.dragPerEvent = {
+          handlerMs: drag.meanMs,
+          commits: +(rk.commits / drag.events).toFixed(2),
+          renderedFibers: +(rk.rendered / drag.events).toFixed(1),
+          layouts: +(r.cdp[0].LayoutCount / drag.events).toFixed(2),
+        };
+        r.commitsPerSec = +(rk.commits / r.wallSec).toFixed(1);
+        console.log(`   ${name}: ${rowCount} rows / ${drag.events} dragovers ` +
+          `@ ${drag.paceMs}ms — handler ${drag.meanMs}ms mean, ` +
+          `${drag.p95Ms}ms p95, ${drag.maxMs}ms max; ` +
+          `${r.dragPerEvent.commits} commits and ${r.dragPerEvent.layouts} ` +
+          `forced layouts per dragover (${r.commitsPerSec} commits/s, ` +
+          `${rk.rendered} fibers re-rendered, worst commit ${rk.maxRendered})`);
+      }
+      if (drag.notPrevented > 0) {
+        console.log(`   ${name}: WARNING ${drag.notPrevented}/${drag.events} ` +
+          `dragovers were not preventDefault()ed — the drop would be refused`);
+      }
+      await sleep(1000);
+      return r;
+    };
+
+    await sweep("K drag top 60hz", { events: 120, paceMs: 16, fromBottom: false });
+    await sweep("K2 drag bottom 60hz", { events: 120, paceMs: 16, fromBottom: true });
+    await sweep("K3 drag bottom 250hz", { events: 120, paceMs: 4, fromBottom: true });
   }
 
   // ---- D. offline -------------------------------------------------------

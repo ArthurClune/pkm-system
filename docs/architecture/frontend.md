@@ -152,6 +152,7 @@ web/src/
 │   └── baseSchema.gen.ts     —            Generated from the server's BASE_DDL
 │
 ├── dnd/                      Shell        Drag-and-drop context + drop zones
+│   └── dropGeometry.ts       Core         Boundary/indicator from measured rects
 └── contexts.ts, sidebar.ts, paths.ts, router.ts, help/ — small shared modules
 ```
 
@@ -639,6 +640,24 @@ Editing mechanics to know before touching `outline/`:
   spans with no role, tab stop, menu, focus, upload, selection or drag
   handlers, and chevrons are disabled. The same renderer therefore displays
   the live shared outline without a second editing implementation.
+- **`dragover` is coalesced; `preventDefault` is not.** `useDropZone` runs the
+  boundary and indicator geometry at most once per animation frame, and
+  measures each candidate row's rectangle at most once per drag. Rows do move
+  under a drag — a remote op, a late image load, a rewrap — so each cached
+  rect is kept against its row's uid and re-measured when that index comes to
+  mean a different row. A create and a delete in one remote batch leave the
+  row count unchanged, which is the case the uid catches and nothing else
+  would. Height changes alone are caught by neither, and are accepted as
+  stale for the rest of the drag. `preventDefault` and `dataTransfer.dropEffect` stay
+  synchronous on every event, because HTML5 DnD only honours them inside the
+  handler; a deferred one leaves the drop refused. Both are unconditional,
+  which is sound because `allowedDepths` never returns empty. A scroll does
+  move rows, and the cached tops are viewport-relative like the `clientY` they
+  are compared against. So the cache is thrown away and rebuilt rather than
+  shifted; `cacheIsUsable` (`dropGeometry.ts`, Core) states when one may be
+  reused at all. A drop resolves the last *processed* candidate rather than
+  the drop event's own coordinates, so a block lands where the indicator line
+  was drawn.
 - Phones get a bottom **Composer** (append-to-daily-note) instead of full
   outline editing.
 
@@ -903,10 +922,12 @@ Playwright e2e against that build.**
 - **Perf harness** (`web/tooling/perf/`, not a gate): Playwright scripts that
   count timers, fetches, WebSocket attempts, forced layouts and CPU under
   idle, degraded-link, typing, multi-tab and journal-scroll scenarios, against
-  a seeded throwaway server. Scenario `J` instead counts React commits and
-  re-rendered fibers per keystroke with every seeded Journal day mounted,
-  through a minimal DevTools hook; a wasted re-render writes no DOM, so no
-  other counter here can see it. Numbers are for a human to read against
+  a seeded throwaway server. Scenarios `J` and `K` instead count React commits
+  and re-rendered fibers through a minimal DevTools hook: `J` per keystroke
+  with every seeded Journal day mounted, `K` per `dragover` across a 300-block
+  page. `K` also times the handler itself, in milliseconds per event. A
+  wasted re-render writes no DOM, so no other counter here can see it.
+  Numbers are for a human to read against
   `baselines/`; the README has the recipe and the Playwright traps that make
   naive measurements wrong.
 

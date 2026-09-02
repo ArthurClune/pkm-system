@@ -19,7 +19,25 @@ Tier 3 — a bag of small, independent items from the 2026-09-01 investigation. 
 6. No `prefers-reduced-motion` block in `styles.css` — accessibility, not energy; note only.
 
 ## Checklist
-- [ ] 1 FK-check scope (measure first)
+- [x] 1 FK-check scope (measure first) — measured, NOT worth scoping, no code change.
+      Timed `PRAGMA foreign_key_check` against the replica schema in the same
+      in-memory sqlite-wasm the replica tests use (50 reps, warmed):
+
+      | blocks | FK-bearing rows | whole-db | blocks | refs | block_refs | sum of the three |
+      |-------:|----------------:|---------:|-------:|-----:|-----------:|-----------------:|
+      |  1 000 |           2 999 | 0.315 ms | 0.068  |0.133 |    0.111   |         0.318 ms |
+      |  5 000 |          14 999 | 1.717 ms | 0.335  |0.768 |    0.623   |         1.723 ms |
+      | 20 000 |          59 999 | 7.537 ms | 1.404  |3.371 |    2.727   |         7.408 ms |
+
+      The scoped remedy the bean proposes provably saves nothing: `blocks`,
+      `refs` and `block_refs` ALL bear FKs, so a correct scoped check must run
+      all three, and the unscoped pragma already visits only FK-bearing tables
+      (whole-db == sum-of-three within noise at every size). Scoping to
+      `blocks` alone would be a correctness regression, not an optimisation --
+      the file header's WITHOUT ROWID reasoning is specifically about `refs`
+      and `block_refs` violations. The only remaining lever ("skip when the
+      batch touches no FK column") is a redesign of the pkm-qvlx guarantee,
+      not hygiene; deliberately not attempted here.
 - [ ] 2 Bluesky lazy
 - [ ] 3 Journal content-visibility
 - [ ] 4 BlockRefProvider store

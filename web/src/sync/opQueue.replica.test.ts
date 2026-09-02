@@ -1483,6 +1483,25 @@ async () => {
   expect(bodies).toHaveLength(1);
 });
 
+test("a count that did not move is not re-emitted (pkm-qfee)", async () => {
+  fetchSeq([() => jsonResponse({ ok: true })]);
+  const q = createOpQueue(memReplica(), () => undefined);
+  const pendingCounts: number[] = [];
+  const unsentCounts: number[] = [];
+  q.onPending((n) => pendingCounts.push(n));
+  q.onUnsentInMemory((n) => unsentCounts.push(n));
+  for (const uid of ["u1", "u2"]) {
+    q.enqueue([op(uid)]);
+    await q.settled();
+    await q.drain();
+  }
+  // Both edits move the durable count, so both are published...
+  expect(pendingCounts).toEqual([1, 0, 1, 0]);
+  // ...but the empty in-memory lane is published once and then left alone:
+  // every emit is a new context identity for each mounted outline (pkm-qfee).
+  expect(unsentCounts).toEqual([0]);
+});
+
 test("a healthy durable enqueue reports non-zero onPending while onUnsentInMemory stays 0",
 async () => {
   const replica = memReplica();

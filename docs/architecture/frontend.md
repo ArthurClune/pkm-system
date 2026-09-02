@@ -342,11 +342,30 @@ There is no Redux/Zustand; state lives in three layers:
 1. **Server payloads per view** — components fetch JSON through the typed
    client (`apiGet`/`apiPost`/`apiPut`/`apiDelete`) and hold results in
    local state, refetching when told to.
-2. **`SyncProvider`** (`sync/SyncProvider.tsx`) — one global context:
-   connection status, editability, pending-op count, delivery-health
-   `problem`, `enqueue()`, and `resyncSeq` — a counter bumped whenever
-   server state may have diverged (reconnect after a gap, repair finished).
-   Views subscribe via `useResync(fn)` and refetch on each bump.
+2. **`SyncProvider`** (`sync/SyncProvider.tsx`) — four contexts, one per rate
+   of change. React cannot subscribe to part of a context value, and the
+   Journal mounts one outline per loaded day, so **anything sharing an
+   identity with `pending` re-renders every mounted outline twice per flushed
+   edit**. A consumer takes the narrowest hook it can:
+
+   | Hook | Value | New identity when |
+   |---|---|---|
+   | `useSyncActions()` | `enqueue`, `subscribe`, `settled`, `attachOutlineReplay`, `retryProblem`, `dismissProblem`, `discardProblem`, `resetReplica` | never: one object per provider, because each method reads current state through a ref |
+   | `useResyncSeq()` | `resyncSeq` | server state may have diverged (reconnect after a gap, repair finished) |
+   | `useSyncEditability()` | `canEdit`, `readOnlyReason` | editing becomes allowed or blocked; a flap with a ready replica changes neither |
+   | `useSyncHealth()` | `status`, `replicaMode`, `pending`, `unsentInMemory`, `problem` | the socket flaps, or an op is queued or acknowledged |
+
+   Views subscribe to the counter through `useResync(fn)` and refetch on each
+   bump. There is deliberately no whole-value hook. Tests inject a complete
+   `Sync` through `SyncContext`, which every hook prefers when set; the
+   provider itself publishes only the four slices.
+
+   `pending` has exactly one publisher, the op queue: it suppresses a re-emit
+   of a count that did not move, so a second writer of that state would turn
+   the suppression into a banner stuck on a stale number. Anything that
+   changes the durable queue behind the queue's back — a previous session's
+   rows at mount, a write the offline shim enqueued inside the worker — calls
+   `queue.refreshPending()` rather than reading the replica itself.
 3. **Per-title outline sessions** (`outline/outlineSessions.ts`) — the block
    tree's home, and the most intricate module in the app. A module-level
    `Map<title, Session>` external store hands every view of a title one
@@ -831,6 +850,7 @@ its fix installed. The bean has the full investigation.
 | Tapping a PDF in the iOS standalone PWA replaces the whole app with the PDF, with no way back | the `/files` PDF card was a same-origin `target="_blank"` anchor, which `ExternalLinkInterceptor` ignores; PDF cards must open the in-app `PdfViewer` overlay instead | pkm-5o11 |
 | A `((uid))` ref typed in a sidebar panel stays unresolved until the panel remounts | the sidebar mounted the bare `BlockRefContext.Provider`, so nothing watched for newly resolved texts; outline surfaces must mount `BlockRefProvider` | pkm-0one |
 | Typing on a big page burns a fifth of a CPU core, dominated by layout, not scripting | the textarea auto-grow reset height to `auto` and re-measured on every keystroke regardless of whether the content had grown or shrunk, forcing layout twice per character | pkm-youp |
+| One edit in the journal re-renders every row of every day on screen, with no DOM change to show for it | the Sync context was a single value, so a pending count made a new identity for every consumer; a consumer must take the narrowest hook it needs, and `EditableBlock` is memoised behind props the tree holds stable | pkm-qfee |
 
 ## Testing and quality gates
 
@@ -863,7 +883,10 @@ Playwright e2e against that build.**
 - **Perf harness** (`web/tooling/perf/`, not a gate): Playwright scripts that
   count timers, fetches, WebSocket attempts, forced layouts and CPU under
   idle, degraded-link, typing, multi-tab and journal-scroll scenarios, against
-  a seeded throwaway server. Numbers are for a human to read against
+  a seeded throwaway server. Scenario `J` instead counts React commits and
+  re-rendered fibers per keystroke with every seeded Journal day mounted,
+  through a minimal DevTools hook; a wasted re-render writes no DOM, so no
+  other counter here can see it. Numbers are for a human to read against
   `baselines/`; the README has the recipe and the Playwright traps that make
   naive measurements wrong.
 

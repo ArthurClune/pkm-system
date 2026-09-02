@@ -6,7 +6,7 @@ import { useConfirm } from "../components/ConfirmDialog";
 import { ImageOverlay } from "../components/ImageOverlay";
 import { PdfEmbed } from "../components/PdfEmbed";
 import { SearchIcon } from "../components/icons";
-import { useSync } from "../sync/SyncProvider";
+import { useSyncHealth } from "../sync/SyncProvider";
 import {
   FileDescriptionPopover, FileRefsPopover,
 } from "./FileCardPopovers";
@@ -167,7 +167,7 @@ function FileCard({ item, checked, onToggle, onCopy }: {
 }
 
 export function Files() {
-  const { status } = useSync();
+  const { status } = useSyncHealth();
   const offline = status !== "connected";
   const { confirm, dialog } = useConfirm();
   const [filters, setFilters] = useState<FileFilters>(EMPTY_FILTERS);

@@ -10,7 +10,7 @@ import { makeSync } from "../test-helpers";
 import { Files } from "./Files";
 
 vi.mock("../api/client", () => ({ apiFetch: vi.fn() }));
-vi.mock("../sync/SyncProvider", () => ({ useSync: vi.fn() }));
+vi.mock("../sync/SyncProvider", () => ({ useSyncHealth: vi.fn() }));
 // The real PdfEmbed lazy-imports react-pdf/pdfjs; stub it with a dialog that
 // exposes its props so these tests only assert the card -> viewer wiring.
 vi.mock("../components/PdfEmbed", () => ({
@@ -23,10 +23,10 @@ vi.mock("../components/PdfEmbed", () => ({
 }));
 
 import { apiFetch } from "../api/client";
-import { useSync } from "../sync/SyncProvider";
+import { useSyncHealth } from "../sync/SyncProvider";
 
 const mockFetch = vi.mocked(apiFetch);
-const mockSync = vi.mocked(useSync);
+const mockSync = vi.mocked(useSyncHealth);
 
 const item = (over: Partial<AssetSearchItem>): AssetSearchItem => ({
   sha256: "ab".repeat(32), filename: "pic.png", mime: "image/png",

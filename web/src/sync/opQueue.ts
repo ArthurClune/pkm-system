@@ -96,6 +96,13 @@ export interface OpQueue {
   resume(reason: "recovery"): void;
   dispose(): void;
   onPending(fn: (n: number) => void): () => void;
+  /** Re-read the durable count and publish it through onPending. The ONLY way
+   * for an outside caller to act on "the durable table may have changed
+   * without this queue touching it" — a previous session's rows at mount, or a
+   * write the offline shim enqueued inside the worker. A caller that reads the
+   * replica itself and sets its own copy of the count silently disables the
+   * re-emit suppression on that number (see emitPending). */
+  refreshPending(): Promise<number>;
   /** Ops that exist ONLY in this tab's memory (the fallback lane) — never a
    * durable replica row, which survives a reload fine. This is the gate a
    * beforeunload guard must use: onPending also counts durable rows, and
@@ -211,9 +218,40 @@ function createReplicaQueue(replica: Replica,
   // call site to forget (pkm-0htf). dispose() never touches fallback.length —
   // it settles entries in place, deliberately keeping them in the pending
   // diagnostic — so it needs no emit here either.
+  // Each emission costs every subscriber a re-render, and in the app that is
+  // one per mounted outline (pkm-qfee), so a count that did not move is not
+  // published: a flushed edit used to publish `unsentInMemory: 0` on both its
+  // persist and its delivery. null = nothing published yet, so a subscriber
+  // registered before the first emit still learns the starting value.
+  //
+  // INVARIANT: every writer of pendingCount publishes through here, via
+  // setPendingCount below, and no subscriber may write its own copy of the
+  // count from any other source (refreshPending is the door for an outside
+  // "re-read the durable table" — see SyncProvider). Suppressing a repeat is
+  // only sound while this cache is what the subscribers actually hold: a
+  // second writer moves them without moving `lastPending`, and every later
+  // emit of that same number is then dropped as a no-op, leaving the count
+  // stuck until it happens to change again.
+  let lastPending: number | null = null;
+  let lastUnsent: number | null = null;
   const emitPending = (): void => {
-    pending.emit(totalPending());
-    unsentInMemory.emit(fallback.length);
+    const total = totalPending();
+    const unsent = fallback.length;
+    if (total !== lastPending) {
+      lastPending = total;
+      pending.emit(total);
+    }
+    if (unsent !== lastUnsent) {
+      lastUnsent = unsent;
+      unsentInMemory.emit(unsent);
+    }
+  };
+
+  /** The one way to move the durable count: assignment and publication in a
+   * single step, so no path can leave the two apart (see emitPending). */
+  const setPendingCount = (n: number): void => {
+    pendingCount = n;
+    emitPending();
   };
 
   /** A durable batch reached a terminal state — delivered, or poisoned and so
@@ -277,7 +315,7 @@ function createReplicaQueue(replica: Replica,
     // Nothing to ask, and asking is what pkm-9x6u is about.
     if (unavailable !== null) return pendingCount;
     try {
-      pendingCount = await replica.pendingCount();
+      setPendingCount(await replica.pendingCount());
     } catch (error: unknown) {
       // The last observed count is still the best terminal diagnostic.
       noteReplicaFailure(error);
@@ -346,10 +384,7 @@ function createReplicaQueue(replica: Replica,
         throw error;
       }
     }
-    if (result !== null) {
-      pendingCount = result.pending;
-      emitPending();
-    }
+    if (result !== null) setPendingCount(result.pending);
     // The database is now the durable source of truth. Removing fallback
     // metadata before publication is crash-safe: startup discovers the
     // poisoned database rows. If removal fails, marking is idempotent.
@@ -486,7 +521,6 @@ function createReplicaQueue(replica: Replica,
         continue;
       }
       if (batch === null) {
-        pendingCount = 0;
         finishAllDeliveries({ status: "delivered" });
         // Nothing durable is left, so nothing can still be ahead of a
         // retained entry: clear counts a stale read (or a queue flushed by a
@@ -495,6 +529,10 @@ function createReplicaQueue(replica: Replica,
         // gone, so it must be cleared too or the next appended entry inherits
         // a phantom predecessor.
         clearDurablePrecedence();
+        // Published, not just assigned: an empty durable queue is exactly the
+        // case where a stale over-count is cleared, and a banner still showing
+        // the old number is the visible half of that.
+        setPendingCount(0);
         if (fallback.length > 0) continue;
         if (drainAgain) continue;
         return { status: "drained" };
@@ -514,10 +552,9 @@ function createReplicaQueue(replica: Replica,
         noteReplicaFailure(error);
         return failed(error);
       }
-      pendingCount = result.pending;
       finishDelivery(batch.batch_id, { status: "delivered" });
       durableBatchSettled();
-      if (pendingCount === 0) {
+      if (result.pending === 0) {
         // A durable row can be deleted outside this drain (a recovery flush
         // or a rebase settle): its ticket never gets a matching finishDelivery
         // call here, so it stays in `deliveries` unresolved. Once the durable
@@ -525,7 +562,7 @@ function createReplicaQueue(replica: Replica,
         // delivered by one of those out-of-band paths — settle them now.
         finishAllDeliveries({ status: "delivered" });
       }
-      emitPending();
+      setPendingCount(result.pending);
       dispatch({ type: "batch-succeeded" });
       const loopBlock = terminalReason(qstate);
       if (loopBlock !== null) return blocked(loopBlock);
@@ -615,7 +652,6 @@ function createReplicaQueue(replica: Replica,
         const batchId = newUid();
         try {
           const result = await replica.enqueue(ops, batchId);
-          pendingCount = result.pending;
           if (fallback.length > 0) durableSinceFallback += 1;
           if (qstate.disposed) {
             resolveDelivery({
@@ -624,7 +660,7 @@ function createReplicaQueue(replica: Replica,
           } else {
             deliveries.set(batchId, resolveDelivery);
           }
-          emitPending();
+          setPendingCount(result.pending);
           resolve({ status: "persisted", pending: pendingCount });
           if (!qstate.disposed) kick();
         } catch (error: unknown) {
@@ -724,6 +760,10 @@ function createReplicaQueue(replica: Replica,
       for (const entry of fallback) entry.resolve({ status: "failed", error });
     },
     onPending: pending.add,
+    async refreshPending() {
+      await countPending();
+      return totalPending();
+    },
     onUnsentInMemory: unsentInMemory.add,
     onPoisonPending: poisonPending.add,
     onPoisonMarkFailed: poisonMarkFailed.add,

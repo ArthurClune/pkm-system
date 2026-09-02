@@ -2,6 +2,10 @@
 // Usage (see README.md): node perf.mjs [scenarioLetters]
 //   A idle big page   B idle journal   E degraded link   E2 degraded + edit
 //   F typing   G two tabs   H cold load   I journal scroll
+//   J journal with every seeded day mounted: React commits and re-rendered
+//     fibers per keystroke. Off by default because its DevTools hook walks
+//     the fiber tree on every commit, which would inflate every other
+//     scenario's CPU.
 //   C (tab hidden) and D (setOffline) are kept for reference but are OFF by
 //   default: neither measures what it claims (README "caveats").
 // Requires: seeded throwaway server on E2E_PORT (default 8977).
@@ -18,6 +22,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const PASSWORD = "e2e-pw";
 const BIG_PAGE = "/page/" + encodeURIComponent("Perf Big Page");
 const INIT = fs.readFileSync(path.join(HERE, "instrument.js"), "utf8");
+const REACT_INIT = fs.readFileSync(path.join(HERE, "react-commits.js"), "utf8");
 const DUR = Number(process.env.DUR ?? 60_000);
 const HEADLESS = process.env.HEADLESS === "1";
 const ONLY = (process.argv[2] ?? "ABEFGHI").toUpperCase();
@@ -135,7 +140,10 @@ function resetBag(bag) {
 
 async function measure(name, pages, cdps, bags, durationMs, opts = {}) {
   const browserPid = opts.browserPid, srvPid = opts.serverPid;
-  for (const p of pages) await p.evaluate(() => window.__perfReset());
+  for (const p of pages) await p.evaluate(() => {
+    window.__perfReset();
+    if (window.__reactReset) window.__reactReset();
+  });
   for (const b of bags) resetBag(b);
   const before = [];
   for (const c of cdps) before.push(await cdpMetrics(c));
@@ -154,6 +162,10 @@ async function measure(name, pages, cdps, bags, durationMs, opts = {}) {
   const vis1 = await pages[0].evaluate(() => document.visibilityState);
   const perf = [];
   for (const p of pages) perf.push(await p.evaluate(() => JSON.parse(JSON.stringify(window.__perf))));
+  // null unless the React commit hook was installed (scenario J only).
+  const react = [];
+  for (const p of pages) react.push(await p.evaluate(() =>
+    window.__react ? JSON.parse(JSON.stringify(window.__react)) : null));
 
   const cdpDelta = [];
   for (let i = 0; i < before.length; i++) {
@@ -172,7 +184,7 @@ async function measure(name, pages, cdps, bags, durationMs, opts = {}) {
     serverCpuPct = ((s1.cpu - s0.cpu) / wall) * 100;
   }
   const r = { name, wallSec: +wall.toFixed(1), visibility: [vis0, vis1],
-              perf, bags: bags.map((b) => JSON.parse(JSON.stringify(b))),
+              perf, react, bags: bags.map((b) => JSON.parse(JSON.stringify(b))),
               cdp: cdpDelta,
               browserCpuPct: +browserCpuPct.toFixed(1),
               browserRssMB: +b1.rssMB.toFixed(0), browserProcs: b1.procs,
@@ -186,6 +198,9 @@ async function measure(name, pages, cdps, bags, durationMs, opts = {}) {
     `| timers st=${p.st}/${p.stFired} si=${p.si}/${p.siFired} raf=${p.raf}/${p.rafFired} ` +
     `fetch=${p.fetch} ws=${p.ws} lt=${p.longtasks}(${p.longtaskMs.toFixed(0)}ms) ` +
     `| net req=${bg.requestTotal} wsOpen=${bg.wsOpened} sent=${bg.wsSent} recv=${bg.wsRecv}`);
+  if (react[0]) console.log(`   react: commits=${react[0].commits} ` +
+    `renderedFibers=${react[0].rendered} maxInOneCommit=${react[0].maxRendered} ` +
+    `fibersVisited=${react[0].visited}`);
   if (Object.keys(p.fetchUrls).length) console.log("   fetchUrls:", JSON.stringify(p.fetchUrls));
   if (bg.requestTotal) console.log("   requests:", JSON.stringify(bg.requests));
   return r;
@@ -209,6 +224,7 @@ async function main() {
 
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await context.addInitScript(INIT);
+  if (ONLY.includes("J")) await context.addInitScript(REACT_INIT);
   const page = await context.newPage();
   const bag = freshBag();
   attachCounters(page, bag);
@@ -408,6 +424,60 @@ async function main() {
         await sleep(2000);
       },
     });
+  }
+
+  // ---- J. journal churn: React commits / re-rendered fibers per keystroke -
+  // The Journal mounts one EditablePage per loaded day and never unmounts it,
+  // so this is the scenario where a single new Sync context identity costs
+  // every mounted outline a re-render (pkm-qfee).
+  if (ONLY.includes("J")) {
+    await page.goto(BASE + "/");
+    await page.waitForSelector(".journal-day", { timeout: 30_000 });
+    // Scroll to the bottom until the seeded days stop arriving: the journal
+    // loads a window at a time off an IntersectionObserver sentinel.
+    let days = 0;
+    for (let i = 0; i < 40; i++) {
+      await page.mouse.wheel(0, 6000);
+      await sleep(500);
+      const n = await page.locator(".journal-day").count();
+      if (n === days && i > 2) break;
+      days = n;
+    }
+    await sleep(3000);
+    const dayCount = await page.locator(".journal-day").count();
+    const rowCount = await page.locator(".journal-day .block-row").count();
+    await page.locator(".journal-day .block-text").first().click();
+    await page.waitForSelector("textarea.block-input", { timeout: 10_000 });
+    await page.locator("textarea.block-input").evaluate((el) =>
+      el.setSelectionRange(el.value.length, el.value.length));
+    await page.evaluate(() => window.__perfMutStart(".journal, main, #root"));
+    const TEXT = "journal churn probe: fifty characters typed ok now".slice(0, 50);
+    const r = await measure("J journal all-days type50", [page], [cdp], [bag], 0, {
+      ...opts,
+      during: async () => {
+        await page.keyboard.type(TEXT, { delay: 60 });
+        await sleep(3000); // the 500 ms text debounce plus its round trip
+      },
+      extra: { days: dayCount, blockRows: rowCount, chars: TEXT.length },
+    });
+    await page.evaluate(() => window.__perfMutStop());
+    const rk = r.react[0];
+    if (rk) {
+      r.perKeystroke = {
+        commits: +(rk.commits / TEXT.length).toFixed(2),
+        renderedFibers: +(rk.rendered / TEXT.length).toFixed(1),
+        fibersVisited: +(rk.visited / TEXT.length).toFixed(1),
+        maxRenderedInOneCommit: rk.maxRendered,
+      };
+      console.log(`   J: ${dayCount} days / ${rowCount} block rows — ` +
+        `${r.perKeystroke.commits} commits and ` +
+        `${r.perKeystroke.renderedFibers} re-rendered fibers per keystroke ` +
+        `(worst single commit ${rk.maxRendered})`);
+    } else {
+      console.log("   J: no React commit hook — was J passed as a scenario letter?");
+    }
+    await page.keyboard.press("Escape");
+    await sleep(2000);
   }
 
   // ---- D. offline -------------------------------------------------------

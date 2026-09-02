@@ -10,7 +10,8 @@
 // on — a failed repair, a failed durable mark, a stalled replica; everything
 // else is `role="status"`.
 import { useEffect, useState } from "react";
-import { useSync, type SyncProblem, type SyncStatus } from "../sync/SyncProvider";
+import { useSyncActions, useSyncEditability, useSyncHealth,
+         type SyncProblem, type SyncStatus } from "../sync/SyncProvider";
 import { useConfirm } from "./ConfirmDialog";
 
 type ProblemOf<K extends SyncProblem["kind"]> = Extract<SyncProblem, { kind: K }>;
@@ -263,9 +264,10 @@ function ConnectivityBanner({ status, canEdit, pending, readOnlyReason,
 }
 
 export function OfflineIndicator() {
-  const { status, canEdit, pending, readOnlyReason, problem,
-          retryProblem, dismissProblem, discardProblem,
-          resetReplica } = useSync();
+  const { status, pending, problem } = useSyncHealth();
+  const { canEdit, readOnlyReason } = useSyncEditability();
+  const { retryProblem, dismissProblem, discardProblem,
+          resetReplica } = useSyncActions();
   const { confirm, dialog } = useConfirm();
 
   // A reload destroys the in-memory fallback lane, which in an online-only

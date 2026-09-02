@@ -1,0 +1,86 @@
+{
+  "workers": [
+    "http://127.0.0.1:8977/app-assets/worker-CattZnSZ.js"
+  ],
+  "J journal all-days type50": {
+    "name": "J journal all-days type50",
+    "wallSec": 6.2,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 58,
+        "si": 0,
+        "raf": 0,
+        "stFired": 1,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 4,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 50,
+        "mutOutside": 0,
+        "fetchUrls": {
+          "/api/ops": 1,
+          "/api/sync/changes": 2,
+          "/api/page/September%201st%2C%202026": 1
+        },
+        "wsUrls": {},
+        "resetAt": 1788311812320
+      }
+    ],
+    "react": [
+      {
+        "commits": 56,
+        "rendered": 172,
+        "visited": 5209,
+        "maxRendered": 32
+      }
+    ],
+    "bags": [
+      {
+        "requests": {
+          "/api/ops": 1,
+          "/api/sync/changes": 2,
+          "/api/page/September%201st%2C%202026": 1
+        },
+        "requestTotal": 4,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 2,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.293912,
+        "ScriptDuration": 0.047514,
+        "LayoutDuration": 0.017680999999999995,
+        "RecalcStyleDuration": 0.000026000000000001716,
+        "LayoutCount": 50,
+        "RecalcStyleCount": 1,
+        "JSHeapUsedSize": 16968064,
+        "Nodes": 4482,
+        "JSEventListeners": 1477
+      }
+    ],
+    "browserCpuPct": 12.2,
+    "browserRssMB": 1039,
+    "browserProcs": 8,
+    "serverCpuPct": 0.32,
+    "days": 31,
+    "blockRows": 300,
+    "chars": 50,
+    "perKeystroke": {
+      "commits": 1.12,
+      "renderedFibers": 3.4,
+      "fibersVisited": 104.2,
+      "maxRenderedInOneCommit": 32
+    }
+  }
+}

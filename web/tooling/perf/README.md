@@ -18,6 +18,7 @@ cd server && E2E_PORT=8977 uv run python tests/e2e_serve.py &   # throwaway serv
 cd web/tooling/perf
 node seed.mjs                            # 300-block "Perf Big Page" + 30 daily pages
 HEADLESS=0 DUR=60000 node perf.mjs      # all valid scenarios; pass letters (e.g. `AF`) to pick
+HEADLESS=0 node perf.mjs J               # React commits / re-rendered fibers per keystroke
 node summarize.mjs                       # out/results.json -> markdown table
 HEADLESS=0 WIN=60000 node ws-probe.mjs   # dead-link and flapping-link reconnect accounting
 pkill -f tests/e2e_serve.py
@@ -30,7 +31,8 @@ to 8977 in every script. Outputs land in `out/` (gitignored).
 |---|---|
 | `seed.mjs` | seeds content through `POST /api/ops`, same as a client would |
 | `instrument.js` | `addInitScript` payload: wraps timers/fetch/WebSocket, observes long tasks and outline DOM mutations, exposes `window.__perf` |
-| `perf.mjs` | scenarios A (idle, big page), B (idle, journal), E (degraded: WS refused, HTTP 8 s → 503), E2 (degraded + pending edit), F (typing), G (two tabs), H (cold load, SW warm and cold), I (journal scroll) |
+| `react-commits.js` | `addInitScript` payload for J: a minimal `__REACT_DEVTOOLS_GLOBAL_HOOK__` counting commits and re-rendered fibers into `window.__react` |
+| `perf.mjs` | scenarios A (idle, big page), B (idle, journal), E (degraded: WS refused, HTTP 8 s → 503), E2 (degraded + pending edit), F (typing), G (two tabs), H (cold load, SW warm and cold), I (journal scroll), J (journal with every seeded day mounted: React commits and re-rendered fibers per keystroke) |
 | `ws-probe.mjs` | attempts/min on a dead link; changes-pulls and page refetches per successful reconnect on a flapping link |
 | `offline-probe.mjs` | per-process CPU attribution — exists to show why `context.setOffline` is unusable (below) |
 | `summarize.mjs` | table from `out/results.json` (or a path given as argv) |
@@ -44,6 +46,13 @@ to 8977 in every script. Outputs land in `out/` (gitignored).
   letter. Simulate a bad link with `page.routeWebSocket` (refuse the
   upgrade) plus delayed-503 `page.route`s, which is what E and `ws-probe.mjs`
   do.
+- **Scenario J is opt-in by letter**, like C and D, for the opposite reason:
+  its DevTools hook walks the fiber tree on every commit, so leaving it
+  installed would inflate the CPU and long-task figures of every other
+  scenario. Trust J's counts (commits and fibers per keystroke), not its
+  `cpu%`. A re-rendered fiber is not a DOM write — React reconciles an
+  unchanged render to nothing — so J sees churn that `mut`/`mutOutside`
+  cannot.
 - **`routeWebSocket` replaces `window.WebSocket` after `addInitScript`**, so
   the in-page `newWS` counter reads 0 whenever a WebSocket route is active.
   `ws-probe.mjs` counts attempts in the route handler instead.

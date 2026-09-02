@@ -1,12 +1,13 @@
 // pattern: Imperative Shell
-// Ties the websocket, the op queue and the replica into one context. status
-// drives connectivity UI; resyncSeq bumps whenever local state may have
+// Ties the websocket, the op queue and the replica together, and publishes
+// them as four contexts split by rate of change (see SyncContext below).
+// status drives connectivity UI; resyncSeq bumps whenever local state may have
 // diverged (rejected batch, or reconnect after a gap): views refetch
 // authoritative state via useResync. The replica (pkm-y8p0) is kept warm
 // from the changes feed via WS seq nudges; reconnect ordering is flush
 // pending ops -> pull feed -> resync bump (spec sections 3/6).
-import { createContext, useContext, useEffect, useMemo, useRef, useState,
-         type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef,
+         useState, type ReactNode } from "react";
 import type { BlockOp } from "../api/ops";
 import { apiFetch, setOfflineGateway } from "../api/client";
 import { attachActiveOutlineWriteReplay, repairActiveOutlineSessions,
@@ -38,15 +39,14 @@ const mergePoisonEvents = (
     a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
 };
 
-export interface Sync {
+/** Connectivity and delivery health: the half that churns. `pending` moves at
+ * least twice per flushed edit, so it must not share an identity with the
+ * actions below — see the context split under SyncContext. */
+export interface SyncHealth {
   status: SyncStatus;
-  resyncSeq: number;
   /** Replica lifecycle (offline support): "no-replica" means the app runs
    * online-only exactly as before pkm-y8p0. */
   replicaMode: ReplicaState["mode"];
-  /** Editing allowed: always when connected; offline only when the replica
-   * is ready and local storage can still persist edits (spec section 6). */
-  canEdit: boolean;
   /** Queued (non-poisoned) batches not yet acknowledged by the server. */
   pending: number;
   /** Ops stranded ONLY in this tab's memory — the subset of `pending` a
@@ -55,10 +55,27 @@ export interface Sync {
    * guard (wired in SyncProvider, not here) is gated on this and not on
    * `pending`. */
   unsentInMemory: number;
-  /** Why editing is blocked, when it is. */
-  readOnlyReason?: string;
   /** Delivery health is separate from websocket connectivity. */
   problem?: SyncProblem;
+}
+
+/** Whether editing is allowed, and why not. Its own slice because a socket
+ * flap with a ready replica leaves it unchanged, and an outline must not
+ * re-render for a change that cannot alter what it may do. */
+export interface SyncEditability {
+  /** Editing allowed: always when connected; offline only when the replica
+   * is ready and local storage can still persist edits (spec section 6). */
+  canEdit: boolean;
+  /** Why editing is blocked, when it is. */
+  readOnlyReason?: string;
+}
+
+/** Everything callable. One object for the provider's whole lifetime: every
+ * outline keeps it in the dependencies of its handlers, its edit runner and
+ * its DnD api, so a new identity here re-renders every mounted Journal day
+ * (pkm-qfee). Each method reads the freshest state through a ref rather than
+ * closing over rendered state, which is what makes that possible. */
+export interface SyncActions {
   /** Retry the retained rejected-batch repair, if it failed. */
   retryProblem(): Promise<void>;
   /** Clear repaired details. Failed/running problems cannot be dismissed. */
@@ -83,13 +100,14 @@ export interface Sync {
   settled(): Promise<void>;
 }
 
-export const SyncContext = createContext<Sync>({
-  status: "connecting",
-  resyncSeq: 0,
-  replicaMode: "starting",
-  canEdit: false,
-  pending: 0,
-  unsentInMemory: 0,
+/** The whole surface in one object. No component takes it — each reads the
+ * slice it needs through the hooks below — but a test fake supplies it
+ * wholesale through SyncContext, and that fake has to satisfy every slice. */
+export interface Sync extends SyncActions, SyncHealth, SyncEditability {
+  resyncSeq: number;
+}
+
+const DEFAULT_ACTIONS: SyncActions = {
   retryProblem: () => Promise.resolve(),
   dismissProblem: () => undefined,
   discardProblem: () => Promise.resolve(),
@@ -101,15 +119,55 @@ export const SyncContext = createContext<Sync>({
   attachOutlineReplay: () => undefined,
   subscribe: () => () => undefined,
   settled: () => Promise.resolve(),
-});
+};
+const DEFAULT_HEALTH: SyncHealth = {
+  status: "connecting", replicaMode: "starting", pending: 0, unsentInMemory: 0,
+};
+const DEFAULT_EDITABILITY: SyncEditability = { canEdit: false };
 
-export function useSync(): Sync {
-  return useContext(SyncContext);
+// Four contexts rather than one, because React has no way to subscribe to part
+// of a context value: whatever shares an identity with `pending` re-renders
+// twice per flushed edit, and in the Journal that is every mounted outline
+// (pkm-qfee). Ordered here from most to least stable.
+const SyncActionsContext = createContext<SyncActions>(DEFAULT_ACTIONS);
+const ResyncContext = createContext(0);
+const SyncEditabilityContext =
+  createContext<SyncEditability>(DEFAULT_EDITABILITY);
+const SyncHealthContext = createContext<SyncHealth>(DEFAULT_HEALTH);
+
+/** A complete Sync value to inject wholesale — how tests supply a fake
+ * (`test-helpers`' makeSync). SyncProvider deliberately does not publish this:
+ * it publishes the four slices instead. Every hook below prefers this when it
+ * is set, so a one-object fake still satisfies a consumer that reads slices. */
+export const SyncContext = createContext<Sync | null>(null);
+
+export function useSyncActions(): SyncActions {
+  const whole = useContext(SyncContext);
+  const actions = useContext(SyncActionsContext);
+  return whole ?? actions;
+}
+
+export function useSyncHealth(): SyncHealth {
+  const whole = useContext(SyncContext);
+  const health = useContext(SyncHealthContext);
+  return whole ?? health;
+}
+
+export function useSyncEditability(): SyncEditability {
+  const whole = useContext(SyncContext);
+  const editability = useContext(SyncEditabilityContext);
+  return whole ?? editability;
+}
+
+export function useResyncSeq(): number {
+  const whole = useContext(SyncContext);
+  const seq = useContext(ResyncContext);
+  return whole?.resyncSeq ?? seq;
 }
 
 /** Run fn whenever resyncSeq changes (not on mount). */
 export function useResync(fn: () => void): void {
-  const { resyncSeq } = useSync();
+  const resyncSeq = useResyncSeq();
   const seen = useRef(resyncSeq);
   useEffect(() => {
     if (resyncSeq !== seen.current) {
@@ -203,7 +261,9 @@ export function SyncProvider({ children, replica }: {
   // the mounted guard, the async orchestration, and the queue/replica I/O. The
   // current problem is read from problemRef (the last rendered value), matching
   // the former inline setProblem call sites.
-  const applySync = (event: SyncEvent): void => {
+  // Stable (refs and setState only): the actions value memoises on it, and
+  // that value must survive the provider's whole lifetime.
+  const applySync = useCallback((event: SyncEvent): void => {
     const prev = problemRef.current;
     const transition = transitionSync({ problem: prev }, event);
     if (!mountedRef.current) return;
@@ -218,7 +278,7 @@ export function SyncProvider({ children, replica }: {
     for (const effect of transition.effects) {
       if (effect.type === "bump-resync") setResyncSeq((n) => n + 1);
     }
-  };
+  }, []);
 
   const replicaRef = useRef<Replica | null | undefined>(undefined);
   const ownedReplicaRef = useRef<OwnedReplica | null>(null);
@@ -274,12 +334,14 @@ export function SyncProvider({ children, replica }: {
         });
       }),
     ];
-    // a durable queue may be non-empty from a previous session
-    void replicaRef.current?.pendingCount()
-      .then((n) => { if (mountedRef.current) setPending(n); })
-      .catch(() => undefined);
+    // A durable queue may be non-empty from a previous session. Asked of the
+    // queue, not of the replica: setPending has exactly one caller — the
+    // listener above — because the queue suppresses a re-emit of an unchanged
+    // count, and a second writer of this state would silently turn that
+    // suppression into a stuck banner (see opQueue's emitPending).
+    if (replicaRef.current) void queue.refreshPending();
     return () => { offs.forEach((off) => off()); };
-  }, [queue]);
+  }, [applySync, queue]);
   const replicaSync = useMemo(() => {
     const r = replicaRef.current;
     return r ? createReplicaSync({
@@ -310,9 +372,9 @@ export function SyncProvider({ children, replica }: {
         }
       },
     }) : null;
-    // queue is a mount-stable useMemo value; listing it keeps this memo
-    // honest without changing that replicaSync is created exactly once.
-  }, [queue]);
+    // queue and applySync are both mount-stable; listing them keeps this
+    // memo honest without changing that replicaSync is created exactly once.
+  }, [applySync, queue]);
 
   const repairEventsRef = useRef<(events: readonly PoisonEvent[]) => Promise<void>>(
     async () => undefined);
@@ -454,7 +516,7 @@ export function SyncProvider({ children, replica }: {
       type: "mode-ready-check", prevMode: was, mode: replicaState.mode,
       status: statusRef.current,
     });
-  }, [replicaState.mode]);
+  }, [applySync, replicaState.mode]);
 
   // Offline routing (spec section 4): while the socket is down, apiFetch
   // serves shimmed reads (and page create) from the replica. statusRef/modeRef
@@ -481,16 +543,17 @@ export function SyncProvider({ children, replica }: {
           nowMs: Date.now(),
         });
         if (result.handled && method !== "GET") {
-          // a shim write (page create) enqueued a batch inside the worker
-          void r.pendingCount()
-            .then((n) => { if (mountedRef.current) setPending(n); })
-            .catch(() => undefined);
+          // A shim write (page create) enqueued a batch inside the worker, so
+          // the durable count moved without the queue doing it: the queue has
+          // to re-read it, because it is the only publisher of that count.
+          void queue.refreshPending();
         }
         return result;
       },
     });
     return () => setOfflineGateway(null);
-  }, []);
+    // queue is mount-stable, so listing it does not re-register the gateway.
+  }, [queue]);
 
   // Connect/reconnect lifecycle: mount-time pending bootstrap, the reconnect
   // single-flight protocol, drain observation, socket status, and
@@ -499,9 +562,11 @@ export function SyncProvider({ children, replica }: {
     queue,
     replicaSync,
     // Leftovers from a previous page load (a reload can kill an in-flight
-    // POST): read before the first connect can start draining them.
+    // POST): read before the first connect can start draining them. Through
+    // the queue, so this read also seeds and publishes the count instead of
+    // being a second, private view of it.
     readInitialPending: () =>
-      replicaRef.current?.pendingCount().catch(() => 0) ?? Promise.resolve(0),
+      replicaRef.current ? queue.refreshPending() : Promise.resolve(0),
     startupRun: () => startupRunRef.current,
     mountedRef,
     statusRef,
@@ -530,7 +595,16 @@ export function SyncProvider({ children, replica }: {
   // banner component is mounted to show the corresponding copy (pkm-0htf).
   useUnloadGuard(unsentInMemory);
 
-  const api = useMemo<Sync>(() => {
+  const health = useMemo<SyncHealth>(
+    () => ({ status, replicaMode: replicaState.mode, pending, unsentInMemory,
+             problem }),
+    [status, replicaState.mode, pending, unsentInMemory, problem]);
+  // Value-equal by construction: both fields are primitives, so a flap that
+  // does not change what the editor may do publishes the same identity.
+  const editability = useMemo<SyncEditability>(
+    () => ({ canEdit, readOnlyReason }), [canEdit, readOnlyReason]);
+
+  const actions = useMemo<SyncActions>(() => {
     // Every Retry path ends the same way, and the condition is the point: the
     // replica may only resume syncing once a repair actually succeeded — a
     // restart after a failed one would sync past rows still awaiting repair.
@@ -538,14 +612,6 @@ export function SyncProvider({ children, replica }: {
       if (repairSucceededRef.current) await replicaSync?.start();
     };
     return {
-      status,
-      resyncSeq,
-      replicaMode: replicaState.mode,
-      canEdit,
-      pending,
-      unsentInMemory,
-      readOnlyReason,
-      problem,
       retryProblem: () => {
         // Which recovery this click means is a pure decision (retryPolicy.ts);
         // only its execution — the queue, the replica and the startup gate —
@@ -645,8 +711,22 @@ export function SyncProvider({ children, replica }: {
       },
       settled: () => queue.settled(),
     };
-  }, [status, resyncSeq, replicaState, canEdit, pending, unsentInMemory,
-      readOnlyReason, problem, queue, replicaSync]);
+    // All three are created once per provider, so this value is too. The
+    // methods reach current state through refs on purpose (see SyncActions).
+  }, [applySync, queue, replicaSync]);
 
-  return <SyncContext.Provider value={api}>{children}</SyncContext.Provider>;
+  // Nested rather than combined, most stable outermost. A change to one slice
+  // re-renders that slice's consumers only; `children` is the same element
+  // either way, so React skips the subtree it does not need.
+  return (
+    <SyncActionsContext.Provider value={actions}>
+      <ResyncContext.Provider value={resyncSeq}>
+        <SyncEditabilityContext.Provider value={editability}>
+          <SyncHealthContext.Provider value={health}>
+            {children}
+          </SyncHealthContext.Provider>
+        </SyncEditabilityContext.Provider>
+      </ResyncContext.Provider>
+    </SyncActionsContext.Provider>
+  );
 }

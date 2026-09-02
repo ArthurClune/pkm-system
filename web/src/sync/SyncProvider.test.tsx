@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { StrictMode, useEffect } from "react";
+import { StrictMode, useEffect, useMemo } from "react";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import { DndProvider, useDnd } from "../dnd/DndContext";
@@ -10,10 +10,26 @@ import { apiFetch } from "../api/client";
 import type { WsBatch } from "./socket";
 import { clientId, createOpQueue } from "./opQueue";
 import { RETRY_BASE_MS } from "./replicaSync";
-import { SyncProvider, useSync, type Sync } from "./SyncProvider";
+import { SyncProvider, useResyncSeq, useSyncActions, useSyncEditability,
+         useSyncHealth, type Sync } from "./SyncProvider";
+
+/** Every slice at once. The app has no such consumer — a component that only
+ * writes must not wake for a pending tick (pkm-qfee) — but these tests assert
+ * on the provider's whole output, so they compose it here rather than making
+ * the provider export a hook nothing ships. */
+function useSyncWhole(): Sync {
+  const actions = useSyncActions();
+  const health = useSyncHealth();
+  const editability = useSyncEditability();
+  const resyncSeq = useResyncSeq();
+  // Stable while its parts are: a probe subscribing in an effect keyed on the
+  // whole value must not resubscribe on every unrelated render.
+  return useMemo(() => ({ ...health, ...editability, resyncSeq, ...actions }),
+                 [health, editability, resyncSeq, actions]);
+}
 
 function Probe({ onBatch }: { onBatch: (b: WsBatch) => void }) {
-  const sync = useSync();
+  const sync = useSyncWhole();
   useEffect(() => sync.subscribe(onBatch), [sync, onBatch]);
   return <div data-testid="status">{sync.status}:{sync.resyncSeq}</div>;
 }
@@ -56,7 +72,7 @@ test("on reconnect, resyncSeq bumps only after the preserved queue has flushed",
 
   let sync!: Sync;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     return <div data-testid="status">{sync.status}:{sync.resyncSeq}</div>;
   }
   render(<SyncProvider><Grab /></SyncProvider>);
@@ -106,7 +122,7 @@ test("connects to /api/ws on the current host", () => {
 test("enqueue outside a provider throws instead of dropping writes", () => {
   let sync: Sync | undefined;
   function Probe() {
-    sync = useSync();
+    sync = useSyncWhole();
     return null;
   }
   render(<Probe />);
@@ -176,7 +192,7 @@ test("first connect bootstraps an empty replica and reports ready", async () => 
   ]);
   const replica = fakeReplicaForProvider();
   function Mode() {
-    return <div data-testid="mode">{useSync().replicaMode}</div>;
+    return <div data-testid="mode">{useSyncWhole().replicaMode}</div>;
   }
   render(<SyncProvider replica={replica}><Mode /></SyncProvider>);
   expect(screen.getByTestId("mode").textContent).toBe("starting");
@@ -305,7 +321,7 @@ test("a forced equal-cursor generation nudge immediately reboots an active repli
 test("without a replica the provider reports no-replica mode", async () => {
   stubFetch([["/api/ops", { ok: true }]]);
   function Mode() {
-    return <div data-testid="mode">{useSync().replicaMode}</div>;
+    return <div data-testid="mode">{useSyncWhole().replicaMode}</div>;
   }
   render(<SyncProvider replica={null}><Mode /></SyncProvider>);
   await act(async () => { lastWs().open(); });
@@ -323,7 +339,7 @@ test("empty legacy repair resumes a wholly later ticket after drain handoff", as
   }));
   let sync!: Sync;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     return null;
   }
   const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
@@ -381,7 +397,7 @@ test("legacy repair rebases an unmounted cross-page target before resuming its m
   let sync!: Sync;
   let dnd!: ReturnType<typeof useDnd>;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     dnd = useDnd();
     return null;
   }
@@ -457,7 +473,7 @@ test("legacy rejection resumes later delivery only after active outline repair",
   const removeLoader = session.setAuthoritativeLoader("editable", load);
   let sync!: Sync;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     return <div data-testid="legacy-resync">{sync.resyncSeq}</div>;
   }
 
@@ -517,7 +533,7 @@ test("legacy repair waits for a forced read after an existing stale automatic re
   const removeLoader = session.setAuthoritativeLoader("editable", loadForced);
   let sync!: Sync;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     return <div data-testid="forced-repair">{
       sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
     }</div>;
@@ -576,7 +592,7 @@ test("legacy repair enrolls a session opened before queue resume", async () => {
   const removeFirstLoader = first.setAuthoritativeLoader("editable", firstLoad);
   let sync!: Sync;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     return null;
   }
   const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
@@ -627,7 +643,7 @@ test("the Sync enqueue boundary registers a page ticket before its session opens
   }));
   let sync!: Sync;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     return null;
   }
   const view = render(<SyncProvider replica={null}><Grab /></SyncProvider>);
@@ -689,7 +705,7 @@ test("failed legacy outline repair stays visible and Retry releases delivery", a
   });
   let sync!: Sync;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     return <div data-testid="legacy-problem">{
       sync.problem?.kind === "legacy-rejected" ? sync.problem.repair : "none"
     }</div>;
@@ -799,7 +815,7 @@ test("rejected batch repair finishes before resync and later delivery", async ()
   };
 
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); });
   const baselineResync = sync.resyncSeq;
@@ -947,7 +963,7 @@ async () => {
   expect(markAttempts).toBe(1);
 
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); });
   await vi.waitFor(() => { expect(sync.problem).toMatchObject({
@@ -1060,7 +1076,7 @@ async () => {
              pendingBatches: [] };
   };
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); await Promise.resolve(); });
   await vi.waitFor(() => { expect(discoveryCalls).toBe(1); });
@@ -1124,7 +1140,7 @@ async () => {
   }));
   const replica = unopenableReplica();
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); await Promise.resolve(); });
 
@@ -1151,7 +1167,7 @@ async function runDead(message: string) {
     return jsonResponse({ detail: "not found" }, 404);
   }));
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={unopenableReplica(message)}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); await Promise.resolve(); });
   await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
@@ -1200,7 +1216,7 @@ async () => {
   }));
   const replica = unopenableReplica();
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); await Promise.resolve(); });
   await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
@@ -1229,7 +1245,7 @@ test("a reconnect in a no-replica session still bumps resyncSeq (pkm-9x6u)", asy
   }));
   const replica = unopenableReplica();
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); await Promise.resolve(); });
   await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
@@ -1266,7 +1282,7 @@ test("a replica that cannot be opened never starts syncing", async () => {
   }));
   const replica = unopenableReplica();
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); await Promise.resolve(); });
   await vi.waitFor(() => { expect(sync.replicaMode).toBe("no-replica"); });
@@ -1411,7 +1427,7 @@ async () => {
     throw new Error("Access Handles cannot be created");
   };
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); await Promise.resolve(); });
 
@@ -1455,7 +1471,7 @@ async () => {
     throw new Error("Access Handles cannot be created");
   };
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); await Promise.resolve(); });
   await act(async () => {
@@ -1533,7 +1549,7 @@ test("failed poison repair stays visible and Retry succeeds without reapplying i
   };
 
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); });
   await act(async () => {
@@ -1640,7 +1656,7 @@ test("applySync reads the freshest problem for same-tick dispatches: a dismiss "
   };
 
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); });
   await act(async () => {
@@ -1706,10 +1722,14 @@ test("offline with a ready replica keeps editing enabled and counts pending", as
   let pendingN = 2;
   replica.pendingCount = async () => pendingN;
   replica.enqueue = async (_ops, batchId) => ({ pending: ++pendingN, batchId });
-  replica.nextBatch = async () => null; // nothing drains in this test
+  // Nothing drains in this test. It has to PARK rather than answer "empty":
+  // a replica reporting two pending rows and an empty batch queue in the same
+  // breath is not a state the real one can be in, and the queue now believes
+  // (and publishes) the emptier of the two.
+  replica.nextBatch = () => new Promise(() => undefined);
   let sync!: Sync;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     return <div data-testid="s">{String(sync.canEdit)}:{sync.pending}</div>;
   }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
@@ -1726,6 +1746,49 @@ test("offline with a ready replica keeps editing enabled and counts pending", as
   expect(sync.readOnlyReason).toBeUndefined();
 });
 
+test("a late mount-time durable read cannot wedge the pending count (pkm-qfee)",
+async () => {
+  // The count is published to React from exactly one place (the queue's
+  // onPending), because the queue suppresses a re-emit of a number that did
+  // not move. A second writer breaks that: it moves the React state while the
+  // queue's idea of what it last published stays put, and every later emit of
+  // that same number is then dropped as a no-op.
+  stubFetch([
+    ["/api/sync/snapshot", SNAPSHOT],
+    ["/api/sync/changes", EMPTY_FEED],
+    ["/api/ops", { ok: true }],
+  ]);
+  const replica = fakeReplicaForProvider();
+  let answerCount!: (n: number) => void;
+  const durableRead = new Promise<number>((r) => { answerCount = r; });
+  // The mount-time read of a previous session's durable rows, held open until
+  // the test releases it: a real worker RPC can easily land after a keystroke.
+  replica.pendingCount = () => durableRead;
+  replica.enqueue = async (_ops, batchId) => ({ pending: 1, batchId });
+  // Parks the drain, so nothing else moves the count in this test.
+  replica.nextBatch = () => new Promise(() => undefined);
+  let sync!: Sync;
+  function Grab() {
+    sync = useSyncWhole();
+    return <div data-testid="s">{sync.pending}</div>;
+  }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "u1" }]).settled;
+  });
+  expect(sync.pending).toBe(1);
+
+  // The mount-time read answers at last, with a count taken before that edit.
+  await act(async () => { answerCount(0); await durableRead; });
+
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "u2" }]).settled;
+  });
+  expect(sync.pending).toBe(1); // one durable row again, and it must show
+});
+
 test("cold start offline: a hydrated replica reaches ready and bumps resync", async () => {
   // no socket ever opens; init is local, and views that errored while the
   // replica was starting must be told to refetch (through the shim)
@@ -1734,7 +1797,7 @@ test("cold start offline: a hydrated replica reaches ready and bumps resync", as
   replica.init = async () => ({ empty: false, cursor: 5,
                                 schemaMismatch: false, pendingBatches: [] });
   function Grab() {
-    const sync = useSync();
+    const sync = useSyncWhole();
     return <div data-testid="s">{sync.replicaMode}:{sync.resyncSeq}:{String(sync.canEdit)}</div>;
   }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
@@ -1746,7 +1809,7 @@ test("offline without a replica stays read-only with a reason", async () => {
   stubFetch([["/api/ops", { ok: true }]]);
   let sync!: Sync;
   function Grab() {
-    sync = useSync();
+    sync = useSyncWhole();
     return null;
   }
   render(<SyncProvider replica={null}><Grab /></SyncProvider>);
@@ -1805,7 +1868,7 @@ test("StrictMode effect replay keeps the queue live", async () => {
   }));
   vi.stubGlobal("fetch", fetchMock);
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(
     <StrictMode>
       <SyncProvider replica={null}><Grab /></SyncProvider>
@@ -1834,7 +1897,7 @@ test("StrictMode effect replay leaves exactly one live connect lifecycle", async
   try {
     let sync!: Sync;
     function Grab() {
-      sync = useSync();
+      sync = useSyncWhole();
       return <div data-testid="strict-lifecycle">{sync.status}:{sync.resyncSeq}</div>;
     }
     render(
@@ -1867,7 +1930,7 @@ test("a blocked reconnect drain does not pull the feed or bump resync", async ()
     }));
     let sync!: Sync;
     function Grab() {
-      sync = useSync();
+      sync = useSyncWhole();
       return <div data-testid="blocked-status">{sync.resyncSeq}</div>;
     }
     render(<SyncProvider replica={null}><Grab /></SyncProvider>);
@@ -1922,7 +1985,7 @@ test("automatic retry completes reconnect feed pull and resync exactly once", as
     replica.pendingCount = async () => rows.length;
     let sync!: Sync;
     function Grab() {
-      sync = useSync();
+      sync = useSyncWhole();
       return <div data-testid="retry-status">{sync.resyncSeq}</div>;
     }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
@@ -1979,7 +2042,7 @@ test("overlapping reconnects share one completion and leave no stale intent", as
       pendingBatches: [],
     });
     let sync!: Sync;
-    function Grab() { sync = useSync(); return null; }
+    function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     const baselineChanges = changeCalls;
@@ -2035,7 +2098,7 @@ test("a reconnect that found nothing pulls the feed but leaves views alone "
       empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
     });
     let sync!: Sync;
-    function Grab() { sync = useSync(); return null; }
+    function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     const baselineChanges = changeCalls;
@@ -2074,7 +2137,7 @@ async () => {
       empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
     });
     let sync!: Sync;
-    function Grab() { sync = useSync(); return null; }
+    function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { lastWs().open(); });
     const baselineResync = sync.resyncSeq;
@@ -2108,7 +2171,7 @@ test("repeated pull failures surface a replica-stalled problem", async () => {
       return jsonResponse({ ok: true });
     }));
     let sync!: Sync;
-    function Grab() { sync = useSync(); return null; }
+    function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { await Promise.resolve(); }); // pull 1 fails
     expect(sync.problem).toBeUndefined();
@@ -2141,7 +2204,7 @@ test("repeated OfflineError pull failures (network down) do not surface replica-
       throw new TypeError("Failed to fetch"); // changes calls: network down
     }));
     let sync!: Sync;
-    function Grab() { sync = useSync(); return null; }
+    function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { await Promise.resolve(); }); // pull 1 fails
     expect(sync.problem).toBeUndefined();
@@ -2172,7 +2235,7 @@ test("a recovered pull clears the replica-stalled problem", async () => {
       return jsonResponse({ ok: true });
     }));
     let sync!: Sync;
-    function Grab() { sync = useSync(); return null; }
+    function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { await Promise.resolve(); });
     await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); });
@@ -2203,7 +2266,7 @@ test("recovery-failed while connected also surfaces replica-stalled", async () =
   replica.init = async () => ({ empty: false, cursor: 0,
                                 schemaMismatch: true, pendingBatches: [] });
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); }); // socket connects before recovery settles
   expect(sync.status).toBe("connected");
@@ -2230,7 +2293,7 @@ test("recovery-failed while not connected leaves the problem unchanged", async (
   replica.init = async () => ({ empty: false, cursor: 0,
                                 schemaMismatch: true, pendingBatches: [] });
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   // socket never connects -- status stays "connecting"
   expect(sync.status).toBe("connecting");
@@ -2257,7 +2320,7 @@ test("resetReplica success path clears the problem and bumps resync", async () =
       return jsonResponse({ ok: true });
     }));
     let sync!: Sync;
-    function Grab() { sync = useSync(); return null; }
+    function Grab() { sync = useSyncWhole(); return null; }
     render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
     await act(async () => { await Promise.resolve(); });
     await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_BASE_MS); });
@@ -2290,7 +2353,7 @@ test("resetReplica surfaces ResetBlockedError as a blocked reset with pending co
   replica.prepareRecovery = async () =>
     ({ token: "lease-1", batches: [pendingBatch] });
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); });
 
@@ -2317,7 +2380,7 @@ test("resetReplica(true) discards pending writes instead of flushing them", asyn
   replica.prepareRecovery = async () =>
     ({ token: "lease-1", batches: [pendingBatch] });
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   await act(async () => { lastWs().open(); });
 
@@ -2363,7 +2426,7 @@ test("provider cleanup disposes the queue and cancels its retry timer", async ()
       new Response(JSON.stringify({ detail: "busy" }), { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
     let sync!: Sync;
-    function Grab() { sync = useSync(); return null; }
+    function Grab() { sync = useSyncWhole(); return null; }
     const { unmount } = render(
       <SyncProvider replica={null}><Grab /></SyncProvider>);
     act(() => lastWs().open());
@@ -2399,7 +2462,7 @@ test("an op stranded in the in-memory lane arms the unload guard", async () => {
     enqueue: async () => { throw new Error("SQLITE_IOERR: disk I/O error"); },
   };
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   // The socket stays closed: a connected queue would deliver the lane entry
   // immediately and there would be nothing left to lose.
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
@@ -2417,7 +2480,7 @@ test("a durable pending row leaves the unload guard disarmed", async () => {
     pendingCount: async () => 1,
   };
   let sync!: Sync;
-  function Grab() { sync = useSync(); return null; }
+  function Grab() { sync = useSyncWhole(); return null; }
   render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
   act(() => { sync.enqueue([{ op: "delete", uid: "u1" }]); });
   await act(async () => { await sync.settled(); });

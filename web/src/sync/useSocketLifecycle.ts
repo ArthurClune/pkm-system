@@ -89,9 +89,23 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
             // says so: this session's mount-time catch-up may already have
             // absorbed the flush, leaving the reconnect's own cursor
             // comparison with nothing to report (pkm-5fak).
+            //
+            // A pending count of zero is NOT by itself proof there is nothing
+            // to do: an offline cold start's mount-time startupRun() already
+            // tried replicaSync.start(), and if the snapshot fetch failed for
+            // being offline, the replica never reached "ready" — its failure
+            // is swallowed upstream (SyncProvider's startup effect), so
+            // nothing else retries it. Gate on `hasStarted()` too, so this
+            // first connect still runs the reconnect protocol (which retries
+            // start()) instead of leaving the replica un-bootstrapped until a
+            // reload (pkm-8k2c). A replica that never existed (`null`) needs
+            // no such retry — there is nothing for start() to (re)do.
             void initialPending.then(async (n) => {
               await depsRef.current.startupRun();
-              if (n > 0) await reconnect.begin({ viewsAreStale: true });
+              const needsBootstrap = replicaSync !== null && !replicaSync.hasStarted();
+              if (n > 0 || needsBootstrap) {
+                await reconnect.begin({ viewsAreStale: true });
+              }
             }).catch((error: unknown) => {
               console.error("first-connect reconnect.begin() failed", error);
             });

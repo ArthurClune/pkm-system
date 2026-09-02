@@ -1,11 +1,11 @@
 ---
 # pkm-ey1f
 title: 'Small perf hygiene: FK-check scope, lazy Bluesky iframes, Journal content-visibility, BlockRefProvider/PdfViewer growth'
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-09-01T21:28:07Z
-updated_at: 2026-09-01T21:28:07Z
+updated_at: 2026-09-02T03:26:45Z
 parent: pkm-fgjg
 ---
 
@@ -39,7 +39,7 @@ Tier 3 — a bag of small, independent items from the 2026-09-01 investigation. 
       batch touches no FK column") is a redesign of the pkm-qvlx guarantee,
       not hygiene; deliberately not attempted here.
 - [x] 2 Bluesky lazy
-- [ ] 3 Journal content-visibility — NOT done, needs its own bean. `content-visibility:
+- [x] 3 Journal content-visibility — split out to **pkm-muka** (not done here). `content-visibility:
       auto` also turns on layout/paint/style containment at all times, not only while a
       section is skipped, and layout containment makes the element the containing block
       for `position: fixed` descendants. `.journal-day` contains two of those:

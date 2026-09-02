@@ -22,6 +22,6 @@ Tier 2 — pure-function work redone on every render.
 - Memoise settled assistant transcript items so only the streaming tail re-parses.
 
 ## Checklist
-- [ ] tokenizeBlock cache + tests (cache hit is observably identical output)
-- [ ] hljs lazy + cached + budget entry
-- [ ] Correct frontend.md:629 (say what was corrected vs added in the commit message)
+- [x] tokenizeBlock cache + tests (cache hit is observably identical output)
+- [x] hljs lazy + cached + budget entry
+- [x] Correct frontend.md:629 (say what was corrected vs added in the commit message)

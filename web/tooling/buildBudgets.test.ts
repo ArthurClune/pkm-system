@@ -13,23 +13,26 @@ import {
 const budgets: BuildBudgets = {
   initialEntryBytes: 700,
   largestAssetBytes: 800,
-  totalOutputBytes: 3300,
+  totalOutputBytes: 3550,
   precacheBytes: 1500,
   precacheEntries: 3,
   mermaidOwnedBytes: 500,
   pdfjsOwnedBytes: 400,
   katexOwnedBytes: 300,
   beautifulMermaidOwnedBytes: 600,
+  hljsOwnedBytes: 250,
 };
 
 // Baseline bundle: entry 700, largest asset 800 (a wasm), one fully
 // mermaid-owned chunk 500, one fully pdfjs-owned chunk 400, one fully
-// katex-owned chunk 300. Totals land exactly on every limit.
+// katex-owned chunk 300, one fully beautiful-mermaid-owned chunk 600, one
+// fully hljs-owned chunk 250. Totals land exactly on every limit.
 const owned = {
   mermaid: new Set(["m1", "m2"]),
   pdfjs: new Set(["p1", "p2"]),
   katex: new Set(["k1", "k2"]),
   beautifulMermaid: new Set(["b1", "b2"]),
+  hljs: new Set(["h1", "h2"]),
 };
 function baselineChunks(): OutputChunkInfo[] {
   return [
@@ -38,6 +41,7 @@ function baselineChunks(): OutputChunkInfo[] {
     { fileName: "PdfViewer-abc.js", bytes: 400, isEntry: false, moduleIds: ["p1", "p2"] },
     { fileName: "katex-abc.js", bytes: 300, isEntry: false, moduleIds: ["k1", "k2"] },
     { fileName: "beautifulMermaid-abc.js", bytes: 600, isEntry: false, moduleIds: ["b1", "b2"] },
+    { fileName: "hljs-abc.js", bytes: 250, isEntry: false, moduleIds: ["h1", "h2"] },
   ];
 }
 function baselineFiles(): OutputFile[] {
@@ -48,6 +52,7 @@ function baselineFiles(): OutputFile[] {
     { fileName: "PdfViewer-abc.js", bytes: 400 },
     { fileName: "katex-abc.js", bytes: 300 },
     { fileName: "beautifulMermaid-abc.js", bytes: 600 },
+    { fileName: "hljs-abc.js", bytes: 250 },
   ];
 }
 
@@ -90,7 +95,7 @@ describe("evaluateBundleBudgets", () => {
     const total = (r: typeof a) =>
       r.checks.find((c) => c.name === "totalOutputBytes")!.actual;
     expect(total(a)).toBe(total(b));
-    expect(total(a)).toBe(3300);
+    expect(total(a)).toBe(3550);
   });
 
   it("fails when the beautiful-mermaid chunk is one byte over", () => {
@@ -180,6 +185,24 @@ describe("katex ownership", () => {
       { fileName: "mixed.js", bytes: 99999, isEntry: false, moduleIds: ["k1", "app"] },
     ];
     expect(ownedChunkBytes(chunks, owned.katex)).toBe(300);
+  });
+});
+
+describe("hljs ownership", () => {
+  it("bundle evaluation caps hljs-owned chunk bytes independently", () => {
+    const report = evaluateBundleBudgets(
+      baselineFiles(), baselineChunks(), owned, budgets);
+    const hljs = report.checks.find((c) => c.name === "hljsOwnedBytes")!;
+    expect(hljs.actual).toBe(250);
+    expect(hljs.ok).toBe(true);
+  });
+
+  it("a mixed hljs/app chunk does not count toward the hljs cap", () => {
+    const chunks = [
+      ...baselineChunks(),
+      { fileName: "mixed.js", bytes: 99999, isEntry: false, moduleIds: ["h1", "app"] },
+    ];
+    expect(ownedChunkBytes(chunks, owned.hljs)).toBe(250);
   });
 });
 

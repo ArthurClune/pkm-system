@@ -137,6 +137,13 @@ export const isBeautifulMermaidSeed = (id: string): boolean =>
 export const isKatexSeed = (id: string): boolean =>
   isPackageModule(id, "katex");
 
+/** highlight.js graph seeds: highlight.js package modules under
+ * node_modules. Written directly (not via isPackageModule) because the
+ * package name's "." would otherwise match any character in the
+ * interpolated, unescaped regex isPackageModule builds. */
+export const isHljsSeed = (id: string): boolean =>
+  /[\\/]node_modules[\\/]highlight\.js[\\/]/.test(id);
+
 /**
  * Vite/Rollup plugin: enforce the production bundle budgets in generateBundle,
  * once, against the final emitted output.
@@ -167,6 +174,7 @@ export function budgetPlugin(): Plugin {
         pdfjs: collectOwned(graph, isPdfjsSeed),
         katex: collectOwned(graph, isKatexSeed),
         beautifulMermaid: collectOwned(graph, isBeautifulMermaidSeed),
+        hljs: collectOwned(graph, isHljsSeed),
       };
       const report = evaluateBundleBudgets(files, chunks, owned);
       const text = formatReport("bundle", report);

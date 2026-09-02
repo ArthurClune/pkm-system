@@ -211,9 +211,24 @@ function createReplicaQueue(replica: Replica,
   // call site to forget (pkm-0htf). dispose() never touches fallback.length —
   // it settles entries in place, deliberately keeping them in the pending
   // diagnostic — so it needs no emit here either.
+  // Each emission costs every subscriber a re-render, and in the app that is
+  // one per mounted outline (pkm-qfee), so a count that did not move is not
+  // published: a flushed edit used to publish `unsentInMemory: 0` on both its
+  // persist and its delivery. null = nothing published yet, so a subscriber
+  // registered before the first emit still learns the starting value.
+  let lastPending: number | null = null;
+  let lastUnsent: number | null = null;
   const emitPending = (): void => {
-    pending.emit(totalPending());
-    unsentInMemory.emit(fallback.length);
+    const total = totalPending();
+    const unsent = fallback.length;
+    if (total !== lastPending) {
+      lastPending = total;
+      pending.emit(total);
+    }
+    if (unsent !== lastUnsent) {
+      lastUnsent = unsent;
+      unsentInMemory.emit(unsent);
+    }
   };
 
   /** A durable batch reached a terminal state — delivered, or poisoned and so

@@ -1,11 +1,11 @@
 ---
 # pkm-youp
 title: Textarea auto-resize forces 3 layouts per keystroke
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-09-01T21:28:06Z
-updated_at: 2026-09-02T00:30:09Z
+updated_at: 2026-09-02T05:37:22Z
 parent: pkm-fgjg
 ---
 
@@ -26,4 +26,4 @@ Tier 2 — the dominant main-thread cost while typing (measured: 6.6 ms/keystrok
 - [x] Measure baseline with perf.mjs F
 - [x] Implement + unit test the height logic
 - [x] Re-measure with perf.mjs F (layouts/keystroke 3 -> 1, styles/keystroke 2 -> ~0)
-- [ ] iPad sanity check (pending -- for Arthur; cannot be done from this session)
+- [x] iPad sanity check — done 2026-09-02 in the iPad Air 11" simulator (iPadOS 26.5 WebKit, safaridriver, JS-injected input since send_keys types nothing): `CSS.supports("field-sizing","content")` is true so WebKit takes the CSS path; heights 21 → 147 (6 lines) → 294 (12 lines) → 21 px with scrollHeight === clientHeight at every step, screenshots clean. Not covered: the JS fallback (needs a WebKit without field-sizing) and real touch/IME typing — a glance on the physical iPad is optional, not blocking

@@ -1,8 +1,10 @@
 // A ((uid)) pasted after the page payload loaded is not in block_ref_texts;
 // the provider fetches it on demand so the ref resolves live (pkm-y6af).
 import { render, screen, waitFor } from "@testing-library/react";
+import { useContext } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { expect, test, vi } from "vitest";
+import { BlockRefContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { stubFetch } from "../test-helpers";
 import { BlockRef } from "./BlockRef";
@@ -83,6 +85,32 @@ test("the seed map wins over stale fetched entries", async () => {
       <BlockRef uid="ref_ee5" depth={0} />
     </BlockRefProvider></MemoryRouter>);
   expect(screen.getByText("payload text")).toBeInTheDocument();
+});
+
+test("a resolved batch does not re-render the refs that did not ask for it", async () => {
+  stubFetch([["/api/block-refs", {
+    block_ref_texts: { ref_hh8: { text: "fetched text", page_title: "Q" } },
+  }]]);
+  let probeRenders = 0;
+  const Probe = () => {
+    useContext(BlockRefContext);
+    probeRenders += 1;
+    return null;
+  };
+  render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{}}>
+      <BlockRef uid="ref_hh8" depth={0} />
+      <Probe />
+    </BlockRefProvider></MemoryRouter>);
+  expect(probeRenders).toBe(1);
+
+  await waitFor(() => expect(screen.getByText("fetched text")).toBeInTheDocument());
+
+  // Resolving ref_hh8 must wake ref_hh8's own consumer and nothing else.
+  // Holding the texts in provider state made every batch a new context
+  // value, so one pasted ref resolving re-rendered every ((uid)) on the
+  // page -- on the Journal, every loaded day's worth of them.
+  expect(probeRenders).toBe(1);
 });
 
 test("a fetch failure leaves the ref unresolved without retry storms", async () => {

@@ -5,6 +5,7 @@
 // the tree -- there's no pure decision to extract.
 import { createContext } from "react";
 import type { BlockRefText } from "./api/payloads";
+import { createBlockRefStore } from "./components/blockRefStore";
 
 export interface SidebarApi {
   /** uid, when given, is the block to scroll to and flash once the panel's
@@ -18,8 +19,17 @@ export const SidebarContext = createContext<SidebarApi>({
   openInSidebar: () => undefined,
 });
 
-/** uid -> resolved text of ((uid)) block refs, from the page payload. */
+/** uid -> resolved text of ((uid)) block refs that came with a payload: a
+ * page's own `block_ref_texts`, plus whatever a nested BacklinksSection
+ * overlays on top. Authoritative, so it wins over anything fetched later;
+ * it changes only when a payload does, which is why on-demand fetches go to
+ * BlockRefStoreContext instead of into this value. */
 export const BlockRefContext = createContext<Record<string, BlockRefText>>({});
+
+/** The enclosing BlockRefProvider's store of on-demand-fetched texts, read
+ * per uid through `useBlockRefText`. The default store stays empty: with no
+ * provider above, nothing ever resolves into it. */
+export const BlockRefStoreContext = createContext(createBlockRefStore());
 
 /** Ask the enclosing BlockRefProvider to fetch a uid missing from the map
  * (a ref pasted after the payload loaded). No-op default keeps plain

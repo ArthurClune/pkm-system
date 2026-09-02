@@ -55,5 +55,5 @@ Tier 3 — a bag of small, independent items from the 2026-09-01 investigation. 
       already documents (synthetic events still propagate through the React tree into
       `.block-text`'s onClick) plus e2e cover for menu placement. That is a change to
       every view, not journal hygiene.
-- [ ] 4 BlockRefProvider store
+- [x] 4 BlockRefProvider store
 - [ ] 5 PdfViewer eviction

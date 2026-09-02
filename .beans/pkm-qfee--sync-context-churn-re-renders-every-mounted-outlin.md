@@ -1,11 +1,11 @@
 ---
 # pkm-qfee
 title: Sync context churn re-renders every mounted outline; no React.memo anywhere
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-09-01T21:28:06Z
-updated_at: 2026-09-01T21:28:06Z
+updated_at: 2026-09-02T01:43:30Z
 parent: pkm-fgjg
 ---
 

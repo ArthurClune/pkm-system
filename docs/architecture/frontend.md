@@ -356,9 +356,16 @@ There is no Redux/Zustand; state lives in three layers:
    | `useSyncHealth()` | `status`, `replicaMode`, `pending`, `unsentInMemory`, `problem` | the socket flaps, or an op is queued or acknowledged |
 
    Views subscribe to the counter through `useResync(fn)` and refetch on each
-   bump. `useSync()` returns every slice at once and re-renders on all of
-   them. Tests inject a complete `Sync` through `SyncContext`, which every
-   hook prefers when set; the provider itself publishes only the four slices.
+   bump. There is deliberately no whole-value hook. Tests inject a complete
+   `Sync` through `SyncContext`, which every hook prefers when set; the
+   provider itself publishes only the four slices.
+
+   `pending` has exactly one publisher, the op queue: it suppresses a re-emit
+   of a count that did not move, so a second writer of that state would turn
+   the suppression into a banner stuck on a stale number. Anything that
+   changes the durable queue behind the queue's back — a previous session's
+   rows at mount, a write the offline shim enqueued inside the worker — calls
+   `queue.refreshPending()` rather than reading the replica itself.
 3. **Per-title outline sessions** (`outline/outlineSessions.ts`) — the block
    tree's home, and the most intricate module in the app. A module-level
    `Map<title, Session>` external store hands every view of a title one

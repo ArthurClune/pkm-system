@@ -100,7 +100,9 @@ export interface SyncActions {
   settled(): Promise<void>;
 }
 
-/** The whole surface, for callers that want all of it. */
+/** The whole surface in one object. No component takes it — each reads the
+ * slice it needs through the hooks below — but a test fake supplies it
+ * wholesale through SyncContext, and that fake has to satisfy every slice. */
 export interface Sync extends SyncActions, SyncHealth, SyncEditability {
   resyncSeq: number;
 }
@@ -161,19 +163,6 @@ export function useResyncSeq(): number {
   const whole = useContext(SyncContext);
   const seq = useContext(ResyncContext);
   return whole?.resyncSeq ?? seq;
-}
-
-/** Every slice at once. Re-renders on any of them, so a component that only
- * writes should take useSyncActions instead. */
-export function useSync(): Sync {
-  const whole = useContext(SyncContext);
-  const actions = useContext(SyncActionsContext);
-  const health = useContext(SyncHealthContext);
-  const editability = useContext(SyncEditabilityContext);
-  const resyncSeq = useContext(ResyncContext);
-  return useMemo(
-    () => whole ?? { ...health, ...editability, resyncSeq, ...actions },
-    [whole, health, editability, resyncSeq, actions]);
 }
 
 /** Run fn whenever resyncSeq changes (not on mount). */

@@ -1,10 +1,11 @@
 ---
 # pkm-fgjg
 title: Frontend performance and energy use
-status: todo
+status: in-progress
 type: epic
+priority: normal
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T21:26:51Z
+updated_at: 2026-09-02T04:00:49Z
 ---
 
 Umbrella for the 2026-09-01 frontend performance/energy investigation, prompted by heavy laptop CPU on train wifi (the specific FK wedge was fixed in pkm-qvlx; this is the general follow-up).
@@ -28,3 +29,15 @@ No polling anywhere; `seq` nudges do not fan out refetches (other tab: 0 request
 ## Order
 
 Tier 1 children first (they break the multiplication chain), re-measure, then Tier 2 (only matters while typing/scrolling), Tier 3 as convenient.
+
+## Status 2026-09-02
+
+All nine original children have landed on main (pkm-d6i6, 5fak, gw5r, youp, l33u, qfee, cpke, ikk0, ey1f), each with a per-task review, plus a whole-branch final review whose fix wave merged as e16120a. Post-fix baselines are under web/tooling/perf/baselines/2026-09-02-*/.
+
+Still open under this epic:
+- pkm-youp and pkm-ikk0 are in-progress only for their iPad physical-device checks (textarea auto-grow; drag). Everything else in them shipped.
+- pkm-muka — Journal content-visibility, split out of pkm-ey1f because it needs BlockMenu/BlockRefBacklinksPopover portalled to body first.
+- pkm-uue4 — backoff resets on accept-then-close sockets; frozen-socket liveness. Found by the final review.
+- pkm-8k2c (unparented bug, pre-existing): offline cold start with an empty queue never bootstraps the replica.
+
+Accepted without change from the final review: DndContext api identity flips twice per drag (two full-tree re-renders at drag start/end); useEffectiveTheme re-reads the DOM per consumer render (one consumer today).

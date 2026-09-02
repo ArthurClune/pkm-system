@@ -53,7 +53,11 @@ for (const row of rows) {
 console.log("\n### Cold load\n");
 for (const k of ["H", "H2"]) if (r[k]) console.log(k, JSON.stringify(r[k], null, 1));
 if (r.workers) console.log("\nworkers:", JSON.stringify(r.workers));
-const drags = Object.values(r).filter((v) => v && v.drag);
+// A sweep that found no drop zone or drag handle still has a `.drag`, holding
+// `{error}` and none of the timings. Without excluding it the table prints a
+// row of undefineds, which reads like a measurement rather than a failure.
+const drags = Object.values(r)
+  .filter((v) => v && v.drag && !v.drag.error && !v.error);
 if (drags.length > 0) {
   console.log("\n### K outline drag (handler ms / commits / forced layouts per dragover)\n");
   const cols = ["scenario", "rows", "events", "pace_ms", "handler_mean_ms",

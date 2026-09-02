@@ -520,6 +520,9 @@ async function main() {
         const ev = new DragEvent(type, { bubbles: true, cancelable: true,
                                          clientX: x, clientY: y,
                                          dataTransfer: transfer });
+        // Brackets the handler only. Coalesced geometry runs later, in the
+        // rAF callback, so `ms` is the synchronous half and nothing else:
+        // compare whole-drag cost with the window's cdp ScriptDuration.
         const t0 = performance.now();
         el.dispatchEvent(ev);
         return { ms: performance.now() - t0, prevented: ev.defaultPrevented };

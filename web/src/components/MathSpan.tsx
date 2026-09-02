@@ -7,7 +7,14 @@
 // user/server text through dangerouslySetInnerHTML) -- the same trust
 // boundary MermaidDiagram's SVG and CodeBlock's hljs output cross. KaTeX's
 // default trust:false additionally refuses \href and friends.
+//
+// Rendered HTML is cached by (display, tex), mirroring MermaidDiagram.tsx's
+// SVG cache: a remount of an already-seen expression should never re-run
+// KaTeX. The cache is consulted before loadKatex() is even called, so a hit
+// never awaits the dynamic import. Only successful renders are cached --
+// caching a throw would wedge future remounts into permanent failure.
 import { useEffect, useState } from "react";
+import { createBoundedCache } from "./renderCache";
 
 type KatexLib = typeof import("katex").default;
 
@@ -34,20 +41,34 @@ function loadKatex(): Promise<KatexLib> {
   return katexPromise;
 }
 
+const MATH_CACHE_LIMIT = 2000;
+const mathCache = createBoundedCache<string>(MATH_CACHE_LIMIT);
+
 export function MathSpan({ tex, display }: { tex: string; display: boolean }) {
   const [state, setState] = useState<RenderState>({ status: "loading" });
 
   useEffect(() => {
     let alive = true;
+    const cacheKey = `${display ? "d" : "i"} ${tex}`;
+    const cached = mathCache.get(cacheKey);
+    if (cached !== undefined) {
+      // Cache hit: resolve synchronously, without even calling loadKatex()
+      // -- so its dynamic import is never awaited (or invoked at all) on a
+      // remount of an already-seen expression.
+      setState({ status: "ok", html: cached });
+      return;
+    }
     setState({ status: "loading" });
     loadKatex().then(
       (katex) => {
         try {
           const html = katex.renderToString(tex,
             { displayMode: display, throwOnError: true });
+          mathCache.set(cacheKey, html);
           if (alive) setState({ status: "ok", html });
         } catch {
-          // Invalid TeX: degrade to the raw-source fallback below.
+          // Invalid TeX: degrade to the raw-source fallback below. Not
+          // cached -- see this file's header comment.
           if (alive) setState({ status: "error" });
         }
       },

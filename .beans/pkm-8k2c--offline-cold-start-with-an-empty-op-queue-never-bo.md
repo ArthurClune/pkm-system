@@ -1,11 +1,11 @@
 ---
 # pkm-8k2c
 title: Offline cold start with an empty op queue never bootstraps the replica
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-09-02T03:41:21Z
-updated_at: 2026-09-02T03:41:21Z
+updated_at: 2026-09-02T04:15:58Z
 ---
 
 Found by the pkm-fgjg final whole-branch review (2026-09-02). Pre-existing at 7019e7b, not introduced by the epic, but easier to hit now that pkm-gw5r suppresses the stall-retry timer while offline.

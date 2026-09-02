@@ -132,8 +132,9 @@ web/src/
 │   │                                      resync, shared with the drain observer
 │   ├── opQueue.ts            Shell        Durable-queue driver (+ queueState.ts Core)
 │   ├── replicaSync.ts        Shell        Cursor pull loop
-│   ├── socket.ts             Shell        WebSocket + reconnect: nothing while
-│   │                                      hidden, hurried on visible or online
+│   ├── socket.ts             Shell        WebSocket + reconnect: no scheduled
+│   │                                      attempts while hidden, hurried on
+│   │                                      visible or `online` (rate-limited)
 │   ├── reconnectBackoff.ts   Core         Reconnect delay: 2 s doubling to a 30 s cap
 │   ├── syncState.ts          Core         Editability/health FSM
 │   ├── retryPolicy.ts        Core         Which recovery a banner Retry means

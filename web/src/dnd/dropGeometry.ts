@@ -19,7 +19,10 @@ export interface RowRect { top: number; bottom: number }
 export type RectAt = (index: number) => RowRect | null;
 
 /** One drag's worth of measurements. `rects` is index-aligned with the
- * `DropRow[]` it was measured against; `undefined` means not yet measured. */
+ * `DropRow[]` it was measured against; `undefined` means not yet measured.
+ * `uids` records which row each rect was measured for, because an index on
+ * its own does not identify a row for the whole of a drag — see
+ * `cachedRectFor`. */
 export interface RectCache {
   /** The drag it was measured during — see `cacheIsUsable`. */
   drag: DragSource;
@@ -27,6 +30,7 @@ export interface RectCache {
   containerTop: number;
   containerLeft: number;
   rects: (RowRect | null | undefined)[];
+  uids: (string | undefined)[];
 }
 
 /** Boundary index for `clientY` among `rows`. Above a row's midpoint = the
@@ -56,23 +60,42 @@ export function indicatorTopFromRects(rows: DropRow[], rectAt: RectAt,
   return r ? r.bottom - containerTop : 0;
 }
 
-/** May a cache measured earlier still be used?
+/** Row `index`'s cached extent, but only if it was measured for `uid`;
+ * `undefined` means "measure it again". Note that `null` is an answer and not
+ * an empty slot: it records a row with no element on screen.
  *
- * Rows do not move while a drag is in progress — nothing edits the outline
- * and nothing collapses — which is what makes caching a whole drag's rects
- * sound. Three things do move them, and each must throw the cache away
- * rather than try to shift it:
+ * The uid is the load-bearing part. A remote batch that creates one row and
+ * deletes another lands with the row count unchanged, so nothing about the
+ * cache as a whole looks stale, yet every uid at and below the change has
+ * slid an index. Comparing per row costs a string compare against a cheaper
+ * check that cannot see this at all, and the failure it prevents is silent:
+ * an indicator, and then a drop, one row out.
+ */
+export function cachedRectFor(cache: RectCache, index: number,
+                              uid: string): RowRect | null | undefined {
+  return cache.uids[index] === uid ? cache.rects[index] : undefined;
+}
+
+/** May a cache measured earlier still be used *at all*?
+ *
+ * This is the whole-cache question; `cachedRectFor` asks it again per row.
+ * Three things invalidate everything at once, and each must throw the cache
+ * away rather than try to shift it:
  *
  *   - a scroll or a resize, because the cached tops are viewport-relative
  *     and the pointer's `clientY` is compared against them. The hook
  *     invalidates on those events; they are invisible from here.
  *   - a row appearing or vanishing — a remote edit landing mid-drag — which
- *     re-lays-out everything below it. Row count catches that, and the drag
- *     itself cannot change the count: `dropRows` hides the dragged subtree
- *     from the first measurement onwards.
+ *     re-lays-out everything below it. Row count catches the common case;
+ *     a create and a delete in one batch it cannot, which is what the
+ *     per-row uid is for. The drag itself never changes the count:
+ *     `dropRows` hides the dragged subtree from the first measurement on.
  *   - the end of the drag. The drop that ended it reordered rows, so a cache
  *     surviving into the next drag would describe the old layout; the drag
  *     identity is checked rather than relied on having been cleared.
+ *
+ * A row that merely changes height — a late image load, a rewrap — is caught
+ * by none of these, and is accepted as stale for the rest of the drag.
  */
 export function cacheIsUsable(cache: RectCache | null, drag: DragSource,
                               rows: DropRow[]): boolean {

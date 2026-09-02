@@ -5,8 +5,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BlockNode } from "../api/payloads";
 import { allowedDepths, depthFromX, dropRows, resolveDrop, INDENT_PX,
          type DragSource, type DropRow } from "../outline/dnd";
-import { boundaryFromRects, cacheIsUsable, indicatorTopFromRects,
-         type RectCache, type RowRect } from "./dropGeometry";
+import { boundaryFromRects, cacheIsUsable, cachedRectFor,
+         indicatorTopFromRects, type RectCache,
+         type RowRect } from "./dropGeometry";
 import { useDnd } from "./DndContext";
 
 export interface Indicator { top: number; left: number }
@@ -51,23 +52,25 @@ export function useDropZone(pageTitle: string,
     const box = container.getBoundingClientRect();
     const fresh: RectCache = { drag, rowCount: rows.length,
                                containerTop: box.top, containerLeft: box.left,
-                               rects: [] };
+                               rects: [], uids: [] };
     cacheRef.current = fresh;
     return fresh;
   };
 
   /** Measure and remember row `i`'s extent — the getBoundingClientRect that
    * used to run per row per dragover, and now runs at most once per row per
-   * drag. */
+   * drag, or again if that index came to mean a different row. */
   const measure = (container: HTMLElement, cache: RectCache, rows: DropRow[]) =>
     (i: number): RowRect | null => {
-      const known = cache.rects[i];
+      const uid = rows[i].uid;
+      const known = cachedRectFor(cache, i, uid);
       if (known !== undefined) return known;
       const el = container.querySelector<HTMLElement>(
-        `[data-uid="${CSS.escape(rows[i].uid)}"]`);
+        `[data-uid="${CSS.escape(uid)}"]`);
       const box = el ? el.getBoundingClientRect() : null;
       const rect = box ? { top: box.top, bottom: box.bottom } : null;
       cache.rects[i] = rect;
+      cache.uids[i] = uid;
       return rect;
     };
 

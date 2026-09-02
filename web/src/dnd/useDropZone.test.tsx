@@ -119,6 +119,30 @@ it("measures each row at most once per drag, however many dragovers arrive",
   expect(reads.rows).toBe(5);
 });
 
+it("re-measures a row whose uid changed under it, count unchanged", async () => {
+  const { sync, reads, over } = startDrag();
+  over(95); // measures u1..u5 at tops 0, 20, 40, 60, 80
+  expect(indicatorTop()).toBe("100px"); // below u5
+  expect(reads.rows).toBe(5);
+
+  // One remote create and one remote delete, landing mid-drag. The row count
+  // is unchanged, so nothing about the cache as a whole looks stale -- but
+  // every uid has slid up one index, and index 4 is now a row 60px further
+  // down the page than the one measured there.
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "delete", uid: "u1" },
+    { op: "create", uid: "u9", page_title: "P", parent_uid: null,
+      order_idx: 6, text: "row 9" },
+  ] }));
+  over(95);
+  await nextFrame();
+  // u9's top, not u5's bottom: clientY 95 is above u9's midpoint (170), so the
+  // line belongs above it. Reading the cache by index alone would answer
+  // "100px" here and drop the block a row short of where the pointer is.
+  expect(indicatorTop()).toBe("160px");
+  expect(reads.rows).toBe(10);
+});
+
 it("re-measures after a scroll, which moves rows under a viewport-relative pointer",
    async () => {
   const { reads, over } = startDrag();

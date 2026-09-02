@@ -33,6 +33,21 @@ it("allowedDepths spans below-depth..above-depth+1, capped by collapse", () => {
   expect(allowedDepths([], 0)).toEqual([0]);            // empty outline
 });
 
+it("allowedDepths is never empty, at any boundary of any outline", () => {
+  // useDropZone leans on this: its dragover handler calls preventDefault
+  // unconditionally and synchronously (HTML5 DnD refuses the drop otherwise),
+  // which is only sound because no reachable pointer position resolves to
+  // "this zone accepts nothing". Depth 0 is always legal, because the row
+  // above a boundary can never sit below depth 0.
+  const outlines: BlockNode[][] = [page(), [], [block("solo", "S")]];
+  for (const blocks of outlines) {
+    const rows = dropRows(blocks, OTHER, "P");
+    for (let boundary = 0; boundary <= rows.length; boundary++) {
+      expect(allowedDepths(rows, boundary).length).toBeGreaterThan(0);
+    }
+  }
+});
+
 it("depthFromX rounds by indent and clamps to the allowed range", () => {
   expect(depthFromX([0, 1, 2], 0)).toBe(0);
   expect(depthFromX([0, 1, 2], 1.4 * INDENT_PX)).toBe(1);

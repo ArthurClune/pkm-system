@@ -165,6 +165,25 @@ it("dragend without a drop clears the active drag so a later drop is inert", () 
   expect(document.querySelector(".drop-indicator")).toBeNull();
 });
 
+it("a drop that changes nothing enqueues nothing and still ends the drag", () => {
+  const sync = renderPage();
+  const bullets = document.querySelectorAll(".bullet");
+  const transfer = dt();
+  fireEvent.dragStart(bullets[1], { dataTransfer: transfer }); // u2, already last
+
+  const zone = document.querySelector(".outline-drop-zone")!;
+  // rects are all zero in jsdom, so clientY 0 is below every midpoint: this
+  // is the boundary after the last row, which is where u2 already sits.
+  fireEvent.dragOver(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
+  fireEvent.drop(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
+  expect(sync.sent).toEqual([]);
+  expect(document.querySelector(".drop-indicator")).toBeNull();
+
+  // and the drag really is over, rather than left armed for a later drop
+  fireEvent.drop(zone, { clientX: 0, clientY: 0, dataTransfer: transfer });
+  expect(sync.sent).toEqual([]);
+});
+
 it("a fallback panel (title already active elsewhere) is excluded from DnD both ways", () => {
   // Claim "P" as the live instance elsewhere in the tab, so the P mount below
   // renders as the read-only fallback.

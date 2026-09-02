@@ -1,11 +1,11 @@
 ---
 # pkm-5fak
 title: Reconnect refetches only what changed; Journal stops N+1 fetching days
-status: todo
+status: completed
 type: bug
 priority: high
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T23:25:53Z
+updated_at: 2026-09-02T00:03:00Z
 parent: pkm-fgjg
 ---
 
@@ -31,6 +31,11 @@ Re-run `ws-probe.mjs` (flapping window): changes-pulls per reconnect stays 1.0, 
 ## Checklist
 - [x] Reproduce with a unit test: empty drain + no cursor advance must not call onResync
 - [x] Journal day loading no longer N+1
-- [ ] Journal resync refetches only changed days
-- [ ] Re-measure with ws-probe.mjs / perf.mjs scenario I
+- [x] Journal resync refetches only changed days — not needed: a resync is now one `/api/journal` request for the whole window (days hydrate from its payload), so per-day narrowing has nothing left to save
+- [x] Re-measure with ws-probe.mjs / perf.mjs scenario I
 - [x] Architecture docs updated
+
+## Summary of Changes
+- `reconnectFlow.ts` reads `replicaSync.appliedVersion()` before and after the pull and calls `onResync()` only if it moved (or the first-connect path forces `viewsAreStale`); `noteFailure` latches `usable=false` on an unusable error so the fallback path still refetches.
+- `/api/journal` now carries per-day `backlinks` (`JOURNAL_BACKLINK_PREVIEW` = 5); `JournalDayReferences` renders from the payload instead of one `GET /api/page?bl_limit=5` per day. Local shim + `shim_parity.json` + openapi/types regenerated.
+- Re-measured (`web/tooling/perf/baselines/2026-09-02-tier1/`): flapping-link page refetches per reconnect 1.0 → 0 (changes-pulls stay 1.0); journal scroll `/api/page/<date>` 27 → 0, total 157 → 29.5 req/min.

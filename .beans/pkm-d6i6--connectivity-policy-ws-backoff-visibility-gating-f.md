@@ -1,11 +1,11 @@
 ---
 # pkm-d6i6
 title: 'Connectivity policy: WS backoff, visibility gating, fetch timeout, server drop threshold'
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T23:00:06Z
+updated_at: 2026-09-02T00:03:00Z
 parent: pkm-fgjg
 ---
 
@@ -32,4 +32,10 @@ Tier 1 — stop generating flaps and stop hammering a dead link.
 - [x] Reconnect backoff + visibility/online gating (unit-tested with fake timers)
 - [x] Fetch timeout on sync path
 - [x] Server `SEND_TIMEOUT` 1.0 → 10.0 s, `QUEUE_SIZE` 8 → 64 (decided 2026-09-01, see Decisions)
-- [ ] Re-measure; docs updated
+- [x] Re-measure; docs updated
+
+## Summary of Changes
+- `web/src/sync/reconnectBackoff.ts` (Core): 2 s doubling to a 30 s cap, reset on open. `socket.ts` schedules through it, defers while `document.hidden`, reconnects at once on `visibilitychange`→visible and on `online` (the latter still gated by the backoff so a hidden+online flap can't pin the counter).
+- `apiFetch(path, init?, { timeoutMs })`: 15 s timeout on reads, mutations untimed; the snapshot bootstrap/recovery fetch passes `timeoutMs: null` (a large cold start on a slow link must not time out forever).
+- Server `ws.py`: `SEND_TIMEOUT` 1.0 → 10.0 s, `QUEUE_SIZE` 8 → 64 (see Decisions).
+- Re-measured (`web/tooling/perf/baselines/2026-09-02-tier1/`): dead-link WS attempts/min 30 → 4.0 — exactly the "≤4" target, which is the arithmetic of a 30 s cap over a 60 s window, not headroom.

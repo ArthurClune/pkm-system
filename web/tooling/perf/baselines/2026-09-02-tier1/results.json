@@ -1,0 +1,233 @@
+{
+  "workers": [
+    "http://127.0.0.1:8977/app-assets/worker-CattZnSZ.js"
+  ],
+  "B idle journal": {
+    "name": "B idle journal",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 0,
+        "siFired": 2,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788306869784
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 2,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.02772800000000003,
+        "ScriptDuration": 0.0005269999999999997,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "JSHeapUsedSize": 10002492,
+        "Nodes": 678,
+        "JSEventListeners": 364
+      }
+    ],
+    "browserCpuPct": 0.7,
+    "browserRssMB": 969,
+    "browserProcs": 8,
+    "serverCpuPct": 0.15
+  },
+  "I journal scroll": {
+    "name": "I journal scroll",
+    "wallSec": 12.2,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 0,
+        "si": 0,
+        "raf": 0,
+        "stFired": 0,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 6,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {
+          "/api/journal": 6
+        },
+        "wsUrls": {},
+        "resetAt": 1788306933961
+      }
+    ],
+    "bags": [
+      {
+        "requests": {
+          "/api/journal": 6
+        },
+        "requestTotal": 6,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.283553,
+        "ScriptDuration": 0.12281900000000001,
+        "LayoutDuration": 0.009710999999999997,
+        "RecalcStyleDuration": 0.003965,
+        "LayoutCount": 6,
+        "RecalcStyleCount": 6,
+        "JSHeapUsedSize": 16741092,
+        "Nodes": 4423,
+        "JSEventListeners": 1476
+      }
+    ],
+    "browserCpuPct": 9.4,
+    "browserRssMB": 995,
+    "browserProcs": 8,
+    "serverCpuPct": 0.66
+  },
+  "E degraded idle": {
+    "name": "E degraded idle",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 15,
+        "si": 0,
+        "raf": 0,
+        "stFired": 9,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788306949385
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.126347,
+        "ScriptDuration": 0.07041999999999998,
+        "LayoutDuration": 0.001022000000000002,
+        "RecalcStyleDuration": 0.0053960000000000015,
+        "LayoutCount": 1,
+        "RecalcStyleCount": 2,
+        "JSHeapUsedSize": 19015096,
+        "Nodes": 3373,
+        "JSEventListeners": 1362
+      }
+    ],
+    "browserCpuPct": 0.8,
+    "browserRssMB": 1000,
+    "browserProcs": 8,
+    "serverCpuPct": 0.12
+  },
+  "E2 degraded pending edit": {
+    "name": "E2 degraded pending edit",
+    "wallSec": 60,
+    "visibility": [
+      "visible",
+      "visible"
+    ],
+    "perf": [
+      {
+        "st": 4,
+        "si": 0,
+        "raf": 0,
+        "stFired": 3,
+        "siFired": 0,
+        "rafFired": 0,
+        "fetch": 0,
+        "ws": 0,
+        "xhr": 0,
+        "longtasks": 0,
+        "longtaskMs": 0,
+        "maxLongtask": 0,
+        "mut": 0,
+        "mutOutside": 0,
+        "fetchUrls": {},
+        "wsUrls": {},
+        "resetAt": 1788307011137
+      }
+    ],
+    "bags": [
+      {
+        "requests": {},
+        "requestTotal": 0,
+        "wsOpened": 0,
+        "wsSent": 0,
+        "wsRecv": 0,
+        "wsClosed": 0
+      }
+    ],
+    "cdp": [
+      {
+        "TaskDuration": 0.020572999999999952,
+        "ScriptDuration": 0.016353000000000006,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "JSHeapUsedSize": 21221152,
+        "Nodes": 3387,
+        "JSEventListeners": 1375
+      }
+    ],
+    "browserCpuPct": 0.2,
+    "browserRssMB": 1005,
+    "browserProcs": 8,
+    "serverCpuPct": 0.1
+  }
+}

@@ -40,8 +40,11 @@ export function EditablePage({ title, initial, composer = false,
   const containerRef = useRef<HTMLDivElement | null>(null);
   const blocksRef = useRef(outline.blocks);
   blocksRef.current = outline.blocks;
-  const { indicator, zoneProps } =
-    useDropZone(title, () => blocksRef.current, containerRef);
+  // Stable identity: a fresh arrow every render would rebuild useDropZone's
+  // `process` (dep `getBlocks`) on every render, making that memoization
+  // inert even though the ref read below is always current regardless.
+  const getBlocks = useCallback(() => blocksRef.current, []);
+  const { indicator, zoneProps } = useDropZone(title, getBlocks, containerRef);
 
   useEffect(() => {
     if (!ownsEditor) return undefined;

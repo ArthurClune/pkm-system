@@ -1,11 +1,11 @@
 ---
 # pkm-youp
 title: Textarea auto-resize forces 3 layouts per keystroke
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-09-01T21:28:06Z
-updated_at: 2026-09-01T21:28:06Z
+updated_at: 2026-09-02T00:30:09Z
 parent: pkm-fgjg
 ---
 

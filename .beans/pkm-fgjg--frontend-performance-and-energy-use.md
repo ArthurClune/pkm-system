@@ -36,8 +36,9 @@ All nine original children have landed on main (pkm-d6i6, 5fak, gw5r, youp, l33u
 
 Follow-ups from the final review also landed (2026-09-02): pkm-uue4 (proof-of-life backoff reset; stale-resume socket restart), pkm-8k2c (offline cold start bootstraps once the socket opens), pkm-muka (BlockMenu/BlockRefBacklinksPopover portalled to body; `content-visibility: auto` on `.journal-day` was measured and rejected — layouts 8→44 on scenario I — numbers in web/tooling/perf/baselines/2026-09-02-muka/).
 
-Still open under this epic — physical-device checks only, nothing left for an agent:
-- pkm-youp: iPad textarea auto-grow check.
-- pkm-ikk0: iPad drag check.
+pkm-youp's iPad check was done in the simulator (iPadOS 26.5 WebKit takes the `field-sizing: content` path; heights grow and shrink cleanly) and the bean is complete.
+
+Still open under this epic — one physical-device check, nothing left for an agent:
+- pkm-ikk0: iPad drag check. The simulator fires `dragstart` but UIKit swallows post-lift moves, so `dragover`/`drop` can only be exercised on a real iPad.
 
 Accepted without change from the final review: DndContext api identity flips twice per drag (two full-tree re-renders at drag start/end); useEffectiveTheme re-reads the DOM per consumer render (one consumer today).

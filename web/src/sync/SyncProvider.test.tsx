@@ -1706,7 +1706,11 @@ test("offline with a ready replica keeps editing enabled and counts pending", as
   let pendingN = 2;
   replica.pendingCount = async () => pendingN;
   replica.enqueue = async (_ops, batchId) => ({ pending: ++pendingN, batchId });
-  replica.nextBatch = async () => null; // nothing drains in this test
+  // Nothing drains in this test. It has to PARK rather than answer "empty":
+  // a replica reporting two pending rows and an empty batch queue in the same
+  // breath is not a state the real one can be in, and the queue now believes
+  // (and publishes) the emptier of the two.
+  replica.nextBatch = () => new Promise(() => undefined);
   let sync!: Sync;
   function Grab() {
     sync = useSync();
@@ -1724,6 +1728,49 @@ test("offline with a ready replica keeps editing enabled and counts pending", as
   });
   expect(sync.pending).toBe(3);
   expect(sync.readOnlyReason).toBeUndefined();
+});
+
+test("a late mount-time durable read cannot wedge the pending count (pkm-qfee)",
+async () => {
+  // The count is published to React from exactly one place (the queue's
+  // onPending), because the queue suppresses a re-emit of a number that did
+  // not move. A second writer breaks that: it moves the React state while the
+  // queue's idea of what it last published stays put, and every later emit of
+  // that same number is then dropped as a no-op.
+  stubFetch([
+    ["/api/sync/snapshot", SNAPSHOT],
+    ["/api/sync/changes", EMPTY_FEED],
+    ["/api/ops", { ok: true }],
+  ]);
+  const replica = fakeReplicaForProvider();
+  let answerCount!: (n: number) => void;
+  const durableRead = new Promise<number>((r) => { answerCount = r; });
+  // The mount-time read of a previous session's durable rows, held open until
+  // the test releases it: a real worker RPC can easily land after a keystroke.
+  replica.pendingCount = () => durableRead;
+  replica.enqueue = async (_ops, batchId) => ({ pending: 1, batchId });
+  // Parks the drain, so nothing else moves the count in this test.
+  replica.nextBatch = () => new Promise(() => undefined);
+  let sync!: Sync;
+  function Grab() {
+    sync = useSync();
+    return <div data-testid="s">{sync.pending}</div>;
+  }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "u1" }]).settled;
+  });
+  expect(sync.pending).toBe(1);
+
+  // The mount-time read answers at last, with a count taken before that edit.
+  await act(async () => { answerCount(0); await durableRead; });
+
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "u2" }]).settled;
+  });
+  expect(sync.pending).toBe(1); // one durable row again, and it must show
 });
 
 test("cold start offline: a hydrated replica reaches ready and bumps resync", async () => {

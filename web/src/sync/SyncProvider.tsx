@@ -345,10 +345,12 @@ export function SyncProvider({ children, replica }: {
         });
       }),
     ];
-    // a durable queue may be non-empty from a previous session
-    void replicaRef.current?.pendingCount()
-      .then((n) => { if (mountedRef.current) setPending(n); })
-      .catch(() => undefined);
+    // A durable queue may be non-empty from a previous session. Asked of the
+    // queue, not of the replica: setPending has exactly one caller — the
+    // listener above — because the queue suppresses a re-emit of an unchanged
+    // count, and a second writer of this state would silently turn that
+    // suppression into a stuck banner (see opQueue's emitPending).
+    if (replicaRef.current) void queue.refreshPending();
     return () => { offs.forEach((off) => off()); };
   }, [applySync, queue]);
   const replicaSync = useMemo(() => {
@@ -552,16 +554,17 @@ export function SyncProvider({ children, replica }: {
           nowMs: Date.now(),
         });
         if (result.handled && method !== "GET") {
-          // a shim write (page create) enqueued a batch inside the worker
-          void r.pendingCount()
-            .then((n) => { if (mountedRef.current) setPending(n); })
-            .catch(() => undefined);
+          // A shim write (page create) enqueued a batch inside the worker, so
+          // the durable count moved without the queue doing it: the queue has
+          // to re-read it, because it is the only publisher of that count.
+          void queue.refreshPending();
         }
         return result;
       },
     });
     return () => setOfflineGateway(null);
-  }, []);
+    // queue is mount-stable, so listing it does not re-register the gateway.
+  }, [queue]);
 
   // Connect/reconnect lifecycle: mount-time pending bootstrap, the reconnect
   // single-flight protocol, drain observation, socket status, and
@@ -570,9 +573,11 @@ export function SyncProvider({ children, replica }: {
     queue,
     replicaSync,
     // Leftovers from a previous page load (a reload can kill an in-flight
-    // POST): read before the first connect can start draining them.
+    // POST): read before the first connect can start draining them. Through
+    // the queue, so this read also seeds and publishes the count instead of
+    // being a second, private view of it.
     readInitialPending: () =>
-      replicaRef.current?.pendingCount().catch(() => 0) ?? Promise.resolve(0),
+      replicaRef.current ? queue.refreshPending() : Promise.resolve(0),
     startupRun: () => startupRunRef.current,
     mountedRef,
     statusRef,

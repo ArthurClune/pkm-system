@@ -1,11 +1,11 @@
 ---
 # pkm-ikk0
 title: Throttle DnD dragover; cache row rects during a drag
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-09-01T21:28:06Z
-updated_at: 2026-09-01T21:28:06Z
+updated_at: 2026-09-02T02:55:46Z
 parent: pkm-fgjg
 ---
 

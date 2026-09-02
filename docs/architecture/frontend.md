@@ -46,7 +46,10 @@ web/src/
 ├── useEffectiveTheme.ts      Shell        Resolved theme observed from the DOM
 │                                          (data-theme MutationObserver + media
 │                                          query) for consumers that must react
-│                                          to flips; useTheme state is per-component
+│                                          to flips; useTheme state is per-component.
+│                                          One shared module-level observer pair
+│                                          backs every call (useSyncExternalStore),
+│                                          not one per subscriber
 ├── popoverPosition.ts        Core         clampPopoverPosition — viewport clamping
 ├── Popover.tsx               Shell        The shared anchored-popover chrome
 ├── useDismiss.ts             Shell        Outside-mousedown + Escape dismissal
@@ -670,7 +673,15 @@ flowchart LR
   module-level `Map` keyed on `(lang, code)`, so hljs runs on a given code
   block only once. `tokenizeBlock` is fronted by the same bounded-clear
   cache policy, keyed on raw block text, so re-rendering an unchanged block
-  is a `Map` lookup rather than a re-parse.
+  is a `Map` lookup rather than a re-parse. `renderCache.ts`'s
+  `createBoundedCache` factory holds the same shape (a `Map`, cleared in
+  full at 2000 entries) for `MermaidDiagram.tsx` (rendered SVG, keyed on
+  `(effectiveTheme, code)`) and `MathSpan.tsx` (rendered HTML, keyed on
+  `(display, tex)`): mermaid layout is the most expensive synchronous
+  computation in the app, so a remount of an already-seen diagram or
+  expression (e.g. navigating away and back) is a cache lookup, never
+  awaiting the renderer's dynamic import. Only successful renders are
+  cached; an error is retried on the next mount rather than wedged in place.
 - Link hrefs are sanitized (`isSafeHref` rejects `javascript:` and
   protocol-relative URLs); Mermaid runs in strict mode.
 - Diagrams render through beautiful-mermaid first (ELK layout; the chunk is
@@ -682,7 +693,12 @@ flowchart LR
   theming surface (`beautifulMermaidOptions` / base-theme `themeVariables`).
   The beautiful-mermaid path re-resolves tokens and re-renders on theme
   flips (`useEffectiveTheme`); the stock fallback keeps its historical
-  initialize-time snapshot.
+  initialize-time snapshot. The stock fallback bakes its render-id argument
+  into the returned SVG's own `id`; to keep the cached SVG (above) reusable
+  across instances, that render call always uses a fixed placeholder id
+  (`MERMAID_CACHE_RENDER_ID`), with each consumer substituting its own id
+  back in on every use, hit or miss -- so two diagrams on the same page
+  never collide on one DOM id.
 - `PdfViewer` guards its load/reset race with a generation counter. When
   `href` changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps
   the counter **synchronously during render**, not in an effect, and every

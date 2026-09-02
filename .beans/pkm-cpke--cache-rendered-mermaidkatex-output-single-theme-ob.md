@@ -21,5 +21,5 @@ Tier 2 — the most expensive synchronous computation in the app is re-run on ev
 - Preserve the standing ruling: beautiful-mermaid primary, stock mermaid fallback — never simplified away.
 
 ## Checklist
-- [ ] Output caches + tests
-- [ ] Single theme observer
+- [x] Output caches + tests
+- [x] Single theme observer

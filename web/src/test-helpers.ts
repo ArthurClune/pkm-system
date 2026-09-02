@@ -103,9 +103,18 @@ export function pagePayload(title: string, blocks: BlockNode[],
  * opens); tests drive instances via FakeWebSocket.instances. */
 export class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
+  // Mirrors the real WebSocket readyState constants so production code that
+  // branches on `ws.readyState === WebSocket.OPEN` (the frozen-socket resume
+  // heuristic, pkm-uue4) sees the same values under the stubbed global.
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+
   url: string;
   sent: string[] = [];
   closedByApp = false;
+  readyState: number = FakeWebSocket.CONNECTING;
   onopen: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null;
@@ -117,12 +126,27 @@ export class FakeWebSocket {
 
   send(data: string) { this.sent.push(data); }
 
-  close() { this.closedByApp = true; this.onclose?.(); }
+  /** App-initiated close. `closedByApp` flips synchronously -- that much
+   * mirrors calling the real method -- but the resulting close event does
+   * not: a real WebSocket's close is an async task, so `onclose` here is
+   * deferred (setTimeout(0), driven by fake timers) rather than fired
+   * inline. This matters for pkm-uue4's resume heuristic: production code
+   * calls `ws.close()` and then falls through to `reconnectNow()` in the
+   * same synchronous handler, trusting that the close event -- and the
+   * scheduleReconnect() it triggers -- hasn't happened yet. A synchronous
+   * onclose here would let that same-tick reconnectNow() see a freshly
+   * scheduled reconnect timer and hurry it, bypassing the backoff inside
+   * the test double in a way that cannot happen against a real socket. */
+  close() {
+    this.closedByApp = true;
+    this.readyState = FakeWebSocket.CLOSING;
+    setTimeout(() => { this.readyState = FakeWebSocket.CLOSED; this.onclose?.(); }, 0);
+  }
 
   // --- test drivers ---
-  open() { this.onopen?.(); }
+  open() { this.readyState = FakeWebSocket.OPEN; this.onopen?.(); }
   message(body: unknown) { this.onmessage?.({ data: JSON.stringify(body) }); }
-  drop() { this.onclose?.(); }
+  drop() { this.readyState = FakeWebSocket.CLOSED; this.onclose?.(); }
 }
 
 /** Controllable stand-in for a MediaQueryList; jsdom has no real

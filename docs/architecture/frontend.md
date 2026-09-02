@@ -134,7 +134,12 @@ web/src/
 │   ├── replicaSync.ts        Shell        Cursor pull loop
 │   ├── socket.ts             Shell        WebSocket + reconnect: no scheduled
 │   │                                      attempts while hidden, hurried on
-│   │                                      visible or `online` (rate-limited)
+│   │                                      visible or `online` (rate-limited);
+│   │                                      backoff resets only on proof of life,
+│   │                                      not on open; a long-hidden resume
+│   │                                      closes a socket that OS-froze but
+│   │                                      still reports OPEN, handing it to
+│   │                                      the normal reconnect path
 │   ├── reconnectBackoff.ts   Core         Reconnect delay: 2 s doubling to a 30 s cap
 │   ├── syncState.ts          Core         Editability/health FSM
 │   ├── retryPolicy.ts        Core         Which recovery a banner Retry means

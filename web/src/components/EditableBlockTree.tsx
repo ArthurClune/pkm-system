@@ -5,7 +5,8 @@
 // textarea is BlockInput.tsx. Every semantic decision is delegated — key
 // meanings to outline/keyboardPolicy.ts, mutations to the OutlineHandlers
 // port (implemented by useOutline).
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef,
+         useState } from "react";
 import type { BlockNode } from "../api/payloads";
 import type { FocusTarget } from "../outline/edits";
 import type { OutlineHandlers } from "../outline/handlers";
@@ -50,8 +51,17 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                                     refCounts = undefined }: TreeProps) {
   const treeRef = useRef<HTMLDivElement | null>(null);
   // One instant for the whole tree, so two rows a millisecond either side of
-  // a band edge can't be tinted inconsistently within a single paint.
-  const nowMs = Date.now();
+  // a band edge can't be tinted inconsistently within a single paint. Re-read
+  // only when the tree itself changes: every row takes it as a prop, so a
+  // fresh Date.now() per render would defeat their memo (pkm-qfee) — and the
+  // bands are hours wide, while a new tree is exactly when a stamp moves.
+  const nowRef = useRef(0);
+  const nowBlocksRef = useRef<BlockNode[] | null>(null);
+  if (nowBlocksRef.current !== blocks) {
+    nowBlocksRef.current = blocks;
+    nowRef.current = Date.now();
+  }
+  const nowMs = nowRef.current;
   // The /upload file picker (pkm-gbsb): owned by the tree root, not the
   // focus-scoped BlockInput. The native dialog taking focus blurs the
   // textarea, which unmounts BlockInput while the dialog is still open; a
@@ -60,10 +70,10 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   // is shared across every block, with the pending target recorded here.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadTargetRef = useRef<{ uid: string; at: number } | null>(null);
-  const requestUpload = (uid: string, at: number) => {
+  const requestUpload = useCallback((uid: string, at: number) => {
     uploadTargetRef.current = { uid, at };
     fileInputRef.current?.click();
-  };
+  }, []);
   const onPickUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = ""; // let the same file be picked again later
@@ -86,18 +96,31 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   const [refPopover, setRefPopover] = useState<{
     uid: string; x: number; y: number;
   } | null>(null);
-  const selected = !fallback && selection
-    ? new Set(selectedUids(blocks, selection)) : EMPTY_SET;
+  // Both sets are memoised on what they are derived from, not rebuilt per
+  // render: they are props of every row, so a fresh Set would re-render the
+  // whole tree (pkm-qfee).
+  const selected = useMemo(() => (!fallback && selection
+    ? new Set(selectedUids(blocks, selection)) : EMPTY_SET),
+    [blocks, selection, fallback]);
   // The focused block and its ancestors, walked ONCE for the whole tree. Each
   // row asks "is the focus inside my subtree?" to decide whether a table block
   // shows its table or its raw editable rows; asking by walking its own
   // subtree cost the tree a pass per row on every keystroke's re-render.
-  const focusChain = !fallback && focus
-    ? new Set(ancestorChain(blocks, focus.uid)) : EMPTY_SET;
+  const focusUid = focus?.uid ?? null;
+  const focusChain = useMemo(() => (!fallback && focusUid !== null
+    ? new Set(ancestorChain(blocks, focusUid)) : EMPTY_SET),
+    [blocks, focusUid, fallback]);
   const closeMenu = () => {
     menu?.trigger.focus();
     setMenu(null);
   };
+  // Row props, so they must survive a re-render like the sets above.
+  const openMenu = useCallback((uid: string, x: number, y: number,
+                                viewMode: EffectiveBlockView,
+                                trigger: HTMLElement) =>
+    setMenu({ uid, x, y, viewMode, trigger }), []);
+  const openRefPopover = useCallback((uid: string, x: number, y: number) =>
+    setRefPopover({ uid, x, y }), []);
 
   // When a block selection is active there is no focused textarea, so the tree
   // container itself takes focus and owns the keyboard (extend / copy / clear).
@@ -163,10 +186,8 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
                        viewMode="document" number={index + 1}
                        openMenuUid={menu?.uid ?? null}
                        stamps={stamps} nowMs={nowMs} refCounts={refCounts}
-                       onOpenMenu={(uid, x, y, viewMode, trigger) =>
-                         setMenu({ uid, x, y, viewMode, trigger })}
-                       onOpenRefPopover={(uid, x, y) =>
-                         setRefPopover({ uid, x, y })} />
+                       onOpenMenu={openMenu}
+                       onOpenRefPopover={openRefPopover} />
       ))}
       {!fallback && !readOnly && (
         <input ref={fileInputRef} type="file" multiple
@@ -269,10 +290,18 @@ function RefCountBadge({ uid, count, onOpen }: {
   );
 }
 
-function EditableBlock({ node, focus, selected, focusChain, handlers, readOnly,
-                         fallback, onRequestUpload, viewMode, number,
-                         openMenuUid, stamps, nowMs, refCounts, onOpenMenu,
-                         onOpenRefPopover }: {
+/** Memoised, and the tree above keeps every prop it passes stable for as long
+ * as the rendered tree is unchanged. Safe because block trees are immutable:
+ * `applyOps` clones the whole tree and mutates only the clone (outline/tree.ts),
+ * so a changed block always arrives as a new object. The gain is on the renders
+ * that are NOT edits — a Sync context update, a sibling day's fetch, a menu
+ * opening — where the Journal would otherwise re-render every row of every
+ * mounted day (pkm-qfee). */
+const EditableBlock = memo(function EditableBlock(
+                        { node, focus, selected, focusChain, handlers, readOnly,
+                          fallback, onRequestUpload, viewMode, number,
+                          openMenuUid, stamps, nowMs, refCounts, onOpenMenu,
+                          onOpenRefPopover }: {
   node: BlockNode; focus: FocusTarget | null;
   selected: ReadonlySet<string>;
   /** The focused block plus its ancestors, from the tree root (pkm-nvxh):
@@ -407,4 +436,4 @@ function EditableBlock({ node, focus, selected, focusChain, handlers, readOnly,
       )}
     </div>
   );
-}
+});

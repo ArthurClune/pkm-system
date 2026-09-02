@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { BlockNode } from "../api/payloads";
 import { Composer } from "../components/Composer";
 import { EditableBlockTree } from "../components/EditableBlockTree";
@@ -49,19 +49,21 @@ export function EditablePage({ title, initial, composer = false,
     return registration.accepted ? registration.unregister : undefined;
   }, [dnd, title, outline.dnd, ownsEditor]);
 
-  const handlers = {
-    ...outline.handlers,
-    onDragStartBlock: (uid: string) => {
-      if (!ownsEditor || outline.readOnly) return;
-      // Grabbing a block inside an active multi-block selection drags the
-      // whole selection (pkm-q89w); grabbing any other block drags just it.
-      const group = outline.selection
-        ? selectionDragUids(blocksRef.current, outline.selection, uid) : null;
-      dnd.startDrag(group && group.length > 1
-        ? { uid, pageTitle: title, uids: group }
-        : { uid, pageTitle: title });
-    },
-  };
+  const onDragStartBlock = useCallback((uid: string) => {
+    if (!ownsEditor || outline.readOnly) return;
+    // Grabbing a block inside an active multi-block selection drags the
+    // whole selection (pkm-q89w); grabbing any other block drags just it.
+    const group = outline.selection
+      ? selectionDragUids(blocksRef.current, outline.selection, uid) : null;
+    dnd.startDrag(group && group.length > 1
+      ? { uid, pageTitle: title, uids: group }
+      : { uid, pageTitle: title });
+  }, [ownsEditor, outline.readOnly, outline.selection, dnd, title]);
+  // The tree hands this object to every row, so a fresh literal per render
+  // would defeat EditableBlock's memo — one Journal day's worth of wasted
+  // rows per mounted day, on any re-render (pkm-qfee).
+  const handlers = useMemo(() => ({ ...outline.handlers, onDragStartBlock }),
+                           [outline.handlers, onDragStartBlock]);
 
   return (
     <div ref={containerRef}

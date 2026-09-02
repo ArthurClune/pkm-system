@@ -21,6 +21,28 @@ rAF-coalesce dragover; cache row rects for the duration of a drag (rows don't mo
 Profile a drag across the 300-block perf page: handler ms/event and commits/sec. iPad DnD needs the physical-device check (see memory: simulator can't do post-lift drag moves).
 
 ## Checklist
-- [ ] Baseline drag profile
-- [ ] Coalesce + rect cache
-- [ ] Re-profile; iPad check
+- [x] Baseline drag profile
+- [x] Coalesce + rect cache
+- [ ] Re-profile; iPad check — re-profiled (iPad check pending — for Arthur,
+      physical device; the simulator cannot drive post-lift drag moves)
+
+## Outcome
+
+Scenario K (`web/tooling/perf/`, three sweeps) with numbers and reasoning in
+`web/tooling/perf/baselines/2026-09-02-ikk0/report.md`. `boundaryAt` stopped
+at the first row past the pointer, so the O(rows) walk only bit near the
+bottom of a long page: 4.368 ms -> 0.113 ms mean per dragover there, and
+0.172 ms -> 0.073 ms at the top. At a 250 Hz event rate React commits per
+dragover fall 1.02 -> 0.42.
+
+The drag's peak handler time is now its first event, which walks to row ~300
+with a cold cache (~6 ms once, replacing ~4 ms on every event).
+
+The indicator stayed in React state: with `EditableBlock` memoised a commit
+is ~32 fibers and ~0.4 ms, one per frame, so direct DOM writes would buy that
+back at the cost of a second source of truth for where the line is.
+
+Not done, observed: the commit at `dragstart` re-renders every row (1687
+fibers), because `DndProvider`'s value is memoised on `drag` and that reaches
+every row through a fresh `handlers` object. Once per drag, not per event —
+same shape as pkm-qfee.

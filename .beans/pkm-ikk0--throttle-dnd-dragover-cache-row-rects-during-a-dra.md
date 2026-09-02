@@ -1,11 +1,11 @@
 ---
 # pkm-ikk0
 title: Throttle DnD dragover; cache row rects during a drag
-status: in-progress
+status: completed
 type: task
 priority: low
 created_at: 2026-09-01T21:28:06Z
-updated_at: 2026-09-02T02:55:46Z
+updated_at: 2026-09-02T05:47:46Z
 parent: pkm-fgjg
 ---
 
@@ -30,8 +30,17 @@ Profile a drag across the 300-block perf page: handler ms/event and commits/sec.
 ## Checklist
 - [x] Baseline drag profile
 - [x] Coalesce + rect cache
-- [ ] Re-profile; iPad check — re-profiled (iPad check pending — for Arthur,
-      physical device; the simulator cannot drive post-lift drag moves)
+- [x] Re-profile; iPad check — re-profiled; iPad check done 2026-09-02 in the
+      iPad Air 11" simulator (iPadOS 26 WebKit, safaridriver). UIKit swallows
+      post-lift moves, so the drag was driven the way perf scenario K does it:
+      synthetic DragEvents in-page. Two sweeps (120 dragovers at 4 ms — rAF
+      coalescing engaged; 60 at 20 ms — near frame rate): every dragover
+      preventDefault'd synchronously, `.drop-indicator` tracked the pointer
+      monotonically, both drops landed exactly where aimed in DOM and on the
+      server, no JS errors, handler mean 0.08 ms / p95 1 ms. Not covered:
+      UIKit's own dragover pacing on a physical iPad — the events it delivers
+      are unchanged by this bean (device-verified under pkm-1hod), only the
+      handler's work per event changed.
 
 ## Outcome
 

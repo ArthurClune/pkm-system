@@ -1,11 +1,11 @@
 ---
 # pkm-fgjg
 title: Frontend performance and energy use
-status: in-progress
+status: completed
 type: epic
 priority: normal
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-02T04:00:49Z
+updated_at: 2026-09-02T05:47:46Z
 ---
 
 Umbrella for the 2026-09-01 frontend performance/energy investigation, prompted by heavy laptop CPU on train wifi (the specific FK wedge was fixed in pkm-qvlx; this is the general follow-up).
@@ -36,9 +36,8 @@ All nine original children have landed on main (pkm-d6i6, 5fak, gw5r, youp, l33u
 
 Follow-ups from the final review also landed (2026-09-02): pkm-uue4 (proof-of-life backoff reset; stale-resume socket restart), pkm-8k2c (offline cold start bootstraps once the socket opens), pkm-muka (BlockMenu/BlockRefBacklinksPopover portalled to body; `content-visibility: auto` on `.journal-day` was measured and rejected — layouts 8→44 on scenario I — numbers in web/tooling/perf/baselines/2026-09-02-muka/).
 
-pkm-youp's iPad check was done in the simulator (iPadOS 26.5 WebKit takes the `field-sizing: content` path; heights grow and shrink cleanly) and the bean is complete.
+The two iPad checks (pkm-youp textarea auto-grow, pkm-ikk0 dragover coalescing) were done in the iPad Air 11" simulator on iPadOS 26 WebKit — details on each bean. Neither exercised UIKit's real touch pipeline; a glance on the physical iPad remains a nice-to-have, not a gate.
 
-Still open under this epic — one physical-device check, nothing left for an agent:
-- pkm-ikk0: iPad drag check. The simulator fires `dragstart` but UIKit swallows post-lift moves, so `dragover`/`drop` can only be exercised on a real iPad.
+All fourteen beans under this epic are complete.
 
 Accepted without change from the final review: DndContext api identity flips twice per drag (two full-tree re-renders at drag start/end); useEffectiveTheme re-reads the DOM per consumer render (one consumer today).

@@ -756,6 +756,65 @@ test("leftover durable batches flush on first connect, then views resync", async
   expect(screen.getByTestId("status").textContent).toBe("connected:1"); // resync
 });
 
+test("poison repair is not a second writer of the pending count (pkm-fgjg)",
+async () => {
+  // The queue's emitPending has exactly one caller for durable changes
+  // (opQueue's setPendingCount) plus refreshPending as the door for an
+  // outside re-read (see opQueue.ts's INVARIANT comment). If the repair
+  // path instead assigns React state directly from deleteBatch's return
+  // value, that value can disagree with the replica's own pendingCount —
+  // and once it does, the badge shows the wrong number even though the
+  // queue's internal bookkeeping (and every later same-valued publish) is
+  // correct and gets suppressed as a no-op repeat.
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/ops") return jsonResponse({ detail: "bad op" }, 400);
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+  const replica = fakeReplicaForProvider();
+  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                     poisoned: boolean }> = [];
+  replica.enqueue = async (ops, batchId) => {
+    rows.push({ id: 1, batch_id: batchId, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId };
+  };
+  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+  replica.markPoisoned = async (id) => {
+    rows.find((row) => row.id === id)!.poisoned = true;
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: true };
+  };
+  // The ground truth the queue is supposed to track and republish.
+  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+  replica.pendingBatches = async () => [...rows];
+  replica.prepareRecovery = async () => ({ token: "poison-lease", batches: [...rows] });
+  replica.commitRecovery = async () => undefined;
+  // Deliberately disagrees with pendingCount() above: a real deleteBatch
+  // reporting a value from a moment other call sites have already moved
+  // past is exactly the race the single-publisher invariant guards against.
+  replica.deleteBatch = async (id) => {
+    rows.splice(rows.findIndex((row) => row.id === id), 1);
+    return { pending: 3 };
+  };
+
+  let sync!: Sync;
+  function Grab() { sync = useSyncWhole(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+  });
+  await vi.waitFor(() => { expect(sync.problem).toMatchObject({
+    kind: "rejected-batch", repair: "repaired",
+  }); });
+
+  // Nothing is legitimately pending: the only durable row was poisoned and
+  // has now been deleted. The badge must reflect that, not deleteBatch's
+  // unrelated stale return value.
+  expect(sync.pending).toBe(0);
+});
+
 test("rejected batch repair finishes before resync and later delivery", async () => {
   let releaseSnapshot!: () => void;
   let snapshotHasStarted = false;

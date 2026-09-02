@@ -393,13 +393,16 @@ export function SyncProvider({ children, replica }: {
     const run = (async () => {
       try {
         await replicaSync!.rebaseAuthoritative("poison");
-        let remaining = 0;
         for (const poisonEvent of repairTargetsRef.current) {
-          const result = await replicaRef.current!.deleteBatch(poisonEvent.rowId);
-          remaining = result.pending;
+          await replicaRef.current!.deleteBatch(poisonEvent.rowId);
         }
         if (mountedRef.current) {
-          setPending(remaining);
+          // setPending has exactly one caller (queue.onPending, above);
+          // refreshPending is the door for an outside re-read of the durable
+          // count, same as the mount-time bootstrap does (see opQueue's
+          // emitPending INVARIANT comment). A direct setPending here would be
+          // a second writer that can disagree with the queue's own count.
+          void queue.refreshPending();
           applySync({ type: "repair-succeeded", event });
         }
         replicaSync!.completeAuthoritativeRepair("poison");

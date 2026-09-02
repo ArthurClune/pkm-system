@@ -1,12 +1,17 @@
 // pattern: Imperative Shell
 // /api/ws client: JSON batch dispatch, keepalive pings (the server ignores
 // inbound frames), and reconnect-until-close() under one connectivity policy
-// (pkm-d6i6): exponential backoff (reconnectBackoff.ts), no attempts at all
-// while the tab is hidden, an immediate attempt the moment the tab comes back,
-// and one on `online` too -- but never sooner than the backoff the schedule
-// would have used, since `online` can fire repeatedly. The old fixed 2 s loop retried
-// a dead link 30 times a minute for as long as the tab was open, foreground
-// or not, which is what keeps a mobile radio out of low power.
+// (pkm-d6i6): exponential backoff (reconnectBackoff.ts), no *scheduled*
+// attempts while the tab is hidden, an immediate attempt when the tab becomes
+// visible again, and one on `online` too -- but never sooner than the backoff
+// the schedule would have used, since `online` can fire repeatedly. Neither
+// visibility nor `online` is a hard gate: `online` still fires (and still
+// attempts, rate-limited by lastAttemptAt) while hidden, so a background tab
+// is not attempt-free, only unscheduled. Also not covered here: a socket the
+// OS itself freezes while backgrounded is not woken by reconnectNow() --
+// see the bean on zombie sockets after background freeze. The old fixed 2 s
+// loop retried a dead link 30 times a minute for as long as the tab was open,
+// foreground or not, which is what keeps a mobile radio out of low power.
 import type { BlockOp } from "../api/ops";
 import { reconnectDelayMs } from "./reconnectBackoff";
 

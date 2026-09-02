@@ -1,11 +1,11 @@
 ---
 # pkm-gw5r
 title: Offline pulls are misclassified as replica stalls → wrong 'Local sync is stuck' banner
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-01T23:58:27Z
+updated_at: 2026-09-02T00:05:36Z
 parent: pkm-fgjg
 ---
 

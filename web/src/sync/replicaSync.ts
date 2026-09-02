@@ -49,7 +49,8 @@ export interface ReplicaSync {
    * while a later pull can succeed, which is exactly what the latch rules out
    * (only close() re-arms it) — hence the second null case. */
   appliedVersion(): number | null;
-  /** True once doStart has reached "ready": the local database already has
+  /** True once doStart emits `onState({ mode: "ready" })` (set in the same
+   * synchronous step, just before the emit): the local database already has
    * a usable snapshot, whether this call's start() bootstrapped it just now
    * or it was already populated (this session, or persisted from a previous
    * one). False for a mount that has never completed a bootstrap -- the

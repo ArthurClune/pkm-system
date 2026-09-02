@@ -621,14 +621,22 @@ that succeeds keeps delivery paused, and the provider resumes it.
 ## Ancillary details
 
 - **Socket** (`web/src/sync/socket.ts`): reconnects on an exponential backoff
-  (`reconnectBackoff.ts` — 2 s doubling to a 30 s cap, reset by any successful
-  open), with a 30 s ping keepalive. Nothing is scheduled while
-  `document.hidden`: the due attempt is held and started when the tab becomes
-  visible, or when `window` fires `online`. The `online` path is rate-limited to
-  the delay the schedule would have used, because a flapping link fires it
-  repeatedly and a hidden tab has no timer to hold it back. Either short-circuit
-  only ever cuts a wait short, so neither can open a second socket over a live
-  one.
+  (`reconnectBackoff.ts` — 2 s doubling to a 30 s cap), with a 30 s ping
+  keepalive. The backoff counter resets only on proof the link is real — the
+  first frame received, or the socket staying open past `STABLE_MS` (5 s) —
+  not on the handshake completing, so a server that accepts and then
+  immediately closes still backs off instead of being hammered at the base
+  interval. Nothing is scheduled while `document.hidden`: the due attempt is
+  held and started when the tab becomes visible, or when `window` fires
+  `online`. The `online` path is rate-limited to the delay the schedule would
+  have used, because a flapping link fires it repeatedly and a hidden tab has
+  no timer to hold it back. Either short-circuit only ever cuts a wait short,
+  so neither can open a second socket over a live one. A tab hidden for
+  `RESUME_STALE_MS` (30 s) or more may have had its socket frozen by the OS
+  (iPadOS/Safari `freeze`); on return to visibility, a socket still reporting
+  `OPEN` after that long a gap is closed on the spot so the normal
+  onclose/reconnect path replaces it, rather than trusting a socket that may
+  never call again.
 - **`resyncSeq`** is the React counter that makes visible views refetch,
   separate from the replica's persisted cursor. A repair bumps it
   unconditionally. A reconnect bumps it only when its catch-up moved local

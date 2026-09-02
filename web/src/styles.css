@@ -857,6 +857,14 @@ mark.highlight { background: var(--color-highlight-bg); }
 .block-input { flex: 1; width: 100%; font: inherit; color: inherit;
   line-height: inherit; background: transparent; border: none; outline: none;
   resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
+/* Native auto-grow (pkm-youp): where supported, the browser resizes the
+ * textarea to fit its content with no JS measure-and-set, and useBlockDraft
+ * skips that effect entirely (see the `supportsFieldSizing` check there).
+ * Feature-detected, not browser-sniffed, so this and the JS fallback can
+ * never disagree about which one is active. */
+@supports (field-sizing: content) {
+  .block-input { field-sizing: content; }
+}
 .block-row.focused { background: var(--color-focus-bg); }
 /* Multi-block selection (Shift+Arrow) highlight. The tree container takes focus
  * to own the keyboard while selecting, but shouldn't show its own outline. */

@@ -12,6 +12,18 @@
 import { useEffect, useLayoutEffect, useRef, useState,
          type MutableRefObject } from "react";
 import { clampCaret } from "./edits";
+import { heightChanged, mayHaveShrunk } from "./textareaHeight";
+
+// Computed once per module load, not per block: `field-sizing: content`
+// (styles.css, `.block-input`) makes the browser do the auto-grow natively,
+// so where it's supported the JS measure-and-set below is dead weight this
+// skips entirely. Supported since Chromium 123 and Safari 26.2 (desktop and
+// iPadOS) as of this writing (pkm-youp) -- the fallback below exists for
+// older engines. jsdom has a `CSS` global but no `CSS.supports`, hence the
+// extra function check (a bare call would throw in every unit test).
+const supportsFieldSizing =
+  typeof CSS !== "undefined" && typeof CSS.supports === "function" &&
+  CSS.supports("field-sizing", "content");
 
 export interface BlockDraftOptions {
   /** The block tree's committed text for this block. */
@@ -84,12 +96,27 @@ export function useBlockDraft(
     el.setSelectionRange(at, at);
   }, []);
 
-  // Auto-grow to fit content.
+  // Auto-grow to fit content. Skipped entirely where `field-sizing: content`
+  // is supported -- the CSS does this natively with no forced layout from
+  // here. Otherwise: a naive "reset to auto, then measure" on every
+  // keystroke forces two synchronous layouts (pkm-youp measured 3/keystroke,
+  // 20% of a core at typing speed on a 300-block page). `heightAppliedRef`
+  // and `heightTextRef` let the fallback pay for the reset only when the
+  // content may have shrunk (textareaHeight.ts) and pay for the write only
+  // when the measured height actually differs.
+  const heightAppliedRef = useRef<number | null>(null);
+  const heightTextRef = useRef(draft);
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    if (!el || supportsFieldSizing) return;
+    const prevText = heightTextRef.current;
+    heightTextRef.current = draft;
+    if (mayHaveShrunk(prevText, draft)) el.style.height = "auto";
+    const measured = el.scrollHeight;
+    if (heightChanged(measured, heightAppliedRef.current)) {
+      el.style.height = `${measured}px`;
+      heightAppliedRef.current = measured;
+    }
   }, [draft]);
 
   // Adopt block-tree text changes — a remote update, or our own draft landing

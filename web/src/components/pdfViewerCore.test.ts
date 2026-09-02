@@ -91,8 +91,18 @@ describe("mountedPageWindow", () => {
     expect(mountedPageWindow(set(2, 18), 20, 1)).toEqual(set(1, 2, 3, 17, 18, 19));
   });
 
-  it("drops a page number the document does not have", () => {
-    expect(mountedPageWindow(set(99), 3, 1)).toEqual(set());
+  it("falls back to page 1 when the near page is not in the document", () => {
+    // A stale near set (a shorter document loaded into the same viewer)
+    // must not leave the viewer with nothing mounted at all.
+    expect(mountedPageWindow(set(99), 3, 1)).toEqual(set(1));
+  });
+
+  it("falls back to page 1 when every near page is out of range", () => {
+    expect(mountedPageWindow(set(0, -4, 99), 3, 1)).toEqual(set(1));
+  });
+
+  it("drops an out-of-range page without falling back when others survive", () => {
+    expect(mountedPageWindow(set(3, 99), 5, 1)).toEqual(set(2, 3, 4));
   });
 
   it("keeps everything in a document smaller than the window", () => {

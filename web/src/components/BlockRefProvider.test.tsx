@@ -1,14 +1,15 @@
 // A ((uid)) pasted after the page payload loaded is not in block_ref_texts;
 // the provider fetches it on demand so the ref resolves live (pkm-y6af).
 import { render, screen, waitFor } from "@testing-library/react";
-import { useContext } from "react";
+import { useContext, useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { expect, test, vi } from "vitest";
-import { BlockRefContext } from "../contexts";
+import { BlockRefRequestContext } from "../contexts";
 import { ROUTER_FUTURE_FLAGS } from "../router";
 import { stubFetch } from "../test-helpers";
 import { BlockRef } from "./BlockRef";
 import { BlockRefProvider } from "./BlockRefProvider";
+import { useBlockRefText } from "./useBlockRefText";
 
 test("resolves refs from the seed map without fetching", () => {
   const fetchMock = stubFetch([]);
@@ -87,22 +88,30 @@ test("the seed map wins over stale fetched entries", async () => {
   expect(screen.getByText("payload text")).toBeInTheDocument();
 });
 
-test("a resolved batch does not re-render the refs that did not ask for it", async () => {
+test("a resolved batch wakes only the consumers of the uids it resolved", async () => {
+  // Both uids are requested in one batch; the server knows only ref_hh8.
   stubFetch([["/api/block-refs", {
     block_ref_texts: { ref_hh8: { text: "fetched text", page_title: "Q" } },
   }]]);
-  let probeRenders = 0;
-  const Probe = () => {
-    useContext(BlockRefContext);
-    probeRenders += 1;
-    return null;
+  const renders = new Map<string, number>();
+  // The same two hooks BlockRef uses, so a useBlockRefText that subscribed
+  // to anything other than its own uid would fail here.
+  const Probe = ({ uid }: { uid: string }) => {
+    const resolved = useBlockRefText(uid);
+    const requestRef = useContext(BlockRefRequestContext);
+    renders.set(uid, (renders.get(uid) ?? 0) + 1);
+    useEffect(() => {
+      if (!resolved) requestRef(uid);
+    }, [resolved, requestRef, uid]);
+    return <span>{resolved ? resolved.text : `((${uid}))`}</span>;
   };
   render(
     <MemoryRouter future={ROUTER_FUTURE_FLAGS}><BlockRefProvider seed={{}}>
-      <BlockRef uid="ref_hh8" depth={0} />
-      <Probe />
+      <Probe uid="ref_gg7" />
+      <Probe uid="ref_hh8" />
     </BlockRefProvider></MemoryRouter>);
-  expect(probeRenders).toBe(1);
+  expect(renders.get("ref_gg7")).toBe(1);
+  expect(renders.get("ref_hh8")).toBe(1);
 
   await waitFor(() => expect(screen.getByText("fetched text")).toBeInTheDocument());
 
@@ -110,7 +119,9 @@ test("a resolved batch does not re-render the refs that did not ask for it", asy
   // Holding the texts in provider state made every batch a new context
   // value, so one pasted ref resolving re-rendered every ((uid)) on the
   // page -- on the Journal, every loaded day's worth of them.
-  expect(probeRenders).toBe(1);
+  expect(renders.get("ref_hh8")).toBe(2);
+  expect(renders.get("ref_gg7")).toBe(1);
+  expect(screen.getByText("((ref_gg7))")).toBeInTheDocument();
 });
 
 test("a fetch failure leaves the ref unresolved without retry storms", async () => {

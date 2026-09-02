@@ -39,8 +39,10 @@ export function focusWrapTarget<T>(
 }
 
 /** The pages that should stay mounted: every page within `radius` of one the
- * observer reports near the viewport, clamped to the document. An empty
- * `near` means no observer has fired yet, which is page 1's eager mount.
+ * observer reports near the viewport, clamped to the document. Page 1 is the
+ * floor: no observer has fired yet, or every near page is outside the
+ * document (a stale set from a longer document), still mounts page 1 rather
+ * than nothing.
  *
  * This is what bounds the viewer's memory. Mounting pages as they approach
  * and never unmounting them meant a long document scrolled end to end held
@@ -51,15 +53,13 @@ export function mountedPageWindow(
   radius: number,
 ): Set<number> {
   const keep = new Set<number>();
-  let sawNear = false;
   for (const page of near) {
-    sawNear = true;
     if (page < 1 || page > total) continue;
     const from = Math.max(1, page - radius);
     const to = Math.min(total, page + radius);
     for (let p = from; p <= to; p++) keep.add(p);
   }
-  if (!sawNear) keep.add(1);
+  if (keep.size === 0) keep.add(1);
   return keep;
 }
 

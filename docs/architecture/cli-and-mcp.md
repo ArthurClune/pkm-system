@@ -29,6 +29,7 @@ read/write line — reads auto-allowed, writes confirm-gated (see
 | `update_block` | write | replace a block's text or set its task marker |
 | `batch` | write | apply several commands in one atomic transaction |
 | `upload_asset` | write | upload a local file and link it from a page |
+| `rename_page` | write | retitle a page, rewriting every `[[link]]`/`#tag`/`attr::` reference to it; 409 unless `allow_merge` is set |
 
 ## The shared client
 

@@ -195,6 +195,47 @@ def test_api_error_carries_friendly_message(pkm_client):
     assert str(e.value) == "404: page not found"
 
 
+def test_rename_page_renames(pkm_client):
+    result = pkm_client.rename_page("Paper", "Papers Renamed")
+    assert result.result == "renamed"
+    assert result.title == "Papers Renamed"
+    assert pkm_client.get_page("Papers Renamed").page.title == "Papers Renamed"
+
+
+def test_rename_page_merges_with_allow_merge_on_collision(pkm_client):
+    result = pkm_client.rename_page("AI", "Machine Learning", allow_merge=True)
+    assert result.result == "merged"
+    assert result.title == "Machine Learning"
+
+
+def test_rename_page_collision_raises_without_allow_merge(pkm_client):
+    with pytest.raises(ApiError) as e:
+        pkm_client.rename_page("AI", "Machine Learning")
+    assert e.value.status == 409
+
+
+def test_rename_page_round_trips_a_namespaced_title(pkm_client):
+    """The motivating case: moving pages under an "LLM/" title namespace.
+    The source title is the URL path, and the route's param is
+    `{title:path}`, so the slash must survive unescaped (quote(safe="/"))
+    while the space is percent-encoded -- otherwise the second rename,
+    which addresses the namespaced page, 404s."""
+    assert pkm_client.rename_page("Paper", "LLM/Open Weights").title == \
+        "LLM/Open Weights"
+    result = pkm_client.rename_page("LLM/Open Weights", "LLM/Open Models")
+    assert (result.result, result.title) == ("renamed", "LLM/Open Models")
+    assert pkm_client.get_page("LLM/Open Models").page.title == \
+        "LLM/Open Models"
+
+
+def test_rename_page_round_trips_a_title_holding_a_question_mark(pkm_client):
+    """An unescaped "?" in the path would start a query string and leave
+    the route matching a truncated title."""
+    assert pkm_client.rename_page("Paper", "Why? Notes").title == "Why? Notes"
+    result = pkm_client.rename_page("Why? Notes", "Why Notes")
+    assert (result.result, result.title) == ("renamed", "Why Notes")
+
+
 def test_upload_asset(pkm_client, tmp_path):
     p = tmp_path / "note.txt"
     p.write_bytes(b"hello")

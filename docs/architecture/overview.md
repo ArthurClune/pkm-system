@@ -53,7 +53,7 @@ One server process, one SQLite file, one assets directory. Every client —
 browser, CLI, MCP — speaks the same HTTP API with the same session-cookie
 auth, and every mutation goes through the single `POST /api/ops` write path.
 Even the embedded LLM assistant is just another client: the server spawns a
-harness subprocess per chat conversation, confined to the eleven `pkm-mcp`
+harness subprocess per chat conversation, confined to the twelve `pkm-mcp`
 tools, and those tools loop back into the same API.
 
 ## Core idea

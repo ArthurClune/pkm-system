@@ -32,7 +32,8 @@ from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
                                      BlockNode, BlockPayload, GroupsPayload,
                                      OpsAck, PagePayload,
-                                     QueryPayload, ScanPayload, SearchPayload,
+                                     QueryPayload, RenamePageResponse,
+                                     ScanPayload, SearchPayload,
                                      TitleMigrationApplyRequest,
                                      TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
@@ -271,6 +272,18 @@ class PkmClient:
         params = {} if page is None else {"page": page}
         return self._request("GET", "/api/todos", GroupsPayload,
                              params=params)
+
+    def rename_page(self, title: str, new_title: str,
+                   allow_merge: bool = False) -> RenamePageResponse:
+        """POST /api/page/{title}/rename. `new_title` is sent as-is -- the
+        server canonicalizes it and reports the landed title back in the
+        response, same as `title` here (normalize_title, matching every
+        other title-addressed method on this client)."""
+        title = normalize_title(title)
+        return self._request(
+            "POST", f"/api/page/{quote(title, safe='/')}/rename",
+            RenamePageResponse,
+            json={"new_title": new_title, "allow_merge": allow_merge})
 
     def audit_title_migration(self) -> TitleMigrationAuditPayload:
         return self._request("GET", "/api/migrations/title-canonicalization",

@@ -368,6 +368,36 @@ def test_update_done_flag_keeps_the_heading(run, pkm_client):
     assert (block.text, block.heading) == ("{{DONE}} Task x", 2)
 
 
+def test_rename_prints_one_line(run, pkm_client):
+    code, out, err = run("rename", "Paper", "Papers Renamed")
+    assert code == 0
+    assert err == ""
+    assert out == 'renamed "Paper" -> "Papers Renamed"\n'
+    assert pkm_client.get_page("Papers Renamed").page.title == "Papers Renamed"
+
+
+def test_rename_allow_merge_prints_merged_line(run, pkm_client):
+    code, out, err = run("rename", "AI", "Machine Learning", "--allow-merge")
+    assert code == 0
+    assert err == ""
+    assert out == 'merged "AI" into "Machine Learning"\n'
+
+
+def test_rename_collision_without_allow_merge_hints_the_flag(run):
+    code, out, err = run("rename", "AI", "Machine Learning")
+    assert code == 1
+    assert out == ""
+    assert "already exists" in err
+    assert "--allow-merge" in err
+
+
+def test_rename_json_emits_the_response_model(run):
+    code, out, err = run("rename", "Paper", "Papers Renamed", "--json")
+    assert code == 0
+    assert err == ""
+    assert json.loads(out) == {"result": "renamed", "title": "Papers Renamed"}
+
+
 def test_update_addresses_a_legacy_leading_dash_uid_via_double_dash(
         run, pkm_client):
     # Same argparse hazard as `pkm get`: a uid starting with '-' must be

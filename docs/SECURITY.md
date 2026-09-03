@@ -158,14 +158,14 @@ Claude Agent SDK harness uses the service user's Claude Code login.
 Threat model:
 
 - **Prompt injection.** Note content is untrusted input to the model. The
-  blast radius of a fully injected model is the eleven PKM MCP tools — the
+  blast radius of a fully injected model is the twelve PKM MCP tools — the
   harness runs with all built-in tools disabled (no shell, filesystem, or
   web access) and `setting_sources=[]`, so filesystem settings/CLAUDE.md
   are ignored.
-- **Write gating.** The four write verbs (`save_note`, `update_block`,
-  `batch`, `upload_asset`) each require explicit per-call confirmation in
-  the UI before executing; denial is reported to the model as a declined
-  action. The confirmation card shows the operation preview in full up to
+- **Write gating.** The five write verbs (`save_note`, `update_block`,
+  `batch`, `upload_asset`, `rename_page`) each require explicit per-call
+  confirmation in the UI before executing; denial is reported to the model
+  as a declined action. The confirmation card shows the operation preview in full up to
   4000 characters per value (raised from an earlier 120-character clip that
   made users approve writes they couldn't fully see); pathologically long
   single values (e.g. a very large pasted note) are still clipped at that

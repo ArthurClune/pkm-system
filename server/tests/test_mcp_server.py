@@ -16,7 +16,7 @@ def test_tools_are_registered(tools):
     names = {t.name for t in tools.mcp._tool_manager.list_tools()}
     assert names == {"get_page", "get_block", "search", "query", "backlinks",
                      "todos", "save_note", "update_block", "batch",
-                     "upload_asset", "search_assets"}
+                     "upload_asset", "search_assets", "rename_page"}
 
 
 def test_get_page_markdown_includes_uids(tools):
@@ -331,3 +331,20 @@ def test_update_block_sets_heading_and_mark_preserves_it(tools, pkm_client):
     tools.update_block(uid, mark="TODO")
     block = pkm_client.get_block(uid).block
     assert (block.text, block.heading) == ("{{TODO}} Section", 3)
+
+
+def test_rename_page_renames(tools, pkm_client):
+    out = tools.rename_page("Paper", "Papers Renamed")
+    assert out == 'renamed "Paper" -> "Papers Renamed"'
+    assert pkm_client.get_page("Papers Renamed").page.title == "Papers Renamed"
+
+
+def test_rename_page_merges_with_allow_merge(tools, pkm_client):
+    out = tools.rename_page("AI", "Machine Learning", allow_merge=True)
+    assert out == 'merged "AI" into "Machine Learning"'
+
+
+def test_rename_page_collision_without_allow_merge_raises(tools):
+    with pytest.raises(ApiError) as e:
+        tools.rename_page("AI", "Machine Learning")
+    assert e.value.status == 409

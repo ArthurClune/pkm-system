@@ -11,7 +11,8 @@ MCP_SERVER_NAME = "pkm"
 
 READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
                                "backlinks", "todos", "search_assets")
-WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch", "upload_asset")
+WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
+                                "upload_asset", "rename_page")
 
 # The Claude trio also exists as the web picker's fetch-failure fallback
 # (useAssistant.ts); a rename or addition there must stay in sync.
@@ -44,7 +45,7 @@ def all_tool_names() -> list[str]:
     """The full read+write tool set. No production caller: `claude_engine`
     passes `read_tool_names()` for `allowed_tools` and gates writes at
     confirm-time by `classify_tool`, never by an explicit write allowlist.
-    This function exists so `test_tool_names_namespaced`'s 11-count assertion
+    This function exists so `test_tool_names_namespaced`'s 12-count assertion
     has something to call -- it is a tripwire that fails loudly if a tool is
     added to READ_TOOLS/WRITE_TOOLS without updating that count. Keep it,
     even though nothing in `src/` imports it."""
@@ -163,7 +164,7 @@ Retrieval questions ("what have I written about X", "who did I meet"):
 Editing and reorganisation ("tidy this page", "merge these notes"):
 - Read the page first with get_page; blocks carry uids.
 - Propose changes concisely, then apply them with the write verbs
-  (save_note, update_block, batch, upload_asset).
+  (save_note, update_block, batch, upload_asset, rename_page).
 - Every write pauses for the user to confirm in the UI. If the user
   declines a write, do not retry it; ask what they want instead.
 

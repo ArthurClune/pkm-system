@@ -23,7 +23,7 @@ for the pattern.
 ```
 pkm/
 ├── schema.py            Core   Single source of DDL: BASE_DDL (replicated to clients)
-│                               + SERVER_DDL (journal, idempotency) = DDL
+│                               + SERVER_DDL (journal, idempotency, rewrites) = DDL
 ├── refs.py              Core   Ref grammar: [[links]], #tags, attr::, ((refs)), {{embeds}}
 │                               + title normalization, and the positioned spans (bracket
 │                               tree, tags, attribute) the rewriter scans with
@@ -186,6 +186,10 @@ Around that base model:
     journalled automatically. Cascade deletes journal correctly only because
     `recursive_triggers=ON`.
   - `applied_batches(batch_id, request_hash, response)` — op idempotency.
+  - `block_rewrites(uid, base_hash, after_hash, old_title, new_title,
+    created_at)` — what a rename, merge or the title migration did to one
+    block's text, replayed over a stale `update_text` (see the write path
+    above). Written per changed block, pruned to 30 days on every rewrite.
   - `sync_meta` — durable server sync and title metadata. Today it holds the
     random `db_generation` token (a rebuilt database gets a new one and
     clients rebootstrap) plus `plain_space_title_canonicalization`, the
@@ -271,7 +275,12 @@ Key mechanics:
   so structural changes don't manufacture conflicts. On mismatch the incoming
   edit wins, and the losing text is preserved as a `[[conflict]]` sibling
   block. An edit to a since-deleted block is appended to today's daily page
-  instead of vanishing. The sibling's uid comes from the server's own
+  instead of vanishing. A rename or merge that rewrote the block after the
+  edit was made is replayed over the incoming text first
+  (`ops_core.replay_title_rewrites`). Otherwise a device that never saw the
+  rename wins with the old title and re-creates the page it emptied. The
+  records replayed are the `block_rewrites` rows
+  `store.rewrite_snapshotted_blocks` leaves per block it rewrote. The sibling's uid comes from the server's own
   generator (`ops_apply.py`), which mints an alphanumeric first character like
   every other uid minter in the project, so the CLI can address it without
   `--` (see the uid note in

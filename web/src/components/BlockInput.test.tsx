@@ -668,6 +668,30 @@ test("typing [ twice opens the [[ page-link autocomplete (pkm-3sxw)", () => {
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[]]", true);
 });
 
+test("wrapping a selection in [[ ]] opens the ref popup for the selected text "
+     + "and Enter completes it (pkm-wxwp)", () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const h = handlers();
+  mount(h, 0);
+  const ta = focusedTextarea();
+  ta.setSelectionRange(0, 5); // "hello"
+  fireEvent.keyDown(ta, { key: "[" }); // -> "[hello] [[World]]", "hello" kept selected
+  // jsdom won't run the rAF that restores the selection; mirror the browser.
+  ta.setSelectionRange(1, 6);
+  fireEvent.keyDown(ta, { key: "[" }); // -> "[[hello]] [[World]]"
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[hello]] [[World]]", true);
+  ta.setSelectionRange(2, 7);
+  // The query is the wrapped text, not the empty string at the selection start.
+  expect(screen.getByRole("option", { name: /New page: hello/ }))
+    .toBeInTheDocument();
+
+  // resolve() judges liveness at the selection END, so the pick is not stale.
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onSplit).not.toHaveBeenCalled();
+  expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[hello]] [[World]]");
+  expect(screen.queryByRole("listbox")).toBeNull();
+});
+
 test("typing with the caret inside an open [[ ref holds the draft flush "
      + "(pkm-xlah)", () => {
   const h = handlers();

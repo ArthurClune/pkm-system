@@ -620,6 +620,12 @@ Editing mechanics to know before touching `outline/`:
   split, Tab stays an indent, and a completion cannot land at the offset the
   caret has left.
 
+  The live caret is `selectionEnd`, both when a key-edit re-detects the
+  context and inside `resolve`. Wrapping a selection in `[[` keeps the inner
+  text selected, and that text is the query. `selectionStart` sits right
+  after the `[[` and would read as an empty query, so the popup would never
+  open. For a collapsed caret the two offsets are the same.
+
   `resolve` must not be called from `keyup`. Both editors place the caret
   after a key-edit inside a `requestAnimationFrame`, and keyup always lands
   inside that window, where every context looks stale.
@@ -942,6 +948,7 @@ its fix installed. The bean has the full investigation.
 | A `((uid))` ref typed in a sidebar panel stays unresolved until the panel remounts | the sidebar mounted the bare `BlockRefContext.Provider`, so nothing watched for newly resolved texts; outline surfaces must mount `BlockRefProvider` | pkm-0one |
 | Typing on a big page burns a fifth of a CPU core, dominated by layout, not scripting | the textarea auto-grow reset height to `auto` and re-measured on every keystroke regardless of whether the content had grown or shrunk, forcing layout twice per character | pkm-youp |
 | One edit in the journal re-renders every row of every day on screen, with no DOM change to show for it | the Sync context was a single value, so a pending count made a new identity for every consumer; a consumer must take the narrowest hook it needs, and `EditableBlock` is memoised behind props the tree holds stable | pkm-qfee |
+| Selecting a word and typing `[[` wraps it as `[[word]]` but the ref popup never opens, while typing `[[wor` does | the key-edit path and `resolve` read `selectionStart`, which sits right after the `[[` and so saw an empty query; both must read `selectionEnd` | pkm-wxwp |
 
 ## Testing and quality gates
 

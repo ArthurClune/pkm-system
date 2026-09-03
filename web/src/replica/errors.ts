@@ -97,3 +97,21 @@ export function isSessionFatal(error: unknown): boolean {
   if (error instanceof ReplicaUnavailableError) return true;
   return error instanceof RpcLifecycleError && error.kind !== "timeout";
 }
+
+/** SQLite saying the database it opened is internally inconsistent: result
+ * code 11 (SQLITE_CORRUPT) or 267 (SQLITE_CORRUPT_VTAB, what FTS5 raises when
+ * its index no longer agrees with the content table it mirrors -- its
+ * row/token totals would go negative on the next delete). Both share the
+ * message "database disk image is malformed". Matched on the message because
+ * the wrapper surfaces the engine's error unchanged.
+ *
+ * The replica is a cache, so this is a reason to REBUILD it, not a stall to
+ * show the user (pkm-n31j). Only an ordinary ReplicaError qualifies: a
+ * latched failed open is an availability fact with its own handling, and a
+ * plain Error carrying the same words did not come from the worker. */
+export function isCorruptionError(error: unknown): boolean {
+  if (!(error instanceof ReplicaError)) return false;
+  if (error instanceof ReplicaUnavailableError) return false;
+  return /\bSQLITE_CORRUPT(_VTAB)?\b|database disk image is malformed/
+    .test(error.message);
+}

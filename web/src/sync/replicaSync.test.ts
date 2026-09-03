@@ -1509,3 +1509,82 @@ test("stop() clears the pending retry timer and prevents further scheduling", as
     vi.useRealTimers();
   }
 });
+
+// A corrupt replica is a corrupt CACHE: everything in it but the pending
+// queue can be re-fetched, and runRecovery flushes that queue before it
+// touches the database. So corruption is a reason to rebuild, not a stall to
+// show the user (pkm-n31j: FTS5 raised SQLITE_CORRUPT_VTAB on an iPad and the
+// banner sat there until a manual "Reset local data").
+const CORRUPT = () => new ReplicaError(
+  "SQLITE_CORRUPT_VTAB: sqlite3 result code 267: database disk image is malformed",
+);
+
+test("a corruption-shaped pull failure rebuilds the schema instead of stalling", async () => {
+  const applyChanges = vi.fn()
+    .mockRejectedValueOnce(CORRUPT())
+    .mockResolvedValue({ status: "applied", cursor: 9 });
+  const commitRecovery = vi.fn(async () => undefined);
+  const replica = fakeReplica({ applyChanges, commitRecovery });
+  const snap = { ...SNAP, seq: 9 };
+  const fetchJson = vi.fn(async (path: string) =>
+    path === "/api/sync/snapshot" ? snap : feed({ next_since: 9, latest_seq: 9 }));
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+
+  // the schema-rebuilding kind: a "rebase" would run DELETE FROM blocks over
+  // the same corrupt FTS index and fail the same way
+  expect(commitRecovery).toHaveBeenCalledWith("lease-1", { kind: "reset", snapshot: snap });
+  expect(states.map((s) => s.mode)).not.toContain("stalled");
+  expect(states.map((s) => s.mode)).not.toContain("recovery-failed");
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+});
+
+test("corruption that survives one rebuild is a stall, not a rebuild loop", async () => {
+  vi.useFakeTimers();
+  try {
+    const applyChanges = vi.fn().mockRejectedValue(CORRUPT());
+    const commitRecovery = vi.fn(async () => undefined);
+    const replica = fakeReplica({ applyChanges, commitRecovery });
+    const fetchJson = vi.fn(async (path: string) =>
+      path === "/api/sync/snapshot" ? SNAP : feed({ next_since: 9, latest_seq: 9 }));
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start();
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (STALL_AFTER_FAILURES + 1));
+
+    expect(commitRecovery).toHaveBeenCalledTimes(1);
+    expect(states).toContainEqual({
+      mode: "stalled",
+      error: "SQLITE_CORRUPT_VTAB: sqlite3 result code 267: database disk image is malformed",
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a feed re-bootstrap whose snapshot apply hits corruption escalates to a schema rebuild", async () => {
+  const kinds: string[] = [];
+  const commitRecovery = vi.fn(async (_token: string, input: { kind: string }) => {
+    kinds.push(input.kind);
+    if (input.kind === "rebase") throw CORRUPT();
+  });
+  const replica = fakeReplica({
+    applyChanges: vi.fn()
+      .mockResolvedValueOnce({ status: "needs-bootstrap" })
+      .mockResolvedValue({ status: "applied", cursor: 9 }),
+    commitRecovery: commitRecovery as unknown as Replica["commitRecovery"],
+  });
+  const fetchJson = vi.fn(async (path: string) =>
+    path === "/api/sync/snapshot" ? SNAP : feed({ next_since: 9, latest_seq: 9 }));
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+
+  expect(kinds).toEqual(["rebase", "reset"]);
+  expect(states.map((s) => s.mode)).not.toContain("recovery-failed");
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+});

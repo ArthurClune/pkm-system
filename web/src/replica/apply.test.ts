@@ -448,3 +448,76 @@ describe("applyChanges", () => {
     expect(getMeta(t.db, "cursor")).toBe("11");
   });
 });
+
+describe("applyChanges: a title moving between ids inside one window", () => {
+  // pages.title and sidebar_entries.title are UNIQUE. The server only ever
+  // holds one row per title, but a single window can carry the row that
+  // gave a title up (a tombstone, or its own retitled row) together with the
+  // row that took it over. Applying the taker before the giver has gone
+  // used to trip UNIQUE, roll the window back, and refetch it forever
+  // (pkm-n31j: "SIS" merged away as 3521, re-created as 4518, same window).
+  test("a page deleted and re-created under a new id in one window", () => {
+    const feed = emptyFeed({
+      next_since: 20, latest_seq: 20,
+      pages: [page(3, "AI")],
+      tombstones: [{ kind: "page", entity_id: "2" }],
+    });
+    expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
+    expect(t.db.select("SELECT id, title FROM pages ORDER BY id")).toEqual([
+      { id: 1, title: "Machine Learning" }, { id: 3, title: "AI" },
+    ]);
+  });
+
+  test("two pages swapping titles in one window", () => {
+    const feed = emptyFeed({
+      next_since: 20, latest_seq: 20,
+      pages: [page(1, "AI"), page(2, "Machine Learning")],
+    });
+    expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
+    expect(t.db.select("SELECT id, title FROM pages ORDER BY id")).toEqual([
+      { id: 1, title: "AI" }, { id: 2, title: "Machine Learning" },
+    ]);
+    // the FTS mirror followed both retitles
+    expect(t.db.select("SELECT rowid FROM pages_fts WHERE pages_fts MATCH 'learning'"))
+      .toEqual([{ rowid: 2 }]);
+  });
+
+  test("a title taken over from a row this window says nothing about re-bootstraps", () => {
+    // The server cannot hold two "AI" rows, so a local positive-id "AI" that
+    // is neither retitled nor tombstoned here means this replica's picture of
+    // it is stale in a way no window can fix. Rebuild rather than wedge.
+    const feed = emptyFeed({ next_since: 20, latest_seq: 20, pages: [page(3, "AI")] });
+    expect(applyChanges(t.db, feed)).toEqual({ status: "needs-bootstrap" });
+    expect(getMeta(t.db, "cursor")).toBe("10");
+    expect(t.db.select("SELECT id, title FROM pages ORDER BY id")).toEqual([
+      { id: 1, title: "Machine Learning" }, { id: 2, title: "AI" },
+    ]);
+  });
+
+  test("a sidebar entry deleted and re-created under a new id in one window", () => {
+    const feed = emptyFeed({
+      next_since: 20, latest_seq: 20,
+      sidebar: [{ id: 7, title: "AI", order_idx: 0 }],
+      tombstones: [{ kind: "sidebar", entity_id: "1" }],
+    });
+    expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
+    expect(t.db.select("SELECT id, title FROM sidebar_entries"))
+      .toEqual([{ id: 7, title: "AI" }]);
+  });
+
+  test("two sidebar entries swapping titles in one window", () => {
+    applyChanges(t.db, emptyFeed({
+      next_since: 15, latest_seq: 15,
+      sidebar: [{ id: 2, title: "Machine Learning", order_idx: 1 }],
+    }));
+    const feed = emptyFeed({
+      next_since: 20, latest_seq: 20,
+      sidebar: [{ id: 1, title: "Machine Learning", order_idx: 0 },
+                { id: 2, title: "AI", order_idx: 1 }],
+    });
+    expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
+    expect(t.db.select("SELECT id, title FROM sidebar_entries ORDER BY id")).toEqual([
+      { id: 1, title: "Machine Learning" }, { id: 2, title: "AI" },
+    ]);
+  });
+});

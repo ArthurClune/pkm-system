@@ -9,11 +9,11 @@
 
 import { ApiError, OfflineError } from "../api/client";
 import type { ApiFetchOptions } from "../api/client";
-import type { Changes, Snapshot } from "../replica/apply";
+import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type {
   PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
 } from "../replica/client";
-import { availabilityOf, ReplicaError } from "../replica/errors";
+import { availabilityOf, isCorruptionError, ReplicaError } from "../replica/errors";
 import type { OpQueue } from "./opQueue";
 
 export type ReplicaState =
@@ -211,6 +211,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let appliedVersion = 0;
   let usable = true;
   let started = false;
+  // The one automatic rebuild a corrupt replica gets per session; see
+  // claimCorruptionRebuild.
+  let rebuiltForCorruption = false;
   let pulling: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
@@ -367,7 +370,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     } catch (error: unknown) {
       const poisonOwnsRecovery = authoritativeRepair === "poison" ||
         error === poisonPreempted;
-      if (options.reportReplicaFailure && !poisonOwnsRecovery) {
+      // A rebase that hit corruption is about to be retried as a reset by
+      // recover(); reporting it here would flash a recovery-failed banner
+      // over a repair that is still in progress.
+      if (options.reportReplicaFailure && !poisonOwnsRecovery &&
+          !wouldEscalateCorruption(kind, error)) {
         // Without this, a recovery-failed report that never crosses the
         // stall threshold (e.g. the very first failure) leaves
         // reportedNonReady false, so noteSuccess's later "ready" re-emission
@@ -405,9 +412,36 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       });
       return { ok: true };
     } catch (error: unknown) {
+      if (kind === "rebase" && claimCorruptionRebuild(error)) {
+        // A rebase re-applies the snapshot INTO the existing schema, so its
+        // `DELETE FROM blocks` runs the same FTS triggers over the same
+        // corrupt index and fails the same way. Only a reset (drop and
+        // recreate the tables) clears that; runRecovery held its report
+        // back for exactly this hand-off (see its catch).
+        return recover("reset");
+      }
       return { ok: false, error };
     }
   };
+
+  /** Whether `error` is corruption this session has not yet rebuilt for.
+   * Claims the one rebuild when it is. Once per session on purpose: a
+   * database that comes back corrupt from a fresh snapshot has a problem a
+   * second rebuild will not fix, and that is the point at which the user
+   * should see it (as an ordinary stall) rather than a rebuild loop
+   * re-downloading the graph forever. */
+  const claimCorruptionRebuild = (error: unknown): boolean => {
+    if (rebuiltForCorruption || !isCorruptionError(error)) return false;
+    rebuiltForCorruption = true;
+    console.warn(
+      "replica: local database is corrupt, rebuilding it from a snapshot",
+      error);
+    return true;
+  };
+  const wouldEscalateCorruption = (
+    kind: RecoveryCommit["kind"], error: unknown,
+  ): boolean =>
+    kind === "rebase" && !rebuiltForCorruption && isCorruptionError(error);
 
   const pullLoop = async (): Promise<void> => {
     // Counts consecutive "pending-changed" refetches across this whole call
@@ -423,7 +457,23 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
           .map((batch) => batch.id);
         const feed = (await fetchJson(
           `/api/sync/changes?since=${cursor}`)) as Changes;
-        const res = await replica.applyChanges(feed, expectedPendingIds);
+        let res: ApplyResult;
+        try {
+          res = await replica.applyChanges(feed, expectedPendingIds);
+        } catch (error: unknown) {
+          if (!claimCorruptionRebuild(error)) throw error;
+          // Same ownership rule as the needs-bootstrap branch below: a
+          // poison repair holds the recovery lease; leave the corruption
+          // for the pull that follows it.
+          if (authoritativeRepair === "poison") return;
+          const rebuilt = await recover("reset");
+          if (!rebuilt.ok) {
+            if (authoritativeRepair === "poison") return;
+            throw rebuilt.error;
+          }
+          done = feed.latest_seq <= cursor;
+          continue;
+        }
         if (res.status === "pending-changed") {
           pendingChangedRetries += 1;
           if (pendingChangedRetries >= PENDING_CHANGED_CAP) {

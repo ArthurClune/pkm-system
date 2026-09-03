@@ -110,7 +110,10 @@ read transaction:
   titles are parked under a placeholder (`parkTakenTitles`) and restored by
   their own upserts. A row still parked afterwards is either stale or
   retitled past the window's end; a snapshot corrects both, so the window
-  returns `needs-bootstrap`.
+  returns `needs-bootstrap`. Every other failure to apply still throws out of
+  `applyWindow` — what to do about one that keeps repeating is `replicaSync`'s
+  decision, not another class added here (see
+  [Rebootstrap triggers](#rebootstrap-triggers)).
 
 Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
 `reset: true` (the client's cursor is ahead of the journal, so the database
@@ -596,7 +599,7 @@ confirm stays.
 
 ### Rebootstrap triggers
 
-Six conditions cause a rebootstrap on their own:
+Seven conditions cause a rebootstrap on their own:
 
 | Trigger | Detected by | Kind |
 |---|---|---|
@@ -606,6 +609,7 @@ Six conditions cause a rebootstrap on their own:
 | Window cannot commit: deferred FK check fails (dependency-incomplete feed, e.g. an older server) | `applyChanges` catches the FK failure at COMMIT and returns `needs-bootstrap` | `rebase` |
 | A local page or sidebar row holds a title this window gives to another id, and the window neither retitles nor tombstones that row | `parkTakenTitles` moves the holder aside before the upserts; a row still parked afterwards throws `StaleTitleHolderError`, and `applyChanges` returns `needs-bootstrap` | `rebase` |
 | The replica reports corruption (`SQLITE_CORRUPT`, or FTS5's `SQLITE_CORRUPT_VTAB`) while applying a window or a rebase snapshot | `isCorruptionError` in `pullLoop` and `recover`; once per session, a second corruption is an ordinary stall. Before the rebuild, `replica.diagnostics()` (quick_check, FTS `integrity-check`, row counts, cursor) is posted to `POST /api/client/diagnostics`, which logs it | `reset`: a rebase re-applies the snapshot through the same FTS triggers over the same corrupt index |
+| A window keeps failing to apply for any other reason the rows above do not name — a NOT NULL or CHECK violation from a malformed feed, a bug in an upsert | `WINDOW_STRIKES` failures of the same cursor with the same message, counted in `pullLoop` (`isWindowFailure`: a `ReplicaError` that is neither corruption nor an availability verdict, so transport failures never count). The failure and `replica.diagnostics()` are posted to `POST /api/client/diagnostics` under kind `window-unappliable` first; once per session, a second run is an ordinary stall | `rebase`: nothing here says the schema or the FTS index is bad, and a rebase keeps the pending queue's rows |
 
 Two more rebootstraps happen on request: the authoritative repair of a poisoned
 batch, and the user's own Reset local data.

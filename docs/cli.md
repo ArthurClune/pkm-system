@@ -49,8 +49,8 @@ don't exist yet.
 
 `pkm rename` retitles a page and rewrites every `[[link]]`, `#tag`,
 `#[[tag]]` and `attr::` reference to it in block text, case-sensitively. If
-`New Title` already exists, the command exits 1 with a 409 and a hint to
-retry with `--allow-merge`; that flag instead concatenates the source page's
+`New Title` already exists, the command exits 1 with the server's
+"already exists" message and a hint to retry with `--allow-merge`; that flag instead concatenates the source page's
 top-level blocks after the target's and drops the source page. Daily-note
 (date) pages cannot be renamed. The title printed back is the server's
 normalised form, which need not match what you typed byte-for-byte.

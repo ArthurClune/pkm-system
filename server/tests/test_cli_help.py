@@ -55,20 +55,6 @@ def test_migrate_titles_help_is_self_sufficient_about_manual_audit_and_apply(cap
         assert needle in out
 
 
-# Needles unique to the heading-*writing* prose added for pkm-8m94 -- not
-# just "heading"/"###", which `batch --help` already contained via the
-# unrelated parent-spec heading-*matching* prose ("a different level, e.g.
-# '###', makes its own heading"). Each needle below only exists if the
-# heading-writing sentence for that verb/command is present.
-_HEADING_LEVEL_NEEDLES = {
-    "save": ['becomes a real heading block at'],
-    "update": ['makes the block a heading at'],
-    "batch": ['A text beginning "# ", "## " or "### " becomes a',
-              'sets the heading level; text',
-              'An item text beginning "# ",'],
-}
-
-
 def test_rename_help_is_self_sufficient(capsys):
     with pytest.raises(SystemExit):
         main(["rename", "--help"])
@@ -82,6 +68,20 @@ def test_rename_help_is_self_sufficient(capsys):
         "[[link]]",
     ]:
         assert needle in out, f"rename --help omits {needle!r}"
+
+
+# Needles unique to the heading-*writing* prose added for pkm-8m94 -- not
+# just "heading"/"###", which `batch --help` already contained via the
+# unrelated parent-spec heading-*matching* prose ("a different level, e.g.
+# '###', makes its own heading"). Each needle below only exists if the
+# heading-writing sentence for that verb/command is present.
+_HEADING_LEVEL_NEEDLES = {
+    "save": ['becomes a real heading block at'],
+    "update": ['makes the block a heading at'],
+    "batch": ['A text beginning "# ", "## " or "### " becomes a',
+              'sets the heading level; text',
+              'An item text beginning "# ",'],
+}
 
 
 @pytest.mark.parametrize("verb", ["save", "update", "batch"])

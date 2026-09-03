@@ -214,6 +214,28 @@ def test_rename_page_collision_raises_without_allow_merge(pkm_client):
     assert e.value.status == 409
 
 
+def test_rename_page_round_trips_a_namespaced_title(pkm_client):
+    """The motivating case: moving pages under an "LLM/" title namespace.
+    The source title is the URL path, and the route's param is
+    `{title:path}`, so the slash must survive unescaped (quote(safe="/"))
+    while the space is percent-encoded -- otherwise the second rename,
+    which addresses the namespaced page, 404s."""
+    assert pkm_client.rename_page("Paper", "LLM/Open Weights").title == \
+        "LLM/Open Weights"
+    result = pkm_client.rename_page("LLM/Open Weights", "LLM/Open Models")
+    assert (result.result, result.title) == ("renamed", "LLM/Open Models")
+    assert pkm_client.get_page("LLM/Open Models").page.title == \
+        "LLM/Open Models"
+
+
+def test_rename_page_round_trips_a_title_holding_a_question_mark(pkm_client):
+    """An unescaped "?" in the path would start a query string and leave
+    the route matching a truncated title."""
+    assert pkm_client.rename_page("Paper", "Why? Notes").title == "Why? Notes"
+    result = pkm_client.rename_page("Why? Notes", "Why Notes")
+    assert (result.result, result.title) == ("renamed", "Why Notes")
+
+
 def test_upload_asset(pkm_client, tmp_path):
     p = tmp_path / "note.txt"
     p.write_bytes(b"hello")

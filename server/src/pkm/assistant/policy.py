@@ -164,7 +164,7 @@ Retrieval questions ("what have I written about X", "who did I meet"):
 Editing and reorganisation ("tidy this page", "merge these notes"):
 - Read the page first with get_page; blocks carry uids.
 - Propose changes concisely, then apply them with the write verbs
-  (save_note, update_block, batch, upload_asset).
+  (save_note, update_block, batch, upload_asset, rename_page).
 - Every write pauses for the user to confirm in the UI. If the user
   declines a write, do not retry it; ask what they want instead.
 

@@ -4,6 +4,7 @@ import pytest
 
 from pkm.assistant.policy import (
     SYSTEM_PROMPT,
+    WRITE_TOOLS,
     all_tool_names,
     available_models,
     classify_tool,
@@ -43,6 +44,14 @@ def test_search_assets_is_a_read_tool():
 
 def test_rename_page_is_a_write_tool():
     assert classify_tool(mcp_tool_name("rename_page")) == "write"
+
+
+def test_system_prompt_names_every_write_verb():
+    """The prompt enumerates the write verbs by name, so a tool added to
+    WRITE_TOOLS without a matching mention leaves the assistant unaware it
+    exists. Same tripwire role as `all_tool_names`'s count assertion."""
+    for tool in WRITE_TOOLS:
+        assert tool in SYSTEM_PROMPT, f"SYSTEM_PROMPT omits {tool!r}"
 
 
 def test_short_tool_name():

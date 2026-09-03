@@ -86,10 +86,14 @@ export function BlockInput({ node, cursor, handlers, readOnly,
 
   // Apply a bracket/link key edit. Unlike a normal keystroke this bypasses
   // onChange (we preventDefault), so we re-derive the autocomplete context here
-  // — that's what lets typing "[" twice open the [[ page-link popup.
+  // — that's what lets typing "[" twice open the [[ page-link popup. The
+  // context is detected at the selection END: wrapping a selection in "[["
+  // keeps the inner text selected, and that text is the query (pkm-wxwp).
+  // Detecting at the start would see "[[" followed by nothing. For a
+  // collapsed caret the two are the same offset.
   const applyKeyEdit = (r: TextSelection) => {
     setDatePickerAt(null);
-    const ctx = ac.onEdit(r.text, r.selStart);
+    const ctx = ac.onEdit(r.text, r.selEnd);
     draft.replace(r.text, r.selStart, r.selEnd, holdsDraftFlush(ctx));
   };
 

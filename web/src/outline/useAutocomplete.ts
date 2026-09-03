@@ -10,7 +10,8 @@ import { detectAutocomplete, liveAcContext, type AcContext } from "./autocomplet
 
 export interface AcTarget {
   ctx: AcContext;
-  /** Caret to splice at, read live from the textarea. */
+  /** Caret to splice at, read live from the textarea: the selection end, so
+   * a "[[" wrapped around still-selected text completes over that text. */
   caret: number;
   /** The textarea's live text, the snapshot `caret` and `ctx` describe. */
   text: string;
@@ -63,7 +64,11 @@ export function useAutocomplete(): AutocompleteController {
     },
     resolve: (el) => {
       if (ctx === null || el === null) return null;
-      const caret = el.selectionStart;
+      // The selection END is the caret the query ends at. When "[[" wraps a
+      // selection the inner text stays selected (pkm-wxwp); the start of
+      // that selection sits right after the "[[" and would read as an empty
+      // query, wrongly closing a live popup. Same offset when collapsed.
+      const caret = el.selectionEnd;
       const live = liveAcContext(ctx, el.value, caret);
       if (live === null) {
         close();

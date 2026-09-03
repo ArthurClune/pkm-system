@@ -38,6 +38,15 @@
    * they must read as "linked text", not "warning" (pkm-1eaj) */
   --color-link: #c25a28;
   --color-link-ext: #7056f2;
+  /* per-tree link colours (pkm-r71a): a [[Tree/Page]] ref takes its tree's
+   * token via the a.page-link[data-ns] rules below, so [[AWS/EC2]] and
+   * [[Project/SITS]] read as different kinds of link. Four groups, not one
+   * per tree -- more colours than that and none of them signals anything.
+   * Each must stay distinct from --color-link and --color-link-ext. */
+  --color-link-cloud: #1c8a86;
+  --color-link-ai: #2d6fd0;
+  --color-link-work: #3c8b4b;
+  --color-link-reading: #a3467f;
   --color-tag: #9dafca;
   /* a step darker than the old #e3ecf2/#d8e5ee, which vanished into the
    * white pane and left the outline structureless (pkm-9kye) */
@@ -112,6 +121,10 @@
     --color-accent: #ff9d5c;
     --color-link: #e8935a;
     --color-link-ext: #a394f8;
+    --color-link-cloud: #4fc3bd;
+    --color-link-ai: #7fa9f2;
+    --color-link-work: #6fc07c;
+    --color-link-reading: #d98bb9;
     --color-tag: #6f80a0;
     --color-bullet: #39434d;
     --color-bullet-ring: #4a5866;
@@ -165,6 +178,10 @@
   --color-accent: #ff9d5c;
   --color-link: #e8935a;
   --color-link-ext: #a394f8;
+  --color-link-cloud: #4fc3bd;
+  --color-link-ai: #7fa9f2;
+  --color-link-work: #6fc07c;
+  --color-link-reading: #d98bb9;
   --color-tag: #6f80a0;
   --color-bullet: #39434d;
   --color-bullet-ring: #4a5866;
@@ -214,6 +231,17 @@ body {
 a { color: var(--color-link-ext); font-weight: 600; text-decoration: none; }
 /* medium, not bold: bold page links make link-dense outlines shout */
 a.page-link { color: var(--color-link); font-weight: 500; }
+/* tree colours (pkm-r71a): data-ns is the lowercased prefix before the
+ * title's first "/" (PageLink). To colour another tree, add its prefix to a
+ * group here -- no code change. Anything not listed stays --color-link. */
+a.page-link[data-ns="aws"], a.page-link[data-ns="azure"], a.page-link[data-ns="gcp"] {
+  color: var(--color-link-cloud); }
+a.page-link[data-ns="claude"], a.page-link[data-ns="llm"] {
+  color: var(--color-link-ai); }
+a.page-link[data-ns="project"], a.page-link[data-ns="uos"] {
+  color: var(--color-link-work); }
+a.page-link[data-ns="paper"], a.page-link[data-ns="book"], a.page-link[data-ns="article"] {
+  color: var(--color-link-reading); }
 /* tags are metadata chips, not prose links (pkm-7t7o); the hairline border
  * keeps them legible on .backlink-item cards whose bg matches the chip's */
 a.tag { color: var(--color-tag); font-weight: 400; font-size: 13px;
@@ -556,6 +584,9 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
  * the source "::" stays in the textarea only (pkm-7t7o) */
 .attribute a { font-variant-caps: all-small-caps; letter-spacing: 0.03em;
   font-weight: 500; color: var(--color-text-muted); }
+/* an attribute whose page is namespaced (AWS/Region::) would otherwise take
+ * the tree colour: the [data-ns] rules above out-rank ".attribute a" */
+.attribute a.page-link[data-ns] { color: var(--color-text-muted); }
 .inline-code { background: var(--color-bg-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-control);
   padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px; }

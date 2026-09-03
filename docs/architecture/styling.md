@@ -8,6 +8,20 @@ tokens are custom properties on `:root`: a color system
 (`--color-bg/-surface/-text*/-accent/-link/-tag/…`), a five-step radius
 scale, and `--hljs-*` code tokens.
 
+Page links are `--color-link` by default, but a `[[Tree/Page]]` ref can take
+a per-tree colour: `PageLink` stamps the lowercased prefix before the title's
+first `/` as `data-ns`, and `styles.css` maps a few prefixes onto four group
+tokens. Tags and attribute names never take a tree colour. Adding a tree is a
+stylesheet-only change (add the prefix to a group's selector list); the
+`pageNamespace` helper is deliberately ignorant of which trees are coloured.
+
+| Token | Trees |
+|---|---|
+| `--color-link-cloud` | aws, azure, gcp |
+| `--color-link-ai` | claude, llm |
+| `--color-link-work` | project, uos |
+| `--color-link-reading` | paper, book, article |
+
 The radius steps are assigned by *role*, not by size, and the comments in
 `styles.css` are the contract:
 

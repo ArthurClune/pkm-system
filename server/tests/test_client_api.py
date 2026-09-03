@@ -195,6 +195,25 @@ def test_api_error_carries_friendly_message(pkm_client):
     assert str(e.value) == "404: page not found"
 
 
+def test_rename_page_renames(pkm_client):
+    result = pkm_client.rename_page("Paper", "Papers Renamed")
+    assert result.result == "renamed"
+    assert result.title == "Papers Renamed"
+    assert pkm_client.get_page("Papers Renamed").page.title == "Papers Renamed"
+
+
+def test_rename_page_merges_with_allow_merge_on_collision(pkm_client):
+    result = pkm_client.rename_page("AI", "Machine Learning", allow_merge=True)
+    assert result.result == "merged"
+    assert result.title == "Machine Learning"
+
+
+def test_rename_page_collision_raises_without_allow_merge(pkm_client):
+    with pytest.raises(ApiError) as e:
+        pkm_client.rename_page("AI", "Machine Learning")
+    assert e.value.status == 409
+
+
 def test_upload_asset(pkm_client, tmp_path):
     p = tmp_path / "note.txt"
     p.write_bytes(b"hello")

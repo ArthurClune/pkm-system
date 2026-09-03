@@ -4,7 +4,7 @@ from pkm.cli.main import main
 
 VERBS = ["login", "get", "search", "refs", "query", "todos",
          "save", "update", "upload", "batch", "assets",
-         "migrate-titles"]
+         "migrate-titles", "rename"]
 
 
 @pytest.mark.parametrize("verb", VERBS)
@@ -67,6 +67,21 @@ _HEADING_LEVEL_NEEDLES = {
               'sets the heading level; text',
               'An item text beginning "# ",'],
 }
+
+
+def test_rename_help_is_self_sufficient(capsys):
+    with pytest.raises(SystemExit):
+        main(["rename", "--help"])
+    out = capsys.readouterr().out
+    for needle in [
+        "pkm rename",
+        "--allow-merge",
+        "--json",
+        "case-sensitive",
+        "daily-note",
+        "[[link]]",
+    ]:
+        assert needle in out, f"rename --help omits {needle!r}"
 
 
 @pytest.mark.parametrize("verb", ["save", "update", "batch"])

@@ -25,7 +25,8 @@ def test_tool_names_namespaced():
         "mcp__pkm__query", "mcp__pkm__backlinks", "mcp__pkm__todos",
         "mcp__pkm__search_assets",
     }
-    assert len(all_tool_names()) == 11
+    assert "mcp__pkm__rename_page" in all_tool_names()
+    assert len(all_tool_names()) == 12
 
 
 def test_classify_tool():
@@ -38,6 +39,10 @@ def test_classify_tool():
 
 def test_search_assets_is_a_read_tool():
     assert classify_tool(mcp_tool_name("search_assets")) == "read"
+
+
+def test_rename_page_is_a_write_tool():
+    assert classify_tool(mcp_tool_name("rename_page")) == "write"
 
 
 def test_short_tool_name():
@@ -87,6 +92,13 @@ def test_tool_summary():
 def test_ops_preview_save_note():
     out = ops_preview("save_note", {"title": "Demo", "content": "hello world"})
     assert "save_note" in out and "Demo" in out
+
+
+def test_ops_preview_rename_page():
+    out = ops_preview("rename_page", {"title": "Draft", "new_title":
+                       "Machine Learning", "allow_merge": True})
+    assert "rename_page" in out
+    assert "Draft" in out and "Machine Learning" in out
 
 
 def test_ops_preview_batch_lists_ops():

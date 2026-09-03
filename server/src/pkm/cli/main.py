@@ -305,6 +305,31 @@ examples:
 """
 
 
+_RENAME_EPILOG = """\
+renames TITLE to NEW_TITLE, rewriting every [[link]], #tag, and attr::
+reference to TITLE found in block text so it points at NEW_TITLE
+instead. Renaming is case-sensitive, like page titles generally --
+"Ai" and "AI" are different pages -- and does not apply to daily-note
+pages (e.g. "July 26th, 2026"), which cannot be renamed.
+
+If NEW_TITLE already names an existing page, the rename is refused
+unless --allow-merge is given. With --allow-merge, TITLE's page is
+merged into NEW_TITLE instead: TITLE's top-level blocks are appended
+after NEW_TITLE's existing ones, every reference to TITLE is rewritten
+to NEW_TITLE, and TITLE's now-empty page row is dropped. This cannot
+be undone, so it is never the default.
+
+flags:
+  --allow-merge   merge into NEW_TITLE if it already exists, instead
+                  of failing with an error
+  --json          raw JSON payload instead of a one-line summary
+
+examples:
+  pkm rename "Old Title" "New Title"
+  pkm rename "Draft" "Machine Learning" --allow-merge
+"""
+
+
 def _login_http(url: str) -> httpx2.Client:
     return httpx2.Client(base_url=url)  # seam: tests inject a TestClient
 
@@ -466,6 +491,24 @@ def cmd_migrate_titles(args: argparse.Namespace, client: PkmClient) -> int:
     return 0
 
 
+def cmd_rename(args: argparse.Namespace, client: PkmClient) -> int:
+    try:
+        payload = client.rename_page(args.title, args.new_title,
+                                     allow_merge=args.allow_merge)
+    except ApiError as e:
+        if e.status == 409 and not args.allow_merge:
+            print(f"{e.message} — pass --allow-merge to merge into the"
+                 " existing page", file=sys.stderr)
+            return 1
+        raise
+    if payload.result == "merged":
+        rendered = f'merged "{args.title}" into "{payload.title}"\n'
+    else:
+        rendered = f'renamed "{args.title}" -> "{payload.title}"\n'
+    _emit(payload, rendered, args.json)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pkm", description="CLI for the PKM server")
@@ -572,6 +615,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="apply exactly the audited plan for DIGEST")
     _common(p)
 
+    p = _add("rename", "rename a page, rewriting references to it",
+             _RENAME_EPILOG)
+    p.add_argument("title")
+    p.add_argument("new_title")
+    p.add_argument("--allow-merge", action="store_true",
+                   help="merge into new_title if it already exists")
+    _common(p)
+
     return parser
 
 
@@ -580,7 +631,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, PkmClient], int]] = {
     "query": cmd_query, "todos": cmd_todos,
     "save": cmd_save, "update": cmd_update, "upload": cmd_upload,
     "batch": cmd_batch, "assets": cmd_assets,
-    "migrate-titles": cmd_migrate_titles,
+    "migrate-titles": cmd_migrate_titles, "rename": cmd_rename,
 }
 
 

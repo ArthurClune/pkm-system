@@ -784,3 +784,57 @@ describe("PDF frame contributes no baseline (pkm-vg3y)", () => {
     expect(rulesFor(".pdf-page-slot")).not.toMatch(/position:\s*fixed/);
   });
 });
+
+// Refs into a few big page trees get their own colour so [[AWS/EC2]] and
+// [[Project/SITS]] read as different kinds of link at a glance (pkm-r71a).
+describe("namespace link colours (pkm-r71a)", () => {
+  const TOKENS = ["--color-link-cloud", "--color-link-ai",
+    "--color-link-work", "--color-link-reading"];
+  const GROUPS: Record<string, string[]> = {
+    "--color-link-cloud": ["aws", "azure", "gcp"],
+    "--color-link-ai": ["claude", "llm"],
+    "--color-link-work": ["project", "uos"],
+    "--color-link-reading": ["paper", "book", "article"],
+  };
+
+  // Selector lists share one body, so ruleFor's "selector then {" shape
+  // misses every entry but the last; match from the entry to the next "{".
+  function nsRule(ns: string): string {
+    const m = styles.match(
+      new RegExp(`a\\.page-link\\[data-ns="${ns}"\\][^{]*\\{([^}]*)\\}`));
+    if (!m) throw new Error(`Missing CSS rule for data-ns="${ns}"`);
+    return m[1];
+  }
+
+  test("each group token is defined in light and both dark blocks", () => {
+    for (const token of TOKENS) {
+      expect(ruleFor(":root")).toMatch(new RegExp(`${token}: #[0-9a-fA-F]{6};`));
+      expect(ruleFor(':root:not([data-theme="light"])'))
+        .toMatch(new RegExp(`${token}: #[0-9a-fA-F]{6};`));
+      expect(ruleFor(':root[data-theme="dark"]'))
+        .toMatch(new RegExp(`${token}: #[0-9a-fA-F]{6};`));
+    }
+  });
+
+  test("group tokens are distinct from each other and from the plain link", () => {
+    const root = ruleFor(":root");
+    const values = [...TOKENS, "--color-link", "--color-link-ext"].map((t) =>
+      root.match(new RegExp(`${t}: (#[0-9a-fA-F]{6});`))?.[1]);
+    expect(new Set(values).size).toBe(values.length);
+  });
+
+  test("every namespace in a group is coloured with that group's token", () => {
+    for (const [token, namespaces] of Object.entries(GROUPS)) {
+      for (const ns of namespaces) {
+        expect(nsRule(ns)).toContain(`color: var(${token});`);
+      }
+    }
+  });
+
+  test("attribute names stay muted even when their page is namespaced", () => {
+    // .attribute a (0,1,1) would lose to a.page-link[data-ns=..] (0,2,1);
+    // the attribute rule must name the attribute selector to keep winning.
+    expect(styles).toMatch(
+      /\.attribute a\.page-link\[data-ns\][^{]*\{[^}]*color: var\(--color-text-muted\);/);
+  });
+});

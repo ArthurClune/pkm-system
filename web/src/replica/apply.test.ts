@@ -477,9 +477,25 @@ describe("applyChanges: a title moving between ids inside one window", () => {
     expect(t.db.select("SELECT id, title FROM pages ORDER BY id")).toEqual([
       { id: 1, title: "AI" }, { id: 2, title: "Machine Learning" },
     ]);
-    // the FTS mirror followed both retitles
+    // the FTS mirror followed both retitles, and the parking placeholder
+    // left nothing behind in it
     expect(t.db.select("SELECT rowid FROM pages_fts WHERE pages_fts MATCH 'learning'"))
       .toEqual([{ rowid: 2 }]);
+    expect(t.db.select("SELECT rowid FROM pages_fts WHERE pages_fts MATCH 'parked'"))
+      .toEqual([]);
+  });
+
+  test("an offline-created page taking an incoming title is remapped, not parked", () => {
+    // Negative ids belong to reconcilePage (blocks and refs move onto the
+    // authoritative row); parking one would break its title match.
+    enqueueBatch(t.db, [{ op: "create", uid: "uid_new1", page_title: "New",
+                          parent_uid: null, order_idx: 0, text: "hi" }], 5, "batch-n");
+    expect(t.db.select("SELECT id FROM pages WHERE title = 'New'")).toEqual([{ id: -1 }]);
+    const feed = emptyFeed({ next_since: 20, latest_seq: 20, pages: [page(9, "New")] });
+    expect(applyChanges(t.db, feed)).toEqual({ status: "applied", cursor: 20 });
+    expect(t.db.select("SELECT id FROM pages WHERE title = 'New'")).toEqual([{ id: 9 }]);
+    expect(t.db.select("SELECT page_id FROM blocks WHERE uid = 'uid_new1'"))
+      .toEqual([{ page_id: 9 }]);
   });
 
   test("a title taken over from a row this window says nothing about re-bootstraps", () => {

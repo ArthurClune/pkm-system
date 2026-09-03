@@ -108,8 +108,9 @@ read transaction:
   tombstones lead: the window holds current rows, so the row that gave a title
   up must be gone before the row that took it arrives. Two rows that swapped
   titles are parked under a placeholder (`parkTakenTitles`) and restored by
-  their own upserts; a row still parked afterwards means the replica is stale,
-  and the window returns `needs-bootstrap`.
+  their own upserts. A row still parked afterwards is either stale or
+  retitled past the window's end; a snapshot corrects both, so the window
+  returns `needs-bootstrap`.
 
 Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
 `reset: true` (the client's cursor is ahead of the journal, so the database

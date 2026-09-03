@@ -5,7 +5,7 @@ status: in-progress
 type: bug
 priority: normal
 created_at: 2026-09-03T08:13:28Z
-updated_at: 2026-09-03T08:22:58Z
+updated_at: 2026-09-03T08:39:40Z
 ---
 
 ## Symptom
@@ -31,4 +31,12 @@ Server log: the same `changes?since=` window re-pulled with growing backoff for 
 - [x] `isCorruptionError` predicate (errors.ts) + replicaSync routes it to `recover("reset")`, once per session, with console diagnostics
 - [x] Rebase recovery that hits corruption escalates to reset
 - [x] docs/architecture/sync-and-offline.md: window order, title parking, symptom rows
-- [ ] Full web verify (typecheck, unit coverage, e2e)
+- [x] Full web verify (typecheck, unit coverage, e2e) — 2524 unit, 56 e2e, exit 0
+
+## Review round 1 (opus subagent, whole-branch diff)
+
+Taken: the once-per-session rebuild budget was spent on the attempt, so a failed snapshot fetch during the rebuild reinstated the stall banner on the retry — now spent only when the reset commits (test: 'a rebuild whose snapshot fetch fails is still available to the retry'). Corruption classification widened to cover the pending-batch read. Comments corrected: U+0001 in titles is not rejected anywhere (placeholder collision is theoretical, accepted); a still-parked row may be retitled past the window's end rather than stale; tombstones-first relies on dedupe_window never shipping an entity as both row and tombstone. Tests added: placeholder never leaks into pages_fts; negative-id page is remapped by reconcilePage, not parked.
+
+Declined: escalating corruption to a reset from the poisoned-batch repair lane. A reset drops pending_ops, and that lane runs with flush 'skip' precisely to keep later valid rows durable until the poisoned row is deleted. Documented at rebaseAuthoritative.
+
+Not done: corruption surfacing in doStart's first bootstrap or in prepareRecovery/commitRecovery of non-rebase kinds still stalls. FTS corruption only bites on FTS writes, so those paths are not where it appears; a real SQLITE_CORRUPT there stays a manual reset.

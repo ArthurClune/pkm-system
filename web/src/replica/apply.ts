@@ -196,9 +196,10 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
     if (e instanceof StaleTitleHolderError) {
       // A local row still holds a title this window handed to another id,
       // and nothing in the window retitles or deletes it. The server cannot
-      // hold two rows with one title, so the replica's picture of that row
-      // is stale in a way no later window will correct (its own change was
-      // in a window we already applied, or never journalled). Rebuild.
+      // hold two rows with one title, so either the replica's picture of
+      // that row is stale (its change was in a window already applied) or
+      // its retitle lies past this window's end. No later window is
+      // guaranteed to correct the first; a snapshot corrects both. Rebuild.
       console.warn("applyChanges: stale title holder, rebootstrapping", e);
       return { status: "needs-bootstrap" };
     }
@@ -233,12 +234,13 @@ class StaleTitleHolderError extends Error {
   }
 }
 
-/** A title no server row can carry: titles are control-normalized at every
- * boundary, so a C0 control character never arrives in a feed. Parked rows
- * exist only inside the window transaction -- either their own upsert
- * overwrites the title, or the transaction rolls back
- * (StaleTitleHolderError). U+0001, not NUL: SQLite's string functions treat
- * an embedded NUL as a terminator. */
+/** The placeholder a parked row carries. Nothing rejects U+0001 in a title
+ * (the normalizers only touch whitespace controls), so this is a title no
+ * user would type rather than one the server cannot hold; a real title of
+ * exactly this shape would collide, and that is accepted. Parked rows exist
+ * only inside the window transaction -- either their own upsert overwrites
+ * the title, or the transaction rolls back (StaleTitleHolderError). U+0001,
+ * not NUL: SQLite's string functions treat an embedded NUL as a terminator. */
 const parkedTitle = (id: number): string => `parked:${String(id)}`;
 
 type TitledTable = "pages" | "sidebar_entries";
@@ -252,8 +254,7 @@ type TitledTable = "pages" | "sidebar_entries";
  * the upsert lands, and the holder's own upsert (later in the same window)
  * restores its real title. Negative ids are offline-created pages, which
  * reconcilePage remaps rather than retitles. Rows still parked once every
- * upsert has run are a stale replica, not a swap -- see the check in
- * applyWindow. */
+ * upsert has run are not a swap -- see the check in applyWindow. */
 function parkTakenTitles(db: ReplicaDb, table: TitledTable,
                          incoming: readonly { id: number; title: string }[]): number[] {
   const parked: number[] = [];
@@ -285,7 +286,10 @@ function assertNoParkedTitles(db: ReplicaDb, table: TitledTable,
  * that took the title arrives, so tombstones go first (pkm-n31j). A page
  * tombstone cascades to its local blocks; any of those that survived
  * server-side (moved to another page) come back through the block upserts
- * that follow, because the feed hydrates current rows. */
+ * that follow, because the feed hydrates current rows. That relies on the
+ * server's `dedupe_window`: an entity is hydrated or tombstoned in a window,
+ * never both. Were a page ever shipped as both, this order would let the
+ * cascade eat blocks the window does not re-ship. */
 function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
   db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");

@@ -1588,3 +1588,39 @@ test("a feed re-bootstrap whose snapshot apply hits corruption escalates to a sc
   expect(states.map((s) => s.mode)).not.toContain("recovery-failed");
   expect(states.at(-1)).toEqual({ mode: "ready" });
 });
+
+test("a rebuild whose snapshot fetch fails is still available to the retry", async () => {
+  // The once-per-session budget is spent on a rebuild that HAPPENED, not on
+  // one that was attempted: a transient snapshot failure (the flaky link the
+  // corruption arrived on) must not reinstate the stall banner.
+  vi.useFakeTimers();
+  try {
+    const applyChanges = vi.fn()
+      .mockRejectedValueOnce(CORRUPT())
+      .mockRejectedValueOnce(CORRUPT())
+      .mockResolvedValue({ status: "applied", cursor: 9 });
+    const commitRecovery = vi.fn(async () => undefined);
+    const replica = fakeReplica({ applyChanges, commitRecovery });
+    let snapshots = 0;
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path === "/api/sync/snapshot") {
+        snapshots += 1;
+        if (snapshots === 1) throw new Error("snapshot offline");
+        return SNAP;
+      }
+      return feed({ next_since: 9, latest_seq: 9 });
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // corruption -> reset attempt -> snapshot fails -> retry armed
+    await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
+
+    expect(snapshots).toBe(2);
+    expect(commitRecovery).toHaveBeenCalledTimes(1);
+    expect(states.map((s) => s.mode)).not.toContain("stalled");
+    expect(states.at(-1)).toEqual({ mode: "ready" });
+  } finally {
+    vi.useRealTimers();
+  }
+});

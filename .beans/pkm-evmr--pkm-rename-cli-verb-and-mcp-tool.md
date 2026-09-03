@@ -5,7 +5,7 @@ status: completed
 type: feature
 priority: normal
 created_at: 2026-09-03T13:01:14Z
-updated_at: 2026-09-03T13:15:09Z
+updated_at: 2026-09-03T13:22:24Z
 ---
 
 Add a `pkm rename` CLI verb and a matching `rename_page` MCP write tool, both thin wrappers over the existing `POST /api/page/{title}/rename` endpoint, so page renames can be scripted rather than done one at a time in the web UI. Motivation: moving ~31 LLM-related pages into an `LLM/` title namespace.
@@ -37,4 +37,4 @@ Add a `pkm rename` CLI verb and a matching `rename_page` MCP write tool, both th
 - Tests cover renamed/merged/409, `LLM/`-style slash titles and `?` titles round-tripping through the URL path, help self-sufficiency, MCP tool registration and policy classification.
 - Docs: docs/cli.md, pkm skill, cli-and-mcp.md tool table; MCP tool count corrected to twelve (five write) in README, SECURITY.md, overview.md, assistant-and-files.md, design.md.
 
-Pre-existing endpoint quirks noted by review, not fixed here: the rename route does not canonicalize padded path titles, and the daily-note guard checks only the source title so a page can be renamed *into* a date-shaped title.
+Pre-existing endpoint behaviours noted by review and confirmed as intended (2026-09-03): the rename route looks up the source title exactly as typed (a padded title 404s rather than being stripped like a read), and a page may be renamed *into* a date-shaped title, which files its blocks as that day's daily note (one-way, since daily notes cannot be renamed). Neither needs a follow-up.

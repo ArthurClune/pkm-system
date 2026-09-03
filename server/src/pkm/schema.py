@@ -14,7 +14,8 @@ client replicas use the generated schema hash to rebootstrap on change.
 
 BASE_DDL contains the client-facing schema (replicated to all clients).
 SERVER_DDL contains server-only tables and triggers (change journal, batch
-idempotency) that must not be installed on clients (pkm-y8p0)."""
+idempotency, rename/merge rewrite records) that must not be installed on
+clients (pkm-y8p0)."""
 
 BASE_DDL = """
 CREATE TABLE IF NOT EXISTS pages(
@@ -182,6 +183,27 @@ CREATE TABLE IF NOT EXISTS applied_batches(
   response     TEXT NOT NULL,
   applied_at   INTEGER NOT NULL
 );
+
+-- What a rename, merge or the title migration did to one block's text
+-- (pkm-x5w0): the sha256 of that text before and after, plus the one title
+-- that moved. store.rewrite_snapshotted_blocks writes a row per changed
+-- block per title it rewrote there, and ops_core.replay_title_rewrites
+-- replays them over a stale device's update_text so an unsynced edit cannot
+-- carry the old title back and re-create the page it was renamed away from.
+-- Push-time resolution only: no journal trigger, never replicated, and
+-- pruned to the last 30 days on every rewrite. No FK on uid -- a row
+-- outliving its block is inert, and the block may be deleted and its edit
+-- still arrive.
+CREATE TABLE IF NOT EXISTS block_rewrites(
+  uid        TEXT NOT NULL,
+  base_hash  TEXT NOT NULL,
+  after_hash TEXT NOT NULL,
+  old_title  TEXT NOT NULL,
+  new_title  TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_block_rewrites_uid
+  ON block_rewrites(uid, base_hash);
 
 -- Generation token (pkm-o9o5): a rebuilt database (importer swap) repopulates
 -- the journal, so a stale client cursor usually sits BELOW latest_seq and the

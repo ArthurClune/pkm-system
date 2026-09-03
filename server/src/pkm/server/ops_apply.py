@@ -10,9 +10,10 @@ from datetime import date
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OpBatch, UpdateTextOp)
-from pkm.server.ops_core import (BlockInfo, DeleteBlocks, Effect, InsertBlock,
-                                 OpContext, OpError, ReindexRefs, SetCollapsed,
-                                 SetHeading, SetPageId, SetParent, SetViewType,
+from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
+                                 Effect, InsertBlock, OpContext, OpError,
+                                 ReindexRefs, SetCollapsed, SetHeading,
+                                 SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  find_op_title_violation, plan_op)
 from pkm.server.store import (BlankTitleError, get_or_create_page,
@@ -57,6 +58,19 @@ def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
     if row is None:
         return None
     return BlockInfo(row["uid"], row["page_id"], row["parent_uid"])
+
+
+def _block_rewrites(db: sqlite3.Connection,
+                    uid: str) -> tuple[BlockRewrite, ...]:
+    """Every recorded rename/merge rewrite of this block, newest first --
+    the order `ops_core.replay_title_rewrites` walks the chain in."""
+    rows = db.execute(
+        "SELECT base_hash, after_hash, old_title, new_title"
+        " FROM block_rewrites WHERE uid = ?"
+        " ORDER BY created_at DESC, rowid DESC", (uid,)).fetchall()
+    return tuple(BlockRewrite(row["base_hash"], row["after_hash"],
+                              row["old_title"], row["new_title"])
+                 for row in rows)
 
 
 def _parent_chain(db: sqlite3.Connection, uid: str) -> tuple[str, ...]:
@@ -133,7 +147,8 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
             (op.uid,)).fetchone()
         return OpContext(block=block, current_text=row["text"],
                          order_idx=row["order_idx"],
-                         conflict_uid=conflict_uid)
+                         conflict_uid=conflict_uid,
+                         block_rewrites=_block_rewrites(db, op.uid))
     return OpContext(block=block)
 
 

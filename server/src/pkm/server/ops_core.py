@@ -19,6 +19,13 @@ from pkm.contracts.ops import (UID_RE, BlockOp, CreateOp, CreatePageOp,
                                SetHeadingOp, UpdateTextOp, ViewType,
                                text_hash)
 from pkm.refs import TitleSyntaxReason, extract, title_syntax_reason
+from pkm.rename import rewrite_title_refs_map
+
+# Most renames a stale edit can be behind. Each step is one recorded
+# rewrite of the same block, so the bound only matters for a block renamed
+# through a long chain while one device stayed offline; past it the edit
+# falls back to the ordinary conflict path.
+MAX_REPLAYED_REWRITES = 10
 
 
 def batch_request_hash(batch: OpBatch) -> str:
@@ -81,6 +88,72 @@ def find_op_title_violation(
 
 
 @dataclass(frozen=True)
+class BlockRewrite:
+    """One title a rename, merge or the title migration rewrote in one
+    block, with the sha256 of that block's text either side of the whole
+    rewrite. Rows of the server-only `block_rewrites` table, handed to the
+    planner as data (pkm-x5w0)."""
+    base_hash: str
+    after_hash: str
+    old_title: str
+    new_title: str
+
+
+def _rewrite_steps(
+    rewrites: Sequence[BlockRewrite],
+) -> list[tuple[str, str, dict[str, str]]]:
+    """Regroup records into the rewrites they came from: records sharing a
+    before/after hash pair were one pass over the block, so their titles
+    replay as one map."""
+    steps: list[tuple[str, str, dict[str, str]]] = []
+    by_hashes: dict[tuple[str, str], dict[str, str]] = {}
+    for record in rewrites:
+        key = (record.base_hash, record.after_hash)
+        titles = by_hashes.get(key)
+        if titles is None:
+            titles = {}
+            by_hashes[key] = titles
+            steps.append((record.base_hash, record.after_hash, titles))
+        titles[record.old_title] = record.new_title
+    return steps
+
+
+def replay_title_rewrites(
+    text: str,
+    base_hash: str,
+    rewrites: Sequence[BlockRewrite],
+) -> tuple[str, str]:
+    """Re-apply the renames this block already went through to an edit made
+    before them, returning the edit's text and base hash as they would read
+    had the device seen those renames first.
+
+    A rename or merge rewrites `[[Old]]` in every referencing block. An
+    offline device that had edited one of those blocks pushes its own text
+    with the pre-rename hash, and plain last-write-wins would let that text
+    win verbatim -- re-creating the page the rename had emptied. Following
+    the recorded chain instead makes the edit an edit of the rewritten text,
+    which then meets the ordinary conflict rules unchanged: it applies
+    cleanly if nothing else touched the block, and conflicts under the *new*
+    title if something did.
+
+    Each step is consumed, so a record can never be replayed twice however
+    the hashes line up; `MAX_REPLAYED_REWRITES` bounds the walk regardless.
+    `rewrites` is newest-record-first, which decides the winner in the
+    unlikely case that two rewrites share a base hash (a block edited back
+    to a previous text, then renamed again).
+    """
+    steps = _rewrite_steps(rewrites)
+    for _ in range(MAX_REPLAYED_REWRITES):
+        match = next((s for s in steps if s[0] == base_hash), None)
+        if match is None:
+            break
+        steps = [s for s in steps if s is not match]
+        text = rewrite_title_refs_map(text, match[2])
+        base_hash = match[1]
+    return text, base_hash
+
+
+@dataclass(frozen=True)
 class BlockInfo:
     uid: str
     page_id: int
@@ -101,6 +174,8 @@ class OpContext:
     conflict_uid: str | None = None      # fresh uid for a conflict copy
     daily_page_id: int | None = None     # orphan landing page
     daily_append_idx: int | None = None  # next top-level idx there
+    # rename/merge rewrites of op.uid, newest first (replay_title_rewrites)
+    block_rewrites: tuple[BlockRewrite, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -219,17 +294,24 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
     if ctx.block is None:
         raise OpError(index, f"block not found: {op.uid}")
     if isinstance(op, UpdateTextOp):
-        base_effects = (UpdateText(op.uid, op.text),
-                        ReindexRefs(op.uid, op.text),
-                        TouchPage(ctx.block.page_id))
-        if op.base_text_hash is None:
-            return base_effects                      # check 3: legacy
+        if op.base_text_hash is None:                # check 3: legacy
+            return (UpdateText(op.uid, op.text),
+                    ReindexRefs(op.uid, op.text),
+                    TouchPage(ctx.block.page_id))
         if ctx.current_text is None or ctx.order_idx is None \
                 or ctx.conflict_uid is None:
             raise OpError(index, "conflict context missing")
-        if op.text == ctx.current_text:
+        # Renames this edit predates are replayed over it first, so the
+        # checks below compare like with like and no old title can ride a
+        # stale edit back in (see replay_title_rewrites).
+        text, base_hash = replay_title_rewrites(
+            op.text, op.base_text_hash, ctx.block_rewrites)
+        base_effects = (UpdateText(op.uid, text),
+                        ReindexRefs(op.uid, text),
+                        TouchPage(ctx.block.page_id))
+        if text == ctx.current_text:
             return ()                                # check 2: identical
-        if text_hash(ctx.current_text) == op.base_text_hash:
+        if text_hash(ctx.current_text) == base_hash:
             return base_effects                      # check 4: clean apply
         # check 5: concurrent edit -- incoming wins, loser preserved as a
         # sibling right after the target

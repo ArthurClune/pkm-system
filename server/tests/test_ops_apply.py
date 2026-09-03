@@ -493,3 +493,52 @@ def test_op_error_index_reports_failing_op(db):
     db.rollback()
     assert db.execute("SELECT collapsed FROM blocks WHERE uid='uid_b2'"
                       ).fetchone()[0] == 0  # rollback undid op 0
+
+
+# --- replaying recorded rename/merge rewrites (pkm-x5w0) ------------------
+
+
+def _rewrite_chain(steps: int) -> tuple[ops_core.BlockRewrite, ...]:
+    """Records for `steps` successive renames of one block's only ref:
+    "[[T0]]" -> "[[T1]]" -> ... Newest first, as the shell orders them."""
+    records = []
+    text = "[[T0]]"
+    for i in range(steps):
+        after = f"[[T{i + 1}]]"
+        records.append(ops_core.BlockRewrite(
+            base_hash=text_hash(text), after_hash=text_hash(after),
+            old_title=f"T{i}", new_title=f"T{i + 1}"))
+        text = after
+    return tuple(reversed(records))
+
+
+def test_replay_follows_a_chain_of_records_up_to_the_cap():
+    text, base = ops_core.replay_title_rewrites(
+        "[[T0]] edited", text_hash("[[T0]]"), _rewrite_chain(12))
+
+    cap = ops_core.MAX_REPLAYED_REWRITES
+    assert text == f"[[T{cap}]] edited"
+    assert base == text_hash(f"[[T{cap}]]")
+
+
+def test_replay_leaves_an_unrecorded_base_hash_untouched():
+    stale = text_hash("never rewritten")
+
+    assert ops_core.replay_title_rewrites(
+        "[[T0]] edited", stale, _rewrite_chain(3)) == ("[[T0]] edited", stale)
+    assert ops_core.replay_title_rewrites(
+        "[[T0]] edited", stale, ()) == ("[[T0]] edited", stale)
+
+
+def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
+    """The title migration rewrites several titles in one block at once, so
+    its records share before/after hashes and must be replayed as one map --
+    applied one at a time, the second would no longer match."""
+    before, after = "[[A]] and [[B]]", "[[A2]] and [[B2]]"
+    records = tuple(
+        ops_core.BlockRewrite(text_hash(before), text_hash(after), old, new)
+        for old, new in (("A", "A2"), ("B", "B2")))
+
+    assert ops_core.replay_title_rewrites(
+        "[[A]] and [[B]] edited", text_hash(before), records) == (
+            "[[A2]] and [[B2]] edited", text_hash(after))

@@ -284,6 +284,7 @@ Conflict resolution happens entirely server-side at push time
 
 | Situation | Outcome |
 |---|---|
+| `base_text_hash` matches a pre-rename snapshot of this block | The rename or merge is replayed over the incoming text, which then meets the rows below as an edit of the rewritten text |
 | `hash(current) == base_text_hash` | Clean apply |
 | Incoming text equals current | No-op |
 | Hashes differ (concurrent edit) | Incoming wins; the overwritten text is preserved as a `[[conflict]] …` sibling block right after the winner |
@@ -293,6 +294,12 @@ Conflict resolution happens entirely server-side at push time
 Nothing is discarded. Conflict blocks are ordinary blocks, so they reach
 every client through the normal feed, and they are findable through search
 and the `[[conflict]]` page's backlinks.
+
+The replay in the first row is what stops a device that never saw a rename
+from carrying the old title back. Its stale text still holds `[[Old]]`, and
+winning last-write-wins with it would re-create the page the rename emptied.
+The records it replays live in the server-only `block_rewrites` table (see
+[backend.md](backend.md#the-write-path)).
 
 ## Title activation across online and offline paths
 
@@ -714,7 +721,7 @@ fix installed. The bean has the full investigation.
 | Offline for ~30 s shows "Local sync is stuck … Reset local data" instead of plain Offline | `OfflineError` (status 0, thrown when the offline gateway has no local route for a request) extends `ApiError`, so it passed the stall classifier's `instanceof ApiError` check like a real server rejection | pkm-gw5r |
 | A first-ever offline load with an empty op queue never bootstraps; views stay empty until a manual reload | the first-connect gate looked at pending-op count alone, so a mount-time bootstrap that failed for being offline was never retried once connectivity returned | pkm-8k2c |
 | "Local sync is stuck: … UNIQUE constraint failed: pages.title" (or `sidebar_entries.title`), and the server log shows the same `changes?since=` window refetched with growing backoff | the window upserted pages before its tombstones. A merge deleted a page, a stale client re-created its title under a new id, and both facts landed in one window, so the new row collided with the local row that still held the title. Tombstones now lead and colliding titles are parked | pkm-n31j |
-| A page renamed or merged away comes back under its old title a few seconds later, with a `[[conflict]]` sibling on some block that referenced it | another device held an unsynced edit to a block the rename rewrote. Push-time resolution is last-write-wins: the stale text won, the rewritten text became the `[[conflict]]` sibling, and the old `[[title]]` in the winning text re-created the page. Working as specified; the cost of never rejecting an edit | pkm-n31j |
+| A page renamed or merged away comes back under its old title a few seconds later, with a `[[conflict]]` sibling on some block that referenced it | another device held an unsynced edit to a block the rename rewrote, and last-write-wins let its stale text win verbatim, `[[title]]` and all. The rename is now replayed over the incoming text first, so that edit applies under the new title; a block edited again after the rename still forks a `[[conflict]]` sibling, but both texts carry the new title | pkm-n31j, pkm-x5w0 |
 | "Local sync is stuck: SQLITE_CORRUPT_VTAB … database disk image is malformed", cleared only by a manual Reset local data | the FTS5 index disagreed with `blocks`/`pages`; FTS5 raises 267 when a delete would push its row or token totals below zero. Corruption was classified as a stall, and the automatic rebase would have run the same triggers over the same index. Now one automatic `reset` per session. None of the replica's own SQL shapes reproduces the divergence against the real engine; its on-device origin is unconfirmed | pkm-n31j |
 
 ## Why it's debuggable

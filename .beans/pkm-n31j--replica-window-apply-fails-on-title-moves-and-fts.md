@@ -1,11 +1,11 @@
 ---
 # pkm-n31j
 title: Replica window apply fails on title moves and FTS corruption stalls sync instead of rebuilding
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-09-03T08:13:28Z
-updated_at: 2026-09-03T08:39:40Z
+updated_at: 2026-09-03T08:40:05Z
 ---
 
 ## Symptom
@@ -40,3 +40,17 @@ Taken: the once-per-session rebuild budget was spent on the attempt, so a failed
 Declined: escalating corruption to a reset from the poisoned-batch repair lane. A reset drops pending_ops, and that lane runs with flush 'skip' precisely to keep later valid rows durable until the poisoned row is deleted. Documented at rebaseAuthoritative.
 
 Not done: corruption surfacing in doStart's first bootstrap or in prepareRecovery/commitRecovery of non-rebase kinds still stalls. FTS corruption only bites on FTS writes, so those paths are not where it appears; a real SQLITE_CORRUPT there stays a manual reset.
+
+## Summary of Changes
+
+- web/src/replica/apply.ts: applyWindow applies tombstones first; parkTakenTitles moves any other positive-id local holder of an incoming page/sidebar title to a U+0001 placeholder before the upserts; assertNoParkedTitles throws StaleTitleHolderError for a row still parked afterwards, which applyChanges maps to needs-bootstrap.
+- web/src/replica/errors.ts: isCorruptionError (SQLITE_CORRUPT / SQLITE_CORRUPT_VTAB / 'database disk image is malformed' on an ordinary ReplicaError).
+- web/src/sync/replicaSync.ts: a fresh corruption during the pull (pending-batch read or applyChanges) runs one recover('reset') per session, budget spent only when the reset commits; a 'rebase' that hits corruption escalates to 'reset' without an intermediate recovery-failed report; the poison lane deliberately does not escalate.
+- Tests: five window title-move shapes + two pins in apply.test.ts; isCorruptionError in errors.test.ts; four corruption-routing tests in replicaSync.test.ts; applyFkHazards' non-FK example moved from UNIQUE to NOT NULL.
+- docs/architecture/sync-and-offline.md: window order paragraph, two rebootstrap-trigger rows (six conditions now), two symptom rows.
+
+Verified: pnpm verify green twice (typecheck, lint, fcis, 2527 unit tests at 98.2% lines, vite build, 56 Playwright specs).
+
+## Still open (not this bean)
+
+The on-device cause of the FTS index/content divergence. Candidates that could not be tested from the desk: iPadOS terminating the PWA process mid-write with the SAHPool journal not recognised on the next open, or two contexts on one OPFS pool. The next occurrence will now self-heal; to learn the origin, a client-side diagnostics report (FTS integrity-check + PRAGMA quick_check output posted to the server on the corruption path) would be the useful follow-up.

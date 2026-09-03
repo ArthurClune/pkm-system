@@ -160,6 +160,13 @@ function fakeReplicaForProvider(): Replica & { log: string[] } {
     commitRecovery: async () => undefined,
     abortRecovery: async () => undefined,
     reset: async () => undefined,
+    diagnostics: async () => ({
+      sqliteVersion: "fake", quickCheck: ["ok"],
+      integrity: { blocks_fts: "ok", pages_fts: "ok" },
+      counts: { pages: 0, blocks: 0, pending_ops: 0,
+                pages_fts_docsize: 0, blocks_fts_docsize: 0 },
+      meta: { cursor: "0", generation: null, schema_version: null },
+    }),
     dispose: async () => { log.push("dispose"); },
   };
 }

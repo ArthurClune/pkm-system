@@ -10,6 +10,7 @@
 import { ApiError, OfflineError } from "../api/client";
 import type { ApiFetchOptions } from "../api/client";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
+import type { ReplicaDiagnostics } from "../replica/client";
 import type {
   PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
 } from "../replica/client";
@@ -192,6 +193,19 @@ class PullStarvedError extends Error {}
  * starving on pending-batch churn -- count toward the stall threshold;
  * anything else still retries with backoff but is neither counted nor reported
  * as stalled. */
+/** Which kind of iPad context this is: a home-screen app (`standalone`) and
+ * Safari hold independent replicas, and the report has to say which one
+ * broke. Node (tests) has no navigator. */
+const clientInfo = (): Record<string, unknown> => {
+  if (typeof navigator === "undefined") return {};
+  const nav = navigator as Navigator & { standalone?: boolean };
+  return {
+    userAgent: nav.userAgent,
+    standalone: nav.standalone ?? null,
+    visibility: typeof document === "undefined" ? null : document.visibilityState,
+  };
+};
+
 const isStallShaped = (error: unknown): boolean =>
   availabilityOf(error) === null &&
   !(error instanceof OfflineError) &&
@@ -445,9 +459,38 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     console.warn(
       "replica: local database is corrupt, rebuilding it from a snapshot",
       error);
+    await reportCorruption(error);
     const result = await recover("reset");
     if (result.ok) rebuiltForCorruption = true;
     return result;
+  };
+
+  /** What the database says about itself goes to the server log before the
+   * rebuild drops the tables (pkm-1mx9): the origin of the FTS divergence
+   * is still unknown, and after the rebuild nothing is left to inspect.
+   * Gathering waits (it needs the pre-reset database); posting does not,
+   * and a failure to post is swallowed -- diagnosis never blocks repair. */
+  const reportCorruption = async (error: unknown): Promise<void> => {
+    let report: ReplicaDiagnostics;
+    try {
+      report = await replica.diagnostics();
+    } catch (diagError: unknown) {
+      console.warn("replica: could not gather diagnostics", diagError);
+      return;
+    }
+    const body = {
+      kind: "replica-corruption" as const,
+      error: errText(error),
+      report,
+      client: clientInfo(),
+    };
+    void fetchJson("/api/client/diagnostics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch((postError: unknown) => {
+      console.warn("replica: could not post diagnostics", postError);
+    });
   };
 
   const pullLoop = async (): Promise<void> => {

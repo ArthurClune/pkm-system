@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { expect, test, vi } from "vitest";
 import { applySnapshot, type Snapshot } from "./apply";
+import type { ReplicaDiagnostics } from "./client";
+import { SCHEMA_VERSION } from "./clientSchema";
 import { availabilityOf, ReplicaUnavailableError } from "./errors";
 import { openRawTestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
@@ -46,6 +48,31 @@ test("commit refuses changed durable rows and releases the recovery lease", asyn
   await expect(handlers.enqueue({
     ops: [{ op: "delete", uid: "uid_x2" }], batchId: "batch-x2",
   })).resolves.toEqual({ pending: 3, batchId: "batch-x2" });
+});
+
+test("diagnostics reports counts, meta and integrity results even over a broken FTS index", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  // What a corrupt replica looks like: the FTS index no longer agrees with
+  // its content table (here, the only row's index entry is removed).
+  t.db.exec("INSERT INTO blocks_fts(blocks_fts, rowid, text)" +
+            " SELECT 'delete', rowid, text FROM blocks");
+
+  const report = await handlers.diagnostics(undefined) as ReplicaDiagnostics;
+
+  expect(report.sqliteVersion).toMatch(/^3\./);
+  expect(report.quickCheck).toEqual(["ok"]);
+  expect(report.counts).toEqual({
+    pages: 1, blocks: 1, pending_ops: 0,
+    pages_fts_docsize: 1, blocks_fts_docsize: 0,
+  });
+  expect(report.meta).toEqual({
+    cursor: "5", generation: "gen-1", schema_version: SCHEMA_VERSION,
+  });
+  expect(report.integrity.pages_fts).toBe("ok");
+  expect(report.integrity.blocks_fts).not.toBe("ok");
 });
 
 test("abort rejects invalid and double-used recovery tokens", async () => {

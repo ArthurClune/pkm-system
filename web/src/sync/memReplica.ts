@@ -46,6 +46,13 @@ export function memReplica(over: Partial<Replica> = {}): Replica & {
     commitRecovery: async () => undefined,
     abortRecovery: async () => undefined,
     reset: async () => undefined,
+    diagnostics: async () => ({
+      sqliteVersion: "mem", quickCheck: ["ok"],
+      integrity: { blocks_fts: "ok", pages_fts: "ok" },
+      counts: { pages: 0, blocks: 0, pending_ops: pending(),
+                pages_fts_docsize: 0, blocks_fts_docsize: 0 },
+      meta: { cursor: "0", generation: null, schema_version: null },
+    }),
     dispose: async () => undefined,
   };
   return Object.assign(replica, over);

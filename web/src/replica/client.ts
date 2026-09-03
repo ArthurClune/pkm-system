@@ -50,6 +50,24 @@ export type RecoveryCommit =
   | { kind: "reset"; snapshot: Snapshot }
   | { kind: "rebase"; snapshot: Snapshot };
 
+/** What the replica can say about its own database, gathered before a
+ * corruption rebuild drops the evidence (pkm-1mx9). Every probe is
+ * independent: a probe that throws contributes its error text, never a
+ * rejection of the whole report. */
+export interface ReplicaDiagnostics {
+  sqliteVersion: string;
+  /** `PRAGMA quick_check` rows (`["ok"]` when the b-trees are sound). */
+  quickCheck: string[];
+  /** FTS5 `integrity-check` per index: "ok" or the error it raised. */
+  integrity: { blocks_fts: string; pages_fts: string };
+  /** Content rows beside their FTS docsize shadow rows: a difference is the
+   * index/content divergence FTS5 reports as SQLITE_CORRUPT_VTAB. */
+  counts: { pages: number; blocks: number; pending_ops: number;
+            pages_fts_docsize: number; blocks_fts_docsize: number };
+  meta: { cursor: string | null; generation: string | null;
+          schema_version: string | null };
+}
+
 export type { LocalApiRequest, LocalApiResult } from "./localApi/router";
 
 export interface Replica {
@@ -87,6 +105,9 @@ export interface Replica {
   /** Drop and reinstall the schema. Caller enforces the non-empty-queue
    * guard (spec section 6): never call with unsynced pending ops. */
   reset(): Promise<void>;
+  /** Read-only self-report for the corruption path; never rejects for a
+   * broken index, only for a database that cannot be opened at all. */
+  diagnostics(): Promise<ReplicaDiagnostics>;
   dispose(): Promise<void>;
 }
 
@@ -117,6 +138,8 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
       "commitRecovery", { token, input }, { timeoutMs: RECOVERY_TIMEOUT_MS }),
     abortRecovery: (token) => rpc.call("abortRecovery", token),
     reset: () => rpc.call("reset", undefined, { timeoutMs: RECOVERY_TIMEOUT_MS }),
+    diagnostics: () =>
+      rpc.call("diagnostics", undefined, { timeoutMs: RECOVERY_TIMEOUT_MS }),
     dispose: () => (disposing ??= (async () => {
       try {
         await rpc.call("close");

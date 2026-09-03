@@ -956,6 +956,47 @@
         }
       }
     },
+    "/api/client/diagnostics": {
+      "post": {
+        "summary": "Client Diagnostics",
+        "description": "Record a replica's self-report in the server log.\n\nA browser replica that finds its database corrupt rebuilds itself from a\nsnapshot, which destroys the evidence. Before it does, it posts what the\ndatabase said about itself (integrity checks, row counts, cursor) and\nwhich kind of client it is. The server only logs the body: the access\nlog around the line already holds the requests that led up to it.\nNothing is written to the database, so there is no journal row and no\nnudge.",
+        "operationId": "client_diagnostics_api_client_diagnostics_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientDiagnosticsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Client Diagnostics Api Client Diagnostics Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sync/changes": {
       "get": {
         "summary": "Sync Changes",
@@ -2331,6 +2372,37 @@
           "tombstones"
         ],
         "title": "ChangesPayload"
+      },
+      "ClientDiagnosticsRequest": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error"
+          },
+          "report": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Report"
+          },
+          "client": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Client"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "error",
+          "report",
+          "client"
+        ],
+        "title": "ClientDiagnosticsRequest",
+        "description": "A replica's self-report, sent before it rebuilds itself."
       },
       "ConfirmRequestBody": {
         "properties": {

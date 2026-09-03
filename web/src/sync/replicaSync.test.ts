@@ -50,6 +50,13 @@ function fakeReplica(over: Partial<Replica> = {},
     commitRecovery: () => rec("commitRecovery", undefined),
     abortRecovery: () => rec("abortRecovery", undefined),
     reset: () => rec("reset", undefined),
+    diagnostics: () => rec("diagnostics", {
+      sqliteVersion: "fake", quickCheck: ["ok"],
+      integrity: { blocks_fts: "ok", pages_fts: "ok" },
+      counts: { pages: 0, blocks: 0, pending_ops: 0,
+                pages_fts_docsize: 0, blocks_fts_docsize: 0 },
+      meta: { cursor: "5", generation: "gen-1", schema_version: null },
+    }),
     dispose: () => rec("dispose", undefined),
     ...over,
   };
@@ -1586,6 +1593,45 @@ test("a feed re-bootstrap whose snapshot apply hits corruption escalates to a sc
 
   expect(kinds).toEqual(["rebase", "reset"]);
   expect(states.map((s) => s.mode)).not.toContain("recovery-failed");
+  expect(states.at(-1)).toEqual({ mode: "ready" });
+});
+
+test("a fresh corruption posts a diagnostics report gathered before the rebuild", async () => {
+  // The reset drops the tables, so whatever the database can say about the
+  // corruption has to be read first; the POST itself is fire-and-forget.
+  const report = { sqliteVersion: "3.53.0", quickCheck: ["ok"],
+    integrity: { blocks_fts: "malformed", pages_fts: "ok" },
+    counts: { pages: 1, blocks: 2, pending_ops: 0,
+              pages_fts_docsize: 1, blocks_fts_docsize: 1 },
+    meta: { cursor: "5", generation: "gen-1", schema_version: "v" } };
+  const applyChanges = vi.fn()
+    .mockRejectedValueOnce(CORRUPT())
+    .mockResolvedValue({ status: "applied", cursor: 9 });
+  const replica = fakeReplica({
+    applyChanges, diagnostics: async () => { replica.calls.push("diagnostics"); return report; },
+  });
+  const posted: { path: string; body: unknown }[] = [];
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/client/diagnostics") {
+      posted.push({ path, body: JSON.parse(String(init?.body)) });
+      throw new Error("diagnostics endpoint down"); // must not matter
+    }
+    return path === "/api/sync/snapshot" ? SNAP : feed({ next_since: 9, latest_seq: 9 });
+  });
+  const { states, onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+  await sync.start();
+  await Promise.resolve(); // let the fire-and-forget POST settle
+
+  expect(replica.calls.indexOf("diagnostics"))
+    .toBeLessThan(replica.calls.indexOf("commitRecovery"));
+  expect(posted).toHaveLength(1);
+  expect(posted[0].body).toMatchObject({
+    kind: "replica-corruption",
+    error: expect.stringContaining("SQLITE_CORRUPT_VTAB") as unknown,
+    report,
+  });
   expect(states.at(-1)).toEqual({ mode: "ready" });
 });
 

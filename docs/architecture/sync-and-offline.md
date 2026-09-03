@@ -405,7 +405,11 @@ flowchart TD
 
 The retry wraps the whole sequence, not just the install, and absorbs only errors
 that look like handle contention. A persistent failure therefore fails fast into
-online-only instead of stalling startup. Two things the shapes do not show:
+online-only instead of stalling startup. On an iPad that contention is between
+Safari tabs only: a home-screen web app has its own storage partition, so the
+PWA and Safari each hold an independent replica with its own cursor and queue.
+Both appear in the server log under one IP, and a bug in the window apply
+stalls both at the same `since=`. Two things the shapes do not show:
 
 - **The retry only retries because of the install option.** sqlite-wasm memoises
   `installOpfsSAHPoolVfs` per VFS name, and by default it re-awaits a cached
@@ -601,7 +605,7 @@ Six conditions cause a rebootstrap on their own:
 | Cursor ahead of journal | `reset: true` from the feed | `rebase` |
 | Window cannot commit: deferred FK check fails (dependency-incomplete feed, e.g. an older server) | `applyChanges` catches the FK failure at COMMIT and returns `needs-bootstrap` | `rebase` |
 | A local page or sidebar row holds a title this window gives to another id, and the window neither retitles nor tombstones that row | `parkTakenTitles` moves the holder aside before the upserts; a row still parked afterwards throws `StaleTitleHolderError`, and `applyChanges` returns `needs-bootstrap` | `rebase` |
-| The replica reports corruption (`SQLITE_CORRUPT`, or FTS5's `SQLITE_CORRUPT_VTAB`) while applying a window or a rebase snapshot | `isCorruptionError` in `pullLoop` and `recover`; once per session, a second corruption is an ordinary stall | `reset`: a rebase re-applies the snapshot through the same FTS triggers over the same corrupt index |
+| The replica reports corruption (`SQLITE_CORRUPT`, or FTS5's `SQLITE_CORRUPT_VTAB`) while applying a window or a rebase snapshot | `isCorruptionError` in `pullLoop` and `recover`; once per session, a second corruption is an ordinary stall. Before the rebuild, `replica.diagnostics()` (quick_check, FTS `integrity-check`, row counts, cursor) is posted to `POST /api/client/diagnostics`, which logs it | `reset`: a rebase re-applies the snapshot through the same FTS triggers over the same corrupt index |
 
 Two more rebootstraps happen on request: the authoritative repair of a poisoned
 batch, and the user's own Reset local data.
@@ -706,6 +710,7 @@ fix installed. The bean has the full investigation.
 | Offline for ~30 s shows "Local sync is stuck … Reset local data" instead of plain Offline | `OfflineError` (status 0, thrown when the offline gateway has no local route for a request) extends `ApiError`, so it passed the stall classifier's `instanceof ApiError` check like a real server rejection | pkm-gw5r |
 | A first-ever offline load with an empty op queue never bootstraps; views stay empty until a manual reload | the first-connect gate looked at pending-op count alone, so a mount-time bootstrap that failed for being offline was never retried once connectivity returned | pkm-8k2c |
 | "Local sync is stuck: … UNIQUE constraint failed: pages.title" (or `sidebar_entries.title`), and the server log shows the same `changes?since=` window refetched with growing backoff | the window upserted pages before its tombstones. A merge deleted a page, a stale client re-created its title under a new id, and both facts landed in one window, so the new row collided with the local row that still held the title. Tombstones now lead and colliding titles are parked | pkm-n31j |
+| A page renamed or merged away comes back under its old title a few seconds later, with a `[[conflict]]` sibling on some block that referenced it | another device held an unsynced edit to a block the rename rewrote. Push-time resolution is last-write-wins: the stale text won, the rewritten text became the `[[conflict]]` sibling, and the old `[[title]]` in the winning text re-created the page. Working as specified; the cost of never rejecting an edit | pkm-n31j |
 | "Local sync is stuck: SQLITE_CORRUPT_VTAB … database disk image is malformed", cleared only by a manual Reset local data | the FTS5 index disagreed with `blocks`/`pages`; FTS5 raises 267 when a delete would push its row or token totals below zero. Corruption was classified as a stall, and the automatic rebase would have run the same triggers over the same index. Now one automatic `reset` per session. None of the replica's own SQL shapes reproduces the divergence against the real engine; its on-device origin is unconfirmed | pkm-n31j |
 
 ## Why it's debuggable

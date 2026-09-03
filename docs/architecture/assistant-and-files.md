@@ -11,7 +11,7 @@ appear in the API reference table in
 
 The in-app LLM assistant is a **server-side agent harness**, exposed over the
 app's first SSE endpoints (`/api/assistant/*`, behind the same
-`require_auth`). The harness has no built-in tools, only the eleven `pkm-mcp`
+`require_auth`). The harness has no built-in tools, only the twelve `pkm-mcp`
 verbs ([cli-and-mcp.md](cli-and-mcp.md#the-mcp-tool-surface)), which loop back
 into this same server over HTTP. Assistant writes therefore get the same
 validation, conflict handling, journalling and broadcasts as any client.
@@ -22,7 +22,7 @@ threat model: [`docs/SECURITY.md`](../SECURITY.md).
 | File | Pattern | Role |
 |---|---|---|
 | `events.py` | Core | The event union routes and the web UI speak (`TextDelta`, `ToolStarted`/`ToolFinished`, `Phase`, `ConfirmRequest`, `TurnDone`, `ErrorEvent`) + `encode_sse()`. Nothing engine-specific leaks upward |
-| `policy.py` | Core | The tool gate (seven read verbs auto-allowed, four write verbs confirm-gated), model allowlist (`sonnet` / `opus` / `haiku` / `glm`; `available_models()` drops `glm` when no z.ai key is configured, and `default_model()` picks `glm` when offered, `sonnet` otherwise), tool-activity summaries and write-op previews, and the system prompt |
+| `policy.py` | Core | The tool gate (seven read verbs auto-allowed, five write verbs confirm-gated), model allowlist (`sonnet` / `opus` / `haiku` / `glm`; `available_models()` drops `glm` when no z.ai key is configured, and `default_model()` picks `glm` when offered, `sonnet` otherwise), tool-activity summaries and write-op previews, and the system prompt |
 | `engine.py` | Core | `AgentEngine` / `ConversationHandle` protocols — the seam a second backend (or the test double) plugs into. `send()` is typed as an async generator because the caller closes it |
 | `harness_env.py` | Core | `resolve_harness_env()`: requested model + available key → the alias handed to the SDK and the harness subprocess's env (tool loading, provider overrides) |
 | `service.py` | Shell | In-memory conversation registry: 3-conversation cap, lazy 15-minute idle reap, per-conversation lock (a second concurrent turn is a 409); `close_all()` runs on app-lifespan shutdown |

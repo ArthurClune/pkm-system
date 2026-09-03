@@ -58,6 +58,7 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
     pkm update <uid> "new text" | -D | -T    # -D done, -T back to todo
     pkm upload file.png [-p "Page"] [--no-block]
     pkm batch < commands.json                # atomic multi-op transaction
+    pkm rename "Old Title" "New Title" [--allow-merge] [--json]
 
 - `save` defaults to today's daily note; pages and `"## Heading"` parents
   are created if missing. Multi-line text (or `-` stdin) is an outline:
@@ -90,6 +91,11 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   created block so later commands can target it as `"parent": "{{name}}"`
   or, for `update`/`move`/`delete`, as `"uid": "{{name}}"`; repeated
   `"## Heading"` parents on the same page resolve to one heading.
+- `rename` retitles a page case-sensitively and rewrites every `[[link]]`,
+  `#tag`, `#[[tag]]`, and `attr::` reference to it. If `New Title` already
+  exists it fails with a 409; pass `--allow-merge` to instead append the
+  source page's top-level blocks after the target's and drop the source
+  page. Daily-note pages can't be renamed.
 
 ## Tables
 

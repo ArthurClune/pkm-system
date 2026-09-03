@@ -65,7 +65,7 @@ pauses, with a visible reason, rather than risking the loss of a change.
 write notes.
 
 The agent runs on the server, not in the browser, and it has no general
-tools — only the eleven `pkm` verbs, which reach your graph through the same
+tools — only the twelve `pkm` verbs, which reach your graph through the same
 HTTP API every other client uses. Reads happen without asking. Every write
 pauses for an Allow/Deny card in the chat that shows exactly which operations
 it wants to apply. Conversations are held in memory only, so a reload starts

@@ -38,6 +38,7 @@ argument forms and gives examples.
     pkm refs "Page" / pkm query "{and: [[A]] [[B]]}" [--expand]
     pkm upload file.png [-p "Page"] [--no-block]
     pkm batch < commands.json                # atomic multi-op transaction
+    pkm rename "Old Title" "New Title" [--allow-merge] [--json]
     pkm migrate-titles [--json]              # side-effect-free audit
     pkm migrate-titles --apply DIGEST        # explicit audited apply
 
@@ -45,6 +46,14 @@ argument forms and gives examples.
 
 `pkm save` with no `-p` targets today's daily note. Pages are created if they
 don't exist yet.
+
+`pkm rename` retitles a page and rewrites every `[[link]]`, `#tag`,
+`#[[tag]]` and `attr::` reference to it in block text, case-sensitively. If
+`New Title` already exists, the command exits 1 with a 409 and a hint to
+retry with `--allow-merge`; that flag instead concatenates the source page's
+top-level blocks after the target's and drops the source page. Daily-note
+(date) pages cannot be renamed. The title printed back is the server's
+normalised form, which need not match what you typed byte-for-byte.
 
 Multi-line text is treated as an outline: two spaces of indent means one
 level of nesting. A line starting `# `, `## ` or `### ` is stored as a
@@ -120,11 +129,11 @@ absolute path to the repository's `server/` directory:
 
 Run `pkm login` once first. The MCP server reads the same config file.
 
-It exposes eleven tools mirroring the CLI: `get_page`, `get_block`,
+It exposes twelve tools mirroring the CLI: `get_page`, `get_block`,
 `search`, `query`, `backlinks`, `todos`, `search_assets`, `save_note`,
-`update_block`, `batch` (same command format as `pkm batch`) and
-`upload_asset`. Reads return markdown annotated with `^uid` markers that the
-write tools accept.
+`update_block`, `batch` (same command format as `pkm batch`), `upload_asset`
+and `rename_page`. Reads return markdown annotated with `^uid` markers that
+the write tools accept.
 
 ## One-time title canonicalization
 

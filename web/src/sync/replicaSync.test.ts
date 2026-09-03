@@ -5,7 +5,7 @@ import type { PendingBatch, Replica, ReplicaInit } from "../replica/client";
 import { ReplicaError, ReplicaUnavailableError } from "../replica/errors";
 import {
   createReplicaSync, PENDING_CHANGED_CAP, ResetBlockedError, RETRY_BASE_MS,
-  RETRY_MAX_MS, STALL_AFTER_FAILURES, type ReplicaState,
+  RETRY_MAX_MS, STALL_AFTER_FAILURES, WINDOW_STRIKES, type ReplicaState,
 } from "./replicaSync";
 
 const SNAP: Snapshot = {
@@ -1661,6 +1661,215 @@ test("a rebuild whose snapshot fetch fails is still available to the retry", asy
 
     await sync.start(); // corruption -> reset attempt -> snapshot fails -> retry armed
     await vi.advanceTimersByTimeAsync(RETRY_BASE_MS);
+
+    expect(snapshots).toBe(2);
+    expect(commitRecovery).toHaveBeenCalledTimes(1);
+    expect(states.map((s) => s.mode)).not.toContain("stalled");
+    expect(states.at(-1)).toEqual({ mode: "ready" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+// The sibling of the corruption self-heal above, for the general case: a
+// window that throws for a reason nothing whitelisted (a NOT NULL/CHECK
+// violation from a malformed feed, a bug in upsertBlock) used to roll back,
+// leave the cursor in place, and be refetched with growing backoff forever
+// until the user pressed "Reset local data" (the wedge shape of pkm-qvlx and
+// pkm-n31j). apply.ts still throws; replicaSync decides what to do about the
+// WINDOW_STRIKES-th identical throw.
+const UNAPPLIABLE_MSG =
+  "SQLITE_CONSTRAINT_NOTNULL: sqlite3 result code 1299: " +
+  "NOT NULL constraint failed: blocks.text";
+const UNAPPLIABLE = () => new ReplicaError(UNAPPLIABLE_MSG);
+
+/** Fails `n` times with the same error, then applies cleanly. */
+const failingApply = (n: number, error: () => unknown) => {
+  const mock = vi.fn();
+  for (let i = 0; i < n; i += 1) mock.mockRejectedValueOnce(error());
+  return mock.mockResolvedValue({ status: "applied", cursor: 9 });
+};
+
+test("a window that fails identically WINDOW_STRIKES times rebases before the stall banner", async () => {
+  vi.useFakeTimers();
+  try {
+    const applyChanges = failingApply(WINDOW_STRIKES, UNAPPLIABLE);
+    const replica = fakeReplica({ applyChanges });
+    // spy rather than replace, so the fake keeps recording the call order
+    const commitRecovery = vi.spyOn(replica, "commitRecovery");
+    const posted: unknown[] = [];
+    const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/client/diagnostics") {
+        posted.push(JSON.parse(String(init?.body)));
+        return undefined;
+      }
+      return path === "/api/sync/snapshot"
+        ? SNAP : feed({ next_since: 9, latest_seq: 9 });
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start(); // failure 1
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS); // failures 2..N, then the rebase
+    await Promise.resolve(); // let the fire-and-forget POST settle
+
+    // a rebase, not a reset: nothing says the schema or the FTS index is bad,
+    // and a rebase keeps the pending queue rows
+    expect(commitRecovery)
+      .toHaveBeenCalledWith("lease-1", { kind: "rebase", snapshot: SNAP });
+    expect(commitRecovery).toHaveBeenCalledTimes(1);
+    expect(posted).toEqual([expect.objectContaining({
+      kind: "window-unappliable",
+      error: UNAPPLIABLE_MSG,
+    })]);
+    // the report is gathered and sent before the rebase discards the window
+    expect(replica.calls.indexOf("diagnostics"))
+      .toBeLessThan(replica.calls.indexOf("commitRecovery"));
+    expect(states.map((s) => s.mode)).not.toContain("stalled");
+    expect(states.at(-1)).toEqual({ mode: "ready" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("window failures with different messages never accumulate into a rebase", async () => {
+  vi.useFakeTimers();
+  try {
+    const applyChanges = vi.fn();
+    for (let i = 0; i < STALL_AFTER_FAILURES + 2; i += 1) {
+      applyChanges.mockRejectedValueOnce(
+        new ReplicaError(`${UNAPPLIABLE_MSG} (row ${i})`));
+    }
+    const commitRecovery = vi.fn(async () => undefined);
+    const replica = fakeReplica({ applyChanges, commitRecovery });
+    const fetchJson = vi.fn(async (path: string) =>
+      path === "/api/sync/snapshot" ? SNAP : feed({ next_since: 9, latest_seq: 9 }));
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start();
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (STALL_AFTER_FAILURES + 2));
+
+    expect(commitRecovery).not.toHaveBeenCalled();
+    expect(fetchJson.mock.calls.map(([path]) => path))
+      .not.toContain("/api/client/diagnostics");
+    expect(states).toContainEqual({
+      mode: "stalled", error: expect.stringContaining("row") as unknown,
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("identical window failures at moving cursors never accumulate into a rebase", async () => {
+  vi.useFakeTimers();
+  try {
+    // Each pull applies one window (moving the cursor) and then fails on the
+    // next one, so no two failures share a cursor.
+    let call = 0;
+    const applyChanges = vi.fn(async (f: Changes) => {
+      call += 1;
+      if (call % 2 === 1) return { status: "applied", cursor: f.next_since };
+      throw UNAPPLIABLE();
+    });
+    const commitRecovery = vi.fn(async () => undefined);
+    const replica = fakeReplica({
+      applyChanges: applyChanges as unknown as Replica["applyChanges"],
+      commitRecovery,
+    });
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path === "/api/sync/snapshot") return SNAP;
+      const since = Number(path.split("=")[1]);
+      return feed({ next_since: since + 1, latest_seq: 999 });
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start();
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (STALL_AFTER_FAILURES + 2));
+
+    expect(commitRecovery).not.toHaveBeenCalled();
+    expect(states).toContainEqual({ mode: "stalled", error: UNAPPLIABLE_MSG });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("network and API failures never count toward the window strikes", async () => {
+  vi.useFakeTimers();
+  try {
+    const replica = fakeReplica({ commitRecovery: vi.fn(async () => undefined) });
+    const fetchJson = vi.fn(async () => {
+      throw new ApiError(503, "/api/sync/changes");
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start();
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (WINDOW_STRIKES + 2));
+
+    expect(replica.calls).not.toContain("commitRecovery");
+    expect(states.some((s) => s.mode === "stalled")).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a second run of identical window failures stalls instead of rebasing again", async () => {
+  vi.useFakeTimers();
+  try {
+    const applyChanges = failingApply(WINDOW_STRIKES, UNAPPLIABLE);
+    // one clean window (the mockResolvedValue above) is consumed by the pull
+    // that follows the rebase; every later pull fails the same way again
+    const commitRecovery = vi.fn(async () => undefined);
+    const replica = fakeReplica({ applyChanges, commitRecovery });
+    const fetchJson = vi.fn(async (path: string) =>
+      path === "/api/sync/snapshot" ? SNAP : feed());
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start();
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS); // strikes -> one rebase -> clean window
+    expect(commitRecovery).toHaveBeenCalledTimes(1);
+    expect(states.some((s) => s.mode === "stalled")).toBe(false);
+
+    applyChanges.mockRejectedValue(UNAPPLIABLE());
+    sync.onSeq(99); // a fresh nudge starts the same failure run over
+    await sync.idle();
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (WINDOW_STRIKES + 2));
+
+    // the session's one automatic rebase is spent: the user now sees the
+    // stall banner, which is the point at which a feed bug should be visible
+    expect(commitRecovery).toHaveBeenCalledTimes(1);
+    expect(states).toContainEqual({ mode: "stalled", error: UNAPPLIABLE_MSG });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a strikes-rebase whose snapshot fetch fails is still available to the retry", async () => {
+  // Mirrors the corruption budget rule: the once-per-session rebase is spent
+  // when a rebase HAPPENS, not when one is attempted.
+  vi.useFakeTimers();
+  try {
+    const applyChanges = failingApply(WINDOW_STRIKES + 1, UNAPPLIABLE);
+    const commitRecovery = vi.fn(async () => undefined);
+    const replica = fakeReplica({ applyChanges, commitRecovery });
+    let snapshots = 0;
+    const fetchJson = vi.fn(async (path: string) => {
+      if (path === "/api/sync/snapshot") {
+        snapshots += 1;
+        if (snapshots === 1) throw new Error("snapshot offline");
+        return SNAP;
+      }
+      return path === "/api/client/diagnostics"
+        ? undefined : feed({ next_since: 9, latest_seq: 9 });
+    });
+    const { states, onState } = collector();
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+
+    await sync.start();
+    await vi.advanceTimersByTimeAsync(RETRY_MAX_MS * (WINDOW_STRIKES + 2));
 
     expect(snapshots).toBe(2);
     expect(commitRecovery).toHaveBeenCalledTimes(1);

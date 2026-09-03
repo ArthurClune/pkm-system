@@ -91,6 +91,16 @@ export class ResetBlockedError extends Error {
 }
 
 export const STALL_AFTER_FAILURES = 3;
+/** How many times the SAME changes window must fail the SAME way before it is
+ * treated as unappliable and rebased away. Equal to STALL_AFTER_FAILURES on
+ * purpose, which is the largest value that still acts first: each failed pull
+ * increments both counters, but this one is counted (and short-circuits the
+ * throw) inside pullLoop, whereas noteFailure only sees the failures that
+ * escape it. So the Nth identical failure rebases instead of becoming
+ * noteFailure's Nth increment, and the "Local sync is stuck" banner never
+ * appears for a window a snapshot can clear. One higher and the banner would
+ * be raised first, which is the wedge this exists to remove. */
+export const WINDOW_STRIKES = STALL_AFTER_FAILURES;
 export const PENDING_CHANGED_CAP = 20;
 export const RETRY_BASE_MS = 1000;
 export const RETRY_MAX_MS = 60000;
@@ -212,6 +222,23 @@ const isStallShaped = (error: unknown): boolean =>
   (error instanceof ApiError || error instanceof ReplicaError ||
     error instanceof PullStarvedError);
 
+/** A failure of the window ITSELF: the replica rejected the rows it was given
+ * (a NOT NULL/CHECK violation from a malformed feed, a bug in an upsert), so
+ * refetching the identical window cannot help. Corruption is excluded because
+ * its own branch runs first and takes a different repair; anything with an
+ * availability verdict is a statement about the database, not the window; and
+ * ApiError/OfflineError/raw fetch rejections are about the transport, where
+ * the very next attempt may well succeed.
+ *
+ * The guarded block also reads `pendingBatches()`, so a replica RPC failure
+ * from there counts too. That is deliberate: a snapshot is a valid escape from
+ * any of these repeating identically, and one that cannot be taken (a broken
+ * RPC answers `prepareRecovery` the same way) fails the recovery and lands on
+ * the stall banner anyway. */
+const isWindowFailure = (error: unknown): boolean =>
+  error instanceof ReplicaError && availabilityOf(error) === null &&
+  !isCorruptionError(error);
+
 export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const { replica, fetchJson, clientId, onState } = deps;
   const queue = deps.queue ?? {
@@ -228,6 +255,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // The one automatic rebuild a corrupt replica gets per session; see
   // claimCorruptionRebuild.
   let rebuiltForCorruption = false;
+  // The one automatic rebase an unappliable window gets per session, and the
+  // run of identical failures that earns it; see noteWindowFailure.
+  let rebasedForUnappliableWindow = false;
+  let windowFailure: { cursor: number; message: string; count: number } | null
+    = null;
   let pulling: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
@@ -253,6 +285,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
 
   const noteSuccess = (opts: { force?: boolean } = {}): void => {
     consecutiveFailures = 0;
+    windowFailure = null;
     retryDelay = RETRY_BASE_MS;
     if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
     if (reportedNonReady || opts.force) {
@@ -302,6 +335,21 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const adoptCursor = (seq: number, source: "window" | "snapshot"): void => {
     if (source === "snapshot" || seq > cursor) appliedVersion += 1;
     cursor = seq;
+    // Whatever window was failing, it is not the one we will ask for next.
+    windowFailure = null;
+  };
+
+  /** Count this failure against the run of identical ones, and return the new
+   * count. Same cursor and same message means the server will hand us the same
+   * rows again and the replica will refuse them again; anything else starts a
+   * fresh run, because a moving window (or a moving error) is still evidence
+   * of progress. */
+  const noteWindowFailure = (error: unknown): number => {
+    const message = errText(error);
+    const run = windowFailure !== null && windowFailure.cursor === cursor &&
+      windowFailure.message === message ? windowFailure.count + 1 : 1;
+    windowFailure = { cursor, message, count: run };
+    return run;
   };
 
   const fetchSnapshot = async (): Promise<Snapshot> =>
@@ -459,18 +507,47 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     console.warn(
       "replica: local database is corrupt, rebuilding it from a snapshot",
       error);
-    await reportCorruption(error);
+    await reportReplicaProblem("replica-corruption", error);
     const result = await recover("reset");
     if (result.ok) rebuiltForCorruption = true;
     return result;
   };
 
+  /** The one automatic rebase for a window nothing local can apply. Same
+   * budget rule as rebuildForCorruption -- spent when a rebase HAPPENS -- and
+   * `rebase` rather than `reset` because nothing here suggests the schema or
+   * the FTS index is bad: a rebase re-snapshots into the existing schema and
+   * keeps the pending queue's rows. */
+  const rebaseForUnappliableWindow = async (
+    error: unknown,
+  ): Promise<{ ok: true } | { ok: false; error: unknown } | "deferred"> => {
+    console.warn(
+      "replica: a changes window will not apply, re-snapshotting past it",
+      error);
+    // Diagnosis before ownership: the report is the only surviving record of a
+    // window nobody has yet explained, and posting it costs nothing if this
+    // run then hands recovery over.
+    await reportReplicaProblem("window-unappliable", error);
+    // Same ownership rule as the corruption branch: a poison repair holds the
+    // recovery lease, so leave the window to the pull that follows it.
+    if (authoritativeRepair === "poison") return "deferred";
+    const result = await recover("rebase");
+    if (result.ok) {
+      rebasedForUnappliableWindow = true;
+      windowFailure = null;
+    }
+    return result;
+  };
+
   /** What the database says about itself goes to the server log before the
-   * rebuild drops the tables (pkm-1mx9): the origin of the FTS divergence
-   * is still unknown, and after the rebuild nothing is left to inspect.
-   * Gathering waits (it needs the pre-reset database); posting does not,
-   * and a failure to post is swallowed -- diagnosis never blocks repair. */
-  const reportCorruption = async (error: unknown): Promise<void> => {
+   * repair discards the evidence (pkm-1mx9): the origin of the FTS divergence
+   * is still unknown, an unappliable window is by definition unexplained, and
+   * after a rebuild nothing is left to inspect. Gathering waits (it needs the
+   * pre-repair database); posting does not, and a failure to post is
+   * swallowed -- diagnosis never blocks repair. */
+  const reportReplicaProblem = async (
+    kind: "replica-corruption" | "window-unappliable", error: unknown,
+  ): Promise<void> => {
     let report: ReplicaDiagnostics;
     try {
       report = await replica.diagnostics();
@@ -479,7 +556,7 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       return;
     }
     const body = {
-      kind: "replica-corruption" as const,
+      kind,
       error: errText(error),
       report,
       client: clientInfo(),
@@ -512,20 +589,44 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
             `/api/sync/changes?since=${cursor}`)) as Changes;
           res = await replica.applyChanges(feed, expectedPendingIds);
         } catch (error: unknown) {
-          // Only the replica's own corruption is handled here; a fetch
-          // failure is not a ReplicaError and falls through unchanged.
-          if (!isFreshCorruption(error)) throw error;
-          // Same ownership rule as the needs-bootstrap branch below: a
-          // poison repair holds the recovery lease; leave the corruption
-          // for the pull that follows it.
-          if (authoritativeRepair === "poison") return;
-          const rebuilt = await rebuildForCorruption(error);
-          if (!rebuilt.ok) {
+          // Corruption first: it is the one window failure whose repair must
+          // be a `reset`, and its own once-per-session budget gates it. A
+          // fetch failure is not a ReplicaError and falls through unchanged.
+          if (isFreshCorruption(error)) {
+            // Same ownership rule as the needs-bootstrap branch below: a
+            // poison repair holds the recovery lease; leave the corruption
+            // for the pull that follows it.
             if (authoritativeRepair === "poison") return;
-            throw rebuilt.error;
+            const rebuilt = await rebuildForCorruption(error);
+            if (!rebuilt.ok) {
+              if (authoritativeRepair === "poison") return;
+              throw rebuilt.error;
+            }
+            // The snapshot moved the cursor to its own seq; one more pull
+            // confirms nothing landed since and costs an empty window at most.
+            continue;
           }
-          // The snapshot moved the cursor to its own seq; one more pull
-          // confirms nothing landed since and costs an empty window at most.
+          // Any other refusal of the window itself: apply.ts still throws for
+          // everything its needs-bootstrap whitelist does not name, so the
+          // decision about a window that keeps throwing lives here. A run of
+          // WINDOW_STRIKES identical failures at the same cursor means the
+          // feed will keep handing us rows this replica will keep refusing --
+          // the shape that used to refetch forever behind the stall banner
+          // until a manual "Reset local data".
+          if (!isWindowFailure(error) ||
+              noteWindowFailure(error) < WINDOW_STRIKES ||
+              // The budget is spent: a SECOND run in the same session is a
+              // feed bug the user should see, not something to hide behind
+              // another resync.
+              rebasedForUnappliableWindow) {
+            throw error;
+          }
+          const rebased = await rebaseForUnappliableWindow(error);
+          if (rebased === "deferred") return;
+          if (!rebased.ok) {
+            if (authoritativeRepair === "poison") return;
+            throw rebased.error;
+          }
           continue;
         }
         if (res.status === "pending-changed") {

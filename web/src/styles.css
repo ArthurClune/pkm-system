@@ -46,7 +46,7 @@
   --color-link-cloud: #1c8a86;
   --color-link-ai: #2d6fd0;
   --color-link-work: #3c8b4b;
-  --color-link-reading: #a3467f;
+  --color-link-reading: #c4507a;
   --color-tag: #9dafca;
   /* a step darker than the old #e3ecf2/#d8e5ee, which vanished into the
    * white pane and left the outline structureless (pkm-9kye) */
@@ -124,7 +124,7 @@
     --color-link-cloud: #4fc3bd;
     --color-link-ai: #7fa9f2;
     --color-link-work: #6fc07c;
-    --color-link-reading: #d98bb9;
+    --color-link-reading: #eda0c6;
     --color-tag: #6f80a0;
     --color-bullet: #39434d;
     --color-bullet-ring: #4a5866;
@@ -181,7 +181,7 @@
   --color-link-cloud: #4fc3bd;
   --color-link-ai: #7fa9f2;
   --color-link-work: #6fc07c;
-  --color-link-reading: #d98bb9;
+  --color-link-reading: #eda0c6;
   --color-tag: #6f80a0;
   --color-bullet: #39434d;
   --color-bullet-ring: #4a5866;

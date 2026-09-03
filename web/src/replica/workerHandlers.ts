@@ -5,7 +5,7 @@
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
-import type { PendingBatch, RecoveryCommit } from "./client";
+import type { PendingBatch, RecoveryCommit, ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
 import { ReplicaUnavailableError } from "./errors";
@@ -66,6 +66,62 @@ function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {
 
 const quoteIdentifier = (name: string): string =>
   `"${name.replaceAll('"', '""')}"`;
+
+/** Run one probe; its error text stands in for a result it could not give.
+ * The report is read moments before a rebuild drops the tables, over a
+ * database already known to be unwell, so no probe may sink the others. */
+const probe = <T>(fn: () => T, fallback: (message: string) => T): T => {
+  try {
+    return fn();
+  } catch (error: unknown) {
+    return fallback(error instanceof Error ? error.message : String(error));
+  }
+};
+
+const countRows = (db: ReplicaDb, table: string): number => probe(
+  () => Number(db.select<{ n: number }>(
+    `SELECT count(*) AS n FROM ${quoteIdentifier(table)}`)[0].n),
+  () => -1);
+
+/** FTS5's own consistency check. The second argument (1) makes it compare
+ * the index against the external content table as well as checking the
+ * index's own structure; without it an index that simply lacks a content
+ * row passes, which is the very divergence being diagnosed. */
+const ftsIntegrity = (db: ReplicaDb, table: string): string => probe(
+  () => {
+    db.exec(`INSERT INTO ${quoteIdentifier(table)}(${quoteIdentifier(table)}, rank)` +
+            " VALUES ('integrity-check', 1)");
+    return "ok";
+  },
+  (message) => message);
+
+function collectDiagnostics(db: ReplicaDb): ReplicaDiagnostics {
+  return {
+    sqliteVersion: probe(
+      () => db.select<{ v: string }>("SELECT sqlite_version() AS v")[0].v,
+      (message) => message),
+    quickCheck: probe(
+      () => db.select<{ quick_check: string }>("PRAGMA quick_check(5)")
+        .map((row) => row.quick_check),
+      (message) => [message]),
+    integrity: {
+      blocks_fts: ftsIntegrity(db, "blocks_fts"),
+      pages_fts: ftsIntegrity(db, "pages_fts"),
+    },
+    counts: {
+      pages: countRows(db, "pages"),
+      blocks: countRows(db, "blocks"),
+      pending_ops: countRows(db, "pending_ops"),
+      pages_fts_docsize: countRows(db, "pages_fts_docsize"),
+      blocks_fts_docsize: countRows(db, "blocks_fts_docsize"),
+    },
+    meta: {
+      cursor: probe(() => getMeta(db, "cursor"), () => null),
+      generation: probe(() => getMeta(db, "generation"), () => null),
+      schema_version: probe(() => getMeta(db, "schema_version"), () => null),
+    },
+  };
+}
 
 export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   let dbPromise: Promise<ReplicaDb> | null = null;
@@ -336,6 +392,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         rebuildSchema(await db());
         return null;
       });
+    },
+    async diagnostics() {
+      return gate.run(async () => collectDiagnostics(await db()));
     },
     async close() {
       return gate.run(async () => {

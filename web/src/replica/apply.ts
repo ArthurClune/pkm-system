@@ -1,10 +1,11 @@
 // pattern: Imperative Shell
 // Feed application (spec sections 3 and 1): snapshot bootstrap and windowed
-// changes upserts. Each window applies in ONE transaction, ordered pages ->
-// blocks -> refs -> tombstones, under transaction-scoped deferred FKs so
-// intra-window row order never matters. Upserts are idempotent -- re-pulling
-// any window is safe. The base schema's FTS triggers maintain the local
-// search index on every upsert.
+// changes upserts. Each window applies in ONE transaction, ordered tombstones
+// -> pages -> blocks -> sidebar, under transaction-scoped deferred FKs so
+// intra-window row order never matters for FKs; it matters for the UNIQUE
+// titles, which is why tombstones lead and colliding titles are parked
+// (applyWindow). Upserts are idempotent -- re-pulling any window is safe. The
+// base schema's FTS triggers maintain the local search index on every upsert.
 //
 // Deferred FKs move every violation to the outer COMMIT, so neither the
 // savepoints reapplyPending rolls back to nor a try/catch around a single op
@@ -192,6 +193,16 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
   try {
     applyWindow(db, feed, nowMs);
   } catch (e) {
+    if (e instanceof StaleTitleHolderError) {
+      // A local row still holds a title this window handed to another id,
+      // and nothing in the window retitles or deletes it. The server cannot
+      // hold two rows with one title, so either the replica's picture of
+      // that row is stale (its change was in a window already applied) or
+      // its retitle lies past this window's end. No later window is
+      // guaranteed to correct the first; a snapshot corrects both. Rebuild.
+      console.warn("applyChanges: stale title holder, rebootstrapping", e);
+      return { status: "needs-bootstrap" };
+    }
     if (!isFkFailure(e)) throw e;
     // The window depends on rows it never shipped (an un-upgraded server, or
     // one that predates the parent-completion fix). The transaction rolled
@@ -213,18 +224,75 @@ export function applyChanges(db: ReplicaDb, feed: Changes,
   return { status: "applied", cursor: feed.next_since };
 }
 
+/** Thrown inside the window transaction (so it rolls back) when a parked
+ * title (see parkTakenTitles) is still parked after every upsert ran. */
+class StaleTitleHolderError extends Error {
+  constructor(table: string, ids: number[]) {
+    super(`${table} rows ${ids.join(",")} hold titles this window gave to` +
+          " other ids and are neither retitled nor tombstoned in it");
+    this.name = "StaleTitleHolderError";
+  }
+}
+
+/** The placeholder a parked row carries. Nothing rejects U+0001 in a title
+ * (the normalizers only touch whitespace controls), so this is a title no
+ * user would type rather than one the server cannot hold; a real title of
+ * exactly this shape would collide, and that is accepted. Parked rows exist
+ * only inside the window transaction -- either their own upsert overwrites
+ * the title, or the transaction rolls back (StaleTitleHolderError). U+0001,
+ * not NUL: SQLite's string functions treat an embedded NUL as a terminator. */
+const parkedTitle = (id: number): string => `parked:${String(id)}`;
+
+type TitledTable = "pages" | "sidebar_entries";
+
+/** `pages.title` and `sidebar_entries.title` are UNIQUE, and a window is a
+ * set of CURRENT rows: it can carry two rows that traded titles, or a
+ * tombstone for the row that used to own a title beside the row that took it
+ * over. Tombstones are applied before upserts (applyWindow), which covers the
+ * second shape; this covers the first. For each incoming row, any OTHER
+ * positive-id local row holding its title is moved to a placeholder first, so
+ * the upsert lands, and the holder's own upsert (later in the same window)
+ * restores its real title. Negative ids are offline-created pages, which
+ * reconcilePage remaps rather than retitles. Rows still parked once every
+ * upsert has run are not a swap -- see the check in applyWindow. */
+function parkTakenTitles(db: ReplicaDb, table: TitledTable,
+                         incoming: readonly { id: number; title: string }[]): number[] {
+  const parked: number[] = [];
+  for (const row of incoming) {
+    const holders = db.select<{ id: number }>(
+      `SELECT id FROM ${table} WHERE title = ? AND id != ? AND id >= 0`,
+      [row.title, row.id]);
+    for (const holder of holders) {
+      db.exec(`UPDATE ${table} SET title = ? WHERE id = ?`,
+              [parkedTitle(holder.id), holder.id]);
+      parked.push(holder.id);
+    }
+  }
+  return parked;
+}
+
+function assertNoParkedTitles(db: ReplicaDb, table: TitledTable,
+                              parked: readonly number[]): void {
+  const still = parked.filter((id) => db.select(
+    `SELECT 1 AS x FROM ${table} WHERE id = ? AND title = ?`,
+    [id, parkedTitle(id)]).length > 0);
+  if (still.length > 0) throw new StaleTitleHolderError(table, still);
+}
+
+/** Order inside the window transaction: tombstones, then pages, blocks and
+ * sidebar upserts, then the queue replay. Deferred FKs make the order
+ * irrelevant for referential integrity; it is the UNIQUE titles that fix it.
+ * A row that gave a title up by being deleted must be gone before the row
+ * that took the title arrives, so tombstones go first (pkm-n31j). A page
+ * tombstone cascades to its local blocks; any of those that survived
+ * server-side (moved to another page) come back through the block upserts
+ * that follow, because the feed hydrates current rows. That relies on the
+ * server's `dedupe_window`: an entity is hydrated or tombstoned in a window,
+ * never both. Were a page ever shipped as both, this order would let the
+ * cascade eat blocks the window does not re-ship. */
 function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
   db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");
-    for (const p of feed.pages) upsertPage(db, p);
-    for (const b of feed.blocks) upsertBlock(db, b);
-    for (const s of feed.sidebar) {
-      db.exec(
-        "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (?,?,?)" +
-        " ON CONFLICT(id) DO UPDATE SET title = excluded.title," +
-        " order_idx = excluded.order_idx",
-        [s.id, s.title, s.order_idx]);
-    }
     for (const tomb of feed.tombstones) {
       if (tomb.kind === "block") {
         db.exec("DELETE FROM blocks WHERE uid = ?", [tomb.entity_id]);
@@ -235,6 +303,19 @@ function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
                 [Number(tomb.entity_id)]);
       }
     }
+    const parkedPages = parkTakenTitles(db, "pages", feed.pages);
+    for (const p of feed.pages) upsertPage(db, p);
+    assertNoParkedTitles(db, "pages", parkedPages);
+    for (const b of feed.blocks) upsertBlock(db, b);
+    const parkedSidebar = parkTakenTitles(db, "sidebar_entries", feed.sidebar);
+    for (const s of feed.sidebar) {
+      db.exec(
+        "INSERT INTO sidebar_entries(id, title, order_idx) VALUES (?,?,?)" +
+        " ON CONFLICT(id) DO UPDATE SET title = excluded.title," +
+        " order_idx = excluded.order_idx",
+        [s.id, s.title, s.order_idx]);
+    }
+    assertNoParkedTitles(db, "sidebar_entries", parkedSidebar);
     setMeta(db, "cursor", String(feed.next_since));
     setPlainSpaceTitleCanonicalization(
       db, feed.plain_space_title_canonicalization);

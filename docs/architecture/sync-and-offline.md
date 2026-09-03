@@ -102,6 +102,15 @@ read transaction:
 - The client loops `pull → apply → cursor = next_since` until
   `next_since >= latest_seq` (`web/src/sync/replicaSync.ts`). The cursor
   persists in the replica's `sync_client_meta` table.
+- `applyWindow` (`web/src/replica/apply.ts`) applies a window in one
+  transaction: tombstones, then pages, blocks and sidebar. Deferred FKs make
+  the order irrelevant for references. The UNIQUE `title` columns are why
+  tombstones lead: the window holds current rows, so the row that gave a title
+  up must be gone before the row that took it arrives. Two rows that swapped
+  titles are parked under a placeholder (`parkTakenTitles`) and restored by
+  their own upserts. A row still parked afterwards is either stale or
+  retitled past the window's end; a snapshot corrects both, so the window
+  returns `needs-bootstrap`.
 
 Two signals force a full re-bootstrap from `GET /api/sync/snapshot`:
 `reset: true` (the client's cursor is ahead of the journal, so the database
@@ -396,7 +405,11 @@ flowchart TD
 
 The retry wraps the whole sequence, not just the install, and absorbs only errors
 that look like handle contention. A persistent failure therefore fails fast into
-online-only instead of stalling startup. Two things the shapes do not show:
+online-only instead of stalling startup. On an iPad that contention is between
+Safari tabs only: a home-screen web app has its own storage partition, so the
+PWA and Safari each hold an independent replica with its own cursor and queue.
+Both appear in the server log under one IP, and a bug in the window apply
+stalls both at the same `since=`. Two things the shapes do not show:
 
 - **The retry only retries because of the install option.** sqlite-wasm memoises
   `installOpfsSAHPoolVfs` per VFS name, and by default it re-awaits a cached
@@ -583,7 +596,7 @@ confirm stays.
 
 ### Rebootstrap triggers
 
-Four conditions cause a rebootstrap on their own:
+Six conditions cause a rebootstrap on their own:
 
 | Trigger | Detected by | Kind |
 |---|---|---|
@@ -591,6 +604,8 @@ Four conditions cause a rebootstrap on their own:
 | Server DB rebuilt or title activation rotated generation | `generation` token mismatch in any feed payload; a forced WS frame makes metadata-only rotation pull immediately | `rebase` (flush queue, re-snapshot) |
 | Cursor ahead of journal | `reset: true` from the feed | `rebase` |
 | Window cannot commit: deferred FK check fails (dependency-incomplete feed, e.g. an older server) | `applyChanges` catches the FK failure at COMMIT and returns `needs-bootstrap` | `rebase` |
+| A local page or sidebar row holds a title this window gives to another id, and the window neither retitles nor tombstones that row | `parkTakenTitles` moves the holder aside before the upserts; a row still parked afterwards throws `StaleTitleHolderError`, and `applyChanges` returns `needs-bootstrap` | `rebase` |
+| The replica reports corruption (`SQLITE_CORRUPT`, or FTS5's `SQLITE_CORRUPT_VTAB`) while applying a window or a rebase snapshot | `isCorruptionError` in `pullLoop` and `recover`; once per session, a second corruption is an ordinary stall. Before the rebuild, `replica.diagnostics()` (quick_check, FTS `integrity-check`, row counts, cursor) is posted to `POST /api/client/diagnostics`, which logs it | `reset`: a rebase re-applies the snapshot through the same FTS triggers over the same corrupt index |
 
 Two more rebootstraps happen on request: the authoritative repair of a poisoned
 batch, and the user's own Reset local data.
@@ -652,7 +667,7 @@ that succeeds keeps delivery paused, and the provider resumes it.
   absorbed the flush. The same first-connect gate also fires on an empty
   durable queue when `replicaSync.hasStarted()` is still false — an offline
   cold start whose mount-time bootstrap attempt failed — so the replica isn't
-  left un-bootstrapped until a reload once connectivity returns (pkm-8k2c).
+  left un-bootstrapped until a reload once connectivity returns.
 - **Connectivity and delivery health are reported independently.** The app
   can be online with delivery blocked by a poisoned batch, and the UI says
   which.
@@ -694,6 +709,9 @@ fix installed. The bean has the full investigation.
 | Tempted to add a read-only "storage full" mode | there is no signal to trigger it: the VFS reports `SQLITE_IOERR`. A `quota` flag existed for years that nothing in `web/src` could set | pkm-avag |
 | Offline for ~30 s shows "Local sync is stuck … Reset local data" instead of plain Offline | `OfflineError` (status 0, thrown when the offline gateway has no local route for a request) extends `ApiError`, so it passed the stall classifier's `instanceof ApiError` check like a real server rejection | pkm-gw5r |
 | A first-ever offline load with an empty op queue never bootstraps; views stay empty until a manual reload | the first-connect gate looked at pending-op count alone, so a mount-time bootstrap that failed for being offline was never retried once connectivity returned | pkm-8k2c |
+| "Local sync is stuck: … UNIQUE constraint failed: pages.title" (or `sidebar_entries.title`), and the server log shows the same `changes?since=` window refetched with growing backoff | the window upserted pages before its tombstones. A merge deleted a page, a stale client re-created its title under a new id, and both facts landed in one window, so the new row collided with the local row that still held the title. Tombstones now lead and colliding titles are parked | pkm-n31j |
+| A page renamed or merged away comes back under its old title a few seconds later, with a `[[conflict]]` sibling on some block that referenced it | another device held an unsynced edit to a block the rename rewrote. Push-time resolution is last-write-wins: the stale text won, the rewritten text became the `[[conflict]]` sibling, and the old `[[title]]` in the winning text re-created the page. Working as specified; the cost of never rejecting an edit | pkm-n31j |
+| "Local sync is stuck: SQLITE_CORRUPT_VTAB … database disk image is malformed", cleared only by a manual Reset local data | the FTS5 index disagreed with `blocks`/`pages`; FTS5 raises 267 when a delete would push its row or token totals below zero. Corruption was classified as a stall, and the automatic rebase would have run the same triggers over the same index. Now one automatic `reset` per session. None of the replica's own SQL shapes reproduces the divergence against the real engine; its on-device origin is unconfirmed | pkm-n31j |
 
 ## Why it's debuggable
 

@@ -9,9 +9,13 @@ cursor we return -- reflected in the cursor but missing from the payload.
 """
 from __future__ import annotations
 
+import json
+import logging
 import sqlite3
+from typing import Any
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from pkm.contracts.responses import (ChangesPayload, SnapshotPayload,
                                         SyncBlock, SyncPage, SyncRef,
@@ -28,6 +32,33 @@ from pkm.server.sync_meta import (
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 MAX_LIMIT = 5000
+
+logger = logging.getLogger("pkm.sync")
+
+
+class ClientDiagnosticsRequest(BaseModel):
+    """A replica's self-report, sent before it rebuilds itself."""
+    kind: str
+    error: str
+    report: dict[str, Any]
+    client: dict[str, Any]
+
+
+@router.post("/api/client/diagnostics")
+def client_diagnostics(body: ClientDiagnosticsRequest) -> dict:
+    """Record a replica's self-report in the server log.
+
+    A browser replica that finds its database corrupt rebuilds itself from a
+    snapshot, which destroys the evidence. Before it does, it posts what the
+    database said about itself (integrity checks, row counts, cursor) and
+    which kind of client it is. The server only logs the body: the access
+    log around the line already holds the requests that led up to it.
+    Nothing is written to the database, so there is no journal row and no
+    nudge.
+    """
+    logger.warning("client diagnostics %s",
+                   json.dumps(body.model_dump(), sort_keys=True))
+    return {"ok": True}
 
 
 def _blocks_by_uid(db: sqlite3.Connection,

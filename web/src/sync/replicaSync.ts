@@ -9,11 +9,12 @@
 
 import { ApiError, OfflineError } from "../api/client";
 import type { ApiFetchOptions } from "../api/client";
-import type { Changes, Snapshot } from "../replica/apply";
+import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
+import type { ReplicaDiagnostics } from "../replica/client";
 import type {
   PendingBatch, RecoveryCommit, RecoveryLease, Replica, ReplicaInit,
 } from "../replica/client";
-import { availabilityOf, ReplicaError } from "../replica/errors";
+import { availabilityOf, isCorruptionError, ReplicaError } from "../replica/errors";
 import type { OpQueue } from "./opQueue";
 
 export type ReplicaState =
@@ -192,6 +193,19 @@ class PullStarvedError extends Error {}
  * starving on pending-batch churn -- count toward the stall threshold;
  * anything else still retries with backoff but is neither counted nor reported
  * as stalled. */
+/** Which kind of iPad context this is: a home-screen app (`standalone`) and
+ * Safari hold independent replicas, and the report has to say which one
+ * broke. Node (tests) has no navigator. */
+const clientInfo = (): Record<string, unknown> => {
+  if (typeof navigator === "undefined") return {};
+  const nav = navigator as Navigator & { standalone?: boolean };
+  return {
+    userAgent: nav.userAgent,
+    standalone: nav.standalone ?? null,
+    visibility: typeof document === "undefined" ? null : document.visibilityState,
+  };
+};
+
 const isStallShaped = (error: unknown): boolean =>
   availabilityOf(error) === null &&
   !(error instanceof OfflineError) &&
@@ -211,6 +225,9 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   let appliedVersion = 0;
   let usable = true;
   let started = false;
+  // The one automatic rebuild a corrupt replica gets per session; see
+  // claimCorruptionRebuild.
+  let rebuiltForCorruption = false;
   let pulling: Promise<void> | null = null;
   let again = false;
   let authoritativeRepair: "poison" | null = null;
@@ -367,7 +384,11 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
     } catch (error: unknown) {
       const poisonOwnsRecovery = authoritativeRepair === "poison" ||
         error === poisonPreempted;
-      if (options.reportReplicaFailure && !poisonOwnsRecovery) {
+      // A rebase that hit corruption is about to be retried as a reset by
+      // recover(); reporting it here would flash a recovery-failed banner
+      // over a repair that is still in progress.
+      if (options.reportReplicaFailure && !poisonOwnsRecovery &&
+          !wouldEscalateCorruption(kind, error)) {
         // Without this, a recovery-failed report that never crosses the
         // stall threshold (e.g. the very first failure) leaves
         // reportedNonReady false, so noteSuccess's later "ready" re-emission
@@ -405,8 +426,71 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       });
       return { ok: true };
     } catch (error: unknown) {
+      if (wouldEscalateCorruption(kind, error)) {
+        // A rebase re-applies the snapshot INTO the existing schema, so its
+        // `DELETE FROM blocks` runs the same FTS triggers over the same
+        // corrupt index and fails the same way. Only a reset (drop and
+        // recreate the tables) clears that; runRecovery held its report
+        // back for exactly this hand-off (see its catch).
+        return rebuildForCorruption(error);
+      }
       return { ok: false, error };
     }
+  };
+
+  /** Corruption this session has not yet rebuilt for. Once per session on
+   * purpose: a database that comes back corrupt from a fresh snapshot has a
+   * problem a second rebuild will not fix, and that is the point at which
+   * the user should see it (as an ordinary stall) rather than a rebuild loop
+   * re-downloading the graph forever. */
+  const isFreshCorruption = (error: unknown): boolean =>
+    !rebuiltForCorruption && isCorruptionError(error);
+  const wouldEscalateCorruption = (
+    kind: RecoveryCommit["kind"], error: unknown,
+  ): boolean => kind === "rebase" && isFreshCorruption(error);
+
+  /** The one automatic rebuild. The budget is spent when a rebuild HAPPENS,
+   * not when one is attempted: the snapshot fetch can fail on the same flaky
+   * link the corruption arrived on, and a budget burnt there would hand the
+   * retry the very stall banner this exists to remove. */
+  const rebuildForCorruption = async (
+    error: unknown,
+  ): Promise<{ ok: true } | { ok: false; error: unknown }> => {
+    console.warn(
+      "replica: local database is corrupt, rebuilding it from a snapshot",
+      error);
+    await reportCorruption(error);
+    const result = await recover("reset");
+    if (result.ok) rebuiltForCorruption = true;
+    return result;
+  };
+
+  /** What the database says about itself goes to the server log before the
+   * rebuild drops the tables (pkm-1mx9): the origin of the FTS divergence
+   * is still unknown, and after the rebuild nothing is left to inspect.
+   * Gathering waits (it needs the pre-reset database); posting does not,
+   * and a failure to post is swallowed -- diagnosis never blocks repair. */
+  const reportCorruption = async (error: unknown): Promise<void> => {
+    let report: ReplicaDiagnostics;
+    try {
+      report = await replica.diagnostics();
+    } catch (diagError: unknown) {
+      console.warn("replica: could not gather diagnostics", diagError);
+      return;
+    }
+    const body = {
+      kind: "replica-corruption" as const,
+      error: errText(error),
+      report,
+      client: clientInfo(),
+    };
+    void fetchJson("/api/client/diagnostics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch((postError: unknown) => {
+      console.warn("replica: could not post diagnostics", postError);
+    });
   };
 
   const pullLoop = async (): Promise<void> => {
@@ -419,11 +503,31 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       again = false;
       let done = false;
       while (!done) {
-        const expectedPendingIds = (await replica.pendingBatches())
-          .map((batch) => batch.id);
-        const feed = (await fetchJson(
-          `/api/sync/changes?since=${cursor}`)) as Changes;
-        const res = await replica.applyChanges(feed, expectedPendingIds);
+        let feed: Changes;
+        let res: ApplyResult;
+        try {
+          const expectedPendingIds = (await replica.pendingBatches())
+            .map((batch) => batch.id);
+          feed = (await fetchJson(
+            `/api/sync/changes?since=${cursor}`)) as Changes;
+          res = await replica.applyChanges(feed, expectedPendingIds);
+        } catch (error: unknown) {
+          // Only the replica's own corruption is handled here; a fetch
+          // failure is not a ReplicaError and falls through unchanged.
+          if (!isFreshCorruption(error)) throw error;
+          // Same ownership rule as the needs-bootstrap branch below: a
+          // poison repair holds the recovery lease; leave the corruption
+          // for the pull that follows it.
+          if (authoritativeRepair === "poison") return;
+          const rebuilt = await rebuildForCorruption(error);
+          if (!rebuilt.ok) {
+            if (authoritativeRepair === "poison") return;
+            throw rebuilt.error;
+          }
+          // The snapshot moved the cursor to its own seq; one more pull
+          // confirms nothing landed since and costs an empty window at most.
+          continue;
+        }
         if (res.status === "pending-changed") {
           pendingChangedRetries += 1;
           if (pendingChangedRetries >= PENDING_CHANGED_CAP) {
@@ -544,6 +648,12 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // recovery abandons its stale flush; the rest is the shared lifecycle
       // under poison's options (no flush of later valid rows, no resume, no
       // report of its own).
+      //
+      // Deliberately NOT routed through recover(): corruption met here must
+      // not escalate to a reset. A reset drops every table, pending_ops
+      // included, and this repair runs with flush "skip" precisely so the
+      // later valid rows stay durable until the poisoned one is deleted.
+      // The repair banner's Retry, or a reload, is the way out.
       authoritativeRepair = "poison";
       await runRecovery("rebase", {
         flush: "skip", resume: false, reportReplicaFailure: false,

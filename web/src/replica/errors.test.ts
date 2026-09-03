@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { availabilityOf, isSessionFatal, ReplicaError,
+import { availabilityOf, isCorruptionError, isSessionFatal, ReplicaError,
          ReplicaUnavailableError, RpcLifecycleError } from "./errors";
 
 describe("ReplicaError flags", () => {
@@ -55,5 +55,29 @@ describe("isSessionFatal", () => {
 
   test("a non-availability error is never session-fatal", () => {
     expect(isSessionFatal(new ReplicaError("disk I/O error"))).toBe(false);
+  });
+});
+
+describe("isCorruptionError", () => {
+  test("recognises SQLite corruption reported through a replica error", () => {
+    // What FTS5 raises when its index and content table disagree (pkm-n31j);
+    // the wrapper surfaces the engine's message unchanged.
+    expect(isCorruptionError(new ReplicaError(
+      "SQLITE_CORRUPT_VTAB: sqlite3 result code 267: database disk image is malformed",
+    ))).toBe(true);
+    expect(isCorruptionError(new ReplicaError(
+      "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed",
+    ))).toBe(true);
+  });
+
+  test("ignores every other failure", () => {
+    expect(isCorruptionError(new ReplicaError(
+      "SQLITE_CONSTRAINT_UNIQUE: sqlite3 result code 2067: UNIQUE constraint failed: pages.title",
+    ))).toBe(false);
+    // a latched failed open is an availability fact, never a rebuild trigger
+    expect(isCorruptionError(new ReplicaUnavailableError(
+      "database disk image is malformed"))).toBe(false);
+    expect(isCorruptionError(new Error("database disk image is malformed"))).toBe(false);
+    expect(isCorruptionError("SQLITE_CORRUPT")).toBe(false);
   });
 });

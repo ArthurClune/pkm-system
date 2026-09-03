@@ -497,6 +497,7 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 | **Sync** (see [sync-and-offline.md](sync-and-offline.md)) | | |
 | GET | `/api/sync/snapshot` | Full graph bootstrap + `seq` + `generation` + title-canonicalization activation |
 | GET | `/api/sync/changes?since&limit` | Windowed incremental feed with the same generation/activation metadata |
+| POST | `/api/client/diagnostics` | A replica's self-report before it rebuilds a corrupt database; logged as one `pkm.sync` WARNING line, nothing written |
 | WS | `/api/ws` | Push nudges: applied-op broadcasts + real `seq` hints; title generation rotation adds `force:true,generation` without fabricating a cursor |
 | **Assistant** (SSE — see [assistant-and-files.md](assistant-and-files.md#embedded-assistant-pkmassistant)) | | |
 | GET | `/api/assistant/models` | Models the picker may offer + the default; `glm` appears only when a z.ai key is configured |

@@ -205,3 +205,32 @@ def test_cross_page_subtree_move_journals_every_subtree_row(client):
     ai_id = 2  # seeded id of page 'AI' (conftest SEED_PAGES)
     assert moved["uid_b2"]["page_id"] == ai_id
     assert moved["uid_b3"]["page_id"] == ai_id
+
+
+def test_client_diagnostics_land_in_the_server_log(client, caplog):
+    """A replica that found itself corrupt reports what its database said
+    before rebuilding (pkm-1mx9). The server only logs it: the access log
+    around the line is the rest of the story."""
+    import logging
+    body = {
+        "kind": "replica-corruption",
+        "error": "SQLITE_CORRUPT_VTAB: sqlite3 result code 267: database disk image is malformed",
+        "report": {"counts": {"blocks": 3, "blocks_fts_docsize": 2},
+                   "integrity": {"blocks_fts": "malformed"}},
+        "client": {"userAgent": "iPad", "standalone": True},
+    }
+    with caplog.at_level(logging.WARNING, logger="pkm.sync"):
+        r = client.post("/api/client/diagnostics", json=body)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+    [record] = [rec for rec in caplog.records if rec.name == "pkm.sync"]
+    assert record.levelno == logging.WARNING
+    assert "replica-corruption" in record.message
+    assert '"blocks_fts_docsize": 2' in record.message
+    assert '"standalone": true' in record.message
+
+
+def test_client_diagnostics_require_auth(anon_client):
+    r = anon_client.post("/api/client/diagnostics", json={
+        "kind": "replica-corruption", "error": "x", "report": {}, "client": {}})
+    assert r.status_code == 401

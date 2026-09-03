@@ -158,13 +158,14 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
   });
 
   test("a window failing on anything other than an FK still throws", () => {
-    // needs-bootstrap is the answer to a dependency-incomplete window only.
-    // Any other constraint failure is a genuine bug or a corrupt replica, and
-    // bootstrapping past it would hide it behind an endless resync.
+    // needs-bootstrap is the answer to a dependency-incomplete window (and,
+    // since pkm-n31j, to a stale title holder) only. Any other constraint
+    // failure is a genuine bug or a corrupt replica, and bootstrapping past
+    // it would hide it behind an endless resync.
     expect(() => applyChanges(t.db, emptyFeed({
       next_since: 11, latest_seq: 11,
-      pages: [page(3, "AI")], // page 2 already owns that title (UNIQUE)
-    }))).toThrow(/UNIQUE constraint failed/);
+      pages: [page(3, null as unknown as string)], // pages.title is NOT NULL
+    }))).toThrow(/NOT NULL constraint failed/);
     expect(getMeta(t.db, "cursor")).toBe("10");
   });
 

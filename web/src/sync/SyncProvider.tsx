@@ -210,7 +210,7 @@ function absentReplica(): Replica {
     poisonedBatches: absent, deleteBatch: absent, markPoisoned: absent,
     pendingCount: absent, localApi: absent, prepareRecovery: absent,
     commitRecovery: absent, abortRecovery: absent, reset: absent,
-    dispose: absent,
+    diagnostics: absent, dispose: absent,
   };
 }
 

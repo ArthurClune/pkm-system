@@ -412,6 +412,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/client/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Client Diagnostics
+         * @description Record a replica's self-report in the server log.
+         *
+         *     A browser replica that finds its database corrupt rebuilds itself from a
+         *     snapshot, which destroys the evidence. Before it does, it posts what the
+         *     database said about itself (integrity checks, row counts, cursor) and
+         *     which kind of client it is. The server only logs the body: the access
+         *     log around the line already holds the requests that led up to it.
+         *     Nothing is written to the database, so there is no journal row and no
+         *     nudge.
+         */
+        post: operations["client_diagnostics_api_client_diagnostics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sync/changes": {
         parameters: {
             query?: never;
@@ -997,6 +1025,24 @@ export interface components {
             sidebar: components["schemas"]["SyncSidebarEntry"][];
             /** Tombstones */
             tombstones: components["schemas"]["SyncTombstone"][];
+        };
+        /**
+         * ClientDiagnosticsRequest
+         * @description A replica's self-report, sent before it rebuilds itself.
+         */
+        ClientDiagnosticsRequest: {
+            /** Kind */
+            kind: string;
+            /** Error */
+            error: string;
+            /** Report */
+            report: {
+                [key: string]: unknown;
+            };
+            /** Client */
+            client: {
+                [key: string]: unknown;
+            };
         };
         /** ConfirmRequestBody */
         ConfirmRequestBody: {
@@ -2203,6 +2249,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    client_diagnostics_api_client_diagnostics_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientDiagnosticsRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

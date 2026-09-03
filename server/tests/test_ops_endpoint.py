@@ -386,3 +386,109 @@ def test_hashless_update_on_missing_block_still_400s(client):
                                       "ops": [
         {"op": "update_text", "uid": "gone_uid1", "text": "x"}]})
     assert r.status_code == 400
+
+
+# --- stale edits across a rename or merge ---------------------------------
+#
+# uid_b1's seeded text is "Tags:: #AI", so renaming the "AI" page rewrites
+# it. A device that edited the block before syncing that rename pushes the
+# old spelling with the pre-rename hash; the rename is replayed over the
+# incoming text rather than letting the old title win (pkm-x5w0).
+
+STALE_BASE = "Tags:: #AI"
+STALE_EDIT = "Tags:: #AI plus offline words"
+
+
+def _rename(client, title, new_title, allow_merge=False):
+    r = client.post(f"/api/page/{title}/rename",
+                    json={"new_title": new_title, "allow_merge": allow_merge})
+    assert r.status_code == 200, r.text
+    return r
+
+
+def _ml_texts(client):
+    page = client.get("/api/page/Machine%20Learning").json()
+    return [b["text"] for b in page["blocks"]]
+
+
+def _stale_push(client, base_text, text=STALE_EDIT):
+    r = _post(client, {"op": "update_text", "uid": "uid_b1", "text": text,
+                       "base_text_hash": text_hash(base_text)})
+    assert r.status_code == 200, r.text
+    return r
+
+
+def test_stale_edit_replays_a_rename_instead_of_resurrecting_the_title(client):
+    start = client.get("/api/sync/changes").json()["latest_seq"]
+    _rename(client, "AI", "Artificial Intelligence")
+    _stale_push(client, STALE_BASE)
+
+    rewritten = "Tags:: #[[Artificial Intelligence]] plus offline words"
+    assert _ml_texts(client)[0] == rewritten
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/conflict").status_code == 404
+    feed = client.get(f"/api/sync/changes?since={start}").json()
+    assert {b["uid"]: b["text"] for b in feed["blocks"]}["uid_b1"] == rewritten
+
+
+def test_stale_edit_replays_a_merge_instead_of_resurrecting_the_title(client):
+    _rename(client, "AI", "Paper", allow_merge=True)
+    _stale_push(client, STALE_BASE)
+
+    assert _ml_texts(client)[0] == "Tags:: #Paper plus offline words"
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/conflict").status_code == 404
+
+
+def test_stale_edit_replays_a_chain_of_renames(client):
+    _rename(client, "AI", "Artificial Intelligence")
+    _rename(client, "Artificial Intelligence", "Cognition")
+    _stale_push(client, STALE_BASE)
+
+    assert _ml_texts(client)[0] == "Tags:: #[[Cognition]] plus offline words"
+    assert client.get("/api/page/AI").status_code == 404
+    assert client.get("/api/page/Artificial%20Intelligence").status_code == 404
+    assert client.get("/api/page/conflict").status_code == 404
+
+
+def test_stale_edit_matching_no_rewrite_still_takes_the_conflict_path(client):
+    _rename(client, "AI", "Artificial Intelligence")
+    _stale_push(client, "some stale base", text="offline edit")
+
+    texts = _ml_texts(client)
+    i = texts.index("offline edit")
+    assert texts[i + 1] == "[[conflict]] Tags:: #[[Artificial Intelligence]]"
+
+
+def test_edit_after_a_rename_keeps_the_conflict_path_under_the_new_title(client):
+    _rename(client, "AI", "Artificial Intelligence")
+    r = _post(client, {"op": "update_text", "uid": "uid_b1",
+                       "text": "Tags:: #[[Artificial Intelligence]] fresh"})
+    assert r.status_code == 200
+    _stale_push(client, STALE_BASE)
+
+    texts = _ml_texts(client)
+    assert texts[0] == "Tags:: #[[Artificial Intelligence]] plus offline words"
+    assert texts[1] == "[[conflict]] Tags:: #[[Artificial Intelligence]] fresh"
+    assert not any("#AI" in t for t in texts)
+    assert client.get("/api/page/AI").status_code == 404
+
+
+def test_rewrite_records_are_pruned_past_the_retention_window(
+        client, seeded_config):
+    from pkm.server.db import open_db
+
+    con = open_db(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
+        " new_title, created_at) VALUES ('uid_b1','h0','h1','Old','New',1)")
+    con.commit()
+    con.close()
+
+    _rename(client, "AI", "Artificial Intelligence")
+
+    con = open_db(seeded_config.db_path)
+    rows = [(r["uid"], r["old_title"], r["new_title"]) for r in con.execute(
+        "SELECT uid, old_title, new_title FROM block_rewrites")]
+    con.close()
+    assert rows == [("uid_b1", "AI", "Artificial Intelligence")]

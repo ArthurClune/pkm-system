@@ -6,10 +6,15 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 
+from pkm.contracts.ops import text_hash
 from pkm.refs import (canonicalize_title, extract, is_blank_title,
                       title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
+
+# How long a rename/merge rewrite record stays replayable (see
+# _prune_block_rewrites).
+BLOCK_REWRITE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 
 class ForbiddenTitleError(ValueError):
@@ -142,6 +147,45 @@ def _snapshot_referencing_blocks(
     return tuple((row["uid"], row["text"]) for row in rows)
 
 
+def _record_block_rewrite(
+    db: sqlite3.Connection,
+    uid: str,
+    original_text: str,
+    new_text: str,
+    replacements: Mapping[str, str],
+    now_ms: int,
+) -> None:
+    """Record what this rewrite did to one block, for push-time replay.
+
+    One row per title that actually moved in *this* block's text -- a pair
+    whose key it never mentioned is not a rewrite of it -- and every row
+    carries the before/after hashes of the whole rewrite. That is what lets
+    `ops_core.replay_title_rewrites` reassemble the map this call applied
+    (the title migration rewrites several titles in one pass, and applying
+    them one at a time would not reproduce it) without a second table.
+    """
+    db.executemany(
+        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
+        " new_title, created_at) VALUES (?,?,?,?,?,?)",
+        [
+            (uid, text_hash(original_text), text_hash(new_text),
+             old_title, new_title, now_ms)
+            for old_title, new_title in replacements.items()
+            if rewrite_title_refs_map(original_text, {old_title: new_title})
+            != original_text
+        ],
+    )
+
+
+def _prune_block_rewrites(db: sqlite3.Connection, now_ms: int) -> None:
+    """Drop records past the retention window. A replay only ever matches an
+    edit made before the rewrite it describes, and no offline queue survives
+    a month, so old rows are dead weight -- and pruning here keeps the table
+    bounded without a scheduled job."""
+    db.execute("DELETE FROM block_rewrites WHERE created_at < ?",
+               (now_ms - BLOCK_REWRITE_RETENTION_MS,))
+
+
 def rewrite_snapshotted_blocks(
     db: sqlite3.Connection,
     snapshots: Sequence[tuple[str, str]],
@@ -152,7 +196,9 @@ def rewrite_snapshotted_blocks(
 
     The complete replacement map is applied to original text rather than to
     intermediate database text, so multi-source migrations never hide a later
-    source reference. Never commits.
+    source reference. Every changed block also leaves a `block_rewrites`
+    record so the ops path can replay this rewrite over a stale device's
+    edit to the same block. Never commits.
     """
     rewritten = 0
     seen: set[str] = set()
@@ -166,8 +212,12 @@ def rewrite_snapshotted_blocks(
                 "UPDATE blocks SET text = ?, updated_at = ? WHERE uid = ?",
                 (new_text, now_ms, uid),
             )
+            _record_block_rewrite(
+                db, uid, original_text, new_text, replacements, now_ms
+            )
             rewritten += 1
         reindex_refs_for_text(db, uid, new_text, now_ms)
+    _prune_block_rewrites(db, now_ms)
     return rewritten
 
 

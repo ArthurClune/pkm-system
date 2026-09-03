@@ -84,3 +84,4 @@ def test_base_ddl_contains_no_server_tables():
     from pkm.schema import BASE_DDL
     assert "changes" not in BASE_DDL
     assert "applied_batches" not in BASE_DDL
+    assert "block_rewrites" not in BASE_DDL

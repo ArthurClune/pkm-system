@@ -4,7 +4,7 @@
 // context here exists purely to carry mutable app state/callbacks across
 // the tree -- there's no pure decision to extract.
 import { createContext } from "react";
-import type { BlockRefText } from "./api/payloads";
+import type { BlockNode, BlockRefText } from "./api/payloads";
 import { createBlockRefStore } from "./components/blockRefStore";
 
 export interface SidebarApi {
@@ -57,6 +57,14 @@ export const BlockStampsContext = createContext<BlockStampsApi>({
   stamps: false,
   toggle: () => undefined,
 });
+
+/** The blocks of the whole tree a row belongs to, published by
+ * EditableBlockTree (pkm-mzks). A {{toc}} block has to see beyond its own
+ * node to list the page's headings, and rows are memoised on their own node
+ * alone; ONLY the toc branch reads this, so no other row re-renders when a
+ * distant block changes. Empty by default: a render site with no provider
+ * above (a bare row in a test) simply has no tree to walk. */
+export const RootBlocksContext = createContext<BlockNode[]>([]);
 
 /** True inside popover rows whose whole row is a navigation target
  * (pkm-v57y): embedded media renders inert — no expand trigger — so a

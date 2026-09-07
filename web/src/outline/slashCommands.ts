@@ -24,6 +24,9 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "text", label: "text" },
   { name: "todo", label: "to-do" },
   { name: "table", label: "table" },
+  // Renders live from the page's heading blocks (pkm-mzks); the macro text
+  // is all that is ever stored, exactly like {{table}}.
+  { name: "toc", label: "table of contents" },
   { name: "python", label: "python code block" },
   // "shell" not "bash": hljs's shell grammar highlights $-prefixed session
   // transcripts, which is what these blocks usually hold (pkm-4nj1).
@@ -114,6 +117,15 @@ function queryPlaceholder(command: string, content: string): { text: string; cur
   return { text, cursor: text.length };
 }
 
+/** A block whose whole text is a render macro ({{table}}, {{toc}}): only an
+ * otherwise-empty block becomes one, so picking the command mid-sentence
+ * strips the trigger and leaves the prose alone. */
+function macro(content: string, text: string): { text: string; cursor: number } {
+  return content.trim()
+    ? { text: content, cursor: content.length }
+    : { text, cursor: text.length };
+}
+
 /** Insert a "text block": a lang-less fence wrapping the content, cursor
  * placed inside it. Unwraps first if the content is already a whole fence
  * (of any language) so re-running /text (or converting a code block) doesn't
@@ -141,10 +153,8 @@ export function applySlashCommand(
   switch (command) {
     case "text": return textBlock(content);
     case "todo": return applyTodoPrefix(content);
-    case "table":
-      return content.trim()
-        ? { text: content, cursor: content.length }
-        : { text: "{{table}}", cursor: "{{table}}".length };
+    case "table": return macro(content, "{{table}}");
+    case "toc": return macro(content, "{{toc}}");
     case "python": case "shell": case "javascript": case "mermaid":
       return wrapFence(content, command);
     case "query-and": case "query-or": case "query-and-not":

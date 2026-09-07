@@ -85,6 +85,27 @@ describe("table", () => {
   });
 });
 
+describe("toc", () => {
+  test("toc is offered and creates an exact renderable macro", () => {
+    expect(matchSlashCommands("toc"))
+      .toEqual([{ name: "toc", label: "table of contents" }]);
+    expect(applySlashCommand("/toc", 4,
+      { kind: "command", start: 1, query: "toc" }, "toc", NOW))
+      .toEqual({ text: "{{toc}}", cursor: 7 });
+  });
+
+  test("does not discard existing content when /toc is picked mid-block", () => {
+    expect(applySlashCommand("notes /toc", 10,
+      { kind: "command", start: 7, query: "toc" }, "toc", NOW))
+      .toEqual({ text: "notes ", cursor: 6 });
+  });
+
+  test("the to- prefix offers both to-do and toc", () => {
+    expect(matchSlashCommands("to").map((c) => c.name))
+      .toEqual(["todo", "toc", "today", "tomorrow"]);
+  });
+});
+
 describe("query", () => {
   test("query-and is offered and inserts an and-clause skeleton", () => {
     expect(matchSlashCommands("query-and").map((c) => c.name)).toEqual(["query-and", "query-and-not"]);

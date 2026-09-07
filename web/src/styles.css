@@ -598,6 +598,14 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .roam-table th, .roam-table td { border: 1px solid var(--color-border);
   padding: 6px 8px; vertical-align: top; }
 .roam-table th { background: var(--color-bg-subtle); text-align: left; font-weight: 600; }
+/* {{toc}} (pkm-mzks): nesting comes from the nested <ol>s, so one indent
+ * rule covers every level; toc-level-N is left for per-level styling. */
+.toc { margin: 4px 0; }
+.toc-list { margin: 0; padding-left: 1.25em; }
+.toc-item { margin: 2px 0; }
+.toc-link { color: var(--color-text-secondary); text-decoration: none; }
+.toc-link:hover { text-decoration: underline; }
+.toc-empty { color: var(--color-text-muted); font-style: italic; }
 /* renders docs/keyboard.md (help/parseHelpMarkdown.ts); prose lines are
  * capped for readability, tables stay full width to fit their columns */
 .help-page h1, .help-page h2, .help-page h3, .help-page p { max-width: 640px; }

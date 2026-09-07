@@ -10,7 +10,7 @@ import { memo, useCallback, useEffect, useMemo, useRef,
 import type { BlockNode } from "../api/payloads";
 import type { FocusTarget } from "../outline/edits";
 import type { OutlineHandlers } from "../outline/handlers";
-import { BlockEditContext } from "../contexts";
+import { BlockEditContext, RootBlocksContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { decideSelectionKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
@@ -23,9 +23,11 @@ import { BlockMenu } from "./BlockMenu";
 import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
 import { InlineSegments } from "./InlineSegments";
 import { RoamTable } from "./roamTable";
+import { TocBlock } from "./TableOfContents";
 import { quoteContent } from "./blockPresentation";
 import { effectiveChildView, type EffectiveBlockView } from "./blockView";
 import { roamTableRows } from "./roamTableRows";
+import { isTocMacro } from "./tocEntries";
 
 interface TreeProps {
   blocks: BlockNode[];
@@ -178,17 +180,23 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   return (
     <div className="block-tree" ref={treeRef}
          tabIndex={selection ? -1 : undefined} onKeyDown={onKeyDown}>
-      {blocks.map((b, index) => (
-        <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
-                       focusChain={focusChain}
-                       handlers={handlers} readOnly={readOnly}
-                       fallback={fallback} onRequestUpload={requestUpload}
-                       viewMode="document" number={index + 1}
-                       openMenuUid={menu?.uid ?? null}
-                       stamps={stamps} nowMs={nowMs} refCounts={refCounts}
-                       onOpenMenu={openMenu}
-                       onOpenRefPopover={openRefPopover} />
-      ))}
+      {/* The whole tree, for the one row kind that has to see past its own
+          node: a {{toc}} block listing the page's headings (pkm-mzks). A
+          context, not a prop, so the rows themselves keep the props they
+          had and their memo (pkm-qfee) is untouched. */}
+      <RootBlocksContext.Provider value={blocks}>
+        {blocks.map((b, index) => (
+          <EditableBlock key={b.uid} node={b} focus={focus} selected={selected}
+                         focusChain={focusChain}
+                         handlers={handlers} readOnly={readOnly}
+                         fallback={fallback} onRequestUpload={requestUpload}
+                         viewMode="document" number={index + 1}
+                         openMenuUid={menu?.uid ?? null}
+                         stamps={stamps} nowMs={nowMs} refCounts={refCounts}
+                         onOpenMenu={openMenu}
+                         onOpenRefPopover={openRefPopover} />
+        ))}
+      </RootBlocksContext.Provider>
       {!fallback && !readOnly && (
         <input ref={fileInputRef} type="file" multiple
                className="upload-input" aria-label="Upload file"
@@ -336,7 +344,12 @@ const EditableBlock = memo(function EditableBlock(
   const tableRows = roamTableRows(node);
   const editingTableSubtree = focusChain.has(node.uid);
   const showTable = !editingTableSubtree && tableRows !== null;
-  const WrapperTag: "h1" | "h2" | "h3" | "div" = showTable ? "div" : Tag;
+  // A toc renders whenever this row isn't the focused one -- unlike a table,
+  // whose raw rows are its children, so editing anywhere in the subtree has
+  // to reveal them. A toc's children are ordinary blocks and keep rendering.
+  const showToc = !focused && isTocMacro(node.text);
+  const WrapperTag: "h1" | "h2" | "h3" | "div" =
+    showTable || showToc ? "div" : Tag;
   const hidesChildren = hasChildren && node.collapsed && tableRows === null;
   const chevronHasChildren = showTable ? false : hasChildren;
   const chevronClosed = hidesChildren;
@@ -406,6 +419,8 @@ const EditableBlock = memo(function EditableBlock(
                       }}>
             {showTable
               ? <RoamTable rows={tableRows!} />
+              : showToc
+              ? <TocBlock selfUid={node.uid} />
               : <BlockEditContext.Provider
                   value={readOnly || fallback
                     ? null : { toggleTodo: () => handlers.onToggleTodo(node.uid) }}>

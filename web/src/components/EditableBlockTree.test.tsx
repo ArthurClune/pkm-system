@@ -867,3 +867,102 @@ test("badge click does not focus the block", () => {
   fireEvent.click(screen.getByRole("button", { name: "1 reference" }));
   expect(h.onFocusBlock).not.toHaveBeenCalled();
 });
+
+// --- {{toc}} table of contents (pkm-mzks) ---
+
+const TOC_TREE: BlockNode[] = [
+  block("h1", "Intro", { heading: 1 }),
+  block("toc", "{{toc}}"),
+  block("h2", "Details", {
+    heading: 1,
+    children: [block("plain", "notes", {
+      children: [block("h3", "Deeper", { heading: 3 })],
+    })],
+  }),
+];
+
+function mountToc(blocks: BlockNode[], h: OutlineHandlers,
+                  focus: { uid: string; cursor: number } | null = null,
+                  fallback = false) {
+  return render(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={blocks} focus={focus} handlers={h}
+                         readOnly={false} fallback={fallback} />
+    </MemoryRouter>);
+}
+
+function tocLinks(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll("nav.toc a.toc-link"))
+    .map((a) => a.textContent ?? "");
+}
+
+test("an unfocused {{toc}} block lists the page's headings, nested by outline", () => {
+  const { container } = mountToc(TOC_TREE, handlers());
+  expect(tocLinks(container)).toEqual(["Intro", "Details", "Deeper"]);
+  // "Deeper" is an h3 under a plain block under an h1: it belongs to that h1.
+  const top = container.querySelectorAll("nav.toc > ol > li");
+  expect(top).toHaveLength(2);
+  expect(Array.from(top[1].querySelectorAll(":scope > ol > li > a"))
+    .map((a) => a.textContent)).toEqual(["Deeper"]);
+  expect(container.querySelector("nav.toc a.toc-link")!.getAttribute("href"))
+    .toBe("/#h1");
+});
+
+test("the toc follows heading edits and additions on the next render", () => {
+  const h = handlers();
+  const view = mountToc(TOC_TREE, h);
+  const edited: BlockNode[] = [
+    block("h1", "Introduction", { heading: 1 }),
+    block("toc", "{{toc}}"),
+    block("h4", "Appendix", { heading: 2 }),
+  ];
+  view.rerender(
+    <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+      <EditableBlockTree blocks={edited} focus={null} handlers={h}
+                         readOnly={false} />
+    </MemoryRouter>);
+  expect(tocLinks(view.container)).toEqual(["Introduction", "Appendix"]);
+});
+
+test("focusing the toc block exposes the raw macro instead of the list", () => {
+  const { container } = mountToc(TOC_TREE, handlers(), { uid: "toc", cursor: 0 });
+  expect(container.querySelector("nav.toc")).toBeNull();
+  expect(focusedTextarea()).toHaveValue("{{toc}}");
+});
+
+test("clicking an entry navigates without flipping the block into edit mode", () => {
+  const h = handlers();
+  const { container } = mountToc(TOC_TREE, h);
+  fireEvent.click(container.querySelector("nav.toc a.toc-link")!);
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+  // The rest of the block is still click-to-edit.
+  fireEvent.click(container.querySelector("nav.toc")!);
+  expect(h.onFocusBlock).toHaveBeenCalledWith("toc", "{{toc}}".length);
+});
+
+test("a toc block with no headings on the page says so, and still edits", () => {
+  const h = handlers();
+  const { container } = mountToc([block("toc", "{{toc}}")], h);
+  expect(container.querySelector(".toc-empty")).toHaveTextContent(
+    "no headings on this page");
+  fireEvent.click(container.querySelector(".toc-empty")!);
+  expect(h.onFocusBlock).toHaveBeenCalledWith("toc", "{{toc}}".length);
+});
+
+test("a toc block's own children still render as blocks", () => {
+  const tree: BlockNode[] = [
+    block("toc", "{{toc}}",
+          { children: [block("kid", "Kid heading", { heading: 2 })] }),
+  ];
+  const { container } = mountToc(tree, handlers());
+  expect(tocLinks(container)).toEqual(["Kid heading"]);
+  expect(container.querySelector('[data-uid="kid"]')).not.toBeNull();
+});
+
+test("a fallback tree renders the toc read-only", () => {
+  const h = handlers();
+  const { container } = mountToc(TOC_TREE, h, null, true);
+  expect(tocLinks(container)).toEqual(["Intro", "Details", "Deeper"]);
+  fireEvent.click(container.querySelector("nav.toc")!);
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+});

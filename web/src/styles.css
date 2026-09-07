@@ -598,11 +598,18 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .roam-table th, .roam-table td { border: 1px solid var(--color-border);
   padding: 6px 8px; vertical-align: top; }
 .roam-table th { background: var(--color-bg-subtle); text-align: left; font-weight: 600; }
-/* {{toc}} (pkm-mzks): nesting comes from the nested <ol>s, so one indent
- * rule covers every level; toc-level-N is left for per-level styling. */
-.toc { margin: 4px 0; }
-.toc-list { margin: 0; padding-left: 1.25em; }
+/* {{toc}}: an embedded card in the .code-block idiom that hugs its list
+ * instead of spanning the row, titled like a .section-header scaled to fit.
+ * Nesting comes from the nested <ol>s, so one indent rule covers every
+ * level; toc-level-N is left for per-level styling. */
+.toc { display: inline-block; box-sizing: border-box; min-width: 240px; max-width: 100%;
+  margin: 4px 0; padding: 10px 14px 12px; background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border); border-radius: var(--radius-card); }
+.toc-header { font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 6px; }
+.toc-list { margin: 0; padding-left: 1.5em; }
 .toc-item { margin: 2px 0; }
+.toc-item::marker { color: var(--color-text-muted); }
 .toc-link { color: var(--color-text-secondary); text-decoration: none; }
 .toc-link:hover { text-decoration: underline; }
 .toc-empty { color: var(--color-text-muted); font-style: italic; }

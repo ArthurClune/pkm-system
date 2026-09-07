@@ -30,6 +30,7 @@ function TocItems({ entries }: { entries: TocEntry[] }) {
 export function TableOfContents({ entries }: { entries: TocEntry[] }) {
   return (
     <nav className="toc" aria-label="Table of contents">
+      <div className="toc-header">Table of Contents</div>
       {entries.length === 0
         ? <div className="toc-empty">no headings on this page</div>
         : <TocItems entries={entries} />}

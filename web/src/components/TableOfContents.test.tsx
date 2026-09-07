@@ -57,3 +57,15 @@ it("says so when the page has no headings", () => {
     .toBe("no headings on this page");
   expect(container.querySelector("a")).toBeNull();
 });
+
+// The card's title (pkm-6lg5): the list indents under it, and it stays put
+// when there is nothing to list, so an empty toc still reads as a toc.
+it("titles the card, before the list and before the empty state alike", () => {
+  const withEntries = mount([entry("aaa", "Intro", 1)]);
+  const header = withEntries.querySelector("nav.toc > .toc-header");
+  expect(header?.textContent).toBe("Table of Contents");
+  expect(header?.nextElementSibling?.matches("ol.toc-list")).toBe(true);
+
+  const empty = mount([]);
+  expect(empty.querySelector("nav.toc > .toc-header + .toc-empty")).not.toBeNull();
+});

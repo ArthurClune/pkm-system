@@ -173,7 +173,7 @@ it("onSelectBlock selects exactly that block and ends editing (pkm-am54)", () =>
   expect(getOutline().selection).toEqual({ anchor: "b", head: "c" });
 });
 
-it("deleting 5 or fewer selected blocks proceeds without confirmation", () => {
+it("deleting 20 or fewer selected blocks proceeds without confirmation", () => {
   const confirmSpy = vi.spyOn(window, "confirm"); // if this got called, the test should fail below
   const sync = makeSync();
   const getOutline = setup(sync, "Page", abc());
@@ -190,28 +190,32 @@ it("deleting 5 or fewer selected blocks proceeds without confirmation", () => {
   expect(getOutline().selection).toBeNull();
 });
 
-function sixBlocks() {
-  return "abcdef".split("").map((uid, i) =>
-    block(uid, uid, { order_idx: i }));
+// 21 top-level blocks: one over LARGE_DELETE_THRESHOLD.
+const MANY_UIDS = Array.from({ length: 21 }, (_, i) => `u${String(i).padStart(2, "0")}`);
+function manyBlocks() {
+  return MANY_UIDS.map((uid, i) => block(uid, uid, { order_idx: i }));
 }
 
 // pkm-2jaz: window.confirm is suppressed by iPadOS Safari in standalone/PWA
 // mode, so the large-selection prompt goes through the app's own useConfirm
 // dialog (a real, awaited DOM dialog) rather than window.confirm.
-it("deleting more than 5 selected blocks requires confirmation via the in-app dialog, and honours cancel", async () => {
+it("deleting more than 20 selected blocks requires confirmation via the in-app dialog, and honours cancel", async () => {
   const confirmSpy = vi.spyOn(window, "confirm");
   const sync = makeSync();
-  const getOutline = setup(sync, "Page", sixBlocks());
-  act(() => getOutline().handlers.onStartBlockSelection("a", "down"));
-  for (let i = 0; i < 4; i++) {
+  const getOutline = setup(sync, "Page", manyBlocks());
+  act(() => getOutline().handlers.onStartBlockSelection("u00", "down"));
+  for (let i = 0; i < MANY_UIDS.length - 2; i++) {
     act(() => getOutline().handlers.onExtendBlockSelection("down"));
   }
-  expect(getOutline().selection).toEqual({ anchor: "a", head: "f" });
+  expect(getOutline().selection).toEqual({ anchor: "u00", head: "u20" });
 
   act(() => getOutline().handlers.onDeleteBlockSelection());
 
   const dialog = screen.getByRole("alertdialog");
-  expect(dialog).toHaveTextContent("Delete 6 blocks? This cannot be undone.");
+  // The delete is an ordinary undoable history entry (per-tab, lost on
+  // reload), so the prompt must not claim it is irreversible.
+  expect(dialog).toHaveTextContent("Delete 21 blocks? Cmd+Z undoes this until you reload.");
+  expect(dialog).not.toHaveTextContent(/cannot be undone/i);
   expect(confirmSpy).not.toHaveBeenCalled(); // never touches window.confirm
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -219,16 +223,16 @@ it("deleting more than 5 selected blocks requires confirmation via the in-app di
 
   // cancelled: nothing sent, nothing deleted, selection untouched
   expect(sync.sent).toEqual([]);
-  expect(getOutline().blocks.map((b) => b.uid)).toEqual(sixBlocks().map((b) => b.uid));
-  expect(getOutline().selection).toEqual({ anchor: "a", head: "f" });
+  expect(getOutline().blocks.map((b) => b.uid)).toEqual(MANY_UIDS);
+  expect(getOutline().selection).toEqual({ anchor: "u00", head: "u20" });
   expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
-it("deleting more than 5 selected blocks proceeds once confirmed in the dialog", async () => {
+it("deleting more than 20 selected blocks proceeds once confirmed in the dialog", async () => {
   const sync = makeSync();
-  const getOutline = setup(sync, "Page", sixBlocks());
-  act(() => getOutline().handlers.onStartBlockSelection("a", "down"));
-  for (let i = 0; i < 4; i++) {
+  const getOutline = setup(sync, "Page", manyBlocks());
+  act(() => getOutline().handlers.onStartBlockSelection("u00", "down"));
+  for (let i = 0; i < MANY_UIDS.length - 2; i++) {
     act(() => getOutline().handlers.onExtendBlockSelection("down"));
   }
 
@@ -238,7 +242,7 @@ it("deleting more than 5 selected blocks proceeds once confirmed in the dialog",
   });
 
   expect(sync.sent).toEqual([
-    "abcdef".split("").map((uid) => ({ op: "delete", uid })),
+    MANY_UIDS.map((uid) => ({ op: "delete", uid })),
   ]);
   expect(getOutline().blocks).toEqual([]);
   expect(getOutline().selection).toBeNull();

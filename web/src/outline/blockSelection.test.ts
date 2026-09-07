@@ -98,15 +98,16 @@ describe("selectionDragUids (pkm-q89w drag)", () => {
 });
 
 describe("needsDeleteConfirmation (pkm-q89w)", () => {
-  it("does not require confirmation for 5 or fewer blocks", () => {
+  it("does not require confirmation for 20 or fewer blocks", () => {
     expect(needsDeleteConfirmation(0)).toBe(false);
     expect(needsDeleteConfirmation(1)).toBe(false);
-    expect(needsDeleteConfirmation(5)).toBe(false);
+    expect(needsDeleteConfirmation(6)).toBe(false);
+    expect(needsDeleteConfirmation(20)).toBe(false);
   });
 
-  it("requires confirmation for more than 5 blocks", () => {
-    expect(needsDeleteConfirmation(6)).toBe(true);
-    expect(needsDeleteConfirmation(20)).toBe(true);
+  it("requires confirmation for more than 20 blocks", () => {
+    expect(needsDeleteConfirmation(21)).toBe(true);
+    expect(needsDeleteConfirmation(200)).toBe(true);
   });
 });
 

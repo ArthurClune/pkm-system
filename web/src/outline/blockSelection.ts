@@ -67,8 +67,10 @@ export function selectionDragUids(blocks: BlockNode[], sel: BlockSelection,
 }
 
 /** Deleting more than this many blocks in one go needs an explicit
- * confirmation — easy to select a large run by accident with Shift+Arrow. */
-export const LARGE_DELETE_THRESHOLD = 5;
+ * confirmation — easy to select a large run by accident with Shift+Arrow.
+ * The delete is an ordinary undoable history entry, so the bar is set high:
+ * the prompt guards against a surprise, not against data loss. */
+export const LARGE_DELETE_THRESHOLD = 20;
 
 /** Whether deleting `count` selected blocks should prompt for confirmation
  * before proceeding. */

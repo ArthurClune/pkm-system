@@ -104,13 +104,13 @@ web/src/
 ├── components/               ~45 Shell files: the editor's views (EditableBlockTree,
 │   │                         BlockInput), inline renderers (InlineSegments, MathSpan,
 │   │                         QueryBlock, BlockRef, MermaidDiagram, PdfViewer, CodeBlock,
-│   │                         roamTable…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
+│   │                         roamTable, TableOfContents…) and chrome (TopBar, SidebarNav/Panel, SearchBar,
 │   │                         OfflineIndicator, Composer, BacklinksSection, BacklinkGroupList,
 │   │                         BlockRefBacklinksPopover, BlockMenu, DatePickerPopup…)
 │   ├── ExternalLinkInterceptor.tsx  Shell  Capture-phase document click listener,
 │   │                                       mounted only in iOS standalone (see below)
 │   └── pure halves           Core         Beside their component: pdfViewerCore,
-│                                          roamTableRows, backlinkFilter, groups,
+│                                          roamTableRows, tocEntries, backlinkFilter, groups,
 │                                          backlinkBatchWalk, bluesky, mermaidTheme,
 │                                          blockRefStore…
 │
@@ -512,6 +512,15 @@ walks `ancestorChain(blocks, focus.uid)` once at the root and passes the set
 down as `focusChain`, so the row-level test is a lookup instead of a walk of
 that row's own subtree.
 
+A `{{toc}}` block is the one row that must see past its own node: it lists
+the page's heading blocks, nested by nearest heading ancestor (`tocEntries`,
+Core). `EditableBlockTree` publishes its `blocks` through `RootBlocksContext`
+and only `TocBlock` reads it, so no other row's memo is disturbed. Nothing is
+stored; the list is re-derived on every render, which is what makes it live.
+Entries are router links to `#<uid>`, consumed by `useScrollFlashTarget` in
+`PageView` alone, so in the journal or a sidebar panel they do not scroll.
+Unlike a table, a toc's children stay ordinary rows.
+
 Rows with incoming `((uid))` references carry a count badge
 (`RefCountBadge`, between the text and the stamp cell). The counts arrive as
 `block_ref_counts` on the page/journal payloads and reach the tree as the
@@ -704,7 +713,7 @@ flowchart LR
     T["block text"] --> SC["grammar/scan.ts (Core)<br/>GrammarToken stream — the ONE scanner,<br/>mirrors server refs.py, fixture-pinned"]
     SC --> TK["grammar/tokenize.ts (Core)<br/>BlockSegment[]"]
     TK --> IS["components/InlineSegments.tsx (Shell)<br/>dispatch to renderers"]
-    IS --> R["page links · tags · block refs · attributes ·<br/>images · safe links · bold/italic/strike/highlight ·<br/>KaTeX math · code fences + mermaid · query blocks ·<br/>PDF embeds · TODO checkboxes · tables · Bluesky embeds"]
+    IS --> R["page links · tags · block refs · attributes ·<br/>images · safe links · bold/italic/strike/highlight ·<br/>KaTeX math · code fences + mermaid · query blocks ·<br/>PDF embeds · TODO checkboxes · tables · table of contents · Bluesky embeds"]
 ```
 
 - `scan.ts` is the single grammar authority on the client: balanced `[[...]]`
@@ -961,8 +970,9 @@ Playwright e2e against that build.**
   enforced (statements 95 / branches 91 / functions 89 / lines 95), with
   workers and generated files excluded. The pure cores are the payoff of the
   FCIS split: they test with no React, DOM, fetch, worker or SQLite mocks.
-- **E2E** (Playwright, `web/e2e/`): ~27 specs — editing, backlinks, math,
-  rename, undo, embeds, images, PDF, outline paste, slash dates, journal
+- **E2E** (Playwright, `web/e2e/`): ~29 specs — editing, backlinks, math,
+  rename, undo, embeds, images, PDF, outline paste, slash dates, table of
+  contents, journal
   references, the assistant, the `/files` browser, and two offline specs.
   The harness is strict: any HTTP 5xx fails the run (`fixtures.ts`), and a
   server-side exception fails teardown. `e2e/server-state.ts::waitForServerText`

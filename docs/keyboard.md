@@ -103,6 +103,7 @@ to filter the list — e.g. `/py` narrows to the Python code block and
 | `/text` | Turn the block into a plain text block (rendered verbatim, no formatting) |
 | `/todo` | Prefix the block with a TODO checkbox |
 | `/table` | Insert a `{{table}}` — the block's child blocks become the table's rows, the first row being the header |
+| `/toc` | Insert a `{{toc}}` — renders a table of contents of the page's headings, nested by outline, that updates as headings change; each entry jumps to its heading |
 | `/python`, `/shell`, `/javascript` | Turn the block into a highlighted code block |
 | `/mermaid` | Turn the block into a Mermaid diagram |
 | `/upload` | Pick a file to upload and insert a link to it |

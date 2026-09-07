@@ -129,7 +129,7 @@ The selection owns the keyboard until it's cleared.
 | Shift+Cmd+↑ / Shift+Cmd+↓ | Move all selected blocks up/down as one group, keeping their structure |
 | Tab / Shift+Tab | Indent / outdent all selected blocks together (outdent takes the trailing siblings along under the last selected block) |
 | Cmd+C (or Ctrl+C) | Copy the selected blocks' text, one line per block with nesting as tabs — Shift+Cmd+V pastes it back with the hierarchy intact |
-| Backspace or Delete | Delete the selected blocks (asks first when more than 5) |
+| Backspace or Delete | Delete the selected blocks (asks first when more than 20; undoable with Cmd+Z until the tab reloads) |
 | ↑ / ↓ (no modifier) | Drop the selection and go back to editing |
 | Escape | Clear the selection |
 

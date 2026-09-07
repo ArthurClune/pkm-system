@@ -417,6 +417,8 @@ export function useOutline(
     // every selected block as a set, confirming first for a large selection.
     // The confirm (pkm-2jaz) goes through the app's own dialog rather than
     // window.confirm, which iPadOS Safari can suppress in standalone mode.
+    // The wording must stay truthful: this delete is a normal history entry
+    // (undoManager.ts), undoable per tab until reload, not irreversible.
     onDeleteBlockSelection: () => {
       if (!selection) return;
       const uids = selectedUids(blocksRef.current, selection);
@@ -424,7 +426,7 @@ export function useOutline(
       void (async () => {
         if (needsDeleteConfirmation(uids.length)
             && !(await confirm(
-              `Delete ${uids.length} blocks? This cannot be undone.`))) {
+              `Delete ${uids.length} blocks? Cmd+Z undoes this until you reload.`))) {
           return;
         }
         setSelection(null);

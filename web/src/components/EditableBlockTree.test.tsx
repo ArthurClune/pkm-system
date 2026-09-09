@@ -251,6 +251,12 @@ test("/upload strips the trigger and hands picked files to onFiles (pkm-coz9)", 
   fireEvent.keyDown(ta, { key: "Enter" }); // pick /upload
   expect(h.onSplit).not.toHaveBeenCalled(); // Enter consumed by the popup
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", ""); // trigger stripped
+  // The pick gives up the block itself (pkm-zrjc) rather than relying on the
+  // native dialog to blur it. The stripped-trigger draft must be registered
+  // before the blur flushes it, so onDraftChange's call precedes onBlurBlock's.
+  expect(h.onBlurBlock).toHaveBeenCalledWith("u1");
+  expect(vi.mocked(h.onDraftChange).mock.invocationCallOrder[0])
+    .toBeLessThan(vi.mocked(h.onBlurBlock).mock.invocationCallOrder[0]);
   const input = screen.getByLabelText("Upload file") as HTMLInputElement;
   const file = new File(["x"], "pic.png", { type: "image/png" });
   fireEvent.change(input, { target: { files: [file] } });

@@ -132,11 +132,16 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     // "/upload": strip the trigger, then open the tree-owned file picker.
     // handlers.onFiles splices the uploaded asset's markdown in once the user
     // has chosen files; the input outlives this component (pkm-gbsb) because
-    // choosing a file blurs (and so unmounts) BlockInput.
+    // the pick blurs (and so unmounts) BlockInput itself before opening the
+    // dialog (pkm-zrjc) -- the native file dialog does not reliably blur the
+    // textarea on its own, so this can't rely on that. setText must run
+    // first: onBlurBlock flushes the draft, and the flush needs to see the
+    // stripped-trigger text this onDraftChange call just registered.
     if (row.command === "upload") {
       const at = ctx.start - 1; // where the "/" was
       ac.close();
       setText(text.slice(0, at) + text.slice(caret), at);
+      handlers.onBlurBlock(node.uid);
       onRequestUpload(node.uid, at);
       return;
     }

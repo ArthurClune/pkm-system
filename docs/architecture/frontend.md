@@ -657,7 +657,13 @@ Editing mechanics to know before touching `outline/`:
   `DatePickerPopup` over the month grid computed by the pure `calendar.ts`
   (Monday-first, whole weeks, adjacent-month days marked). Command labels are
   lowercase by convention, and `slashCommandsDocumented.test.ts` fails if a
-  new command isn't documented there.
+  new command isn't documented there. `/upload` gives up the block before it
+  opens the picker: the pick strips the trigger, calls `onBlurBlock`, then
+  clicks the tree-owned file input. The block therefore renders read-only
+  while the dialog is open, and `onFiles` leaves focus alone on completion,
+  so the uploaded asset renders at once. Nothing on this path may depend on
+  the native dialog blurring the textarea itself. Whether it does is browser
+  behaviour, and it has changed under us.
 - **Remote edits vs local draft.** Authoritative text lands on the tree even
   for the focused block, but the textarea keeps the local draft — per-block
   last-write-wins, consistent with the server's model.
@@ -951,6 +957,7 @@ its fix installed. The bean has the full investigation.
 | Navigating to a freshly created `[[ref]]` with Ctrl-O/Ctrl-Shift-O leaves the source block empty, its typed text gone | the unmount-only draft flush raced `POST /api/pages`; `ensureRefPageThenOpen` must flush the draft explicitly before creating the page and navigating | pkm-hhbc |
 | Shift-Up/Down with a text selection active at a block's edge collapses the selection and jumps focus to the neighboring block | the boundary-arrow branch excluded Meta/Ctrl/Alt but not Shift, so a growing selection fell through to block navigation instead of escalating to a block selection | pkm-jgtn |
 | A multi-block selection made while editable stays deletable after the outline switches to read-only | Backspace/Delete invoked `onDeleteBlockSelection()` unconditionally; every mutating selection branch must gate on `!readOnly` | pkm-rckh |
+| After `/upload` the block stays a textarea and the image or document only appears once the cursor leaves the line | the path relied on the native file dialog blurring the textarea, and the browser stopped doing so; the `/upload` pick now blurs the block itself before opening the picker | pkm-zrjc |
 | The references popover renders clipped off the right window edge, and no scrollbar appears to reach it | its fixed position applied the badge anchor verbatim; the popover must clamp its measured rect into the viewport (`popoverPosition.ts`) | pkm-7iv7 |
 | An assistant reply shows a block citation as literal `((^uid))` text instead of a link | the model copied the `^uid` marker from tool output into the citation; `stripCaretBlockRefs` must run on assistant text before `tokenizeBlock` | pkm-wx86 |
 | Tapping a PDF in the iOS standalone PWA replaces the whole app with the PDF, with no way back | the `/files` PDF card was a same-origin `target="_blank"` anchor, which `ExternalLinkInterceptor` ignores; PDF cards must open the in-app `PdfViewer` overlay instead | pkm-5o11 |

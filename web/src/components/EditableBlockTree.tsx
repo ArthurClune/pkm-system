@@ -65,11 +65,12 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   }
   const nowMs = nowRef.current;
   // The /upload file picker (pkm-gbsb): owned by the tree root, not the
-  // focus-scoped BlockInput. The native dialog taking focus blurs the
-  // textarea, which unmounts BlockInput while the dialog is still open; a
-  // picker-owned input would be detached from the DOM by the time the user
-  // picks a file, so its change event would never dispatch. This one input
-  // is shared across every block, with the pending target recorded here.
+  // focus-scoped BlockInput. The pick blurs the block itself before opening
+  // the dialog (pkm-zrjc, not relying on the native dialog to do it), which
+  // unmounts BlockInput while the dialog is still open; a picker-owned input
+  // would be detached from the DOM by the time the user picks a file, so its
+  // change event would never dispatch. This one input is shared across every
+  // block, with the pending target recorded here.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadTargetRef = useRef<{ uid: string; at: number } | null>(null);
   const requestUpload = useCallback((uid: string, at: number) => {

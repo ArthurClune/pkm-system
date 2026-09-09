@@ -94,11 +94,11 @@ it("dismissUploadError clears the message", async () => {
   expect(getOutline().uploadError).toBeNull();
 });
 
-// pkm-s6i6: the /upload slash command opens a native file dialog, which
-// blurs the block before onFiles ever runs — focus is already null when the
-// upload starts. Re-focusing unconditionally on completion used to swap the
-// block back to a raw-markdown textarea, hiding the just-uploaded image
-// until the user moved the cursor away.
+// pkm-s6i6: the /upload pick blurs the block itself (pkm-zrjc) before
+// onFiles ever runs — focus is already null when the upload starts.
+// Re-focusing unconditionally on completion used to swap the block back to
+// a raw-markdown textarea, hiding the just-uploaded image until the user
+// moved the cursor away.
 it("the /upload dialog path leaves focus null after the splice (pkm-s6i6)",
    async () => {
   const sync = makeSync();

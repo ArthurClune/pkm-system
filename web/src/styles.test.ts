@@ -792,7 +792,7 @@ describe("namespace link colours (pkm-r71a)", () => {
     "--color-link-work", "--color-link-reading"];
   const GROUPS: Record<string, string[]> = {
     "--color-link-cloud": ["aws", "azure", "gcp"],
-    "--color-link-ai": ["claude", "llm"],
+    "--color-link-ai": ["claude", "llm", "gpt"],
     "--color-link-work": ["project", "uos"],
     "--color-link-reading": ["paper", "book", "article"],
   };

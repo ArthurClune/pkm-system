@@ -18,7 +18,7 @@ stylesheet-only change (add the prefix to a group's selector list); the
 | Token | Trees |
 |---|---|
 | `--color-link-cloud` | aws, azure, gcp |
-| `--color-link-ai` | claude, llm |
+| `--color-link-ai` | claude, llm, gpt |
 | `--color-link-work` | project, uos |
 | `--color-link-reading` | paper, book, article |
 

@@ -1,7 +1,8 @@
 # Deploying PKM
 
-Runs the server and nightly backup as launchd services on a Mac, fronted by
-Tailscale Serve for HTTPS access from other devices on the tailnet.
+Runs the server, the nightly backup and the nightly iCloud mirror as launchd
+services on a Mac, fronted by Tailscale Serve for HTTPS access from other
+devices on the tailnet.
 
 ## Layout
 
@@ -12,7 +13,8 @@ Everything lives under `$PKM_HOME` (default `~/.config/pkm`):
   app/        git checkout of this repo (cloned by install.sh)
   data/       config.json, pkm.sqlite3, assets/ — the live database
   backups/    nightly sqlite snapshots + markdown/asset export
-  logs/       server.{out,err}.log, backup.{out,err}.log
+  logs/       server.{out,err}.log, backup.{out,err}.log,
+              icloud-backup.{out,err}.log
 ```
 
 `data/` is never touched by `install.sh` or `update.sh` beyond directory
@@ -22,7 +24,7 @@ creation — an existing `config.json` and database are left alone.
 
 1. Run `deploy/install.sh` from a checkout of this repo (any location; it
    clones a fresh copy into `$PKM_HOME/app` if one doesn't exist yet,
-   renders both launchd plists from the templates in this directory, and
+   renders the three launchd plists from the templates in this directory, and
    loads them with `launchctl bootstrap`). It also configures Tailscale
    Serve to forward HTTPS on the tailnet to the local server port.
 2. Build the web app (required before first startup):
@@ -68,6 +70,42 @@ The nightly `pkm.backup` launchd job writes to `$PKM_HOME/backups/`:
 Machine, cloud sync) — everything else is either reproducible (`app/`) or
 derived from what's in `backups/` (`data/`).
 
+### Off-machine copy: iCloud Drive
+
+The `pkm.icloud-backup` launchd job (`deploy/icloud_backup.py`, system
+python, stdlib only) runs at 04:30, an hour after the nightly backup, and
+mirrors into `~/Library/Mobile Documents/com~apple~CloudDocs/pkm backups/`:
+
+| Path | Contents | Retention |
+|---|---|---|
+| `db/pkm-YYYY-MM-DD.sqlite3` | the nightly sqlite snapshots | newest 30 days |
+| `data/main/` | plain copy of `data/` as of `data/main.manifest.json` | rolls forward, see below |
+| `data/incr/YYYY-MM-DD/` | `files/` added or changed since the previous snapshot, `deleted.txt`, and a full `manifest.json` | newest 30 days |
+
+`data/` on day T = `main` with every `incr/` up to T applied in date order.
+Once `main` is older than 30 days the oldest incremental is folded into it
+(files moved in, deletions applied, manifest replaced) and removed, so the
+oldest restorable point stays about 30 days back and the total stays
+bounded at one tree plus 30 days of churn. The live `pkm.sqlite3` (and
+`-wal`/`-shm`) is deliberately not in the data mirror — a WAL-mode
+database copied out from under the server isn't a consistent snapshot;
+`db/` covers it.
+
+Restore the data dir as of a date into an empty folder, then pair it with
+the matching `db/` snapshot:
+
+```bash
+"$PKM_HOME/app/deploy/icloud_backup.py" restore \
+  --dest "$HOME/Library/Mobile Documents/com~apple~CloudDocs/pkm backups" \
+  --date 2026-09-01 --out /tmp/pkm-restore
+```
+
+The restore verifies the result against that day's manifest and fails
+loudly on any mismatch. If iCloud has evicted files ("Optimize Mac
+Storage"), both restore and the nightly fold ask `brctl` to download them
+and wait; a file that never arrives aborts the run rather than silently
+dropping it, and the next night retries.
+
 ## Restore
 
 1. Stop the server: `launchctl bootout "gui/$UID/com.$USER.pkm.server"`.
@@ -80,8 +118,8 @@ derived from what's in `backups/` (`data/`).
 ## Troubleshooting
 
 - `launchctl print "gui/$UID/com.$USER.pkm.server"` — job state, last exit
-  status, and the pid if running (swap `.server` for `.backup` for the
-  backup job).
+  status, and the pid if running (swap `.server` for `.backup` or
+  `.icloud-backup` for the backup jobs).
 - `$PKM_HOME/logs/server.out.log` / `server.err.log` — server stdout/stderr
   (same pattern for `backup.*.log`).
 - `tailscale serve status` — confirms the HTTPS Serve forward to the local

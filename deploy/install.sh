@@ -20,10 +20,11 @@ fi
 render() { # render <template> <dest>
   sed -e "s|{{USER}}|$USER_NAME|g" \
       -e "s|{{UV}}|$UV|g" \
+      -e "s|{{HOME}}|$HOME|g" \
       -e "s|{{PKM_HOME}}|$PKM_HOME|g" "$1" > "$2"
 }
 
-for svc in server backup; do
+for svc in server backup icloud-backup; do
   LABEL="com.$USER_NAME.pkm.$svc"
   PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
   render "$REPO/deploy/com.PLACEHOLDER.pkm.$svc.plist.template" "$PLIST"

@@ -37,6 +37,7 @@ flowchart LR
         DB[("pkm.sqlite3<br/>(WAL, FTS5)")]
         AS["assets/<br/>(content-addressed)"]
         BK["Nightly backup job<br/>snapshots + git markdown export"]
+        IC["iCloud mirror job<br/>30 days of snapshots,<br/>data/ as main + incrementals"]
     end
 
     A -- "HTTPS (tailnet)" --> TS --> S
@@ -46,6 +47,8 @@ flowchart LR
     S --> DB
     S --> AS
     BK --> DB
+    BK --> IC
+    AS --> IC
     BK --> AS
 ```
 
@@ -184,7 +187,9 @@ Production is launchd services on a Mac under `$PKM_HOME`
 pkm.sqlite3, assets/), `backups/`, `logs/`. Tailscale Serve terminates HTTPS
 and proxies to the server on `127.0.0.1:8974`; the server also binds the
 machine's Tailscale IP for direct API clients. The backup service runs
-nightly at 03:30.
+nightly at 03:30; at 04:30 `deploy/icloud_backup.py` mirrors the snapshots
+and `data/` into iCloud Drive (30 days; `data/` as one plain tree plus daily
+incrementals folded forward — see `deploy/README.md`).
 
 - `deploy/install.sh` — idempotent first install (renders plists, bootstraps
   services, configures Tailscale Serve).

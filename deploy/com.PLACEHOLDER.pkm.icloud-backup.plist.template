@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.{{USER}}.pkm.icloud-backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>{{PKM_HOME}}/app/deploy/icloud_backup.py</string>
+    <string>--data-dir</string>
+    <string>{{PKM_HOME}}/data</string>
+    <string>--sqlite-backups</string>
+    <string>{{PKM_HOME}}/backups/sqlite</string>
+    <string>--dest</string>
+    <string>{{HOME}}/Library/Mobile Documents/com~apple~CloudDocs/pkm backups</string>
+    <string>--keep-days</string>
+    <string>30</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>4</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key><string>{{PKM_HOME}}/logs/icloud-backup.out.log</string>
+  <key>StandardErrorPath</key><string>{{PKM_HOME}}/logs/icloud-backup.err.log</string>
+</dict>
+</plist>

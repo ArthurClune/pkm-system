@@ -18,6 +18,24 @@ describe("isTocMacro", () => {
   });
 });
 
+describe("tocEntries heading text", () => {
+  test("shows a page-ref heading as its title, not the bracketed source", () => {
+    const entries = tocEntries([
+      block("h", "[[Mathematics]]", { heading: 2 }),
+    ], "self");
+    expect(entries.map((e) => e.text)).toEqual(["Mathematics"]);
+  });
+
+  test("strips refs inside a longer heading and keeps a hashtag's hash", () => {
+    const entries = tocEntries([
+      block("h", "Notes on [[AI in Research]] and #[[deep learning]] **today**",
+            { heading: 1 }),
+    ], "self");
+    expect(entries[0].text)
+      .toBe("Notes on AI in Research and #deep learning today");
+  });
+});
+
 describe("tocEntries", () => {
   test("is empty when the page has no headings", () => {
     expect(tocEntries([
@@ -87,11 +105,5 @@ describe("tocEntries", () => {
       }),
     ], "self");
     expect(entries[0].children.map((e) => e.uid)).toEqual(["two"]);
-  });
-
-  test("carries the raw block text, unrendered", () => {
-    const entries = tocEntries(
-      [block("h", "See [[Other Page]]", { heading: 1 })], "self");
-    expect(entries[0].text).toBe("See [[Other Page]]");
   });
 });

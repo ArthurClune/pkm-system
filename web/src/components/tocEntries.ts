@@ -4,11 +4,13 @@
 // on every render of an unfocused toc block, so a heading edit shows up in
 // the list immediately.
 import type { BlockNode } from "../api/payloads";
+import { tokenizeBlock, type BlockSegment } from "../grammar/tokenize";
 
 export interface TocEntry {
   uid: string;
-  /** The heading block's raw text -- what the outline stores, not what the
-   * inline renderer would make of it. */
+  /** The heading as plain text: refs reduced to their titles, emphasis
+   * unwrapped, so a `## [[Mathematics]]` heading lists as "Mathematics"
+   * (pkm-2rdp). */
   text: string;
   level: 1 | 2 | 3;
   children: TocEntry[];
@@ -19,6 +21,32 @@ const TOC_MACRO = /^(?:\{\{toc\}\}|\{\{\[\[toc\]\]\}\})$/i;
 
 export function isTocMacro(text: string): boolean {
   return TOC_MACRO.test(text.trim());
+}
+
+/** Plain-text reading of a heading, on the same tokenizer InlineSegments
+ * renders from, so the toc lists what the heading says minus its markup.
+ * Block-level segments (todo marker, code fence, query, pdf) contribute
+ * nothing: none of them is heading prose. */
+export function headingText(text: string): string {
+  const flat = (seg: BlockSegment): string => {
+    switch (seg.kind) {
+      case "text": return seg.text;
+      case "linebreak": return " ";
+      case "inline-code": return seg.code;
+      case "page-ref": return seg.tag ? `#${seg.title}` : seg.title;
+      case "attribute": return seg.name;
+      case "block-ref": return `((${seg.uid}))`;
+      case "image": return seg.alt;
+      case "link": return seg.text;
+      case "asset-link": return seg.filename;
+      case "math": return seg.tex;
+      case "bold": case "italic": case "strike": case "highlight":
+        return seg.children.map(flat).join("");
+      case "todo": case "code-block": case "query": case "pdf-embed":
+        return "";
+    }
+  };
+  return tokenizeBlock(text).map(flat).join("").trim();
 }
 
 function isHeading(node: BlockNode): node is BlockNode & { heading: 1 | 2 | 3 } {
@@ -41,7 +69,7 @@ export function tocEntries(blocks: BlockNode[], selfUid: string): TocEntry[] {
     for (const node of nodes) {
       if (node.uid !== selfUid && isHeading(node)) {
         const entry: TocEntry = {
-          uid: node.uid, text: node.text, level: node.heading, children: [],
+          uid: node.uid, text: headingText(node.text), level: node.heading, children: [],
         };
         into.push(entry);
         walk(node.children, entry.children);

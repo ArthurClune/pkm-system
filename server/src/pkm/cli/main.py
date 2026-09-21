@@ -25,7 +25,7 @@ from pkm.contracts.ops import UID_RE
 from pkm.planning import BuildError
 from pkm.render import (RenderError, clip_depth, render_assets,
                         render_backlinks, render_block, render_groups,
-                        render_page, render_search,
+                        render_local_check, render_page, render_search,
                         render_title_migration_apply,
                         render_title_migration_audit, select_section)
 
@@ -329,6 +329,15 @@ examples:
   pkm rename "Draft" "Machine Learning" --allow-merge
 """
 
+_LOCAL_EPILOG = """\
+examples:
+  # list Local copy:: links whose file is missing or not downloaded
+  pkm local check
+  pkm local check --json
+
+exit status: 0 clean, 1 problems found, 2 local files not configured
+"""
+
 
 def _login_http(url: str) -> httpx2.Client:
     return httpx2.Client(base_url=url)  # seam: tests inject a TestClient
@@ -481,6 +490,19 @@ def cmd_assets(args: argparse.Namespace, client: PkmClient) -> int:
     return 0
 
 
+def cmd_local(args: argparse.Namespace, client: PkmClient) -> int:
+    payload = client.local_check()
+    if args.json:
+        print(payload.model_dump_json())
+    if not payload.enabled:
+        print("local files are not configured on the server"
+              " (set local_docs_root in config.json)", file=sys.stderr)
+        return 2
+    if not args.json:
+        print(render_local_check(payload))
+    return 1 if payload.problems else 0
+
+
 def cmd_migrate_titles(args: argparse.Namespace, client: PkmClient) -> int:
     if args.apply is None:
         payload = client.audit_title_migration()
@@ -609,6 +631,12 @@ def build_parser() -> argparse.ArgumentParser:
         .add_argument("--force", action="store_true",
                       help="also retry previously failed images")
 
+    p = _add("local", "check Local copy:: links against the server's disk",
+             _LOCAL_EPILOG)
+    sub_local = p.add_subparsers(dest="local_action", required=True)
+    sp = sub_local.add_parser("check", help="report missing/evicted local files")
+    _common(sp)
+
     p = _add("migrate-titles", "audit or apply the title migration",
              _MIGRATE_TITLES_EPILOG)
     p.add_argument("--apply", metavar="DIGEST", default=None,
@@ -630,7 +658,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, PkmClient], int]] = {
     "get": cmd_get, "search": cmd_search, "refs": cmd_refs,
     "query": cmd_query, "todos": cmd_todos,
     "save": cmd_save, "update": cmd_update, "upload": cmd_upload,
-    "batch": cmd_batch, "assets": cmd_assets,
+    "batch": cmd_batch, "assets": cmd_assets, "local": cmd_local,
     "migrate-titles": cmd_migrate_titles, "rename": cmd_rename,
 }
 

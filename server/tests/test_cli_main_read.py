@@ -512,3 +512,62 @@ def test_get_section_on_uid_shaped_page_title(run, pkm_client):
     code, out, _ = run("get", "Databases", "--section", "## Vendors")
     assert code == 0
     assert "- ## Vendors" in out
+
+
+def test_local_check_reports_problems_and_exits_1(seeded_config, local_root, capsys):
+    from dataclasses import replace
+    from fastapi.testclient import TestClient
+    from pkm.cli.main import main
+    from pkm.client.api import PkmClient
+    from pkm.client.core import CliConfig
+    from pkm.server.app import create_app
+    from test_routes_local import _seed_local_links
+
+    _seed_local_links(seeded_config.db_path)
+    c = TestClient(create_app(replace(seeded_config, local_docs_root=local_root)))
+    assert c.post("/api/login", json={"password": "test-pw"}).status_code == 200
+    token = c.cookies["pkm_session"]
+    c.cookies.clear()
+    client = PkmClient(CliConfig(url="http://testserver", token=token), http=c)
+
+    code = main(["local", "check"], make_client=lambda: client)
+    out, err = capsys.readouterr()
+    assert code == 1
+    assert out.startswith("4 local link(s), 1 ok, 3 problem(s)\n")
+    assert "Machine Learning | missing | /api/local/Papers/ML/nope.pdf\n" in out
+    assert "AI | evicted | /api/local/Papers/Gone.pdf\n" in out
+    assert "AI | invalid | /api/local/../etc\n" in out
+    assert err == ""
+
+
+def test_local_check_clean_exits_0(seeded_config, local_root, capsys):
+    from dataclasses import replace
+    from fastapi.testclient import TestClient
+    from pkm.cli.main import main
+    from pkm.client.api import PkmClient
+    from pkm.client.core import CliConfig
+    from pkm.server.app import create_app
+
+    c = TestClient(create_app(replace(seeded_config, local_docs_root=local_root)))
+    assert c.post("/api/login", json={"password": "test-pw"}).status_code == 200
+    token = c.cookies["pkm_session"]
+    c.cookies.clear()
+    client = PkmClient(CliConfig(url="http://testserver", token=token), http=c)
+
+    code = main(["local", "check"], make_client=lambda: client)
+    out, _ = capsys.readouterr()
+    assert code == 0
+    assert out == "0 local link(s), 0 ok, 0 problem(s)\n"
+
+
+def test_local_check_disabled_exits_2(run):
+    code, out, err = run("local", "check")
+    assert code == 2
+    assert out == ""
+    assert "local_docs_root" in err
+
+
+def test_local_check_json(run):
+    code, out, _ = run("local", "check", "--json")
+    assert code == 2
+    assert json.loads(out) == {"enabled": False, "total": 0, "ok": 0, "problems": []}

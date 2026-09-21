@@ -29,7 +29,8 @@ REGEN = ("regenerate with `uv run python -m pkm.server.openapi_dump "
 # this list explicit and minimal - anything else returning bare-dict JSON is
 # a bug.
 EXEMPT_READ_ROUTES = {"/healthz", "/api/openapi.json", "/assets/{sha256}/{filename}",
-                      "/api/export/page/{title}", "/api/export.zip"}
+                      "/api/export/page/{title}", "/api/export.zip",
+                      "/api/local/{path}"}  # local document bytes (pkm-g1ep)
 
 # Write routes return small ad-hoc JSON acks by design, so only GETs are
 # auto-checked - except the upload response, the one non-GET payload the web

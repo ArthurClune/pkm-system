@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 
 // The real PdfViewer drags react-pdf/pdfjs into jsdom; substitute a marker.
@@ -41,4 +41,35 @@ it("keeps the link fallback with a note when the viewer chunk fails", async () =
   expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", href);
   vi.doUnmock("./PdfViewer");
   vi.resetModules();
+});
+
+it("deferred: shows the link and an Open button, mounting nothing until clicked", async () => {
+  render(<PdfEmbed href={href} label="Notes" deferred />);
+  expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", href);
+  const open = screen.getByRole("button", { name: "Open" });
+  // give a pending viewer import (if one were wrongly started) time to settle
+  await act(async () => {});
+  expect(screen.queryByTestId("pdf-viewer")).toBeNull();
+
+  fireEvent.click(open);
+  await waitFor(() => expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument());
+  expect(screen.getByTestId("pdf-viewer")).toHaveTextContent(`Notes:${href}`);
+  expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+});
+
+it("deferred: the Open click does not bubble to the block (which would re-enter edit mode)", () => {
+  const onParentClick = vi.fn();
+  render(
+    <div onClick={onParentClick}>
+      <PdfEmbed href={href} label="Notes" deferred />
+    </div>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Open" }));
+  expect(onParentClick).not.toHaveBeenCalled();
+});
+
+it("not deferred: no Open button, the viewer mounts on its own", async () => {
+  render(<PdfEmbed href={href} label="Notes" />);
+  expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+  await waitFor(() => expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument());
 });

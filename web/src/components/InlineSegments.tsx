@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Dispatches each tokenized segment to its renderer. isPdfHref/
+// Dispatches each tokenized segment to its renderer. isPdfHref/isDeferredPdfHref/
 // isSafeHref/pdfLabelFromHref below are pure, but the module as a whole composes several
 // Imperative Shell components (AssetImage, BlockRef, PageLink, TodoCheckbox,
 // BlueskyEmbed, MermaidDiagram, QueryBlock) that read React context, fetch,
@@ -24,6 +24,13 @@ import { TodoCheckbox } from "./TodoCheckbox";
 function isPdfHref(href: string): boolean {
   if (!href.startsWith("/assets/") && !href.startsWith("/api/local/")) return false;
   return href.toLowerCase().endsWith(".pdf");
+}
+
+/** Local-copy PDFs load on click, not on render: a page listing many papers
+ * must not fetch them all at once (pkm-pv7w). Uploaded assets keep the
+ * inline auto-load. */
+function isDeferredPdfHref(href: string): boolean {
+  return href.startsWith("/api/local/");
 }
 
 /** Display label for a {{[[pdf]]: …}} macro, which carries no link text:
@@ -83,12 +90,20 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       return <AssetLink url={seg.url} sha={seg.sha} filename={seg.filename} />;
     case "pdf-embed":
       if (isPdfHref(seg.href)) {
-        return <PdfEmbed href={seg.href} label={pdfLabelFromHref(seg.href)} />;
+        return (
+          <PdfEmbed
+            href={seg.href}
+            label={pdfLabelFromHref(seg.href)}
+            deferred={isDeferredPdfHref(seg.href)}
+          />
+        );
       }
       if (!isSafeHref(seg.href)) return <>{seg.href}</>;
       return <a href={seg.href} target="_blank" rel="noreferrer">{seg.href}</a>;
     case "link":
-      if (isPdfHref(seg.href)) return <PdfEmbed href={seg.href} label={seg.text} />;
+      if (isPdfHref(seg.href)) {
+        return <PdfEmbed href={seg.href} label={seg.text} deferred={isDeferredPdfHref(seg.href)} />;
+      }
       if (isBlueskyPostUrl(seg.href)) return <BlueskyEmbed href={seg.href} />;
       if (!isSafeHref(seg.href)) return <>{seg.text}</>;
       return <a href={seg.href} target="_blank" rel="noreferrer">{seg.text}</a>;

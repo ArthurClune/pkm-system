@@ -41,6 +41,7 @@ argument forms and gives examples.
     pkm rename "Old Title" "New Title" [--allow-merge] [--json]
     pkm migrate-titles [--json]              # side-effect-free audit
     pkm migrate-titles --apply DIGEST        # explicit audited apply
+    pkm local check [--json]                 # Local copy:: links missing/evicted on the host
 
 ### Writing
 
@@ -79,6 +80,11 @@ mistyped `[[Page]]` from operands that simply don't intersect.
 route's 100-group cap. It retries if concurrent writes shift pagination, and
 its JSON reports the first response's actual `limit` rather than a limit
 synthesized from the aggregate group count.
+
+`pkm local check` reports every `Local copy::` link whose file is missing,
+iCloud-evicted, or malformed, checked against the server's
+`local_docs_root`. Exit status: `0` clean, `1` problems found, `2` local
+files not configured (`local_docs_root` unset).
 
 ## Batch transactions
 

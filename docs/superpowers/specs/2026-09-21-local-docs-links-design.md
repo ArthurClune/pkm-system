@@ -22,7 +22,7 @@ deferred (two copies to keep in sync, annotations would not flow back).
 | Viewer | `/api/local/*.pdf` gets the same inline `PdfEmbed` treatment as `/assets/*.pdf`. |
 | Not downloaded | A file evicted by iCloud (present only as a `.File.pdf.icloud` stub) returns 503 with a clear message, after a best-effort `brctl download`. |
 | Link health | `GET /api/local/check` scans every `/api/local/` link in block text and reports the ones whose file is missing or evicted. Exposed as `pkm local check`. |
-| Migration | `GET/POST /api/local/migrate` plans and applies the one-off rewrite of the 563 plain-text values to link form, verifying every target exists first. Exposed as `pkm local migrate [--apply]`. Removed once run. |
+| Migration | A throwaway session script (not committed) rewrites the 563 plain-text values to link form via `pkm batch`, after verifying every target exists under the root. `pkm local check` confirms the result. |
 | Out of scope | Folder listings, browsing the tree from the PKM, write access, offline (replica) serving of these files, importing into the asset store. |
 
 ## Architecture
@@ -39,14 +39,13 @@ flowchart LR
     RL --> DB[(blocks)]
   end
   PE -->|GET /api/local/path| RL
-  CLI[pkm local check / migrate] --> RL
+  CLI[pkm local check] --> RL
 ```
 
 `local_docs.py` (Functional Core) owns everything that can be decided without
 I/O: resolving a URL path to a root-relative path and rejecting escapes,
 choosing inline vs attachment by extension, building the link form of a value,
-extracting `/api/local/` hrefs from block text, and turning a
-`Local copy:: iCloud/Documents/...` value into its post-move relative path.
+and extracting `/api/local/` hrefs from block text.
 `routes_local.py` (Imperative Shell) stats files, reads blocks, calls the core,
 and emits ops.
 
@@ -57,7 +56,7 @@ and emits ops.
 `Config.local_docs_root: Path | None`, loaded from `local_docs_root` in
 `config.json`, resolved relative to `config.json`'s parent like the other
 paths; absolute paths pass through. `None` (key absent) disables the feature:
-every `/api/local/*` route returns 404 and the check/migrate routes return
+every `/api/local/*` route returns 404 and the check route returns
 `{"enabled": false}`. Documented in `backend.md`'s config table.
 
 ### `GET /api/local/{path:path}`
@@ -83,10 +82,9 @@ The route is behind the same session/CLI-token auth as every other `/api/*`
 route. It is the only route that reads outside the data dir; the containment
 check is the load-bearing line and gets its own tests (see Testing).
 
-`check` and `migrate` are registered before the `{path:path}` catch-all, so a
-top-level file literally named `check` or `migrate` is unreachable. Both are
-operator endpoints and the root only holds folders, so nothing is lost; a
-test pins the ordering.
+`check` is registered before the `{path:path}` catch-all, so a top-level
+file literally named `check` is unreachable. It is an operator endpoint and
+the root only holds folders, so nothing is lost; a test pins the ordering.
 
 ### `GET /api/local/check`
 
@@ -102,26 +100,25 @@ resolves it as the file route would, and classifies: `ok`, `missing`,
 `pkm local check` renders the problems as `page | status | href` lines and
 exits 1 if any exist, so it can sit in the nightly backup launchd job later.
 
-### `GET/POST /api/local/migrate` (one-off)
+### One-off migration (scratchpad script, not committed)
 
-Plans (`GET`) or applies (`POST`) the rewrite of legacy values.
+Run once against prod after deploy, from a session, the way the 2026-09-21
+fix-up was: a script reads the DB read-only, plans, prints examples, and
+writes through `pkm batch` in chunks of 200 so FTS, `changes` and sync all
+see the edits.
 
 - Candidate blocks: text matches `^Local copy:: iCloud/Documents/(pkm/)?(.+\.\w+)$`
   (the `pkm/` prefix appears on the seven stray files moved on 2026-09-21).
-- Target rel path: group 2. Verified to exist under the root; a block whose
+- Target rel path: group 2, verified to exist under the root; a block whose
   file is absent is reported and left untouched.
 - New text: `Local copy:: [<basename>](/api/local/<percent-encoded rel>)`.
   Encoding uses `urllib.parse.quote(rel, safe="/")`, so spaces become `%20`
-  and `'`, `(`, `)` are encoded too. The tokenizer's link rule must accept the
-  result; the plan output prints three examples so this is checked before
-  apply.
-- Apply writes through the same op path as `POST /api/ops` (`update_text`),
-  so FTS, `changes`, and sync all see the edits. Chunks of 200.
-- Response lists `planned`, `applied`, `skipped_missing`.
+  and `'`, `(`, `)` are encoded too. Three examples are printed and checked
+  against the tokenizer's link rule before apply.
+- `pkm local check` must report zero problems afterwards.
 
-Once run in prod and verified with `pkm local check`, the route and verb are
-deleted in a follow-up commit. The spec records the format so the deletion is
-safe.
+The format is recorded here so any later rewrite (or the asset-import
+option) knows exactly what to look for.
 
 ### Frontend
 
@@ -140,8 +137,8 @@ and is stated in `sync-and-offline.md`.
 
 ### CLI
 
-New `local` verb group in `cli/main.py` with `check` and `migrate [--apply]`
-subcommands, both `--json`-capable, backed by two `PkmClient` methods. No MCP
+New `local` verb group in `cli/main.py` with a `check` subcommand,
+`--json`-capable, backed by one `PkmClient` method. No MCP
 tool: the assistant has no use for either.
 
 ## Data flow of a click
@@ -158,8 +155,7 @@ tool: the assistant has no use for either.
 | Path escapes root, has `..`, NUL, or is a directory | 404 (never 403: don't confirm structure) |
 | File absent, no `.icloud` stub | 404 |
 | File absent, `.icloud` stub present | 503 + `Retry-After: 5`, `brctl download` fired |
-| Feature disabled (`local_docs_root` unset) | 404 for files; `{"enabled": false}` for check/migrate |
-| Migrate target missing on disk | Block skipped and listed; nothing else blocked |
+| Feature disabled (`local_docs_root` unset) | 404 for files; `{"enabled": false}` for check |
 
 ## Testing
 
@@ -167,7 +163,7 @@ Server (`pytest`, coverage enforced):
 - `local_docs.py` pure functions: relative-path resolution table (`..`,
   encoded `..`, absolute, empty, NUL, unicode, trailing slash), inline vs
   attachment by extension, link building round-trips through
-  `extract_local_hrefs`, legacy-value regex including the `pkm/` prefix.
+  `extract_local_hrefs`.
 - Route tests with a `tmp_path` root: 200 inline PDF, 200 attachment for
   `.zip`, 404 for traversal via raw and encoded `..`, 404 for a symlink
   pointing outside the root, 404 for a directory, 503 when only a `.icloud`
@@ -175,8 +171,6 @@ Server (`pytest`, coverage enforced):
   auth.
 - Check route: seeded blocks with ok/missing/evicted/invalid hrefs classify
   correctly.
-- Migrate route: plan lists candidates and skips a missing file; apply rewrites
-  text and leaves a `changes` row; re-running plans zero.
 
 Web (`pnpm verify`):
 - Unit: `isPdfHref` table; `InlineSegments` renders `PdfEmbed` for a
@@ -186,19 +180,19 @@ Web (`pnpm verify`):
   server (`tests/e2e_serve.py`) gains a temp `local_docs_root` with one tiny
   PDF.
 
-Manual, on prod after deploy: `pkm local migrate` plan, eyeball the three
-examples, `pkm local migrate --apply`, `pkm local check` returns 0 problems,
-click a paper on the Mac and on the iPad.
+Manual, on prod after deploy: run the migration script's plan, eyeball the
+three examples, apply, `pkm local check` returns 0 problems, click a paper on
+the Mac and on the iPad.
 
 ## Docs to update in the same branch
 
-- `backend.md`: route table (three routes), config table (`local_docs_root`),
+- `backend.md`: route table (two routes), config table (`local_docs_root`),
   module tree (`local_docs.py`, `routes_local.py`), and a prose note under
   Assets that this is the one route reading outside the data dir and why the
   containment check must never be loosened.
 - `frontend.md`: the PDF-embed rule now covers two prefixes.
 - `sync-and-offline.md`: local files are online-only.
-- `cli-and-mcp.md`: `pkm local check|migrate`. Grep for any MCP/CLI verb count.
+- `cli-and-mcp.md`: `pkm local check`. Grep for any MCP/CLI verb count.
 - `.claude/skills/pkm/SKILL.md`: the verbs, and the block format so sessions
   write `Local copy::` links correctly.
 

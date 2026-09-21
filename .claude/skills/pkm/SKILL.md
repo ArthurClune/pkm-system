@@ -39,6 +39,7 @@ tokens, sign cookies, or read the DB as a workaround.
     pkm query "{and: [[A]] [[B]]}"           # structured {and:/or:/not:}
     pkm query "{and: [[A]] [[B]]}" --expand  # one-hop: [[X]] also matches via a page X's own blocks reference
     pkm todos [-p "Page"]                    # open {{TODO}} blocks
+    pkm local check                 # Local copy:: links whose file is missing on the host
 
 A `query` with `total: 0` also returns `ref_counts` per operand; the
 rendered output prints "per-ref block counts: ..." so you can tell a typo'd
@@ -96,6 +97,14 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   exists it fails with a 409; pass `--allow-merge` to instead append the
   source page's top-level blocks after the target's and drop the source
   page. Daily-note pages can't be renamed.
+
+## Local files
+
+A `Local copy::` block links a file on the server's document root, not a
+filesystem path: write it as `Local copy:: [Name.pdf](/api/local/<folder>/<Name>.pdf)`,
+percent-encoded, relative to that root. `pkm local check` reports every such
+link whose target is missing or not yet downloaded from iCloud on the host;
+exit status 2 means the server has no document root configured at all.
 
 ## Tables
 

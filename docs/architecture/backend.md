@@ -39,6 +39,7 @@ pkm/
 ├── render.py            Core   API payloads -> terminal markdown (^uid annotated)
 ├── assets_core.py       Core   Asset-browser helpers: reference-token stripping,
 │                               MIME categorisation (+ its SQL twin), zip arcnames
+├── local_docs.py        Core   path containment, disposition and link shapes for /api/local
 ├── edn.py               Core   Minimal EDN parser for Roam exports
 ├── schema_dump.py       Shell  Generates web/src/replica/baseSchema.gen.ts
 ├── refs_parity_dump.py  Shell  Generates shared/fixtures/refs_parity.json
@@ -86,7 +87,7 @@ Inside `pkm/server/`:
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
 | `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
 | `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
-| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below), including the authenticated title-canonicalization audit/apply operator route |
+| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_local.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below), including the authenticated title-canonicalization audit/apply operator route |
 | `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply and durable activation/generation accessors |
 | `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py` |
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
@@ -523,9 +524,28 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 | GET | `/api/assets/search?q&limit&offset&type&from_ms&to_ms&linked` | `LIKE` search over asset description + filename, filtered and paginated, with a `total` (backs the `/files` browser) |
 | DELETE | `/api/assets/{sha256}` | Delete an asset, stripping its reference tokens from block text |
 | POST | `/api/assets/export.zip` | Zip the selected assets (form-encoded `sha256s`, download) |
+| **Local documents** (`routes_local.py`) | | |
+| GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` against disk; `enabled: false` when `local_docs_root` is unset |
+| GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root; 503 + `Retry-After` for an iCloud-evicted file |
 | **Export** | | |
 | GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
 | GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
+
+### Local documents
+
+`/api/local/{path}` is the only route that reads outside the data directory,
+so `local_docs.py`'s containment check is load-bearing: `resolve_relative`
+rejects an absolute path, a `..` segment, a NUL, or a backslash before
+`is_within` re-checks the *resolved* candidate against the resolved root, and
+every rejection is a 404, never a 403, so the response never confirms what
+exists. An `.icloud` stub next to a missing file is how iCloud eviction
+shows up on disk. `_is_evicted` in `routes_local.py` is the single source of
+truth for that check. The file route shares it and answers 503 with
+`Retry-After` after a best-effort `brctl download`; `/api/local/check`
+shares it too and reports `evicted` instead of `missing`, so the two can
+never disagree. `/api/local/check` is registered ahead of the
+`/api/local/{path}` catch-all, so the literal `check` segment resolves to
+the audit route rather than a file lookup.
 
 ### Breadcrumbs and recursive traversal
 
@@ -762,6 +782,7 @@ Stage notes — each one a behaviour a change could break:
 | `image_descriptions` | no (default true) | Master switch for image captions |
 | `image_description_model` | no (default `gpt-4o-mini`) | Vision model |
 | `openai_api_key_file` | no (default `../openai_key`) | Key file for image captions |
+| `local_docs_root` | no | Read-only document tree served under `/api/local/`; unset disables the feature |
 
 Every path key is resolved relative to `config.json`'s own directory, so the
 data directory can move as a unit.

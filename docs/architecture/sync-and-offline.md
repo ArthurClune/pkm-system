@@ -687,7 +687,10 @@ that succeeds keeps delivery paused, and the provider resumes it.
   only" when offline. The `/files` browser and the LLM assistant are online-only
   wholesale — neither `/api/assets/*` nor `/api/assistant/*` has an offline shim.
   Both sit outside sync: the assistant reaches the graph server-side through the
-  API, not through the replica.
+  API, not through the replica. `/api/local/*` files are online-only too, and
+  unlike `/assets/` are never runtime-cached by the service worker: a
+  `Local copy::` link to a PDF still renders the in-app viewer offline, but its
+  fetch fails and it falls back to a note plus a plain download anchor.
 - **Service worker**: precaches the app shell, so a cold offline start boots, and
   keeps a bounded runtime cache of recently viewed assets. Mermaid's chunk family
   is precached too, so diagrams render offline. A build budget and an offline

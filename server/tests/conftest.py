@@ -171,12 +171,14 @@ def describe_disabled_client(seeded_config) -> Iterator[TestClient]:
 @pytest.fixture()
 def local_root(tmp_path) -> Path:
     """A throwaway local_docs_root with one PDF, one zip, one nested
-    folder, and one evicted-file stub."""
+    folder, one evicted-file stub, and one filename containing a
+    literal percent sign (double-decode regression coverage)."""
     root = tmp_path / "localdocs"
     (root / "Papers" / "ML").mkdir(parents=True)
     (root / "Papers" / "ML" / "Title one.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
     (root / "Papers" / "ML" / "bundle.zip").write_bytes(b"PK\x03\x04zip")
     (root / "Papers" / ".Gone.pdf.icloud").write_bytes(b"stub")
+    (root / "Papers" / "ML" / "50% draft.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
     return root
 
 

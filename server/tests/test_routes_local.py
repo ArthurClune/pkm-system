@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
+from pkm.local_docs import local_href
 from pkm.server import routes_local
 from pkm.server.app import create_app
 
@@ -36,6 +37,11 @@ def test_directory_is_404(local_client):
 def test_traversal_is_404_raw_and_encoded(local_client, local_root):
     outside = local_root.parent / "secret.txt"
     outside.write_text("no")
+    # httpx normalises this before it leaves the client, so the request
+    # never reaches the route with a genuine ".." segment; it proves
+    # nothing about containment. The two encoded cases below are the
+    # real assertions: both arrive at resolve_relative with literal
+    # ".." segments and are rejected there.
     assert local_client.get("/api/local/../secret.txt").status_code == 404
     assert local_client.get("/api/local/Papers/%2e%2e/%2e%2e/secret.txt").status_code == 404
     assert local_client.get("/api/local/Papers/..%2f..%2fsecret.txt").status_code == 404
@@ -46,6 +52,20 @@ def test_symlink_out_of_root_is_404(local_client, local_root):
     outside.write_bytes(b"%PDF")
     os.symlink(outside, local_root / "Papers" / "link.pdf")
     assert local_client.get("/api/local/Papers/link.pdf").status_code == 404
+
+
+def test_symlink_loop_is_404_not_500(local_client, local_root):
+    # a mutual loop (a -> b -> a): resolving a path through it raises
+    # RuntimeError("Symlink loop from ...") rather than OSError.
+    os.symlink("b", local_root / "a")
+    os.symlink("a", local_root / "b")
+    assert local_client.get("/api/local/a/x.pdf").status_code == 404
+
+
+def test_percent_in_filename_is_served(local_client):
+    r = local_client.get("/api/local/Papers/ML/50%25%20draft.pdf")
+    assert r.status_code == 200
+    assert r.content.startswith(b"%PDF")
 
 
 def test_evicted_file_is_503_and_requests_download(local_client, local_root, monkeypatch):
@@ -137,3 +157,51 @@ def test_check_agrees_with_file_route_on_symlinked_evicted_stub(
     body = local_client.get("/api/local/check").json()
     by_uid = {p["uid"]: p for p in body["problems"]}
     assert by_uid["uid_l5"]["status"] == "missing"
+
+
+def test_check_survives_a_symlink_loop_href(local_client, seeded_config, local_root):
+    """One pathological href (a symlink loop) must not abort the whole
+    audit with a 500; it is reported as one problem among the rest."""
+    os.symlink("b", local_root / "a")
+    os.symlink("a", local_root / "b")
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,NULL,0,NULL,NULL)",
+        ("uid_loop", 1, None, 13, "[loop](/api/local/a/x.pdf)"))
+    con.commit()
+    con.close()
+
+    r = local_client.get("/api/local/check")
+    assert r.status_code == 200
+    by_uid = {p["uid"]: p for p in r.json()["problems"]}
+    assert by_uid["uid_loop"]["status"] == "missing"
+
+
+def test_overlong_path_is_404_not_500(local_client):
+    """An OSError from a stat call (e.g. ENAMETOOLONG), not a symlink
+    loop, must also be treated as "not found" rather than a 500."""
+    segment = "x" * 300
+    assert local_client.get(f"/api/local/{segment}/x.pdf").status_code == 404
+
+
+def test_check_agrees_with_file_route_on_percent_in_filename(
+        local_client, seeded_config, local_root):
+    """The href `check` sees is percent-encoded once, the same as a real
+    `Local copy::` link built by `local_href`; it must resolve to the
+    same file the file route serves, including a literal `%` in the
+    real filename."""
+    href = local_href("Papers/ML/50% draft.pdf")
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,NULL,0,NULL,NULL)",
+        ("uid_pct", 1, None, 14, f"[pct]({href})"))
+    con.commit()
+    con.close()
+
+    assert local_client.get(href).status_code == 200
+
+    body = local_client.get("/api/local/check").json()
+    by_uid = {p["uid"]: p for p in body["problems"]}
+    assert "uid_pct" not in by_uid

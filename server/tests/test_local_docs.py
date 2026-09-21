@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from pkm.local_docs import (LOCAL_PREFIX, disposition_for, extract_local_hrefs,
-                            is_within, local_href, media_type_for,
-                            resolve_relative)
+from pkm.local_docs import (LOCAL_PREFIX, clean_relative, disposition_for,
+                            extract_local_hrefs, is_within, local_href,
+                            media_type_for, resolve_relative)
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -25,6 +25,22 @@ def test_resolve_relative_accepts_clean_paths(raw, expected):
 ])
 def test_resolve_relative_rejects_escapes(raw):
     assert resolve_relative(raw) is None
+
+
+def test_clean_relative_does_not_decode_again():
+    """`clean_relative` is called by the file route on a path uvicorn has
+    already percent-decoded once; a literal `%` in the (already-decoded)
+    name must survive unchanged, not be decoded a second time."""
+    assert clean_relative("Papers/50% draft.pdf") == "Papers/50% draft.pdf"
+
+
+@pytest.mark.parametrize("raw", [
+    "", "/", "../x.pdf", "Papers/../../etc/passwd",
+    "Papers/./x.pdf", "/Papers/x.pdf", "Papers\\x.pdf", "Papers/x\x00.pdf",
+    "..", ".",
+])
+def test_clean_relative_rejects_escapes(raw):
+    assert clean_relative(raw) is None
 
 
 @pytest.mark.parametrize("name, kind", [

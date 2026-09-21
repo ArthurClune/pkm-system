@@ -90,6 +90,12 @@ def main() -> int:
     con.close()
     init_db(db_path)  # WAL + migrations, once, before serving
     (data / "assets").mkdir()
+    # A tiny local document root so web/e2e/local-docs.spec.ts can click a
+    # Local copy:: link end to end (pkm-g1ep).
+    local_root = data / "local" / "Papers"
+    local_root.mkdir(parents=True)
+    shutil.copy(root / "test-data" / "assets" / "sample.pdf", local_root / "sample.pdf")
+    (local_root / "notes.zip").write_bytes(b"PK\x03\x04e2e")
     config = Config(
         db_path=db_path,
         assets_dir=data / "assets",
@@ -98,6 +104,7 @@ def main() -> int:
         session_secret="ee" * 32,
         cookie_secure=False,
         web_dist=web_dist,
+        local_docs_root=data / "local",
     )
     app = create_app(config, assistant_engine=FakeEngine())
 

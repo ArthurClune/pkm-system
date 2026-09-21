@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fake_engine import FakeEngine
@@ -165,3 +166,27 @@ def describe_disabled_client(seeded_config) -> Iterator[TestClient]:
         r = c.post("/api/login", json={"password": TEST_PASSWORD})
         assert r.status_code == 200
         yield c
+
+
+@pytest.fixture()
+def local_root(tmp_path) -> Path:
+    """A throwaway local_docs_root with one PDF, one zip, one nested
+    folder, one evicted-file stub, and one filename containing a
+    literal percent sign (double-decode regression coverage)."""
+    root = tmp_path / "localdocs"
+    (root / "Papers" / "ML").mkdir(parents=True)
+    (root / "Papers" / "ML" / "Title one.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+    (root / "Papers" / "ML" / "bundle.zip").write_bytes(b"PK\x03\x04zip")
+    (root / "Papers" / ".Gone.pdf.icloud").write_bytes(b"stub")
+    (root / "Papers" / "ML" / "50% draft.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+    return root
+
+
+@pytest.fixture()
+def local_client(seeded_config, local_root) -> TestClient:
+    from dataclasses import replace
+    cfg = replace(seeded_config, local_docs_root=local_root)
+    c = TestClient(create_app(cfg))
+    r = c.post("/api/login", json={"password": TEST_PASSWORD})
+    assert r.status_code == 200
+    return c

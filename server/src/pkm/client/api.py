@@ -31,7 +31,7 @@ from pkm.contracts.ops import BlockOp, OpBatch
 from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
                                      BlockNode, BlockPayload, GroupsPayload,
-                                     OpsAck, PagePayload,
+                                     LocalCheckPayload, OpsAck, PagePayload,
                                      QueryPayload, RenamePageResponse,
                                      ScanPayload, SearchPayload,
                                      TitleMigrationApplyRequest,
@@ -336,3 +336,6 @@ class PkmClient:
         params = {"force": "true"} if force else {}
         return self._request("POST", "/api/assets/scan", ScanPayload,
                              params=params)
+
+    def local_check(self) -> LocalCheckPayload:
+        return self._request("GET", "/api/local/check", LocalCheckPayload)

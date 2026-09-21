@@ -65,3 +65,19 @@ def test_zai_api_key_file_override(tmp_path):
     cfg = load_config(write_config(
         tmp_path, {"zai_api_key_file": "secrets/glm-key"}))
     assert cfg.zai_api_key_file == tmp_path / "secrets" / "glm-key"
+
+
+def test_local_docs_root_default_is_none(tmp_path):
+    cfg = load_config(write_config(tmp_path, {}))
+    assert cfg.local_docs_root is None
+
+
+def test_local_docs_root_relative_resolves_against_config_dir(tmp_path):
+    cfg = load_config(write_config(tmp_path, {"local_docs_root": "docs"}))
+    assert cfg.local_docs_root == tmp_path / "docs"
+
+
+def test_local_docs_root_absolute_passes_through(tmp_path):
+    cfg = load_config(write_config(
+        tmp_path, {"local_docs_root": "/Volumes/Papers/pkm"}))
+    assert cfg.local_docs_root == Path("/Volumes/Papers/pkm")

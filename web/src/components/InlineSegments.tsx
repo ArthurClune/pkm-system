@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Dispatches each tokenized segment to its renderer. isPdfAssetHref/
+// Dispatches each tokenized segment to its renderer. isPdfHref/
 // isSafeHref/pdfLabelFromHref below are pure, but the module as a whole composes several
 // Imperative Shell components (AssetImage, BlockRef, PageLink, TodoCheckbox,
 // BlueskyEmbed, MermaidDiagram, QueryBlock) that read React context, fetch,
@@ -18,8 +18,12 @@ import { PdfEmbed } from "./PdfEmbed";
 import { QueryBlock } from "./QueryBlock";
 import { TodoCheckbox } from "./TodoCheckbox";
 
-function isPdfAssetHref(href: string): boolean {
-  return href.startsWith("/assets/") && href.toLowerCase().endsWith(".pdf");
+/** PDFs the in-app viewer can fetch same-origin: content-addressed assets
+ * and files served from the configured local document root (pkm-g1ep).
+ * Path only: a query string means a download intent, not an embed. */
+function isPdfHref(href: string): boolean {
+  if (!href.startsWith("/assets/") && !href.startsWith("/api/local/")) return false;
+  return href.toLowerCase().endsWith(".pdf");
 }
 
 /** Display label for a {{[[pdf]]: …}} macro, which carries no link text:
@@ -78,13 +82,13 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
     case "asset-link":
       return <AssetLink url={seg.url} sha={seg.sha} filename={seg.filename} />;
     case "pdf-embed":
-      if (isPdfAssetHref(seg.href)) {
+      if (isPdfHref(seg.href)) {
         return <PdfEmbed href={seg.href} label={pdfLabelFromHref(seg.href)} />;
       }
       if (!isSafeHref(seg.href)) return <>{seg.href}</>;
       return <a href={seg.href} target="_blank" rel="noreferrer">{seg.href}</a>;
     case "link":
-      if (isPdfAssetHref(seg.href)) return <PdfEmbed href={seg.href} label={seg.text} />;
+      if (isPdfHref(seg.href)) return <PdfEmbed href={seg.href} label={seg.text} />;
       if (isBlueskyPostUrl(seg.href)) return <BlueskyEmbed href={seg.href} />;
       if (!isSafeHref(seg.href)) return <>{seg.text}</>;
       return <a href={seg.href} target="_blank" rel="noreferrer">{seg.text}</a>;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PAGE_ASPECT,
   currentPageFromRatios,
+  failureNote,
   focusWrapTarget,
   mountedPageWindow,
   placeholderHeight,
@@ -157,5 +158,16 @@ describe("placeholderHeight", () => {
   it("guards against non-finite width", () => {
     expect(placeholderHeight(Number.NaN, null)).toBe(1);
     expect(placeholderHeight(Number.POSITIVE_INFINITY, null)).toBe(1);
+  });
+});
+
+describe("failureNote", () => {
+  it("names the iCloud-evicted case on a 503", () => {
+    expect(failureNote({ status: 503 })).toBe("Not downloaded on the host.");
+  });
+  it("falls back to the generic note otherwise", () => {
+    expect(failureNote({ status: 404 })).toBe("Couldn't render this PDF.");
+    expect(failureNote(new Error("boom"))).toBe("Couldn't render this PDF.");
+    expect(failureNote(undefined)).toBe("Couldn't render this PDF.");
   });
 });

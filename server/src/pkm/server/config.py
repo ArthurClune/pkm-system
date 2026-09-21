@@ -34,6 +34,12 @@ class Config:
     # the plan credential — z.ai has no machine-login flow like Claude's —
     # and enables the assistant's glm model (see server/app.py).
     zai_api_key_file: Path = Path("../zai_key")
+    # Root of the on-disk document tree served read-only by
+    # GET /api/local/{path} (see routes_local.py). None disables the
+    # feature. Relative values resolve against config.json's directory
+    # like every other path key; `Path / absolute` yields the absolute
+    # path unchanged, so an absolute value passes through.
+    local_docs_root: Path | None = None
 
 
 def load_config(path: Path) -> Config:
@@ -54,4 +60,6 @@ def load_config(path: Path) -> Config:
                                             "gpt-4o-mini")),
         openai_api_key_file=base / raw.get("openai_api_key_file", "../openai_key"),
         zai_api_key_file=base / raw.get("zai_api_key_file", "../zai_key"),
+        local_docs_root=(base / raw["local_docs_root"]
+                         if raw.get("local_docs_root") else None),
     )

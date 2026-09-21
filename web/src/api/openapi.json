@@ -1352,6 +1352,61 @@
         }
       }
     },
+    "/api/local/check": {
+      "get": {
+        "summary": "Check Local Links",
+        "operationId": "check_local_links_api_local_check_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalCheckPayload"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/local/{path}": {
+      "get": {
+        "summary": "Get Local File",
+        "operationId": "get_local_file_api_local__path__get",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/assets/describe-status": {
       "get": {
         "summary": "Describe Status",
@@ -2777,6 +2832,71 @@
           "block_ref_counts"
         ],
         "title": "JournalPayload"
+      },
+      "LocalCheckPayload": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "ok": {
+            "type": "integer",
+            "title": "Ok"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/LocalCheckProblem"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "total",
+          "ok",
+          "problems"
+        ],
+        "title": "LocalCheckPayload",
+        "description": "GET /api/local/check: every /api/local/ href found in block text,\nclassified against the disk. `enabled` is False when no\nlocal_docs_root is configured."
+      },
+      "LocalCheckProblem": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "page": {
+            "type": "string",
+            "title": "Page"
+          },
+          "href": {
+            "type": "string",
+            "title": "Href"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "evicted",
+              "invalid"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "page",
+          "href",
+          "status"
+        ],
+        "title": "LocalCheckProblem"
       },
       "LoginBody": {
         "properties": {

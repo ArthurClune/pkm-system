@@ -90,3 +90,13 @@ export function placeholderHeight(
   if (!Number.isFinite(width)) return 1;
   return Math.max(1, Math.round(width * (aspect ?? DEFAULT_PAGE_ASPECT)));
 }
+
+/** Fallback note for a document that failed to load. pdf.js surfaces an
+ * HTTP failure as an error carrying `status`; 503 is the server's
+ * "iCloud has not downloaded this file on the host" signal (pkm-g1ep). */
+export function failureNote(err: unknown): string {
+  const status = typeof err === "object" && err !== null && "status" in err
+    ? (err as { status?: unknown }).status
+    : undefined;
+  return status === 503 ? "Not downloaded on the host." : "Couldn't render this PDF.";
+}

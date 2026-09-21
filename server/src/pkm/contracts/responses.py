@@ -231,6 +231,23 @@ class ScanPayload(BaseModel):
     reason: str | None
 
 
+class LocalCheckProblem(BaseModel):
+    uid: str
+    page: str
+    href: str
+    status: Literal["missing", "evicted", "invalid"]
+
+
+class LocalCheckPayload(BaseModel):
+    """GET /api/local/check: every /api/local/ href found in block text,
+    classified against the disk. `enabled` is False when no
+    local_docs_root is configured."""
+    enabled: bool
+    total: int
+    ok: int
+    problems: list[LocalCheckProblem]
+
+
 class SyncRef(BaseModel):
     target_page_id: int
     kind: str

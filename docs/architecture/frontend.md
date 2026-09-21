@@ -781,8 +781,16 @@ flowchart LR
   the cached SVG is id-independent, and each consumer substitutes its own id
   back in on every use that reads from state -- hit or miss alike -- so two
   diagrams on the same page never collide on one DOM id.
+- `InlineSegments.isPdfHref` decides which links get the in-app `PdfEmbed`
+  instead of a plain link: a path (no query string) under one of two
+  same-origin prefixes, `/assets/` or `/api/local/`, ending in `.pdf`. A
+  query string signals a download intent rather than an embed. A local
+  document's PDF fails to load with a 503 when the host hasn't downloaded it
+  from iCloud yet; `pdfViewerCore.failureNote` turns that specific status
+  into "Not downloaded on the host." instead of the generic PDF-render
+  failure message.
 - `PdfViewer` guards its load/reset race with a generation counter. When
-  `href` changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps
+  `href` changes it resets `doc`/`failure`/`expanded`/`currentPage` and bumps
   the counter **synchronously during render**, not in an effect, and every
   load callback compares its captured generation before writing state. An
   effect would be too late: effects fire child-before-parent, so a `Document`

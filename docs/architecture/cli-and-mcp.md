@@ -31,6 +31,13 @@ read/write line — reads auto-allowed, writes confirm-gated (see
 | `upload_asset` | write | upload a local file and link it from a page |
 | `rename_page` | write | retitle a page, rewriting every `[[link]]`/`#tag`/`attr::` reference to it; 409 unless `allow_merge` is set |
 
+`pkm local check` has no MCP counterpart: it audits every `/api/local/` link
+in block text against the host's filesystem (`GET /api/local/check`, see
+[backend.md](backend.md#local-documents)), which is an operator diagnostic,
+not something an agent conversation needs. Exit status: `0` every link
+resolved, `1` at least one is `missing`/`evicted`/`invalid`, `2`
+`local_docs_root` is unset on the server.
+
 ## The shared client
 
 `client/api.py::PkmClient` owns all I/O: config at

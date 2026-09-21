@@ -14,8 +14,8 @@ from collections.abc import Mapping, Sequence
 
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      BlockPayload, BlockRefText, GroupsPayload,
-                                     PagePayload, QueryPayload, SearchPayload,
-                                     TitleMigrationApplyResponse,
+                                     LocalCheckPayload, PagePayload, QueryPayload,
+                                     SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationBlocker,
                                      TitleMigrationPage, walk_blocks)
@@ -137,6 +137,14 @@ def render_assets(payload: AssetSearchPayload) -> str:
             lines.append(f"  in [[{ref.page_title}]] (({ref.uid}))")
         parts.append("\n".join(lines))
     return "\n\n".join(parts)
+
+
+def render_local_check(payload: LocalCheckPayload) -> str:
+    """One summary line, then `page | status | href` per problem."""
+    lines = [f"{payload.total} local link(s), {payload.ok} ok,"
+             f" {len(payload.problems)} problem(s)"]
+    lines += [f"{p.page} | {p.status} | {p.href}" for p in payload.problems]
+    return "\n".join(lines)
 
 
 def _render_migration_page(

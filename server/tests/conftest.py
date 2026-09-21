@@ -190,3 +190,15 @@ def local_client(seeded_config, local_root) -> TestClient:
     r = c.post("/api/login", json={"password": TEST_PASSWORD})
     assert r.status_code == 200
     return c
+
+
+@pytest.fixture()
+def local_pkm_client(local_client):
+    """`pkm_client`, but against an app with `local_docs_root` set, so
+    CLI tests can drive `pkm local check` in-process."""
+    from pkm.client.api import PkmClient
+    from pkm.client.core import CliConfig
+
+    token = local_client.cookies["pkm_session"]
+    local_client.cookies.clear()
+    return PkmClient(CliConfig(url="http://testserver", token=token), http=local_client)

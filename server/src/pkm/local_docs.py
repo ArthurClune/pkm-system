@@ -19,7 +19,6 @@ make it disagree with `check` for any filename containing a literal
 percent sign."""
 from __future__ import annotations
 
-import mimetypes
 import re
 from pathlib import Path
 from typing import Literal
@@ -28,6 +27,31 @@ from urllib.parse import quote, unquote
 LOCAL_PREFIX = "/api/local/"
 
 _INLINE_EXT = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp"})
+
+# Explicit table rather than `mimetypes.guess_type`: that call lazily
+# reads the host's MIME registry on first use (hidden I/O in a Core
+# module) and its answers vary by machine. Anything not listed is served
+# as an opaque download.
+_OCTET_STREAM = "application/octet-stream"
+_MEDIA_TYPES: dict[str, str] = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".zip": "application/zip",
+    ".epub": "application/epub+zip",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".webarchive": _OCTET_STREAM,
+}
 
 # `[text](/api/local/...)` targets and bare `/api/local/...` tokens. The
 # link target stops at the closing paren; a bare token at whitespace or
@@ -69,8 +93,7 @@ def disposition_for(name: str) -> Literal["inline", "attachment"]:
 
 
 def media_type_for(name: str) -> str:
-    guessed, _ = mimetypes.guess_type(name)
-    return guessed or "application/octet-stream"
+    return _MEDIA_TYPES.get(Path(name).suffix.lower(), _OCTET_STREAM)
 
 
 def local_href(rel: str) -> str:

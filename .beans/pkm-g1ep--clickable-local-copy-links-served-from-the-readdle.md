@@ -1,11 +1,11 @@
 ---
 # pkm-g1ep
 title: 'Clickable Local copy:: links served from the readdle pkm folder'
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-09-21T12:47:10Z
-updated_at: 2026-09-21T13:53:19Z
+updated_at: 2026-09-21T14:31:36Z
 ---
 
 Serve files under a configured local_docs_root via GET /api/local/{path}; rewrite Local copy:: values to markdown links; inline PDF viewer for /api/local/*.pdf; 503 for iCloud-evicted files; pkm local check; one-off scratchpad migration script (not committed). Spec: docs/superpowers/specs/2026-09-21-local-docs-links-design.md
@@ -22,7 +22,7 @@ Serve files under a configured local_docs_root via GET /api/local/{path}; rewrit
 - [x] Task 6: `pkm local check` CLI verb (missing/evicted link report)
 - [x] Task 7: inline PDF viewer for `/api/local/*.pdf`, evicted-file note on 503, e2e click-through test
 - [x] Task 8: architecture docs, `pkm` skill, this bean
-- [ ] Task 9: operator migration — rewrite existing `Local copy::` values to `/api/local/` markdown links (one-off scratchpad script, not committed; not yet run in prod)
+- [x] Task 9: operator migration — rewrite existing `Local copy::` values to `/api/local/` markdown links (one-off scratchpad script, not committed; run in prod 2026-09-21, 563 rewrites)
 
 ## Summary of Changes
 
@@ -50,4 +50,8 @@ Serve files under a configured local_docs_root via GET /api/local/{path}; rewrit
   `.claude/skills/pkm/SKILL.md` (`pkm local check` read verb + a "Local
   files" note on the `Local copy::` link shape).
 
-Status left `in-progress`: Task 9 (the operator migration) has not run yet.
+Task 9 ran on 2026-09-21; see Deployment below.
+
+
+## Deployment
+Merged to main at e763e2b (--no-ff), pushed, deployed via deploy/update.sh to cb3366c on 2026-09-21. Added local_docs_root to prod config.json. Renamed the two files with '%' in their names first. Migration (scratchpad script, not committed) rewrote 563 blocks via pkm batch; `pkm local check` reports 563 ok, 0 problems.

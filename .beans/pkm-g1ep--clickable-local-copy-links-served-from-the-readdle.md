@@ -5,7 +5,7 @@ status: completed
 type: feature
 priority: normal
 created_at: 2026-09-21T12:47:10Z
-updated_at: 2026-09-21T14:31:36Z
+updated_at: 2026-09-21T14:46:42Z
 ---
 
 Serve files under a configured local_docs_root via GET /api/local/{path}; rewrite Local copy:: values to markdown links; inline PDF viewer for /api/local/*.pdf; 503 for iCloud-evicted files; pkm local check; one-off scratchpad migration script (not committed). Spec: docs/superpowers/specs/2026-09-21-local-docs-links-design.md
@@ -55,3 +55,6 @@ Task 9 ran on 2026-09-21; see Deployment below.
 
 ## Deployment
 Merged to main at e763e2b (--no-ff), pushed, deployed via deploy/update.sh to cb3366c on 2026-09-21. Added local_docs_root to prod config.json. Renamed the two files with '%' in their names first. Migration (scratchpad script, not committed) rewrote 563 blocks via pkm batch; `pkm local check` reports 563 ok, 0 problems.
+
+
+Post-deploy: first fetches hung in open() until macOS showed the Files-and-Folders consent prompt for the service's python at the GUI session; Arthur accepted it, local_docs_root was re-enabled and the service restarted. Verified 2026-09-21: 1.2 MB and 55 MB PDFs stream in full in <0.1 s; `pkm local check` 563 ok. Route stays behind session auth; traversal attempts 404.

@@ -784,7 +784,13 @@ flowchart LR
 - `InlineSegments.isPdfHref` decides which links get the in-app `PdfEmbed`
   instead of a plain link: a path (no query string) under one of two
   same-origin prefixes, `/assets/` or `/api/local/`, ending in `.pdf`. A
-  query string signals a download intent rather than an embed. A local
+  query string signals a download intent rather than an embed. Local
+  documents (`/api/local/`) get the embed in its **deferred** form: the
+  plain link plus an Open button, importing and fetching nothing until
+  clicked, because a page that lists dozens of `Local copy::` papers would
+  otherwise download and parse every one on render (and trigger an iCloud
+  download on the host for each evicted file). Uploaded `/assets/` PDFs keep
+  the inline auto-load. A local
   document's PDF fails to load with a 503 when the host hasn't downloaded it
   from iCloud yet; `pdfViewerCore.failureNote` turns that specific status
   into "Not downloaded on the host." instead of the generic PDF-render

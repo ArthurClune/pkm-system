@@ -526,7 +526,7 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 | POST | `/api/assets/export.zip` | Zip the selected assets (form-encoded `sha256s`, download) |
 | **Local documents** (`routes_local.py`) | | |
 | GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` against disk; `enabled: false` when `local_docs_root` is unset |
-| GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root; 503 + `Retry-After` for an iCloud-evicted file |
+| GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root, missing, or not a regular file; 503 + `Retry-After` for an iCloud-evicted file |
 | **Export** | | |
 | GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
 | GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |

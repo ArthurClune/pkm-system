@@ -790,7 +790,7 @@ flowchart LR
   into "Not downloaded on the host." instead of the generic PDF-render
   failure message.
 - `PdfViewer` guards its load/reset race with a generation counter. When
-  `href` changes it resets `doc`/`failed`/`expanded`/`currentPage` and bumps
+  `href` changes it resets `doc`/`failure`/`expanded`/`currentPage` and bumps
   the counter **synchronously during render**, not in an effect, and every
   load callback compares its captured generation before writing state. An
   effect would be too late: effects fire child-before-parent, so a `Document`

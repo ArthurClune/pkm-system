@@ -39,6 +39,8 @@ const slotEntry = (page: number, ratio: number): IOEntry => {
 
 // ---- react-pdf mock --------------------------------------------------
 let failLoad = false;
+// When set, the mocked Document fails with this value instead of a plain Error.
+let failWith: unknown = null;
 // Manual mode lets a test control exactly when a document's load and its
 // page-1 metadata resolve, independently -- needed to exercise the
 // old-document-completes-late races (pkm-qs7y). Each mount/href-change of
@@ -74,7 +76,7 @@ vi.mock("react-pdf", async () => {
   function Document({ file, onLoadSuccess, onLoadError, loading, children }: {
     file?: string;
     onLoadSuccess?: (pdf: { numPages: number; getPage: () => Promise<{ getViewport: (o: { scale: number }) => Viewport }> }) => void;
-    onLoadError?: (err: Error) => void;
+    onLoadError?: (err: unknown) => void;
     loading?: ReactNode;
     children?: ReactNode;
   }) {
@@ -100,7 +102,7 @@ vi.mock("react-pdf", async () => {
         return;
       }
       setSettled(true);
-      if (failLoad) onLoadError?.(new Error("bad pdf"));
+      if (failLoad) onLoadError?.(failWith ?? new Error("bad pdf"));
       else onLoadSuccess?.(fakePdf);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [file]);
@@ -127,6 +129,7 @@ const href = `/assets/${"ab".repeat(32)}/doc.pdf`;
 
 beforeEach(() => {
   failLoad = false;
+  failWith = null;
   manual = false;
   pendingLoads.length = 0;
   observers.length = 0;
@@ -372,6 +375,25 @@ it("falls back to the download link when the document fails to load", async () =
   expect(screen.getByText("Couldn't render this PDF.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", href);
   expect(screen.queryByTestId("pdf-document")).toBeNull();
+});
+
+it("a 503 from /api/local reads as 'not downloaded' rather than a render failure", async () => {
+  failLoad = true;
+  failWith = { status: 503 };
+  render(<PdfViewer href={href} label="Notes" />);
+  await act(async () => {});
+  expect(screen.getByText("Not downloaded on the host.")).toBeInTheDocument();
+  expect(screen.queryByText("Couldn't render this PDF.")).toBeNull();
+  expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("href", href);
+});
+
+it("a non-503 HTTP failure still reads as a render failure", async () => {
+  failLoad = true;
+  failWith = { status: 404 };
+  render(<PdfViewer href={href} label="Notes" />);
+  await act(async () => {});
+  expect(screen.getByText("Couldn't render this PDF.")).toBeInTheDocument();
+  expect(screen.queryByText("Not downloaded on the host.")).toBeNull();
 });
 
 // ---- pkm-qs7y: reset and generation-guard on href change --------------

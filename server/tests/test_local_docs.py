@@ -60,6 +60,18 @@ def test_media_type_falls_back_to_octet_stream():
     assert media_type_for("x.svg") == "image/svg+xml"  # still an attachment
 
 
+def test_media_type_is_a_fixed_table_not_the_host_registry():
+    # Case-insensitive, covers office formats, and never consults the
+    # host's MIME database (so results are identical on every machine).
+    assert media_type_for("Deck.PPTX") == (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+    assert media_type_for("x.docx") == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    assert media_type_for("x.jpeg") == media_type_for("x.jpg") == "image/jpeg"
+    assert media_type_for("README") == "application/octet-stream"
+    assert media_type_for("x.unknownext") == "application/octet-stream"
+
+
 def test_local_href_percent_encodes_everything_but_slashes():
     assert local_href("Papers/Machine Learning/It's (v2).pdf") == \
         LOCAL_PREFIX + "Papers/Machine%20Learning/It%27s%20%28v2%29.pdf"

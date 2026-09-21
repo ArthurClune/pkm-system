@@ -112,3 +112,28 @@ def test_check_disabled_when_root_unset(client):
 def test_check_wins_over_a_file_named_check(local_client, local_root):
     (local_root / "check").write_bytes(b"x")
     assert local_client.get("/api/local/check").json()["enabled"] is True
+
+
+def test_check_agrees_with_file_route_on_symlinked_evicted_stub(
+        local_client, seeded_config, local_root):
+    """A stub reachable only by following a symlinked directory out of
+    root is not "evicted": the file route 404s it (is_within rejects the
+    resolved stub), so /api/local/check must call it "missing", not
+    "evicted", or the two would disagree about the same href."""
+    outside = local_root.parent / "outside"
+    outside.mkdir()
+    (outside / ".X.pdf.icloud").write_bytes(b"stub")
+    os.symlink(outside, local_root / "link")
+    con = sqlite3.connect(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,NULL,0,NULL,NULL)",
+        ("uid_l5", 1, None, 12, "[link](/api/local/link/X.pdf)"))
+    con.commit()
+    con.close()
+
+    assert local_client.get("/api/local/link/X.pdf").status_code == 404
+
+    body = local_client.get("/api/local/check").json()
+    by_uid = {p["uid"]: p for p in body["problems"]}
+    assert by_uid["uid_l5"]["status"] == "missing"

@@ -54,6 +54,15 @@ def _locate(config: Config, url_path: str) -> tuple[Path, Path, str]:
     return root, root / rel, rel
 
 
+def _is_evicted(root: Path, candidate: Path) -> bool:
+    """True when `candidate` itself is absent but its `.icloud` stub is
+    present and contained in `root`. The single source of truth for
+    eviction, shared by the file route and /api/local/check so they can
+    never disagree about a symlinked-out stub."""
+    stub = candidate.parent / f".{candidate.name}.icloud"
+    return not candidate.exists() and stub.is_file() and is_within(root, stub.resolve())
+
+
 def _classify(root: Path, href: str) -> Literal["ok", "missing", "evicted", "invalid"]:
     rel = resolve_relative(href[len(LOCAL_PREFIX):])
     if rel is None:
@@ -62,8 +71,7 @@ def _classify(root: Path, href: str) -> Literal["ok", "missing", "evicted", "inv
     resolved = candidate.resolve()
     if is_within(root, resolved) and resolved.is_file():
         return "ok"
-    stub = candidate.parent / f".{candidate.name}.icloud"
-    if stub.is_file():
+    if _is_evicted(root, candidate):
         return "evicted"
     return "missing"
 
@@ -95,8 +103,7 @@ def check_local_links(db: sqlite3.Connection = Depends(get_db),
 def get_local_file(path: str,
                    config: Config = Depends(get_config)) -> Response:
     root, candidate, rel = _locate(config, path)
-    stub = candidate.parent / f".{candidate.name}.icloud"
-    if not candidate.exists() and stub.is_file() and is_within(root, stub.resolve()):
+    if _is_evicted(root, candidate):
         _request_download(candidate)
         return JSONResponse(
             status_code=503, headers={"Retry-After": "5"},

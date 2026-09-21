@@ -1,4 +1,5 @@
 import os
+import sqlite3
 from dataclasses import replace
 
 from fastapi.testclient import TestClient
@@ -70,3 +71,44 @@ def test_disabled_when_root_unset(client):
 def test_requires_auth(seeded_config, local_root):
     anon = TestClient(create_app(replace(seeded_config, local_docs_root=local_root)))
     assert anon.get("/api/local/Papers/ML/Title%20one.pdf").status_code == 401
+
+
+def _seed_local_links(db_path):
+    con = sqlite3.connect(db_path)
+    rows = [
+        ("uid_l1", 1, None, 10, "Local copy:: [Title one.pdf](/api/local/Papers/ML/Title%20one.pdf)"),
+        ("uid_l2", 1, None, 11, "Local copy:: [x.pdf](/api/local/Papers/ML/nope.pdf)"),
+        ("uid_l3", 2, None, 10, "see /api/local/Papers/Gone.pdf and [bad](/api/local/../etc)"),
+        ("uid_l4", 2, None, 11, "no local links here"),
+    ]
+    con.executemany(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text, heading,"
+        " collapsed, created_at, updated_at) VALUES (?,?,?,?,?,NULL,0,NULL,NULL)", rows)
+    con.commit()
+    con.close()
+
+
+def test_check_classifies_every_href(local_client, seeded_config, local_root):
+    _seed_local_links(seeded_config.db_path)
+    r = local_client.get("/api/local/check")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["enabled"] is True
+    assert body["total"] == 4          # four distinct hrefs across blocks
+    assert body["ok"] == 1
+    assert sorted((p["uid"], p["status"]) for p in body["problems"]) == [
+        ("uid_l2", "missing"), ("uid_l3", "evicted"), ("uid_l3", "invalid")]
+    by_uid = {(p["uid"], p["status"]): p for p in body["problems"]}
+    assert by_uid[("uid_l2", "missing")]["page"] == "Machine Learning"
+    assert by_uid[("uid_l3", "evicted")]["href"] == "/api/local/Papers/Gone.pdf"
+
+
+def test_check_disabled_when_root_unset(client):
+    r = client.get("/api/local/check")
+    assert r.status_code == 200
+    assert r.json() == {"enabled": False, "total": 0, "ok": 0, "problems": []}
+
+
+def test_check_wins_over_a_file_named_check(local_client, local_root):
+    (local_root / "check").write_bytes(b"x")
+    assert local_client.get("/api/local/check").json()["enabled"] is True

@@ -12,17 +12,20 @@ the next click usually succeeds."""
 from __future__ import annotations
 
 import logging
+import sqlite3
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse
 
-from pkm.local_docs import (disposition_for, is_within, media_type_for,
-                            resolve_relative)
+from pkm.contracts.responses import LocalCheckPayload, LocalCheckProblem
+from pkm.local_docs import (LOCAL_PREFIX, disposition_for, extract_local_hrefs,
+                            is_within, media_type_for, resolve_relative)
 from pkm.server.auth import require_auth
 from pkm.server.config import Config
-from pkm.server.db import get_config
+from pkm.server.db import get_config, get_db
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 logger = logging.getLogger("pkm.local")
@@ -49,6 +52,43 @@ def _locate(config: Config, url_path: str) -> tuple[Path, Path, str]:
         raise _NOT_FOUND
     root = config.local_docs_root.resolve()
     return root, root / rel, rel
+
+
+def _classify(root: Path, href: str) -> Literal["ok", "missing", "evicted", "invalid"]:
+    rel = resolve_relative(href[len(LOCAL_PREFIX):])
+    if rel is None:
+        return "invalid"
+    candidate = root / rel
+    resolved = candidate.resolve()
+    if is_within(root, resolved) and resolved.is_file():
+        return "ok"
+    stub = candidate.parent / f".{candidate.name}.icloud"
+    if stub.is_file():
+        return "evicted"
+    return "missing"
+
+
+@router.get("/api/local/check", response_model=LocalCheckPayload)
+def check_local_links(db: sqlite3.Connection = Depends(get_db),
+                      config: Config = Depends(get_config)) -> LocalCheckPayload:
+    if config.local_docs_root is None:
+        return LocalCheckPayload(enabled=False, total=0, ok=0, problems=[])
+    root = config.local_docs_root.resolve()
+    rows = db.execute(
+        "SELECT b.uid, p.title, b.text FROM blocks b JOIN pages p ON p.id = b.page_id"
+        " WHERE instr(b.text, ?) > 0 ORDER BY p.title, b.uid", (LOCAL_PREFIX,)).fetchall()
+    total = ok = 0
+    problems: list[LocalCheckProblem] = []
+    for uid, title, text in rows:
+        for href in extract_local_hrefs(text):
+            total += 1
+            status = _classify(root, href)
+            if status == "ok":
+                ok += 1
+            else:
+                problems.append(LocalCheckProblem(
+                    uid=uid, page=title, href=href, status=status))
+    return LocalCheckPayload(enabled=True, total=total, ok=ok, problems=problems)
 
 
 @router.get("/api/local/{path:path}")

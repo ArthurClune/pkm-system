@@ -600,6 +600,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/local/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Check Local Links */
+        get: operations["check_local_links_api_local_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/local/{path}": {
         parameters: {
             query?: never;
@@ -1207,6 +1224,36 @@ export interface components {
             block_ref_counts: {
                 [key: string]: number;
             };
+        };
+        /**
+         * LocalCheckPayload
+         * @description GET /api/local/check: every /api/local/ href found in block text,
+         *     classified against the disk. `enabled` is False when no
+         *     local_docs_root is configured.
+         */
+        LocalCheckPayload: {
+            /** Enabled */
+            enabled: boolean;
+            /** Total */
+            total: number;
+            /** Ok */
+            ok: number;
+            /** Problems */
+            problems: components["schemas"]["LocalCheckProblem"][];
+        };
+        /** LocalCheckProblem */
+        LocalCheckProblem: {
+            /** Uid */
+            uid: string;
+            /** Page */
+            page: string;
+            /** Href */
+            href: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "missing" | "evicted" | "invalid";
         };
         /** LoginBody */
         LoginBody: {
@@ -2540,6 +2587,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_local_links_api_local_check_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalCheckPayload"];
                 };
             };
         };

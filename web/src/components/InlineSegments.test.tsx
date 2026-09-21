@@ -209,3 +209,25 @@ it("dispatches math segments to MathSpan and renders KaTeX output", async () => 
   expect(container.textContent).toBe("$$x^2$$"); // loading fallback
   await waitFor(() => expect(container.querySelector(".katex")).not.toBeNull());
 });
+
+it("renders pdf embeds for /api/local/*.pdf links and plain anchors for other local files", async () => {
+  renderText(
+    "Local copy:: [Title.pdf](/api/local/Papers/Machine%20Learning/Title.pdf) " +
+    "[bundle.zip](/api/local/Papers/bundle.zip)");
+  expect(screen.getByRole("link", { name: "Title.pdf" }))
+    .toHaveAttribute("href", "/api/local/Papers/Machine%20Learning/Title.pdf");
+  await waitFor(() =>
+    expect(screen.getByTestId("pdf-viewer"))
+      .toHaveAttribute("data-href", "/api/local/Papers/Machine%20Learning/Title.pdf"));
+  const zip = screen.getByRole("link", { name: "bundle.zip" });
+  expect(zip).toHaveAttribute("href", "/api/local/Papers/bundle.zip");
+  expect(zip).toHaveAttribute("target", "_blank");
+  // getByText only checks a node's direct text children, so it lands on the
+  // inner page-link <a>, not the wrapping span -- assert via the ancestor.
+  expect(screen.getByText("Local copy").closest(".attribute")).not.toBeNull();
+});
+
+it("does not treat a query-string pdf as an embed", () => {
+  renderText("[x](/api/local/Papers/a.pdf?dl=1)");
+  expect(screen.queryByTestId("pdf-viewer")).toBeNull();
+});

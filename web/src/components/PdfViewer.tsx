@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Document, Page, pdfjs } from "react-pdf";
 import { PdfFallbackLink } from "./PdfFallbackLink";
-import { currentPageFromRatios, focusWrapTarget, mountedPageWindow,
+import { currentPageFromRatios, failureNote, focusWrapTarget, mountedPageWindow,
          placeholderHeight, retainPages } from "./pdfViewerCore";
 
 /** How many pages either side of one the mount observer reports near the
@@ -176,7 +176,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1
 export function PdfViewer({ href, label, onClose }:
     { href: string; label: string; onClose?: () => void }) {
   const [doc, setDoc] = useState<DocState | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -202,7 +202,7 @@ export function PdfViewer({ href, label, onClose }:
     prevHrefRef.current = href;
     genRef.current += 1;
     setDoc(null);
-    setFailed(false);
+    setFailure(null);
     setExpanded(false);
     setCurrentPage(1);
   }
@@ -269,9 +269,9 @@ export function PdfViewer({ href, label, onClose }:
     );
   };
 
-  const onLoadError = () => {
+  const onLoadError = (err: unknown) => {
     if (gen !== genRef.current) return; // stale: href moved on before this load failed
-    setFailed(true);
+    setFailure(failureNote(err));
   };
 
   if (onClose !== undefined) {
@@ -296,8 +296,8 @@ export function PdfViewer({ href, label, onClose }:
             Close
           </button>
         </div>
-        {failed ? (
-          <PdfFallbackLink href={href} label={label} note="Couldn't render this PDF." />
+        {failure !== null ? (
+          <PdfFallbackLink href={href} label={label} note={failure} />
         ) : (
           <Document
             file={href}
@@ -320,8 +320,8 @@ export function PdfViewer({ href, label, onClose }:
     );
   }
 
-  if (failed) {
-    return <PdfFallbackLink href={href} label={label} note="Couldn't render this PDF." />;
+  if (failure !== null) {
+    return <PdfFallbackLink href={href} label={label} note={failure} />;
   }
 
   return (

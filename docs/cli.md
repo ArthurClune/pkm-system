@@ -136,11 +136,10 @@ absolute path to the repository's `server/` directory:
 
 Run `pkm login` once first. The MCP server reads the same config file.
 
-It exposes twelve tools mirroring the CLI: `get_page`, `get_block`,
-`search`, `query`, `backlinks`, `todos`, `search_assets`, `save_note`,
-`update_block`, `batch` (same command format as `pkm batch`), `upload_asset`
-and `rename_page`. Reads return markdown annotated with `^uid` markers that
-the write tools accept.
+The tools mirror the CLI, one per verb, and are listed in
+[architecture/cli-and-mcp.md](architecture/cli-and-mcp.md#the-mcp-tool-surface);
+`batch` takes the same command format as `pkm batch`. Reads return markdown
+annotated with `^uid` markers that the write tools accept.
 
 ## One-time title canonicalization
 

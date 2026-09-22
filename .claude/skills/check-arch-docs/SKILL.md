@@ -1,6 +1,6 @@
 ---
 name: check-arch-docs
-description: Use when asked to re-check or audit docs/architecture/ for drift — inline bean references creeping back into prose, incident stories outside symptom tables, emphasis inflation — or before merging a branch that reworked those docs.
+description: Use when asked to re-check or audit docs/architecture/ for drift — inline bean references creeping back into prose, incident stories outside docs/troubleshooting.md, emphasis inflation — or before merging a branch that reworked those docs.
 ---
 
 # Check architecture docs
@@ -20,12 +20,14 @@ this check enforces; this file only sequences the audit.
    rows, linked spec filenames) live in the script, nowhere else:
 
    ```bash
-   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/*.md
+   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/*.md docs/troubleshooting.md
    ```
 
    A flagged bean id is a provenance tag — drop the tag, keep the sentence.
    If the sentence only exists to name the bean, it is an incident: move it
-   to the doc's symptom table or delete it.
+   to `docs/troubleshooting.md` or delete it. Also grep the directory for a
+   `## When something looks wrong` heading; one creeping back in is the same
+   regression.
 
 2. **Judgment review** — find the last re-check
    (`git log --oneline --grep=re-check -i -- docs/architecture/`, or the
@@ -49,7 +51,7 @@ this check enforces; this file only sequences the audit.
 
 | Match | Why it stays |
 |---|---|
-| Bean id in a symptom table's Ref column | that column is its designated home |
+| Bean id in the Ref column of `docs/troubleshooting.md` | that column is its designated home |
 | Bean id inside a linked spec/plan filename | filenames are identifiers, not provenance |
 | `pkm-replica`, `pkm-specific`, other product uses of "pkm-" | not bean ids — the id shape ends at a word boundary, so they never match; a genuine new false positive means extending `checkBeans` in check-docs.mjs, not ignoring the failure |
 | A "Known gap" paragraph describing a current, deliberate gap | the gap is an invariant; only the bean tag on it was provenance |

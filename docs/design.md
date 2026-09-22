@@ -55,7 +55,7 @@ the full trade-off discussion.
 | Embedded assistant | Server-side LLM harness (Claude Agent SDK) confined to the twelve `pkm-mcp` verbs; floating chat panel with SSE streaming and confirm-gated writes. | [Spec](superpowers/specs/2026-07-26-pkm-wn2s-assistant-design.md) · [plan](superpowers/plans/2026-07-26-pkm-wn2s-assistant.md) |
 | Offline & PWA | Server: append-only change journal + snapshot/changes feed with a generation token; batch-id dedup on `/api/ops`; base-text-hash conflict copies. Client: sqlite-wasm replica (worker + OPFS), durable op queue with optimistic apply, offline API shim (parity-pinned against the server), FTS search, service-worker app shell + asset runtime cache. | [Offline design](superpowers/specs/2026-07-12-offline-editing-design.md) · [server plan](superpowers/plans/2026-07-12-offline-sync-server.md) · [web plan](superpowers/plans/2026-07-13-offline-sync-web.md) |
 
-## Load-bearing decisions
+## Key decisions
 
 - **Block text is stored unmodified** (Roam-flavoured markdown, literal
   `[[links]]` / `#tags` / `Attr::` / `{{[[query]]}}`). Everything else —
@@ -128,7 +128,7 @@ Functional-Core boundaries as features landed. The `pkm-c1cg` hardening epic
 authoritative details, rejected alternatives, and the error-handling invariants
 live in the
 **[web architecture & FCIS hardening design](superpowers/specs/2026-07-15-web-architecture-fcis-hardening-design.md)**;
-the load-bearing shape:
+the shape:
 
 - **Queue, RPC, and worker lifecycle** (`web/src/sync/opQueue.ts`,
   `web/src/replica/rpc.ts`, `web/src/replica/client.ts`). `OpQueue.enqueue()`

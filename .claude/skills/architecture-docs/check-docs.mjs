@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Checks for an architecture-doc revision. Run from the repo root:
 //
-//   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/frontend.md
+//   node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/frontend.md docs/troubleshooting.md
 //
 // Five things, none of which a read-through reliably catches:
 //
@@ -19,7 +19,7 @@
 //                 names are printed for judgement, not failed on: rewording
 //                 `foo()` to `foo` shows up here too.
 //  5. beans     — bean ids (pkm-xxxx) in prose. Their one home is the Ref
-//                 column of a "When something looks wrong" table; in prose
+//                 column of docs/troubleshooting.md; in architecture prose
 //                 they are provenance tags every rebalance pass has had to
 //                 strip again.
 //
@@ -186,7 +186,7 @@ function checkNames(file, text, before) {
 
 // ------------------------------------------------------------------ beans ---
 
-// Table rows (the Ref column's home) and linked spec/plan filenames are the
+// Table rows (troubleshooting.md's Ref column) and linked spec/plan filenames are the
 // legitimate places a bean id appears. Product names like `pkm-replica` and
 // `pkm-specific` never match: the id shape ends at a word boundary four
 // characters in. Code blocks are blanked line-for-line so numbers stay right.
@@ -200,10 +200,10 @@ function checkBeans(file, text) {
     if (/superpowers\/(specs|plans)\//.test(line)) return;
     for (const m of line.matchAll(/\bpkm-[a-z0-9]{4}\b/g)) {
       found += 1;
-      fail(`${file}:${i + 1} bean id in prose (${m[0]}) — its home is the symptom table's Ref column`);
+      fail(`${file}:${i + 1} bean id in prose (${m[0]}) — its home is the Ref column of docs/troubleshooting.md`);
     }
   });
-  if (found === 0) ok(`${file} beans (none outside symptom tables)`);
+  if (found === 0) ok(`${file} beans (none in prose)`);
 }
 
 // ------------------------------------------------------------------- main ---

@@ -16,7 +16,9 @@ real-time-synced Roam-style outliner. Two things shape almost every file:
 
 See [overview.md](overview.md) for the system picture and
 [sync-and-offline.md](sync-and-offline.md) for the sync engine and replica in
-depth — this doc covers them only from the UI side.
+depth. The outline editor is [frontend-editor.md](frontend-editor.md) and the
+read path is [frontend-rendering.md](frontend-rendering.md). Failures and their
+fixes are indexed by symptom in [troubleshooting.md](../troubleshooting.md).
 
 ## Tech stack
 
@@ -69,13 +71,13 @@ web/src/
 │   ├── typedClient.ts        Shell        apiGet/apiPost/…, typed by the OpenAPI paths
 │   └── openapi.json, types.d.ts (generated); ops.ts, payloads.ts (type-only re-exports)
 │
-├── grammar/                  Roam-markdown parsing (see Rendering pipeline)
+├── grammar/                  Roam-markdown parsing (see frontend-rendering.md)
 │   ├── scan.ts               Core         THE scanner; mirrors server refs.py,
 │   │                                      fixture-pinned
 │   ├── tokenize.ts           Core         Token stream → BlockSegment[] for rendering
 │   └── refs.ts, todo.ts, snippet.ts, markdown.ts, linkReference.ts — Core adapters
 │
-├── outline/                  The editor engine (see The editor)
+├── outline/                  The editor engine (see frontend-editor.md)
 │   ├── handlers.ts           —            OutlineHandlers, the command port (types only)
 │   ├── outlineState.ts       Core         transitionOutline — the session reducer
 │   ├── tree.ts               Core         applyOps; mirrors the server's op semantics
@@ -88,7 +90,7 @@ web/src/
 │   ├── blockStamps.ts        Core         Stamp bands; which ops count as a change
 │   ├── baseTextHash.ts       Core         Stamps update_text ops at build time
 │   ├── textareaHeight.ts     Core         Auto-grow reset/write decisions (JS fallback)
-│   ├── missingPage.ts        Core         The missing-page policy (see State management)
+│   ├── missingPage.ts        Core         The missing-page policy (see frontend-editor.md)
 │   ├── useOutline.ts         Shell        Implements OutlineHandlers
 │   ├── loadOutlineBlocks.ts  Shell        The one blocks-only page read behind every
 │   │                                      registered authoritative loader
@@ -165,18 +167,14 @@ web/src/
 
 ### External links in the iOS standalone app
 
-An installed iOS/iPadOS home-screen app opens external links in the WKWebView
-in-app browser overlay, not Safari, and Apple ships no supported way to
-change that. `ExternalLinkInterceptor` (mounted in `App.tsx` next to `UndoRedoKeys`)
-works around it with a capture-phase `document` click listener. Only when
-`externalLink.ts`'s `isIosStandalone` predicate is true, it rewrites the
-click's navigation to the undocumented `x-safari-https://`/`x-safari-http://`
-scheme, which hands the URL to the real Safari app. This is a click-time interceptor, not an href rewrite:
-anchors keep their canonical `https://` hrefs everywhere (copy link, share,
-non-iOS browsers). The scheme is iOS 17+ and unrecognised on older iOS,
-where the tap becomes a no-op; the listener only attaches in iOS standalone,
-so it is otherwise inert. Nothing else in the codebase references the
-`x-safari-` prefix, so it is not dead code to clean up.
+An installed iOS/iPadOS home-screen app opens external links in the in-app
+WKWebView overlay, and Apple offers no supported way to change that.
+`ExternalLinkInterceptor` (mounted in `App.tsx` next to `UndoRedoKeys`)
+attaches a capture-phase `document` click listener only when
+`externalLink.ts`'s `isIosStandalone` predicate holds. It rewrites the click's
+navigation to the undocumented `x-safari-https://`/`x-safari-http://` scheme,
+which hands the URL to the real Safari app. Hrefs stay canonical `https://`, so
+copy link, share and every other browser are unaffected.
 
 ## Views and navigation
 
@@ -198,8 +196,7 @@ There are seven routes:
 static route. Three places read it: `App.tsx`'s `<Routes>` and `NavLink`s,
 TopBar's label and page-action-menu gating, and `useRouteTitle.ts` — the
 single route-aware `document.title` effect, called once from `App`. A route
-therefore cannot end up labelled in one place and not another, which is how
-`/files` and `/settings` once shipped with no top-bar label.
+therefore cannot end up labelled in one place and not another.
 
 `routeMetaFor` strips trailing slashes from non-root static paths before
 lookup, so a hand-typed `/files/` or `/settings/` still gets the canonical
@@ -211,10 +208,8 @@ once the page's title has loaded, which the pathname alone cannot give it.
 
 The left nav holds the pinned pages (server-persisted through `/api/sidebar`),
 then a rule-fenced block of app destinations — Assistant, Files, Settings —
-and the theme toggle.
-
-The right-hand sidebar is a session-only **stack**: shift-clicking any page
-link or ref pushes a `SidebarPanel` onto it.
+and the theme toggle. The right-hand sidebar is a session-only stack:
+shift-clicking any page link or ref pushes a `SidebarPanel` onto it.
 
 **No link in the left nav may leave shift-click to the browser.** react-router
 ignores modified clicks (`shouldProcessLinkClick` bails on `shiftKey`), so a
@@ -235,24 +230,19 @@ Four global keys, all in one `window` keydown listener in `App.tsx`:
 `Cmd/Ctrl+J` toggles the assistant panel, and `Ctrl+Shift+T` toggles the
 block-stamp column.
 
-- **The Ctrl+Shift family exists because the Cmd forms never arrive.** macOS
+- The Ctrl+Shift family exists because the Cmd forms never arrive. macOS
   reserves `Ctrl+Cmd+D` for dictionary lookup, and the browser owns `Cmd+T`
   (new tab) and `Shift+Cmd+T` (reopen closed tab). In each case the page
-  receives no keydown at all, so no handler can claim the chord. `Ctrl+Shift`
-  is the fallback both of these landed on; plain `Ctrl+letter` is not
-  available either, since `docs/keyboard.md` leaves the emacs-style bindings
-  to the browser. Both Ctrl+Shift chords carry a `!e.metaKey` guard so adding
-  Cmd doesn't also fire them.
-- **No test can tell you a chord is swallowed.** jsdom and Playwright both
-  deliver a synthetic keydown the real OS or browser would have eaten, so a
-  green suite says nothing about whether a new global chord reaches the page.
-  Confirm one by pressing it in the running app before merging. `Ctrl+Cmd+D`
-  shipped and had to be replaced for exactly this reason.
-- **These chords fire while a block is being edited**, because `BlockInput`
-  does not `stopPropagation` on keydown and the listener is on `window`.
-  Adding a propagation guard to the editor would silently break all four; the
-  `App.test.tsx` coverage fires `Ctrl+Shift+T` on the textarea rather than on
-  `window` to catch that.
+  receives no keydown at all, so no handler can claim the chord. Plain
+  `Ctrl+letter` is not available either, since [keyboard.md](../keyboard.md)
+  leaves the emacs-style bindings to the browser. Both Ctrl+Shift chords
+  carry a `!e.metaKey` guard so adding Cmd doesn't also fire them.
+- No test can tell you a chord is swallowed: jsdom and Playwright both deliver
+  a synthetic keydown the real OS or browser would have eaten. Confirm a new
+  global chord by pressing it in the running app before merging.
+- These chords fire while a block is being edited, because `BlockInput` does
+  not `stopPropagation` on keydown and the listener is on `window`. Adding a
+  propagation guard to the editor would break all four.
 
 `Ctrl+Shift+T`'s target is `blockStampsPref`, one global setting rather than a
 per-page one. It stays live off page routes too: pressing it on `/files`
@@ -260,7 +250,7 @@ takes effect on the next page opened, even though the page menu only offers
 the item on `/page/*`.
 
 The main pane and a sidebar panel can show *the same page at the same time*.
-That fact drives the outline-session design below.
+That fact drives the per-title outline sessions below.
 
 ### Popovers and menus
 
@@ -268,25 +258,24 @@ That fact drives the outline-session design below.
 `role="dialog"` on `.block-ref-popover`, `position: fixed` at its anchor
 point, measured after layout and clamped inside the viewport by
 `clampPopoverPosition`. An overflowing fixed element grows no scrollbar to
-recover it, so the clamp is the only thing keeping it reachable. Its one prop that is not
-chrome is `remeasure` — the caller's list of values whose change resizes the
-content, and so invalidates the clamp. A re-render the caller did not declare
+recover it, so the clamp is what keeps the surface reachable. Its one prop
+that is not chrome is `remeasure`: the caller's values whose change resizes the
+content and so invalidates the clamp. A re-render the caller did not declare
 there is not re-measured, so a popover cannot drift under the pointer.
 
 Both `Popover` and `BlockMenu` render through `createPortal` into
-`document.body`, never in place. Their coordinates are the viewport's, and
-`position: fixed` only resolves against the viewport while no ancestor
-imposes layout containment ([styling.md](styling.md) owns that invariant).
-The portal moves the DOM node, not the React node, so synthetic events still
-bubble to whatever rendered the surface — treat a portalled surface as an
-interactive island and stop its own clicks, as `PdfViewer`'s overlay does.
+`document.body`. Their coordinates are the viewport's, and `position: fixed`
+only resolves against the viewport while no ancestor imposes layout
+containment ([styling.md](styling.md) owns that invariant). The portal moves
+the DOM node, not the React node, so synthetic events still bubble to whatever
+rendered the surface — treat a portalled surface as an interactive island and
+stop its own clicks, as `PdfViewer`'s overlay does.
 
 `useDismiss(ref, onDismiss, options)` is the dismissal half on its own: a
 `mousedown` outside `ref`, or Escape, closes the surface. Both listeners sit
-on `document`. Mousedown rather than click, so the surface goes on press
-rather than waiting for a release that may never land over it; Escape at the
-document level, so dismissal still works once focus has left the surface.
-`enabled` is for a surface whose component stays mounted while closed;
+on `document`, so dismissal still works once focus has left the surface, and
+the surface goes on press rather than on a release that may never land over
+it. `enabled` is for a surface whose component stays mounted while closed;
 `preventDefaultOnEscape` for one that claims the keystroke outright.
 
 | Surface | Chrome | Dismissal |
@@ -297,11 +286,9 @@ document level, so dismissal still works once focus has left the surface.
 | `ConfirmDialog`, `ImageOverlay` | own modal markup | hand-rolled: `window` listener, Enter/Tab, scroll lock, focus restore |
 | `AutocompletePopup`, `DatePickerPopup` | own markup | none of their own — `BlockInput` owns their keys |
 
-**Hand-roll dismissal only for a modal surface, or one whose keys another
-component owns.** Modal here means it traps focus, locks page scrolling, or
-answers keys beyond Escape. The last two table rows are the standing examples
-of each case. Everything else takes the hook, so the app has one answer to
-what "outside" means.
+Hand-roll dismissal only for a modal surface, or one whose keys another
+component owns. **Modal** here means it traps focus, locks page scrolling, or
+answers keys beyond Escape.
 
 ### The `/files` browser
 
@@ -309,19 +296,19 @@ what "outside" means.
 filename and description, type, date range, linked/orphan), offset pagination,
 and multi-select for delete and zip export.
 
-Cards are interactive. An image thumb expands in the shared
-`ImageOverlay` (extracted from `AssetImage`). A PDF thumb opens `PdfViewer`
-in its overlay-only mode (the `onClose` prop) through the lazy `PdfEmbed`
-shim, so PDFs open in-app on every surface. Document and other thumbs stay
-plain new-tab anchors; the server serves those MIME types as
+Cards are interactive. An image thumb expands in the shared `ImageOverlay`
+(extracted from `AssetImage`). A PDF thumb opens `PdfViewer` in its
+overlay-only mode (the `onClose` prop) through the lazy `PdfEmbed` shim, so
+PDFs open in-app on every surface. Document and other thumbs stay plain
+new-tab anchors; the server serves those MIME types as
 `Content-Disposition: attachment`, so the browser downloads them instead of
-navigating. The refs and described/failed
-status badges open popovers (`views/FileCardPopovers.tsx`): the refs popover
-fetches block text through `GET /api/block-refs` — chunked at its 50-uid cap
-by `filesCore.refUidChunks` — and renders through `BacklinkGroupList`, the
-same single renderer the backlinks surfaces use. Media inside popover rows
-renders inert (`InertMediaContext`), so the whole row stays a click target.
-`orphan` and `pending` badges stay inert spans.
+navigating. The refs and described/failed status badges open popovers
+(`views/FileCardPopovers.tsx`): the refs popover fetches block text through
+`GET /api/block-refs` — chunked at its 50-uid cap by `filesCore.refUidChunks`
+— and renders through `BacklinkGroupList`, the single renderer every backlinks
+surface uses. Media inside popover rows renders inert (`InertMediaContext`),
+so the whole row stays a click target. `orphan` and `pending` badges stay
+inert spans.
 
 Pagination has two guards. A synchronous single-flight lock, alongside the
 disabled button state, stops a double click issuing two page requests; a
@@ -331,34 +318,9 @@ Its pure half, `views/filesCore.ts`, owns the typed query-object building,
 MIME categorisation, size formatting, confirm-text composition, the
 reference token a user can copy into a block, and the ref grouping behind
 the refs popover (`refGroups`, `refUidChunks`). `typedClient` serializes the
-query; the shell owns fetching, selection state and the download.
-
-The zip export is submitted as a throwaway hidden `<form method="post">`
-rather than a fetch, so the browser owns the download instead of the SPA
-buffering it.
-
-### Journal day references
-
-Journal days render their own linked references inline
-(`JournalDayReferences`), hidden when a day has none. This reuses
-`BacklinksSection` rather than adding a second renderer.
-
-The references arrive with the day, in `/api/journal`'s payload. Fetching them
-per day made a scroll of N days cost N `GET /api/page` reads, each one
-re-fetching blocks the journal payload had already delivered. Paging past the
-preview is still a page read, but that is a click rather than a scroll.
-
-A day already on screen keeps the reference list it first rendered:
-`BacklinksSection` snapshots `initial` into state, and a resync replaces the day
-objects in place under stable keys, so a day's new references appear on the next
-mount rather than in the running scroll. The "day has none" gate is live, since
-`JournalDayReferences` re-reads `total_pages` on every render.
-
-Nothing unmounts a loaded day. There is no virtualisation and no eviction, so
-whatever a day costs — a mounted outline, a `useDismiss` listener, a paint —
-is paid for every day scrolled past, for the life of the session. That is what
-makes per-render work in the outline worth chasing (scenarios `I` and `J` of
-the perf harness) and what a rendering-containment fix would have to beat.
+query; the shell owns fetching, selection state and the download. The zip
+export is submitted as a throwaway hidden `<form method="post">` rather than a
+fetch, so the browser owns the download instead of the SPA buffering it.
 
 ## State management
 
@@ -381,9 +343,14 @@ There is no Redux/Zustand; state lives in three layers:
    | `useSyncHealth()` | `status`, `replicaMode`, `pending`, `unsentInMemory`, `problem` | the socket flaps, or an op is queued or acknowledged |
 
    Views subscribe to the counter through `useResync(fn)` and refetch on each
-   bump. There is deliberately no whole-value hook. Tests inject a complete
-   `Sync` through `SyncContext`, which every hook prefers when set; the
-   provider itself publishes only the four slices.
+   bump. There is no whole-value hook. Tests inject a complete `Sync` through
+   `SyncContext`, which every hook prefers when set; the provider itself
+   publishes only the four slices.
+
+   A row is guarded the same way one layer down: `EditableBlock` (in
+   `EditableBlockTree.tsx`) is memoised behind props the tree holds stable, so
+   a parent re-render with unchanged props re-renders no row. A changed
+   context identity is what reaches a row instead.
 
    `pending` has exactly one publisher, the op queue: it suppresses a re-emit
    of a count that did not move, so a second writer of that state would turn
@@ -391,521 +358,15 @@ There is no Redux/Zustand; state lives in three layers:
    changes the durable queue behind the queue's back — a previous session's
    rows at mount, a write the offline shim enqueued inside the worker — calls
    `queue.refreshPending()` rather than reading the replica itself.
-3. **Per-title outline sessions** (`outline/outlineSessions.ts`) — the block
-   tree's home, and the most intricate module in the app. A module-level
-   `Map<title, Session>` external store hands every view of a title one
-   ref-counted session, sharing a flushed tree and a monotonic revision.
-   Exactly one view holds the **editor lease** and the others render
+3. **Per-title outline sessions** (`outline/outlineSessions.ts`) — a
+   module-level `Map<title, Session>` external store hands every view of a
+   title one ref-counted session, sharing a flushed tree and a monotonic
+   revision. Exactly one view holds the editor lease and the others render
    read-only, so the same page in the main pane and the sidebar cannot
-   double-edit. The session also tracks causality between optimistic writes
-   and authoritative reads: a fetched payload carries a `ReadToken` and is
-   adopted only if it is the newest request, the revision is unchanged, and
-   no relevant write ticket is unsettled. Otherwise it is retained and
-   reconsidered after settlement. The pure reducer behind it is
-   `outlineState.ts::transitionOutline`.
-
-Two machines the sessions drive sit beside that module rather than in it.
-`parentReadElection.ts` decides which surface starts a title's next
-full-payload parent read, and what a waiter is told when no read will ever
-arrive. `repairEpochs.ts` runs the post-settlement repair pass described in
-[sync-and-offline.md](sync-and-offline.md#what-the-queue-and-the-ui-do-with-it).
-Each reaches its sessions through one interface — `ParentReadHost`,
-`RepairTarget` — so both can be exercised without a session registry, and
-`outlineSessions.ts` keeps the registry, the editor lease, loader election and
-read causality.
-
-Driving a session correctly from a view is subtle, so the two **single-page**
-surfaces share one implementation of it: `outline/useOutlinePageLoad.ts`,
-used by `PageView` and `EditableSidebarPanel`. The hook owns the whole read
-lifecycle: one outstanding generation per mount, the parent readiness promise
-a `"parent"` read publishes through, the authoritative loader and parent read
-controller registered on the session, and the cleanup order at unmount. It
-returns just `{payload, error, reload}`. The two surfaces
-differ only in presentation and in where they scroll. A second copy of this
-controller is how they silently drifted apart before. Both must also mount
-`BlockRefProvider` (not the bare `BlockRefContext.Provider`) around the
-content they render from that payload, or `((uid))` refs typed on that
-surface never resolve until the surface remounts.
-
-The Journal is the third surface showing editable outlines, and does not use
-the hook: it loads many days in one batched `/api/journal` request and
-delivers each day's blocks through its own capture-ticket path.
-
-A session also starts reads nobody asked it for: after a write settles, when a
-remote cross-page move names a uid it does not hold, and once per session in a
-repair epoch. Those go through a loader the surfaces register on it, and
-several surfaces of one title are usually mounted at once — a page and its
-`EditablePage` child, a journal day and its child. `LOADER_PRECEDENCE`
-(`outlineSessions.ts`) picks between them by kind:
-
-| Kind | Registered by | Missing-page policy it applies |
-|---|---|---|
-| `page` | `useOutlinePageLoad` | the policy its surface was constructed with |
-| `day` | `Journal` | `substituteMissingDay` |
-| `editable` | `useOutline`, so every mounted `EditablePage` | `substituteMissingDaily` |
-
-The highest kind in that order wins, and the newest registration within a
-kind, so a remounted surface replaces its predecessor. Mount order is a
-temporal accident and must not decide which fetch a session performs.
-
-What a *failed* read means is a policy decision, not something each surface
-reimplements. The pure `outline/missingPage.ts::substituteMissingDaily` turns
-a 404 on a daily title into an empty editable page, because a daily nobody
-has written to yet is not an error anywhere it is displayed. The server
-auto-creates only today's daily; the first edit creates every other one's
-row. Every other missing page stays an error. `substituteMissingDay` is the
-same rule for a title `/api/journal` already named as a day, where the date
-check is redundant. Both the view's own read and its registered loader apply
-the policy through `outline/loadOutlineBlocks.ts`, because the loader — not
-the view-level guard — is what repair epochs and settlement reads hit.
-`reload("resync")` is how `PageView` answers a
-`resyncSeq` bump; the sidebar does not subscribe to resync.
-
-A repair epoch adopts the server's tree and then reapplies every write still
-unsettled for that title, so each tracked write carries a **replay**: the
-batch's own ops, or the `OutlineReplayAction` metadata the UI that did the
-local tree surgery captured through `attachOutlineReplay` (drag-and-drop
-supplies the moved subtree, which no wire op describes). Two paths announce a
-write to a session: `applyLocal` for an edit made here, and the delivery
-registry for one whose scope names this title. Both must state the replay. A
-write announced without one loses its edit at the next repair, and neither
-path can be assumed to run first — a ticket already relevant to the session
-keeps the replay it was recorded with.
-
-The block tree itself is the generated `BlockNode` shape (recursive
-`{uid, text, children[], order_idx, heading, collapsed, view_type}`). All
-mutations go through the pure `applyOps` (`outline/tree.ts`), which mirrors
-the server's op semantics — the same ops drive the screen, the replica, and
-the server.
-
-`applyOpsWithChange` is that same application plus a verdict on whether
-anything moved, and the verdict is exact: an op resolving to what the tree
-already held reports no change, so `false` means the returned tree is
-`blocksEqual` to the input. The websocket broadcasts every page's ops to every
-open outline, so the common batch is one this tree has nothing to do with:
-when no op names a uid it holds and none creates on this page, the whole batch
-is skipped before the clone and the input array is returned as-is.
-`transitionOutline` advances `revision` only for a
-batch that changed something, and for a remote batch returns the identical
-state object otherwise. A local batch always returns a new state object
-either way, since it must record the write ticket, but its `revision` is
-just as unmoved when nothing changed. `revision` is the field a re-render and
-a dispatched read's adoptability actually key on. A stamp counts as a
-change: `update_text` bumps
-`updated_at` whether or not the text differs, mirroring the server's
-`UpdateText`. A tree that arrives whole — a drag-and-drop result, a server
-read — has no ops to ask, so those paths reach the same verdict by comparing
-structurally with `blocksEqual`.
-
-## The editor
-
-**Textarea-based, not contenteditable.** Only the focused block is a live,
-auto-growing `<textarea>` holding raw markdown; every other block is
-rendered HTML (`EditableBlockTree` → `EditableBlock` → `BlockInput`, the last
-of these its own file). This is the central performance decision: a 500-block
-page is one textarea plus cheap static HTML.
-
-A keystroke batch re-renders every row, so each row's decisions have to be
-constant-time. The one that is not naturally: a table macro block shows its
-raw editable rows while focus sits anywhere inside it. `EditableBlockTree`
-walks `ancestorChain(blocks, focus.uid)` once at the root and passes the set
-down as `focusChain`, so the row-level test is a lookup instead of a walk of
-that row's own subtree.
-
-A `{{toc}}` block is the one row that must see past its own node: it lists
-the page's heading blocks, nested by nearest heading ancestor (`tocEntries`,
-Core). `EditableBlockTree` publishes its `blocks` through `RootBlocksContext`
-and only `TocBlock` reads it, so no other row's memo is disturbed. Nothing is
-stored; the list is re-derived on every render, which is what makes it live.
-Entries are router links to `#<uid>`, consumed by `useScrollFlashTarget` in
-`PageView` alone, so in the journal or a sidebar panel they do not scroll.
-Unlike a table, a toc's children stay ordinary rows.
-
-Rows with incoming `((uid))` references carry a count badge
-(`RefCountBadge`, between the text and the stamp cell). The counts arrive as
-`block_ref_counts` on the page/journal payloads and reach the tree as the
-`refCounts` prop — PageView and Journal pass it; sidebar panels stay bare,
-like `stamps`. Clicking the badge opens `BlockRefBacklinksPopover`, which
-fetches `GET /api/block/{uid}/backlinks` at open — the list is live truth
-while the badge count is payload-fresh, with no reconciliation between them.
-The popover renders through `BacklinkGroupList`, the one renderer for
-backlink-group markup, shared with `BacklinksSection` and the `/files` refs
-popover. Navigation is
-read-only-safe, so the badge and popover render in `fallback` trees too.
-Chrome, clamping and dismissal come from the shared `Popover` shell. The
-badge anchors at the right end of its row, which is what makes the clamp
-load-bearing here.
-
-**Which way the editor's dependencies point.** Everything the UI can ask the
-editor to do is the `OutlineHandlers` port in `outline/handlers.ts` — about
-thirty named callbacks (focus, draft, split/indent/move, selection, upload,
-paste, undo). `useOutline` implements it; `EditableBlockTree`,
-`EditableBlock` and `BlockInput` only call it. The port lives in `outline/`,
-not in a component, so the engine never imports a type from UI code. It stays
-a plain callback interface
-rather than a command union plus dispatcher, because every member is already
-a distinct, individually-typed operation — a union would add a second name
-and a switch case per member without removing one.
-
-No component holds block-tree state. The most any of them owns is
-`BlockInput`'s *draft* of one block's text, plus the transient popup offsets
-around it. `outline/useBlockDraft.ts` tracks the value, its dirty flag, IME
-composition, adoption of committed text over a clean draft, and caret
-restoration after a programmatic value swap. It also auto-grows the
-textarea. CSS `field-sizing: content` does this natively where supported.
-Elsewhere, a JS fallback resets the height to `auto` only when
-`textareaHeight.ts::mayHaveShrunk` says the content might be shorter, and
-writes the measured height only when it changed.
-
-```mermaid
-flowchart LR
-    K[Keystroke] --> KP["keyboardPolicy.decideEditorKey (Core)<br/>DOM + autocomplete state → semantic KeyDecision"]
-    KP -->|structural: Enter/Tab/move/…| OPS["edits.ts (Core) → ops"]
-    KP -->|plain typing| D["draft (debounced 500 ms)"]
-    D -->|flush| OPS
-    OPS --> S["outline session: optimistic applyOps (Core)"]
-    S --> Q["SyncProvider.enqueue → durable op queue"]
-    Q --> API["POST /api/ops"]
-```
-
-Editing mechanics to know before touching `outline/`:
-
-- **Draft vs key-edit paths.** Plain typing debounces into a draft
-  (`TEXT_DEBOUNCE_MS` = 500 ms). Structural edits, blur, undo, tab-hide, and
-  in-editor navigation (`onFlushDraft`) flush the draft first. Drafts are
-  *flush-held* while the caret sits inside a half-typed `[[ref` or `#tag`
-  token, so autosave cannot create a page from a partial title. Anything that
-  mutates text programmatically must ride this draft/key-edit path, and must
-  not poke the tree directly.
-- **A flush-held draft has no timer, so navigation is a commit point.** An
-  ordinary debounced draft survives an unmount: nothing cancels the pending
-  `setTimeout`, so it still fires and flushes after the outline is gone. A
-  *held* draft has no armed timer at all — its only exits are the explicit
-  commit points above — and React delivers no blur for a node it removes.
-  Two defences are needed, one per navigation trigger:
-
-  | Trigger | Defence |
-  |---|---|
-  | Navigation the editor never sees: App's global `Ctrl-Shift-D` chord, browser back/forward | `useOutline` flushes on unmount — unmount-only on purpose (the callback is held in a ref, not a dep), enqueuing into the durable op queue after the outline's session handle is already released. Nothing is left to render into, and durability is the queue's job anyway |
-  | Navigation the editor starts itself: `Ctrl-O`/`Ctrl-Shift-O` over a `[[ref]]` (`ensureRefPageThenOpen`) | Calls `handlers.onFlushDraft()` explicitly, before both `POST /api/pages` and the navigation — the flush is what creates the ref's page row through the normal ops path, so the unmount defence alone would race it |
-
-  Clicking a rendered ref is not affected: only unfocused blocks render
-  links, so reaching one blurs the textarea first. Tab hide, close and reload
-  are covered by the `visibilitychange` flush.
-- **Keyboard policy is a pure function.** `decideEditorKey` (a focused
-  block's textarea) and `decideSelectionKey` (a multi-block selection, keyed
-  by the tree container since there is no textarea) each return a semantic
-  decision that `EditableBlockTree.onKeyDown` and `BlockInput` execute. All
-  DOM effects stay in the shell. New shortcuts are added to one of these two
-  functions — Cmd-letter wraps go in `decideEditorKey`'s `META_WRAP_EDITS`
-  table — never as ad-hoc event handlers. The full shortcut list is owned by
-  [keyboard.md](../keyboard.md).
-- **A growing text selection escalates to a block selection at the block's
-  edge**, whether the caret is collapsed or a text selection can no longer
-  grow within the block. It must never fall through to the boundary-arrow
-  block-navigation branch instead, which would silently drop the selection.
-- **Creating, extending and copying a selection are read-only-safe; every
-  mutating branch is gated on `!readOnly`** — indent/outdent (Tab/Shift-Tab),
-  move (Shift+Cmd+Arrow), and delete (Backspace/Delete). `useOutline`'s
-  handlers do not re-check editability, so this gate is the only one. A
-  gated key resolves to `"none"`, which the
-  shell leaves **uncancelled** rather than calling `preventDefault`, so a
-  read-only Tab still moves focus out of the tree the way the platform
-  intends.
-- **The autocomplete popup is shared state, and its caret is read live.**
-  `outline/useAutocomplete.ts` holds the open completion context and the
-  highlighted row for both the outline editor's `BlockInput` and the phone
-  `Composer`. The pure detection and staleness rules are in
-  `outline/autocomplete.ts`, and which keys the popup may claim is
-  `keyboardPolicy.autocompleteKeyAction` — unmodified Arrow/Enter/Tab/Escape
-  only, so Cmd/Ctrl/Shift/Alt chords stay with the platform and the editor.
-
-  The invariant to protect: **no action ever uses a remembered caret.**
-  Context is detected on input, but clicks and selection-only caret moves
-  fire no input event. So every action path (keydown, click, mouse pick) goes
-  through `resolve(textarea)`, which re-derives the context from the live
-  selection, closes the popup when it no longer matches, and returns the
-  caret to splice at. A stale popup therefore claims nothing: Enter stays a
-  split, Tab stays an indent, and a completion cannot land at the offset the
-  caret has left.
-
-  The live caret is `selectionEnd`, both when a key-edit re-detects the
-  context and inside `resolve`. Wrapping a selection in `[[` keeps the inner
-  text selected, and that text is the query. `selectionStart` sits right
-  after the `[[` and would read as an empty query, so the popup would never
-  open. For a collapsed caret the two offsets are the same.
-
-  `resolve` must not be called from `keyup`. Both editors place the caret
-  after a key-edit inside a `requestAnimationFrame`, and keyup always lands
-  inside that window, where every context looks stale.
-- **Paste is opt-in structural, and the modifier is captured on keydown.**
-  Plain Cmd-V is always left native: it inserts text into the textarea and
-  nothing else. `Shift-Cmd-V` *arms* an outline paste. `paste.ts` (Core)
-  parses the clipboard into a forest by comparing indent widths ordinally
-  with a stack — 2-space, 4-space and tab clipboards all work unconfigured —
-  and plans the whole splice as one op batch.
-
-  The arm exists because `ClipboardEvent` carries no modifier state. The
-  chord is recorded in a ref on keydown, without `preventDefault` (or the
-  browser's own paste would never fire), and consumed by the next `paste`
-  event, which also requires the clipboard to actually have structure. One
-  arm serves exactly one paste. E2E tests must arm via a synthetic keydown:
-  pressing the real chord pastes whatever is on CI's clipboard.
-- **Slash commands** dispatch to block-type, heading and query constructors;
-  the full command list is in
-  [keyboard.md](../keyboard.md#slash-commands). `/date` opens
-  `DatePickerPopup` over the month grid computed by the pure `calendar.ts`
-  (Monday-first, whole weeks, adjacent-month days marked). Command labels are
-  lowercase by convention, and `slashCommandsDocumented.test.ts` fails if a
-  new command isn't documented there. `/upload` gives up the block before it
-  opens the picker: the pick strips the trigger, calls `onBlurBlock`, then
-  clicks the tree-owned file input. The block therefore renders read-only
-  while the dialog is open, and `onFiles` leaves focus alone on completion,
-  so the uploaded asset renders at once. Nothing on this path may depend on
-  the native dialog blurring the textarea itself. Whether it does is browser
-  behaviour, and it has changed under us.
-- **Remote edits vs local draft.** Authoritative text lands on the tree even
-  for the focused block, but the textarea keeps the local draft — per-block
-  last-write-wins, consistent with the server's model.
-- **The bullet is a button, and the block menu's only keyboard route.** The
-  `.bullet` span in `EditableBlockTree` carries `role="button"`,
-  `tabIndex={0}`, `aria-label="Open block menu"`, `aria-haspopup`,
-  `aria-expanded`, and an `onKeyDown` for Enter / Space / ContextMenu /
-  Shift-F10 alongside its click, contextmenu and drag handlers. Every
-  `onOpenMenu` call site is on that span, and `keyboardPolicy` has no menu
-  shortcut, so removing its tab stop removes keyboard access to Copy block
-  reference and the view modes entirely. Its focus styling is constrained
-  too — see
-  [styling.md](styling.md#focus-and-interactive-affordances).
-
-  In `EditableBlockTree` fallback mode (`fallback=true`), bullets are inert
-  spans with no role, tab stop, menu, focus, upload, selection or drag
-  handlers, and chevrons are disabled. The same renderer therefore displays
-  the live shared outline without a second editing implementation.
-- **`dragover` is coalesced; `preventDefault` is not.** `useDropZone` runs the
-  boundary and indicator geometry at most once per animation frame, and
-  measures each candidate row's rectangle at most once per drag. Rows do move
-  under a drag — a remote op, a late image load, a rewrap — so each cached
-  rect is kept against its row's uid and re-measured when that index comes to
-  mean a different row. A create and a delete in one remote batch leave the
-  row count unchanged, which is the case the uid catches and nothing else
-  would. Height changes alone are caught by neither, and are accepted as
-  stale for the rest of the drag. `preventDefault` and `dataTransfer.dropEffect` stay
-  synchronous on every event, because HTML5 DnD only honours them inside the
-  handler; a deferred one leaves the drop refused. Both are unconditional,
-  which is sound because `allowedDepths` never returns empty. A scroll does
-  move rows, and the cached tops are viewport-relative like the `clientY` they
-  are compared against. So the cache is thrown away and rebuilt rather than
-  shifted; `cacheIsUsable` (`dropGeometry.ts`, Core) states when one may be
-  reused at all. A drop resolves the last *processed* candidate rather than
-  the drop event's own coordinates, so a block lands where the indicator line
-  was drawn.
-- Phones get a bottom **Composer** (append-to-daily-note) instead of full
-  outline editing.
-
-**`set_collapsed` must not stamp.** `opBumpsUpdatedAt` (outline/blockStamps.ts)
-is the single statement of the rule that collapsing is a view toggle,
-not a change. `transitionOutline` uses it to decide which uids to stamp, and a
-test in `replica/localOps.test.ts` asserts the replica's own writes agree
-op-for-op — so the displayed date and the stored date cannot drift apart.
-
-## Rendering pipeline (read path)
-
-Block text is raw Roam-flavoured markdown; rendering is a two-stage pure
-pipeline feeding a component dispatcher:
-
-```mermaid
-flowchart LR
-    T["block text"] --> SC["grammar/scan.ts (Core)<br/>GrammarToken stream — the ONE scanner,<br/>mirrors server refs.py, fixture-pinned"]
-    SC --> TK["grammar/tokenize.ts (Core)<br/>BlockSegment[]"]
-    TK --> IS["components/InlineSegments.tsx (Shell)<br/>dispatch to renderers"]
-    IS --> R["page links · tags · block refs · attributes ·<br/>images · safe links · bold/italic/strike/highlight ·<br/>KaTeX math · code fences + mermaid · query blocks ·<br/>PDF embeds · TODO checkboxes · tables · table of contents · Bluesky embeds"]
-```
-
-- `scan.ts` is the single grammar authority on the client: balanced `[[...]]`
-  via an explicit stack, code spans blanked first. `tokenize.ts`, ref
-  extraction, TODO detection, autocomplete and slash commands are all thin
-  adapters over it. It is pinned to the Python parser by
-  `shared/fixtures/ref_grammar.json`.
-- Heavy renderers (KaTeX, beautiful-mermaid, Mermaid, pdf.js, highlight.js) are lazy-loaded
-  behind cached module-level `import()` promises, so they stay out of the
-  eager bundle. Their budgeted chunks are still precached, so they work
-  offline. `CodeBlock.tsx` caches each block's highlighted HTML in a bounded
-  module-level `Map` keyed on `(lang, code)`, so hljs runs on a given code
-  block only once. `tokenizeBlock` is fronted by the same bounded-clear
-  cache policy, keyed on raw block text, so re-rendering an unchanged block
-  is a `Map` lookup rather than a re-parse. `renderCache.ts`'s
-  `createBoundedCache` factory holds the same shape (a `Map`, cleared in
-  full at 2000 entries) for `MermaidDiagram.tsx` (rendered SVG, keyed on
-  `(effectiveTheme, code)`) and `MathSpan.tsx` (rendered HTML, keyed on
-  `(display, tex)`): mermaid layout is the most expensive synchronous
-  computation in the app, so a remount of an already-seen diagram or
-  expression (e.g. navigating away and back) is a cache lookup, never
-  awaiting the renderer's dynamic import. Only successful renders are
-  cached; an error is retried on the next mount rather than wedged in place.
-- `((uid))` texts reach a ref through two channels, and the split is what
-  keeps a resolve cheap. Payload texts (a page's `block_ref_texts`, plus a
-  nested `BacklinksSection`'s overlay) ride `BlockRefContext`, which changes
-  only when a payload does. `BlockRefProvider`'s on-demand fetches go into
-  `blockRefStore.ts` instead — a uid-keyed `Map` with per-uid listener sets —
-  and `useBlockRefText` reads it through `useSyncExternalStore`, subscribed
-  to the one uid it renders. So a resolved batch wakes only the refs it
-  resolved rather than every `((uid))` on the page. Payload wins over
-  fetched. The store's `claimRequest` is the fetch-once guard, and it retains
-  claims only for uids the server could not resolve, since a ref holding a
-  text stops asking.
-- Every remote element inline content can emit carries `loading="lazy"`:
-  `AssetImage`, the `/files` grid, and `BlueskyEmbed`'s cross-origin iframe.
-  A page of Bluesky embeds would otherwise open one document per embed on
-  mount, each running the embed page's own scripts. `BlueskyEmbed` still
-  learns its height from the embed page's `postMessage` whenever the iframe
-  does load.
-- Link hrefs are sanitized (`isSafeHref` rejects `javascript:` and
-  protocol-relative URLs); Mermaid runs in strict mode.
-- Diagrams render through beautiful-mermaid first (ELK layout; the chunk is
-  named by the `beautifulMermaid.ts` re-export barrel). Any render failure
-  falls back silently to stock mermaid. That fallback is what keeps diagram
-  families beautiful-mermaid lacks (gantt, pie, mindmap, ...) working --
-  don't "simplify" the second renderer away. Both fail -> the raw-source
-  error block. `mermaidTheme.ts` maps the design tokens onto each renderer's
-  theming surface (`beautifulMermaidOptions` / base-theme `themeVariables`).
-  The beautiful-mermaid path re-resolves tokens and re-renders on theme
-  flips (`useEffectiveTheme`); the stock fallback keeps its historical
-  initialize-time snapshot. The stock fallback bakes its render-id argument
-  into the returned SVG's own `id` and looks that id up in `document` while
-  rendering, so two fallback diagrams mounting in the same commit must
-  render with distinct real ids or clobber each other's DOM lookup -- every
-  render still goes out with the instance's own id. Only the copy that gets
-  cached is normalised: on a successful render, the real id is substituted
-  for a fixed placeholder (`MERMAID_CACHE_RENDER_ID`) before it's stored, so
-  the cached SVG is id-independent, and each consumer substitutes its own id
-  back in on every use that reads from state -- hit or miss alike -- so two
-  diagrams on the same page never collide on one DOM id.
-- `InlineSegments.isPdfHref` decides which links get the in-app `PdfEmbed`
-  instead of a plain link: a path (no query string) under one of two
-  same-origin prefixes, `/assets/` or `/api/local/`, ending in `.pdf`. A
-  query string signals a download intent rather than an embed. Local
-  documents (`/api/local/`) get the embed in its **deferred** form: the
-  plain link plus an Open button, importing and fetching nothing until
-  clicked, because a page that lists dozens of `Local copy::` papers would
-  otherwise download and parse every one on render (and trigger an iCloud
-  download on the host for each evicted file). Uploaded `/assets/` PDFs keep
-  the inline auto-load. A local
-  document's PDF fails to load with a 503 when the host hasn't downloaded it
-  from iCloud yet; `pdfViewerCore.failureNote` turns that specific status
-  into "Not downloaded on the host." instead of the generic PDF-render
-  failure message.
-- `PdfViewer` guards its load/reset race with a generation counter. When
-  `href` changes it resets `doc`/`failure`/`expanded`/`currentPage` and bumps
-  the counter **synchronously during render**, not in an effect, and every
-  load callback compares its captured generation before writing state. An
-  effect would be too late: effects fire child-before-parent, so a `Document`
-  child that resolves synchronously can call `onLoadSuccess` before the
-  parent's reset effect runs.
-- `PdfViewer`'s inline `.pdf-frame` is layout-contained so it offers the
-  baseline-aligned block row no baseline of its own
-  ([styling.md](styling.md) owns the rule). Nothing `position: fixed` may
-  render inside the frame; the fullscreen overlay portals to `document.body`.
-- `PdfViewer` mounts a window of pages, not a growing set: the mount
-  observer's near-the-viewport pages plus `MOUNT_RADIUS` either side
-  (`mountedPageWindow`), so scrolling a long document end to end no longer
-  holds every rasterized canvas at once. An unmounted page drops out of
-  `rendered` too (`retainPages`), which puts its slot back to a
-  `placeholderHeight` estimate — without that the slot would be zero-height
-  and the scrollbar would collapse. The observer accumulates near-ness in a
-  ref, because a callback carries only the pages whose intersection changed,
-  and an empty near set is read as "no callback yet" rather than as a scroll
-  position.
-
-## Sync and offline (UI-side summary)
-
-The full protocol is in [sync-and-offline.md](sync-and-offline.md). What a
-frontend contributor needs day-to-day:
-
-- Edits are optimistic: apply to the outline session, enqueue to a durable
-  queue (`pending_ops` rows in the replica DB), deliver FIFO to
-  `POST /api/ops`. A `WriteTicket` distinguishes *persisted locally*
-  (`settled`) from *acknowledged by server* (`delivered`).
-- `api/client.ts::apiFetch` installs an **offline gateway**: when the socket
-  is down, or a live fetch throws, reads route to
-  `replica/localApi/router.ts` — TypeScript ports of the server's read routes
-  returning identical JSON (pinned by `shared/fixtures/shim_parity.json`).
-  Unshimmed routes throw `OfflineError`, and their UI says "online only".
-- Pages created offline get negative ids, remapped by
-  `replica/reconcile.ts` when the authoritative row arrives. When title
-  canonicalization activates, the same shell canonicalizes or merges padded
-  negative-id pages before pending replay, preserving their blocks, refs and
-  unchanged wire operations without leaving divergent padded pages.
-- `OfflineIndicator` renders both connectivity state and every *delivery
-  problem* `SyncProvider` raises (rejected batch, failed poison marking or
-  discovery, replica unavailable). The banner copy is deliberate — several
-  wordings encode what is and is not true of the user's unsent work — so it is
-  documented with the mechanisms that decide it, in
-  [sync-and-offline.md](sync-and-offline.md#the-replica-and-its-recovery-invariants),
-  not here. Change the copy there too.
-- The service worker (Workbox, configured in `vite.config.ts`) precaches the
-  app shell, sqlite wasm, the pdf.js worker and core KaTeX fonts,
-  runtime-caches `/assets/` (CacheFirst, 400-entry LRU), and never caches
-  `/api`.
-
-## The assistant panel
-
-`src/assistant/` is the UI for the server-side LLM assistant; the agent
-itself runs on the server (see
-[assistant-and-files.md](assistant-and-files.md#embedded-assistant-pkmassistant)). It is a floating
-chat panel, toggled with `Cmd/Ctrl+J` (Esc closes) or the "Assistant" sidebar
-entry.
-
-- The conversation is created lazily on the first message. The model dropdown
-  renders what `GET /api/assistant/models` offers — fetched on first panel
-  open, not app load — and locks once the conversation exists. `glm` only
-  appears when the server has a z.ai key; `sonnet` / `opus` / `haiku` are
-  the fallback if the fetch fails (retried on a later open). "New chat"
-  deletes the server-side conversation and resets. Conversations are
-  ephemeral: a reload loses them.
-- "New chat" is safe mid-turn. Each turn carries a generation counter, and
-  `newChat` bumps it before clearing state, so a superseded turn's SSE events
-  and finalizers are dropped instead of refilling the fresh transcript,
-  resetting its status, or re-raising its confirm card. It then aborts and
-  awaits that turn before `DELETE`ing the conversation, and a conversation
-  whose creation resolves after the bump is closed rather than adopted.
-  Abort-controller cleanup is identity-checked, so a newer turn stays
-  stoppable.
-- A turn streams over SSE. `client.ts::streamMessage` POSTs the message and
-  feeds the response body through `sse.ts` (a pure incremental frame parser)
-  into `useAssistant.ts`, which folds events into chat items: `text_delta`
-  appends to the running assistant bubble, `tool_started`/`tool_finished`
-  render tool-activity lines ("searching …"), and `confirm_request` shows an
-  Allow/Deny card with the write's ops preview. The tool call is held
-  server-side until answered.
-- The busy line is `phase` state, not a constant: it shows the server's
-  current phase label ("reasoning", "preparing save_note", "replying") or
-  "thinking…" before the first one, plus an elapsed clock
-  (`elapsed.ts::elapsedLabel`) ticking once a second while status is busy.
-  The clock restarts whenever the label changes, when a tool starts (the
-  tool's own line takes over), and on resuming from a confirm. A parked
-  approval is the user's silence; it must not inflate the next stretch's
-  elapsed display.
-- `streamMessage` also errors the turn if *nothing* arrives for 60s. The
-  server writes a keepalive comment frame every 15 idle seconds, so four
-  missed ones mean the link to the server is dead — a state a stalled fetch
-  stream never surfaces on its own. The error is deliberately not an
-  `AbortError`: `useAssistant` treats an `AbortError` after Stop as success.
-- Assistant bubbles render through the shared block grammar
-  (`tokenizeBlock` → `InlineSegments`), with `stripCaretBlockRefs`
-  (`assistant/normalizeRefs.ts`) applied to the raw text first. Tool output
-  labels blocks with trailing `^uid` markers and some models copy the caret
-  into their citations; the grammar rejects `((^uid))` on purpose, so the
-  fix lives here, not in `scan.ts`.
-- `sse.ts` drops any frame whose `event:` name is not one of the seven known
-  types. That is what makes the server's keepalive comment frames, sent every
-  15 idle seconds, invisible here. Keep it that way — but remember it also
-  silently drops any newly added server event type until `EVENT_TYPES`
-  learns the name.
-- `streamMessage` bypasses `apiFetch` (which consumes the body as JSON) but
-  replicates its 401 handling; the other assistant JSON calls use the typed
-  client helpers. The assistant is online-only — `/api/assistant/*` has no
-  offline shim.
+   double-edit. That store, its loader election (`parentReadElection.ts`), the
+   post-settlement repair pass (`repairEpochs.ts`) and the pure reducer behind
+   them (`outlineState.ts::transitionOutline`) are documented in
+   [frontend-editor.md](frontend-editor.md).
 
 ## API layer
 
@@ -929,15 +390,13 @@ from `api/client` except at raw transport seams.
 
 The typed client is a typing layer over `apiFetch`, not a second transport.
 It builds the same URL and calls `apiFetch`, so the offline gateway and error
-behaviour are identical. The difference is that it takes the **OpenAPI path
-template** rather than a built URL:
+behaviour are identical. The difference is that it takes the OpenAPI path
+template rather than a built URL:
 
     apiGet("/api/page/{title}", { path: { title } })
 
 That lets the generated `paths` table decide the path and query parameters,
-the JSON request body, and the response type. `apiFetch<T>`
-cannot do that: `T` is whatever the caller names, so an obsolete caller type
-or a wrong body still typechecks.
+the JSON request body, and the response type.
 
 Three raw `apiFetch` exceptions exist: the typed-client implementation
 itself, multipart upload in `sync/assets.ts`, and `SyncProvider.tsx`'s
@@ -951,34 +410,104 @@ slash-free by construction. Compile-time drift probes live in
 `api/typedClient.test.ts` — an expected-error directive that stops erroring
 fails the build, so the probes cannot rot.
 
+## Sync and offline (UI-side summary)
+
+The full protocol is in [sync-and-offline.md](sync-and-offline.md). What a
+frontend contributor needs day-to-day:
+
+- Edits are optimistic: apply to the outline session, enqueue to a durable
+  queue (`pending_ops` rows in the replica DB), deliver FIFO to
+  `POST /api/ops`. A `WriteTicket` distinguishes *persisted locally*
+  (`settled`) from *acknowledged by server* (`delivered`).
+- `api/client.ts::apiFetch` installs an **offline gateway**: when the socket
+  is down, or a live fetch throws, reads route to
+  `replica/localApi/router.ts` — TypeScript ports of the server's read routes
+  returning identical JSON (pinned by `shared/fixtures/shim_parity.json`).
+  Unshimmed routes throw `OfflineError`, and their UI says "online only".
+- Pages created offline get negative ids, remapped by
+  `replica/reconcile.ts` when the authoritative row arrives. When title
+  canonicalization activates, the same shell canonicalizes or merges padded
+  negative-id pages before pending replay, preserving their blocks, refs and
+  unchanged wire operations without leaving divergent padded pages.
+- `OfflineIndicator` renders both connectivity state and every *delivery
+  problem* `SyncProvider` raises (rejected batch, failed poison marking or
+  discovery, replica unavailable). Several banner wordings encode what is and
+  is not true of the user's unsent work, so they are documented with the
+  mechanisms that decide them, in
+  [sync-and-offline.md](sync-and-offline.md#the-replica-and-its-recovery-invariants).
+  Change the copy there too.
+- The service worker (Workbox, configured in `vite.config.ts`) precaches the
+  app shell, sqlite wasm, the pdf.js worker and core KaTeX fonts,
+  runtime-caches `/assets/` (CacheFirst, 400-entry LRU), and never caches
+  `/api`.
+
+## The editor and the rendering pipeline
+
+Two subsystems have their own docs:
+
+- [frontend-editor.md](frontend-editor.md) — per-title outline sessions and
+  their read causality, the textarea editor and the `OutlineHandlers` port,
+  keyboard policy, block selection, autocomplete, outline paste, slash
+  commands, drag-and-drop, and the Journal's day references.
+- [frontend-rendering.md](frontend-rendering.md) — block text to DOM:
+  `grammar/scan.ts` as the single grammar authority, the bounded render
+  caches, `((uid))` resolution, mermaid, and the PDF embed and viewer.
+
+## The assistant panel
+
+`src/assistant/` is the UI for the server-side LLM assistant; the agent
+itself runs on the server (see [assistant.md](assistant.md)). It is a floating
+chat panel, toggled with `Cmd/Ctrl+J` (Esc closes) or the "Assistant" sidebar
+entry.
+
+- The conversation is created lazily on the first message. The model dropdown
+  renders what `GET /api/assistant/models` offers — fetched on first panel
+  open, not app load — and locks once the conversation exists. `glm` only
+  appears when the server has a z.ai key; `sonnet` / `opus` / `haiku` are the
+  fallback if the fetch fails (retried on a later open). Conversations are
+  ephemeral: a reload loses them.
+- "New chat" deletes the server-side conversation and resets, and is safe
+  mid-turn. Each turn carries a generation counter that `newChat` bumps before
+  clearing state, so a superseded turn's SSE events and finalizers are dropped
+  instead of reaching the fresh transcript.
+- A turn streams over SSE. `client.ts::streamMessage` POSTs the message and
+  feeds the response body through `sse.ts` (a pure incremental frame parser)
+  into `useAssistant.ts`, which folds events into chat items: `text_delta`
+  appends to the running assistant bubble, `tool_started`/`tool_finished`
+  render tool-activity lines ("searching …"), and `confirm_request` shows an
+  Allow/Deny card with the write's ops preview. The tool call is held
+  server-side until answered.
+- The busy line is `phase` state, not a constant: it shows the server's
+  current phase label ("reasoning", "preparing save_note", "replying") or
+  "thinking…" before the first one, plus an elapsed clock
+  (`elapsed.ts::elapsedLabel`) ticking once a second while status is busy.
+  The clock restarts whenever the label changes, when a tool starts, and on
+  resuming from a confirm, so a parked approval does not inflate the next
+  stretch's elapsed display.
+- `sse.ts` drops any frame whose `event:` name is not one of the seven known
+  types, which is what makes the server's keepalive comment frames — written
+  every 15 idle seconds — invisible here. It also silently drops any newly
+  added server event type until `EVENT_TYPES` learns the name.
+  `streamMessage` errors the turn if nothing at all arrives for 60 s, so four
+  missed keepalives mean the link to the server is dead. That error is not an
+  `AbortError`, because `useAssistant` treats one after Stop as success.
+- Assistant bubbles render through the shared block grammar
+  (`tokenizeBlock` → `InlineSegments`), with `stripCaretBlockRefs`
+  (`assistant/normalizeRefs.ts`) applied to the raw text first. Tool output
+  labels blocks with trailing `^uid` markers and some models copy the caret
+  into their citations; the grammar rejects `((^uid))`, so the fix lives here,
+  not in `scan.ts`.
+- `streamMessage` bypasses `apiFetch` (which consumes the body as JSON) but
+  replicates its 401 handling; the other assistant JSON calls use the typed
+  client helpers. The assistant is online-only — `/api/assistant/*` has no
+  offline shim.
+
 ## Styling
 
 Plain CSS in a single `src/styles.css` — no framework, no CSS-in-JS.
 The design tokens, control families, confirmation pattern and
-focus/affordance invariants are owned by [styling.md](styling.md), which
-also carries their symptom table. A new control opts into a named class
-there; nothing inherits a look silently.
-
-## When something looks wrong
-
-Each row is a failure this system has actually produced, and the invariant
-its fix installed. The bean has the full investigation.
-
-| Symptom | Cause | Ref |
-|---|---|---|
-| Scrolling the journal issues one `GET /api/page` per day on screen | each day fetched its own linked references; they now arrive with the day in `/api/journal`'s payload | pkm-5fak |
-| Shift-clicking a left-nav page link opens a second browser window instead of the sidebar | a bare `NavLink` let the browser's own shift-click run, since react-router ignores modified clicks; every left-nav link must go through `NavPageLink` or `NavRouteLink` | pkm-10ah |
-| Navigating to a freshly created `[[ref]]` with Ctrl-O/Ctrl-Shift-O leaves the source block empty, its typed text gone | the unmount-only draft flush raced `POST /api/pages`; `ensureRefPageThenOpen` must flush the draft explicitly before creating the page and navigating | pkm-hhbc |
-| Shift-Up/Down with a text selection active at a block's edge collapses the selection and jumps focus to the neighboring block | the boundary-arrow branch excluded Meta/Ctrl/Alt but not Shift, so a growing selection fell through to block navigation instead of escalating to a block selection | pkm-jgtn |
-| A multi-block selection made while editable stays deletable after the outline switches to read-only | Backspace/Delete invoked `onDeleteBlockSelection()` unconditionally; every mutating selection branch must gate on `!readOnly` | pkm-rckh |
-| After `/upload` the block stays a textarea and the image or document only appears once the cursor leaves the line | the path relied on the native file dialog blurring the textarea, and the browser stopped doing so; the `/upload` pick now blurs the block itself before opening the picker | pkm-zrjc |
-| The references popover renders clipped off the right window edge, and no scrollbar appears to reach it | its fixed position applied the badge anchor verbatim; the popover must clamp its measured rect into the viewport (`popoverPosition.ts`) | pkm-7iv7 |
-| An assistant reply shows a block citation as literal `((^uid))` text instead of a link | the model copied the `^uid` marker from tool output into the citation; `stripCaretBlockRefs` must run on assistant text before `tokenizeBlock` | pkm-wx86 |
-| Tapping a PDF in the iOS standalone PWA replaces the whole app with the PDF, with no way back | the `/files` PDF card was a same-origin `target="_blank"` anchor, which `ExternalLinkInterceptor` ignores; PDF cards must open the in-app `PdfViewer` overlay instead | pkm-5o11 |
-| A `((uid))` ref typed in a sidebar panel stays unresolved until the panel remounts | the sidebar mounted the bare `BlockRefContext.Provider`, so nothing watched for newly resolved texts; outline surfaces must mount `BlockRefProvider` | pkm-0one |
-| Typing on a big page burns a fifth of a CPU core, dominated by layout, not scripting | the textarea auto-grow reset height to `auto` and re-measured on every keystroke regardless of whether the content had grown or shrunk, forcing layout twice per character | pkm-youp |
-| One edit in the journal re-renders every row of every day on screen, with no DOM change to show for it | the Sync context was a single value, so a pending count made a new identity for every consumer; a consumer must take the narrowest hook it needs, and `EditableBlock` is memoised behind props the tree holds stable | pkm-qfee |
-| Selecting a word and typing `[[` wraps it as `[[word]]` but the ref popup never opens, while typing `[[wor` does | the key-edit path and `resolve` read `selectionStart`, which sits right after the `[[` and so saw an empty query; both must read `selectionEnd` | pkm-wxwp |
+focus/affordance invariants are owned by [styling.md](styling.md). A new
+control opts into a named class there; nothing inherits a look silently.
 
 ## Testing and quality gates
 
@@ -991,7 +520,7 @@ Playwright e2e against that build.**
   enforced (statements 95 / branches 91 / functions 89 / lines 95), with
   workers and generated files excluded. The pure cores are the payoff of the
   FCIS split: they test with no React, DOM, fetch, worker or SQLite mocks.
-- **E2E** (Playwright, `web/e2e/`): ~29 specs — editing, backlinks, math,
+- **E2E** (Playwright, `web/e2e/`): thirty specs — editing, backlinks, math,
   rename, undo, embeds, images, PDF, outline paste, slash dates, table of
   contents, journal
   references, the assistant, the `/files` browser, and two offline specs.
@@ -1000,10 +529,10 @@ Playwright e2e against that build.**
   polls the server's copy of a page, which is the reliable way to wait for a
   write before a reload. The server is launched by `playwright.config.ts`
   (`server/tests/e2e_serve.py`, port `E2E_PORT`, default 8975).
-- **Lint** (flat, type-aware ESLint): only two rule families, on purpose —
-  React Hooks correctness, and promise/error safety
-  (`no-floating-promises`, `no-misused-promises`, `only-throw-error`, unknown
-  catch variables). There are zero `eslint-disable` comments in `web/src`.
+- **Lint** (flat, type-aware ESLint): only two rule families — React Hooks
+  correctness, and promise/error safety (`no-floating-promises`,
+  `no-misused-promises`, `only-throw-error`, unknown catch variables). There
+  are zero `eslint-disable` comments in `web/src`.
 - **Budgets** (`web/tooling/budgets.json` + `viteBudgetPlugin.ts`): the build
   fails if the eager entry, largest asset, total output, service-worker
   precache, or the per-library owned bytes (mermaid/pdfjs/katex chunk

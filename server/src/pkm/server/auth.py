@@ -26,7 +26,7 @@ COOKIE_MAX_AGE = 365 * 24 * 3600
 # could run dozens of scrypt computations at once. This caps it process-wide.
 MAX_CONCURRENT_SCRYPT = 4
 # How long a request will wait for a scrypt slot before giving up. This
-# bound is load-bearing, not cosmetic: `login()` is a sync `def`, so
+# bound is what stops a login flood starving the app: `login()` is a sync `def`, so
 # FastAPI runs it in the shared worker-thread pool every other sync route
 # also uses. Without a timeout, an attacker just needs to open enough
 # concurrent connections to /api/login (zero scrypt cost -- they sit

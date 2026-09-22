@@ -4,7 +4,7 @@
 // plus whether startup's poison gate is still up — no I/O, so it is decided
 // here and executed by SyncProvider.
 //
-// Precedence is the order below and is load-bearing: a rejected batch whose
+// Precedence is the order below, and reordering it loses edits: a rejected batch whose
 // durable mark never landed must retry the MARK (never a repair over unmarked
 // rows), and a mark retry that happens while startup discovery is still gated
 // must continue startup with the marks it just got rather than resume delivery.

@@ -86,16 +86,16 @@ can always make requests, but still receive `401` without a valid cookie.
 These limitations are accepted for the current threat model, but should be
 revisited before broadening exposure.
 
-### Unlimited login attempts
+### Login throttling is per source, not per account
 
-The login endpoint has no throttling, exponential backoff, or temporary
-lockout. Scrypt makes each guess more expensive, but a weak password remains
-vulnerable to online guessing by any device that can reach the server. Use a
-strong, unique password.
-
-Adding lightweight login rate limiting is the highest-priority hardening
-improvement. Any per-client implementation must account for Tailscale Serve
-proxying requests rather than blindly trusting arbitrary forwarded headers.
+`LoginThrottle` (`server/auth.py`, policy in `throttle_core.py`) applies a
+per-source exponential backoff to failed logins (1 s doubling to a 30 s cap)
+and bounds concurrent scrypt work so a flood of connections cannot starve the
+worker-thread pool. The source is `request.client.host`, which behind
+Tailscale Serve is the proxy, so every tailnet client shares one backoff
+bucket and direct-IP clients get their own. There is no temporary lockout. Scrypt makes each guess expensive, but a weak
+password remains vulnerable to patient online guessing. Use a strong, unique
+password.
 
 ### Long-lived, non-revocable sessions
 
@@ -135,7 +135,7 @@ Internet, especially because login submits the password to that listener.
 
 If the threat model expands, make changes in this order:
 
-1. Add login rate limiting or exponential backoff.
+1. Add a temporary lockout on top of the per-source backoff.
 2. Centralize the authenticated router boundary and add an anonymous route
    contract test.
 3. Add logout, shorten the default session lifetime, and provide an explicit

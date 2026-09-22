@@ -1,10 +1,9 @@
 # Styling and theming (web/)
 
-All styling is plain CSS in a single file, `web/src/styles.css` — no
-framework, no CSS-in-JS. This doc owns the design tokens, the control
-families, the confirmation pattern, and the focus and affordance invariants;
-the SPA's structure around them is in [frontend.md](frontend.md). Failures and
-their fixes are indexed by symptom in [troubleshooting.md](../troubleshooting.md).
+All styling is plain CSS in a single file, `web/src/styles.css` — no framework,
+no CSS-in-JS. The SPA's structure around it is in [frontend.md](frontend.md);
+failures and their fixes are indexed by symptom in
+[troubleshooting.md](../troubleshooting.md).
 
 ## Tokens and theming
 
@@ -12,12 +11,17 @@ Design tokens are custom properties on `:root`: a color system
 (`--color-bg/-surface/-text*/-accent/-link/-tag/…`), a five-step radius
 scale, and `--hljs-*` code tokens.
 
-Page links are `--color-link` by default, but a `[[Tree/Page]]` ref can take
-a per-tree colour: `PageLink` stamps the lowercased prefix before the title's
-first `/` as `data-ns`, and `styles.css` maps a few prefixes onto four group
-tokens. Tags and attribute names never take a tree colour. Adding a tree is a
-stylesheet-only change (add the prefix to a group's selector list);
-`pageNamespace` does not know which trees are coloured.
+Theming is three-way: light by default, OS dark via
+`@media (prefers-color-scheme: dark)`, and an explicit `data-theme` override
+stamped on `<html>` by `useTheme.ts` (system → light → dark, persisted to
+localStorage). `color-scheme` is declared per theme; without it Chrome paints
+`select` and date widgets light whatever the CSS says.
+
+Page links are `--color-link`, but a `[[Tree/Page]]` ref can take a per-tree
+colour: `PageLink` stamps the lowercased prefix before the title's first `/` as
+`data-ns`, and `styles.css` maps a few prefixes onto four group tokens. Tags and
+attribute names never take a tree colour. Adding a tree is a stylesheet-only
+change; `pageNamespace` does not know which trees are coloured.
 
 | Token | Trees |
 |---|---|
@@ -26,8 +30,7 @@ stylesheet-only change (add the prefix to a group's selector list);
 | `--color-link-work` | project, uos |
 | `--color-link-reading` | paper, book, article |
 
-The radius steps are assigned by role; the table below and the comments in
-`styles.css` agree:
+Radius steps are assigned by role:
 
 | Token | Size | Used for |
 |---|---|---|
@@ -38,37 +41,24 @@ The radius steps are assigned by role; the table below and the comments in
 | `--radius-panel` | 8px | floating menus, dropdowns, the main pane |
 
 Block stamps add three band tokens — `--color-stamp-week`, `-month`, `-year`
-— declared in all three theme blocks, warm-for-fresh cooling toward neutral
-as material ages. The fourth band, `older`, has no token and no background
-rule, so it renders as plain text; `stampBand` still returns `"older"` and
-the row still carries a `.block-stamp-older` class. The three tints are solid
-fills, not alpha, so a band stays predictable over `.block-row:hover` and
-`.block-row.focused`. `.block-stamp` is the control class; below the 600px
-breakpoint the whole column is `display: none`.
+— declared in all three theme blocks. The fourth band has no token and no
+background rule, so `stampBand`'s `"older"` rows render as plain text under
+`.block-stamp-older`. The tints are solid fills, not alpha, so a band survives
+`.block-row:hover` and `.block-row.focused`. Below the 600px breakpoint the
+`.block-stamp` column is `display: none`.
 
-The stamp cell is `.block-row`'s last flex child — after `.block-text`, or
-after the focused block's textarea. `.block-children` indents from the left
-only, so every row shares a right edge and the cells form a true column at
-any nesting depth. Being a sibling of the textarea, not of the row, means
-focusing a block cannot shift it. The flag reaches it as a prop from
-`PageView` alone; `EditableBlockTree` must never read `BlockStampsContext`
+The stamp cell is `.block-row`'s last flex child and a sibling of the focused
+block's textarea, so focusing a block cannot shift it; `.block-children` indents
+from the left only, so the cells line up at any depth. The flag reaches it as a
+prop from `PageView`; `EditableBlockTree` must never read `BlockStampsContext`
 itself, or the journal scroll and sidebar panels would grow the column too.
 
-`.block-ref-badge` (the incoming-reference count) sits between `.block-text`
-and the stamp cell, rendered only on rows with a count, so it needs no empty
-placeholder. It is low-ink (`--color-text-muted` on `--color-bg-subtle`) so a
-stamp's tint stays the louder signal, and it must not join `.block-stamp`'s
-under-600px `display: none` — on touch it is the only route to the references
-popover. `.block-ref-popover` copies `.block-menu`'s surface (z-index 60,
-same border, shadow and `--radius-panel`); `styles.test.ts` pins the pair
-together.
-
-Theming is three-way: light by default, OS dark via
-`@media (prefers-color-scheme: dark)` (which works with zero JS), and an
-explicit `data-theme` override stamped on `<html>` by `useTheme.ts`
-(system → light → dark cycle, persisted to localStorage). `color-scheme` is
-declared per theme; without it Chrome paints `select` and date widgets light
-whatever the CSS says.
+`.block-ref-badge` (the incoming-reference count) sits between `.block-text` and
+the stamp cell, on rows with a count only. It is low-ink (`--color-text-muted`
+on `--color-bg-subtle`), and it must not join `.block-stamp`'s under-600px
+`display: none` — on touch it is the only route to the references popover.
+`.block-ref-popover` copies `.block-menu`'s surface (z-index 60, same border,
+shadow and `--radius-panel`), a pair `styles.test.ts` pins together.
 
 ## Two control families
 
@@ -77,30 +67,22 @@ Buttons and fields are styled by named class, and there is no bare
 
 - **Buttons** are pills (`--radius-pill`): `.btn-secondary` (bordered,
   `--color-bg-subtle`, hover to `--color-selected-bg`), `.btn-danger` (filled
-  `--color-error-fill`), and the quiet-until-hovered chrome trio
-  (`.top-bar-menu-button`, `.sidebar-toggle-button`, `.help-button`) whose
-  transparent border keeps hover from shifting layout. `.btn-secondary`
-  carries its own padding, so call sites add none. `.btn-danger` shares
-  `.btn-secondary`'s disabled treatment.
+  `--color-error-fill`, a fill-only token separate from the error text colour),
+  and the quiet-until-hovered chrome trio (`.top-bar-menu-button`,
+  `.sidebar-toggle-button`, `.help-button`) whose transparent border keeps hover
+  from shifting layout. `.btn-secondary` carries its own padding, so call sites
+  add none, and `.btn-danger` shares its disabled treatment.
 - **Fields** are `.input-control` (text inputs, selects, textareas) and
-  `.search-field` / `.search-field-input`. The latter is the top-bar search
-  look, extracted so `/files`' search is the same field as `Cmd-U`. The
-  resting fill is `--color-bg-subtle`, lifting to `--color-bg-surface` on
-  focus; per-call-site rules add geometry only.
+  `.search-field` / `.search-field-input`, the top-bar search look extracted so
+  `/files`' search is the same field as `Cmd-U`. The resting fill is
+  `--color-bg-subtle`, lifting to `--color-bg-surface` on focus; per-call-site
+  rules add geometry only. The colour exception is `.nav-sidebar-add input`,
+  which sits on `.left-nav`'s own `--color-bg-subtle` and so takes the surface
+  fill at rest.
 
-  Shared supporting and status copy in Files and Settings uses
-  `p.settings-note`. The `p` qualifier keeps `.settings-section p`
-  specificity, so the later shared rule can set the muted colour and tighter
-  top margin without undoing Settings' paragraph reset.
-
-  The one colour exception is `.nav-sidebar-add input`, the left nav's
-  `Add page…` field. It sits *on* `--color-bg-subtle` (`.left-nav`'s own
-  background), so it takes the surface fill at rest; otherwise only its
-  border would separate it from the nav. Its focus is then carried by the
-  border colour and the ring alone.
-
-`--color-error-fill` is a fill-only token, separate from the error text
-colour.
+Shared supporting and status copy in Files and Settings uses `p.settings-note`;
+the `p` qualifier keeps `.settings-section p` specificity, so the later shared
+rule can override Settings' paragraph reset.
 
 Menus keep two idioms apart:
 
@@ -113,37 +95,32 @@ Menus keep two idioms apart:
 An item whose state is in its text must not also claim `menuitemcheckbox`, or
 the label and the announced checked state say the same thing twice.
 `.top-bar-menu` items must keep `white-space: nowrap`: the menu shrink-to-fits
-inside a button-sized relative parent, so without it a two-word label wraps
-once the text outgrows the 160px `min-width`.
+inside a button-sized relative parent, so without it a two-word label wraps past
+the 160px `min-width`.
 
 `.block-input` (the outline editor's per-block textarea) sits outside this
 family: borderless and transparent, so a focused block reads as plain text
-rather than a form field. While `field-sizing: content` applies (the
-`@supports` block right after it), no code may set an inline `height` on it,
-or it would fight the browser's own auto-grow. `useBlockDraft.ts`'s
-`CSS.supports("field-sizing", "content")` check tests the identical
-declaration as that `@supports` condition, so the JS fallback height logic
-and the native resize can never disagree about which one owns the box.
+rather than a form field. While `field-sizing: content` applies, no code may set
+an inline `height` on it. `useBlockDraft.ts`'s
+`CSS.supports("field-sizing", "content")` check tests the identical declaration
+to the `@supports` condition, so the fallback height logic and the native resize
+never disagree about which one owns the box.
 
 ## Confirmations
 
 Every confirmation prompt goes through `useConfirm`
 (`web/src/components/ConfirmDialog.tsx`), which returns
-`{ confirm(message, options?): Promise<boolean>, dialog: ReactNode }`. There
-are no `window.confirm` call sites in `web/src`, and new ones must not appear:
-iPadOS Safari suppresses `window.confirm` in standalone (installed PWA) mode,
-which silently turns a guarded destructive action into either a no-op or an
-unguarded one, depending on what it returns.
+`{ confirm(message, options?): Promise<boolean>, dialog: ReactNode }`. No
+`window.confirm` call site may appear in `web/src`: iPadOS Safari suppresses it
+in standalone (installed PWA) mode, turning a guarded destructive action into a
+no-op or an unguarded one.
 
-The cost of the hook is that the owning component must render `dialog`
-somewhere in its tree, or `confirm()`'s promise never settles and the action
-hangs instead of prompting. Hooks that expose a confirm-backed handler
-therefore re-export `dialog` to their caller — `useOutline` does this for the
-large-selection delete prompt, and `EditablePage` renders it.
-
-`confirm()` is asynchronous, so remote sync batches can land while a dialog is
-open. Handlers must re-derive what they act on after the await rather than
-closing over uids captured before it.
+The owning component must render `dialog`, or `confirm()`'s promise never
+settles and the action hangs instead of prompting. A hook that exposes a
+confirm-backed handler therefore re-exports `dialog` to its caller, as
+`useOutline` does for the large-selection delete prompt that `EditablePage`
+renders. `confirm()` is asynchronous, so remote sync batches can land while a
+dialog is open: handlers re-derive what they act on after the await.
 
 ## Focus and interactive affordances
 
@@ -153,79 +130,63 @@ One ring, everywhere a control can be focused:
 :focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
 ```
 
-It is declared per component, next to that component's own rule, rather than
-as one grouped selector list; a grouped selector also defeats `ruleFor` in
-`styles.test.ts`. Resolved colours are `#c25a28` light and `#e8935a` dark.
-Two controls take `outline-offset: 2px` to clear a rounded image corner:
-`.asset-image-trigger` and `button.file-thumb`.
+It is declared per component, next to that component's own rule; a grouped
+selector list also defeats `ruleFor` in `styles.test.ts`.
+`.asset-image-trigger` and `button.file-thumb` take `outline-offset: 2px` to
+clear a rounded image corner.
 
 Three exceptions, each commented in `styles.css`:
 
-- `.top-bar-search-input` sets `outline: none` — its 220px→320px width growth
-  is the focus affordance. That growth is desktop-only. Below the 600px phone
-  breakpoint the field shrinks instead of overflowing (`.search-field`'s
-  `min-width: 0`), so the `@media (max-width: 600px)` block re-enables the
-  ring there.
-- `DatePickerPopup`'s buttons get no ring. The popup is mouse-only (every
-  element `preventDefault`s on mousedown so the block textarea keeps focus),
-  and Tab inside a block indents, so a ring there is unreachable.
-  `styles.test.ts` asserts its absence.
-- `.bullet` uses the standard ring. The bullet is a 5px dot inside a
-  `4px solid transparent` border, and `.bullet.closed` signals *collapsed with
-  hidden children* by colouring that border. Chrome's default ring hugs the
-  dot the same way, so an unstyled focused bullet reads as a collapsed block.
-  Any restyling here must stay distinguishable from `.closed`.
+- `.top-bar-search-input` sets `outline: none` — its desktop-only 220px→320px
+  width growth is the focus affordance, so the `@media (max-width: 600px)`
+  block re-enables the ring.
+- `DatePickerPopup`'s buttons get no ring: the popup is mouse-only, every
+  element `preventDefault`ing on mousedown so the block textarea keeps focus.
+  `styles.test.ts` asserts the absence.
+- `.bullet` uses the standard ring. The dot sits inside a
+  `4px solid transparent` border that `.bullet.closed` colours to signal a
+  collapsed block, so any restyling must stay distinguishable from `.closed`.
 
 Invariants that are easy to break without noticing:
 
 - **Nav controls.** `.nav-link` styles both the `<a>` destinations and the
   `<button>` controls in the left nav (`App.tsx`, `SidebarNav.tsx`,
-  `ThemeToggle.tsx`), and those are the app's first tab stops. A
-  selector-by-selector read of `styles.css` will not find every focusable
-  control.
+  `ThemeToggle.tsx`), so reading `styles.css` alone will not find every
+  focusable control.
 - **Content anchors.** `a.page-link`, external links and the `.page-title > a`
-  heading link keep the UA ring: at the block line-height a 2px offset ring
-  collides with the line above and repeats per line box on a wrapped link.
-- **The closed phone drawer.** Inside `@media (max-width: 600px)` the closed
-  drawer pairs `translateX(-100%)` with `visibility: hidden`, restored by
-  `.left-nav.open` and transitioned so the slide-out still shows. The
-  hamburger carries `aria-expanded` and `aria-controls="left-nav"`, and
+  heading link keep the UA ring; at the block line-height an offset ring
+  collides with the line above.
+- **The closed phone drawer.** Inside `@media (max-width: 600px)` it pairs
+  `translateX(-100%)` with `visibility: hidden`, restored by `.left-nav.open`.
+  The hamburger carries `aria-expanded` and `aria-controls="left-nav"`, and
   closing returns focus to it, guarded on the drawer's previous state because
   every `NavLink` calls `setNavOpen(false)`.
 - **Clickable headings.** Page-title rename (`.page-title-edit`) and the
   Unlinked references collapse (`.section-toggle`) wrap their label in a real
-  `<button>` inside the heading. Both take `font: inherit` plus explicit
-  `letter-spacing` and `text-transform`, which the shorthand does not carry,
-  and `display: block; width: 100%` so the whole header row stays the hit
-  area (`styles.test.ts` pins those two declarations for `.section-toggle`).
-  The collapsible trigger owns `aria-expanded` and marks its chevron
-  `aria-hidden`. `.page-title-edit` must stay named by its content and never
-  take a fixed `aria-label`: accname walks the `<h1>`'s children, so an
-  explicit name on the button renames the page's heading.
-- **Control boundary contrast** is a known deviation from WCAG 1.4.11.
-  `.btn-secondary`'s border falls below the 3:1 ratio against a panel surface
-  in both themes, accepted rather than fixed.
-- **Containment.** Nothing `position: fixed` may render inside a
-  layout-contained box. `content-visibility` and `contain: layout` make their
-  element the containing block for fixed descendants, so a surface positioned
-  from viewport coordinates paints displaced by that box's own offset.
-  `BlockMenu` and `Popover` therefore `createPortal` to `document.body`
-  instead of rendering in place, and `e2e/popover-placement.spec.ts` asserts
-  each lands at its click point. Adding containment anywhere in the app means
-  auditing what renders inside it first. `.journal-day` carries none, and the
-  comment on its rule records the measurement that rejected
-  `content-visibility: auto` there.
-- **`.pdf-frame`** is the one box that carries `contain: layout`, for the
-  opposite reason: a layout-contained box offers no baseline, so the
-  baseline-aligned `.block-row` around it takes its baseline from
-  `.pdf-footer`'s text rather than from a canvas inside the scroller. The
-  fullscreen overlay portals to `document.body`, so nothing fixed renders
-  inside the frame.
-- **Embedded image caps.** `.asset-image` and `.asset-image-trigger` both cap
-  at `max-width: 67%` of the text column. An external URL renders as a bare
-  `<img>`, while an uploaded `/assets/` image is wrapped in the expansion
-  trigger, so both boxes carry the cap and the outermost one decides. The
-  inner image resets to `max-width: 100%`, without which the two caps
-  multiply to 4/9. The phone override back to full width
-  (`@media (max-width: 600px)`) must stay *after* those rules, because a media
-  query adds no specificity and source order is what wins.
+  `<button>` inside the heading, with `font: inherit`, explicit
+  `letter-spacing` and `text-transform`, and `display: block; width: 100%` so
+  the header row stays the hit area (`styles.test.ts` pins the last two for
+  `.section-toggle`). The trigger owns `aria-expanded` and marks its chevron
+  `aria-hidden`. `.page-title-edit` must never take a fixed `aria-label`:
+  accname walks the `<h1>`'s children, so a name on the button renames the
+  page's heading.
+- **Control boundary contrast.** `.btn-secondary`'s border falls below WCAG
+  1.4.11's 3:1 ratio against a panel surface in both themes, accepted rather
+  than fixed.
+- **Containment.** Nothing `position: fixed` may render inside a box carrying
+  `content-visibility` or `contain: layout`, which become the containing block
+  for fixed descendants. `BlockMenu` and `Popover` therefore `createPortal` to
+  `document.body`, and `e2e/popover-placement.spec.ts` asserts each lands at its
+  click point. Adding containment anywhere means auditing what renders inside
+  it. `.journal-day` carries none, and the comment on its rule records the
+  measurement that rejected `content-visibility: auto`.
+- **`.pdf-frame`** carries `contain: layout` for the opposite reason: a
+  contained box offers no baseline, so the baseline-aligned `.block-row` takes
+  its baseline from `.pdf-footer`'s text rather than a canvas inside the
+  scroller. Its fullscreen overlay portals to `document.body`.
+- **Embedded image caps.** `.asset-image` and `.asset-image-trigger` both cap at
+  `max-width: 67%` of the text column, since an external URL renders as a bare
+  `<img>` and an uploaded `/assets/` image is wrapped in the trigger. The inner
+  image resets to `max-width: 100%` so the caps do not multiply, and the phone
+  override back to full width (`@media (max-width: 600px)`) must stay after
+  those rules, because a media query adds no specificity.

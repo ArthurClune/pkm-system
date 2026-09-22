@@ -25,12 +25,13 @@ For ALL code changes, use worktrees and branches to enable parallel sessions.
 
 ### Architecture docs
 
-`docs/architecture/` (overview, backend, frontend, styling, sync-and-offline, cli-and-mcp, assistant-and-files) describes the system as it *is*. Before finishing a feature, epic, or any change that alters the shape of the system, check whether it needs updating and update it in the same branch. Triggers, in rough order of how often they are missed:
+`docs/architecture/` (overview, backend, import-export-and-backup, frontend, frontend-editor, frontend-rendering, styling, sync-and-offline, cli-and-mcp, assistant, files-and-assets) describes the system as it *is*. Failures and the invariants their fixes installed are not architecture: they go in `docs/troubleshooting.md`, keyed by symptom. Before finishing a feature, epic, or any change that alters the shape of the system, check whether the docs need updating and update them in the same branch. Triggers, in rough order of how often they are missed:
 
 - A new HTTP route, or new query params/response fields on an existing one -> the API reference table in `backend.md`
 - A new module, view, or route in the SPA -> the module map and route list in `frontend.md`
 - A new design token, control class, or stylesheet invariant -> `styling.md`
 - A non-obvious mechanism or invariant someone could break without noticing (why a retry exists, why an order matters, what must never be rejected) -> a short prose note wherever it belongs; this is the highest-value kind of update
+- A bug fix that installed an invariant -> one row in `docs/troubleshooting.md` (symptom, cause, owning section, bean id), not a paragraph in the architecture doc
 - **Counts and enumerations go stale silently** -- "the ten MCP tools", "a three-step radius scale", spec counts. If a change adds to a set the docs enumerate, grep for the old count.
 
 Verify claims against the code, not against the bean or the plan -- the code is what shipped. Docs-only commits need no test run (nothing reads these files); the commit message should say what was corrected versus what was added.

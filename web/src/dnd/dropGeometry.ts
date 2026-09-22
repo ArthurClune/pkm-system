@@ -64,7 +64,7 @@ export function indicatorTopFromRects(rows: DropRow[], rectAt: RectAt,
  * `undefined` means "measure it again". Note that `null` is an answer and not
  * an empty slot: it records a row with no element on screen.
  *
- * The uid is the load-bearing part. A remote batch that creates one row and
+ * The uid is what detects staleness. A remote batch that creates one row and
  * deletes another lands with the row count unchanged, so nothing about the
  * cache as a whole looks stale, yet every uid at and below the change has
  * slid an index. Comparing per row costs a string compare against a cheaper

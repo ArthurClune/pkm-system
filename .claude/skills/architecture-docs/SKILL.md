@@ -13,8 +13,8 @@ replaces goes away rather than sitting beside it.
 
 ## When to use
 
-Any edit under `docs/architecture/`, including the triggers in `CLAUDE.md`
-§ Architecture docs; or when a section reads long, flat or repetitive, when
+Any edit under `docs/architecture/` or to `docs/troubleshooting.md`, including
+the triggers in `AGENTS.md` § Architecture docs; or when a section reads long, flat or repetitive, when
 ideas and small asides feel equally weighted, when a section's length is out
 of proportion to its subject, or when you are about to split, reflow or
 clarify a section.
@@ -91,7 +91,7 @@ Also:
 ## Make emphasis scarce
 
 When every paragraph opens with a bolded thesis, nothing is emphasised and a
-reader cannot tell a load-bearing invariant from an aside. Keep roughly one
+reader cannot tell an invariant from an aside. Keep roughly one
 bolded claim per section — the one a reader must not miss — and let the rest be
 ordinary sentences. Headings name a topic; they do not assert a thesis. A
 bolded one-word *label* opening each item of a list (`**Ordering.**`,
@@ -118,7 +118,7 @@ remembers the pain; the reader needs the map.
 
 The test for any detail: does a contributor meet it in normal work, or only
 when something breaks? Normal work earns prose, placed as early as its
-altitude allows. Only-when-broken earns a symptom row. Within a doc the same
+altitude allows. Only-when-broken earns a row in `docs/troubleshooting.md`. Within a doc the same
 ownership rule applies as across docs: a mechanism note lands in the section
 that owns the mechanism, not in the section about the feature that shipped
 it.
@@ -127,17 +127,16 @@ it.
 
 Prose states the **current** invariant, plus why it exists where someone could
 break it without noticing. How it used to fail — bean ids, "it used to", "for
-years", since-deleted flags — goes in the doc's `## When something looks wrong`
-table, keyed by **what someone would observe**. That is how the content is
-queried, and it lets each invariant shrink to a sentence.
+years", since-deleted flags — is not architecture and does not live in this
+directory at all. It goes in `docs/troubleshooting.md`, one table per area,
+keyed by **what someone would observe**. That is how the content is queried,
+and it lets each invariant shrink to a sentence.
 
-Every mechanism-owning doc in the directory carries that section, with the same
-heading and the same `| Symptom | Cause | Ref |` columns, placed just before the
-closing section; a doc gains it with its first real row. Copy the one in
-`sync-and-offline.md`. `Ref` is
-the bean id, or the test that pins the behaviour, or an em dash. `overview.md` has
-no such section and should not gain one: it summarises the others rather than
-owning any mechanism, so it has no failures of its own to record.
+Its columns are `| Symptom | Cause | Where | Ref |`. `Where` links the
+architecture section that owns the mechanism; `Ref` is the bean id, or the test
+that pins the behaviour, or an em dash. Architecture docs carry no symptom
+table of their own, only a one-line pointer to `troubleshooting.md` in the
+intro.
 
 **The test for whether something is an incident:** does it describe a state of
 the code that no longer exists, or a mechanism that is still true today? "Handlers
@@ -151,12 +150,11 @@ Two more things are *not* incidents, and neither earns a row:
 - **Provenance.** A bean tag marking which work introduced a feature, with no
   failure attached ("Block stamps (pkm-4ler) add three band tokens"), is not a
   symptom. Drop the tag or leave it inline; don't invent a symptom for it.
-- **An incident already tabled in the doc that owns the mechanism.** One row, in
-  one doc — the same rule as for facts. A second row elsewhere is a duplicate
-  that will drift.
+- **An incident already tabled under another area.** One row, once — the same
+  rule as for facts. A second row is a duplicate that will drift.
 
-**Never manufacture rows.** Four honest rows beat eight padded ones, and a doc
-with little history should end up with a short table.
+**Never manufacture rows.** Four honest rows beat eight padded ones, and an
+area with little history should end up with a short table.
 
 ## Keep the names
 
@@ -167,13 +165,13 @@ identifier — a name points into the code, a sentence copies it.
 ## Verify
 
 ```bash
-node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/<file>.md
+node .claude/skills/architecture-docs/check-docs.mjs docs/architecture/<file>.md docs/troubleshooting.md
 ```
 
 Every mermaid block parses under the project's own mermaid; links and heading
 anchors resolve, including inbound anchors from sibling docs (a renamed heading
-breaks those silently); a bean id in prose fails — its one home is the symptom
-table's Ref column. It also prints, for judgement rather than pass/fail, the
+breaks those silently); a bean id in prose fails — its one home is the Ref
+column of `docs/troubleshooting.md`. It also prints, for judgement rather than pass/fail, the
 longest prose sentences and any identifiers dropped since `HEAD`.
 
 **Re-run it after your edits and read the count, not just the list.** It shows

@@ -11,7 +11,7 @@
 // own the replica is overwritten outright instead of being preserved as a
 // [[conflict]] sibling; and the edit-vs-delete path, also gated on the hash,
 // raises "block not found" -> 400, which makes the lane discard the entry
-// (pkm-4ubd). "Two tabs open is normal" is the load-bearing argument for
+// (pkm-4ubd). "Two tabs open is normal" is the argument for
 // pkm-bjae's online-only fallback, and this was that decision's cost.
 //
 // The hash is taken against the tree the batch was planned from, walking the

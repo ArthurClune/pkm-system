@@ -138,7 +138,7 @@ def _delete_asset_with_referencing_block_setup(
     write, journal-triggered like any other -- whereas deleting an
     unreferenced ("orphan") asset touches only the non-journaled `assets`
     table. Only this referencing-block branch actually proves the nudge is
-    load-bearing rather than incidental."""
+    necessary rather than incidental."""
     upload = client.post("/api/assets", files={
         "file": ("note.txt", b"contract asset", "text/plain")})
     asset = upload.json()

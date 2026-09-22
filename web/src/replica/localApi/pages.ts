@@ -61,21 +61,23 @@ const CURRENT_WORK_SECTIONS = [
 ] as const;
 
 /** Shared with the journal shim, which previews each day's references from
- * the same query rather than a page read per day (pkm-5fak). */
+ * the same query rather than a page read per day (pkm-5fak). A page's own
+ * blocks are excluded even when they reference it, as the server's
+ * `_backlinks` and unlinked references do (pkm-r747). */
 export function backlinks(db: ReplicaDb, pageId: number, offset: number,
                           limit: number):
     { groups: BacklinkGroup[]; total: number; texts: string[] } {
   const total = Number(db.select<{ n: number }>(
     `SELECT count(DISTINCT b.page_id) AS n FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
-     WHERE r.target_page_id = ?`, [pageId])[0].n);
+     WHERE r.target_page_id = ? AND b.page_id != ?`, [pageId, pageId])[0].n);
   const pageIds = db.select<{ page_id: number }>(
     `SELECT DISTINCT b.page_id FROM refs r
       JOIN blocks b ON b.uid = r.src_block_uid
       JOIN pages p ON p.id = b.page_id
-     WHERE r.target_page_id = ?
+     WHERE r.target_page_id = ? AND b.page_id != ?
      ORDER BY p.updated_at DESC NULLS LAST, p.title
-     LIMIT ? OFFSET ?`, [pageId, limit, offset]).map((r) => r.page_id);
+     LIMIT ? OFFSET ?`, [pageId, pageId, limit, offset]).map((r) => r.page_id);
   if (pageIds.length === 0) return { groups: [], total, texts: [] };
   const marks = pageIds.map(() => "?").join(",");
   const rows = db.select<BacklinkRow>(

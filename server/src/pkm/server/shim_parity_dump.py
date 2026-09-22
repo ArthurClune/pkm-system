@@ -57,6 +57,11 @@ SEED = {
         # group ORDER BY (updated_at DESC NULLS LAST) and multi-group shaping.
         ["uid_b10", 5, None, 1, "Follow-up to ((uid_b3)) findings", None, 0,
          1000, 2000],
+        # self-reference (pkm-r747): a block on Machine Learning that links
+        # [[Machine Learning]] must not appear in that page's backlinks, on
+        # either engine.
+        ["uid_b11", 1, None, 2, "{{[[TODO]]}} revisit [[Machine Learning]]",
+         None, 0, 1000, 2000],
     ],
     "refs": [
         ["uid_b1", 2, "attribute"],
@@ -66,6 +71,7 @@ SEED = {
         ["uid_b4", 2, "link"],
         ["uid_b5", 1, "link"],
         ["uid_b9", 6, "link"],
+        ["uid_b11", 1, "link"],
     ],
     # Derived from the block texts above (uid_b6 cites uid_b3, uid_b8 cites
     # uid_b6): the write path maintains these on both engines, so the seed

@@ -28,3 +28,25 @@ def test_backlink_pagination_params(client):
     assert body["backlinks"]["groups"] == []
     assert body["backlinks"]["total_pages"] == 1
     assert body["backlinks"]["offset"] == 1
+
+
+def test_backlinks_exclude_the_pages_own_blocks(client, seeded_config):
+    """A block on page P that references [[P]] (Roam-style {{[[TODO]]}}
+    markers on the TODO page are the common case) is not a linked
+    reference to P -- the page cannot be its own backlink source, just as
+    unlinked references already skip the current page (pkm-r747)."""
+    from pkm.server.db import open_db
+    con = open_db(seeded_config.db_path)
+    con.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        ("uid_self", 1, None, 2, "{{[[TODO]]}} revisit [[Machine Learning]]",
+         None, 0, None, None))
+    con.execute("INSERT INTO refs VALUES (?,?,?)", ("uid_self", 1, "link"))
+    con.commit()
+    con.close()
+    bl = client.get("/api/page/Machine Learning").json()["backlinks"]
+    assert bl["total_pages"] == 1
+    assert [g["page_title"] for g in bl["groups"]] == ["July 7th, 2026"]
+    assert all(i["uid"] != "uid_self" for g in bl["groups"] for i in g["items"])

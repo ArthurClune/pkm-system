@@ -483,7 +483,7 @@ too. All endpoints require the session cookie unless marked public. FastAPI's
 | **Writes** | | |
 | POST | `/api/ops` | Transactional block-operation write path — apply an `OpBatch` transactionally |
 | **Pages & blocks** | | |
-| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks + `block_ref_counts` (daily pages auto-created) |
+| GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks + `block_ref_counts` (daily pages auto-created). Backlinks and unlinked mentions both skip blocks on the page itself |
 | GET | `/api/block/{uid}` | One block subtree with page context + breadcrumbs |
 | GET | `/api/block/{uid}/backlinks` | Blocks referencing `((uid))`, grouped like page backlinks (unpaginated) |
 | GET | `/api/block-refs?uids=` | Resolve `((uid))` references on demand |
@@ -845,6 +845,7 @@ its fix installed. The bean has the full investigation.
 | A whole-database export takes minutes instead of being instant, on one large fenced code block | the attribute regex paired a greedy `\s*` with an overlapping lazy class, quadratic to *fail* against a long `::`-free run | pkm-7myl |
 | A spaces-only `[[   ]]` ref typed in the editor 500s the whole write, or crashes a rename | `get_or_create_page()` raised `BlankTitleError` with nothing above it to catch it; `routes_ops.py` catches only `OpError`, rename only `sqlite3.IntegrityError` | test_blank_titles.py |
 | Renaming a page destroys a code span sitting in front of a `Title::` attribute, eats the indent in front of one, or leaves it pointing at the old name | the rewriter matched the attribute at column 0, so its span swallowed whatever `strip_code()` had blanked or indented ahead of the title, and an attribute behind a newline was not rewritten at all though `extract()` indexes it as a ref | test_rename.py |
+| The TODO page lists its own `{{[[TODO]]}}` blocks under Linked references | `_backlinks` had no `b.page_id != ?` clause; the marker's `[[TODO]]` is a ref to the page it sits on | pkm-r747 |
 | A newly added `pkm.*` logger's INFO lines never appear in the server log | nothing configured that logger's ancestor before the parent-logger policy existed; each addition needed its own individual fix | pkm-5g3d |
 
 ## Testing

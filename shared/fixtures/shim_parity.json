@@ -148,6 +148,17 @@
         0,
         1000,
         2000
+      ],
+      [
+        "uid_b11",
+        1,
+        null,
+        2,
+        "{{[[TODO]]}} revisit [[Machine Learning]]",
+        null,
+        0,
+        1000,
+        2000
       ]
     ],
     "refs": [
@@ -184,6 +195,11 @@
       [
         "uid_b9",
         6,
+        "link"
+      ],
+      [
+        "uid_b11",
+        1,
         "link"
       ]
     ],
@@ -271,6 +287,17 @@
                 ]
               }
             ]
+          },
+          {
+            "uid": "uid_b11",
+            "text": "{{[[TODO]]}} revisit [[Machine Learning]]",
+            "heading": null,
+            "view_type": null,
+            "collapsed": false,
+            "order_idx": 2,
+            "created_at": 1000,
+            "updated_at": 2000,
+            "children": []
           }
         ],
         "backlinks": {
@@ -721,6 +748,11 @@
             "snippet": "Studying [[<mark>Machine</mark> Learning]] today"
           },
           {
+            "uid": "uid_b11",
+            "page_title": "Machine Learning",
+            "snippet": "{{[[TODO]]}} revisit [[<mark>Machine</mark> Learning]]"
+          },
+          {
             "uid": "uid_b7",
             "page_title": "AI",
             "snippet": "AI overview mentions <mark>Machine</mark> Learning in plain text"
@@ -773,6 +805,11 @@
             "uid": "uid_b5",
             "page_title": "July 10th, 2026",
             "snippet": "Studying [[<mark>Machine</mark> Learning]] today"
+          },
+          {
+            "uid": "uid_b11",
+            "page_title": "Machine Learning",
+            "snippet": "{{[[TODO]]}} revisit [[<mark>Machine</mark> Learning]]"
           },
           {
             "uid": "uid_b7",

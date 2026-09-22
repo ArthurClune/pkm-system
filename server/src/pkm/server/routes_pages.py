@@ -114,17 +114,22 @@ def _fetch_ancestors(db: sqlite3.Connection, uids: list[str]) -> dict[str, list[
 
 def _backlinks(db: sqlite3.Connection, page_id: int,
                offset: int, limit: int) -> tuple[list[dict], int, list[str]]:
+    """A page's own blocks are never its linked references, even when they
+    reference it (Roam-style `{{[[TODO]]}}` markers on the TODO page do,
+    pkm-r747) -- the same `b.page_id != ?` rule unlinked references apply.
+    The shim's `backlinks()` mirrors these three queries."""
     total = db.execute(
         """SELECT count(DISTINCT b.page_id) FROM refs r
             JOIN blocks b ON b.uid = r.src_block_uid
-           WHERE r.target_page_id = ?""", (page_id,)).fetchone()[0]
+           WHERE r.target_page_id = ? AND b.page_id != ?""",
+        (page_id, page_id)).fetchone()[0]
     page_ids = [r[0] for r in db.execute(
         """SELECT DISTINCT b.page_id FROM refs r
             JOIN blocks b ON b.uid = r.src_block_uid
             JOIN pages p ON p.id = b.page_id
-           WHERE r.target_page_id = ?
+           WHERE r.target_page_id = ? AND b.page_id != ?
            ORDER BY p.updated_at DESC NULLS LAST, p.title
-           LIMIT ? OFFSET ?""", (page_id, limit, offset)).fetchall()]
+           LIMIT ? OFFSET ?""", (page_id, page_id, limit, offset)).fetchall()]
     if not page_ids:
         return [], total, []
     marks = ",".join("?" * len(page_ids))

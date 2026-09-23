@@ -9,7 +9,13 @@ export const READER_SANDBOX = "allow-popups allow-popups-to-escape-sandbox";
 
 export type ReaderPalette = { bg: string; text: string; link: string };
 
-export function failureNote(status: number): string {
+// The server's 503 detail for a refused API token. Its ordinary 503
+// detail says "on the host", and the reader says "on the Mac" instead, so
+// only this one detail is shown as sent.
+export const UNAUTHORIZED_DETAIL = "Goodlinks rejected the API token";
+
+export function failureNote(status: number, detail?: string): string {
+  if (status === 503 && detail === UNAUTHORIZED_DETAIL) return UNAUTHORIZED_DETAIL;
   if (status === 503) return "Goodlinks is not running on the Mac";
   if (status === 404) return "No longer in Goodlinks";
   if (status === 0) return "Needs the server";
@@ -36,5 +42,5 @@ export function readerDocument(html: string, palette: ReaderPalette): string {
     "td, th { border: 1px solid currentColor; padding: 4px 8px; }",
     "blockquote { margin: 0; padding-left: 1em; border-left: 3px solid currentColor; opacity: .85; }",
   ].join("\n");
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${html}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><style>${css}</style></head><body>${html}</body></html>`;
 }

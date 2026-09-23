@@ -91,7 +91,8 @@ files not configured (`local_docs_root` unset).
 `pkm goodlinks check` reports every `/api/goodlinks/` link in block text whose
 saved page is `missing` from the GoodLinks library or whose href is `invalid`
 (not a GoodLinks id). It asks the GoodLinks app on the host, so it exits 1
-with a "not running" error when the app is closed. Exit status: `0` clean,
+with a "not running" error when the app is closed, or a "rejected the API
+token" error when GoodLinks refuses the token. Exit status: `0` clean,
 `1` problems found, `2` GoodLinks not configured (no API token file).
 
 ## Batch transactions

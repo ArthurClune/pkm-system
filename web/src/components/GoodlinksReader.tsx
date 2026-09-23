@@ -6,7 +6,8 @@
 // srcdoc is the one place third-party HTML reaches the DOM, and it only
 // ever receives that sanitised payload (see goodlinksReaderDoc.ts). Every
 // failure state keeps Close working and shows the original link when the
-// URL is known.
+// URL is known. A link GoodLinks holds no reader copy of arrives with empty
+// html: the bar still shows it, and a note stands in for the iframe.
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ApiError } from "../api/client";
@@ -55,8 +56,8 @@ export function GoodlinksReader({ href, onClose, triggerRef }: {
       (article) => { if (alive) setState({ status: "ok", article }); },
       (err: unknown) => {
         if (!alive) return;
-        const status = err instanceof ApiError ? err.status : 0;
-        setState({ status: "error", note: failureNote(status) });
+        const note = err instanceof ApiError ? failureNote(err.status, err.detail) : failureNote(0);
+        setState({ status: "error", note });
       },
     );
     return () => { alive = false; };
@@ -86,7 +87,7 @@ export function GoodlinksReader({ href, onClose, triggerRef }: {
           Close
         </button>
       </div>
-      {state.status === "ok" ? (
+      {state.status === "ok" && state.article.html !== "" ? (
         <iframe
           className="goodlinks-reader-frame"
           title={title}
@@ -96,7 +97,9 @@ export function GoodlinksReader({ href, onClose, triggerRef }: {
         />
       ) : (
         <p className="goodlinks-reader-note" role="status">
-          {state.status === "loading" ? "Loading…" : state.note}
+          {state.status === "loading" ? "Loading…"
+            : state.status === "ok" ? "Goodlinks has no reader copy of this page"
+            : state.note}
         </p>
       )}
     </div>,

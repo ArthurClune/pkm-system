@@ -6,7 +6,7 @@ import { GoodlinksReader } from "./GoodlinksReader";
 const ID = "e4966bb2483b5c78f658398c0ae7b03f";
 const HREF = `/api/goodlinks/${ID}`;
 const ARTICLE = { id: ID, title: "UML My Part", url: "https://tratt.net/uml.html",
-                  added_at: "2022-10-06T15:07:12Z", html: "<p>Archived <b>body</b></p>" };
+                  added_at: "2022-10-06T12:00:00Z", html: "<p>Archived <b>body</b></p>" };
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -43,6 +43,23 @@ it.each([
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(note));
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+it("a wrong API token says so rather than 'not running'", async () => {
+  stub(async () => jsonResponse({ detail: "Goodlinks rejected the API token" }, 503));
+  render(<GoodlinksReader href={HREF} onClose={vi.fn()} />);
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Goodlinks rejected the API token"));
+});
+
+it("an article with no reader copy keeps the bar and original link but renders no iframe", async () => {
+  stub(async () => jsonResponse({ ...ARTICLE, html: "" }));
+  render(<GoodlinksReader href={HREF} onClose={vi.fn()} />);
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Goodlinks has no reader copy of this page"));
+  expect(screen.queryByTitle("UML My Part")).not.toBeInTheDocument();
+  expect(document.querySelector("iframe")).toBeNull();
+  expect(screen.getByText("UML My Part")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "original" })).toHaveAttribute("href", ARTICLE.url);
+  expect(screen.getByText("saved 6 Oct 2022")).toBeInTheDocument();
 });
 
 it("a network failure reads as needing the server", async () => {

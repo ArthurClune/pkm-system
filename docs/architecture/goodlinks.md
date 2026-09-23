@@ -36,15 +36,18 @@ interface only. The iPad reaches it the way it reaches `/api/local/`: through
 the server, which holds the bearer token and forwards requests via
 `goodlinks_gateway.py`. That means the GoodLinks app itself must be running
 on the host for any of this to work; when it is not, `GoodlinksGateway`
-raises `GoodlinksUnavailable` and every route answers 503. A GoodLinks 404 on
-a read (an unknown link) passes through as an ordinary 404; a GoodLinks 4xx
-on a save is a distinct case, `GoodlinksRejected`, carrying its text.
+raises `GoodlinksUnavailable` and every route answers 503. A 401 or 403 from
+GoodLinks on any request, a wrong or revoked token, raises
+`GoodlinksUnauthorized` instead, which every route answers with a 503 of its
+own detail, "Goodlinks rejected the API token". Both 503 causes are logged
+at warning with the route name. A GoodLinks 404 on a read (an unknown link)
+passes through as an ordinary 404; any other GoodLinks 4xx on a save is a
+distinct case, `GoodlinksRejected`, carrying its text.
 
 When no API key is configured at all, `app.state.goodlinks` is `None` and
-`get_goodlinks` turns every route except `check` into a 404. A client has no
-way to tell "feature disabled" apart from "link not found" — by design,
-since nothing about a page's rendering should depend on whether the operator
-has wired up GoodLinks.
+`get_goodlinks` turns every route except `check` into a 404. The reader
+therefore shows "No longer in Goodlinks", and `check` reports
+`enabled: false`.
 
 ## Routes
 
@@ -52,7 +55,7 @@ has wired up GoodLinks.
 |---|---|---|
 | POST | `/api/goodlinks/resolve` | Resolve a URL to a GoodLinks link; with `save: true`, save it (read-marked) when nothing matched |
 | GET | `/api/goodlinks/check` | Every `/api/goodlinks/` href in block text, `ok` / `missing` / `invalid` against the library; `enabled: false` without an API token |
-| GET | `/api/goodlinks/{link_id}` | Metadata plus allowlist-sanitised reader HTML, `no-store`; 404 for a bad id or unknown link, 503 when GoodLinks is not running |
+| GET | `/api/goodlinks/{link_id}` | Metadata plus allowlist-sanitised reader HTML, `no-store`; `html` is empty when GoodLinks knows the link but holds no reader copy; 404 for a bad id or unknown link, 503 when GoodLinks is not running or refuses the token |
 
 `resolve` tries, in order: the URL exactly, the URL with its query string and
 fragment stripped (`candidate_urls`), then a GoodLinks search against the
@@ -110,13 +113,18 @@ The bar shows the article title (or "Saved article" while loading or on
 error), a link to the original URL, and the saved date, once the fetch
 succeeds. On any failure the bar has no URL to show — the original URL only
 ever arrives together with the sanitised HTML, in the same response — so
-only a note and a working Close button are guaranteed.
+only a note and a working Close button are guaranteed. A link GoodLinks
+knows but holds no reader copy of (extraction failed, a paywall, a PDF, a
+page saved moments ago) is a success with empty `html`: the bar shows the
+title, original link and date, and a note replaces the iframe.
 
 | State | Shown |
 |---|---|
 | loading | "Loading…" |
 | ok | the sanitised article inside the sandboxed iframe |
+| ok, no reader copy (empty `html`) | "Goodlinks has no reader copy of this page", with the full bar |
 | error, GoodLinks not running (503) | "Goodlinks is not running on the Mac" |
+| error, API token refused (503 with that detail) | "Goodlinks rejected the API token" |
 | error, link no longer in GoodLinks (404) | "No longer in Goodlinks" |
 | error, no response reached the server (status 0, e.g. offline) | "Needs the server" |
 | error, anything else | "Couldn't load this article." |
@@ -142,7 +150,8 @@ independent of the reader's: `goodlinksNotice(503)` is "Goodlinks is not
 running", `goodlinksNotice(422)` is "Goodlinks refused the URL" (a GoodLinks
 save rejection), `goodlinksNotice(404)` is "Not in Goodlinks", `0` is
 "Couldn't reach the server", and anything else is "Couldn't reach
-Goodlinks". The command always resolves with `save: true`, so a plain 404
+Goodlinks". A 503 whose detail is "Goodlinks rejected the API token" shows
+that detail instead. The command always resolves with `save: true`, so a plain 404
 "not in Goodlinks" from resolve is normally never seen through this path —
 only a caller that resolves without saving would see it.
 
@@ -152,13 +161,15 @@ only a caller that resolves without saving would see it.
 |---|---|---|---|
 | Feature not configured (no API key) | every route 404 except `check`, which answers `enabled: false` | "No longer in Goodlinks" | "Not in Goodlinks" |
 | GoodLinks app not running | 503, `"Goodlinks is not running on the host"` | "Goodlinks is not running on the Mac" | "Goodlinks is not running" |
+| GoodLinks refuses the API token (401/403) | 503, `"Goodlinks rejected the API token"` | "Goodlinks rejected the API token" | "Goodlinks rejected the API token" |
 | Link no longer in GoodLinks | 404 | "No longer in Goodlinks" | "Not in Goodlinks" |
+| Link known, no reader copy | 200, empty `html` | "Goodlinks has no reader copy of this page", original link shown | — (resolve needs only the link) |
 | GoodLinks rejects a save | 422 with its own text | — (the reader never saves) | "Goodlinks refused the URL" |
 | Resolve misses with `save: false` | 404 | — | not reachable through the command, which always saves |
 | No response reaches the server (e.g. the iPad replica has no route for this) | — | "Needs the server" | "Couldn't reach the server" |
 
-Every reader error state keeps Close working; every `/goodlinks` failure
-still leaves the block and cursor untouched.
+Every reader error state keeps Close working; on every `/goodlinks` failure
+nothing is spliced in.
 
 ## Configuration and operations
 
@@ -171,9 +182,9 @@ failing startup.
 
 `pkm goodlinks check` audits every `/api/goodlinks/` href in block text
 against the GoodLinks library, the same shape as `pkm local check`: exit `0`
-clean, `1` for problems found (including the case where GoodLinks is closed
-on the host, which surfaces as the 503 turning into a CLI error), `2` when no
-API token is configured.
+clean, `1` for problems found (including the cases where GoodLinks is closed
+on the host or refuses the token, which surface as the 503 turning into a CLI
+error), `2` when no API token is configured.
 
 The e2e suite (`web/e2e/goodlinks.spec.ts`) runs against
 `server/tests/fake_goodlinks_server.py`, a minimal stand-in implementing

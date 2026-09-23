@@ -10,10 +10,18 @@ describe("failureNote", () => {
   ])("%s -> %s", (status, note) => {
     expect(failureNote(status)).toBe(note);
   });
+
+  test.each([
+    [503, "Goodlinks rejected the API token", "Goodlinks rejected the API token"],
+    [503, "Goodlinks is not running on the host", "Goodlinks is not running on the Mac"],
+    [404, "Goodlinks rejected the API token", "No longer in Goodlinks"],
+  ])("%s with detail %s -> %s", (status, detail, note) => {
+    expect(failureNote(status, detail)).toBe(note);
+  });
 });
 
 test("formatSaved renders a short date or nothing", () => {
-  expect(formatSaved("2025-02-13T19:51:00Z")).toBe("saved 13 Feb 2025");
+  expect(formatSaved("2025-02-13T12:00:00Z")).toBe("saved 13 Feb 2025");
   expect(formatSaved("")).toBe("");
   expect(formatSaved("not a date")).toBe("");
 });
@@ -21,7 +29,7 @@ test("formatSaved renders a short date or nothing", () => {
 test("readerDocument wraps the html in a themed document", () => {
   const doc = readerDocument("<p>Hi</p>", { bg: "#111", text: "#eee", link: "#0af" });
   expect(doc.startsWith("<!doctype html>")).toBe(true);
-  expect(doc).toContain('<meta charset="utf-8">');
+  expect(doc).toContain('<meta charset="utf-8"><meta name="referrer" content="no-referrer">');
   expect(doc).toContain("background: #111");
   expect(doc).toContain("color: #eee");
   expect(doc).toContain("a { color: #0af");

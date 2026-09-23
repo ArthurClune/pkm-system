@@ -56,3 +56,11 @@ test.each([
 ])("goodlinksNotice(%s)", (status, text) => {
   expect(goodlinksNotice(status)).toBe(text);
 });
+
+test.each([
+  [503, "Goodlinks rejected the API token", "Goodlinks rejected the API token"],
+  [503, "Goodlinks is not running on the host", "Goodlinks is not running"],
+  [422, "Goodlinks rejected the API token", "Goodlinks refused the URL"],
+])("goodlinksNotice(%s, %s)", (status, detail, text) => {
+  expect(goodlinksNotice(status, detail)).toBe(text);
+});

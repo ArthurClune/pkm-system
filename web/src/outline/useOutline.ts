@@ -392,7 +392,7 @@ export function useOutline(
         try {
           link = await apiPost("/api/goodlinks/resolve", { body: { url, save: true } });
         } catch (err) {
-          setGoodlinksNotice(goodlinksNotice(err instanceof ApiError ? err.status : 0));
+          setGoodlinksNotice(err instanceof ApiError ? goodlinksNotice(err.status, err.detail) : goodlinksNotice(0));
           return;
         }
         run((b) => {

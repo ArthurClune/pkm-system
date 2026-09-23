@@ -30,7 +30,10 @@ export function goodlinksAttribute(id: string): string {
   return `Local copy:: [Goodlinks](/api/goodlinks/${id})`;
 }
 
-export function goodlinksNotice(status: number): string {
+const UNAUTHORIZED_DETAIL = "Goodlinks rejected the API token";
+
+export function goodlinksNotice(status: number, detail?: string): string {
+  if (status === 503 && detail === UNAUTHORIZED_DETAIL) return UNAUTHORIZED_DETAIL;
   if (status === 503) return "Goodlinks is not running";
   if (status === 422) return "Goodlinks refused the URL";
   if (status === 404) return "Not in Goodlinks";

@@ -420,6 +420,9 @@ button { font: inherit; }
  * to the outline they failed in rather than a page-global banner. */
 .upload-error { display: flex; align-items: center; gap: 8px; }
 .upload-error button { padding: 1px 8px; font-size: 13px; }
+.editor-notice { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px;
+  color: var(--color-text-secondary); font-size: 14px; }
+.editor-notice button { padding: 1px 8px; font-size: 13px; }
 
 /* top bar: spans the main pane, houses the search bar + the page ("...") menu */
 .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px;

@@ -114,6 +114,7 @@ to filter the list — e.g. `/py` narrows to the Python code block and
 | `/query-and-not` | Insert a query placeholder for blocks tagged with the first page but not the second |
 | `/today`, `/tomorrow` | Insert a link to today's / tomorrow's daily note |
 | `/date` | Pick a date from a calendar and insert a link to its daily note |
+| `/goodlinks` | Find the nearest web link (this block, then its parent, then the block above), look it up in GoodLinks, and insert `Local copy:: [Goodlinks](…)`; a page GoodLinks does not have yet is saved there, marked read |
 
 Replace the `A` and `B` placeholders with real `[[Page]]` links (type `[[`
 to search for a page) to run a query. The placeholders are plain text, not

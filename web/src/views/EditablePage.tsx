@@ -83,6 +83,15 @@ export function EditablePage({ title, initial, composer = false,
           </button>
         </p>
       )}
+      {ownsEditor && outline.goodlinksNotice && (
+        <p className="editor-notice" role="status">
+          {outline.goodlinksNotice}
+          <button type="button" className="btn-secondary"
+                  onClick={outline.dismissGoodlinksNotice}>
+            Dismiss
+          </button>
+        </p>
+      )}
       {outline.blocks.length === 0 && ownsEditor ? (
         <div className="empty-drop-zone">
           <button className="empty-page" disabled={outline.readOnly}

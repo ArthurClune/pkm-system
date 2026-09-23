@@ -17,7 +17,7 @@ function handlers(): OutlineHandlers {
     onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
-    onToggleTodo: vi.fn(), onFiles: vi.fn(), onPasteOutline: vi.fn(),
+    onToggleTodo: vi.fn(), onFiles: vi.fn(), onGoodlinks: vi.fn(), onPasteOutline: vi.fn(),
     onStartBlockSelection: vi.fn(), onSelectBlock: vi.fn(),
     onExtendBlockSelection: vi.fn(),
     onClearBlockSelection: vi.fn(), onDragStartBlock: vi.fn(),
@@ -1017,4 +1017,16 @@ describe("/date picker (pkm-rw6w)", () => {
     fireEvent.keyDown(ta, { key: "Enter" });
     expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();
   });
+});
+
+test("/goodlinks strips the trigger, blurs, and asks the engine with the trigger offset", () => {
+  const h = handlers();
+  mount(h, 0, false, { ...NODE, text: "" });
+  const ta = screen.getByRole("textbox") as HTMLTextAreaElement;
+  fireEvent.change(ta, { target: { value: "/good" } });
+  ta.setSelectionRange(5, 5);
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(h.onDraftChange).toHaveBeenLastCalledWith(NODE.uid, "");
+  expect(h.onBlurBlock).toHaveBeenCalledWith(NODE.uid);
+  expect(h.onGoodlinks).toHaveBeenCalledWith(NODE.uid, 0);
 });

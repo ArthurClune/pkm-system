@@ -37,6 +37,10 @@ export interface OutlineHandlers {
   onSetViewType(uid: string, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: string): void;
   onFiles(uid: string, cursor: number, files: File[]): void;
+  /** /goodlinks (see outline/goodlinks.ts): resolve the nearest URL against
+   * GoodLinks and splice the `Local copy::` attribute at `cursor` in `uid`.
+   * The block has already been blurred by the pick, like /upload. */
+  onGoodlinks(uid: string, cursor: number): void;
   /** Shift-Cmd-V outline paste (pkm-tu3a/pkm-fwa2): parse the clipboard's
    * indentation into real blocks anchored at the caret. Plain Cmd-V and
    * single-line clipboards stay native. */

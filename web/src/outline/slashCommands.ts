@@ -52,6 +52,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   // the inline date picker (handled in BlockInput), which then splices the
   // [[daily-note]] link at the recorded offset.
   { name: "date", label: "link to a date…" },
+  // "goodlinks" has no text transform: picking it strips the trigger, blurs
+  // the block like /upload, and asks useOutline to resolve the nearest URL
+  // against GoodLinks (saving it there if absent) and splice the attribute.
+  { name: "goodlinks", label: "link to goodlinks copy" },
 ];
 
 /** Commands that set a block's heading field (a SetHeadingOp) rather than

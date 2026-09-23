@@ -104,7 +104,7 @@ it("renders images, pdf embeds for /assets/*.pdf links, and external links", asy
     .toHaveAttribute("target", "_blank");
 });
 
-it("renders a Bluesky post link as an embedded iframe, not a plain anchor", async () => {
+it("renders a bare Bluesky post URL as an embedded iframe, not a plain anchor", async () => {
   // embed.bsky.app only accepts DIDs, so the handle is resolved first (pkm-es9o)
   const did = "did:plc:z72i7hdynmk6r22z27h6tvur";
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -112,7 +112,7 @@ it("renders a Bluesky post link as an embedded iframe, not a plain anchor", asyn
   }));
   try {
     const { container } = renderText(
-      "[post](https://bsky.app/profile/inline-segs.bsky.social/post/3k2abc123xy)");
+      "https://bsky.app/profile/inline-segs.bsky.social/post/3k2abc123xy");
     await waitFor(() => {
       expect(container.querySelector("iframe.bluesky-embed")).not.toBeNull();
     });
@@ -122,10 +122,35 @@ it("renders a Bluesky post link as an embedded iframe, not a plain anchor", asyn
     expect(src.pathname).toBe(`/embed/${did}/app.bsky.feed.post/3k2abc123xy`);
     expect(src.searchParams.get("ref_url"))
       .toBe("https://bsky.app/profile/inline-segs.bsky.social/post/3k2abc123xy");
-    expect(screen.queryByRole("link", { name: "post" })).toBeNull();
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+it("renders a Bluesky post URL where label equals href as an embed", async () => {
+  const did = "did:plc:z72i7hdynmk6r22z27h6tvur";
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true, status: 200, json: async () => ({ did }),
+  }));
+  try {
+    const url = "https://bsky.app/profile/inline-segs.bsky.social/post/3k2abc123xy";
+    const { container } = renderText(`[${url}](${url})`);
+    await waitFor(() => {
+      expect(container.querySelector("iframe.bluesky-embed")).not.toBeNull();
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it("renders a labelled Bluesky post link as a plain external link, not an embed", () => {
+  const url = "https://bsky.app/profile/inline-segs.bsky.social/post/3k2abc123xy";
+  const { container } = renderText(`[source](${url})`);
+  const link = screen.getByRole("link", { name: "source" });
+  expect(link).toHaveAttribute("href", url);
+  expect(link).toHaveAttribute("target", "_blank");
+  expect(link).toHaveAttribute("rel", "noreferrer");
+  expect(container.querySelector("iframe.bluesky-embed")).toBeNull();
 });
 
 it("non-post Bluesky links stay plain external links", () => {

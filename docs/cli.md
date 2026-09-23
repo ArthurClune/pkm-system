@@ -1,9 +1,9 @@
 # pkm CLI and MCP access
 
-The `pkm` CLI and the `pkm-mcp` server let humans, scripts and LLM agents
-drive the PKM from outside the browser. Both talk to the running server's
-HTTP API, so they get the same validation, conflict handling and live sync as
-the web app. Neither touches SQLite directly.
+The `pkm` CLI and the `pkm-mcp` server let people, scripts and LLM agents use
+the PKM from outside the browser. Both call the running server's HTTP API, so
+writes get the same validation, conflict handling and live sync as the web
+app.
 
 ## Login
 
@@ -16,16 +16,14 @@ cd server && uv run pkm login --url http://127.0.0.1:8974
 This stores a year-long session token in `~/.config/pkm-cli/config.json`.
 Two environment variables override the defaults:
 
-- `PKM_CLI_CONFIG` — use a different config file
-- `PKM_URL` — talk to a different server for this call
+- `PKM_CLI_CONFIG`: use a different config file
+- `PKM_URL`: talk to a different server for this call
 
-`pkm login --password-stdin` reads the password from stdin, which suits
-scripts.
+`pkm login --password-stdin` reads the password from stdin, for scripts.
 
 ## Command reference
 
-`uv run pkm <cmd> --help` is self-sufficient for every verb: it lists the
-argument forms and gives examples.
+`uv run pkm <cmd> --help` lists each verb's argument forms and examples.
 
     pkm get "Page Title" | today | <uid>     # markdown; --uids / --json
     pkm get "Page" --resolve-refs            # inline ((uid)) refs, cycle-safe
@@ -45,52 +43,48 @@ argument forms and gives examples.
 
 ### Writing
 
-`pkm save` with no `-p` targets today's daily note. Pages are created if they
-don't exist yet.
+`pkm save` with no `-p` writes to today's daily note. Missing pages are
+created.
 
 `pkm rename` retitles a page and rewrites every `[[link]]`, `#tag`,
 `#[[tag]]` and `attr::` reference to it in block text, case-sensitively. If
-`New Title` already exists, the command exits 1 with the server's
-"already exists" message and a hint to retry with `--allow-merge`; that flag instead concatenates the source page's
-top-level blocks after the target's and drops the source page. Daily-note
-(date) pages cannot be renamed. The title printed back is the server's
-normalised form, which need not match what you typed byte-for-byte.
+`New Title` already exists, the command exits 1 with the server's "already
+exists" message and a hint to retry with `--allow-merge`. With that flag, the
+source page's top-level blocks are appended after the target's and the source
+page is dropped. Daily-note (date) pages cannot be renamed. The printed title
+is the server's normalised form, which may differ from what you typed.
 
-Multi-line text is treated as an outline: two spaces of indent means one
-level of nesting. A line starting `# `, `## ` or `### ` is stored as a
-heading block at that level rather than as literal text. This applies to
-`save`, `batch` and `update` alike. `#Tag` (no space) and `#### ` or deeper
-stay literal.
+Multi-line text is treated as an outline: two spaces of indent is one level of
+nesting. A line starting `# `, `## ` or `### ` becomes a heading block at that
+level. This applies to `save`, `batch` and `update`. `#Tag` (no space) and
+`#### ` or deeper stay literal.
 
 ### Reading
 
-`--json` is available on the read verbs. It prints minified, on one line,
-which is cheaper for machine consumers.
+The read verbs take `--json`, which prints minified JSON on one line.
 
 `search --exact` matches whole words only, with no prefix wildcard.
-`--compact` prints titles and uids without snippets. The default `--limit`
-is 10.
+`--compact` prints titles and uids without snippets. The default `--limit` is
+10.
 
-`query --expand` also matches one hop of transitivity: `[[X]]` matches
-blocks referencing a page that itself references X. When a query's total is
-0, the response reports a per-operand block count as well, so you can tell a
-mistyped `[[Page]]` from operands that simply don't intersect.
+`query --expand` adds one hop: `[[X]]` also matches blocks referencing a page
+that itself references X. When a query returns nothing, the output includes a
+block count per operand, so you can tell a mistyped `[[Page]]` from operands
+that don't intersect.
 
-`pkm refs` follows every page the server has rather than stopping at the
-route's 100-group cap. It retries if concurrent writes shift pagination, and
-its JSON reports the first response's actual `limit` rather than a limit
-synthesized from the aggregate group count.
+`pkm refs` pages through the server's results and returns every backlink
+group, retrying if concurrent writes shift the pages.
 
-`pkm local check` reports every `/api/local/` link in block text whose file
-is `missing`, `evicted` (an iCloud stub, not yet downloaded), or `invalid`
+`pkm local check` reports every `/api/local/` link in block text whose file is
+`missing`, `evicted` (an iCloud placeholder not yet downloaded), or `invalid`
 (the href doesn't resolve to a safe path), checked against the server's
-`local_docs_root`. Exit status: `0` clean, `1` problems found, `2` local
-files not configured (`local_docs_root` unset).
+`local_docs_root`. Exit status: `0` clean, `1` problems found, `2`
+`local_docs_root` not set.
 
 ## Batch transactions
 
 `pkm batch` applies a JSON array of `{command, params}` objects in one
-transaction. The commands are:
+transaction:
 
 | Command | Params |
 |---|---|
@@ -101,16 +95,15 @@ transaction. The commands are:
 | `delete` | uid |
 | `outline` | page, parent?, items (nested string arrays) |
 
-`index` inserts a `create`, `todo` or `move` at that exact position instead
-of appending.
+`index` inserts a `create`, `todo` or `move` at that position. Without it, the
+block is appended.
 
 `as` names a created block so later commands can refer to it as
 `"parent": "{{alias}}"`, or as `"uid": "{{alias}}"` for `update`, `move` and
 `delete`.
 
 A `"## Heading"` parent is matched on the page, or created once per batch.
-Repeating the same heading spec across commands reuses the heading already
-created:
+Later commands with the same heading spec reuse it:
 
     [{"command": "create",
       "params": {"page": "AI", "parent": "## Meetings", "text": "notes"}},
@@ -129,28 +122,27 @@ Or in `.mcp.json`:
                             "args": ["run", "--project", "server", "pkm-mcp"]}}}
 
 For Claude Desktop, use the same command and args in
-`claude_desktop_config.json` under `mcpServers`, but give `--project` an
-absolute path to the repository's `server/` directory:
+`claude_desktop_config.json` under `mcpServers`, with an absolute path to the
+repository's `server/` directory:
 
     "args": ["run", "--project", "/absolute/path/to/pkm/server", "pkm-mcp"]
 
 Run `pkm login` once first. The MCP server reads the same config file.
 
-The tools mirror the CLI, one per verb, and are listed in
-[architecture/cli-and-mcp.md](architecture/cli-and-mcp.md#the-mcp-tool-surface);
+The tools cover the CLI's read and write verbs and are listed in
+[architecture/cli-and-mcp.md](architecture/cli-and-mcp.md#the-mcp-tool-surface).
 `batch` takes the same command format as `pkm batch`. Reads return markdown
 annotated with `^uid` markers that the write tools accept.
 
 ## One-time title canonicalization
 
-Page titles with a leading or trailing ordinary space need a data migration
-before the server will canonicalize them. It is audit-first and deliberately
-manual: normal server startup only replays schema setup, and never audits or
-applies this migration. Activating production is a separate operator action
-and must not be inferred from a deploy or a restart.
+Page titles with a leading or trailing space need a data migration before the
+server will strip that space. The migration is audit-first and manual: server
+startup never audits or applies it, and a deploy or restart does not activate
+it.
 
-Set both the config and the URL explicitly rather than inheriting the CLI
-defaults:
+Set both the config and the URL explicitly so the command cannot fall back to
+the CLI defaults:
 
 ```bash
 PKM_CLI_CONFIG=/explicit/target-config.json PKM_URL=https://explicit-target \
@@ -159,34 +151,26 @@ PKM_CLI_CONFIG=/explicit/target-config.json PKM_URL=https://explicit-target \
   uv run --project server pkm migrate-titles --apply <audit-digest>
 ```
 
-The audit has no side effects. It prints a stable 64-hex digest, each
-canonical group, the survivor/source merge plan, counts, and every blocker
-with an `all_space` or `forbidden_syntax` reason. Review it before applying.
+The audit has no side effects. It prints a 64-hex digest, each canonical
+group, the survivor/source merge plan, counts, and every blocker with an
+`all_space` or `forbidden_syntax` reason. Review it before applying.
 
-Apply requires that exact digest. Database changes that affect the plan make
-the digest stale, and stale, blocked or already-active applies are refused.
-Mappings remove boundary U+0020 only, and each replacement value is inserted
-once and never rescanned as another source.
+`--apply` requires that exact digest. It is refused if database changes since
+the audit have altered the plan, if there are blockers, or if the migration
+is already active. Only boundary U+0020 spaces are removed.
 
-A successful apply does all of this in one transaction: retitle and merge
-pages, rewrite inbound references and sidebar identities, activate
-boundary-space canonicalization, and rotate the sync generation. Take the
-normal operational backup first, and only run against production if
-production was explicitly requested and both variables were deliberately
-set.
+A successful apply runs in one transaction: it retitles and merges pages,
+rewrites inbound references and sidebar entries, activates the new title
+rule, and rotates the sync generation. Take the normal backup first. Run it
+against production only when production was explicitly requested and both
+variables point there.
 
 ### What the title rules are
 
-Control whitespace in titles is always normalized — on creation, and on the
-page, unlinked-references, export, CLI and MCP read paths. After that
-normalization, normal writes reject titles containing `#`, `[[` or `]]`.
-Explicit and ref-derived titles are checked across the whole op batch before
-anything is written, and offline queueing applies the same rule before any
-optimistic or durable mutation.
+Control whitespace in titles is always normalized. After normalization,
+writes reject titles containing `#`, `[[` or `]]`, online and offline. Once
+the migration is active, leading and trailing ordinary spaces are also
+removed. Internal spaces and non-breaking spaces are kept as typed.
 
-Activation adds one thing: leading and trailing ordinary spaces are removed,
-online and offline. Internal ordinary spaces and non-breaking spaces stay
-byte-exact.
-
-The mechanism is described in
-[docs/architecture/backend.md](architecture/backend.md#title-integrity-and-one-time-activation).
+See [architecture/backend.md](architecture/backend.md#title-integrity-and-one-time-activation)
+for the mechanism.

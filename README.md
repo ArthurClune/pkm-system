@@ -1,26 +1,25 @@
 # PKM
 
-A self-hosted personal knowledge management app — a replacement for
-[Roam Research](https://roamresearch.com/) that runs on your own Mac and is
-reached from your other devices over [Tailscale](https://tailscale.com/).
+A self-hosted personal knowledge management app modelled on
+[Roam Research](https://roamresearch.com/). It runs on your own Mac, and your
+other devices reach it over [Tailscale](https://tailscale.com/).
 
 ## What
 
-An outliner-style notes app in the Roam mould:
+An outliner-style notes app:
 
 - **Daily notes** as the home view, with an infinite scroll of days
 - **Nested blocks** with outliner editing, block references preserved from Roam
 - **`[[page links]]`, `#tags`, `Attr::` attributes** and namespace pages
   (`[[AWS/SCP]]`), with **backlinks** and **unlinked references** per page
-- **Fast full-text search** (SQLite FTS5)
+- **Full-text search** (SQLite FTS5)
 - **`{{[[query]]}}` blocks** (`and`/`or`/`not` over page refs)
 - **Images and PDFs** stored and served locally, content-addressed
 - **Live sync** between open clients over a WebSocket (desktop + iPad)
-- **An in-app LLM assistant** that can read and (with your confirmation)
-  write your notes (see [Assistant](#assistant))
-- **Offline editing**: an installable PWA with a local replica — read, edit
-  and search your whole graph with no connection; changes sync back on
-  reconnect (see [Offline](#offline))
+- **An in-app LLM assistant** that can read your notes and, with your
+  confirmation, write them (see [Assistant](#assistant))
+- **Offline editing**: an installable PWA with a local replica of the whole
+  graph; changes sync back on reconnect (see [Offline](#offline))
 - **One-shot importer** from a Roam EDN export, preserving uids, ordering and
   timestamps
 - **Nightly backups**: rotated SQLite snapshots plus a git-committed
@@ -29,89 +28,86 @@ An outliner-style notes app in the Roam mould:
 ## Offline
 
 After one online visit, each browser keeps a full local replica of the graph
-(SQLite compiled to WebAssembly, persisted by the browser) and a service
-worker caches the app itself — so a cold start with no network still boots
-straight into your notes.
+(SQLite compiled to WebAssembly, persisted by the browser), and a service
+worker caches the app. A cold start with no network boots into your notes.
 
-**What works offline:**
+**Works offline:**
 
 - Reading everything: daily notes, pages, backlinks, unlinked references,
   block references
-- Editing blocks — changes queue durably on the device and the header shows
+- Editing blocks. Changes queue on the device and the header shows
   *"Offline — N changes pending"* until they reach the server
 - Creating pages (from search) and daily notes
-- Full-text search and `[[link]]` autocomplete, served from the local replica
-- Images you've viewed before (a bounded cache of recently seen assets);
-  ones you haven't show a labelled placeholder
+- Full-text search and `[[link]]` autocomplete
+- Images you've viewed before (a bounded cache); others show a labelled
+  placeholder
 
-**Online-only** (the UI says so rather than failing): uploading images/files,
+**Online-only**, and labelled as such in the UI: uploading images/files,
 editing the sidebar, deleting pages, and `{{[[query]]}}` blocks.
 
-**When edits collide** (same block changed on two devices while one was
-offline), the server keeps per-block last-write-wins and preserves the losing
-text as a `[[conflict]]` block next to the winner — nothing is silently
-discarded. An offline edit to a block that was meanwhile deleted is appended
-to today's daily note instead of vanishing.
+**When edits collide** (the same block changed on two devices while one was
+offline), the server keeps the last write per block and saves the losing text
+as a `[[conflict]]` block next to the winner. An offline edit to a block that
+was deleted in the meantime is appended to today's daily note.
 
-**Limits to know about:** the first visit (and login) needs a connection; the
-replica is per-browser, so a new device or a cleared browser profile starts
-online; and if the device runs out of local storage while offline, editing
-pauses, with a visible reason, rather than risking the loss of a change.
+**Limits:** the first visit and login need a connection. The replica is
+per-browser, so a new device or a cleared browser profile starts online. If
+the device runs out of local storage while offline, editing pauses and says
+why.
 
 ## Assistant
 
 `Cmd/Ctrl+J` opens a chat panel backed by a Claude agent. Pick a model
-(`sonnet` by default, or `opus`/`haiku`) and ask it to find, summarise or
-write notes.
+(`opus`, `sonnet`, `haiku`, or `glm` when a z.ai key is configured; the
+default is `glm` when available, otherwise `sonnet`) and ask it to find,
+summarise or write notes.
 
-The agent runs on the server, not in the browser, and it has no general
-tools — only the twelve `pkm` verbs, which reach your graph through the same
-HTTP API every other client uses. Reads happen without asking. Every write
-pauses for an Allow/Deny card in the chat that shows exactly which operations
-it wants to apply. Conversations are held in memory only, so a reload starts
-a new one.
+The agent runs on the server. Its only tools are the `pkm` verbs, which reach
+your graph through the same HTTP API as every other client. Reads run without
+asking. Every write pauses for an Allow/Deny card in the chat showing the
+operations it wants to apply. Conversations are held in memory, so a reload
+starts a new one.
 
 The assistant needs a logged-in Claude subscription on the machine running
-the server; if it is missing, the assistant reports an error in the chat and
-the rest of the app is unaffected. Setup is in
+the server. Without one, the assistant reports an error in the chat and the
+rest of the app works as normal. Setup is in
 [deploy/README.md](deploy/README.md#assistant-prerequisites).
 
 ## Why
 
-Notes are a decades-long asset; the app that holds them shouldn't be a
-subscription service that can disappear, slow down, or hold the data hostage.
-This project trades Roam's collaborative/multi-user machinery (which a
-single-user graph never uses) for:
+Notes last decades, so the app holding them should not be a subscription
+service that can disappear, slow down, or lock the data in. This project
+drops Roam's multi-user machinery, which a single-user graph never uses, in
+exchange for:
 
-- **Ownership** — everything lives in one SQLite file plus an assets directory
-  on a machine you control; the nightly export doubles as a plain-markdown
-  escape hatch.
-- **Simplicity** — server-authoritative block ops, no CRDTs, no sync protocol
-  to debug. Per-block last-write-wins is plenty for one person.
-- **Longevity** — boring, inspectable parts: FastAPI, SQLite, React. Block
-  text is stored as unmodified Roam-flavoured markdown, so nothing is locked
-  into this app either.
+- **Ownership**: everything lives in one SQLite file plus an assets directory
+  on a machine you control. The nightly export is a plain-markdown copy you
+  can leave with.
+- **Simplicity**: server-authoritative block ops, no CRDTs. Per-block
+  last-write-wins is enough for one person.
+- **Longevity**: FastAPI, SQLite and React. Block text is stored as
+  unmodified Roam-flavoured markdown.
 
-The **[design document](docs/design.md)** gives the high-level architecture
-and the key decisions, linking through to the detailed specs and
-implementation plans.
+The **[design document](docs/design.md)** covers the high-level architecture
+and key decisions, with links to the detailed specs and implementation plans.
 
 ## Repository layout
 
 ```
-server/   Python backend: FastAPI app, SQLite storage, Roam EDN importer,
-          markdown export, nightly backup job
-web/      TypeScript frontend: React + Vite SPA, Vitest unit tests,
-          Playwright e2e tests
-shared/   Fixtures shared between the Python and TS ref-grammar parsers,
-          pinning both to identical behaviour
-deploy/   launchd + Tailscale Serve deployment for a Mac (see deploy/README.md)
-docs/     Design docs and implementation plans
+server/     Python backend: FastAPI app, SQLite storage, Roam EDN importer,
+            markdown export, nightly backup job
+web/        TypeScript frontend: React + Vite SPA, Vitest unit tests,
+            Playwright e2e tests
+shared/     Fixtures that pin the Python and TypeScript implementations
+            (ref grammar, title syntax, replica parity) to identical behaviour
+test-data/  Synthetic graph and assets for tests and local development
+deploy/     launchd + Tailscale Serve deployment for a Mac (see deploy/README.md)
+docs/       Design docs and implementation plans
 ```
 
 The codebase follows the **functional-core / imperative-shell** pattern: pure
 logic and I/O live in separate files, each declaring its role in a `# pattern:`
-header comment (see `CLAUDE.md`).
+header comment (see `AGENTS.md`).
 
 ## Setup (development)
 
@@ -133,14 +129,13 @@ uv run python -m pkm.server.setup --data-dir ../data --insecure-cookie
 uv run python -m pkm.server.run --data-dir ../data
 ```
 
-`pkm.server.setup` creates `data/config.json` and remains responsible for the
-password and cookie settings.
+`pkm.server.setup` writes `data/config.json`, which holds the password and
+cookie settings.
 
 ### 2. Importing your Roam graph (optional)
 
-If you want to replace the synthetic fixture with a Roam export, export your
-graph as **EDN** (not markdown — that loses uids and structure) and download
-the linked files, then:
+To replace the synthetic data with your Roam graph, export it as **EDN** (a
+markdown export loses uids and structure) and download the linked files, then:
 
 ```bash
 cd server
@@ -149,16 +144,15 @@ uv run python -m pkm.importer.run /path/to/export.edn \
 ```
 
 Each run builds a fresh database and atomically swaps it in, so re-running is
-always safe. It ends with a report of everything imported, and of anything
-unrecognised: nothing is dropped without being reported.
+safe. The run ends with a report of everything imported and anything
+unrecognised.
 
-Titles are cleaned up on the way in. Balanced `[[`/`]]` markers and `#`
-markers are removed from page and ref-derived titles, collisions are merged,
-and every changed spelling and merge appears in the report. Malformed marker
-syntax, or a title left blank by that cleanup, aborts the import before any
-output is created. Fresh databases also arrive with title canonicalization
-already active — see [docs/cli.md](docs/cli.md#one-time-title-canonicalization)
-for what that means.
+The importer cleans up titles. It removes balanced `[[`/`]]` and `#` markers
+from page and ref-derived titles and merges any resulting collisions; the
+report lists every changed spelling and merge. Malformed marker syntax, or a
+title left blank by the cleanup, aborts the import before any output is
+written. Imported databases have title canonicalization already active (see
+[docs/cli.md](docs/cli.md#one-time-title-canonicalization)).
 
 ### Regenerating the local data
 
@@ -169,7 +163,7 @@ rm -rf data/assets
 uv run --project server python -m pkm.test_data.generate --out data
 ```
 
-This preserves your `data/config.json` and authentication.
+This keeps your `data/config.json` and password.
 
 ### 3. Web app
 
@@ -189,12 +183,12 @@ pnpm test          # Vitest unit tests
 pnpm test:coverage # unit tests with enforced coverage thresholds
 pnpm typecheck     # tsc
 pnpm e2e           # build, then Playwright end-to-end tests
-pnpm verify        # typecheck + coverage + Playwright (standard verification)
+pnpm verify        # typecheck + lint + FCIS check + coverage + Playwright
 pnpm build         # production build to web/dist
 pnpm gen-types     # regenerate TS API types from the server's OpenAPI schema
 ```
 
-To serve the built SPA from the backend itself (no Vite), build it and set
+To serve the built SPA from the backend without Vite, build it and set
 `web_dist` in `config.json` (the setup script's `--web-dist` flag does this).
 
 ## Agent access (CLI and MCP)
@@ -209,28 +203,25 @@ For Claude Code, add the MCP server from the repository root:
 
     claude mcp add pkm -- uv run --project server pkm-mcp
 
-The full command reference, the `pkm batch` command language, MCP setup for
-other clients, and the one-time title-canonicalization procedure are in
-**[docs/cli.md](docs/cli.md)**. Every verb's `--help` is self-sufficient.
+**[docs/cli.md](docs/cli.md)** has the command reference, the `pkm batch`
+command language, MCP setup for other clients, and the title-canonicalization
+procedure. Each verb's `--help` lists its arguments and examples.
 
 ## Deployment
 
-Production runs as launchd services on a Mac, fronted by Tailscale Serve for
-HTTPS across the tailnet, with a nightly backup job (rotated SQLite snapshots
-plus a git-committed markdown/assets export). `deploy/install.sh` sets all of
-this up; **[deploy/README.md](deploy/README.md)** has the full install, update,
-backup and restore procedures.
+Production runs as launchd services on a Mac behind Tailscale Serve for HTTPS
+across the tailnet, with a nightly backup job. `deploy/install.sh` sets this
+up; **[deploy/README.md](deploy/README.md)** covers install, update, backup
+and restore.
 
 ## Documentation
 
-- **[Architecture docs](docs/architecture/overview.md)** — codebase
-  orientation for new contributors (human or agent): system overview,
-  backend + API, frontend, and the sync/offline protocol
-- **[Design document](docs/design.md)** — high-level architecture and key
-  decisions, linking to the detailed specs and plans in `docs/superpowers/`
-- **[CLI and MCP reference](docs/cli.md)** — every `pkm` verb, the batch
+- **[Architecture docs](docs/architecture/overview.md)**: how the codebase is
+  organised, one file per area
+- **[Troubleshooting](docs/troubleshooting.md)**: known failures by symptom
+- **[Design document](docs/design.md)**: high-level architecture and key
+  decisions, linking to the specs and plans in `docs/superpowers/`
+- **[CLI and MCP reference](docs/cli.md)**: every `pkm` verb, the batch
   command language, MCP setup, title canonicalization
-- **[Deployment guide](deploy/README.md)** — install, update, backups, restore,
+- **[Deployment guide](deploy/README.md)**: install, update, backups, restore,
   troubleshooting
-- `docs/superpowers/plans/` — the implementation plans each phase was built
-  from

@@ -3,8 +3,16 @@
 // clicking that link opens the sandboxed reader. A URL the stub does not
 // know is saved there first. Uses its own page and deletes it afterwards
 // (the e2e DB is shared across specs).
+import { createHash } from "node:crypto";
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { waitForServerText } from "./server-state";
+
+// server/tests/fake_goodlinks_server.py's seeded id and its POST /links id
+// derivation (hashlib.md5(url.encode()).hexdigest()) -- waitForServerText
+// matches a whole block's text, so the expected string has to be exact.
+const ARTICLE_ID = "0123456789abcdef0123456789abcdef";
+const stubLinkId = (url: string) => createHash("md5").update(url).digest("hex");
 
 async function login(page: Page) {
   await page.goto("/login");
@@ -35,8 +43,9 @@ async function linkThenChildGoodlinks(page: Page, url: string) {
 
 test("/goodlinks links a saved page and the reader shows the sanitised article", async ({ page }) => {
   await login(page);
-  const title = await freshPage(page, "Goodlinks E2E");
+  let title = "";
   try {
+    title = await freshPage(page, "Goodlinks E2E");
     await linkThenChildGoodlinks(page, "https://example.com/e2e-article");
 
     // exact: true -- the fresh page's own title ("Goodlinks E2E …") also
@@ -65,22 +74,34 @@ test("/goodlinks links a saved page and the reader shows the sanitised article",
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(open).toBeFocused();
+
+    // The Tab press above is a move op; wait for the server's own copy of
+    // the page to have the final edit before the finally block deletes it,
+    // or the delete can land between the move's apply and its broadcast
+    // (an in-flight ops batch racing page deletion -- pkm-h7jb-style).
+    await waitForServerText(page, title, `Local copy:: [Goodlinks](/api/goodlinks/${ARTICLE_ID})`);
   } finally {
-    await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
+    if (title) await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
   }
 });
 
 test("/goodlinks saves an unknown URL to GoodLinks and reports it", async ({ page }) => {
   await login(page);
-  const title = await freshPage(page, "Goodlinks Save E2E");
+  let title = "";
   try {
-    await linkThenChildGoodlinks(page, `https://example.com/new-${Date.now()}`);
+    title = await freshPage(page, "Goodlinks Save E2E");
+    const url = `https://example.com/new-${Date.now()}`;
+    await linkThenChildGoodlinks(page, url);
     await expect(page.locator(".editor-notice[role='status']")).toHaveText(/Saved to Goodlinks/);
     await expect(page.getByRole("button", { name: "Goodlinks", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Dismiss" }).click();
     await expect(page.locator(".editor-notice[role='status']")).toHaveCount(0);
+
+    // See the comment in the previous test: wait for the Tab move to land
+    // server-side before the finally block deletes the page.
+    await waitForServerText(page, title, `Local copy:: [Goodlinks](/api/goodlinks/${stubLinkId(url)})`);
   } finally {
-    await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
+    if (title) await page.request.delete(`/api/page/${encodeURIComponent(title)}`);
   }
 });
 

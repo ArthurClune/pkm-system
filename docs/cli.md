@@ -42,6 +42,7 @@ Two environment variables override the defaults:
     pkm migrate-titles [--json]              # side-effect-free audit
     pkm migrate-titles --apply DIGEST        # explicit audited apply
     pkm local check [--json]                 # /api/local/ links missing/evicted on the host
+    pkm goodlinks check [--json]             # /api/goodlinks/ links GoodLinks no longer has
 
 ### Writing
 
@@ -94,6 +95,13 @@ The default `--limit` is 50.
 (the href doesn't resolve to a safe path), checked against the server's
 `local_docs_root`. Exit status: `0` clean, `1` problems found, `2`
 `local_docs_root` not set.
+
+`pkm goodlinks check` reports every `/api/goodlinks/` link in block text whose
+saved page is `missing` from the GoodLinks library or whose href is `invalid`
+(not a GoodLinks id). It asks the GoodLinks app on the host, so it exits 1
+with a "not running" error when the app is closed, or a "rejected the API
+token" error when GoodLinks refuses the token. Exit status: `0` clean,
+`1` problems found, `2` GoodLinks not configured (no API token file).
 
 ## Batch transactions
 

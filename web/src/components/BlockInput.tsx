@@ -156,6 +156,18 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       setDatePickerAt(at);
       return;
     }
+    // "/goodlinks": strip the trigger and give up the block like /upload,
+    // then let the engine resolve the nearest URL and splice the attribute
+    // at the recorded offset. The block is blurred first so the inserted
+    // link renders (as a button) the moment the splice lands.
+    if (row.command === "goodlinks") {
+      const at = ctx.start - 1; // where the "/" was
+      ac.close();
+      setText(text.slice(0, at) + text.slice(caret), at);
+      handlers.onBlurBlock(node.uid);
+      handlers.onGoodlinks(node.uid, at);
+      return;
+    }
     const applied = row.command
       ? applySlashCommand(text, caret, ctx, row.command, new Date())
       : applyCompletion(text, caret, ctx, row.title);

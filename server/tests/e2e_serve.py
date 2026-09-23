@@ -26,6 +26,7 @@ import uvicorn
 from fastapi import Request
 from fastapi.responses import PlainTextResponse
 
+import fake_goodlinks_server
 from fake_engine import FakeEngine
 from pkm.schema import DDL
 from pkm.server.app import create_app
@@ -36,6 +37,8 @@ from pkm.server.db import init_db
 PORT = int(os.environ.get("E2E_PORT", "8975"))
 PASSWORD = "e2e-pw"
 SALT = bytes.fromhex("11" * 16)
+
+GOODLINKS_PORT = int(os.environ.get("E2E_GOODLINKS_PORT", "9429"))
 
 SERVER_LOGGER_NAME = "pkm.e2e_server"
 server_logger = logging.getLogger(SERVER_LOGGER_NAME)
@@ -96,6 +99,11 @@ def main() -> int:
     local_root.mkdir(parents=True)
     shutil.copy(root / "test-data" / "assets" / "sample.pdf", local_root / "sample.pdf")
     (local_root / "notes.zip").write_bytes(b"PK\x03\x04e2e")
+    # A stub GoodLinks so web/e2e/goodlinks.spec.ts can resolve, save and
+    # read an article without the real app.
+    (data / "goodlinks_key").write_text(fake_goodlinks_server.TOKEN, encoding="utf-8")
+    goodlinks = fake_goodlinks_server.start(GOODLINKS_PORT)
+    atexit.register(goodlinks.shutdown)
     config = Config(
         db_path=db_path,
         assets_dir=data / "assets",
@@ -105,6 +113,8 @@ def main() -> int:
         cookie_secure=False,
         web_dist=web_dist,
         local_docs_root=data / "local",
+        goodlinks_api_key_file=data / "goodlinks_key",
+        goodlinks_api_url=f"http://127.0.0.1:{GOODLINKS_PORT}/api/v1",
     )
     app = create_app(config, assistant_engine=FakeEngine())
 

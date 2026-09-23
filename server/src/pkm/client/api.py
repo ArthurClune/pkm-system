@@ -30,7 +30,8 @@ from pkm.client.core import (ApiError, CliConfig, ConfigError,
 from pkm.contracts.ops import BlockOp, OpBatch
 from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
-                                     BlockNode, BlockPayload, GroupsPayload,
+                                     BlockNode, BlockPayload,
+                                     GoodlinksCheckPayload, GroupsPayload,
                                      LocalCheckPayload, OpsAck, PagePayload,
                                      QueryPayload, RenamePageResponse,
                                      ScanPayload, SearchPayload,
@@ -339,3 +340,6 @@ class PkmClient:
 
     def local_check(self) -> LocalCheckPayload:
         return self._request("GET", "/api/local/check", LocalCheckPayload)
+
+    def goodlinks_check(self) -> GoodlinksCheckPayload:
+        return self._request("GET", "/api/goodlinks/check", GoodlinksCheckPayload)

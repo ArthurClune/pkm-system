@@ -1,10 +1,11 @@
 // pattern: Imperative Shell
 // Fullscreen overlay for uploaded images, extracted from AssetImage
-// (pkm-vcn6) so the /files browser can share it. Owns the body scroll
-// lock, Escape-to-close, Tab pinned to the Close button, and focus
-// restore to the trigger on unmount.
-import { useEffect, useRef } from "react";
+// (pkm-vcn6) so the /files browser can share it. Body scroll lock,
+// Escape-to-close, Tab pinned to Close and focus restore to the trigger
+// come from useOverlayDismiss, shared with the GoodLinks reader.
+import { useRef } from "react";
 import { createPortal } from "react-dom";
+import { useOverlayDismiss } from "./useOverlayDismiss";
 
 export function ImageOverlay({ src, alt, onClose, onError, triggerRef }: {
   src: string;
@@ -17,33 +18,7 @@ export function ImageOverlay({ src, alt, onClose, onError, triggerRef }: {
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    const trigger = triggerRef?.current;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    closeRef.current?.focus();
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        // Capture-phase trap: hosts (e.g. the assistant panel) also close on
-        // Escape, and portal events still bubble through the React tree, so
-        // the Escape that dismisses the image must never reach them.
-        event.stopPropagation();
-        onClose();
-        return;
-      }
-      if (event.key === "Tab") {
-        event.preventDefault();
-        closeRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      document.body.style.overflow = previousOverflow;
-      if (trigger?.isConnected) trigger.focus();
-    };
-  }, [onClose, triggerRef]);
+  useOverlayDismiss(closeRef, onClose, triggerRef);
 
   const dialogLabel = alt ? `Expanded image: ${alt}` : "Expanded image";
   return createPortal(

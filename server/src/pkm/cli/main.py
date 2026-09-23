@@ -24,7 +24,8 @@ from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import UID_RE
 from pkm.planning import BuildError
 from pkm.render import (RenderError, clip_depth, render_assets,
-                        render_backlinks, render_block, render_groups,
+                        render_backlinks, render_block,
+                        render_goodlinks_check, render_groups,
                         render_local_check, render_page, render_search,
                         render_title_migration_apply,
                         render_title_migration_audit, select_section)
@@ -338,6 +339,15 @@ examples:
 exit status: 0 clean, 1 problems found, 2 local files not configured
 """
 
+_GOODLINKS_EPILOG = """\
+examples:
+  # list Local copy:: Goodlinks links whose saved page is gone
+  pkm goodlinks check
+  pkm goodlinks check --json
+
+exit status: 0 clean, 1 problems found, 2 Goodlinks not configured
+"""
+
 
 def _login_http(url: str) -> httpx2.Client:
     return httpx2.Client(base_url=url)  # seam: tests inject a TestClient
@@ -503,6 +513,19 @@ def cmd_local(args: argparse.Namespace, client: PkmClient) -> int:
     return 1 if payload.problems else 0
 
 
+def cmd_goodlinks(args: argparse.Namespace, client: PkmClient) -> int:
+    payload = client.goodlinks_check()
+    if args.json:
+        print(payload.model_dump_json())
+    if not payload.enabled:
+        print("Goodlinks is not configured on the server"
+              " (write the API token to the goodlinks_key file)", file=sys.stderr)
+        return 2
+    if not args.json:
+        print(render_goodlinks_check(payload))
+    return 1 if payload.problems else 0
+
+
 def cmd_migrate_titles(args: argparse.Namespace, client: PkmClient) -> int:
     if args.apply is None:
         payload = client.audit_title_migration()
@@ -637,6 +660,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub_local.add_parser("check", help="report missing/evicted local files")
     _common(sp)
 
+    p = _add("goodlinks", "check Local copy:: Goodlinks links against the GoodLinks library",
+             _GOODLINKS_EPILOG)
+    sub_goodlinks = p.add_subparsers(dest="goodlinks_action", required=True)
+    sp = sub_goodlinks.add_parser("check", help="report links GoodLinks no longer has")
+    _common(sp)
+
     p = _add("migrate-titles", "audit or apply the title migration",
              _MIGRATE_TITLES_EPILOG)
     p.add_argument("--apply", metavar="DIGEST", default=None,
@@ -659,6 +688,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, PkmClient], int]] = {
     "query": cmd_query, "todos": cmd_todos,
     "save": cmd_save, "update": cmd_update, "upload": cmd_upload,
     "batch": cmd_batch, "assets": cmd_assets, "local": cmd_local,
+    "goodlinks": cmd_goodlinks,
     "migrate-titles": cmd_migrate_titles, "rename": cmd_rename,
 }
 

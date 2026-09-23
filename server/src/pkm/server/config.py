@@ -40,6 +40,13 @@ class Config:
     # like every other path key; `Path / absolute` yields the absolute
     # path unchanged, so an absolute value passes through.
     local_docs_root: Path | None = None
+    # GoodLinks local API (see goodlinks.py / routes_goodlinks.py). Same
+    # placement and precedence as the OpenAI key: the file wins over the
+    # GOODLINKS_API_KEY env var; no key at all disables the feature.
+    goodlinks_api_key_file: Path = Path("../goodlinks_key")
+    # Where the GoodLinks app listens. Only the e2e server points this
+    # anywhere but the documented localhost port.
+    goodlinks_api_url: str = "http://localhost:9428/api/v1"
 
 
 def load_config(path: Path) -> Config:
@@ -62,4 +69,6 @@ def load_config(path: Path) -> Config:
         zai_api_key_file=base / raw.get("zai_api_key_file", "../zai_key"),
         local_docs_root=(base / raw["local_docs_root"]
                          if raw.get("local_docs_root") else None),
+        goodlinks_api_key_file=base / raw.get("goodlinks_api_key_file", "../goodlinks_key"),
+        goodlinks_api_url=str(raw.get("goodlinks_api_url", "http://localhost:9428/api/v1")),
     )

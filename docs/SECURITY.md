@@ -129,6 +129,24 @@ same-origin browser requests, React escaping and the narrow deployment
 boundary reduce the immediate risk. Explicit origin checks and security
 headers would limit the impact of future browser-side mistakes.
 
+### Third-party HTML from GoodLinks
+
+`GET /api/goodlinks/{link_id}` is the one route that returns HTML the
+application did not write: the reader-view body GoodLinks extracted from a
+web page. Two independent barriers stand between that HTML and the app.
+The server reduces it to an explicit allowlist of tags and attributes
+(`goodlinks.py`, `sanitize_article`), dropping scripts, styles, event
+handlers, forms, frames, every URL scheme but http and https, and any
+relative or protocol-relative URL — article images and links must be
+absolute http/https or they are dropped. The web reader then renders only
+inside `<iframe sandbox="allow-popups allow-popups-to-escape-sandbox"
+srcdoc>`, the one place third-party HTML reaches the DOM, so even HTML that
+slipped the allowlist runs no script and has no access to the app's origin
+or cookies. Neither barrier may be loosened for convenience; a tag that is
+not listed is meant to disappear. Article images still load from their
+original hosts, so opening a copy reveals the reader's IP to those hosts, as
+it does in GoodLinks itself.
+
 ### Direct HTTP access
 
 The direct Tailscale-IP listener uses plain HTTP. Tailscale encrypts traffic

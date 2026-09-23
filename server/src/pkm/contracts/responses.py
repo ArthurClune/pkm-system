@@ -248,6 +248,49 @@ class LocalCheckPayload(BaseModel):
     problems: list[LocalCheckProblem]
 
 
+class GoodlinksResolveRequest(BaseModel):
+    """POST /api/goodlinks/resolve body. `save` lets the slash command add
+    a page GoodLinks does not have yet; the migration script never sets it."""
+    url: str = Field(min_length=1, max_length=2000)
+    save: bool = False
+
+
+class GoodlinksLink(BaseModel):
+    """POST /api/goodlinks/resolve: the GoodLinks link a URL resolved to.
+    `created` is True when the request saved it just now."""
+    id: str
+    title: str
+    url: str
+    added_at: str
+    created: bool
+
+
+class GoodlinksArticle(BaseModel):
+    """GET /api/goodlinks/{link_id}: metadata plus the sanitised reader HTML
+    in one payload, so the reader overlay makes a single request."""
+    id: str
+    title: str
+    url: str
+    added_at: str
+    html: str
+
+
+class GoodlinksCheckProblem(BaseModel):
+    uid: str
+    page: str
+    href: str
+    status: Literal["missing", "invalid"]
+
+
+class GoodlinksCheckPayload(BaseModel):
+    """GET /api/goodlinks/check: every /api/goodlinks/ href found in block
+    text, checked against the GoodLinks library. `enabled` is False when
+    no API key is configured."""
+    enabled: bool
+    total: int
+    ok: int
+    problems: list[GoodlinksCheckProblem]
+
 class SyncRef(BaseModel):
     target_page_id: int
     kind: str

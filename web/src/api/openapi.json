@@ -1407,6 +1407,101 @@
         }
       }
     },
+    "/api/goodlinks/resolve": {
+      "post": {
+        "summary": "Resolve Link",
+        "operationId": "resolve_link_api_goodlinks_resolve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoodlinksResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoodlinksLink"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/goodlinks/check": {
+      "get": {
+        "summary": "Check Goodlinks Links",
+        "operationId": "check_goodlinks_links_api_goodlinks_check_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoodlinksCheckPayload"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/goodlinks/{link_id}": {
+      "get": {
+        "summary": "Get Article",
+        "operationId": "get_article_api_goodlinks__link_id__get",
+        "parameters": [
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Link Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoodlinksArticle"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/assets/describe-status": {
       "get": {
         "summary": "Describe Status",
@@ -2711,6 +2806,159 @@
           "reason"
         ],
         "title": "DescribeStatusPayload"
+      },
+      "GoodlinksArticle": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "added_at": {
+            "type": "string",
+            "title": "Added At"
+          },
+          "html": {
+            "type": "string",
+            "title": "Html"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "url",
+          "added_at",
+          "html"
+        ],
+        "title": "GoodlinksArticle",
+        "description": "GET /api/goodlinks/{link_id}: metadata plus the sanitised reader HTML\nin one payload, so the reader overlay makes a single request."
+      },
+      "GoodlinksCheckPayload": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "ok": {
+            "type": "integer",
+            "title": "Ok"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/GoodlinksCheckProblem"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "total",
+          "ok",
+          "problems"
+        ],
+        "title": "GoodlinksCheckPayload",
+        "description": "GET /api/goodlinks/check: every /api/goodlinks/ href found in block\ntext, checked against the GoodLinks library. `enabled` is False when\nno API key is configured."
+      },
+      "GoodlinksCheckProblem": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "page": {
+            "type": "string",
+            "title": "Page"
+          },
+          "href": {
+            "type": "string",
+            "title": "Href"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "invalid"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "page",
+          "href",
+          "status"
+        ],
+        "title": "GoodlinksCheckProblem"
+      },
+      "GoodlinksLink": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "added_at": {
+            "type": "string",
+            "title": "Added At"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "url",
+          "added_at",
+          "created"
+        ],
+        "title": "GoodlinksLink",
+        "description": "POST /api/goodlinks/resolve: the GoodLinks link a URL resolved to.\n`created` is True when the request saved it just now."
+      },
+      "GoodlinksResolveRequest": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Url"
+          },
+          "save": {
+            "type": "boolean",
+            "title": "Save",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "GoodlinksResolveRequest",
+        "description": "POST /api/goodlinks/resolve body. `save` lets the slash command add\na page GoodLinks does not have yet; the migration script never sets it."
       },
       "GroupItem": {
         "properties": {

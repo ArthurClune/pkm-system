@@ -4,8 +4,10 @@
 // remote websocket batches. All op semantics live in edits.ts / tree.ts.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
+import { ApiError } from "../api/client";
 import type { BlockNode } from "../api/payloads";
 import type { BlockOp } from "../api/ops";
+import { apiPost } from "../api/typedClient";
 import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
 import { toggleTodo } from "../grammar/todo";
@@ -18,6 +20,7 @@ import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveSubtreeUp, outdentBlock, outdentSelection, setCollapsed,
          setHeading, splitBlock, setViewType, type EditResult,
          type FocusTarget } from "./edits";
+import { goodlinksAttribute, goodlinksCandidates, goodlinksNotice } from "./goodlinks";
 import type { OutlineHandlers } from "./handlers";
 import { invertOps } from "./history";
 import { loadOutlineBlocks } from "./loadOutlineBlocks";
@@ -50,6 +53,10 @@ export interface Outline {
   /** Most recent /upload, paste, or drag-drop failure, if any (pkm-gbsb). */
   uploadError: string | null;
   dismissUploadError(): void;
+  /** Outcome of the last /goodlinks pick: "Saved to Goodlinks" or a
+   * failure notice (see outline/goodlinks.ts). */
+  goodlinksNotice: string | null;
+  dismissGoodlinksNotice(): void;
   /** In-app confirm dialog (pkm-2jaz): render this once in the owning
    * component's tree. Backs onDeleteBlockSelection's large-selection prompt —
    * window.confirm is suppressed by iPadOS Safari in standalone mode. */
@@ -76,6 +83,9 @@ export function useOutline(
   // rejections used to be swallowed silently. Cleared at the start of the
   // next upload attempt, or explicitly via dismissUploadError.
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Outcome of the last /goodlinks pick: "Saved to Goodlinks" or a failure
+  // notice. Cleared at the start of the next pick or by dismissGoodlinksNotice.
+  const [goodlinksNotice_, setGoodlinksNotice] = useState<string | null>(null);
   // A live multi-block selection (Shift+Arrow), mutually exclusive with an
   // editing focus: starting one blurs the textarea, focusing a block clears it.
   const [selection, setSelection] = useState<BlockSelection | null>(null);
@@ -370,6 +380,36 @@ export function useOutline(
         });
       })();
     },
+    onGoodlinks: (uid, cursor) => {
+      setGoodlinksNotice(null);
+      const url = goodlinksCandidates(blocksRef.current, uid)[0];
+      if (!url) {
+        setGoodlinksNotice("No URL nearby");
+        return;
+      }
+      void (async () => {
+        let link;
+        try {
+          link = await apiPost("/api/goodlinks/resolve", { body: { url, save: true } });
+        } catch (err) {
+          setGoodlinksNotice(err instanceof ApiError ? goodlinksNotice(err.status, err.detail) : goodlinksNotice(0));
+          return;
+        }
+        run((b) => {
+          const node = findNode(b, uid);
+          if (!node) return { blocks: b, ops: [], focus: null };
+          // Same splice as /upload: at the recorded offset, clamped, and
+          // re-focusing only if this block still owns focus (the pick has
+          // already blurred it, so normally it does not).
+          const spliced = spliceUploadedMarkdown(node.text, cursor, goodlinksAttribute(link.id));
+          const ops: BlockOp[] = [{ op: "update_text", uid, text: spliced.text }];
+          const focus = focusRef.current?.uid === uid
+            ? { uid, cursor: spliced.selStart } : null;
+          return { blocks: applyOps(b, ops, pageTitle), ops, focus };
+        });
+        if (link.created) setGoodlinksNotice("Saved to Goodlinks");
+      })();
+    },
     // Multi-line text paste (pkm-tu3a): one planned batch through run() —
     // flushed draft, optimistic apply, single server batch, single undo entry.
     onPasteOutline: (uid, selStart, selEnd, text) =>
@@ -495,6 +535,8 @@ export function useOutline(
     appendBlock,
     uploadError,
     dismissUploadError: () => setUploadError(null),
+    goodlinksNotice: goodlinksNotice_,
+    dismissGoodlinksNotice: () => setGoodlinksNotice(null),
     dialog,
   };
 }

@@ -13,7 +13,8 @@ import re
 from collections.abc import Mapping, Sequence
 
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
-                                     BlockPayload, BlockRefText, GroupsPayload,
+                                     BlockPayload, BlockRefText,
+                                     GoodlinksCheckPayload, GroupsPayload,
                                      LocalCheckPayload, PagePayload, QueryPayload,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
@@ -142,6 +143,14 @@ def render_assets(payload: AssetSearchPayload) -> str:
 def render_local_check(payload: LocalCheckPayload) -> str:
     """One summary line, then `page | status | href` per problem."""
     lines = [f"{payload.total} local link(s), {payload.ok} ok,"
+             f" {len(payload.problems)} problem(s)"]
+    lines += [f"{p.page} | {p.status} | {p.href}" for p in payload.problems]
+    return "\n".join(lines)
+
+
+def render_goodlinks_check(payload: GoodlinksCheckPayload) -> str:
+    """One summary line, then `page | status | href` per problem."""
+    lines = [f"{payload.total} goodlinks link(s), {payload.ok} ok,"
              f" {len(payload.problems)} problem(s)"]
     lines += [f"{p.page} | {p.status} | {p.href}" for p in payload.problems]
     return "\n".join(lines)

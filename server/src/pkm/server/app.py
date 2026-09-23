@@ -21,9 +21,11 @@ from pkm.describe.service import DescribeService
 from pkm.server.auth import LoginThrottle, require_auth, router as auth_router
 from pkm.server.config import Config
 from pkm.server.db import init_db
+from pkm.server.goodlinks_gateway import GoodlinksGateway
 from pkm.server.request_log import RequestLogMiddleware
 from pkm.server.routes_assets import router as assets_router
 from pkm.server.routes_export import router as export_router
+from pkm.server.routes_goodlinks import router as goodlinks_router
 from pkm.server.routes_local import router as local_router
 from pkm.server.routes_migrations import router as migrations_router
 from pkm.server.routes_ops import router as ops_router
@@ -54,6 +56,15 @@ def _resolve_key(path: Path, env_var: str) -> str | None:
     return _read_key_file(path) or os.environ.get(env_var) or None
 
 
+def _default_goodlinks(config: Config) -> GoodlinksGateway | None:
+    """None (feature off) unless a GoodLinks API token is on disk or in the
+    environment; the routes then answer 404 and `check` says disabled."""
+    token = _resolve_key(config.goodlinks_api_key_file, "GOODLINKS_API_KEY")
+    if token is None:
+        return None
+    return GoodlinksGateway(config.goodlinks_api_url, token)
+
+
 def _default_describe_service(config: Config) -> DescribeService:
     api_key = _resolve_key(config.openai_api_key_file, "OPENAI_API_KEY")
     reason = enabled_reason(api_key, config.image_descriptions)
@@ -80,6 +91,7 @@ def create_app(
     api_port: int = 8974,
     assistant_engine: AgentEngine | None = None,
     describe_service: DescribeService | None = None,
+    goodlinks_gateway: GoodlinksGateway | None = None,
 ) -> FastAPI:
     # init_db() is idempotent and cheap (one WAL pragma + the fully
     # IF-NOT-EXISTS base schema, see schema.py), so calling it here makes
@@ -113,6 +125,8 @@ def create_app(
     )
     app.state.describe = (describe_service if describe_service is not None
                           else _default_describe_service(config))
+    app.state.goodlinks = (goodlinks_gateway if goodlinks_gateway is not None
+                           else _default_goodlinks(config))
     app.add_middleware(RequestLogMiddleware)
     app.include_router(auth_router)
 
@@ -130,6 +144,7 @@ def create_app(
     app.include_router(sync_router)
     app.include_router(assets_router)
     app.include_router(local_router)
+    app.include_router(goodlinks_router)
     app.include_router(describe_router)
     app.include_router(export_router)
     app.include_router(migrations_router)

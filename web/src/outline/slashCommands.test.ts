@@ -285,3 +285,9 @@ describe("today / tomorrow (pkm-rw6w)", () => {
       .toEqual({ text: "see [[July 29th, 2026]] later", cursor: 23 });
   });
 });
+
+test("/goodlinks is the last command and matches by prefix", () => {
+  expect(SLASH_COMMANDS[SLASH_COMMANDS.length - 1]).toEqual(
+    { name: "goodlinks", label: "link to goodlinks copy" });
+  expect(matchSlashCommands("good")).toEqual([{ name: "goodlinks", label: "link to goodlinks copy" }]);
+});

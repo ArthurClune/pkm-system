@@ -546,3 +546,36 @@ def test_local_check_json(run):
     code, out, _ = run("local", "check", "--json")
     assert code == 2
     assert json.loads(out) == {"enabled": False, "total": 0, "ok": 0, "problems": []}
+
+
+def test_goodlinks_check_reports_problems_and_exits_1(seeded_config, goodlinks_pkm_client, capsys):
+    from test_routes_goodlinks import _seed_goodlinks_links
+
+    _seed_goodlinks_links(seeded_config.db_path)
+    code = main(["goodlinks", "check"], make_client=lambda: goodlinks_pkm_client)
+    out, err = capsys.readouterr()
+    assert code == 1
+    assert out.startswith("4 goodlinks link(s), 2 ok, 2 problem(s)\n")
+    assert "Machine Learning | missing | /api/goodlinks/" + "0" * 32 + "\n" in out
+    assert "| invalid | /api/goodlinks/not-hex\n" in out
+    assert err == ""
+
+
+def test_goodlinks_check_clean_exits_0(goodlinks_pkm_client, capsys):
+    code = main(["goodlinks", "check"], make_client=lambda: goodlinks_pkm_client)
+    out, _ = capsys.readouterr()
+    assert code == 0
+    assert out == "0 goodlinks link(s), 0 ok, 0 problem(s)\n"
+
+
+def test_goodlinks_check_disabled_exits_2(run):
+    code, out, err = run("goodlinks", "check")
+    assert code == 2
+    assert out == ""
+    assert "goodlinks_key" in err
+
+
+def test_goodlinks_check_json(run):
+    code, out, _ = run("goodlinks", "check", "--json")
+    assert code == 2
+    assert json.loads(out) == {"enabled": False, "total": 0, "ok": 0, "problems": []}

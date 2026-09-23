@@ -81,3 +81,18 @@ def test_local_docs_root_absolute_passes_through(tmp_path):
     cfg = load_config(write_config(
         tmp_path, {"local_docs_root": "/Volumes/Papers/pkm"}))
     assert cfg.local_docs_root == Path("/Volumes/Papers/pkm")
+
+
+def test_goodlinks_defaults(tmp_path):
+    cfg = load_config(write_config(tmp_path, {}))
+    assert cfg.goodlinks_api_key_file == tmp_path / "../goodlinks_key"
+    assert cfg.goodlinks_api_url == "http://localhost:9428/api/v1"
+
+
+def test_goodlinks_keys_are_read(tmp_path):
+    cfg = load_config(write_config(tmp_path, {
+        "goodlinks_api_key_file": "secrets/gl",
+        "goodlinks_api_url": "http://127.0.0.1:9429/api/v1",
+    }))
+    assert cfg.goodlinks_api_key_file == tmp_path / "secrets/gl"
+    assert cfg.goodlinks_api_url == "http://127.0.0.1:9429/api/v1"

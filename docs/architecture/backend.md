@@ -380,7 +380,9 @@ backoff is effectively global.
 The public surface is `GET /login`, `POST /api/login`, `GET /healthz` and the
 static SPA shell. Every feature router is declared with
 `dependencies=[Depends(require_auth)]`, and `/api/ws` runs the same cookie
-check, closing with code 4401 on failure. The server binds loopback plus the
+check. On failure it closes with code 4401 before accepting, which uvicorn
+sends as an HTTP 403 handshake refusal; only Starlette's test client sees the
+4401. The server binds loopback plus the
 Tailscale IP only (default port 8974).
 
 ## HTTP API reference

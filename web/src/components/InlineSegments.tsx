@@ -108,7 +108,9 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       if (isPdfHref(seg.href)) {
         return <PdfEmbed href={seg.href} label={seg.text} deferred={isDeferredPdfHref(seg.href)} />;
       }
-      if (isBlueskyPostUrl(seg.href)) return <BlueskyEmbed href={seg.href} />;
+      // A bare URL (text === href) asks for the embed; a labelled link
+      // ([source](url)) is the author choosing a link, so it stays a link.
+      if (seg.text === seg.href && isBlueskyPostUrl(seg.href)) return <BlueskyEmbed href={seg.href} />;
       if (!isSafeHref(seg.href)) return <>{seg.text}</>;
       return <a href={seg.href} target="_blank" rel="noreferrer">{seg.text}</a>;
     case "bold":

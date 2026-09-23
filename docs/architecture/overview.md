@@ -59,9 +59,11 @@ flowchart LR
 ```
 
 One server process, one SQLite file, one assets directory. Browser, CLI and
-MCP all speak the same HTTP API with the same session-cookie auth, and every
-mutation goes through the single `POST /api/ops` write path. The embedded LLM
-assistant is another client. The server spawns a harness subprocess per chat
+MCP all speak the same HTTP API with the same session-cookie auth. Block
+content changes go through `POST /api/ops`
+([the write path](backend.md#the-write-path)); pages, the sidebar and assets
+have their own routes ([API reference](backend.md#http-api-reference)).
+The embedded LLM assistant is another client. The server spawns a harness subprocess per chat
 conversation, confined to the
 [`pkm-mcp` tools](cli-and-mcp.md#the-mcp-tool-surface), and those tools loop
 back into the same API.

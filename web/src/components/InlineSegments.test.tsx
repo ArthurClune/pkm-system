@@ -235,3 +235,33 @@ it("does not treat a query-string pdf as an embed", () => {
   renderText("[x](/api/local/Papers/a.pdf?dl=1)");
   expect(screen.queryByTestId("pdf-viewer")).toBeNull();
 });
+
+it("renders a Goodlinks link as an open button that does not bubble its click", () => {
+  const id = "e4966bb2483b5c78f658398c0ae7b03f";
+  const onOuterClick = vi.fn();
+  // A plain container-level addEventListener sits on the same DOM node React
+  // 17+ delegates events to, so stopPropagation there wouldn't be testable;
+  // an ancestor React onClick (as PdfEmbed.test.tsx's equivalent case does)
+  // is the real target the click must not bubble to.
+  render(
+    <div onClick={onOuterClick}>
+      <MemoryRouter future={ROUTER_FUTURE_FLAGS}>
+        <BlockRefContext.Provider value={{}}>
+          <InlineSegments segments={tokenizeBlock(`Local copy:: [Goodlinks](/api/goodlinks/${id})`)} />
+        </BlockRefContext.Provider>
+      </MemoryRouter>
+    </div>,
+  );
+  const button = screen.getByRole("button", { name: "Goodlinks" });
+  expect(button).toHaveClass("goodlinks-link");
+  fireEvent.click(button);
+  expect(onOuterClick).not.toHaveBeenCalled();
+  expect(screen.getByText("Local copy").closest(".attribute")).not.toBeNull();
+});
+
+it("a malformed Goodlinks href stays a plain anchor", () => {
+  renderText("[Goodlinks](/api/goodlinks/not-an-id)");
+  const a = screen.getByRole("link", { name: "Goodlinks" });
+  expect(a).toHaveAttribute("href", "/api/goodlinks/not-an-id");
+  expect(screen.queryByRole("button", { name: "Goodlinks" })).toBeNull();
+});

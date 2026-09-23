@@ -1,8 +1,9 @@
 // pattern: Imperative Shell
 // Dispatches each tokenized segment to its renderer. isPdfHref/isDeferredPdfHref/
-// isSafeHref/pdfLabelFromHref below are pure, but the module as a whole composes several
-// Imperative Shell components (AssetImage, BlockRef, PageLink, TodoCheckbox,
-// BlueskyEmbed, MermaidDiagram, QueryBlock) that read React context, fetch,
+// isSafeHref/pdfLabelFromHref below are pure, and isGoodlinksHref lives in
+// goodlinks.ts, but the module as a whole composes several Imperative Shell
+// components (AssetImage, BlockRef, PageLink, TodoCheckbox, BlueskyEmbed,
+// MermaidDiagram, QueryBlock, GoodlinksLink) that read React context, fetch,
 // or navigate, so it's a shell rather than a pure rendering decision.
 import type { BlockSegment } from "../grammar/tokenize";
 import { AssetImage } from "./AssetImage";
@@ -11,6 +12,8 @@ import { BlockRef } from "./BlockRef";
 import { isBlueskyPostUrl } from "./bluesky";
 import { BlueskyEmbed } from "./BlueskyEmbed";
 import { CodeBlock } from "./CodeBlock";
+import { isGoodlinksHref } from "./goodlinks";
+import { GoodlinksLink } from "./GoodlinksLink";
 import { MathSpan } from "./MathSpan";
 import { MermaidDiagram } from "./MermaidDiagram";
 import { PageLink } from "./PageLink";
@@ -101,6 +104,7 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       if (!isSafeHref(seg.href)) return <>{seg.href}</>;
       return <a href={seg.href} target="_blank" rel="noreferrer">{seg.href}</a>;
     case "link":
+      if (isGoodlinksHref(seg.href)) return <GoodlinksLink href={seg.href} label={seg.text} />;
       if (isPdfHref(seg.href)) {
         return <PdfEmbed href={seg.href} label={seg.text} deferred={isDeferredPdfHref(seg.href)} />;
       }

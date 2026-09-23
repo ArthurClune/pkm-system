@@ -693,6 +693,10 @@ mark.highlight { background: var(--color-highlight-bg); }
 .pdf-page-indicator { color: var(--color-text-muted); }
 .pdf-download { display: inline-block; font-size: 13px; }
 .pdf-open { margin-left: 12px; }
+/* GoodLinks copies: a link-styled button; the reader overlay opens on click */
+.goodlinks-link { background: none; border: 0; padding: 0; margin: 0; font: inherit;
+  color: var(--color-link-ext); text-decoration: underline; cursor: pointer; }
+.goodlinks-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .pdf-loading-note, .pdf-error-note { display: block;
   color: var(--color-text-muted); font-size: 13px; font-style: italic; }
 .pdf-overlay { position: fixed; inset: 0; z-index: 1000;

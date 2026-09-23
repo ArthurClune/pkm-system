@@ -109,8 +109,8 @@ exit status 2 means the server has no document root configured at all.
 
 A web page archived in GoodLinks is linked the same way, keyed on the
 GoodLinks link id: `Local copy:: [Goodlinks](/api/goodlinks/<32-hex id>)`.
-Sessions should not invent ids; the id comes from `POST /api/goodlinks/resolve`
-(or from the user running `/goodlinks` in the editor). `pkm goodlinks check`
+Sessions should not invent ids. The CLI cannot resolve a URL; ask your
+partner to run `/goodlinks` in the editor, or to give you the id. `pkm goodlinks check`
 reports links whose saved page GoodLinks no longer has; exit 2 means no
 GoodLinks token is configured, and a "not running" error means the GoodLinks
 app is closed on the host.

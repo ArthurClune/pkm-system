@@ -1,14 +1,14 @@
 # GoodLinks copies
 
 Archived web pages live in GoodLinks, Arthur's read-later app. A block notes
-the copy with an ordinary markdown link labelled `Goodlinks`, whose href the
-app recognises: the `/api/goodlinks/` prefix plus a 32-hex GoodLinks link id,
-attached as a `Local copy::` attribute — for example
-`/api/goodlinks/e4966bb2483b5c78f658398c0ae7b03f`.
+the copy with an ordinary markdown link whose href the app recognises:
 
-The renderer keys on that href, never on the link text, so the same href
-dropped into an inline copy link elsewhere in a block's text opens the same
-reader as a `Local copy::` attribute does.
+    Local copy:: [Goodlinks](/api/goodlinks/<32-hex id>)
+
+The renderer keys on the href — the `/api/goodlinks/` prefix plus a 32-hex
+GoodLinks link id — never on the link text, so an inline
+`([copy in Goodlinks](/api/goodlinks/<32-hex id>))` opens the same reader as
+a `Local copy::` attribute.
 
 ```mermaid
 flowchart LR
@@ -101,9 +101,10 @@ the same as opening the article in GoodLinks itself.
 `ImageOverlay`, and shares `ImageOverlay`'s dismissal behaviour through
 `useOverlayDismiss`: a `window` Escape listener in the capture phase, Tab
 pinned to the Close button, body scroll locked while open, and focus
-returned to the button that opened it on close. `GoodlinksLink` keeps that
-trigger button's ref stable across re-renders so the shared hook does not
-tear down and re-run mid-session, which would bounce focus.
+returned to the button that opened it on close. `GoodlinksLink` keeps the
+`onClose` callback it passes to the reader stable across re-renders
+(`useCallback`), so the shared hook does not tear down and re-run
+mid-session, which would bounce focus.
 
 The bar shows the article title (or "Saved article" while loading or on
 error), a link to the original URL, and the saved date, once the fetch
@@ -129,10 +130,9 @@ then looks for a URL with `goodlinksCandidates`, checking this block's own
 text, its parent, and its previous sibling in that order, and takes the
 first match; no URL anywhere in those three gives the notice "No URL
 nearby". It calls `POST /api/goodlinks/resolve` with `save: true` and
-splices a `Local copy::` attribute — label `Goodlinks`, href
-`/api/goodlinks/<id>` — in at the recorded offset through
-`spliceUploadedMarkdown`, the same draft splice `/upload` uses, refocusing
-the block only if it still owns focus.
+splices `Local copy:: [Goodlinks](/api/goodlinks/<32-hex id>)` in at the
+recorded offset through `spliceUploadedMarkdown`, the same draft splice
+`/upload` uses, refocusing the block only if it still owns focus.
 
 Notices render in the page-level status slot beside the upload error
 (`.editor-notice`, `role="status"`, with its own Dismiss button), not

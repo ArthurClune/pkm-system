@@ -474,7 +474,7 @@ and lease abort live in the shared `catch`/`finally`.
   | `/files` browser | unavailable | `/api/assets/*` has no offline shim |
   | LLM assistant | unavailable | `/api/assistant/*` has no offline shim; the assistant reaches the graph server-side through the API, not through the replica |
   | A `Local copy::` PDF (`/api/local/*`) | the in-app viewer still renders, its fetch fails, and it falls back to a note plus a plain download anchor | unlike `/assets/`, `/api/local/*` is never runtime-cached by the service worker |
-  | A GoodLinks copy (`/api/goodlinks/*`) | the reader opens and shows "Needs the server" with the original link | GoodLinks content is online-only; the replica shim has no route for it |
+  | A GoodLinks copy (`/api/goodlinks/*`) | the reader opens and shows "Needs the server" | GoodLinks content is online-only; the replica shim has no route for it |
 
 - **Service worker**: precaches the app shell, so a cold offline start boots, and
   keeps a bounded runtime cache of recently viewed assets. The precache glob

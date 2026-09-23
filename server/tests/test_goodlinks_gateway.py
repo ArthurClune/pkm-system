@@ -4,7 +4,7 @@ import httpx2
 import pytest
 
 from pkm.server.goodlinks_gateway import (GoodlinksGateway, GoodlinksRejected,
-                                          GoodlinksUnavailable)
+                                          GoodlinksUnauthorized, GoodlinksUnavailable)
 
 BASE = "http://goodlinks.test/api/v1"
 ID = "e4966bb2483b5c78f658398c0ae7b03f"
@@ -91,3 +91,13 @@ def test_transport_error_is_unavailable():
 def test_5xx_is_unavailable():
     with pytest.raises(GoodlinksUnavailable):
         gateway(lambda r: httpx2.Response(500, text="boom")).link(ID)
+
+
+def test_401_on_a_read_is_unauthorized():
+    with pytest.raises(GoodlinksUnauthorized):
+        gateway(lambda r: httpx2.Response(401, json={"error": "Unauthorized"})).lookup("x")
+
+
+def test_403_on_save_is_unauthorized_not_rejected():
+    with pytest.raises(GoodlinksUnauthorized):
+        gateway(lambda r: httpx2.Response(403, json={"error": "Forbidden"})).save("https://a.example/p")

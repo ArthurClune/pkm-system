@@ -217,6 +217,7 @@ class FakeGoodlinks:
         self.requests: list[tuple[str, str]] = []
         self.down = False
         self.reject_save: str | None = None
+        self.unauthorized = False
 
     def handler(self, req):
         import json as _json
@@ -224,6 +225,8 @@ class FakeGoodlinks:
         self.requests.append((req.method, str(req.url)))
         if self.down:
             raise httpx2.ConnectError("refused")
+        if self.unauthorized:
+            return httpx2.Response(401, json={"error": "Unauthorized"})
         path = req.url.path
         if path.endswith("/links") and req.method == "GET":
             url = req.url.params.get("url")

@@ -17,7 +17,7 @@ ARTICLE_URL = "https://example.com/e2e-article"
 
 LINKS: dict[str, dict] = {
     ARTICLE_ID: {"id": ARTICLE_ID, "url": ARTICLE_URL, "title": "E2E Article",
-                 "addedAt": "2025-02-13T19:51:00Z", "readAt": "2025-02-13T19:51:00Z"},
+                 "addedAt": "2025-02-13T12:00:00Z", "readAt": "2025-02-13T19:51:00Z"},
 }
 HTML: dict[str, str] = {
     ARTICLE_ID: '<div dir="auto"><p>Archived article body for e2e.</p>'

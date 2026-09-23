@@ -1,10 +1,11 @@
 # pattern: Imperative Shell
 """The HTTP edge to the GoodLinks app's local API (bearer token, one
 port on the host). Every method returns plain dicts or text; the pure
-decisions about them live in pkm.goodlinks. Two failure classes matter
+decisions about them live in pkm.goodlinks. Three failure classes matter
 to callers: GoodLinks not answering (the app is not running, or it
-returned 5xx) and GoodLinks refusing a save (4xx on POST). A 404 on a
-read is an ordinary "not there" and comes back as None."""
+returned 5xx), GoodLinks refusing the API token (401 or 403 on any
+request), and GoodLinks refusing a save (any other 4xx on POST). A 404 on
+a read is an ordinary "not there" and comes back as None."""
 from __future__ import annotations
 
 import httpx2
@@ -12,6 +13,10 @@ import httpx2
 
 class GoodlinksUnavailable(Exception):
     """GoodLinks did not answer, or answered with a server error."""
+
+
+class GoodlinksUnauthorized(Exception):
+    """GoodLinks refused the API token (401 or 403)."""
 
 
 class GoodlinksRejected(Exception):
@@ -48,6 +53,8 @@ class GoodlinksGateway:
             raise GoodlinksUnavailable(str(e)) from e
         if r.status_code >= 500:
             raise GoodlinksUnavailable(f"goodlinks answered {r.status_code}")
+        if r.status_code in (401, 403):
+            raise GoodlinksUnauthorized(f"goodlinks answered {r.status_code}")
         return r
 
     def _read(self, path: str, **kw) -> httpx2.Response | None:

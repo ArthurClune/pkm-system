@@ -6,11 +6,14 @@ normal session/CLI-token auth. `app.state.goodlinks` is None when no API
 key is configured, and then everything here is a 404 except `check`,
 which reports `enabled: false`.
 
-GoodLinks not answering (the app is not running) is a 503 with a fixed
-detail string the web reader shows verbatim; a GoodLinks 404 passes
-through as 404; GoodLinks refusing a save is a 422 carrying its text."""
+GoodLinks not answering (the app is not running) and GoodLinks refusing
+the API token are both 503, each with its own fixed detail string, logged
+at warning; a GoodLinks 404 passes through as 404; GoodLinks refusing a
+save is a 422 carrying its text. A link GoodLinks knows but holds no
+reader copy of is the ordinary payload with empty `html`."""
 from __future__ import annotations
 
+import logging
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -23,12 +26,23 @@ from pkm.goodlinks import (GOODLINKS_PREFIX, candidate_urls, extract_goodlinks_h
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.goodlinks_gateway import (GoodlinksGateway, GoodlinksRejected,
-                                          GoodlinksUnavailable)
+                                          GoodlinksUnauthorized, GoodlinksUnavailable)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 _NOT_FOUND = HTTPException(status_code=404, detail="not found")
-_UNAVAILABLE = HTTPException(status_code=503, detail="Goodlinks is not running on the host")
+
+
+def _unavailable(route: str, err: GoodlinksUnavailable) -> HTTPException:
+    logger.warning("goodlinks %s: goodlinks unavailable: %s", route, err)
+    return HTTPException(status_code=503, detail="Goodlinks is not running on the host")
+
+
+def _unauthorized(route: str, err: GoodlinksUnauthorized) -> HTTPException:
+    logger.warning("goodlinks %s: goodlinks rejected the api token: %s", route, err)
+    return HTTPException(status_code=503, detail="Goodlinks rejected the API token")
 
 
 def get_goodlinks(request: Request) -> GoodlinksGateway:
@@ -59,8 +73,10 @@ def resolve_link(body: GoodlinksResolveRequest,
         if not body.save:
             raise HTTPException(status_code=404, detail="not in Goodlinks")
         return _link_payload(gw.save(body.url), created=True)
-    except GoodlinksUnavailable:
-        raise _UNAVAILABLE from None
+    except GoodlinksUnavailable as e:
+        raise _unavailable("resolve", e) from None
+    except GoodlinksUnauthorized as e:
+        raise _unauthorized("resolve", e) from None
     except GoodlinksRejected as e:
         raise HTTPException(status_code=422, detail=e.detail) from None
 
@@ -91,8 +107,10 @@ def check_goodlinks_links(request: Request,
                     ok += 1
                 else:
                     problems.append(GoodlinksCheckProblem(uid=uid, page=title, href=href, status="missing"))
-    except GoodlinksUnavailable:
-        raise _UNAVAILABLE from None
+    except GoodlinksUnavailable as e:
+        raise _unavailable("check", e) from None
+    except GoodlinksUnauthorized as e:
+        raise _unauthorized("check", e) from None
     return GoodlinksCheckPayload(enabled=True, total=total, ok=ok, problems=problems)
 
 
@@ -105,13 +123,17 @@ def get_article(link_id: str, response: Response,
         meta = gw.link(link_id)
         if meta is None:
             raise _NOT_FOUND
+        # A known link with no reader copy (extraction failed, a paywall, a
+        # PDF, a page saved seconds ago) still returns its metadata, so the
+        # reader can offer the original link.
         html = gw.content(link_id)
-        if html is None:
-            raise _NOT_FOUND
-    except GoodlinksUnavailable:
-        raise _UNAVAILABLE from None
+    except GoodlinksUnavailable as e:
+        raise _unavailable("article", e) from None
+    except GoodlinksUnauthorized as e:
+        raise _unauthorized("article", e) from None
     # The article can change if it is re-saved, and GoodLinks is local and
     # fast, so nothing is cached.
     response.headers["Cache-Control"] = "private, no-store"
     return GoodlinksArticle(id=link_id, title=str(meta.get("title") or ""), url=str(meta["url"]),
-                            added_at=str(meta.get("addedAt") or ""), html=sanitize_article(html))
+                            added_at=str(meta.get("addedAt") or ""),
+                            html=sanitize_article(html) if html is not None else "")

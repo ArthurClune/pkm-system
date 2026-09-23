@@ -96,6 +96,19 @@ def test_article_tolerates_missing_title_and_date(goodlinks_client, fake_goodlin
     assert r.json()["added_at"] == ""
 
 
+def test_article_without_content_returns_meta_and_empty_html(goodlinks_client, fake_goodlinks):
+    other = "a" * 32
+    fake_goodlinks.links[other] = {"id": other, "url": "https://paywall.example/p", "title": "Paywalled",
+                                   "addedAt": "2025-02-13T12:00:00Z"}
+    r = goodlinks_client.get(f"/api/goodlinks/{other}")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "private, no-store"
+    body = r.json()
+    assert body["html"] == ""
+    assert body["title"] == "Paywalled"
+    assert body["url"] == "https://paywall.example/p"
+
+
 def test_article_unknown_id_is_404(goodlinks_client):
     assert goodlinks_client.get("/api/goodlinks/" + "0" * 32).status_code == 404
 
@@ -169,3 +182,28 @@ def test_check_when_goodlinks_down_is_503(goodlinks_client, seeded_config, fake_
 def test_check_is_not_taken_as_an_id(goodlinks_client, fake_goodlinks):
     assert goodlinks_client.get("/api/goodlinks/check").json()["enabled"] is True
     assert fake_goodlinks.requests == []
+
+
+_UNAUTHORIZED = {"detail": "Goodlinks rejected the API token"}
+
+
+def test_resolve_with_a_wrong_token_is_503_naming_the_token(goodlinks_client, fake_goodlinks):
+    fake_goodlinks.unauthorized = True
+    r = resolve(goodlinks_client, "https://tratt.net/uml.html", save=True)
+    assert r.status_code == 503
+    assert r.json() == _UNAUTHORIZED
+
+
+def test_article_with_a_wrong_token_is_503_naming_the_token(goodlinks_client, fake_goodlinks):
+    fake_goodlinks.unauthorized = True
+    r = goodlinks_client.get(f"/api/goodlinks/{GL_ID}")
+    assert r.status_code == 503
+    assert r.json() == _UNAUTHORIZED
+
+
+def test_check_with_a_wrong_token_is_503_naming_the_token(goodlinks_client, seeded_config, fake_goodlinks):
+    _seed_goodlinks_links(seeded_config.db_path)
+    fake_goodlinks.unauthorized = True
+    r = goodlinks_client.get("/api/goodlinks/check")
+    assert r.status_code == 503
+    assert r.json() == _UNAUTHORIZED

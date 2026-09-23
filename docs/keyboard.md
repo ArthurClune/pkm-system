@@ -1,19 +1,19 @@
 # Keyboard shortcuts
 
-All shortcuts are listed Mac-first. Where a shortcut also exists for
-non-Mac keyboards, the Ctrl variant is noted. Everything not listed here
-is left to the browser's native text editing (Option/Alt word moves,
-Cmd+arrow line/document jumps, Ctrl+Shift+arrow paragraph selection, the
-emacs-style Ctrl+letter bindings, and so on).
+Shortcuts are listed Mac-first, with the Ctrl variant noted where one exists
+for non-Mac keyboards. Keys not listed here keep the browser's native text
+editing: Option/Alt word moves, Cmd+arrow line and document jumps,
+Ctrl+Shift+arrow paragraph selection, the emacs-style Ctrl+letter bindings,
+and so on.
 
 ## Anywhere in the app
 
 | Shortcut | Action |
 |---|---|
-| Cmd+U (or Ctrl+U) | Focus search; pressed again while in search, cancel and clear it |
+| Cmd+U (or Ctrl+U) | Focus search; press again in search to cancel and clear it |
 | Ctrl+Shift+D | Go to Daily Notes |
 | Cmd+/ (or Ctrl+/) | Show / hide the right sidebar |
-| Cmd+Z / Shift+Cmd+Z (or Ctrl variants) | Undo / redo — global, works whether or not a block is being edited |
+| Cmd+Z / Shift+Cmd+Z (or Ctrl variants) | Undo / redo, whether or not a block is being edited |
 | Cmd+J (or Ctrl+J) | Show / hide the assistant panel |
 | Ctrl+Shift+T | Show / hide block timestamps |
 
@@ -21,7 +21,7 @@ emacs-style Ctrl+letter bindings, and so on).
 
 | Shortcut | Action |
 |---|---|
-| ↑ / ↓ | Move the highlight through the results (including the "Create page" row) |
+| ↑ / ↓ | Move the highlight through the results, including the "Create page" row |
 | Enter | Open the highlighted result |
 | Shift+Enter | Open the highlighted result in the right sidebar |
 | Escape | Cancel and clear the search |
@@ -30,30 +30,30 @@ emacs-style Ctrl+letter bindings, and so on).
 
 ### Moving between blocks
 
-Plain arrows only — a modifier always means something else (or stays
-native).
+These use plain arrows. With a modifier, arrows do something else or keep
+their native behaviour.
 
 | Shortcut | Action |
 |---|---|
 | ↑ / ↓ | Move within the block; from its first/last line, move to the block above/below |
-| ← / → | Move within the block; from its very start/end, move to the previous/next block |
+| ← / → | Move within the block; from its start/end, move to the previous/next block |
 
 ### Selecting text
 
 | Shortcut | Action |
 |---|---|
-| Shift+arrows | Native text selection within the block (at the block's first/last line it becomes a block selection — see below) |
-| Shift+Cmd+← | Select to the start of the current line; each further press adds the whole line above |
-| Shift+Cmd+→ | Select to the end of the current line; each further press adds the whole line below |
-| Ctrl+Cmd+← | Select from the caret to the start of the block (the whole block text, not just the current display line); further presses change nothing |
-| Ctrl+Cmd+→ | Select from the caret to the end of the block; further presses change nothing |
+| Shift+arrows | Native text selection within the block; at the block's first/last line it becomes a block selection (see below) |
+| Shift+Cmd+← | Select to the start of the current line; each further press adds the line above |
+| Shift+Cmd+→ | Select to the end of the current line; each further press adds the line below |
+| Ctrl+Cmd+← | Select from the caret to the start of the block, across all its lines |
+| Ctrl+Cmd+→ | Select from the caret to the end of the block, across all its lines |
 
 ### Selecting blocks
 
 | Shortcut | Action |
 |---|---|
-| Ctrl+Cmd+↑ or Ctrl+Cmd+↓ | Select the whole current block; each further press extends the selection one block up/down |
-| Shift+↑ at the block's first line / Shift+↓ at its last line | Start a block selection: the current block plus its neighbour. Also works with text selected — once the selection can't grow further within the block, the next Shift+↑/↓ turns it into a block selection |
+| Ctrl+Cmd+↑ or Ctrl+Cmd+↓ | Select the current block; each further press extends the selection one block up/down |
+| Shift+↑ at the block's first line / Shift+↓ at its last line | Select the current block and its neighbour. With text selected, once the selection can't grow within the block, the next Shift+↑/↓ turns it into a block selection |
 
 See "While blocks are selected" below for what you can do next.
 
@@ -64,9 +64,9 @@ See "While blocks are selected" below for what you can do next.
 | Enter | Split the block at the caret |
 | Shift+Enter | New line inside the block |
 | Tab / Shift+Tab | Indent / outdent (outdent takes the following siblings along as its children) |
-| Shift+Cmd+↑ / Shift+Cmd+↓ | Move the block and its whole subtree up/down, keeping its depth, across parents where needed |
+| Shift+Cmd+↑ / Shift+Cmd+↓ | Move the block and its subtree up/down at the same depth, crossing into other parents where needed |
 | Backspace at the start of a block | Merge into the previous block |
-| Shift+Cmd+V (or Ctrl+Shift+V) | Paste multi-line text as an outline: each line becomes a block, indentation (tabs, 2 or 4 spaces) becomes real nesting. Plain Cmd+V always pastes into the current block |
+| Shift+Cmd+V (or Ctrl+Shift+V) | Paste multi-line text as an outline: each line becomes a block, and indentation (tabs, 2 or 4 spaces) becomes nesting. Plain Cmd+V pastes into the current block |
 
 ### Formatting and editing
 
@@ -78,6 +78,7 @@ See "While blocks are selected" below for what you can do next.
 | Cmd+Alt+1/2/3 | Heading level 1/2/3 |
 | Cmd+Alt+0 | Back to plain text |
 | Ctrl+O | Open the `[[page]]` the caret is inside |
+| Ctrl+Shift+O | Open the `[[page]]` the caret is inside in the sidebar |
 | `[`, `(`, `{`, `"` | Auto-pair; typing `[[` opens the page-link autocomplete |
 | Escape | Stop editing the block |
 
@@ -87,57 +88,56 @@ See "While blocks are selected" below for what you can do next.
 |---|---|
 | ↑ / ↓ | Move the highlight |
 | Enter or Tab | Pick the highlighted row |
-| Escape | Close the popup (keeps what you typed) |
+| Escape | Close the popup, keeping what you typed |
 
 Ctrl+Cmd and Option/Alt arrow chords still work while the popup is open.
 
 ## Slash commands
 
-Typing `/` at the start of a block or after a space opens the command
-menu (its keys are listed under "Autocomplete popup" above). Keep typing
-to filter the list — e.g. `/py` narrows to the Python code block and
-`/query-o` to the OR query.
+Typing `/` at the start of a block or after a space opens the command menu,
+which uses the autocomplete popup keys above. Keep typing to filter the list:
+`/py` narrows to the Python code block and `/query-o` to the OR query.
 
 | Command | Action |
 |---|---|
-| `/text` | Turn the block into a plain text block (rendered verbatim, no formatting) |
+| `/text` | Turn the block into a plain text block (shown verbatim, no formatting) |
 | `/todo` | Prefix the block with a TODO checkbox |
-| `/table` | Insert a `{{table}}` — the block's child blocks become the table's rows, the first row being the header |
-| `/toc` | Insert a `{{toc}}` — renders a table of contents of the page's headings, nested by outline, that updates as headings change; each entry jumps to its heading |
+| `/table` | Insert a `{{table}}`: the block's children become the table's rows, the first row being the header |
+| `/toc` | Insert a `{{toc}}`: a table of contents of the page's headings, nested by outline and kept up to date; each entry jumps to its heading |
 | `/python`, `/shell`, `/javascript` | Turn the block into a highlighted code block |
 | `/mermaid` | Turn the block into a Mermaid diagram |
 | `/upload` | Pick a file to upload and insert a link to it |
-| `/h1`, `/h2`, `/h3` | Make the block a heading (picking its current level toggles it back to normal text) |
+| `/h1`, `/h2`, `/h3` | Make the block a heading (picking its current level turns it back into normal text) |
 | `/normal` | Back to normal text |
-| `/query-and` | Insert a query placeholder: `{{query: {and: A B}}}` — blocks tagged with both pages |
+| `/query-and` | Insert a query placeholder, `{{query: {and: A B}}}`, for blocks tagged with both pages |
 | `/query-or` | Insert a query placeholder for blocks tagged with either page |
 | `/query-and-not` | Insert a query placeholder for blocks tagged with the first page but not the second |
 | `/today`, `/tomorrow` | Insert a link to today's / tomorrow's daily note |
 | `/date` | Pick a date from a calendar and insert a link to its daily note |
 
-Replace the `A` and `B` placeholders with real `[[Page]]` links (type `[[`
-to search for a page) to run a query. The placeholders are plain text, not
-links, so picking one of these commands never creates pages named "A" or
-"B" — the query shows an error until you fill in real page links.
+Replace the `A` and `B` placeholders with `[[Page]]` links (type `[[` to
+search for a page) to run the query. The placeholders are plain text, so they
+never create pages named "A" or "B". The query shows an error until you fill
+them in.
 
 ## While blocks are selected
 
-The selection owns the keyboard until it's cleared.
+The selection takes over the keyboard until it's cleared.
 
 | Shortcut | Action |
 |---|---|
 | Ctrl+Cmd+↑/↓ or Shift+↑/↓ | Extend or shrink the selection one block at a time |
-| Shift+Cmd+↑ / Shift+Cmd+↓ | Move all selected blocks up/down as one group, keeping their structure |
-| Tab / Shift+Tab | Indent / outdent all selected blocks together (outdent takes the trailing siblings along under the last selected block) |
-| Cmd+C (or Ctrl+C) | Copy the selected blocks' text, one line per block with nesting as tabs — Shift+Cmd+V pastes it back with the hierarchy intact |
-| Backspace or Delete | Delete the selected blocks (asks first when more than 20; undoable with Cmd+Z until the tab reloads) |
+| Shift+Cmd+↑ / Shift+Cmd+↓ | Move the selected blocks up/down as a group, keeping their structure |
+| Tab / Shift+Tab | Indent / outdent the selected blocks (outdent takes the trailing siblings along under the last selected block) |
+| Cmd+C (or Ctrl+C) | Copy the selected blocks' text, one line per block with nesting as tabs; Shift+Cmd+V pastes it back with the hierarchy intact |
+| Backspace or Delete | Delete the selected blocks (asks first when more than 20; Cmd+Z undoes it until the tab reloads) |
 | ↑ / ↓ (no modifier) | Drop the selection and go back to editing |
 | Escape | Clear the selection |
 
 ## Block menu
 
-Open it by clicking (or right-clicking) a block's bullet, or with
-Enter / Space on a focused bullet.
+Open it by clicking or right-clicking a block's bullet, or with Enter / Space
+on a focused bullet.
 
 | Shortcut | Action |
 |---|---|

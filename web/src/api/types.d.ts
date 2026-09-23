@@ -634,6 +634,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/goodlinks/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Link */
+        post: operations["resolve_link_api_goodlinks_resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/goodlinks/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Check Goodlinks Links */
+        get: operations["check_goodlinks_links_api_goodlinks_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/goodlinks/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Article */
+        get: operations["get_article_api_goodlinks__link_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/assets/describe-status": {
         parameters: {
             query?: never;
@@ -1171,6 +1222,84 @@ export interface components {
             enabled: boolean;
             /** Reason */
             reason: string | null;
+        };
+        /**
+         * GoodlinksArticle
+         * @description GET /api/goodlinks/{link_id}: metadata plus the sanitised reader HTML
+         *     in one payload, so the reader overlay makes a single request.
+         */
+        GoodlinksArticle: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            /** Added At */
+            added_at: string;
+            /** Html */
+            html: string;
+        };
+        /**
+         * GoodlinksCheckPayload
+         * @description GET /api/goodlinks/check: every /api/goodlinks/ href found in block
+         *     text, checked against the GoodLinks library. `enabled` is False when
+         *     no API key is configured.
+         */
+        GoodlinksCheckPayload: {
+            /** Enabled */
+            enabled: boolean;
+            /** Total */
+            total: number;
+            /** Ok */
+            ok: number;
+            /** Problems */
+            problems: components["schemas"]["GoodlinksCheckProblem"][];
+        };
+        /** GoodlinksCheckProblem */
+        GoodlinksCheckProblem: {
+            /** Uid */
+            uid: string;
+            /** Page */
+            page: string;
+            /** Href */
+            href: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "missing" | "invalid";
+        };
+        /**
+         * GoodlinksLink
+         * @description POST /api/goodlinks/resolve: the GoodLinks link a URL resolved to.
+         *     `created` is True when the request saved it just now.
+         */
+        GoodlinksLink: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            /** Added At */
+            added_at: string;
+            /** Created */
+            created: boolean;
+        };
+        /**
+         * GoodlinksResolveRequest
+         * @description POST /api/goodlinks/resolve body. `save` lets the slash command add
+         *     a page GoodLinks does not have yet; the migration script never sets it.
+         */
+        GoodlinksResolveRequest: {
+            /** Url */
+            url: string;
+            /**
+             * Save
+             * @default false
+             */
+            save: boolean;
         };
         /** GroupItem */
         GroupItem: {
@@ -2629,6 +2758,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_link_api_goodlinks_resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoodlinksResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodlinksLink"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_goodlinks_links_api_goodlinks_check_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodlinksCheckPayload"];
+                };
+            };
+        };
+    };
+    get_article_api_goodlinks__link_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoodlinksArticle"];
                 };
             };
             /** @description Validation Error */

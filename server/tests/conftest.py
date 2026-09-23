@@ -204,3 +204,93 @@ def local_pkm_client(local_client):
     token = local_client.cookies["pkm_session"]
     local_client.cookies.clear()
     return PkmClient(CliConfig(url="http://testserver", token=token), http=local_client)
+
+
+class FakeGoodlinks:
+    """An in-memory GoodLinks library behind an httpx2.MockTransport. Tests
+    seed `links` (id -> link dict) and `html` (id -> reader html), and read
+    `requests` afterwards to assert what the routes asked for."""
+
+    def __init__(self) -> None:
+        self.links: dict[str, dict] = {}
+        self.html: dict[str, str] = {}
+        self.requests: list[tuple[str, str]] = []
+        self.down = False
+        self.reject_save: str | None = None
+
+    def handler(self, req):
+        import json as _json
+        import httpx2
+        self.requests.append((req.method, str(req.url)))
+        if self.down:
+            raise httpx2.ConnectError("refused")
+        path = req.url.path
+        if path.endswith("/links") and req.method == "GET":
+            url = req.url.params.get("url")
+            if url is not None:
+                for link in self.links.values():
+                    if link["url"] == url:
+                        return httpx2.Response(200, json=link)
+                return httpx2.Response(404, json={"error": "Not Found"})
+            q = req.url.params.get("search", "")
+            hits = [link for link in self.links.values()
+                    if q in link["url"] or q in link.get("title", "")]
+            return httpx2.Response(200, json={"data": hits, "hasMore": False})
+        if path.endswith("/links") and req.method == "POST":
+            if self.reject_save:
+                return httpx2.Response(400, json={"error": self.reject_save})
+            body = _json.loads(req.content)
+            new_id = ("f" * 32)
+            link = {"id": new_id, "url": body["url"], "title": "Saved " + body["url"],
+                    "addedAt": "2026-09-23T10:00:00Z", "readAt": "2026-09-23T10:00:00Z"}
+            self.links[new_id] = link
+            self.requests.append(("POST-BODY", _json.dumps(body, sort_keys=True)))
+            return httpx2.Response(200, json=link)
+        if path.endswith("/content"):
+            link_id = path.rsplit("/", 2)[-2]
+            if link_id in self.html:
+                return httpx2.Response(200, text=self.html[link_id],
+                                       headers={"content-type": "text/html"})
+            return httpx2.Response(404, json={"error": "Not Found"})
+        link_id = path.rsplit("/", 1)[-1]
+        if link_id in self.links:
+            return httpx2.Response(200, json=self.links[link_id])
+        return httpx2.Response(404, json={"error": "Not Found"})
+
+
+GL_ID = "e4966bb2483b5c78f658398c0ae7b03f"
+
+
+@pytest.fixture()
+def fake_goodlinks() -> FakeGoodlinks:
+    fake = FakeGoodlinks()
+    fake.links[GL_ID] = {"id": GL_ID, "url": "https://tratt.net/uml.html", "title": "UML",
+                         "addedAt": "2022-10-06T15:07:12Z"}
+    fake.html[GL_ID] = '<div><p>Hello <script>alert(1)</script><a href="https://x.example">x</a></p></div>'
+    return fake
+
+
+@pytest.fixture()
+def goodlinks_client(seeded_config, fake_goodlinks) -> TestClient:
+    import httpx2
+    from pkm.server.goodlinks_gateway import GoodlinksGateway
+
+    http = httpx2.Client(transport=httpx2.MockTransport(fake_goodlinks.handler),
+                         base_url="http://goodlinks.test/api/v1")
+    gw = GoodlinksGateway("http://goodlinks.test/api/v1", "tok", http=http)
+    c = TestClient(create_app(seeded_config, goodlinks_gateway=gw))
+    r = c.post("/api/login", json={"password": TEST_PASSWORD})
+    assert r.status_code == 200
+    return c
+
+
+@pytest.fixture()
+def goodlinks_pkm_client(goodlinks_client):
+    """`pkm_client`, but against an app with a GoodLinks gateway, so CLI
+    tests can drive `pkm goodlinks check` in-process."""
+    from pkm.client.api import PkmClient
+    from pkm.client.core import CliConfig
+
+    token = goodlinks_client.cookies["pkm_session"]
+    goodlinks_client.cookies.clear()
+    return PkmClient(CliConfig(url="http://testserver", token=token), http=goodlinks_client)

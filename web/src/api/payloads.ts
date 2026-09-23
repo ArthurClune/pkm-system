@@ -41,3 +41,6 @@ export type DescribeStatusPayload = Schemas["DescribeStatusPayload"];
 export type AssetRef = Schemas["AssetRef"];
 export type AssetSearchItem = Schemas["AssetSearchItem"];
 export type AssetSearchPayload = Schemas["AssetSearchPayload"];
+
+export type GoodlinksArticle = Schemas["GoodlinksArticle"];
+export type GoodlinksLink = Schemas["GoodlinksLink"];

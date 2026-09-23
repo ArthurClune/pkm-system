@@ -44,7 +44,7 @@ and the only place a segment becomes a component.
 | `code-block` | `MermaidDiagram` when `lang` is `mermaid`, else `CodeBlock` |
 | `query` | `QueryBlock` |
 | `todo` | `TodoCheckbox` |
-| `pdf-embed`, `link` | `PdfEmbed` when `isPdfHref`; else `BlueskyEmbed` for a Bluesky post URL; else an `<a target="_blank">` when `isSafeHref`; else plain text |
+| `pdf-embed`, `link` | `GoodlinksLink` when `isGoodlinksHref` (see [goodlinks.md](goodlinks.md)); else `PdfEmbed` when `isPdfHref`; else `BlueskyEmbed` for a Bluesky post URL; else an `<a target="_blank">` when `isSafeHref`; else plain text |
 
 A `depth` prop rides the recursive cases: `BlockRef` renders the raw `((uid))`
 at its `MAX_DEPTH` of 3, and `QueryBlock` stops at 2.
@@ -133,6 +133,9 @@ side (`mountedPageWindow`). An unmounted page keeps its `rendered` entry
 collapse the scrollbar. The inline `.pdf-frame` is layout-contained, a rule
 [styling.md](styling.md) owns, so nothing `position: fixed` may render inside
 it; the fullscreen overlay portals to `document.body`.
+
+GoodLinks copies take a different route: an `<iframe sandbox>` reader,
+described in [goodlinks.md](goodlinks.md).
 
 ## Link safety and lazy loading
 

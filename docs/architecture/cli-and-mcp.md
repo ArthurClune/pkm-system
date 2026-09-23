@@ -34,7 +34,9 @@ means deciding which side it joins.
 `pkm local check` has no MCP counterpart: an operator diagnostic that audits
 every `/api/local/` link in block text against the host's filesystem
 (`GET /api/local/check`, see [backend.md](backend.md#local-documents)). Its exit
-codes are in [docs/cli.md](../cli.md#reading).
+codes are in [docs/cli.md](../cli.md#reading). `pkm goodlinks check` is the
+same shape against the GoodLinks library (`GET /api/goodlinks/check`); it
+needs the GoodLinks app running on the host.
 
 ## The shared client
 

@@ -229,7 +229,9 @@ Slash commands dispatch to block-type, heading and query constructors;
 `DatePickerPopup` over the month grid computed by the pure
 `outline/calendar.ts`. Labels are lowercase by convention, and
 `help/slashCommandsDocumented.test.ts` fails if a new command isn't documented
-there. `/upload`'s blur ordering is a rule of its own, above.
+there. `/upload`'s blur ordering is a rule of its own, above. `/goodlinks`
+follows `/upload`'s blur-first shape and hands off to
+`useOutline.onGoodlinks`; see [goodlinks.md](goodlinks.md).
 
 ### The bullet and the block menu
 

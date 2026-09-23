@@ -107,6 +107,14 @@ percent-encoded, relative to that root. `pkm local check` reports every
 not yet downloaded from iCloud on the host, `Local copy::` values included;
 exit status 2 means the server has no document root configured at all.
 
+A web page archived in GoodLinks is linked the same way, keyed on the
+GoodLinks link id: `Local copy:: [Goodlinks](/api/goodlinks/<32-hex id>)`.
+Sessions should not invent ids; the id comes from `POST /api/goodlinks/resolve`
+(or from the user running `/goodlinks` in the editor). `pkm goodlinks check`
+reports links whose saved page GoodLinks no longer has; exit 2 means no
+GoodLinks token is configured, and a "not running" error means the GoodLinks
+app is closed on the host.
+
 ## Tables
 
 **Markdown pipe tables do not render.** `| a | b |` is stored and shown as

@@ -44,6 +44,7 @@ pkm/
 ├── assets_core.py       Core   Asset-browser helpers: reference-token stripping,
 │                               MIME categorisation (+ its SQL twin), zip arcnames
 ├── local_docs.py        Core   path containment, disposition and link shapes for /api/local
+├── goodlinks.py         Core   href shapes, candidate URLs, search match and the HTML allowlist for /api/goodlinks
 ├── edn.py               Core   Minimal EDN parser for Roam exports
 ├── schema_dump.py       Shell  Generates web/src/replica/baseSchema.gen.ts
 ├── refs_parity_dump.py  Shell  Generates shared/fixtures/refs_parity.json
@@ -86,7 +87,8 @@ Inside `pkm/server/`:
 | `config.py` | Shell | Frozen `Config` loaded from the data dir's `config.json` |
 | `db.py` | Shell | `init_db()`/`open_db()`, per-request connection dependency, column migrations |
 | `auth.py` / `auth_core.py` / `throttle_core.py` | Shell / Core / Core | Login routes + `require_auth`; scrypt password check, HMAC session tokens; per-source login backoff policy (see [Auth](#auth)) |
-| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_local.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below) |
+| `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_local.py`, `routes_goodlinks.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below) |
+| `goodlinks_gateway.py` | Shell | httpx2 edge to the GoodLinks local API |
 | `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply; durable activation/generation accessors |
 | `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py` |
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
@@ -446,6 +448,10 @@ requires the session cookie unless marked public, and FastAPI's `/docs` and
 | **Local documents** (`routes_local.py`) | | |
 | GET | `/api/local/check` | Every `/api/local/` href in block text, classified `ok` / `missing` / `evicted` / `invalid` against disk; `enabled: false` when `local_docs_root` is unset |
 | GET | `/api/local/{path}` | Serve one regular file under `local_docs_root` (inline for PDF/image extensions, attachment otherwise, `nosniff`); 404 for anything outside the root, missing, or not a regular file; 503 + `Retry-After` for an iCloud-evicted file |
+| **GoodLinks copies** (`routes_goodlinks.py`, see [goodlinks.md](goodlinks.md)) | | |
+| POST | `/api/goodlinks/resolve` | Resolve a URL to a GoodLinks link (exact, query-stripped, single search hit); with `save` true, save it read-marked when absent |
+| GET | `/api/goodlinks/check` | Every `/api/goodlinks/` href in block text, `ok` / `missing` / `invalid` against the library; `enabled: false` without an API token |
+| GET | `/api/goodlinks/{link_id}` | Metadata plus allowlist-sanitised reader HTML, `no-store`; 404 for a bad id or unknown link, 503 when GoodLinks is not running |
 | **Export** (see [import-export-and-backup.md](import-export-and-backup.md)) | | |
 | GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
 | GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
@@ -516,6 +522,8 @@ with the change that invalidates them.
 | `image_description_model` | no (default `gpt-4o-mini`) | Vision model |
 | `openai_api_key_file` | no (default `../openai_key`) | Key file for image captions |
 | `local_docs_root` | no | Read-only document tree served under `/api/local/`; unset disables the feature |
+| `goodlinks_api_key_file` | no (default `../goodlinks_key`) | GoodLinks API token; `GOODLINKS_API_KEY` env is the fallback; neither disables the feature |
+| `goodlinks_api_url` | no (default `http://localhost:9428/api/v1`) | Where the GoodLinks app listens |
 
 Every path key resolves relative to `config.json`'s own directory, so the data
 directory can move as a unit. `python -m pkm.server.run` is the entrypoint,

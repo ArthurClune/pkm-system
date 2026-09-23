@@ -251,7 +251,7 @@ that claims the keystroke outright.
 | `BlockRefBacklinksPopover`, `FileCardPopovers` | `Popover` | `Popover`'s own `useDismiss` |
 | `BlockMenu` | `.block-menu` | `useDismiss`; roving focus and Tab stay in the component |
 | `TopBar`'s page menu, `SearchBar` | own markup | `useDismiss` with `enabled` |
-| `ConfirmDialog`, `ImageOverlay` | own modal markup | hand-rolled: `window` listener, Enter/Tab, scroll lock, focus restore |
+| `ConfirmDialog`, `ImageOverlay`, `GoodlinksReader` | own modal markup | hand-rolled via `useOverlayDismiss`: `window` listener, Escape/Tab, scroll lock, focus restore |
 | `AutocompletePopup`, `DatePickerPopup` | own markup | none of their own — `BlockInput` owns their keys |
 
 Hand-roll dismissal only for a modal surface, or one whose keys another

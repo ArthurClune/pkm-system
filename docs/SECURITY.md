@@ -51,7 +51,8 @@ Every data-bearing HTTP route requires a valid session, including:
 - `/api/openapi.json`.
 
 `/api/ws` runs the same signed-cookie check before accepting a WebSocket
-connection and closes unauthenticated clients with code `4401`.
+connection, and refuses an unauthenticated client's handshake with HTTP `403`
+([how](architecture/backend.md#auth)).
 
 These routes are public:
 
@@ -69,7 +70,9 @@ requests, and get `401` without a valid cookie.
 ## Additional protections
 
 - FastAPI's API documentation routes are disabled.
-- Uploads are size-limited and stored by SHA-256 digest.
+- Uploads are size-limited (`max_upload_bytes`) and stored by SHA-256 digest.
+  The declared type must be on an allowlist (images, PDF, plain text, JSON and
+  Office documents; `ALLOWED_UPLOAD_MIME`), or the upload gets a `415`.
 - Asset paths validate the digest; the requested filename is not used for the
   filesystem lookup.
 - Assets are served with `X-Content-Type-Options: nosniff`.

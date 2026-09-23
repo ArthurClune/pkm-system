@@ -78,6 +78,7 @@ See "While blocks are selected" below for what you can do next.
 | Cmd+Alt+1/2/3 | Heading level 1/2/3 |
 | Cmd+Alt+0 | Back to plain text |
 | Ctrl+O | Open the `[[page]]` the caret is inside |
+| Ctrl+Shift+O | Open the `[[page]]` the caret is inside in the sidebar |
 | `[`, `(`, `{`, `"` | Auto-pair; typing `[[` opens the page-link autocomplete |
 | Escape | Stop editing the block |
 

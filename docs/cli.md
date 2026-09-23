@@ -34,7 +34,9 @@ Two environment variables override the defaults:
     pkm update <uid> "new text" | -D | -T
     pkm search "term" [--limit N] [--exact] [--compact]
     pkm refs "Page" / pkm query "{and: [[A]] [[B]]}" [--expand]
-    pkm upload file.png [-p "Page"] [--no-block]
+    pkm upload file.png [-p "Page"] [--parent "## H"|"((uid))"] [--no-block]
+    pkm assets search "term" [--limit N]     # asset descriptions and filenames
+    pkm assets scan [--force]                # queue undescribed images
     pkm batch < commands.json                # atomic multi-op transaction
     pkm rename "Old Title" "New Title" [--allow-merge] [--json]
     pkm migrate-titles [--json]              # side-effect-free audit
@@ -45,6 +47,15 @@ Two environment variables override the defaults:
 
 `pkm save` with no `-p` writes to today's daily note. Missing pages are
 created.
+
+`pkm upload` stores the file and adds a block linking it, on `-p` or today's
+daily note, nested under `--parent` if given. Images embed, PDFs open in the
+PDF viewer, and other files are plain links. `--no-block` uploads and prints
+the URL only.
+
+`pkm assets scan` queues images without an LLM description; `--force` also
+retries ones that failed. It exits 1 if image descriptions are disabled on the
+server.
 
 `pkm rename` retitles a page and rewrites every `[[link]]`, `#tag`,
 `#[[tag]]` and `attr::` reference to it in block text, case-sensitively. If
@@ -74,6 +85,9 @@ that don't intersect.
 
 `pkm refs` pages through the server's results and returns every backlink
 group, retrying if concurrent writes shift the pages.
+
+`pkm assets search` matches uploaded files by LLM description and filename.
+The default `--limit` is 50.
 
 `pkm local check` reports every `/api/local/` link in block text whose file is
 `missing`, `evicted` (an iCloud placeholder not yet downloaded), or `invalid`

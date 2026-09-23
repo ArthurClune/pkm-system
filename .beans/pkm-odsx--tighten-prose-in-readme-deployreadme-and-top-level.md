@@ -23,4 +23,6 @@ Facts corrected against the code: default assistant model is glm when a z.ai key
 
 Added: update.sh's refusal outside `$PKM_HOME/app` (and `PKM_UPDATE_FORCE=1`), the 03:30 backup time, troubleshooting links from both READMEs, the `test-data/` directory in the layout.
 
+Gaps found during the rewrite, then filled: Ctrl+Shift+O in keyboard.md; `pkm assets search|scan` and `upload --parent` in cli.md; troubleshooting rows for pkm-y3rr and pkm-mbcc (their stories were cut from SECURITY.md); overview.md no longer says every mutation goes through `POST /api/ops`; SECURITY.md names the upload allowlist (`ALLOWED_UPLOAD_MIME`, 415). The WebSocket auth claim was wrong: a probe against uvicorn 0.49 shows close-before-accept reaches a real client as an HTTP 403 handshake refusal, and code 4401 is visible only to Starlette's test client. SECURITY.md and backend.md § Auth now say so; the web client never checks 4401, so nothing depended on it.
+
 Checks: architecture-docs checker resolves every link and anchor; its remaining bean-id failure (backend review quoting a code comment) predates this change. `pnpm vitest run src/help/` passes (25 tests).

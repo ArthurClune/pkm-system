@@ -60,6 +60,13 @@ def test_search_match_rejects_zero_or_two_hits():
     assert search_match(["https://a.example/p"], [{"url": "https://a.example/q"}]) is None
 
 
+def test_search_match_rejects_prefix_hit_that_is_a_different_page():
+    assert search_match(["https://a.example/p"], [{"url": "https://a.example/page-two"}]) is None
+    assert search_match(["https://a.example/p"], [{"url": "https://a.example/p/x"}]) is None
+    hit = {"url": "https://a.example/p?publication_id=1"}
+    assert search_match(["https://a.example/p"], [hit]) == hit
+
+
 HOSTILE = """<div dir="auto"><p onclick="x()" style="color:red">Hello <b>bold</b>
 <a href="javascript:alert(1)">bad</a> <a href="https://ok.example/x" title="t">good</a></p>
 <script>alert(1)</script><style>p{display:none}</style>
@@ -90,3 +97,24 @@ def test_sanitize_drops_javascript_href_but_keeps_text():
     out = sanitize_article('<p><a href="javascript:alert(1)">bad</a></p>')
     assert "javascript:" not in out
     assert "bad" in out
+
+
+def test_sanitize_strips_generic_attributes_but_keeps_allowed_ones():
+    out = sanitize_article('<p title="hover" lang="fr">text</p><a href="https://ok.example/x" title="t">good</a>')
+    assert "<p>text</p>" in out
+    assert 'title="hover"' not in out
+    assert 'lang="fr"' not in out
+    assert 'title="t"' in out
+
+
+def test_sanitize_strips_relative_and_protocol_relative_urls():
+    out = sanitize_article(
+        '<p><a href="/api/logout">bad1</a> <img src="/api/goodlinks/x" alt="i">'
+        '<a href="//evil.example/x">bad2</a> <img src="//evil.example/px.gif" alt="j"></p>'
+    )
+    assert 'href="/api/logout"' not in out
+    assert 'href="//evil.example/x"' not in out
+    assert 'src="/api/goodlinks/x"' not in out
+    assert 'src="//evil.example/px.gif"' not in out
+    assert "bad1" in out
+    assert "bad2" in out

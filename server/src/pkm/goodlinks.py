@@ -35,6 +35,10 @@ _ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
     "img": {"src", "alt"},
     "td": {"colspan", "rowspan"},
     "th": {"colspan", "rowspan"},
+    # nh3 keeps a set of generic attributes (lang, title, dir, ...) on every
+    # tag unless "*" is given explicitly; an empty set here closes that gap
+    # so only the per-tag attributes above ever survive.
+    "*": set(),
 }
 _URL_SCHEMES: set[str] = {"http", "https"}
 
@@ -75,12 +79,22 @@ def candidate_urls(url: str) -> list[str]:
     return out
 
 
+def _matches_candidate(url: str, candidate: str) -> bool:
+    """`url` matches `candidate` when they are equal, or when `url` is the
+    candidate with a `?query` or `#fragment` tacked on. A bare prefix hit
+    (`/p` against `/page-two` or `/p/x`) is a different page, not a match."""
+    if url == candidate:
+        return True
+    remainder = url[len(candidate):] if url.startswith(candidate) else ""
+    return remainder.startswith("?") or remainder.startswith("#")
+
+
 def search_match(candidates: list[str], results: list[dict]) -> dict | None:
-    """A search result counts only when exactly one result's URL starts
-    with a candidate. Two hits is ambiguity, zero is a miss; the caller
-    never guesses."""
+    """A search result counts only when exactly one result's URL equals a
+    candidate, or extends it starting with `?` or `#`. Two hits is
+    ambiguity, zero is a miss; the caller never guesses."""
     for candidate in candidates:
-        hits = [r for r in results if str(r.get("url", "")).startswith(candidate)]
+        hits = [r for r in results if _matches_candidate(str(r.get("url", "")), candidate)]
         if len(hits) == 1:
             return hits[0]
     return None
@@ -89,13 +103,16 @@ def search_match(candidates: list[str], results: list[dict]) -> dict | None:
 def sanitize_article(html: str) -> str:
     """Reduce GoodLinks' reader HTML to the allowlist above. Disallowed tags
     are unwrapped (their text survives) except script and style, whose
-    content goes too. URLs outside http(s) lose their attribute. Every
-    anchor opens in a new tab with no referrer."""
+    content goes too. URLs outside http(s), and relative or
+    protocol-relative URLs, lose their attribute: a relative URL in a
+    srcdoc iframe resolves against the app's own origin, so this is not
+    just cosmetic. Every anchor opens in a new tab with no referrer."""
     return nh3.clean(
         html,
         tags=_ALLOWED_TAGS,
         attributes=_ALLOWED_ATTRIBUTES,
         url_schemes=_URL_SCHEMES,
+        url_relative="deny",
         link_rel="noopener noreferrer",
         set_tag_attribute_values={"a": {"target": "_blank"}},
         strip_comments=True,

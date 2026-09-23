@@ -65,6 +65,7 @@ def seeded_config(tmp_path) -> Config:
         cookie_secure=False,
         openai_api_key_file=tmp_path / "openai_key",
         zai_api_key_file=tmp_path / "zai_key",
+        goodlinks_api_key_file=tmp_path / "goodlinks_key",
     )
 
 
@@ -138,6 +139,7 @@ def assistant_client(seeded_config, fake_engine) -> Iterator[TestClient]:
 def _no_ambient_openai_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ZAI_API_KEY", raising=False)
+    monkeypatch.delenv("GOODLINKS_API_KEY", raising=False)
 
 
 @pytest.fixture()

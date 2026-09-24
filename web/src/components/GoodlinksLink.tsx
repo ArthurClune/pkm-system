@@ -6,7 +6,7 @@
 import { useCallback, useRef, useState } from "react";
 import { GoodlinksReader } from "./GoodlinksReader";
 
-export function GoodlinksLink({ href, label }: { href: string; label: string }) {
+export function GoodlinksLink({ linkId, label }: { linkId: string; label: string }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Stable so useOverlayDismiss does not tear down and re-run (bouncing
@@ -26,7 +26,7 @@ export function GoodlinksLink({ href, label }: { href: string; label: string }) 
         {label || "Goodlinks"}
       </button>
       {open && (
-        <GoodlinksReader href={href} onClose={close} triggerRef={triggerRef} />
+        <GoodlinksReader linkId={linkId} onClose={close} triggerRef={triggerRef} />
       )}
     </>
   );

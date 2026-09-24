@@ -22,7 +22,8 @@ from pkm.contracts.responses import (GoodlinksArticle, GoodlinksCheckPayload,
                                      GoodlinksCheckProblem, GoodlinksLink,
                                      GoodlinksResolveRequest)
 from pkm.goodlinks import (GOODLINKS_PREFIX, candidate_urls, extract_goodlinks_hrefs,
-                           is_link_id, link_id_from_href, sanitize_article, search_match)
+                           is_link_id, link_id_from_href, sanitize_article, search_match,
+                           search_query)
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.goodlinks_gateway import (GoodlinksGateway, GoodlinksRejected,
@@ -67,7 +68,7 @@ def resolve_link(body: GoodlinksResolveRequest,
             found = gw.lookup(candidate)
             if found is not None:
                 return _link_payload(found, created=False)
-        hit = search_match(candidates, gw.search(candidates[-1]))
+        hit = search_match(candidates, gw.search(search_query(body.url)))
         if hit is not None:
             return _link_payload(hit, created=False)
         if not body.save:

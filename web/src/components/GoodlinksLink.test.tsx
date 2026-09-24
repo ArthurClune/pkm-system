@@ -4,7 +4,6 @@ import { jsonResponse } from "../test-helpers";
 import { GoodlinksLink } from "./GoodlinksLink";
 
 const ID = "e4966bb2483b5c78f658398c0ae7b03f";
-const HREF = `/api/goodlinks/${ID}`;
 const ARTICLE = { id: ID, title: "UML My Part", url: "https://tratt.net/uml.html",
                   added_at: "2022-10-06T15:07:12Z", html: "<p>Archived</p>" };
 
@@ -12,7 +11,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 it("a parent re-render while the reader is open leaves the dismiss effect alone", async () => {
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => jsonResponse(ARTICLE)));
-  const view = render(<GoodlinksLink href={HREF} label="Goodlinks" />);
+  const view = render(<GoodlinksLink linkId={ID} label="Goodlinks" />);
   fireEvent.click(screen.getByRole("button", { name: "Goodlinks" }));
   await waitFor(() => expect(screen.getByTitle("UML My Part")).toBeInTheDocument());
   const close = screen.getByRole("button", { name: "Close" });
@@ -23,7 +22,7 @@ it("a parent re-render while the reader is open leaves the dismiss effect alone"
   // the focus moves instead.
   const focusMoves = vi.fn();
   document.addEventListener("focusin", focusMoves);
-  view.rerender(<GoodlinksLink href={HREF} label="Goodlinks" />);
+  view.rerender(<GoodlinksLink linkId={ID} label="Goodlinks" />);
   document.removeEventListener("focusin", focusMoves);
 
   expect(focusMoves).not.toHaveBeenCalled();

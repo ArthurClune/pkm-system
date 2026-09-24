@@ -101,3 +101,23 @@ def test_401_on_a_read_is_unauthorized():
 def test_403_on_save_is_unauthorized_not_rejected():
     with pytest.raises(GoodlinksUnauthorized):
         gateway(lambda r: httpx2.Response(403, json={"error": "Forbidden"})).save("https://a.example/p")
+
+
+def test_lookup_non_json_2xx_body_is_unavailable():
+    with pytest.raises(GoodlinksUnavailable):
+        gateway(lambda r: httpx2.Response(200, text="not json")).lookup("x")
+
+
+def test_search_non_json_2xx_body_is_unavailable():
+    with pytest.raises(GoodlinksUnavailable):
+        gateway(lambda r: httpx2.Response(200, text="not json")).search("x")
+
+
+def test_save_non_json_2xx_body_is_unavailable():
+    with pytest.raises(GoodlinksUnavailable):
+        gateway(lambda r: httpx2.Response(200, text="not json")).save("https://a.example/p")
+
+
+def test_link_non_json_2xx_body_is_unavailable():
+    with pytest.raises(GoodlinksUnavailable):
+        gateway(lambda r: httpx2.Response(200, text="not json")).link(ID)

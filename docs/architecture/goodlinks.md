@@ -35,8 +35,9 @@ GoodLinks' local API listens on `localhost:9428`, the host Mac's loopback
 interface only. The iPad reaches it the way it reaches `/api/local/`: through
 the server, which holds the bearer token and forwards requests via
 `goodlinks_gateway.py`. That means the GoodLinks app itself must be running
-on the host for any of this to work; when it is not, `GoodlinksGateway`
-raises `GoodlinksUnavailable` and every route answers 503. A 401 or 403 from
+on the host for any of this to work. When it is not running, or answers a
+2xx request with a body that is not valid JSON, `GoodlinksGateway` raises
+`GoodlinksUnavailable` and every route answers 503. A 401 or 403 from
 GoodLinks on any request, a wrong or revoked token, raises
 `GoodlinksUnauthorized` instead, which every route answers with a 503 of its
 own detail, "Goodlinks rejected the API token". Both 503 causes are logged
@@ -51,20 +52,20 @@ therefore shows "No longer in Goodlinks", and `check` reports
 
 ## Routes
 
-| Method | Path | Behaviour |
-|---|---|---|
-| POST | `/api/goodlinks/resolve` | Resolve a URL to a GoodLinks link; with `save: true`, save it (read-marked) when nothing matched |
-| GET | `/api/goodlinks/check` | Every `/api/goodlinks/` href in block text, `ok` / `missing` / `invalid` against the library; `enabled: false` without an API token |
-| GET | `/api/goodlinks/{link_id}` | Metadata plus allowlist-sanitised reader HTML, `no-store`; `html` is empty when GoodLinks knows the link but holds no reader copy; 404 for a bad id or unknown link, 503 when GoodLinks is not running or refuses the token |
+The three `/api/goodlinks/` routes are in [backend.md](backend.md#http-api-reference)'s API reference table, which owns the row-level detail.
 
-`resolve` tries, in order: the URL exactly, the URL with its query string and
-fragment stripped (`candidate_urls`), then a GoodLinks search against the
-stripped form. A search result only counts when exactly one hit's URL equals
-a candidate or extends it with a `?` or `#` remainder (`search_match`); two
-hits is ambiguity and a miss, not a guess. Only once all three fail, and only
-when the caller asked for it with `save: true`, does resolve save the page —
-always read-marked. Lookup and search always run before save, so an existing
-link's read date is never bumped by opening a page that is already archived.
+`resolve` first tries exact lookups against `candidate_urls`: the URL as
+written, the same with its query string and fragment stripped, and each of
+those with its trailing slash toggled, since a pasted URL may or may not end
+in `/` whichever way GoodLinks saved it. It then falls back to one GoodLinks
+search on `search_query`, the stripped URL without a trailing slash, which is
+a substring of both slash forms. A search result only counts when exactly one
+hit's URL equals a candidate or extends it with a `?` or `#` remainder
+(`search_match`); two hits is ambiguity and a miss, not a guess. Only when
+every lookup and the search fail, and only with `save: true`, does resolve
+save the page, always read-marked. Lookup and search run before save, so an
+existing link's read date is never bumped by opening a page that is already
+archived.
 
 ## Two barriers for third-party HTML
 
@@ -108,6 +109,13 @@ returned to the button that opened it on close. `GoodlinksLink` keeps the
 `onClose` callback it passes to the reader stable across re-renders
 (`useCallback`), so the shared hook does not tear down and re-run
 mid-session, which would bounce focus.
+
+Once focus moves inside the sandboxed iframe, Escape stops closing the
+reader: the frame's document runs no script, so a keydown there never
+reaches the `window` listener `useOverlayDismiss` installs on the app's own
+document. Close still works, because it is a button in the app's own DOM
+outside the iframe. Fixing Escape would need `allow-scripts` on the sandbox,
+which the reader's sandbox deliberately withholds.
 
 The bar shows the article title (or "Saved article" while loading or on
 error), a link to the original URL, and the saved date, once the fetch

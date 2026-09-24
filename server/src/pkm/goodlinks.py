@@ -67,16 +67,41 @@ def extract_goodlinks_hrefs(text: str) -> list[str]:
     return seen
 
 
+def _toggle_trailing_slash(url: str) -> str:
+    """`url` with its path's single trailing slash added if absent, or
+    removed if present. Query, fragment, scheme, host and every other path
+    segment are left untouched."""
+    parts = urlsplit(url)
+    path = parts.path[:-1] if parts.path.endswith("/") else parts.path + "/"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+
+
 def candidate_urls(url: str) -> list[str]:
-    """The URL as written, then without its query string and fragment when
-    that changes anything. Tracking parameters are the usual reason an
-    exact lookup misses a page GoodLinks does hold."""
-    out = [url]
+    """URLs to try an exact lookup against, in order: the URL as written,
+    that URL with its trailing slash toggled, the URL without its query
+    string and fragment, and that stripped form with its trailing slash
+    toggled. Tracking parameters are the usual reason an exact lookup
+    misses a page GoodLinks does hold; a mismatched trailing slash is the
+    other. Duplicates (e.g. a URL with no query to strip) are dropped,
+    keeping first occurrence."""
     parts = urlsplit(url)
     stripped = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
-    if stripped != url:
-        out.append(stripped)
-    return out
+    out = [url, _toggle_trailing_slash(url), stripped, _toggle_trailing_slash(stripped)]
+    seen: list[str] = []
+    for candidate in out:
+        if candidate not in seen:
+            seen.append(candidate)
+    return seen
+
+
+def search_query(url: str) -> str:
+    """The text to search GoodLinks for: `url` without its query string,
+    fragment, or trailing slash, so it is a substring of both trailing-slash
+    forms of the same page. The fake server, and as far as we know
+    GoodLinks itself, match search text as a substring."""
+    parts = urlsplit(url)
+    stripped = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    return stripped.removesuffix("/")
 
 
 def _matches_candidate(url: str, candidate: str) -> bool:

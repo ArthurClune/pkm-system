@@ -44,7 +44,7 @@ and the only place a segment becomes a component.
 | `code-block` | `MermaidDiagram` when `lang` is `mermaid`, else `CodeBlock` |
 | `query` | `QueryBlock` |
 | `todo` | `TodoCheckbox` |
-| `pdf-embed`, `link` | `GoodlinksLink` when `isGoodlinksHref` (see [goodlinks.md](goodlinks.md)); else `PdfEmbed` when `isPdfHref`; else `BlueskyEmbed` for a `link` whose href is a Bluesky post URL and equals its `text` (a bare URL; a markdown link with its own label stays an anchor); else an `<a target="_blank">` when `isSafeHref`; else plain text |
+| `pdf-embed`, `link` | `GoodlinksLink` when `goodlinksIdFromHref` finds an id (see [goodlinks.md](goodlinks.md)); else `PdfEmbed` when `isPdfHref`; else `BlueskyEmbed` for a `link` whose href is a Bluesky post URL and equals its `text` (a bare URL; a markdown link with its own label stays an anchor); else an `<a target="_blank">` when `isSafeHref`; else plain text |
 
 A `depth` prop rides the recursive cases: `BlockRef` renders the raw `((uid))`
 at its `MAX_DEPTH` of 3, and `QueryBlock` stops at 2.

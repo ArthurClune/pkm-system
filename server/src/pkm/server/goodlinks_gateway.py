@@ -2,10 +2,11 @@
 """The HTTP edge to the GoodLinks app's local API (bearer token, one
 port on the host). Every method returns plain dicts or text; the pure
 decisions about them live in pkm.goodlinks. Three failure classes matter
-to callers: GoodLinks not answering (the app is not running, or it
-returned 5xx), GoodLinks refusing the API token (401 or 403 on any
-request), and GoodLinks refusing a save (any other 4xx on POST). A 404 on
-a read is an ordinary "not there" and comes back as None."""
+to callers: GoodLinks not answering (the app is not running, it
+returned 5xx, or a 2xx response body was not valid JSON), GoodLinks
+refusing the API token (401 or 403 on any request), and GoodLinks
+refusing a save (any other 4xx on POST). A 404 on a read is an ordinary
+"not there" and comes back as None."""
 from __future__ import annotations
 
 import httpx2
@@ -26,6 +27,13 @@ class GoodlinksRejected(Exception):
         super().__init__(f"goodlinks rejected the request: {status} {detail}")
         self.status = status
         self.detail = detail
+
+
+def _json(r: httpx2.Response):
+    try:
+        return r.json()
+    except ValueError as e:
+        raise GoodlinksUnavailable(f"goodlinks answered with a non-JSON body: {e}") from e
 
 
 def _error_detail(r: httpx2.Response) -> str:
@@ -67,24 +75,24 @@ class GoodlinksGateway:
 
     def lookup(self, url: str) -> dict | None:
         r = self._read("/links", params={"url": url})
-        return r.json() if r is not None else None
+        return _json(r) if r is not None else None
 
     def search(self, query: str, limit: int = 5) -> list[dict]:
         r = self._read("/links", params={"search": query, "limit": str(limit)})
         if r is None:
             return []
-        data = r.json().get("data", [])
+        data = _json(r).get("data", [])
         return data if isinstance(data, list) else []
 
     def save(self, url: str) -> dict:
         r = self._request("POST", "/links", json={"url": url, "read": True})
         if r.status_code >= 400:
             raise GoodlinksRejected(r.status_code, _error_detail(r))
-        return r.json()
+        return _json(r)
 
     def link(self, link_id: str) -> dict | None:
         r = self._read(f"/links/{link_id}")
-        return r.json() if r is not None else None
+        return _json(r) if r is not None else None
 
     def content(self, link_id: str) -> str | None:
         r = self._read(f"/links/{link_id}/content", params={"format": "html"})

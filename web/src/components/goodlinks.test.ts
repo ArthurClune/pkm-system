@@ -1,23 +1,18 @@
 import { describe, expect, test } from "vitest";
-import { goodlinksIdFromHref, isGoodlinksHref } from "./goodlinks";
+import { goodlinksIdFromHref } from "./goodlinks";
 
 const ID = "e4966bb2483b5c78f658398c0ae7b03f";
 
-describe("isGoodlinksHref", () => {
+describe("goodlinksIdFromHref", () => {
   test.each([
-    [`/api/goodlinks/${ID}`, true],
-    [`/api/goodlinks/${ID.toUpperCase()}`, false],
-    [`/api/goodlinks/${ID.slice(0, 31)}`, false],
-    [`/api/goodlinks/${ID}?x=1`, false],
-    ["/api/goodlinks/check", false],
-    ["/api/local/Papers/a.pdf", false],
-    [`https://example.com/api/goodlinks/${ID}`, false],
+    [`/api/goodlinks/${ID}`, ID],
+    [`/api/goodlinks/${ID.toUpperCase()}`, null],
+    [`/api/goodlinks/${ID.slice(0, 31)}`, null],
+    [`/api/goodlinks/${ID}?x=1`, null],
+    ["/api/goodlinks/check", null],
+    ["/api/local/Papers/a.pdf", null],
+    [`https://example.com/api/goodlinks/${ID}`, null],
   ])("%s -> %s", (href, expected) => {
-    expect(isGoodlinksHref(href)).toBe(expected);
+    expect(goodlinksIdFromHref(href)).toBe(expected);
   });
-});
-
-test("goodlinksIdFromHref returns the id or null", () => {
-  expect(goodlinksIdFromHref(`/api/goodlinks/${ID}`)).toBe(ID);
-  expect(goodlinksIdFromHref("/api/goodlinks/nope")).toBeNull();
 });

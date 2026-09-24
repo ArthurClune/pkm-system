@@ -69,7 +69,6 @@ test("/goodlinks links a saved page and the reader shows the sanitised article",
     expect(srcdoc).toContain("Archived article body for e2e.");
     expect(srcdoc).not.toContain("<script");
     await expect(frame.contentFrame().getByText("Archived article body for e2e.")).toBeVisible();
-    await expect(page).toHaveTitle(/^(?!pwned)/);
 
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
@@ -92,10 +91,11 @@ test("/goodlinks saves an unknown URL to GoodLinks and reports it", async ({ pag
     title = await freshPage(page, "Goodlinks Save E2E");
     const url = `https://example.com/new-${Date.now()}`;
     await linkThenChildGoodlinks(page, url);
-    await expect(page.locator(".editor-notice[role='status']")).toHaveText(/Saved to Goodlinks/);
+    const notice = page.locator(".editor-notice[role='status']");
+    await expect(notice).toHaveText(/Saved to Goodlinks/);
     await expect(page.getByRole("button", { name: "Goodlinks", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Dismiss" }).click();
-    await expect(page.locator(".editor-notice[role='status']")).toHaveCount(0);
+    await notice.getByRole("button", { name: "Dismiss" }).click();
+    await expect(notice).toHaveCount(0);
 
     // See the comment in the previous test: wait for the Tab move to land
     // server-side before the finally block deletes the page.

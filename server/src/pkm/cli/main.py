@@ -660,10 +660,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub_local.add_parser("check", help="report missing/evicted local files")
     _common(sp)
 
-    p = _add("goodlinks", "check Local copy:: Goodlinks links against the GoodLinks library",
+    p = _add("goodlinks", "check Local copy:: Goodlinks links against the Goodlinks library",
              _GOODLINKS_EPILOG)
     sub_goodlinks = p.add_subparsers(dest="goodlinks_action", required=True)
-    sp = sub_goodlinks.add_parser("check", help="report links GoodLinks no longer has")
+    sp = sub_goodlinks.add_parser("check", help="report links Goodlinks no longer has")
     _common(sp)
 
     p = _add("migrate-titles", "audit or apply the title migration",

@@ -579,3 +579,30 @@ def test_goodlinks_check_json(run):
     code, out, _ = run("goodlinks", "check", "--json")
     assert code == 2
     assert json.loads(out) == {"enabled": False, "total": 0, "ok": 0, "problems": []}
+
+
+def test_goodlinks_check_json_enabled(seeded_config, goodlinks_pkm_client, capsys):
+    from test_routes_goodlinks import _seed_goodlinks_links
+
+    _seed_goodlinks_links(seeded_config.db_path)
+    code = main(["goodlinks", "check", "--json"], make_client=lambda: goodlinks_pkm_client)
+    out, err = capsys.readouterr()
+    assert code == 1
+    assert err == ""
+    body = json.loads(out)
+    assert body["enabled"] is True
+    assert body["total"] == 4
+    assert body["ok"] == 2
+
+
+def test_goodlinks_check_when_goodlinks_closed_on_host_exits_1(
+        seeded_config, goodlinks_pkm_client, fake_goodlinks, capsys):
+    from test_routes_goodlinks import _seed_goodlinks_links
+
+    _seed_goodlinks_links(seeded_config.db_path)
+    fake_goodlinks.down = True
+    code = main(["goodlinks", "check"], make_client=lambda: goodlinks_pkm_client)
+    out, err = capsys.readouterr()
+    assert code == 1
+    assert out == ""
+    assert "Goodlinks is not running on the host" in err

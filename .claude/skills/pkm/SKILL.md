@@ -40,6 +40,7 @@ tokens, sign cookies, or read the DB as a workaround.
     pkm query "{and: [[A]] [[B]]}" --expand  # one-hop: [[X]] also matches via a page X's own blocks reference
     pkm todos [-p "Page"]                    # open {{TODO}} blocks
     pkm local check                 # /api/local/ links whose file is missing on the host
+    pkm goodlinks check             # /api/goodlinks/ links GoodLinks no longer has
 
 A `query` with `total: 0` also returns `ref_counts` per operand; the
 rendered output prints "per-ref block counts: ..." so you can tell a typo'd

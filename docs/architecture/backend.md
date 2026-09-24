@@ -453,7 +453,7 @@ requires the session cookie unless marked public, and FastAPI's `/docs` and
 | **GoodLinks copies** (`routes_goodlinks.py`, see [goodlinks.md](goodlinks.md)) | | |
 | POST | `/api/goodlinks/resolve` | Resolve a URL to a GoodLinks link (exact, query-stripped, single search hit); with `save` true, save it read-marked when absent |
 | GET | `/api/goodlinks/check` | Every `/api/goodlinks/` href in block text, `ok` / `missing` / `invalid` against the library; `enabled: false` without an API token |
-| GET | `/api/goodlinks/{link_id}` | Metadata plus allowlist-sanitised reader HTML, `no-store`; 404 for a bad id or unknown link, 503 when GoodLinks is not running |
+| GET | `/api/goodlinks/{link_id}` | Metadata plus allowlist-sanitised reader HTML, `no-store`; empty `html` when GoodLinks knows the link but holds no reader copy; 404 for a bad id or unknown link, 503 when GoodLinks is not running or refuses the token |
 | **Export** (see [import-export-and-backup.md](import-export-and-backup.md)) | | |
 | GET | `/api/export/page/{title}` | One page rendered to markdown (download) |
 | GET | `/api/export.zip` | Whole-graph markdown export, zipped (download) |
@@ -524,7 +524,7 @@ with the change that invalidates them.
 | `image_description_model` | no (default `gpt-4o-mini`) | Vision model |
 | `openai_api_key_file` | no (default `../openai_key`) | Key file for image captions |
 | `local_docs_root` | no | Read-only document tree served under `/api/local/`; unset disables the feature |
-| `goodlinks_api_key_file` | no (default `../goodlinks_key`) | GoodLinks API token; `GOODLINKS_API_KEY` env is the fallback; neither disables the feature |
+| `goodlinks_api_key_file` | no (default `../goodlinks_key`) | GoodLinks API token; `GOODLINKS_API_KEY` env is the fallback; with neither set, the feature is disabled: every route 404s except `check`, which reports `enabled: false` |
 | `goodlinks_api_url` | no (default `http://localhost:9428/api/v1`) | Where the GoodLinks app listens |
 
 Every path key resolves relative to `config.json`'s own directory, so the data

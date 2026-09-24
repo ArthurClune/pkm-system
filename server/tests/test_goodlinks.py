@@ -2,7 +2,7 @@ import pytest
 
 from pkm.goodlinks import (GOODLINKS_PREFIX, candidate_urls, extract_goodlinks_hrefs,
                            goodlinks_href, is_link_id, link_id_from_href,
-                           sanitize_article, search_match)
+                           sanitize_article, search_match, search_query)
 
 ID = "e4966bb2483b5c78f658398c0ae7b03f"
 
@@ -38,13 +38,31 @@ def test_extract_hrefs_ignores_other_prefixes():
 
 
 @pytest.mark.parametrize("url,expected", [
-    ("https://a.example/p", ["https://a.example/p"]),
-    ("https://a.example/p?utm=1", ["https://a.example/p?utm=1", "https://a.example/p"]),
-    ("https://a.example/p#top", ["https://a.example/p#top", "https://a.example/p"]),
-    ("https://a.example/p?x=1#top", ["https://a.example/p?x=1#top", "https://a.example/p"]),
+    ("https://a.example/p", ["https://a.example/p", "https://a.example/p/"]),
+    ("https://a.example/p/", ["https://a.example/p/", "https://a.example/p"]),
+    ("https://a.example/p?utm=1", ["https://a.example/p?utm=1", "https://a.example/p/?utm=1",
+                                   "https://a.example/p", "https://a.example/p/"]),
+    ("https://a.example/p#top", ["https://a.example/p#top", "https://a.example/p/#top",
+                                 "https://a.example/p", "https://a.example/p/"]),
+    ("https://a.example/p?x=1#top", ["https://a.example/p?x=1#top", "https://a.example/p/?x=1#top",
+                                     "https://a.example/p", "https://a.example/p/"]),
+    ("https://x.example", ["https://x.example", "https://x.example/"]),
+    ("https://x.example/", ["https://x.example/", "https://x.example"]),
 ])
 def test_candidate_urls(url, expected):
     assert candidate_urls(url) == expected
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://a.example/p", "https://a.example/p"),
+    ("https://a.example/p/", "https://a.example/p"),
+    ("https://a.example/p?utm=1", "https://a.example/p"),
+    ("https://a.example/p/?utm=1#top", "https://a.example/p"),
+    ("https://x.example", "https://x.example"),
+    ("https://x.example/", "https://x.example"),
+])
+def test_search_query(url, expected):
+    assert search_query(url) == expected
 
 
 def test_search_match_accepts_exactly_one_prefix_hit():
@@ -65,6 +83,12 @@ def test_search_match_rejects_prefix_hit_that_is_a_different_page():
     assert search_match(["https://a.example/p"], [{"url": "https://a.example/p/x"}]) is None
     hit = {"url": "https://a.example/p?publication_id=1"}
     assert search_match(["https://a.example/p"], [hit]) == hit
+
+
+def test_search_match_finds_a_hit_with_the_other_slash_form():
+    candidates = candidate_urls("https://a.example/p")
+    hit = {"url": "https://a.example/p/"}
+    assert search_match(candidates, [hit]) == hit
 
 
 HOSTILE = """<div dir="auto"><p onclick="x()" style="color:red">Hello <b>bold</b>

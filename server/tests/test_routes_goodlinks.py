@@ -33,6 +33,25 @@ def test_resolve_hits_via_single_search_result(goodlinks_client, fake_goodlinks)
     assert r.json()["created"] is False
 
 
+def test_resolve_finds_a_link_saved_with_the_other_trailing_slash(goodlinks_client, fake_goodlinks):
+    fake_goodlinks.links[GL_ID]["url"] = "https://tratt.net/uml.html/"
+    r = resolve(goodlinks_client, "https://tratt.net/uml.html")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == GL_ID
+    assert body["created"] is False
+    assert not any(m == "POST" for m, _ in fake_goodlinks.requests)
+
+
+def test_resolve_finds_a_link_saved_without_the_trailing_slash(goodlinks_client, fake_goodlinks):
+    r = resolve(goodlinks_client, "https://tratt.net/uml.html/")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == GL_ID
+    assert body["created"] is False
+    assert not any(m == "POST" for m, _ in fake_goodlinks.requests)
+
+
 def test_resolve_miss_without_save_is_404_and_never_posts(goodlinks_client, fake_goodlinks):
     r = resolve(goodlinks_client, "https://nowhere.example/p")
     assert r.status_code == 404

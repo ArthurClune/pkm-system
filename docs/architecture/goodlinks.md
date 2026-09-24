@@ -54,14 +54,18 @@ therefore shows "No longer in Goodlinks", and `check` reports
 
 The three `/api/goodlinks/` routes are in [backend.md](backend.md#http-api-reference)'s API reference table, which owns the row-level detail.
 
-`resolve` tries, in order: the URL exactly, the URL with its query string and
-fragment stripped (`candidate_urls`), then a GoodLinks search against the
-stripped form. A search result only counts when exactly one hit's URL equals
-a candidate or extends it with a `?` or `#` remainder (`search_match`); two
-hits is ambiguity and a miss, not a guess. Only once all three fail, and only
-when the caller asked for it with `save: true`, does resolve save the page —
-always read-marked. Lookup and search always run before save, so an existing
-link's read date is never bumped by opening a page that is already archived.
+`resolve` first tries exact lookups against `candidate_urls`: the URL as
+written, the same with its query string and fragment stripped, and each of
+those with its trailing slash toggled, since a pasted URL may or may not end
+in `/` whichever way GoodLinks saved it. It then falls back to one GoodLinks
+search on `search_query`, the stripped URL without a trailing slash, which is
+a substring of both slash forms. A search result only counts when exactly one
+hit's URL equals a candidate or extends it with a `?` or `#` remainder
+(`search_match`); two hits is ambiguity and a miss, not a guess. Only when
+every lookup and the search fail, and only with `save: true`, does resolve
+save the page, always read-marked. Lookup and search run before save, so an
+existing link's read date is never bumped by opening a page that is already
+archived.
 
 ## Two barriers for third-party HTML
 

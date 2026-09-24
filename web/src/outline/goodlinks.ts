@@ -4,9 +4,10 @@
 // sibling, in that order), the attribute text the command inserts, and the
 // notice for each failure. useOutline does the network and the splice.
 import type { BlockNode } from "../api/payloads";
+import { UNAUTHORIZED_DETAIL } from "../components/goodlinks";
 import { locate } from "./tree";
 
-const URL_RE = /https?:\/\/[^\s<>()[\]]+/g;
+const URL_RE = /https?:\/\/(?:[^\s<>()[\]]|\([^\s<>()[\]]*\))+/g;
 
 function urlsIn(text: string): string[] {
   return (text.match(URL_RE) ?? []).map((u) => u.replace(/[.,;:!?]+$/, ""));
@@ -29,8 +30,6 @@ export function goodlinksCandidates(blocks: BlockNode[], uid: string): string[] 
 export function goodlinksAttribute(id: string): string {
   return `Local copy:: [Goodlinks](/api/goodlinks/${id})`;
 }
-
-const UNAUTHORIZED_DETAIL = "Goodlinks rejected the API token";
 
 export function goodlinksNotice(status: number, detail?: string): string {
   if (status === 503 && detail === UNAUTHORIZED_DETAIL) return UNAUTHORIZED_DETAIL;

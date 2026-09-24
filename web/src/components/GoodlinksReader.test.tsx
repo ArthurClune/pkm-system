@@ -18,7 +18,7 @@ function stub(response: () => Promise<Response>) {
 
 it("fetches the article once and renders bar, meta and a sandboxed iframe", async () => {
   const fetchMock = stub(async () => jsonResponse(ARTICLE));
-  render(<GoodlinksReader href={HREF} onClose={vi.fn()} />);
+  render(<GoodlinksReader linkId={ID} onClose={vi.fn()} />);
   expect(screen.getByRole("dialog")).toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("Loading…");
   await waitFor(() => expect(screen.getByTitle("UML My Part")).toBeInTheDocument());
@@ -39,7 +39,7 @@ it.each([
 ])("status %s shows its note and keeps Close working", async (status, note) => {
   stub(async () => jsonResponse({ detail: "x" }, status));
   const onClose = vi.fn();
-  render(<GoodlinksReader href={HREF} onClose={onClose} />);
+  render(<GoodlinksReader linkId={ID} onClose={onClose} />);
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(note));
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
   expect(onClose).toHaveBeenCalledTimes(1);
@@ -47,13 +47,13 @@ it.each([
 
 it("a wrong API token says so rather than 'not running'", async () => {
   stub(async () => jsonResponse({ detail: "Goodlinks rejected the API token" }, 503));
-  render(<GoodlinksReader href={HREF} onClose={vi.fn()} />);
+  render(<GoodlinksReader linkId={ID} onClose={vi.fn()} />);
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Goodlinks rejected the API token"));
 });
 
 it("an article with no reader copy keeps the bar and original link but renders no iframe", async () => {
   stub(async () => jsonResponse({ ...ARTICLE, html: "" }));
-  render(<GoodlinksReader href={HREF} onClose={vi.fn()} />);
+  render(<GoodlinksReader linkId={ID} onClose={vi.fn()} />);
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Goodlinks has no reader copy of this page"));
   expect(screen.queryByTitle("UML My Part")).not.toBeInTheDocument();
   expect(document.querySelector("iframe")).toBeNull();
@@ -64,7 +64,7 @@ it("an article with no reader copy keeps the bar and original link but renders n
 
 it("a network failure reads as needing the server", async () => {
   stub(async () => { throw new TypeError("Failed to fetch"); });
-  render(<GoodlinksReader href={HREF} onClose={vi.fn()} />);
+  render(<GoodlinksReader linkId={ID} onClose={vi.fn()} />);
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Needs the server"));
 });
 
@@ -74,7 +74,7 @@ it("Escape closes and focus returns to the trigger", async () => {
   const trigger = document.createElement("button");
   document.body.appendChild(trigger);
   const ref = { current: trigger };
-  const view = render(<GoodlinksReader href={HREF} onClose={onClose} triggerRef={ref} />);
+  const view = render(<GoodlinksReader linkId={ID} onClose={onClose} triggerRef={ref} />);
   await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toHaveFocus());
   await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
   expect(onClose).toHaveBeenCalledTimes(1);
@@ -85,7 +85,7 @@ it("Escape closes and focus returns to the trigger", async () => {
 
 it("locks body scroll while mounted", async () => {
   stub(async () => jsonResponse(ARTICLE));
-  const view = render(<GoodlinksReader href={HREF} onClose={vi.fn()} />);
+  const view = render(<GoodlinksReader linkId={ID} onClose={vi.fn()} />);
   expect(document.body.style.overflow).toBe("hidden");
   view.unmount();
   expect(document.body.style.overflow).toBe("");

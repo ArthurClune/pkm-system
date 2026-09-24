@@ -33,6 +33,14 @@ describe("goodlinksCandidates", () => {
     expect(goodlinksCandidates(t, "b")).toEqual(["https://x.example/p", "https://y.example/q"]);
   });
 
+  test("a balanced parenthesised group inside the URL is kept, not truncated", () => {
+    const t = [block("b",
+      "[x](https://en.wikipedia.org/wiki/Foo_(bar)) [x](https://example.com/a) (see https://example.com/a)",
+      { order_idx: 0 })];
+    expect(goodlinksCandidates(t, "b")).toEqual([
+      "https://en.wikipedia.org/wiki/Foo_(bar)", "https://example.com/a"]);
+  });
+
   test("site-relative and non-http links are ignored; unknown uid is empty", () => {
     // its own tree: a later top-level block would see "root" as its
     // previous sibling and pick up root's URL

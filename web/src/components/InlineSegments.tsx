@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 // Dispatches each tokenized segment to its renderer. isPdfHref/isDeferredPdfHref/
-// isSafeHref/pdfLabelFromHref below are pure, and isGoodlinksHref lives in
+// isSafeHref/pdfLabelFromHref below are pure, and goodlinksIdFromHref lives in
 // goodlinks.ts, but the module as a whole composes several Imperative Shell
 // components (AssetImage, BlockRef, PageLink, TodoCheckbox, BlueskyEmbed,
 // MermaidDiagram, QueryBlock, GoodlinksLink) that read React context, fetch,
@@ -12,7 +12,7 @@ import { BlockRef } from "./BlockRef";
 import { isBlueskyPostUrl } from "./bluesky";
 import { BlueskyEmbed } from "./BlueskyEmbed";
 import { CodeBlock } from "./CodeBlock";
-import { isGoodlinksHref } from "./goodlinks";
+import { goodlinksIdFromHref } from "./goodlinks";
 import { GoodlinksLink } from "./GoodlinksLink";
 import { MathSpan } from "./MathSpan";
 import { MermaidDiagram } from "./MermaidDiagram";
@@ -103,8 +103,9 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       }
       if (!isSafeHref(seg.href)) return <>{seg.href}</>;
       return <a href={seg.href} target="_blank" rel="noreferrer">{seg.href}</a>;
-    case "link":
-      if (isGoodlinksHref(seg.href)) return <GoodlinksLink href={seg.href} label={seg.text} />;
+    case "link": {
+      const goodlinksId = goodlinksIdFromHref(seg.href);
+      if (goodlinksId !== null) return <GoodlinksLink linkId={goodlinksId} label={seg.text} />;
       if (isPdfHref(seg.href)) {
         return <PdfEmbed href={seg.href} label={seg.text} deferred={isDeferredPdfHref(seg.href)} />;
       }
@@ -113,6 +114,7 @@ function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
       if (seg.text === seg.href && isBlueskyPostUrl(seg.href)) return <BlueskyEmbed href={seg.href} />;
       if (!isSafeHref(seg.href)) return <>{seg.text}</>;
       return <a href={seg.href} target="_blank" rel="noreferrer">{seg.text}</a>;
+    }
     case "bold":
       return <strong><InlineSegments segments={seg.children} depth={depth} /></strong>;
     case "italic":

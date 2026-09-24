@@ -5,14 +5,11 @@
 // HTML it did not generate itself, and it only ever receives HTML the
 // server has already reduced to its allowlist; the iframe sandbox (no
 // scripts, no same-origin) is the second barrier. Do not widen either.
+import { UNAUTHORIZED_DETAIL } from "./goodlinks";
+
 export const READER_SANDBOX = "allow-popups allow-popups-to-escape-sandbox";
 
 export type ReaderPalette = { bg: string; text: string; link: string };
-
-// The server's 503 detail for a refused API token. Its ordinary 503
-// detail says "on the host", and the reader says "on the Mac" instead, so
-// only this one detail is shown as sent.
-export const UNAUTHORIZED_DETAIL = "Goodlinks rejected the API token";
 
 export function failureNote(status: number, detail?: string): string {
   if (status === 503 && detail === UNAUTHORIZED_DETAIL) return UNAUTHORIZED_DETAIL;

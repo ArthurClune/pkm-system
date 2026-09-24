@@ -5,16 +5,16 @@
 // `<iframe sandbox srcdoc>` with no scripts and no same-origin access. The
 // srcdoc is the one place third-party HTML reaches the DOM, and it only
 // ever receives that sanitised payload (see goodlinksReaderDoc.ts). Every
-// failure state keeps Close working and shows the original link when the
-// URL is known. A link GoodLinks holds no reader copy of arrives with empty
-// html: the bar still shows it, and a note stands in for the iframe.
+// failure state keeps Close working and shows a note. The title, original
+// link and saved date arrive only with a successful response. A link
+// GoodLinks holds no reader copy of is a success with empty html: the bar
+// shows it, and a note stands in for the iframe.
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ApiError } from "../api/client";
 import type { GoodlinksArticle } from "../api/payloads";
 import { apiGet } from "../api/typedClient";
 import { useEffectiveTheme } from "../useEffectiveTheme";
-import { goodlinksIdFromHref } from "./goodlinks";
 import { failureNote, formatSaved, READER_SANDBOX, readerDocument, type ReaderPalette } from "./goodlinksReaderDoc";
 import { useOverlayDismiss } from "./useOverlayDismiss";
 
@@ -33,8 +33,8 @@ function readPalette(): ReaderPalette {
   };
 }
 
-export function GoodlinksReader({ href, onClose, triggerRef }: {
-  href: string;
+export function GoodlinksReader({ linkId, onClose, triggerRef }: {
+  linkId: string;
   onClose: () => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
 }) {
@@ -47,11 +47,6 @@ export function GoodlinksReader({ href, onClose, triggerRef }: {
 
   useEffect(() => {
     let alive = true;
-    const linkId = goodlinksIdFromHref(href);
-    if (linkId === null) {
-      setState({ status: "error", note: failureNote(404) });
-      return;
-    }
     apiGet("/api/goodlinks/{link_id}", { path: { link_id: linkId } }).then(
       (article) => { if (alive) setState({ status: "ok", article }); },
       (err: unknown) => {
@@ -61,7 +56,7 @@ export function GoodlinksReader({ href, onClose, triggerRef }: {
       },
     );
     return () => { alive = false; };
-  }, [href]);
+  }, [linkId]);
 
   const article = state.status === "ok" ? state.article : null;
   const title = article?.title || "Saved article";
@@ -81,7 +76,7 @@ export function GoodlinksReader({ href, onClose, triggerRef }: {
           {article && (
             <a href={article.url} target="_blank" rel="noreferrer">original</a>
           )}
-          {saved && <span className="goodlinks-reader-saved">{saved}</span>}
+          {saved && <span>{saved}</span>}
         </div>
         <button type="button" className="btn-secondary" ref={closeRef} onClick={onClose}>
           Close

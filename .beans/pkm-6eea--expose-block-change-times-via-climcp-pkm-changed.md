@@ -1,10 +1,11 @@
 ---
 # pkm-6eea
 title: Expose block change times via CLI/MCP (pkm changed)
-status: in-progress
+status: completed
 type: feature
+priority: normal
 created_at: 2026-09-25T09:02:02Z
-updated_at: 2026-09-25T09:02:02Z
+updated_at: 2026-09-25T09:21:24Z
 ---
 
 The assistant reaches PKM through the CLI/MCP, but nothing there exposes block edit times, so it cannot answer "what blocks did I add or update yesterday?".

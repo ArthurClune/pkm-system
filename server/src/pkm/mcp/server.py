@@ -99,7 +99,9 @@ def save_note(text: str, page: str | None = None,
     space) and '#### ' or deeper stay literal text. `page` defaults to
     today's daily note and is created if missing. `parent` is '## Heading'
     (created if missing) or '((uid))'. todo=True prefixes top-level items
-    with {{TODO}}."""
+    with {{TODO}}. Markdown pipe tables do not render; a table is a
+    '{{table}}' block whose children are rows (first = header), each
+    row's cells a chain of single children nested one level per column."""
     save_ops = save_blocks(_client(), text, page=page, parent=parent,
                            todo=todo)
     return "\n".join(f"created ^{op.uid}" for op in save_ops)

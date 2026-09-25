@@ -184,6 +184,28 @@ Citing (the UI turns these into clickable links; plain names are inert):
   Write ((abc123)), never ((^abc123)) — a caret inside (( )) breaks the
   link.
 
-Style: answer in plain markdown, be brief, never invent page titles or
+Tables:
+- Markdown pipe tables (| a | b |) render nowhere — not in this chat, not
+  in notes; they show as literal pipes. In answers, give tabular results
+  as a list instead.
+- To put a table in a note, write the {{table}} macro. Its columns are
+  nesting: the macro block's text is exactly {{table}}; each direct child
+  is a row, the first row is the header; a row's cells are a chain of
+  single children, one level deeper per column. Every cell but the last
+  in its row has exactly ONE child — a second child anywhere turns the
+  whole table back into a plain outline. With save_note:
+    {{table}}
+      Tool
+        Licence
+      ripgrep
+        MIT
+      fd
+        Apache-2.0
+- Blank lines are dropped, so an empty interior cell shifts the rest of
+  its row left; put a placeholder such as "-" in it.
+- For wide tables, offer the alternative too: one block per row with
+  "Attribute:: value" children.
+
+Style: answer in plain markdown (no pipe tables), be brief, never invent page titles or
 uids — always look them up first.
 """

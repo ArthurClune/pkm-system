@@ -9,12 +9,13 @@ import getpass
 import json
 import sys
 from collections.abc import Callable
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import httpx2
 from pydantic import BaseModel
 
+from pkm.changed import ChangedWindowError, local_tz, resolve_day
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
 from pkm.client.core import ApiError, CliConfig, ConfigError
@@ -24,7 +25,7 @@ from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import UID_RE
 from pkm.planning import BuildError
 from pkm.render import (RenderError, clip_depth, render_assets,
-                        render_backlinks, render_block,
+                        render_backlinks, render_block, render_changed,
                         render_goodlinks_check, render_groups,
                         render_local_check, render_page, render_search,
                         render_title_migration_apply,
@@ -120,6 +121,27 @@ lists every {{TODO}} block (not {{DONE}}), grouped by page.
 
 example:
   pkm todos -p "Project Alpha"
+"""
+
+_CHANGED_EPILOG = """\
+lists blocks whose edit time falls in [since, until), grouped by page.
+
+DAY is today (default), yesterday, or an explicit YYYY-MM-DD date --
+resolved to that one calendar day's window. Give --since (optionally
+with --until) instead for a custom window; DAY and --since are
+mutually exclusive. Each of --since/--until accepts a YYYY-MM-DD date
+(local midnight) or a full ISO datetime; --until defaults to now and
+is exclusive.
+
+Only the latest edit time is kept per block, so one edited yesterday
+and again today shows up only under today. Deleted blocks are
+invisible. A move, indent, or page-rename rewrite counts as an edit,
+same as a text change.
+
+examples:
+  pkm changed
+  pkm changed yesterday
+  pkm changed --since 2026-09-01 --until 2026-09-08 -p "Project Alpha"
 """
 
 _SAVE_EPILOG = """\
@@ -432,6 +454,28 @@ def cmd_todos(args: argparse.Namespace, client: PkmClient) -> int:
     return 0
 
 
+def cmd_changed(args: argparse.Namespace, client: PkmClient) -> int:
+    if args.day is not None and args.since is not None:
+        print("DAY and --since are mutually exclusive", file=sys.stderr)
+        return 1
+    since, until = args.since, args.until
+    if since is None:
+        try:
+            since_date, until_date = resolve_day(args.day or "today",
+                                                 date.today())
+        except ChangedWindowError as e:
+            print(str(e), file=sys.stderr)
+            return 1
+        since = since_date.isoformat()
+        if until is None:
+            until = until_date.isoformat()
+    payload = client.changed(since, until=until, page=args.page,
+                             limit=args.limit)
+    _emit(payload, render_changed(payload, local_tz(datetime.now().astimezone())),
+         args.json)
+    return 0
+
+
 def _read_text_arg(text: str | None) -> str:
     if text is None or text == "-":
         return sys.stdin.read()
@@ -615,6 +659,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-p", "--page", default=None)
     _common(p)
 
+    p = _add("changed", "list blocks changed in a time window",
+             _CHANGED_EPILOG)
+    p.add_argument("day", nargs="?", default=None, metavar="DAY",
+                   help="today (default), yesterday, or YYYY-MM-DD")
+    p.add_argument("--since", default=None,
+                   help="YYYY-MM-DD or ISO datetime -- mutually exclusive"
+                        " with DAY")
+    p.add_argument("--until", default=None,
+                   help="YYYY-MM-DD or ISO datetime, exclusive"
+                        " (default: now)")
+    p.add_argument("-p", "--page", default=None)
+    p.add_argument("--limit", type=int, default=500)
+    _common(p)
+
     p = _add("save", "create block(s); outline via stdin", _SAVE_EPILOG)
     p.add_argument("text", nargs="?", default=None,
                    help='block text, or "-" for stdin (multi-line = outline)')
@@ -685,7 +743,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 _HANDLERS: dict[str, Callable[[argparse.Namespace, PkmClient], int]] = {
     "get": cmd_get, "search": cmd_search, "refs": cmd_refs,
-    "query": cmd_query, "todos": cmd_todos,
+    "query": cmd_query, "todos": cmd_todos, "changed": cmd_changed,
     "save": cmd_save, "update": cmd_update, "upload": cmd_upload,
     "batch": cmd_batch, "assets": cmd_assets, "local": cmd_local,
     "goodlinks": cmd_goodlinks,

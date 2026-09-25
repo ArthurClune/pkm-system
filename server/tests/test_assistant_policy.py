@@ -4,6 +4,7 @@ import pytest
 
 from pkm.assistant.policy import (
     SYSTEM_PROMPT,
+    READ_TOOLS,
     WRITE_TOOLS,
     all_tool_names,
     available_models,
@@ -24,10 +25,10 @@ def test_tool_names_namespaced():
     assert set(read_tool_names()) == {
         "mcp__pkm__get_page", "mcp__pkm__get_block", "mcp__pkm__search",
         "mcp__pkm__query", "mcp__pkm__backlinks", "mcp__pkm__todos",
-        "mcp__pkm__search_assets",
+        "mcp__pkm__changed_blocks", "mcp__pkm__search_assets",
     }
     assert "mcp__pkm__rename_page" in all_tool_names()
-    assert len(all_tool_names()) == 12
+    assert len(all_tool_names()) == 13
 
 
 def test_classify_tool():
@@ -182,3 +183,20 @@ def test_system_prompt_has_no_tool_count_to_drift():
     # The prompt once said "ten PKM verbs" while listing eleven tools; a
     # count-free sentence can't drift when tools are added.
     assert re.search(r"\b(ten|eleven|twelve)\b", SYSTEM_PROMPT.lower()) is None
+
+
+def test_every_mcp_tool_is_classified():
+    """The assistant only lets through tools named in READ_TOOLS or
+    WRITE_TOOLS; anything else is denied as "Tool not permitted". A verb
+    added to the MCP server without a matching entry here is invisible to
+    the in-app assistant even though CLI and Claude Code sessions see it
+    (pkm-6eea's changed_blocks shipped that way)."""
+    from pkm.mcp import server as mcp_server
+    registered = {t.name for t in mcp_server.mcp._tool_manager.list_tools()}
+    assert registered == set(READ_TOOLS) | set(WRITE_TOOLS)
+
+
+def test_changed_blocks_summary():
+    assert tool_summary("changed_blocks", {"since": "2026-09-24"}) == \
+        "listing changes since 2026-09-24"
+    assert tool_summary("changed_blocks", {}) == "changed_blocks"

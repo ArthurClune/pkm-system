@@ -10,7 +10,8 @@ from typing import Literal
 MCP_SERVER_NAME = "pkm"
 
 READ_TOOLS: tuple[str, ...] = ("get_page", "get_block", "search", "query",
-                               "backlinks", "todos", "search_assets")
+                               "backlinks", "todos", "changed_blocks",
+                               "search_assets")
 WRITE_TOOLS: tuple[str, ...] = ("save_note", "update_block", "batch",
                                 "upload_asset", "rename_page")
 
@@ -45,7 +46,7 @@ def all_tool_names() -> list[str]:
     """The full read+write tool set. No production caller: `claude_engine`
     passes `read_tool_names()` for `allowed_tools` and gates writes at
     confirm-time by `classify_tool`, never by an explicit write allowlist.
-    This function exists so `test_tool_names_namespaced`'s 12-count assertion
+    This function exists so `test_tool_names_namespaced`'s 13-count assertion
     has something to call -- it is a tripwire that fails loudly if a tool is
     added to READ_TOOLS/WRITE_TOOLS without updating that count. Keep it,
     even though nothing in `src/` imports it."""
@@ -111,6 +112,9 @@ _SUMMARY_KEYS: dict[str, tuple[str, str]] = {
 def tool_summary(short: str, tool_input: dict) -> str:
     if short == "todos":
         return "listing TODOs"
+    if short == "changed_blocks":
+        since = tool_input.get("since")
+        return f"listing changes since {_clip(since)}" if since else short
     entry = _SUMMARY_KEYS.get(short)
     if entry is not None:
         fmt, key = entry
@@ -160,6 +164,9 @@ Retrieval questions ("what have I written about X", "who did I meet"):
   answer "who/when" questions; daily notes are pages titled like
   "July 26th, 2026".
 - Quote or reference the notes you used, with their page titles.
+- "What did I add or change yesterday / this week": changed_blocks with
+  a since/until window. It keeps only each block's latest edit time and
+  cannot see deleted blocks; say so when the answer depends on it.
 
 Editing and reorganisation ("tidy this page", "merge these notes"):
 - Read the page first with get_page; blocks carry uids.

@@ -125,6 +125,38 @@ def test_search_query_todos(pkm_client):
     assert (todos.groups, todos.total) == ([], 0)
 
 
+def test_changed_lists_a_freshly_created_block(pkm_client):
+    pkm_client.post_ops(
+        [CreateOp(op="create", uid="chgclient01", page_title="AI",
+                  parent_uid=None, order_idx=5, text="client api test")],
+        batch_id="changed-client-0001")
+    payload = pkm_client.changed(since="2000-01-01")
+    assert payload.total == 1
+    assert payload.groups[0].items[0].uid == "chgclient01"
+    assert payload.groups[0].items[0].status == "new"
+
+
+def test_changed_page_filter_and_limit(pkm_client):
+    pkm_client.post_ops(
+        [CreateOp(op="create", uid="chgclient02", page_title="AI",
+                  parent_uid=None, order_idx=6, text="x"),
+         CreateOp(op="create", uid="chgclient03", page_title="Paper",
+                  parent_uid=None, order_idx=1, text="y")],
+        batch_id="changed-client-0002")
+    payload = pkm_client.changed(since="2000-01-01", page="AI")
+    assert payload.total == 1
+    assert payload.groups[0].page_title == "AI"
+
+    limited = pkm_client.changed(since="2000-01-01", limit=1)
+    assert limited.total == 2
+    assert sum(len(g.items) for g in limited.groups) == 1
+
+
+def test_changed_bad_window_raises_api_error(pkm_client):
+    with pytest.raises(ApiError):
+        pkm_client.changed(since="not-a-date")
+
+
 def test_post_ops_creates_block(pkm_client):
     uid = new_uid()
     ack = pkm_client.post_ops(

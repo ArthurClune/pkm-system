@@ -1,12 +1,17 @@
+from datetime import timedelta, timezone
+
 from pkm.render import (clip_depth, render_assets, render_backlinks,
-                        render_block, render_groups, render_page,
-                        render_search, render_title_migration_apply,
+                        render_block, render_changed, render_groups,
+                        render_page, render_search,
+                        render_title_migration_apply,
                         render_title_migration_audit)
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks,
-                                     BlockNode, BlockPayload, GroupsPayload,
-                                     PagePayload, QueryPayload, SearchPayload,
-                                     TitleMigrationApplyResponse,
+                                     BlockNode, BlockPayload, ChangedPayload,
+                                     GroupsPayload, PagePayload, QueryPayload,
+                                     SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload)
+
+TZ = timezone(timedelta(hours=1))
 
 
 def _node(uid, text, children=(), heading=None) -> BlockNode:
@@ -385,3 +390,59 @@ def test_select_section_miss_lists_available_marked_headings_in_document_order()
                        -1].split(", ")
     assert headings == ["### Notes", "## Notes", "## Notes", "## Papers"]
     assert "## Papers" in message
+
+
+def _ms(dt) -> int:
+    return int(dt.timestamp() * 1000)
+
+
+def test_render_changed_single_day_uses_hhmm():
+    from datetime import datetime
+    since = _ms(datetime(2026, 9, 24, 0, 0, tzinfo=TZ))
+    until = _ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ))
+    when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
+    payload = ChangedPayload.model_validate({
+        "groups": [{"page_id": 1, "page_title": "AI",
+                   "items": [{"uid": "b1", "text": "hello",
+                              "created_at": when, "updated_at": when,
+                              "status": "new"}]}],
+        "total": 1, "since": since, "until": until,
+    })
+    out = render_changed(payload, TZ)
+    assert out == (
+        "## AI\n"
+        "- [09:05] new: hello  ^b1\n"
+        "\n"
+        "(1 total)\n")
+
+
+def test_render_changed_multi_day_window_includes_date():
+    from datetime import datetime
+    since = _ms(datetime(2026, 9, 20, 0, 0, tzinfo=TZ))
+    until = _ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ))
+    when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
+    payload = ChangedPayload.model_validate({
+        "groups": [{"page_id": 1, "page_title": "AI",
+                   "items": [{"uid": "b1", "text": "hello",
+                              "created_at": None, "updated_at": when,
+                              "status": "edited"}]}],
+        "total": 1, "since": since, "until": until,
+    })
+    out = render_changed(payload, TZ)
+    assert "[2026-09-24 09:05] edited: hello  ^b1" in out
+
+
+def test_render_changed_truncation_shows_showing_n_of_m():
+    from datetime import datetime
+    since = _ms(datetime(2026, 9, 24, 0, 0, tzinfo=TZ))
+    until = _ms(datetime(2026, 9, 25, 0, 0, tzinfo=TZ))
+    when = _ms(datetime(2026, 9, 24, 9, 5, tzinfo=TZ))
+    payload = ChangedPayload.model_validate({
+        "groups": [{"page_id": 1, "page_title": "AI",
+                   "items": [{"uid": "b1", "text": "hello",
+                              "created_at": when, "updated_at": when,
+                              "status": "new"}]}],
+        "total": 5, "since": since, "until": until,
+    })
+    out = render_changed(payload, TZ)
+    assert "(showing 1 of 5 total)" in out

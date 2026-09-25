@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from pkm.changed import ChangedWindowError, classify, local_tz, parse_window
 from pkm.contracts.responses import (
-    GroupsPayload, QueryPayload, SearchPayload, TitlesPayload)
+    ChangedPayload, GroupsPayload, QueryPayload, SearchPayload, TitlesPayload)
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.fts import escape_fts_query
-from pkm.server.grouping import group_by_page
+from pkm.server.grouping import group_by_page, group_changed
 from pkm.server.query import (
     QueryNode, page_operands, parse_query, plan_sql, QueryParseError)
 from pkm.server.query_exec import count_matches, execute_plan
@@ -104,3 +106,39 @@ def todos(page: str | None = None,
     rows = [r for r in db.execute(sql, params).fetchall()
             if is_todo(r["text"])]
     return {"groups": group_by_page(rows), "total": len(rows)}
+
+
+@router.get("/api/changed", response_model=ChangedPayload)
+def changed(since: str, until: str | None = None, page: str | None = None,
+           limit: int = 500,
+           db: sqlite3.Connection = Depends(get_db)) -> dict:
+    """Blocks touched in [since, until), grouped by page in the order
+    each page was first touched (pkm-6eea). `since`/`until` are each
+    either a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime
+    (naive = local time, aware = honoured as given); `until` defaults to
+    now and is exclusive. A block is 'new' when its created_at falls in
+    the window, else 'edited' -- `updated_at` is used as recorded, so a
+    move, indent, or rename also counts as an edit, and a block edited
+    more than once in the window shows only its latest edit time."""
+    now = datetime.now().astimezone()
+    try:
+        since_ms, until_ms = parse_window(since, until, now, local_tz(now))
+    except ChangedWindowError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    limit = max(1, min(limit, 2000))
+    sql = ("SELECT b.uid, b.text, p.id AS page_id, p.title AS page_title,"
+           "       b.created_at, b.updated_at"
+           "  FROM blocks b JOIN pages p ON p.id = b.page_id"
+           " WHERE b.updated_at >= ? AND b.updated_at < ?")
+    params: list = [since_ms, until_ms]
+    if page is not None:
+        sql += " AND p.title = ?"
+        params.append(page)
+    total = db.execute(
+        f"SELECT COUNT(*) FROM ({sql})", params).fetchone()[0]
+    sql += " ORDER BY b.updated_at, b.uid LIMIT ?"
+    rows = [dict(r) for r in db.execute(sql, [*params, limit]).fetchall()]
+    for r in rows:
+        r["status"] = classify(r["created_at"], since_ms, until_ms)
+    return {"groups": group_changed(rows), "total": total,
+            "since": since_ms, "until": until_ms}

@@ -29,6 +29,30 @@ def group_by_page(rows: Sequence[Mapping]) -> list[dict]:
     return groups
 
 
+def group_changed(rows: Sequence[Mapping]) -> list[dict]:
+    """Rows of `uid, text, page_id, page_title, created_at, updated_at,
+    status` -> page groups in first-appearance order, for /api/changed.
+    Kept separate from `group_by_page` rather than generalised onto it:
+    that shape is a public contract (GroupsPayload) three other routes
+    already return; changing its item shape would ripple into all of
+    them for one caller's extra fields."""
+    groups: list[dict] = []
+    index: dict[int, dict] = {}
+    for r in rows:
+        group = index.get(r["page_id"])
+        if group is None:
+            group = {"page_id": r["page_id"], "page_title": r["page_title"],
+                     "items": []}
+            index[r["page_id"]] = group
+            groups.append(group)
+        group["items"].append({
+            "uid": r["uid"], "text": r["text"],
+            "created_at": r["created_at"], "updated_at": r["updated_at"],
+            "status": r["status"],
+        })
+    return groups
+
+
 def group_backlinks(rows: Sequence[Mapping],
                     ancestors: Mapping[str, list[str]]) -> list[dict]:
     """Rows of `uid, text, src_page_id, src_page_title` -> page groups whose

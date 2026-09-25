@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime, tzinfo
 
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
-                                     BlockPayload, BlockRefText,
+                                     BlockPayload, BlockRefText, ChangedPayload,
                                      GoodlinksCheckPayload, GroupsPayload,
                                      LocalCheckPayload, PagePayload, QueryPayload,
                                      SearchPayload, TitleMigrationApplyResponse,
@@ -111,6 +112,37 @@ def render_groups(payload: GroupsPayload, include_uids: bool = True) -> str:
             and payload.total == 0:
         pairs = ", ".join(f"[[{t}]] {n}" for t, n in payload.ref_counts.items())
         lines.append(f"per-ref block counts: {pairs}")
+    return "\n".join(lines) + "\n"
+
+
+def _local(ms: int, tz: tzinfo) -> datetime:
+    return datetime.fromtimestamp(ms / 1000, tz=tz)
+
+
+def render_changed(payload: ChangedPayload, tz: tzinfo) -> str:
+    """Like render_groups, but each line carries the block's local
+    updated_at (HH:MM, or 'YYYY-MM-DD HH:MM' when the window spans more
+    than one local day) and its new/edited status. `tz` is the caller's
+    local timezone -- passed in rather than read here, so this stays a
+    pure function of its arguments."""
+    multi_day = (_local(payload.since, tz).date()
+                != _local(max(payload.until - 1, payload.since), tz).date())
+    fmt = "%Y-%m-%d %H:%M" if multi_day else "%H:%M"
+    lines: list[str] = []
+    shown = 0
+    for g in payload.groups:
+        lines.append(f"## {g.page_title}")
+        for item in g.items:
+            when = _local(item.updated_at, tz).strftime(fmt) \
+                if item.updated_at is not None else "?"
+            lines.append(f"- [{when}] {item.status}: {item.text}"
+                        f"  ^{item.uid}")
+            shown += 1
+        lines.append("")
+    if shown < payload.total:
+        lines.append(f"(showing {shown} of {payload.total} total)")
+    else:
+        lines.append(f"({payload.total} total)")
     return "\n".join(lines) + "\n"
 
 

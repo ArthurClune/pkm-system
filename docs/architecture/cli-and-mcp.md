@@ -24,6 +24,7 @@ means deciding which side it joins.
 | `query` | read | structured block query (`{and: [[A]] [[B]]}`, Roam syntax) |
 | `backlinks` | read | everything referencing `[[title]]`, grouped by source page |
 | `todos` | read | open `{{TODO}}` blocks, grouped by page |
+| `changed_blocks` | read | blocks edited/created in a `since`/`until` window, grouped by page, tagged new/edited |
 | `search_assets` | read | uploads by image description or filename |
 | `save_note` | write | create block(s); multi-line text becomes an outline, default page is today's daily note |
 | `update_block` | write | replace a block's text or set its task marker |

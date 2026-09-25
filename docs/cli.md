@@ -30,6 +30,7 @@ Two environment variables override the defaults:
     pkm get "Page" --section "## H" [--depth N]   # subtree only (pages only)
     pkm get "Page" --section "H"             # ...at any heading level
     pkm todos [-p "Page"]
+    pkm changed [today|yesterday|YYYY-MM-DD] [--since X] [--until Y] [-p "Page"] [--limit N]
     pkm save [-p "Page"] [--parent "## H"|"((uid))"] [--todo] "text" | -
     pkm update <uid> "new text" | -D | -T
     pkm search "term" [--limit N] [--exact] [--compact]

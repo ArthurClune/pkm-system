@@ -267,6 +267,50 @@ def test_todos_empty(run):
     assert "(0 total)" in out
 
 
+def test_changed_default_is_today(run, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create", "uid": "clichanged1", "page_title": "AI",
+         "parent_uid": None, "order_idx": 50, "text": "made today"},
+    ], batch_id="cli-changed-0001")
+    code, out, _ = run("changed")
+    assert code == 0
+    assert "clichanged1" in out
+    assert "(1 total)" in out
+
+
+def test_changed_day_word_and_since_are_mutually_exclusive(run):
+    code, out, err = run("changed", "today", "--since", "2026-01-01")
+    assert code == 1
+    assert "mutually exclusive" in err
+
+
+def test_changed_explicit_since_until(run, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create", "uid": "clichanged2", "page_title": "AI",
+         "parent_uid": None, "order_idx": 51, "text": "explicit window"},
+    ], batch_id="cli-changed-0002")
+    code, out, _ = run("changed", "--since", "2000-01-01")
+    assert code == 0
+    assert "clichanged2" in out
+
+
+def test_changed_bad_since_reported_as_error(run):
+    code, out, err = run("changed", "--since", "not-a-date")
+    assert code == 1
+    assert "since" in err
+
+
+def test_changed_json(run, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create", "uid": "clichanged3", "page_title": "AI",
+         "parent_uid": None, "order_idx": 52, "text": "json check"},
+    ], batch_id="cli-changed-0003")
+    code, out, _ = run("changed", "--since", "2000-01-01", "--json")
+    assert code == 0
+    body = json.loads(out)
+    assert body["total"] == 1
+
+
 def test_login_writes_config(monkeypatch, tmp_path, anon_client, capsys):
     import pkm.cli.main as cli_main
     monkeypatch.setenv("PKM_CLI_CONFIG", str(tmp_path / "c.json"))

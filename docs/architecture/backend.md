@@ -35,6 +35,8 @@ pkm/
 │                               callers pass the normalizer that spells their replacement keys
 ├── title_migration.py   Core   boundary-space grouping, blockers, survivor plan + digest
 ├── todo.py              Core   {{TODO}}/{{DONE}} marker parsing (mirrors web/src/grammar/todo.ts)
+├── changed.py           Core   /api/changed window parsing (date/ISO bounds, injected
+│                               clock+tz) + new/edited classification
 ├── filenames.py         Core   safe_filename() shared by upload + export
 ├── planning.py          Core   Plans one write as /api/ops ops: outlines, missing
 │                               headings, text updates, task markers
@@ -94,7 +96,7 @@ Inside `pkm/server/`:
 | `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
 | `query_exec.py` | Shell | Runs a `query.py` plan (`count_matches`, `execute_plan`); owns the filter keeping a `{{query}}` block out of its own results, and the row order, for both plan surfaces (`/api/query`, the resolved page export) |
-| `tree.py`, `grouping.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py` | Core | Pure helpers: tree building; `{page_id, page_title, items}` group shaping (`group_by_page`, `group_backlinks`); journal-day selection + empty-daily test; FTS queries; `{{[[query]]}}` parsing and SQL planning; sync windowing and hydration ordering; MIME sniffing |
+| `tree.py`, `grouping.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py` | Core | Pure helpers: tree building; `{page_id, page_title, items}` group shaping (`group_by_page`, `group_backlinks`, `group_changed`); journal-day selection + empty-daily test; FTS queries; `{{[[query]]}}` parsing and SQL planning; sync windowing and hydration ordering; MIME sniffing |
 | `ws.py` / `notify.py` | Shell | WebSocket hub + broadcast nudges |
 | `tempfile_response.py` | Shell | `CleanupFileResponse`: a `FileResponse` whose cleanup callback runs even on a missing file or a send-time error (used by the zip export routes; see [files-and-assets.md](files-and-assets.md)) |
 | `request_log.py` / `logfmt.py` | Shell / Core | The `pkm.access` request log — one line per request, with durations (see [Logging](#logging-and-observability)) |
@@ -425,6 +427,7 @@ requires the session cookie unless marked public, and FastAPI's `/docs` and
 | GET | `/api/query?expr` | `{{[[query]]}}` evaluation (`and`/`or`/`not` over refs) |
 | GET | `/api/titles?q` | Title completion for `[[` / `#` autocomplete |
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
+| GET | `/api/changed?since&until&page&limit` | Blocks whose `updated_at` falls in `[since, until)`, grouped by page in first-touched order; `since`/`until` are each a date or ISO datetime, `until` exclusive and defaulting to now; each item carries `created_at`/`updated_at`/`status` (`new` if `created_at` is in the window, else `edited`); 400 on an unparseable or empty window |
 | **Sidebar** | | |
 | GET / POST / PUT / DELETE | `/api/sidebar`… | Pinned pages: list / pin / reorder (permutation-validated) / unpin |
 | **Sync** (see [sync-and-offline.md](sync-and-offline.md)) | | |

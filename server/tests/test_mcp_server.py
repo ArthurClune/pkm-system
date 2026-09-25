@@ -15,8 +15,8 @@ def tools(pkm_client, monkeypatch):
 def test_tools_are_registered(tools):
     names = {t.name for t in tools.mcp._tool_manager.list_tools()}
     assert names == {"get_page", "get_block", "search", "query", "backlinks",
-                     "todos", "save_note", "update_block", "batch",
-                     "upload_asset", "search_assets", "rename_page"}
+                     "todos", "changed_blocks", "save_note", "update_block",
+                     "batch", "upload_asset", "search_assets", "rename_page"}
 
 
 def test_get_page_markdown_includes_uids(tools):
@@ -48,6 +48,22 @@ def test_search_query_backlinks_todos(tools):
     assert "(1 total)" in tools.query("{and: [[Paper]]}")
     assert tools.backlinks("Machine Learning").startswith("# Backlinks:")
     assert "(0 total)" in tools.todos()
+
+
+def test_changed_blocks_lists_a_freshly_created_block(tools, pkm_client):
+    pkm_client.post_ops([
+        {"op": "create", "uid": "mcpchanged1", "page_title": "AI",
+         "parent_uid": None, "order_idx": 60, "text": "mcp changed test"},
+    ], batch_id="mcp-changed-0001")
+    out = tools.changed_blocks(since="2000-01-01")
+    assert "mcpchanged1" in out
+    assert "new" in out
+    assert "(1 total)" in out
+
+
+def test_changed_blocks_bad_window_raises(tools):
+    with pytest.raises(ApiError):
+        tools.changed_blocks(since="not-a-date")
 
 
 def test_backlinks_normalizes_control_whitespace_title(tools, pkm_client):

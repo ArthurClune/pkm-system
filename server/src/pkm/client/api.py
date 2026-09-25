@@ -30,7 +30,7 @@ from pkm.client.core import (ApiError, CliConfig, ConfigError,
 from pkm.contracts.ops import BlockOp, OpBatch
 from pkm.contracts.responses import (AssetDeleteAck, AssetSearchPayload,
                                      AssetUploadResponse, Backlinks,
-                                     BlockNode, BlockPayload,
+                                     BlockNode, BlockPayload, ChangedPayload,
                                      GoodlinksCheckPayload, GroupsPayload,
                                      LocalCheckPayload, OpsAck, PagePayload,
                                      QueryPayload, RenamePageResponse,
@@ -272,6 +272,16 @@ class PkmClient:
     def todos(self, page: str | None = None) -> GroupsPayload:
         params = {} if page is None else {"page": page}
         return self._request("GET", "/api/todos", GroupsPayload,
+                             params=params)
+
+    def changed(self, since: str, until: str | None = None,
+               page: str | None = None, limit: int = 500) -> ChangedPayload:
+        params: dict = {"since": since, "limit": limit}
+        if until is not None:
+            params["until"] = until
+        if page is not None:
+            params["page"] = page
+        return self._request("GET", "/api/changed", ChangedPayload,
                              params=params)
 
     def rename_page(self, title: str, new_title: str,

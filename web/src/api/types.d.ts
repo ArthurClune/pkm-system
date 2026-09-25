@@ -376,6 +376,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/changed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Changed
+         * @description Blocks touched in [since, until), grouped by page in the order
+         *     each page was first touched (pkm-6eea). `since`/`until` are each
+         *     either a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime
+         *     (naive = local time, aware = honoured as given); `until` defaults to
+         *     now and is exclusive. A block is 'new' when its created_at falls in
+         *     the window, else 'edited' -- `updated_at` is used as recorded, so a
+         *     move, indent, or rename also counts as an edit, and a block edited
+         *     more than once in the window shows only its latest edit time.
+         */
+        get: operations["changed_api_changed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sidebar": {
         parameters: {
             query?: never;
@@ -1086,6 +1113,48 @@ export interface components {
         Body_upload_asset_api_assets_post: {
             /** File */
             file: string;
+        };
+        /** ChangedGroup */
+        ChangedGroup: {
+            /** Page Id */
+            page_id: number;
+            /** Page Title */
+            page_title: string;
+            /** Items */
+            items: components["schemas"]["ChangedItem"][];
+        };
+        /** ChangedItem */
+        ChangedItem: {
+            /** Uid */
+            uid: string;
+            /** Text */
+            text: string;
+            /** Created At */
+            created_at: number | null;
+            /** Updated At */
+            updated_at: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "new" | "edited";
+        };
+        /**
+         * ChangedPayload
+         * @description GET /api/changed: blocks whose updated_at falls in [since, until),
+         *     grouped by page in the order each page was first touched. `since`/
+         *     `until` echo the resolved window (epoch ms) so a caller can see what
+         *     was actually queried, not just what it asked for.
+         */
+        ChangedPayload: {
+            /** Groups */
+            groups: components["schemas"]["ChangedGroup"][];
+            /** Total */
+            total: number;
+            /** Since */
+            since: number;
+            /** Until */
+            until: number;
         };
         /** ChangesPayload */
         ChangesPayload: {
@@ -2329,6 +2398,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GroupsPayload"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    changed_api_changed_get: {
+        parameters: {
+            query: {
+                since: string;
+                until?: string | null;
+                page?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangedPayload"];
                 };
             };
             /** @description Validation Error */

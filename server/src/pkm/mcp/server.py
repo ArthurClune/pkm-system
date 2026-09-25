@@ -6,16 +6,19 @@ thing this file owns is how a result is phrased for an LLM, and the tool
 docstrings, which are the LLM-facing contracts."""
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 from pkm.client import api as client_api
 from pkm.client.api import PkmClient
+from pkm.changed import local_tz
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
 from pkm.render import (render_assets, render_backlinks, render_block,
-                        render_groups, render_page, render_search)
+                        render_changed, render_groups, render_page,
+                        render_search)
 
 mcp = FastMCP("pkm")
 
@@ -70,6 +73,22 @@ def backlinks(title: str) -> str:
 def todos(page: str | None = None) -> str:
     """List open {{TODO}} blocks, grouped by page; optionally one page."""
     return render_groups(_client().todos(page=page))
+
+
+def changed_blocks(since: str, until: str | None = None,
+                   page: str | None = None, limit: int = 500) -> str:
+    """List blocks whose edit time falls in [since, until), grouped by
+    page, each line tagged new or edited. `since` and `until` are each
+    either a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime;
+    `until` defaults to now and is exclusive, so "yesterday" is
+    since=<yesterday's date>, until=<today's date>.
+
+    Limits: only the LATEST edit time is stored per block, so one edited
+    yesterday and again today shows up only under today, never both.
+    Deleted blocks are invisible. Moving, indenting, or a page-rename
+    rewrite counts as an edit, same as a text change."""
+    payload = _client().changed(since, until=until, page=page, limit=limit)
+    return render_changed(payload, local_tz(datetime.now().astimezone()))
 
 
 def save_note(text: str, page: str | None = None,
@@ -151,8 +170,8 @@ def search_assets(q: str, limit: int = 20) -> str:
 
 
 for _fn in (get_page, get_block, search, query, backlinks, todos,
-            save_note, update_block, batch, upload_asset, search_assets,
-            rename_page):
+            changed_blocks, save_note, update_block, batch, upload_asset,
+            search_assets, rename_page):
     mcp.tool()(_fn)
 
 

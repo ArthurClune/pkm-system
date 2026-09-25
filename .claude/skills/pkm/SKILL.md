@@ -39,12 +39,19 @@ tokens, sign cookies, or read the DB as a workaround.
     pkm query "{and: [[A]] [[B]]}"           # structured {and:/or:/not:}
     pkm query "{and: [[A]] [[B]]}" --expand  # one-hop: [[X]] also matches via a page X's own blocks reference
     pkm todos [-p "Page"]                    # open {{TODO}} blocks
+    pkm changed [today|yesterday|YYYY-MM-DD] [--since X] [--until Y] [-p "Page"]
     pkm local check                 # /api/local/ links whose file is missing on the host
     pkm goodlinks check             # /api/goodlinks/ links GoodLinks no longer has
 
 A `query` with `total: 0` also returns `ref_counts` per operand; the
 rendered output prints "per-ref block counts: ..." so you can tell a typo'd
 operand from operands that just don't intersect.
+
+"What did I add or update yesterday?" -> `pkm changed yesterday`. `today`
+(no args) is the default; give a bare `YYYY-MM-DD` for any other single
+day, or `--since`/`--until` for a custom window. Each block is tagged
+`new` or `edited`. Only the latest edit time is kept per block, so one
+touched yesterday and again today shows up only under today, never both.
 
 `pkm get`/`pkm update` take a uid as a plain positional. Uids minted by any
 of this project's uid generators (CLI client, server, or web app) as of

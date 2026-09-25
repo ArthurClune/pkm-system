@@ -2,7 +2,7 @@ import pytest
 
 from pkm.cli.main import main
 
-VERBS = ["login", "get", "search", "refs", "query", "todos",
+VERBS = ["login", "get", "search", "refs", "query", "todos", "changed",
          "save", "update", "upload", "batch", "assets",
          "migrate-titles", "rename"]
 

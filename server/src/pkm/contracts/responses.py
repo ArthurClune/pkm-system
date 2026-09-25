@@ -124,6 +124,31 @@ class QueryPayload(GroupsPayload):
     ref_counts: dict[str, int]
 
 
+class ChangedItem(BaseModel):
+    uid: str
+    text: str
+    created_at: int | None
+    updated_at: int | None
+    status: Literal["new", "edited"]
+
+
+class ChangedGroup(BaseModel):
+    page_id: int
+    page_title: str
+    items: list[ChangedItem]
+
+
+class ChangedPayload(BaseModel):
+    """GET /api/changed: blocks whose updated_at falls in [since, until),
+    grouped by page in the order each page was first touched. `since`/
+    `until` echo the resolved window (epoch ms) so a caller can see what
+    was actually queried, not just what it asked for."""
+    groups: list[ChangedGroup]
+    total: int
+    since: int
+    until: int
+
+
 class JournalDay(BaseModel):
     """One day of the journal scroll, complete: the day renders from this
     alone. `backlinks` is a preview page of the day's linked references

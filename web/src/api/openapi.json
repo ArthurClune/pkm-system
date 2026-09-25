@@ -821,6 +821,88 @@
         }
       }
     },
+    "/api/changed": {
+      "get": {
+        "summary": "Changed",
+        "description": "Blocks touched in [since, until), grouped by page in the order\neach page was first touched (pkm-6eea). `since`/`until` are each\neither a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime\n(naive = local time, aware = honoured as given); `until` defaults to\nnow and is exclusive. A block is 'new' when its created_at falls in\nthe window, else 'edited' -- `updated_at` is used as recorded, so a\nmove, indent, or rename also counts as an edit, and a block edited\nmore than once in the window shows only its latest edit time.",
+        "operationId": "changed_api_changed_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Since"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangedPayload"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sidebar": {
       "get": {
         "summary": "Get Sidebar",
@@ -2457,6 +2539,115 @@
           "file"
         ],
         "title": "Body_upload_asset_api_assets_post"
+      },
+      "ChangedGroup": {
+        "properties": {
+          "page_id": {
+            "type": "integer",
+            "title": "Page Id"
+          },
+          "page_title": {
+            "type": "string",
+            "title": "Page Title"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChangedItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page_id",
+          "page_title",
+          "items"
+        ],
+        "title": "ChangedGroup"
+      },
+      "ChangedItem": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "edited"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "text",
+          "created_at",
+          "updated_at",
+          "status"
+        ],
+        "title": "ChangedItem"
+      },
+      "ChangedPayload": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/ChangedGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "since": {
+            "type": "integer",
+            "title": "Since"
+          },
+          "until": {
+            "type": "integer",
+            "title": "Until"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups",
+          "total",
+          "since",
+          "until"
+        ],
+        "title": "ChangedPayload",
+        "description": "GET /api/changed: blocks whose updated_at falls in [since, until),\ngrouped by page in the order each page was first touched. `since`/\n`until` echo the resolved window (epoch ms) so a caller can see what\nwas actually queried, not just what it asked for."
       },
       "ChangesPayload": {
         "properties": {

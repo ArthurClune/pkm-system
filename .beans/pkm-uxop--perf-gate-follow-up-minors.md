@@ -1,11 +1,11 @@
 ---
 # pkm-uxop
 title: Perf gate follow-up minors
-status: todo
+status: completed
 type: task
 priority: low
 created_at: 2026-09-26T14:18:16Z
-updated_at: 2026-09-26T14:18:16Z
+updated_at: 2026-09-26T19:30:00Z
 ---
 
 Minor findings from the perf-gate reviews (pkm-q1hh) that were judged real but not worth blocking merge. None affects today's counts.
@@ -30,10 +30,41 @@ Minor findings from the perf-gate reviews (pkm-q1hh) that were judged real but n
 - [x] `judge()` is public; three `# pyrefly: ignore` in test_perfcheck_compare.py could be assert-not-None narrowing.
 
 ## Frontend check (web/tooling/perf/check.mjs)
-- [ ] No guard that `__realNow` is the unfaked clock (init-script order is undefined); e.g. assert the K total isn't an integer.
-- [ ] `settle()` comment should state its assumption that follow-up requests start within its quiet window.
-- [ ] `pinSaveOrder`'s `pulled` latch fires on any pull, not only the save's; arm it inside the /api/ops handler.
-- [ ] Hand-rolled bag resets instead of harness `resetBag`; `--only` accepts unknown ids.
-- [ ] web/src/sync/replicaSync.test.ts: the performance.mark spy's mockRestore isn't in a finally.
+- [x] No guard that `__realNow` is the unfaked clock (init-script order is undefined); e.g. assert the K total isn't an integer.
+- [x] `settle()` comment should state its assumption that follow-up requests start within its quiet window.
+- [x] `pinSaveOrder`'s `pulled` latch fires on any pull, not only the save's; arm it inside the /api/ops handler.
+- [x] Hand-rolled bag resets instead of harness `resetBag`; `--only` accepts unknown ids.
+- [x] web/src/sync/replicaSync.test.ts: the performance.mark spy's mockRestore isn't in a finally.
 
 Changes to check.mjs that alter counts need `perf/check.sh frontend --bootstrap`.
+
+## Summary of Changes
+
+**Orchestrator**
+- run.py turns SIGTERM into SystemExit, so its cleanup runs.
+- e2e_serve.py has a parent-pid watchdog, so an orphaned fixture server exits. The port-busy message suggests `lsof -iTCP:8977`.
+- frontend_letters rejects unknown letters.
+- result-frontend.json is unlinked and read under the same lock.
+- --bootstrap and --rebaseline are mutually exclusive.
+- _git surfaces git's stderr, and repo_root/changed_paths now run inside the handled region.
+- changed_paths uses splitlines(), so paths with spaces work.
+
+**Fixture**
+- build.py's own source is part of the cache key.
+- The dead g.popular assignment is gone.
+- The big-page nesting lookup raises a clear error instead of StopIteration.
+- The fixture hash changed, so both baselines were re-recorded.
+
+**Backend check**
+- A dirty flag makes a read scenario that runs after a write fail loudly.
+- _Env removes its temp dir if make_client raises.
+- sqlplan._ALIASED now handles `FROM t JOIN u x`.
+- judge() is private, and the test's pyrefly ignores became assert-narrowing.
+- test_writes_hit_a_fresh_copy now fails if writes accumulate.
+
+**Frontend check**
+- The assertRealNowUnfaked guard runs in drag().
+- The settle() comment states its quiet-window assumption.
+- pinSaveOrder's pulled latch is armed only after /api/ops is intercepted.
+- resetBag replaces the hand-rolled bag resets, and --only rejects unknown letters.
+- replicaSync.test.ts restores the mark spy in a finally.

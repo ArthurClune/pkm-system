@@ -63,6 +63,14 @@ def test_cache_key_tracks_product_source(tmp_path, monkeypatch):
     assert b.fixture_hash() == h1
 
 
+def test_cache_key_tracks_build_module_source(monkeypatch):
+    # build.py drives the write path (apply_batch calls, insert order); a
+    # change there must rebuild the cached fixture too
+    k1 = b.cache_key(1, 1.0)
+    monkeypatch.setattr(b, "_BUILD_SRC", b"changed")
+    assert b.cache_key(1, 1.0) != k1
+
+
 def test_cache_key_parts_are_delimited(monkeypatch):
     monkeypatch.setattr(b, "_FIXTURE_SRC", b"ab")
     monkeypatch.setattr(b, "DDL", "c")

@@ -36,6 +36,7 @@ from perfcheck.fixture import generate
 from perfcheck.run_core import stale_entries
 
 _FIXTURE_SRC = Path(_fixture_mod.__file__).read_bytes()
+_BUILD_SRC = Path(__file__).read_bytes()
 # the product in whichever venv runs this: a merge-base run hashes the base's
 _PRODUCT_ROOT = Path(pkm.__file__).parent
 
@@ -92,7 +93,7 @@ def _source_digest(root: Path) -> bytes:
 
 def cache_key(seed: int, scale: float) -> str:
     h = hashlib.sha256()
-    for part in (_FIXTURE_SRC, DDL.encode(), _source_digest(_PRODUCT_ROOT),
+    for part in (_FIXTURE_SRC, _BUILD_SRC, DDL.encode(), _source_digest(_PRODUCT_ROOT),
                  f"{seed}:{scale}".encode()):
         h.update(len(part).to_bytes(8, "big"))  # delimits the parts
         h.update(part)

@@ -126,32 +126,58 @@ def _call(client: TestClient, s: Scenario):
 
 
 class _Env:
-    """A private copy of the fixture per scenario run (fresh for writes)."""
+    """A private copy of the fixture per scenario run (fresh for writes).
+
+    `dirty` tracks whether a write has landed on `db` since the last
+    `fresh()`: a read scenario must never run while it is set, since
+    `scenarios()` relies on every read preceding every write and a silent
+    reorder would otherwise measure reads against a mutated DB."""
+
+    dirty: bool
 
     def __init__(self, fixture_db: Path) -> None:
         self.fixture_db = fixture_db
         self.dir = Path(tempfile.mkdtemp(prefix="pkm-perf-"))
-        (self.dir / "assets").mkdir()
-        self.tracer = Tracer()
-        self.db = self.dir / "pkm.sqlite3"
-        self.fresh()
-        self.client = make_client(self.db, self.tracer)
+        try:
+            (self.dir / "assets").mkdir()
+            self.tracer = Tracer()
+            self.db = self.dir / "pkm.sqlite3"
+            self.fresh()
+            self.client = make_client(self.db, self.tracer)
+        except Exception:
+            shutil.rmtree(self.dir, ignore_errors=True)
+            raise
 
     def fresh(self) -> None:
         for suffix in ("", "-wal", "-shm"):
             Path(f"{self.db}{suffix}").unlink(missing_ok=True)
         shutil.copyfile(self.fixture_db, self.db)
+        self.dirty = False
 
     def close(self) -> None:
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
-def _count_once(env: _Env, s: Scenario, tables: set[str]) -> dict:
+class DirtyReadError(RuntimeError):
+    pass
+
+
+def _guard_dirty(env: _Env, s: Scenario) -> None:
     if s.writes:
         env.fresh()
+    elif env.dirty:
+        raise DirtyReadError(
+            f"{s.name}: a read scenario ran against a DB an earlier write scenario left "
+            "dirty -- scenarios() must list every read before every write")
+
+
+def _count_once(env: _Env, s: Scenario, tables: set[str]) -> dict:
+    _guard_dirty(env, s)
     env.tracer.start()
     r = _call(env.client, s)
     tally = env.tracer.stop()
+    if s.writes:
+        env.dirty = True
     con = sqlite3.connect(env.db)
     try:
         scans = 0
@@ -170,10 +196,11 @@ def _count_once(env: _Env, s: Scenario, tables: set[str]) -> dict:
 def _time(env: _Env, s: Scenario, repeats: int) -> float:
     samples = []
     for i in range(repeats + 1):  # first is warm-up
-        if s.writes:
-            env.fresh()
+        _guard_dirty(env, s)
         t0 = time.perf_counter()
         _call(env.client, s)
+        if s.writes:
+            env.dirty = True
         if i:
             samples.append((time.perf_counter() - t0) * 1000)
     return round(statistics.median(samples), 2)

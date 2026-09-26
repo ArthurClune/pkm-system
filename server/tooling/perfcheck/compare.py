@@ -66,7 +66,7 @@ def _as_baseline(m: dict) -> dict:
     return {"class": m["class"], "value": m["value"]}
 
 
-def judge(base: dict, now: dict) -> tuple[Judgement, dict]:
+def _judge(base: dict, now: dict) -> tuple[Judgement, dict]:
     """Verdict for one metric plus the baseline metric to keep."""
     v = now["value"]
     if base["class"] == "exact":
@@ -129,7 +129,7 @@ def compare(baseline: dict, result: dict) -> Comparison:
             if base_m["class"] != m["class"]:
                 findings.append(Finding(name, key, "reclassified", base_m["class"], m["class"]))
                 continue
-            verdict, keep = judge(base_m, m)
+            verdict, keep = _judge(base_m, m)
             if verdict == "pass":
                 continue
             findings.append(Finding(name, key, verdict, _show(base_m), _show(m)))
@@ -152,7 +152,7 @@ def _still_worse(baseline: dict, f: Finding, run: dict | None) -> bool | None:
     m = _metric(run, f)
     if m is None:
         return None
-    return judge(baseline["scenarios"][f.scenario][f.metric], m)[0] == "candidate"
+    return _judge(baseline["scenarios"][f.scenario][f.metric], m)[0] == "candidate"
 
 
 def _confirm_timing(baseline: dict, f: Finding, rerun: dict, merge_base: dict | None) -> Outcome:

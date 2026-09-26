@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,13 @@ def test_frontend_letters_cover_whole_context_groups():
     assert run_core.frontend_letters(["K/drag-top", "K/drag-bottom", "S/search-rare"]) == "J,K,S"
     assert run_core.frontend_letters(["F/typing"]) == "A,B,F,I"
     assert run_core.frontend_letters(["W/warm", "I/journal-scroll"]) == "A,B,F,H,I,W"
+
+
+def test_frontend_letters_errors_on_a_letter_outside_every_group():
+    # silently dropping it would let a new scenario always confirm as
+    # unstable, since its counts were never gathered in any run
+    with pytest.raises(ValueError, match="Z"):
+        run_core.frontend_letters(["Z/new-scenario"])
 
 
 def test_next_steps_one_line_per_verdict_present():
@@ -86,6 +94,41 @@ def test_sides_include_untracked(tmp_path, monkeypatch):
     assert run.changed_paths(tmp_path) == ["server/a.py", "web/new.ts"]
 
 
+def test_changed_paths_handles_paths_with_spaces(tmp_path, monkeypatch):
+    # .split() would break "server/name with space.py" into three entries
+    monkeypatch.setattr(run, "_git", lambda repo, *a: {
+        ("merge-base", "HEAD", "main"): "abc\n",
+        ("diff", "--name-only", "abc"): "server/a.py\nserver/name with space.py\n",
+        ("ls-files", "--others", "--exclude-standard"): "web/new.ts\n",
+    }[a])
+    assert run.changed_paths(tmp_path) == [
+        "server/a.py", "server/name with space.py", "web/new.ts"]
+
+
+def test_git_surfaces_stderr_on_failure(tmp_path):
+    not_a_repo = tmp_path / "not-a-repo"
+    not_a_repo.mkdir()
+    with pytest.raises(run.PerfRunError, match="not a git repository"):
+        run._git(not_a_repo, "rev-parse", "--show-toplevel")
+
+
+def test_git_failure_before_sides_are_known_is_reported_not_a_raw_traceback(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["perf/check.sh"])
+    monkeypatch.setattr(run, "repo_root",
+                        lambda: (_ for _ in ()).throw(run.PerfRunError("boom")))
+    assert run.main() == 2
+    assert "boom" in capsys.readouterr().err
+
+
+def test_bootstrap_and_rebaseline_are_mutually_exclusive(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["perf/check.sh", "backend", "--bootstrap", "--rebaseline"])
+    monkeypatch.setattr(run, "repo_root", lambda: pytest.fail("parsed conflicting flags"))
+    with pytest.raises(SystemExit) as e:
+        run.main()
+    assert e.value.code == 2
+    assert "not allowed with" in capsys.readouterr().err
+
+
 def test_merge_base_command_uses_branch_harness(tmp_path):
     repo, wt = tmp_path / "repo", tmp_path / "wt"
     cmd, env = run.BackendRunner(repo).command(wt, ["page/big"], "abc", tmp_path / "out.json")
@@ -116,6 +159,53 @@ def test_port_busy_fails_without_result(tmp_path):
         assert not out.exists()
     finally:
         s.close()
+
+
+def test_frontend_result_unlink_and_read_happen_inside_the_lock(tmp_path, monkeypatch):
+    # two runs in one worktree share result-frontend.json; unlinking it
+    # before the lock (or reading it after releasing the lock) would let one
+    # run delete or read the other's file in the gap
+    events: list[str] = []
+
+    @contextmanager
+    def fake_lock(name, holder):
+        events.append("lock-enter")
+        yield
+        events.append("lock-exit")
+    monkeypatch.setattr(run, "cache_lock", fake_lock)
+
+    other_worktree = tmp_path / "other-worktree"  # != fr.repo: skips the pnpm-build branch
+    fr = run.FrontendRunner(tmp_path)
+    out = fr.out_dir / "result-frontend.json"
+    monkeypatch.setattr(fr, "fixture_path", lambda wt: tmp_path / "fixture.sqlite3")
+    monkeypatch.setattr(fr, "ensure_port_free", lambda: None)
+    monkeypatch.setattr(fr, "_wait_healthy", lambda server, instance: None)
+    monkeypatch.setattr(run, "_stop", lambda server: None)
+    monkeypatch.setattr(run.subprocess, "Popen", lambda *a, **k: object())
+
+    real_unlink, real_read_text = Path.unlink, Path.read_text
+
+    def spy_unlink(self, *a, **k):
+        if self == out:
+            events.append("unlink")
+        return real_unlink(self, *a, **k)
+
+    def spy_read_text(self, *a, **k):
+        if self == out:
+            events.append("read")
+        return real_read_text(self, *a, **k)
+    monkeypatch.setattr(Path, "unlink", spy_unlink)
+    monkeypatch.setattr(Path, "read_text", spy_read_text)
+
+    def fake_node_run(cmd, **kwargs):
+        events.append("node-wrote")
+        out.write_text(json.dumps({"scenarios": {}}))
+        return subprocess.CompletedProcess(cmd, 0)
+    monkeypatch.setattr(run.subprocess, "run", fake_node_run)
+
+    fr.run(other_worktree, None, "c1")
+
+    assert events == ["lock-enter", "unlink", "node-wrote", "read", "lock-exit"]
 
 
 def _doc(scenarios):

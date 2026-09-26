@@ -42,6 +42,11 @@ def scenarios_of(findings: Iterable) -> list[str]:
 
 def frontend_letters(names: Iterable[str]) -> str:
     letters = {n.split("/", 1)[0] for n in names}
+    known = {x for g in _CONTEXT_GROUPS for x in g}
+    unknown = letters - known
+    if unknown:
+        raise ValueError(f"scenario letter(s) {sorted(unknown)} are not in any _CONTEXT_GROUPS "
+                         f"group {_CONTEXT_GROUPS}; add the group before re-running")
     return ",".join(sorted({x for g in _CONTEXT_GROUPS if letters & set(g) for x in g}))
 
 

@@ -1,4 +1,6 @@
 # pattern: Imperative Shell
+import os
+import signal
 import sqlite3
 from pathlib import Path
 
@@ -28,6 +30,21 @@ def test_prepare_db_copies_source(tmp_path):
 def test_server_log_path_defaults_to_e2e_log_and_honours_override(tmp_path):
     assert e2e_serve.server_log_path(tmp_path, {}) == tmp_path / "web" / "e2e" / ".server.log"
     assert e2e_serve.server_log_path(tmp_path, {"E2E_SERVER_LOG": "/x/errors.log"}) == Path("/x/errors.log")
+
+
+def test_parent_gone_compares_against_the_captured_ppid():
+    assert e2e_serve._parent_gone(os.getppid()) is False
+    assert e2e_serve._parent_gone(os.getppid() + 1) is True
+
+
+def test_watch_parent_signals_itself_once_the_parent_is_gone(monkeypatch):
+    # SIGKILL of the process that started us can't be caught; this is the
+    # only way an orphaned fixture server ever notices and exits
+    monkeypatch.setattr(e2e_serve, "_parent_gone", lambda ppid: True)
+    calls = []
+    monkeypatch.setattr(e2e_serve.os, "kill", lambda pid, sig: calls.append((pid, sig)))
+    e2e_serve._watch_parent(12345, poll_s=0)
+    assert calls == [(os.getpid(), signal.SIGTERM)]
 
 
 def test_instance_header_only_on_healthz():

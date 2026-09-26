@@ -43,8 +43,13 @@ class PerfRunError(RuntimeError):
 
 
 def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True,
-                          capture_output=True, text=True).stdout
+    try:
+        return subprocess.run(["git", "-C", str(repo), *args], check=True,
+                              capture_output=True, text=True).stdout
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or "").strip()
+        raise PerfRunError(f"git {' '.join(args)} failed"
+                           + (f": {stderr}" if stderr else "")) from e
 
 
 def repo_root() -> Path:
@@ -53,8 +58,8 @@ def repo_root() -> Path:
 
 def changed_paths(repo: Path) -> list[str]:
     base = _git(repo, "merge-base", "HEAD", "main").strip()
-    tracked = _git(repo, "diff", "--name-only", base).split()
-    untracked = _git(repo, "ls-files", "--others", "--exclude-standard").split()
+    tracked = _git(repo, "diff", "--name-only", base).splitlines()
+    untracked = _git(repo, "ls-files", "--others", "--exclude-standard").splitlines()
     return sorted(set(tracked) | set(untracked))
 
 
@@ -101,7 +106,8 @@ class FrontendRunner:
     def ensure_port_free(self) -> None:
         with socket.socket() as s:
             if s.connect_ex(("127.0.0.1", FRONTEND_PORT)) == 0:
-                raise PerfRunError(f"port {FRONTEND_PORT} is in use; stop whatever holds it "
+                raise PerfRunError(f"port {FRONTEND_PORT} is in use; find it with "
+                                   f"`lsof -iTCP:{FRONTEND_PORT}` and stop it "
                                    "(never use 8974/8975 instead)")
 
     def fixture_path(self, worktree: Path) -> Path:
@@ -135,8 +141,11 @@ class FrontendRunner:
         fixture = self.fixture_path(worktree)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         out = self.out_dir / "result-frontend.json"
-        out.unlink(missing_ok=True)
         with cache_lock("frontend", f"port {FRONTEND_PORT}"):
+            # unlink and the final read both happen under the lock: two runs
+            # in one worktree share this path, and either straddling the
+            # lock would let one run delete or read the other's result file
+            out.unlink(missing_ok=True)
             # the lock only covers perf checks, so look again right before binding
             self.ensure_port_free()
             instance = secrets.token_hex(8)
@@ -160,7 +169,7 @@ class FrontendRunner:
                 raise
             finally:
                 _stop(server)
-        doc = json.loads(out.read_text())
+            doc = json.loads(out.read_text())
         if only:  # a group covers other scenarios too; keep only those asked for
             doc["scenarios"] = {k: v for k, v in doc["scenarios"].items() if k in set(only)}
         return doc
@@ -324,15 +333,30 @@ def _runs(value: str) -> int:
     return n
 
 
+def _handle_sigterm(signum: int, frame: object) -> None:
+    # a bare SIGTERM's default disposition is immediate termination -- no
+    # `finally` block runs, so a fixture server or a cache_lock flock would
+    # be left behind. Turning it into an exception lets it unwind normally
+    # (SIGKILL can't be caught at all; that case is handled from the child
+    # process's side -- see e2e_serve.py's parent-pid watchdog).
+    raise SystemExit(143)  # 128 + SIGTERM, the conventional shell exit code
+
+
 def main() -> int:
+    signal.signal(signal.SIGTERM, _handle_sigterm)
     ap = argparse.ArgumentParser(prog="perf/check.sh")
     ap.add_argument("side", nargs="?", default="auto", choices=["auto", "backend", "frontend"])
-    ap.add_argument("--bootstrap", action="store_true")
-    ap.add_argument("--rebaseline", action="store_true")
+    bootstrap_group = ap.add_mutually_exclusive_group()
+    bootstrap_group.add_argument("--bootstrap", action="store_true")
+    bootstrap_group.add_argument("--rebaseline", action="store_true")
     ap.add_argument("--runs", type=_runs, default=5)
     a = ap.parse_args()
-    repo = repo_root()
-    sides = sides_for(changed_paths(repo)) if a.side == "auto" else [a.side]
+    try:
+        repo = repo_root()
+        sides = sides_for(changed_paths(repo)) if a.side == "auto" else [a.side]
+    except (PerfRunError, subprocess.CalledProcessError) as e:
+        print(f"## perf: failed — {e}", file=sys.stderr)
+        return 2
     if not sides:
         print("## perf: no backend or frontend changes — nothing to check")
         return 0

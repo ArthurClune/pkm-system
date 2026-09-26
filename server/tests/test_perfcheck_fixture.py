@@ -1,5 +1,7 @@
 from collections import Counter
 
+import pytest
+
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import OpBatch
 from perfcheck.fixture import (BIG_PAGE, FROZEN_TODAY, HUBS, PHRASE, RARE_TERM,
@@ -70,6 +72,24 @@ def test_landmarks_exist():
     kids = [op for op in creates(fx) if op["parent_uid"] == lm.move_uid]
     assert kids, "move_uid must have children so the move is a subtree move"
     assert fx.assets and fx.sidebar
+
+
+def test_generate_raises_a_clear_error_when_the_big_page_never_nests(monkeypatch):
+    from perfcheck import fixture as fx
+
+    real_page = fx._Gen.page
+
+    def flatten_big_page(self, title, count, now_ms, special=None):
+        uids = real_page(self, title, count, now_ms, special)
+        if title == fx.BIG_PAGE:
+            for _, op in self.creates:
+                if op["page_title"] == title:
+                    op["parent_uid"] = None
+        return uids
+
+    monkeypatch.setattr(fx._Gen, "page", flatten_big_page)
+    with pytest.raises(ValueError, match=fx.BIG_PAGE):
+        fx.generate(1, 0.02)
 
 
 def test_edits_follow_their_creates():

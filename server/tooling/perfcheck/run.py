@@ -221,13 +221,24 @@ def do_check(repo: Path, side: str) -> int:
             wt, mb_commit = merge_base_worktree(repo, side)
             mb = runner.run(wt, scenarios_of(survivors), mb_commit)
         outcomes = confirm(baseline, c.candidates, rerun, mb)
-    if c.new_baseline != baseline:
+    rc = exit_code(c, outcomes)
+    improved = c.new_baseline != baseline
+    if improved and rc == 0:  # only a passing check may ratchet the baseline
         _write(path, c.new_baseline)
     print(f"## perf: {side}\n")
     print(render_table(c.findings, outcomes) if c.findings else "no changes against the baseline")
-    if c.new_baseline != baseline:
+    if improved and rc == 0:
         print(f"\nbaseline updated: {path.relative_to(repo)} — commit it with this change")
-    return exit_code(c, outcomes)
+    elif improved:
+        print(f"\nimprovements not recorded: {path.relative_to(repo)} is updated once the check passes")
+    return rc
+
+
+def _runs(value: str) -> int:
+    n = int(value)
+    if n < 2:  # one run can't show which counts are unstable
+        raise argparse.ArgumentTypeError("must be at least 2")
+    return n
 
 
 def main() -> int:
@@ -235,7 +246,7 @@ def main() -> int:
     ap.add_argument("side", nargs="?", default="auto", choices=["auto", "backend", "frontend"])
     ap.add_argument("--bootstrap", action="store_true")
     ap.add_argument("--rebaseline", action="store_true")
-    ap.add_argument("--runs", type=int, default=5)
+    ap.add_argument("--runs", type=_runs, default=5)
     a = ap.parse_args()
     repo = repo_root()
     sides = sides_for(changed_paths(repo)) if a.side == "auto" else [a.side]

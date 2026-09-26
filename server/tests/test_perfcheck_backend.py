@@ -29,6 +29,24 @@ def test_every_scenario_measured(result):
         assert m["median_ms"]["class"] == "timing", name
 
 
+def test_aliased_table_scans_are_counted(result):
+    # todos/all reads `FROM blocks b ... WHERE instr(b.text, 'TODO') > 0`,
+    # which plans as `SCAN b`: the alias, not the table name
+    assert result["scenarios"]["todos/all"]["full_scans"]["value"] >= 1
+
+
+def test_unplannable_statement_fails_loudly(monkeypatch, small_fixture):
+    real = backend.Tracer.stop
+
+    def poisoned(self):
+        tally = real(self)
+        tally.statements.append("SELECT * FROM no_such_table")
+        return tally
+    monkeypatch.setattr(backend.Tracer, "stop", poisoned)
+    with pytest.raises(RuntimeError, match=r"page/big.*no_such_table"):
+        backend.run(small_fixture, only={"page/big"}, repeats=1, scale=0.02)
+
+
 def test_counts_are_deterministic_across_runs(small_fixture, result):
     again = backend.run(small_fixture, repeats=1, scale=0.02)
 

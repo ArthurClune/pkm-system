@@ -29,7 +29,7 @@ from pkm.server.db import get_db
 
 from perfcheck.build import cached_fixture, fixture_hash
 from perfcheck.fixture import FROZEN_NOW, Landmarks, generate
-from perfcheck.sqlplan import full_scans, plannable
+from perfcheck.sqlplan import aliases, full_scans, plannable
 from perfcheck.trace import Tracer
 
 PASSWORD = "perf-pw"
@@ -158,9 +158,9 @@ def _count_once(env: _Env, s: Scenario, tables: set[str]) -> dict:
         for sql in dict.fromkeys(q for q in tally.statements if plannable(q)):
             try:
                 rows = con.execute(f"EXPLAIN QUERY PLAN {sql}").fetchall()
-            except sqlite3.Error:
-                continue  # e.g. a statement referencing a temp table gone by now
-            scans += len(full_scans((row[3] for row in rows), tables))
+            except sqlite3.Error as e:
+                raise RuntimeError(f"{s.name}: cannot plan traced statement ({e}): {sql[:300]}") from e
+            scans += len(full_scans((row[3] for row in rows), tables, aliases(sql)))
     finally:
         con.close()
     return {"statements": len(tally.statements), "trigger_statements": tally.trigger_statements,

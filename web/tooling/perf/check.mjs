@@ -509,9 +509,10 @@ async function main() {
       }
       await ctx.close();
     }
+    // node only drives Playwright, so it is information, not comparability env
     const doc = { commit: process.env.PERF_COMMIT ?? "working-tree",
                   fixture_hash: process.env.PERF_FIXTURE_HASH ?? "unknown",
-                  env: { chromium: browser.version(), node: process.version }, scenarios };
+                  env: { chromium: browser.version() }, node: process.version, scenarios };
     fs.mkdirSync(path.dirname(OUT), { recursive: true });
     fs.writeFileSync(OUT + ".tmp", JSON.stringify(doc, null, 2) + "\n");
     fs.renameSync(OUT + ".tmp", OUT);

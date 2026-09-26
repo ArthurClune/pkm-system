@@ -1,8 +1,7 @@
 {
   "commit": "73dc8bf",
   "env": {
-    "chromium": "149.0.7827.55",
-    "node": "v26.8.2"
+    "chromium": "149.0.7827.55"
   },
   "fixture_hash": "bff4243e90e051e8",
   "scenarios": {

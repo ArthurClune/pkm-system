@@ -1,9 +1,9 @@
 {
-  "commit": "920242d+dirty",
+  "commit": "b4d84f1+dirty",
   "env": {
     "chromium": "149.0.7827.55"
   },
-  "fixture_hash": "bff4243e90e051e8",
+  "fixture_hash": "1787e2b65bd60abb",
   "scenarios": {
     "A/idle-big": {
       "fetches": {
@@ -50,7 +50,7 @@
     "F/typing": {
       "api_requests": {
         "class": "exact",
-        "value": 4
+        "value": 3
       },
       "forced_layouts": {
         "class": "band",
@@ -73,7 +73,7 @@
       },
       "replica_ready_ms": {
         "class": "timing",
-        "value": 3476
+        "value": 3508
       },
       "requests": {
         "class": "exact",
@@ -122,7 +122,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 59.5
+        "value": 64.5
       },
       "not_prevented": {
         "class": "exact",
@@ -142,7 +142,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 19.7
+        "value": 25.7
       },
       "not_prevented": {
         "class": "exact",
@@ -172,7 +172,7 @@
       },
       "results_ms": {
         "class": "timing",
-        "value": 254
+        "value": 253
       },
       "search_requests": {
         "class": "exact",
@@ -191,7 +191,7 @@
       },
       "results_ms": {
         "class": "timing",
-        "value": 166
+        "value": 165
       },
       "search_requests": {
         "class": "exact",
@@ -205,7 +205,7 @@
       },
       "first_outline_ms": {
         "class": "timing",
-        "value": 216
+        "value": 212
       },
       "requests": {
         "class": "exact",

@@ -1,11 +1,11 @@
 ---
 # pkm-ur2n
 title: Replica pulls the same sync window twice after a save (WS nudge vs HTTP ack race)
-status: in-progress
+status: completed
 type: bug
 priority: normal
 created_at: 2026-09-26T12:31:21Z
-updated_at: 2026-09-26T17:10:05Z
+updated_at: 2026-09-26T18:11:32Z
 ---
 
 ## Symptom
@@ -55,7 +55,7 @@ improvement (4 → 3), which rewrites the baseline; commit it with the fix.
 - [x] Worker: `deleteBatch(id, ackedSeq?)` records acked seqs; `applyChanges` accepts a covered removal-only change; map pruned per call and cleared on schema rebuild
 - [x] opQueue passes the ack's `seq` to `deleteBatch`
 - [x] Docs: sync-and-offline.md § Windows and the pending queue, backend.md API row, frontend.md module map, troubleshooting row
-- [ ] `perf/check.sh frontend` shows `F/typing api_requests` 4 → 3; commit the rewritten baseline (orchestrator)
+- [x] `perf/check.sh frontend` shows `F/typing api_requests` 4 → 3; commit the rewritten baseline (orchestrator)
 
 ## Summary of Changes
 

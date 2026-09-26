@@ -406,7 +406,7 @@ requires the session cookie unless marked public, and FastAPI's `/docs` and
 | GET | `/{path}` *(public)* | SPA fallback: serves `web_dist` (index.html no-cache, hashed bundles under `/app-assets/`) |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` transactionally |
+| POST | `/api/ops` | Apply an `OpBatch` transactionally. Ack `{ok, ts, applied, seq}`: `seq` is the journal max read inside the batch's own transaction; a replayed `batch_id` returns its stored ack verbatim, so one stored before `seq` existed has none |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks + `block_ref_counts` (daily pages auto-created). Backlinks and unlinked mentions both skip blocks on the page itself |
 | GET | `/api/block/{uid}` | One block subtree with page context + breadcrumbs |

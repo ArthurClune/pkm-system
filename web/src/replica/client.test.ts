@@ -95,6 +95,73 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
     .toEqual([{ text: "acknowledged local text" }]);
 });
 
+test("a window whose latest_seq covers the acked batch applies despite the stale pending snapshot", async () => {
+  // pkm-ur2n: the save's WS nudge started this pull while the batch was
+  // pending; the HTTP ack then deleted it, naming the journal seq of its
+  // commit. The window was read at latest_seq >= that seq, so it already
+  // carries the batch -- refetching would fetch the very same rows.
+  const { replica, current } = await setup();
+  await replica.init();
+  await replica.applySnapshot(SNAP);
+  await replica.enqueue([
+    { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
+  ], "batch-ack");
+  const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
+  const batch = (await replica.nextBatch())!;
+  await replica.deleteBatch(batch.id, 6);
+
+  const result = await replica.applyChanges({
+    reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+    next_since: 6, latest_seq: 6, pages: [],
+    blocks: [{ ...SNAP.blocks[0], text: "acknowledged local text" }],
+    sidebar: [], tombstones: [],
+  }, pendingAtDispatch);
+
+  expect(result).toEqual({ status: "applied", cursor: 6 });
+  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+    .toEqual([{ text: "acknowledged local text" }]);
+});
+
+test("a window read before the acked batch committed is still refused", async () => {
+  const { replica, current } = await setup();
+  await replica.init();
+  await replica.applySnapshot(SNAP);
+  await replica.enqueue([
+    { op: "update_text", uid: "uid_b1", text: "acknowledged local text" },
+  ], "batch-ack");
+  const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
+  const batch = (await replica.nextBatch())!;
+  await replica.deleteBatch(batch.id, 7); // committed after the window's read
+
+  const result = await replica.applyChanges({
+    reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+    next_since: 6, latest_seq: 6, pages: [],
+    blocks: [{ ...SNAP.blocks[0], text: "hello" }],
+    sidebar: [], tombstones: [],
+  }, pendingAtDispatch);
+
+  expect(result).toEqual({ status: "pending-changed" });
+  expect(current().db.select("SELECT text FROM blocks WHERE uid='uid_b1'"))
+    .toEqual([{ text: "acknowledged local text" }]);
+});
+
+test("a later seq-less delete of the same id forgets the recorded acked seq", async () => {
+  const { replica } = await setup();
+  await replica.init();
+  await replica.applySnapshot(SNAP);
+  await replica.enqueue([{ op: "delete", uid: "uid_b1" }], "batch-1");
+  const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
+  const batch = (await replica.nextBatch())!;
+  await replica.deleteBatch(batch.id, 6);
+  await replica.deleteBatch(batch.id);
+
+  await expect(replica.applyChanges({
+    reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
+    next_since: 6, latest_seq: 6, pages: [], blocks: [], sidebar: [],
+    tombstones: [],
+  }, pendingAtDispatch)).resolves.toEqual({ status: "pending-changed" });
+});
+
 test("a schema-version mismatch is reported with the pending queue intact", async () => {
   const { replica } = await setup((t) => {
     // simulate a database written by an older client: full schema but a

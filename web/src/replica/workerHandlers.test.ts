@@ -419,3 +419,31 @@ test("enqueue persists a caller-provided batch id instead of minting one", async
   expect(t.db.select("SELECT batch_id FROM pending_ops"))
     .toEqual([{ batch_id: "caller-id" }]);
 });
+
+test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async () => {
+  // pkm-ur2n: an acked seq is keyed by row id, and ids are only unique within
+  // one pending_ops table. Dropping the table resets AUTOINCREMENT, so a seq
+  // recorded before a rebuild must not vouch for a new row that reuses its id.
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  const ids = () => t.db.select<{ id: number }>("SELECT id FROM pending_ops")
+    .map((row) => row.id);
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "a" });
+  const [first] = ids();
+  await handlers.deleteBatch({ id: first, ackedSeq: 6 });
+  await handlers.reset(undefined);
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "b" });
+  expect(ids()).toEqual([first]); // the id really is reused
+  // the new row vanishes without an ack (an out-of-band removal)
+  t.db.exec("DELETE FROM pending_ops");
+  await expect(handlers.applyChanges({
+    feed: { reset: false, generation: "gen-1",
+      plain_space_title_canonicalization: false, next_since: 6, latest_seq: 6,
+      pages: [], blocks: [], sidebar: [], tombstones: [] },
+    expectedPendingIds: [first],
+  })).resolves.toEqual({ status: "pending-changed" });
+});

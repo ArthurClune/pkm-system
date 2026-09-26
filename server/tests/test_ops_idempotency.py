@@ -97,3 +97,24 @@ def test_batch_id_insert_race_serves_winner_ack_and_rolls_back(client,
     monkeypatch.setattr(routes_ops, "apply_batch", real)
     page = client.get("/api/page/AI").json()
     assert "uid_idem1" not in {b["uid"] for b in page["blocks"]}
+
+
+def _journal_max(client) -> int:
+    return client.get("/api/sync/changes?since=0&limit=1").json()["latest_seq"]
+
+
+def test_ack_carries_the_journal_seq_that_includes_the_batch(client):
+    """pkm-ur2n: the ack names the journal max as of the batch's own commit,
+    so a replica can tell a sync window that already carries the batch
+    (latest_seq >= ack seq) from one that might predate it."""
+    before = _journal_max(client)
+    ack = client.post("/api/ops", json=BATCH).json()
+    after = _journal_max(client)
+    assert after > before  # the batch journalled rows
+    assert ack["seq"] == after
+    # a later batch moves the journal on; the replayed ack still names the
+    # seq of the original commit, verbatim
+    other = {"client_id": "c1", "batch_id": "batch-0003-cccc",
+             "ops": [{"op": "update_text", "uid": "uid_b1", "text": "later"}]}
+    assert client.post("/api/ops", json=other).json()["seq"] > after
+    assert client.post("/api/ops", json=BATCH).json()["seq"] == after

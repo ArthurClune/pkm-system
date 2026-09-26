@@ -216,6 +216,7 @@ popular ref target) and its planted search terms (`COMMON_TERM`, `RARE_TERM`,
 | `J/journal-typing` | type into the first journal day with a fixed number of days mounted | `days_mounted` | `react_commits`, `rendered_fibers` | |
 | `K/drag-top`, `K/drag-bottom` | dispatch synthetic `dragover`s across the drop zone | `not_prevented` | `react_commits`, `forced_layouts` | `handler_ms` |
 | `S/search-common`, `S/search-rare` | type a term in the top-bar search, time the last key, open a hit | `search_requests`, `fetches` | `react_commits` | `results_ms` |
+| `S/search-burst` | type a term with every key inside `SearchBar`'s debounce window | `search_requests` | | |
 
 The counters come from `instrument.js` (`window.__perf`), `harness.mjs`'s
 `attachCounters` (requests per path), CDP `Performance.getMetrics`
@@ -245,7 +246,7 @@ code. Each uncontrolled input has a harness control.
 | Late network follow-ups | `settle()` waits until no request has been in flight for `QUIET_MS`, since Playwright's `networkidle` fires once per navigation | `check.mjs` |
 | Trailing React commits after a click | `reactQuiet()` waits for `REACT_QUIET_MS` without a commit before counting | `check.mjs` |
 | A save's WS nudge racing its HTTP ack | `pinSaveOrder()` holds `/api/ops` and `/api/sync/changes` responses so the nudge's pull always goes first | `check.mjs` |
-| Typing speed against debounces | F and J type at a pace that keeps re-arming the text debounce, so one save; S types slower than `SearchBar`'s debounce, so one search per key | `check.mjs` |
+| Typing speed against debounces | F and J type at a pace that keeps re-arming the text debounce, so one save; `search-common`/`search-rare` type slower than `SearchBar`'s debounce, so one search per key; `search-burst` types inside it, so one search for the whole term, and waits for that term's results and then network idle rather than timing the last key, so a keystroke landing on the debounce edge can't turn into a band | `check.mjs` |
 | Scenario order within a context | re-runs take the whole context group | `run_core.py` |
 | Viewport and headless rendering | fixed viewport, headless Chromium | `check.mjs` |
 

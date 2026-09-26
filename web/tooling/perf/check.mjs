@@ -199,6 +199,49 @@ async function idle(st, name, url, readySel) {
   };
 }
 
+// A save reaches the page twice at once: the WS seq nudge and the HTTP ack
+// of POST /api/ops. Left alone, whichever the page handles first decides
+// whether the replica's pull snapshots the batch as still pending, and so
+// whether applyChanges answers pending-changed and the same window is
+// pulled again: one pull or two, run to run. pinSaveOrder() fixes the
+// order to nudge first, ack inside the pull, on every run:
+// - the ack is held until the nudge's pull has been sent (it reads the
+//   pending batches before fetching), or for PULL_WAIT_MS if the app sends
+//   no pull before its ack;
+// - each /api/sync/changes response is held until ACK_MARGIN_MS after the
+//   ack is delivered, so the ack's batch delete reaches the replica worker
+//   before applyChanges does (microseconds of promise chain against 100 ms).
+// Every pull then counts, so retry churn after a save shows as a
+// regression, and an app fix of the race as an improvement.
+const PULL_WAIT_MS = 2000;
+const ACK_MARGIN_MS = 100;
+const isPath = (p) => (url) => url.pathname === p;
+
+async function pinSaveOrder(page) {
+  let pullSent, ackDelivered;
+  const pulled = new Promise((resolve) => { pullSent = resolve; });
+  const acked = new Promise((resolve) => { ackDelivered = resolve; });
+  const onChanges = async (route) => {
+    pullSent();
+    const response = await route.fetch();
+    await acked;
+    await sleep(ACK_MARGIN_MS);
+    await route.fulfill({ response });
+  };
+  const onOps = async (route) => {
+    const response = await route.fetch();
+    await Promise.race([pulled, sleep(PULL_WAIT_MS)]);
+    await route.fulfill({ response });
+    ackDelivered();
+  };
+  await page.route(isPath("/api/sync/changes"), onChanges);
+  await page.route(isPath("/api/ops"), onOps);
+  return async () => {
+    await page.unroute(isPath("/api/sync/changes"), onChanges);
+    await page.unroute(isPath("/api/ops"), onOps);
+  };
+}
+
 async function typeInto(st, rootSel, text, target) {
   const { page, cdp } = st;
   await target.click();
@@ -210,6 +253,7 @@ async function typeInto(st, rootSel, text, target) {
   const requests = [];
   const onRequest = (req) => requests.push(req);
   page.on("request", onRequest);
+  const unpin = await pinSaveOrder(page);
   const l0 = await layoutCount(cdp);
   // 120 ms per key keeps re-arming the 500 ms text debounce, so the typing
   // saves once (one POST /api/ops), 500 ms after the last key. The 2 s wait
@@ -217,6 +261,7 @@ async function typeInto(st, rootSel, text, target) {
   await page.keyboard.type(text, { delay: 120 });
   await sleep(2000);
   await settle(st);
+  await unpin();
   page.off("request", onRequest);
   const l1 = await layoutCount(cdp);
   const p = await page.evaluate(() => { window.__perfMutStop();
@@ -226,26 +271,11 @@ async function typeInto(st, rootSel, text, target) {
   return { layouts: l1 - l0, p, r, requests };
 }
 
-// /api requests, except a second pull of a sync window already pulled. That
-// repeat is the replica's pending-changed retry: the save's WS seq nudge and
-// its HTTP ack arrive together, and whichever the app handles first decides
-// whether the pull saw the batch still pending (one pull or two, run to run).
-// App scheduling, not typing cost; a new request of any kind still counts.
-function apiRequests(requests) {
-  const windows = new Set();
-  let n = 0;
-  for (const req of requests) {
-    const u = new URL(req.url());
-    if (!u.pathname.startsWith("/api/")) continue;
-    if (u.pathname === "/api/sync/changes") {
-      const since = u.searchParams.get("since");
-      if (windows.has(since)) continue;
-      windows.add(since);
-    }
-    n++;
-  }
-  return n;
-}
+// Every /api/ request sent from the first key until the save's follow-ups
+// settle, repeat pulls included; requests for the app shell and assets are
+// not counted.
+const apiRequests = (requests) =>
+  requests.filter((req) => new URL(req.url()).pathname.startsWith("/api/")).length;
 
 const TYPED = "perf check typing probe, fifty characters exactly!".slice(0, 50);
 

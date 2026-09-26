@@ -46,13 +46,13 @@ def test_exact_equal_passes_silently():
     assert c.findings == ()
 
 
-def test_band_inside_passes_above_is_candidate_below_shifts_down():
+def test_band_inside_passes_above_is_candidate_below_lowers_min_only():
     base = doc({"s": {"long_tasks": band(1, 3)}})
     assert compare(base, doc({"s": {"long_tasks": bv(3)}})).findings == ()
     assert kinds(compare(base, doc({"s": {"long_tasks": bv(4)}}))) == {("s", "long_tasks"): "candidate"}
     c = compare(base, doc({"s": {"long_tasks": bv(0)}}))
     assert kinds(c) == {("s", "long_tasks"): "improvement"}
-    assert c.new_baseline["scenarios"]["s"]["long_tasks"] == band(0, 2)
+    assert c.new_baseline["scenarios"]["s"]["long_tasks"] == band(0, 3)
 
 
 def test_timing_only_flags_past_factor_and_only_ratchets_past_factor():

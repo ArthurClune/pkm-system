@@ -144,7 +144,7 @@ response bytes, full-table scans (`SCAN <table>` without an index in
 | H | cold load, empty replica | requests, API bytes (`/api/*` encodedBodySize), snapshot pages pulled | replica ready |
 | H' | warm load (replica + SW warm) | requests, `/api/sync/changes` pulls | first outline paint |
 | A/B | idle on big page / journal | timers armed, fetches, WS opens, long tasks | — |
-| F | typing on big page | forced layouts, DOM mutations outside the block, fetches (per keystroke) | — |
+| F | typing on big page | forced layouts, DOM mutations outside the block, `/api` requests over the whole typing run (the one debounced save and its follow-up pulls, with the order of the save's WS nudge and HTTP ack fixed by the harness) | — |
 | J | journal all days mounted, typing | React commits, re-rendered fibers (per keystroke) | — |
 | I | journal scroll | `GET /api/page` per day | — |
 | K | outline drag on the large page | commits/s, forced layouts | dragover handler time |
@@ -157,7 +157,7 @@ response bytes, full-table scans (`SCAN <table>` without an index in
 | `exact` metric goes up | candidate regression → confirmation (below) |
 | `band` metric goes above `max` | candidate regression → confirmation |
 | `timing` metric more than doubles | candidate regression → confirmation |
-| `exact` metric goes down; `band` value below `min` | improvement: baseline rewritten (`value`, or `min`/`max` shifted down by the same amount) |
+| `exact` metric goes down; `band` value below `min` | improvement: baseline rewritten (`value`, or `min` lowered to the new value; `max` stays) |
 | `timing` metric more than halves | improvement: baseline rewritten to the new value |
 | `band` value inside `[min, max]`; `timing` metric changed but not past doubling or halving | pass, baseline unchanged |
 | New scenario or metric | recorded; new metrics start as `exact` unless the check declares otherwise |
@@ -167,7 +167,10 @@ response bytes, full-table scans (`SCAN <table>` without an index in
 
 Timing improvements ratchet only past the halving line, not on any decrease:
 rewriting the baseline on every faster run would walk it down to the
-luckiest run seen and turn ordinary noise into future flags.
+luckiest run seen and turn ordinary noise into future flags. A band widens
+downward for the same reason: a low reading lowers `min` but never `max`,
+since shifting the whole band down on one lucky run would make the next
+ordinary run a candidate; only `--bootstrap` lowers `max`.
 
 **Confirmation.** A candidate regression is only reported as a regression
 after two further checks, both run automatically by `check.sh` on the
@@ -253,6 +256,7 @@ Reconciliation when runs of one commit disagree:
    | First-request setup | schema checks, caches warming | warm-up run excluded; check asserts warm-up and first timed run agree |
    | Fixed wall-time windows | "fetches during 30 s idle" with a periodic timer landing either side of the edge | count per event (per keystroke, per reconnect) or run to quiescence |
    | Debounce / batching races | commits per keystroke varying with typing speed vs the 500 ms debounce | fixed pace well clear of the debounce, or wait for idle between steps |
+   | Message-order races | a save's WS seq nudge and HTTP ack arriving together, deciding whether the replica pulls a window once or twice | harness fixes the order (holds one message with `page.route`) so every run takes the same path |
 
 3. **Only if inherent, reclassify** as `band` (keeps a bound, so a
    jump from 2 to 50 is still caught). Dropping a metric is the last

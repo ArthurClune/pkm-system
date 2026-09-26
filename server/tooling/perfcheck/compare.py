@@ -78,8 +78,10 @@ def judge(base: dict, now: dict) -> tuple[Judgement, dict]:
         if v > base["max"]:
             return "candidate", base
         if v < base["min"]:
-            shift = base["min"] - v
-            return "improvement", {"class": "band", "min": v, "max": base["max"] - shift}
+            # min only: lowering max too would let one lucky low run narrow
+            # the band until an ordinary run is a candidate; --bootstrap
+            # lowers max
+            return "improvement", {"class": "band", "min": v, "max": base["max"]}
         return "pass", base
     if v > base["value"] * TIMING_FACTOR:
         return "candidate", base

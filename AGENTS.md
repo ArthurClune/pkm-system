@@ -25,7 +25,7 @@ For ALL code changes, use worktrees and branches to enable parallel sessions.
 
 ### Architecture docs
 
-`docs/architecture/` (overview, backend, import-export-and-backup, frontend, frontend-editor, frontend-rendering, styling, sync-and-offline, cli-and-mcp, assistant, files-and-assets) describes the system as it *is*. Failures and the invariants their fixes installed are not architecture: they go in `docs/troubleshooting.md`, keyed by symptom. Before finishing a feature, epic, or any change that alters the shape of the system, check whether the docs need updating and update them in the same branch. Triggers, in rough order of how often they are missed:
+`docs/architecture/` (overview, backend, import-export-and-backup, frontend, frontend-editor, frontend-rendering, styling, sync-and-offline, cli-and-mcp, assistant, files-and-assets, performance-checks) describes the system as it *is*. Failures and the invariants their fixes installed are not architecture: they go in `docs/troubleshooting.md`, keyed by symptom. Before finishing a feature, epic, or any change that alters the shape of the system, check whether the docs need updating and update them in the same branch. Triggers, in rough order of how often they are missed:
 
 - A new HTTP route, or new query params/response fields on an existing one -> the API reference table in `backend.md`
 - A new module, view, or route in the SPA -> the module map and route list in `frontend.md`

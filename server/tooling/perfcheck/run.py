@@ -29,8 +29,8 @@ from perfcheck.build import UNUSED_FOR_S, CacheLockTimeout, cache_dir, cache_loc
 from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
                                render_table)
 from perfcheck.fixture import FROZEN_NOW
-from perfcheck.run_core import (exit_code, frontend_letters, next_steps, scenarios_of,
-                                sides_for, stale_entries)
+from perfcheck.run_core import (exit_code, frontend_letters, incomparable_advice, next_steps,
+                                scenarios_of, sides_for, stale_entries)
 
 FRONTEND_PORT = 8977
 TZ = "Europe/London"
@@ -280,8 +280,14 @@ def do_check(repo: Path, side: str) -> int:
     result = runner.run(repo, None, head_commit(repo))
     reason = incomparable_reason(baseline, result)
     if reason:
-        print(f"## {side}: cannot compare — {reason}.\n"
-              f"Run `perf/check.sh {side} --rebaseline`, then check again.")
+        if incomparable_advice(reason) == "bootstrap":
+            print(f"## {side}: cannot compare — {reason}.\n"
+                  f"Read the diff, then run `perf/check.sh {side} --bootstrap` on this "
+                  "branch — `--rebaseline` would reproduce the merge base's old "
+                  "environment and refuse again.")
+        else:
+            print(f"## {side}: cannot compare — {reason}.\n"
+                  f"Run `perf/check.sh {side} --rebaseline`, then check again.")
         return 1
     c = compare(baseline, result)
     outcomes = {}

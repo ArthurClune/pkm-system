@@ -56,6 +56,17 @@ def test_stale_entries_keep_recent_and_named():
     assert run_core.stale_entries({}, now, keep=set(), max_age_s=day) == []
 
 
+def test_incomparable_advice_names_the_right_command():
+    # fixture_hash and chromium come from the branch even in a merge-base run
+    assert run_core.incomparable_advice("fixture_hash differs (baseline a, now b)") == "rebaseline"
+    assert run_core.incomparable_advice("env differs (chromium: 120.0 -> 121.0)") == "rebaseline"
+    # python/sqlite come from the merge-base worktree's own venv: --rebaseline refuses again
+    assert run_core.incomparable_advice("env differs (python: 3.11.2 -> 3.12.0)") == "bootstrap"
+    assert run_core.incomparable_advice("env differs (sqlite: 3.40.0 -> 3.45.0)") == "bootstrap"
+    assert run_core.incomparable_advice(
+        "env differs (chromium: 120.0 -> 121.0; python: 3.11.2 -> 3.12.0)") == "bootstrap"
+
+
 def test_exit_code():
     ok = Comparison((Finding("s", "n", "improvement", "2", "1"),), {})
     assert run_core.exit_code(ok, {}) == 0

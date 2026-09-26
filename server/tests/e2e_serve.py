@@ -13,8 +13,9 @@ Five extra env vars exist for `perfcheck.run`, the performance regression
 check, and leave the defaults above unchanged when unset:
 - E2E_FROM_DB: copy this DB into the temp data dir instead of creating an
   empty one (the perf fixture).
-- E2E_FROZEN_NOW: run the server inside `time_machine.travel` at this ISO
-  datetime, so every request sees a fixed clock.
+- E2E_FROZEN_NOW: run the server inside `time_machine.travel` (`tick=True`)
+  starting at this ISO datetime, so every run starts from the same clock
+  but time keeps advancing from there.
 - E2E_WEB_DIST: serve this web/dist instead of the repo's own, so a
   merge-base run can serve the base commit's build.
 - E2E_SERVER_LOG: log unhandled exceptions here instead of

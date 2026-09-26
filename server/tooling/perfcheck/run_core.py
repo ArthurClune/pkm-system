@@ -51,6 +51,18 @@ def next_steps(side: str, verdicts: Iterable[str]) -> list[str]:
     return [line.format(side=side) for verdict, line in _NEXT.items() if verdict in present]
 
 
+def incomparable_advice(reason: str) -> str:
+    """Which command fixes an incomparable-baseline `reason` (from
+    `perfcheck.compare.incomparable_reason`): "rebaseline" or "bootstrap".
+
+    A merge-base run still uses this branch's harness, so `fixture_hash` and
+    `chromium` come from the branch either way — `--rebaseline` catches them
+    up. `python` and `sqlite` come from the merge-base worktree's own venv,
+    so `--rebaseline` would reproduce the old environment and refuse again;
+    the fix is to read the diff, then `--bootstrap` on the branch."""
+    return "bootstrap" if "python" in reason or "sqlite" in reason else "rebaseline"
+
+
 def stale_entries(last_used: Mapping[str, float], now: float, keep: Collection[str],
                   max_age_s: float) -> list[str]:
     """Cache entries unused for longer than `max_age_s`, never one in `keep`."""

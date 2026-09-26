@@ -133,6 +133,20 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
       // baseline to it only ever shrinks what a later batch is allowed to
       // add -- it can't cause a batch that would otherwise be kept to be
       // rejected.
+      //
+      // Tightening is also what stops a DELETE-freed rowid from masking a
+      // later batch's dangling insert: `blocks` has no AUTOINCREMENT, so a
+      // rowid this batch's own delete just freed can be handed straight back
+      // out by the next batch's insert, reproducing the identical
+      // foreign_key_check key ([blocks, rowid, blocks, fkid]) the deleted
+      // row used to report. Leaving `before` untightened would still contain
+      // that key and wave the reused-rowid insert through as "no new
+      // violation" (pkm-ufjt). Reuse WITHIN one batch (a delete and a
+      // dangling insert together) still slips past this -- but that's
+      // harmless: it needs the window's own dangling row already in the
+      // baseline, which fails the deferred COMMIT regardless and falls back
+      // to needs-bootstrap; on the snapshot/reset path the baseline starts
+      // empty, so there is nothing to hide behind there either.
       before = result.after;
     } else {
       db.exec("ROLLBACK TO reapply_batch");

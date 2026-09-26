@@ -15,22 +15,15 @@
 import { chromium } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
+import { HERE, BASE, BIG_PAGE, INIT, REACT_INIT, sleep,
+         attachCounters, freshBag, resetBag, login } from "./harness.mjs";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, "out");
-const PORT = process.env.E2E_PORT ?? "8977";
-const BASE = `http://127.0.0.1:${PORT}`;
-const PASSWORD = "e2e-pw";
-const BIG_PAGE = "/page/" + encodeURIComponent("Perf Big Page");
-const INIT = fs.readFileSync(path.join(HERE, "instrument.js"), "utf8");
-const REACT_INIT = fs.readFileSync(path.join(HERE, "react-commits.js"), "utf8");
 const DUR = Number(process.env.DUR ?? 60_000);
 const HEADLESS = process.env.HEADLESS === "1";
 const ONLY = (process.argv[2] ?? "ABEFGHI").toUpperCase();
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = {};
 
 // ---------------------------------------------------------------- CPU time
@@ -119,28 +112,6 @@ const METRIC_KEYS = ["TaskDuration", "ScriptDuration", "LayoutDuration",
                      "JSHeapUsedSize", "Nodes", "JSEventListeners"];
 
 // --------------------------------------------------------------- recorder
-function attachCounters(page, bag) {
-  page.on("request", (req) => {
-    const u = req.url();
-    let k;
-    try { k = new URL(u).pathname; } catch { k = u; }
-    bag.requests[k] = (bag.requests[k] || 0) + 1;
-    bag.requestTotal++;
-  });
-  page.on("websocket", (ws) => {
-    bag.wsOpened++;
-    ws.on("framesent", () => bag.wsSent++);
-    ws.on("framereceived", () => bag.wsRecv++);
-    ws.on("close", () => bag.wsClosed++);
-  });
-}
-const freshBag = () => ({ requests: {}, requestTotal: 0, wsOpened: 0,
-                          wsSent: 0, wsRecv: 0, wsClosed: 0 });
-function resetBag(bag) {
-  bag.requests = {}; bag.requestTotal = 0;
-  bag.wsOpened = 0; bag.wsSent = 0; bag.wsRecv = 0; bag.wsClosed = 0;
-}
-
 async function measure(name, pages, cdps, bags, durationMs, opts = {}) {
   const browserPid = opts.browserPid, srvPid = opts.serverPid;
   for (const p of pages) await p.evaluate(() => {
@@ -207,13 +178,6 @@ async function measure(name, pages, cdps, bags, durationMs, opts = {}) {
   if (Object.keys(p.fetchUrls).length) console.log("   fetchUrls:", JSON.stringify(p.fetchUrls));
   if (bg.requestTotal) console.log("   requests:", JSON.stringify(bg.requests));
   return r;
-}
-
-async function login(page) {
-  await page.goto(BASE + "/login");
-  await page.fill("#pw", PASSWORD);
-  await page.click("text=log in");
-  await page.waitForURL("**/");
 }
 
 // ------------------------------------------------------------------- main

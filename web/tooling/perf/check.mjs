@@ -1,0 +1,328 @@
+// pattern: Imperative Shell
+// Gated frontend perf check (spec: docs/superpowers/specs/2026-09-26-perf-regression-checks-design.md).
+// Headless, counts first. Run through perfcheck.run, which starts the fixture
+// server on 8977 and sets PERF_FROZEN_NOW / PERF_FIXTURE_HASH / PERF_COMMIT.
+// Every metric declares its class here; changing one is a reviewed change.
+import { chromium } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import { BASE, BIG_PAGE, INIT, REACT_INIT, sleep, attachCounters, freshBag,
+         login } from "./harness.mjs";
+
+const arg = (name, dflt) => {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : dflt;
+};
+const OUT = arg("--out");
+const ONLY = new Set((arg("--only", "H,W,A,B,F,J,I,K,S")).split(","));
+const FROZEN = process.env.PERF_FROZEN_NOW;
+if (!OUT || !FROZEN) { console.error("need --out and PERF_FROZEN_NOW"); process.exit(2); }
+const IDLE_MS = 30_000;
+
+const ex = (value) => ({ class: "exact", value });
+const band = (value) => ({ class: "band", value });
+const tm = (value) => ({ class: "timing", value: +value.toFixed(1) });
+const scenarios = {};
+
+// The fake clock replaces window.performance with a stub whose mark() is a
+// no-op and whose getEntries*() return [], so the app's marks never reach
+// the real timeline. Record them here (against the fake, flowing now()).
+// The fake now() also keeps counting across navigations instead of
+// restarting per document, so timings subtract this document's start.
+const MARKS = () => {
+  window.__docStart = performance.now();
+  const marks = (window.__marks = []);
+  const fake = performance.mark.bind(performance);
+  performance.mark = (name, ...rest) => {
+    marks.push({ name, startTime: performance.now() });
+    return fake(name, ...rest);
+  };
+};
+
+async function newContext(browser, { react = false } = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.clock.install({ time: new Date(FROZEN) });   // time flows from FROZEN
+  await ctx.addInitScript(MARKS);
+  await ctx.addInitScript(INIT);
+  if (react) await ctx.addInitScript(REACT_INIT);
+  return ctx;
+}
+
+async function openPage(ctx) {
+  const page = await ctx.newPage();
+  const bag = freshBag();
+  attachCounters(page, bag);
+  const cdp = await ctx.newCDPSession(page);
+  await cdp.send("Performance.enable");
+  return { page, bag, cdp };
+}
+
+const layoutCount = async (cdp) =>
+  (await cdp.send("Performance.getMetrics")).metrics.find((m) => m.name === "LayoutCount").value;
+
+async function replicaReadyMs(page) {
+  const ready = () => window.__marks.find((m) => m.name === "pkm:replica-ready");
+  await page.waitForFunction(ready, null, { timeout: 120_000 });
+  return page.evaluate(() => window.__marks.find((m) => m.name === "pkm:replica-ready")
+    .startTime - window.__docStart);
+}
+
+// Resource entries come from a PerformanceObserver: the browser still
+// records them, but the fake performance.getEntriesByType returns [].
+const apiBytes = (page) => page.evaluate(() => new Promise((resolve) => {
+  new PerformanceObserver((list, obs) => {
+    obs.disconnect();
+    resolve(list.getEntries()
+      .filter((r) => new URL(r.name).pathname.startsWith("/api/"))
+      .reduce((s, r) => s + (r.encodedBodySize || 0), 0));
+  }).observe({ type: "resource", buffered: true });
+}));
+
+const count = (bag, p) => bag.requests[p] ?? 0;
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December"];
+const suffix = (d) => (d % 100 >= 10 && d % 100 <= 20) ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[d % 10] ?? "th");
+const dailyTitle = (dt) => `${MONTHS[dt.getMonth()]} ${dt.getDate()}${suffix(dt.getDate())}, ${dt.getFullYear()}`;
+
+async function assertFrozenToday(page) {
+  // The fixture's newest journal day is FROZEN's date (TZ=Europe/London); if
+  // the browser clock were real, the journal would open on an empty "today".
+  const want = dailyTitle(new Date(FROZEN));
+  const first = await page.locator("section.journal-day").first().innerText();
+  if (!first.includes(want)) {
+    throw new Error(`browser clock not frozen: want ${want}, first journal day reads ${JSON.stringify(first.slice(0, 40))}`);
+  }
+}
+
+async function cold({ page, bag }) {
+  await login(page);
+  const readyMs = await replicaReadyMs(page);
+  await page.waitForLoadState("networkidle");
+  await assertFrozenToday(page);
+  scenarios["H/cold"] = {
+    requests: ex(bag.requestTotal),
+    api_bytes: ex(await apiBytes(page)),
+    snapshot_requests: ex(count(bag, "/api/sync/snapshot")),
+    changes_requests: ex(count(bag, "/api/sync/changes")),
+    replica_ready_ms: tm(readyMs),
+  };
+}
+
+async function warm({ page, bag }) {
+  for (const k of Object.keys(bag.requests)) delete bag.requests[k];
+  bag.requestTotal = 0;
+  await page.goto(BASE + BIG_PAGE);
+  await page.waitForSelector("div.block-text", { timeout: 30_000 });
+  const paintMs = await page.evaluate(() => performance.now() - window.__docStart);
+  await page.waitForLoadState("networkidle");
+  scenarios["W/warm"] = {
+    requests: ex(bag.requestTotal),
+    changes_requests: ex(count(bag, "/api/sync/changes")),
+    snapshot_requests: ex(count(bag, "/api/sync/snapshot")),
+    first_outline_ms: tm(paintMs),
+  };
+}
+
+async function idle(page, name, url, readySel) {
+  await page.goto(BASE + url);
+  await page.waitForSelector(readySel, { timeout: 30_000 });
+  await page.waitForLoadState("networkidle");
+  await page.evaluate(() => window.__perfReset());
+  await sleep(IDLE_MS);
+  const p = await page.evaluate(() => JSON.parse(JSON.stringify(window.__perf)));
+  scenarios[name] = {
+    timers_armed: band(p.st + p.si),
+    fetches: band(p.fetch + p.xhr),
+    ws_opens: ex(p.ws),
+    long_tasks: band(p.longtasks),
+  };
+}
+
+async function typeInto(page, cdp, rootSel, text, target) {
+  await target.click();
+  await page.waitForSelector("textarea.block-input", { timeout: 10_000 });
+  await page.locator("textarea.block-input").evaluate((el) =>
+    el.setSelectionRange(el.value.length, el.value.length));
+  await page.evaluate((sel) => { window.__perfReset(); window.__reactReset?.();
+                                 window.__perfMutStart(sel); }, rootSel);
+  const l0 = await layoutCount(cdp);
+  // 120 ms per key: well inside the 500 ms text debounce, so it fires once.
+  await page.keyboard.type(text, { delay: 120 });
+  await sleep(2000);
+  const l1 = await layoutCount(cdp);
+  const p = await page.evaluate(() => { window.__perfMutStop();
+                                        return JSON.parse(JSON.stringify(window.__perf)); });
+  const r = await page.evaluate(() => window.__react ? { ...window.__react } : null);
+  await page.keyboard.press("Escape");
+  return { layouts: l1 - l0, p, r };
+}
+
+const TYPED = "perf check typing probe, fifty characters exactly!".slice(0, 50);
+
+async function typing({ page, cdp }) {
+  await page.goto(BASE + BIG_PAGE);
+  await page.waitForSelector("div.block-text", { timeout: 30_000 });
+  await page.waitForLoadState("networkidle");
+  // nth(10): an ordinary text block, clear of the mermaid/katex/code blocks
+  // the fixture puts at the top of the big page.
+  const { layouts, p } = await typeInto(page, cdp, ".outline, main, #root", TYPED,
+                                        page.locator("div.block-text").nth(10));
+  scenarios["F/typing"] = { forced_layouts: band(layouts), mut_outside: ex(p.mutOutside),
+                            fetches: ex(p.fetch + p.xhr) };
+}
+
+async function journalScroll({ page, bag }) {
+  await page.goto(BASE + "/");
+  await page.waitForSelector("section.journal-day", { timeout: 30_000 });
+  await page.waitForLoadState("networkidle");
+  for (const k of Object.keys(bag.requests)) delete bag.requests[k];
+  for (let i = 0; i < 40; i++) { await page.mouse.wheel(0, 600); await sleep(250); }
+  await page.waitForLoadState("networkidle");
+  const pageFetches = Object.entries(bag.requests)
+    .filter(([k]) => k.startsWith("/api/page/")).reduce((s, [, n]) => s + n, 0);
+  scenarios["I/journal-scroll"] = {
+    days_loaded: ex(await page.locator("section.journal-day").count()),
+    journal_requests: ex(count(bag, "/api/journal")),
+    page_requests: ex(pageFetches),
+  };
+}
+
+async function journalTyping({ page, cdp }) {
+  await page.goto(BASE + "/");
+  await page.waitForSelector("section.journal-day", { timeout: 30_000 });
+  // Mount at least 30 days (a fixed target, so the count is repeatable).
+  for (let i = 0; i < 60 && (await page.locator("section.journal-day").count()) < 30; i++) {
+    await page.mouse.wheel(0, 6000); await sleep(500);
+  }
+  await page.waitForLoadState("networkidle");
+  const days = await page.locator("section.journal-day").count();
+  const { r } = await typeInto(page, cdp, ".journal, main, #root", TYPED,
+                               page.locator("section.journal-day div.block-text").first());
+  scenarios["J/journal-typing"] = { days_mounted: ex(days), react_commits: band(r.commits),
+                                    rendered_fibers: band(r.rendered) };
+}
+
+async function drag({ page, cdp }, name, fromBottom) {
+  await page.goto(BASE + BIG_PAGE);
+  await page.waitForSelector("div.block-text", { timeout: 30_000 });
+  await page.waitForLoadState("networkidle");
+  if (fromBottom) {
+    await page.locator(".outline-drop-zone [data-uid]").last().scrollIntoViewIfNeeded();
+    await sleep(1000);
+  }
+  await page.evaluate(() => window.__reactReset?.());
+  const l0 = await layoutCount(cdp);
+  const d = await page.evaluate(async ({ events, paceMs }) => {
+    const zone = document.querySelector(".outline-drop-zone");
+    const handle = zone?.querySelector('[data-uid] .bullet[draggable="true"]');
+    if (!zone || !handle) return { error: "no drop zone / drag handle" };
+    const transfer = new DataTransfer();
+    const fire = (el, type, x, y) => {
+      const ev = new DragEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y,
+                                       dataTransfer: transfer });
+      const t0 = performance.now(); el.dispatchEvent(ev);
+      return { ms: performance.now() - t0, prevented: ev.defaultPrevented };
+    };
+    fire(handle, "dragstart", 40, 120);
+    await new Promise((r) => setTimeout(r, 100));
+    const top = 80, bottom = window.innerHeight - 40, ms = [];
+    let notPrevented = 0;
+    for (let i = 0; i < events; i++) {
+      const got = fire(zone, "dragover", 200, top + ((bottom - top) * i) / (events - 1));
+      ms.push(got.ms); if (!got.prevented) notPrevented++;
+      await new Promise((r) => setTimeout(r, paceMs));
+    }
+    fire(handle, "dragend", 200, bottom);
+    return { meanMs: ms.reduce((s, v) => s + v, 0) / ms.length, notPrevented };
+  }, { events: 120, paceMs: 16 });
+  if (d.error) throw new Error(`${name}: ${d.error}`);
+  await sleep(1500);
+  const r = await page.evaluate(() => ({ ...window.__react }));
+  scenarios[name] = { not_prevented: ex(d.notPrevented), react_commits: band(r.commits),
+                      forced_layouts: band((await layoutCount(cdp)) - l0),
+                      handler_ms: tm(d.meanMs) };
+}
+
+async function search({ page, bag }, name, term) {
+  await page.goto(BASE + "/");
+  await page.waitForSelector("section.journal-day", { timeout: 30_000 });
+  await page.waitForLoadState("networkidle");
+  const input = page.locator("input.top-bar-search-input");
+  await input.click();
+  for (const k of Object.keys(bag.requests)) delete bag.requests[k];
+  await page.evaluate(() => { window.__perfReset(); window.__reactReset?.(); });
+  await input.pressSequentially(term, { delay: 150 });
+  const t0 = Date.now();
+  await page.waitForSelector("li.search-result mark", { timeout: 15_000 });
+  const resultsMs = Date.now() - t0;
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  // Open a real block hit by clicking it: Enter on the synthetic
+  // `Create page "…"` row would write to the DB mid-run.
+  await page.locator("li.search-result:has(mark)").first().click();
+  await page.waitForLoadState("networkidle");
+  const p = await page.evaluate(() => JSON.parse(JSON.stringify(window.__perf)));
+  const r = await page.evaluate(() => ({ ...window.__react }));
+  scenarios[name] = {
+    search_requests: ex(count(bag, "/api/search")),
+    fetches: ex(p.fetch + p.xhr),
+    react_commits: band(r.commits),
+    results_ms: tm(resultsMs),
+  };
+}
+
+const any = (...ids) => ids.some((id) => ONLY.has(id));
+
+async function loggedIn(browser, opts) {
+  const ctx = await newContext(browser, opts);
+  const st = await openPage(ctx);
+  await login(st.page);
+  await replicaReadyMs(st.page);
+  return { ctx, st };
+}
+
+async function main() {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    // H and W share a fresh context: H is its first (empty-replica) load,
+    // W the next navigation once replica and service worker are warm.
+    if (any("H", "W")) {
+      const ctx = await newContext(browser);
+      const st = await openPage(ctx);
+      await cold(st);
+      if (ONLY.has("W")) await warm(st);
+      if (!ONLY.has("H")) delete scenarios["H/cold"];
+      await ctx.close();
+    }
+    // No React hook here: it walks the fiber tree on every commit and would
+    // distort idle and typing behaviour.
+    if (any("A", "B", "F", "I")) {
+      const { ctx, st } = await loggedIn(browser);
+      if (ONLY.has("A")) await idle(st.page, "A/idle-big", BIG_PAGE, "div.block-text");
+      if (ONLY.has("B")) await idle(st.page, "B/idle-journal", "/", "section.journal-day");
+      if (ONLY.has("F")) await typing(st);
+      if (ONLY.has("I")) await journalScroll(st);
+      await ctx.close();
+    }
+    // React-hook context for commit counts (J, K, S).
+    if (any("J", "K", "S")) {
+      const { ctx, st } = await loggedIn(browser, { react: true });
+      if (ONLY.has("J")) await journalTyping(st);
+      if (ONLY.has("K")) { await drag(st, "K/drag-top", false); await drag(st, "K/drag-bottom", true); }
+      if (ONLY.has("S")) { await search(st, "S/search-common", "project");
+                           await search(st, "S/search-rare", "zyxquark"); }
+      await ctx.close();
+    }
+    const doc = { commit: process.env.PERF_COMMIT ?? "working-tree",
+                  fixture_hash: process.env.PERF_FIXTURE_HASH ?? "unknown",
+                  env: { chromium: browser.version(), node: process.version }, scenarios };
+    fs.mkdirSync(path.dirname(OUT), { recursive: true });
+    fs.writeFileSync(OUT + ".tmp", JSON.stringify(doc, null, 2) + "\n");
+    fs.renameSync(OUT + ".tmp", OUT);
+  } finally {
+    await browser.close();
+  }
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });

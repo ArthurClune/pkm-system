@@ -33,6 +33,8 @@ import signal
 import sqlite3
 import sys
 import tempfile
+import threading
+import time
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -99,6 +101,20 @@ def with_instance_header(app: ASGIApp, token: str) -> ASGIApp:
     return wrapped
 
 
+def _parent_gone(initial_ppid: int) -> bool:
+    """True once this process has been reparented -- the parent that started
+    it (e.g. perfcheck.run, if SIGKILLed) is gone, so nothing will ever stop
+    us otherwise. SIGKILL can't be caught, so an orphaned fixture server can
+    only notice this from its own side, by watching its parent pid."""
+    return os.getppid() != initial_ppid
+
+
+def _watch_parent(initial_ppid: int, poll_s: float = 2.0) -> None:
+    while not _parent_gone(initial_ppid):
+        time.sleep(poll_s)
+    os.kill(os.getpid(), signal.SIGTERM)  # runs the same cleanup as a direct SIGTERM
+
+
 def prepare_db(data: Path, from_db: Path | None) -> Path:
     """Fresh empty DB, or a private copy of `from_db` (the perf fixture)."""
     data.mkdir(parents=True, exist_ok=True)
@@ -136,6 +152,7 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
+    threading.Thread(target=_watch_parent, args=(os.getppid(),), daemon=True).start()
 
     from_db = os.environ.get("E2E_FROM_DB")
     db_path = prepare_db(data, Path(from_db) if from_db else None)

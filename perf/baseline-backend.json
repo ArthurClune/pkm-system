@@ -1,5 +1,5 @@
 {
-  "commit": "920242d",
+  "commit": "ff75eb9",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
@@ -17,7 +17,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.26
+        "value": 2.09
       },
       "statements": {
         "class": "exact",
@@ -43,7 +43,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.49
+        "value": 3.2
       },
       "statements": {
         "class": "exact",
@@ -69,7 +69,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.36
+        "value": 1.9
       },
       "statements": {
         "class": "exact",
@@ -95,7 +95,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 18.55
+        "value": 16.52
       },
       "statements": {
         "class": "exact",
@@ -121,7 +121,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 10.98
+        "value": 10.12
       },
       "statements": {
         "class": "exact",
@@ -147,7 +147,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 17.02
+        "value": 15.74
       },
       "statements": {
         "class": "exact",
@@ -173,7 +173,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 14.88
+        "value": 13.87
       },
       "statements": {
         "class": "exact",
@@ -199,7 +199,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 15.08
+        "value": 13.96
       },
       "statements": {
         "class": "exact",
@@ -217,7 +217,7 @@
     "ops/edit-1": {
       "bytes": {
         "class": "exact",
-        "value": 42
+        "value": 55
       },
       "full_scans": {
         "class": "exact",
@@ -225,11 +225,11 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.69
+        "value": 2.46
       },
       "statements": {
         "class": "exact",
-        "value": 18
+        "value": 19
       },
       "trigger_statements": {
         "class": "exact",
@@ -243,7 +243,7 @@
     "ops/move-subtree": {
       "bytes": {
         "class": "exact",
-        "value": 42
+        "value": 55
       },
       "full_scans": {
         "class": "exact",
@@ -251,11 +251,11 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.82
+        "value": 2.65
       },
       "statements": {
         "class": "exact",
-        "value": 38
+        "value": 39
       },
       "trigger_statements": {
         "class": "exact",
@@ -269,7 +269,7 @@
     "ops/paste-50": {
       "bytes": {
         "class": "exact",
-        "value": 43
+        "value": 56
       },
       "full_scans": {
         "class": "exact",
@@ -277,11 +277,11 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 17.27
+        "value": 16.16
       },
       "statements": {
         "class": "exact",
-        "value": 833
+        "value": 834
       },
       "trigger_statements": {
         "class": "exact",
@@ -303,7 +303,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 18.5
+        "value": 12.46
       },
       "statements": {
         "class": "exact",
@@ -329,7 +329,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 7.95
+        "value": 5.71
       },
       "statements": {
         "class": "exact",
@@ -355,7 +355,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 8.98
+        "value": 4.61
       },
       "statements": {
         "class": "exact",
@@ -381,7 +381,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.67
+        "value": 1.76
       },
       "statements": {
         "class": "exact",
@@ -407,7 +407,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 5.69
+        "value": 5.48
       },
       "statements": {
         "class": "exact",
@@ -433,7 +433,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 43.54
+        "value": 41.69
       },
       "statements": {
         "class": "exact",
@@ -459,7 +459,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 68.29
+        "value": 62.87
       },
       "statements": {
         "class": "exact",
@@ -485,7 +485,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 67.54
+        "value": 63.41
       },
       "statements": {
         "class": "exact",
@@ -511,7 +511,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.08
+        "value": 1.96
       },
       "statements": {
         "class": "exact",
@@ -537,7 +537,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 27.76
+        "value": 25.99
       },
       "statements": {
         "class": "exact",
@@ -563,7 +563,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.23
+        "value": 1.9
       },
       "statements": {
         "class": "exact",
@@ -589,7 +589,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 12.07
+        "value": 11.13
       },
       "statements": {
         "class": "exact",
@@ -615,7 +615,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.65
+        "value": 1.58
       },
       "statements": {
         "class": "exact",
@@ -641,7 +641,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 5.38
+        "value": 5.02
       },
       "statements": {
         "class": "exact",
@@ -667,7 +667,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 364.62
+        "value": 357.71
       },
       "statements": {
         "class": "exact",
@@ -693,7 +693,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.06
+        "value": 1.93
       },
       "statements": {
         "class": "exact",
@@ -719,7 +719,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.72
+        "value": 2.56
       },
       "statements": {
         "class": "exact",
@@ -745,7 +745,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 22.39
+        "value": 20.69
       },
       "statements": {
         "class": "exact",
@@ -771,7 +771,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.83
+        "value": 3.25
       },
       "statements": {
         "class": "exact",

@@ -24,10 +24,6 @@ async function createPage(page: Page, title: string) {
   expect(response.ok()).toBeTruthy();
 }
 
-const afterPaint = (page: Page) =>
-  page.evaluate(() => new Promise<void>((resolve) =>
-    requestAnimationFrame(() => resolve())));
-
 /** Types a brand-new "[[target]]" reference via the bracket auto-pair (the
  * same key sequence a real user types) and leaves the caret right before the
  * auto-inserted closing "]]" -- mid-token, so the draft flush stays held and
@@ -35,9 +31,7 @@ const afterPaint = (page: Page) =>
 async function typeUnflushedRef(page: Page, target: string) {
   await expect(input(page)).toBeFocused();
   await input(page).press("[");
-  await afterPaint(page);
   await input(page).press("[");
-  await afterPaint(page);
   await input(page).pressSequentially(target);
   await expect(input(page)).toHaveValue(`[[${target}]]`);
 }

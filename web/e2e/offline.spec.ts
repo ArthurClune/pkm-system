@@ -22,10 +22,6 @@ const caretToEnd = (page: Page) =>
   input(page).evaluate((el: HTMLTextAreaElement) =>
     el.setSelectionRange(el.value.length, el.value.length));
 
-const afterPaint = (page: Page) =>
-  page.evaluate(() => new Promise<void>((resolve) =>
-    requestAnimationFrame(() => resolve())));
-
 test("offline banner stays in document flow above responsive chrome", async ({ page, context }) => {
   let offline = false;
   const live: WebSocketRoute[] = [];
@@ -140,9 +136,7 @@ test("offline: edit, create page, link, navigate; reconnect drains to server", a
   await caretToEnd(page);
   await input(page).pressSequentially(" ");
   await input(page).press("[");
-  await afterPaint(page); // auto-pair caret restoration runs after paint
   await input(page).press("[");
-  await afterPaint(page);
   await input(page).pressSequentially("Offline Tar");
   await page.getByRole("option", { name: "Offline Target", exact: true }).click();
   await expect(input(page)).toHaveValue("offline edit survives [[Offline Target]]");

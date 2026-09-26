@@ -24,6 +24,14 @@ const band = (value) => ({ class: "band", value });
 const tm = (value) => ({ class: "timing", value: +value.toFixed(1) });
 const scenarios = {};
 
+// Runs before the fake clock is installed, so it keeps the real
+// performance.now (sub-millisecond); the fake one counts whole milliseconds,
+// too coarse for a drag handler.
+const REAL_NOW = () => {
+  const now = performance.now.bind(performance);
+  window.__realNow = now;
+};
+
 // The fake clock replaces window.performance with a stub whose mark() is a
 // no-op and whose getEntries*() return [], so the app's marks never reach
 // the real timeline. Record them here (against the fake, flowing now()).
@@ -40,7 +48,9 @@ const MARKS = () => {
 };
 
 async function newContext(browser, { react = false } = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 },
+                                        timezoneId: "Europe/London" });
+  await ctx.addInitScript(REAL_NOW);
   await ctx.clock.install({ time: new Date(FROZEN) });   // time flows from FROZEN
   await ctx.addInitScript(MARKS);
   await ctx.addInitScript(INIT);
@@ -48,13 +58,44 @@ async function newContext(browser, { react = false } = {}) {
   return ctx;
 }
 
+// Playwright's "networkidle" is reached once per navigation and then stays
+// reached, so after a page's first quiet spell it waits for nothing: the
+// replica's pull after pkm:replica-ready, a journal fetch after the last
+// scroll, a page fetch after an in-app click all raced the counters. settle()
+// waits until none of the page's requests has been in flight for QUIET_MS,
+// watching for at least that long itself: a request the app is about to
+// send (the pull starts just after the mark) must not find it already done.
+const QUIET_MS = 1000;
+const SETTLE_TIMEOUT_MS = 30_000;
+
+function trackInflight(page) {
+  const net = { inflight: new Set(), lastChange: Date.now() };
+  page.on("request", (r) => { net.inflight.add(r); net.lastChange = Date.now(); });
+  const done = (r) => { net.inflight.delete(r); net.lastChange = Date.now(); };
+  page.on("requestfinished", done);
+  page.on("requestfailed", done);
+  return net;
+}
+
+async function settle({ net }) {
+  const start = Date.now(), deadline = start + SETTLE_TIMEOUT_MS;
+  while (net.inflight.size > 0 || Date.now() - Math.max(net.lastChange, start) < QUIET_MS) {
+    if (Date.now() > deadline) {
+      const open = [...net.inflight].map((r) => r.url()).join(", ");
+      throw new Error(`network did not settle within ${SETTLE_TIMEOUT_MS} ms; in flight: ${open || "none"}`);
+    }
+    await sleep(50);
+  }
+}
+
 async function openPage(ctx) {
   const page = await ctx.newPage();
   const bag = freshBag();
   attachCounters(page, bag);
+  const net = trackInflight(page);
   const cdp = await ctx.newCDPSession(page);
   await cdp.send("Performance.enable");
-  return { page, bag, cdp };
+  return { page, bag, cdp, net };
 }
 
 const layoutCount = async (cdp) =>
@@ -69,9 +110,12 @@ async function replicaReadyMs(page) {
 
 // Resource entries come from a PerformanceObserver: the browser still
 // records them, but the fake performance.getEntriesByType returns [].
-const apiBytes = (page) => page.evaluate(() => new Promise((resolve) => {
+// Called once the page has settled, so the buffered entries are complete.
+const apiBytes = (page) => page.evaluate(() => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error("no resource timing entries")), 10_000);
   new PerformanceObserver((list, obs) => {
     obs.disconnect();
+    clearTimeout(timer);
     resolve(list.getEntries()
       .filter((r) => new URL(r.name).pathname.startsWith("/api/"))
       .reduce((s, r) => s + (r.encodedBodySize || 0), 0));
@@ -107,10 +151,11 @@ async function assertNewestJournalDay(page) {
   }
 }
 
-async function cold({ page, bag }) {
+async function cold(st) {
+  const { page, bag } = st;
   await login(page);
   const readyMs = await replicaReadyMs(page);
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   await assertFrozenClock(page);
   await assertNewestJournalDay(page);
   scenarios["H/cold"] = {
@@ -122,13 +167,14 @@ async function cold({ page, bag }) {
   };
 }
 
-async function warm({ page, bag }) {
+async function warm(st) {
+  const { page, bag } = st;
   for (const k of Object.keys(bag.requests)) delete bag.requests[k];
   bag.requestTotal = 0;
   await page.goto(BASE + BIG_PAGE);
   await page.waitForSelector("div.block-text", { timeout: 30_000 });
   const paintMs = await page.evaluate(() => performance.now() - window.__docStart);
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   scenarios["W/warm"] = {
     requests: ex(bag.requestTotal),
     changes_requests: ex(count(bag, "/api/sync/changes")),
@@ -137,10 +183,11 @@ async function warm({ page, bag }) {
   };
 }
 
-async function idle(page, name, url, readySel) {
+async function idle(st, name, url, readySel) {
+  const { page } = st;
   await page.goto(BASE + url);
   await page.waitForSelector(readySel, { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   await page.evaluate(() => window.__perfReset());
   await sleep(IDLE_MS);
   const p = await page.evaluate(() => JSON.parse(JSON.stringify(window.__perf)));
@@ -152,46 +199,77 @@ async function idle(page, name, url, readySel) {
   };
 }
 
-async function typeInto(page, cdp, rootSel, text, target) {
+async function typeInto(st, rootSel, text, target) {
+  const { page, cdp } = st;
   await target.click();
   await page.waitForSelector("textarea.block-input", { timeout: 10_000 });
   await page.locator("textarea.block-input").evaluate((el) =>
     el.setSelectionRange(el.value.length, el.value.length));
   await page.evaluate((sel) => { window.__perfReset(); window.__reactReset?.();
                                  window.__perfMutStart(sel); }, rootSel);
+  const requests = [];
+  const onRequest = (req) => requests.push(req);
+  page.on("request", onRequest);
   const l0 = await layoutCount(cdp);
-  // 120 ms per key: well inside the 500 ms text debounce, so it fires once.
+  // 120 ms per key keeps re-arming the 500 ms text debounce, so the typing
+  // saves once (one POST /api/ops), 500 ms after the last key. The 2 s wait
+  // is well clear of that; settle() then waits out the save's follow-ups.
   await page.keyboard.type(text, { delay: 120 });
   await sleep(2000);
+  await settle(st);
+  page.off("request", onRequest);
   const l1 = await layoutCount(cdp);
   const p = await page.evaluate(() => { window.__perfMutStop();
                                         return JSON.parse(JSON.stringify(window.__perf)); });
   const r = await page.evaluate(() => window.__react ? { ...window.__react } : null);
   await page.keyboard.press("Escape");
-  return { layouts: l1 - l0, p, r };
+  return { layouts: l1 - l0, p, r, requests };
+}
+
+// /api requests, except a second pull of a sync window already pulled. That
+// repeat is the replica's pending-changed retry: the save's WS seq nudge and
+// its HTTP ack arrive together, and whichever the app handles first decides
+// whether the pull saw the batch still pending (one pull or two, run to run).
+// App scheduling, not typing cost; a new request of any kind still counts.
+function apiRequests(requests) {
+  const windows = new Set();
+  let n = 0;
+  for (const req of requests) {
+    const u = new URL(req.url());
+    if (!u.pathname.startsWith("/api/")) continue;
+    if (u.pathname === "/api/sync/changes") {
+      const since = u.searchParams.get("since");
+      if (windows.has(since)) continue;
+      windows.add(since);
+    }
+    n++;
+  }
+  return n;
 }
 
 const TYPED = "perf check typing probe, fifty characters exactly!".slice(0, 50);
 
-async function typing({ page, cdp }) {
+async function typing(st) {
+  const { page } = st;
   await page.goto(BASE + BIG_PAGE);
   await page.waitForSelector("div.block-text", { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   // nth(10): an ordinary text block, clear of the mermaid/katex/code blocks
   // the fixture puts at the top of the big page.
-  const { layouts, p } = await typeInto(page, cdp, ".outline, main, #root", TYPED,
-                                        page.locator("div.block-text").nth(10));
+  const { layouts, p, requests } = await typeInto(st, ".outline, main, #root", TYPED,
+                                                  page.locator("div.block-text").nth(10));
   scenarios["F/typing"] = { forced_layouts: band(layouts), mut_outside: ex(p.mutOutside),
-                            fetches: ex(p.fetch + p.xhr) };
+                            api_requests: ex(apiRequests(requests)) };
 }
 
-async function journalScroll({ page, bag }) {
+async function journalScroll(st) {
+  const { page, bag } = st;
   await page.goto(BASE + "/");
   await page.waitForSelector("section.journal-day", { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   for (const k of Object.keys(bag.requests)) delete bag.requests[k];
   for (let i = 0; i < 40; i++) { await page.mouse.wheel(0, 600); await sleep(250); }
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   const pageFetches = Object.entries(bag.requests)
     .filter(([k]) => k.startsWith("/api/page/")).reduce((s, [, n]) => s + n, 0);
   scenarios["I/journal-scroll"] = {
@@ -201,25 +279,27 @@ async function journalScroll({ page, bag }) {
   };
 }
 
-async function journalTyping({ page, cdp }) {
+async function journalTyping(st) {
+  const { page } = st;
   await page.goto(BASE + "/");
   await page.waitForSelector("section.journal-day", { timeout: 30_000 });
   // Mount at least 30 days (a fixed target, so the count is repeatable).
   for (let i = 0; i < 60 && (await page.locator("section.journal-day").count()) < 30; i++) {
     await page.mouse.wheel(0, 6000); await sleep(500);
   }
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   const days = await page.locator("section.journal-day").count();
-  const { r } = await typeInto(page, cdp, ".journal, main, #root", TYPED,
+  const { r } = await typeInto(st, ".journal, main, #root", TYPED,
                                page.locator("section.journal-day div.block-text").first());
   scenarios["J/journal-typing"] = { days_mounted: ex(days), react_commits: band(r.commits),
                                     rendered_fibers: band(r.rendered) };
 }
 
-async function drag({ page, cdp }, name, fromBottom) {
+async function drag(st, name, fromBottom) {
+  const { page, cdp } = st;
   await page.goto(BASE + BIG_PAGE);
   await page.waitForSelector("div.block-text", { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   if (fromBottom) {
     await page.locator(".outline-drop-zone [data-uid]").last().scrollIntoViewIfNeeded();
     await sleep(1000);
@@ -234,8 +314,8 @@ async function drag({ page, cdp }, name, fromBottom) {
     const fire = (el, type, x, y) => {
       const ev = new DragEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y,
                                        dataTransfer: transfer });
-      const t0 = performance.now(); el.dispatchEvent(ev);
-      return { ms: performance.now() - t0, prevented: ev.defaultPrevented };
+      const t0 = window.__realNow(); el.dispatchEvent(ev);
+      return { ms: window.__realNow() - t0, prevented: ev.defaultPrevented };
     };
     fire(handle, "dragstart", 40, 120);
     await new Promise((r) => setTimeout(r, 100));
@@ -247,20 +327,23 @@ async function drag({ page, cdp }, name, fromBottom) {
       await new Promise((r) => setTimeout(r, paceMs));
     }
     fire(handle, "dragend", 200, bottom);
-    return { meanMs: ms.reduce((s, v) => s + v, 0) / ms.length, notPrevented };
+    return { totalMs: ms.reduce((s, v) => s + v, 0), notPrevented };
   }, { events: 120, paceMs: 16 });
   if (d.error) throw new Error(d.error);
   await sleep(1500);
   const r = await page.evaluate(() => ({ ...window.__react }));
   scenarios[name] = { not_prevented: ex(d.notPrevented), react_commits: band(r.commits),
                       forced_layouts: band((await layoutCount(cdp)) - l0),
-                      handler_ms: tm(d.meanMs) };
+                      // summed over the 120 dragovers: one handler takes
+                      // ~0.2 ms, too close to the clock's resolution alone
+                      handler_ms: tm(d.totalMs) };
 }
 
-async function search({ page, bag }, name, term) {
+async function search(st, name, term) {
+  const { page, bag } = st;
   await page.goto(BASE + "/");
   await page.waitForSelector("section.journal-day", { timeout: 30_000 });
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   const input = page.locator("input.top-bar-search-input");
   await input.click();
   for (const k of Object.keys(bag.requests)) delete bag.requests[k];
@@ -273,7 +356,7 @@ async function search({ page, bag }, name, term) {
   const created = (q) => `li.search-result:has-text('Create page "${q}"')`;
   await input.pressSequentially(head, { delay: 150 });
   await page.waitForSelector(created(head), { timeout: 15_000 });
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   await page.evaluate((label) => {
     const input = document.querySelector("input.top-bar-search-input");
     window.__searchMs = new Promise((resolve) => {
@@ -298,7 +381,7 @@ async function search({ page, bag }, name, term) {
   // Open a real block hit by clicking it: Enter on the synthetic
   // `Create page "…"` row would write to the DB mid-run.
   await page.locator("li.search-result:has(mark)").first().click();
-  await page.waitForLoadState("networkidle");
+  await settle(st);
   const p = await page.evaluate(() => JSON.parse(JSON.stringify(window.__perf)));
   const r = await page.evaluate(() => ({ ...window.__react }));
   scenarios[name] = {
@@ -351,9 +434,9 @@ async function main() {
     if (any("A", "B", "F", "I")) {
       const { ctx, st } = await loggedIn(browser, "A,B,F,I");
       if (ONLY.has("A")) await run("A/idle-big", () =>
-        idle(st.page, "A/idle-big", BIG_PAGE, "div.block-text"));
+        idle(st, "A/idle-big", BIG_PAGE, "div.block-text"));
       if (ONLY.has("B")) await run("B/idle-journal", () =>
-        idle(st.page, "B/idle-journal", "/", "section.journal-day"));
+        idle(st, "B/idle-journal", "/", "section.journal-day"));
       if (ONLY.has("F")) await run("F/typing", () => typing(st));
       if (ONLY.has("I")) await run("I/journal-scroll", () => journalScroll(st));
       await ctx.close();

@@ -1,0 +1,215 @@
+{
+  "commit": "bc1200b+dirty",
+  "env": {
+    "chromium": "149.0.7827.55",
+    "node": "v26.8.2"
+  },
+  "fixture_hash": "bff4243e90e051e8",
+  "scenarios": {
+    "A/idle-big": {
+      "fetches": {
+        "class": "band",
+        "max": 0,
+        "min": 0
+      },
+      "long_tasks": {
+        "class": "band",
+        "max": 0,
+        "min": 0
+      },
+      "timers_armed": {
+        "class": "band",
+        "max": 0,
+        "min": 0
+      },
+      "ws_opens": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "B/idle-journal": {
+      "fetches": {
+        "class": "band",
+        "max": 0,
+        "min": 0
+      },
+      "long_tasks": {
+        "class": "band",
+        "max": 0,
+        "min": 0
+      },
+      "timers_armed": {
+        "class": "band",
+        "max": 0,
+        "min": 0
+      },
+      "ws_opens": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "F/typing": {
+      "api_requests": {
+        "class": "exact",
+        "value": 3
+      },
+      "forced_layouts": {
+        "class": "band",
+        "max": 50,
+        "min": 50
+      },
+      "mut_outside": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "H/cold": {
+      "api_bytes": {
+        "class": "exact",
+        "value": 15156692
+      },
+      "changes_requests": {
+        "class": "exact",
+        "value": 1
+      },
+      "replica_ready_ms": {
+        "class": "timing",
+        "value": 3486
+      },
+      "requests": {
+        "class": "exact",
+        "value": 13
+      },
+      "snapshot_requests": {
+        "class": "exact",
+        "value": 1
+      }
+    },
+    "I/journal-scroll": {
+      "days_loaded": {
+        "class": "exact",
+        "value": 60
+      },
+      "journal_requests": {
+        "class": "exact",
+        "value": 11
+      },
+      "page_requests": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "J/journal-typing": {
+      "days_mounted": {
+        "class": "exact",
+        "value": 30
+      },
+      "react_commits": {
+        "class": "band",
+        "max": 56,
+        "min": 55
+      },
+      "rendered_fibers": {
+        "class": "band",
+        "max": 178,
+        "min": 176
+      }
+    },
+    "K/drag-bottom": {
+      "forced_layouts": {
+        "class": "band",
+        "max": 2,
+        "min": 2
+      },
+      "handler_ms": {
+        "class": "timing",
+        "value": 66.4
+      },
+      "not_prevented": {
+        "class": "exact",
+        "value": 0
+      },
+      "react_commits": {
+        "class": "band",
+        "max": 7,
+        "min": 7
+      }
+    },
+    "K/drag-top": {
+      "forced_layouts": {
+        "class": "band",
+        "max": 15,
+        "min": 15
+      },
+      "handler_ms": {
+        "class": "timing",
+        "value": 25
+      },
+      "not_prevented": {
+        "class": "exact",
+        "value": 0
+      },
+      "react_commits": {
+        "class": "band",
+        "max": 33,
+        "min": 33
+      }
+    },
+    "S/search-common": {
+      "fetches": {
+        "class": "exact",
+        "value": 8
+      },
+      "react_commits": {
+        "class": "band",
+        "max": 23,
+        "min": 23
+      },
+      "results_ms": {
+        "class": "timing",
+        "value": 253
+      },
+      "search_requests": {
+        "class": "exact",
+        "value": 7
+      }
+    },
+    "S/search-rare": {
+      "fetches": {
+        "class": "exact",
+        "value": 9
+      },
+      "react_commits": {
+        "class": "band",
+        "max": 25,
+        "min": 25
+      },
+      "results_ms": {
+        "class": "timing",
+        "value": 162
+      },
+      "search_requests": {
+        "class": "exact",
+        "value": 8
+      }
+    },
+    "W/warm": {
+      "changes_requests": {
+        "class": "exact",
+        "value": 1
+      },
+      "first_outline_ms": {
+        "class": "timing",
+        "value": 216
+      },
+      "requests": {
+        "class": "exact",
+        "value": 17
+      },
+      "snapshot_requests": {
+        "class": "exact",
+        "value": 0
+      }
+    }
+  }
+}

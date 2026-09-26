@@ -1,5 +1,12 @@
+import http.server
 import json
+import os
+import signal
 import socket
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -16,8 +23,37 @@ def test_sides_for():
     assert run_core.sides_for(["perf/baseline-backend.json"]) == []
 
 
-def test_frontend_letters():
-    assert run_core.frontend_letters(["K/drag-top", "K/drag-bottom", "S/search-rare"]) == "K,S"
+def test_sides_for_skips_e2e_specs_and_docs_under_web():
+    assert run_core.sides_for(["web/e2e/journal.spec.ts", "web/tooling/perf/README.md",
+                               "web/README.md"]) == []
+    assert run_core.sides_for(["web/e2e/journal.spec.ts", "web/src/App.tsx"]) == ["frontend"]
+    assert run_core.sides_for(["server/README.md"]) == ["backend"]
+
+
+def test_frontend_letters_cover_whole_context_groups():
+    # counts were recorded with each letter in its shared browser context
+    assert run_core.frontend_letters(["K/drag-top", "K/drag-bottom", "S/search-rare"]) == "J,K,S"
+    assert run_core.frontend_letters(["F/typing"]) == "A,B,F,I"
+    assert run_core.frontend_letters(["W/warm", "I/journal-scroll"]) == "A,B,F,H,I,W"
+
+
+def test_next_steps_one_line_per_verdict_present():
+    lines = run_core.next_steps("frontend", ["regression", "unstable", "regression", "improvement"])
+    assert len(lines) == 2
+    assert "diff" in lines[0] and "bean" in lines[1]
+    assert "perf/check.sh frontend --rebaseline" in run_core.next_steps("frontend", ["stale-baseline"])[0]
+    lost, reclassified = run_core.next_steps("backend", ["reclassified", "lost"])
+    assert lost.startswith("lost:") and "perf/check.sh backend --bootstrap" in lost
+    assert reclassified.startswith("reclassified:") and "--bootstrap" in reclassified
+    assert run_core.next_steps("backend", ["improvement", "new"]) == []
+
+
+def test_stale_entries_keep_recent_and_named():
+    day = 86_400.0
+    now = 100 * day
+    used = {"old": now - 8 * day, "recent": now - 2 * day, "current": now - 30 * day}
+    assert run_core.stale_entries(used, now, keep={"current"}, max_age_s=7 * day) == ["old"]
+    assert run_core.stale_entries({}, now, keep=set(), max_age_s=day) == []
 
 
 def test_exit_code():
@@ -46,10 +82,13 @@ def test_merge_base_command_uses_branch_harness(tmp_path):
     # a merge base older than this tooling has no time-machine in its venv
     assert cmd[4:6] == ["--with", "time-machine"]
     assert env["PYTHONPATH"] == str(repo / "server" / "tooling")
-    fcmd, fenv = run.FrontendRunner(repo).server_command(wt, Path("/fx.sqlite3"))
+    fcmd, fenv = run.FrontendRunner(repo).server_command(wt, Path("/fx.sqlite3"), "tok")
     assert fcmd[4:6] == ["--with", "time-machine"]
     assert str(repo / "server" / "tests" / "e2e_serve.py") in fcmd
     assert fenv["E2E_WEB_DIST"] == str(wt / "web" / "dist")
+    assert fenv["E2E_INSTANCE"] == "tok"
+    # never web/e2e/.server.log, which a concurrent `pnpm e2e` owns
+    assert fenv["E2E_SERVER_LOG"] == str(repo / "perf" / "out" / "fixture-server-errors.log")
 
 
 def test_port_busy_fails_without_result(tmp_path):
@@ -127,6 +166,8 @@ def test_check_regression_runs_merge_base_for_survivors_only(check, capsys):
     out = capsys.readouterr().out
     assert "| a/1 | n | 10 | 11 | regression |" in out
     assert "| b/2 | n | 5 | 6 | unstable |" in out
+    assert "- regression: read your diff" in out
+    assert "- unstable: " in out and "bean" in out
 
 
 def test_check_stale_baseline(check, capsys):
@@ -162,7 +203,9 @@ def test_check_records_improvements_when_passing(check, capsys):
     assert runner.head_only == [None]
     assert runner.mb_only == []
     assert json.loads(path.read_text())["scenarios"]["a/1"]["k"]["value"] == 8
-    assert "baseline updated" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "baseline updated" in out
+    assert "next:" not in out
 
 
 @pytest.mark.parametrize("runs", ["0", "1"])
@@ -173,3 +216,56 @@ def test_runs_below_two_rejected(runs, monkeypatch, capsys):
         run.main()
     assert e.value.code == 2
     assert "--runs" in capsys.readouterr().err
+
+
+def _sleeper(ignore_term=False):
+    code = "import signal, time\n"
+    if ignore_term:
+        code += "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+    code += "print('ready', flush=True)\ntime.sleep(60)\n"
+    p = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE,
+                         start_new_session=True, text=True)
+    assert p.stdout is not None and p.stdout.readline() == "ready\n"
+    return p
+
+
+def test_wait_healthy_rejects_a_server_that_is_not_ours(monkeypatch):
+    class Foreign(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, format, *args):
+            pass
+    httpd = http.server.HTTPServer(("127.0.0.1", 0), Foreign)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    monkeypatch.setattr(run, "FRONTEND_PORT", httpd.server_address[1])
+    ours = _sleeper()
+    try:
+        with pytest.raises(run.PerfRunError, match="another server answers"):
+            run.FrontendRunner(Path("/repo"))._wait_healthy(ours, "our-token")
+    finally:
+        httpd.shutdown()
+        ours.kill()
+        ours.wait()
+
+
+def test_stop_kills_a_server_that_ignores_terminate(monkeypatch):
+    monkeypatch.setattr(run, "STOP_TIMEOUT_S", 0.5)
+    p = _sleeper(ignore_term=True)
+    run._stop(p)
+    assert p.returncode == -signal.SIGKILL
+
+
+def test_prune_worktrees_removes_only_long_unused(tmp_path, monkeypatch):
+    root = tmp_path / "worktrees"
+    for name, age_days in [("old", 8), ("recent", 2), ("current", 30)]:
+        (root / name).mkdir(parents=True)
+        (root / name / run.USED_MARKER).touch()
+        t = time.time() - age_days * 86_400
+        os.utime(root / name / run.USED_MARKER, (t, t))
+    calls = []
+    monkeypatch.setattr(run, "_git", lambda repo, *a: calls.append(a) or "")
+    run.prune_worktrees(tmp_path, root, keep=root / "current")
+    assert calls == [("worktree", "remove", "--force", str(root / "old")), ("worktree", "prune")]

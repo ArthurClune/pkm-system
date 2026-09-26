@@ -5,12 +5,19 @@ ratcheted baselines, print the table.
 
 Merge-base runs use this branch's harness (perfcheck, check.mjs,
 e2e_serve.py) against the merge base's product code (pkm package, web/dist),
-so they work even when the merge base predates this tooling."""
+so they work even when the merge base predates this tooling.
+
+Port 8977 and the cache dir are shared by every session on the machine:
+the frontend run and the merge-base worktrees are only touched under
+`cache_lock`."""
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import secrets
+import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -18,14 +25,17 @@ import time
 import urllib.request
 from pathlib import Path
 
-from perfcheck.build import cache_dir, fixture_hash
+from perfcheck.build import UNUSED_FOR_S, CacheLockTimeout, cache_dir, cache_lock, fixture_hash
 from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
                                render_table)
 from perfcheck.fixture import FROZEN_NOW
-from perfcheck.run_core import exit_code, frontend_letters, scenarios_of, sides_for
+from perfcheck.run_core import (exit_code, frontend_letters, next_steps, scenarios_of,
+                                sides_for, stale_entries)
 
 FRONTEND_PORT = 8977
 TZ = "Europe/London"
+LOG_TAIL_LINES = 40
+STOP_TIMEOUT_S = 30
 
 
 class PerfRunError(RuntimeError):
@@ -102,69 +112,133 @@ class FrontendRunner:
             env={**_base_env(), "PYTHONPATH": str(self.repo / "server" / "tooling")})
         return Path(out.stdout.strip())
 
-    def server_command(self, worktree: Path, fixture: Path) -> tuple[list[str], dict[str, str]]:
+    @property
+    def out_dir(self) -> Path:
+        return self.repo / "perf" / "out"
+
+    def server_command(self, worktree: Path, fixture: Path,
+                       instance: str) -> tuple[list[str], dict[str, str]]:
         cmd = [*_python(worktree), str(self.repo / "server" / "tests" / "e2e_serve.py")]
         env = {**_base_env(), "E2E_PORT": str(FRONTEND_PORT), "E2E_FROM_DB": str(fixture),
                "E2E_FROZEN_NOW": FROZEN_NOW.isoformat(),
                "E2E_WEB_DIST": str(worktree / "web" / "dist"),
+               "E2E_SERVER_LOG": str(self.out_dir / "fixture-server-errors.log"),
+               "E2E_INSTANCE": instance,
                "PYTHONPATH": str(self.repo / "server" / "tooling")}
         return cmd, env
 
     def run(self, worktree: Path, only: list[str] | None, commit: str) -> dict:
-        self.ensure_port_free()
         if worktree == self.repo and not self._built:
             subprocess.run(["pnpm", "build"], check=True, cwd=self.repo / "web",
                            env={**_base_env(), "CI": "true"})
             self._built = True
         fixture = self.fixture_path(worktree)
-        cmd, env = self.server_command(worktree, fixture)
-        # stdout is uvicorn's access log; boot failures still reach stderr
-        server = subprocess.Popen(cmd, env=env, cwd=self.repo / "server", stdout=subprocess.DEVNULL)
-        out = self.repo / "perf" / "out" / "result-frontend.json"
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        out = self.out_dir / "result-frontend.json"
         out.unlink(missing_ok=True)
-        try:
-            self._wait_healthy(server)
-            node = ["node", str(self.repo / "web" / "tooling" / "perf" / "check.mjs"), "--out", str(out)]
-            if only:
-                node += ["--only", frontend_letters(only)]
-            subprocess.run(node, check=True, cwd=self.repo / "web", env={
-                **_base_env(), "E2E_PORT": str(FRONTEND_PORT),
-                "PERF_FROZEN_NOW": FROZEN_NOW.isoformat(),
-                "PERF_FIXTURE_HASH": fixture_hash(), "PERF_COMMIT": commit})
-        finally:
-            server.terminate()
-            server.wait(timeout=30)
+        with cache_lock("frontend", f"port {FRONTEND_PORT}"):
+            # the lock only covers perf checks, so look again right before binding
+            self.ensure_port_free()
+            instance = secrets.token_hex(8)
+            cmd, env = self.server_command(worktree, fixture, instance)
+            with (self.out_dir / "fixture-server.log").open("w") as log:
+                # own process group, so a hung server can be killed with its uv parent
+                server = subprocess.Popen(cmd, env=env, cwd=self.repo / "server", stdout=log,
+                                          stderr=subprocess.STDOUT, start_new_session=True)
+            try:
+                self._wait_healthy(server, instance)
+                node = ["node", str(self.repo / "web" / "tooling" / "perf" / "check.mjs"),
+                        "--out", str(out)]
+                if only:
+                    node += ["--only", frontend_letters(only)]
+                subprocess.run(node, check=True, cwd=self.repo / "web", env={
+                    **_base_env(), "E2E_PORT": str(FRONTEND_PORT),
+                    "PERF_FROZEN_NOW": FROZEN_NOW.isoformat(),
+                    "PERF_FIXTURE_HASH": fixture_hash(), "PERF_COMMIT": commit})
+            except (PerfRunError, subprocess.CalledProcessError):
+                self._print_server_logs()
+                raise
+            finally:
+                _stop(server)
         doc = json.loads(out.read_text())
-        if only:  # a letter can cover several scenarios; keep only those asked for
+        if only:  # a group covers other scenarios too; keep only those asked for
             doc["scenarios"] = {k: v for k, v in doc["scenarios"].items() if k in set(only)}
         return doc
 
-    def _wait_healthy(self, server: subprocess.Popen) -> None:
+    def _wait_healthy(self, server: subprocess.Popen, instance: str) -> None:
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             if server.poll() is not None:
                 raise PerfRunError(f"fixture server exited with {server.returncode}")
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{FRONTEND_PORT}/healthz", timeout=1)
-                return
+                with urllib.request.urlopen(f"http://127.0.0.1:{FRONTEND_PORT}/healthz",
+                                            timeout=1) as r:
+                    answered_by = r.headers.get("X-E2E-Instance")
             except OSError:
                 time.sleep(0.5)
+                continue
+            if answered_by != instance:
+                raise PerfRunError(f"another server answers on port {FRONTEND_PORT}; "
+                                   "stop whatever holds it (never use 8974/8975 instead)")
+            if server.poll() is not None:
+                raise PerfRunError(f"fixture server exited with {server.returncode}")
+            return
         raise PerfRunError("fixture server did not become healthy within 60 s")
+
+    def _print_server_logs(self) -> None:
+        for name in ("fixture-server.log", "fixture-server-errors.log"):
+            path = self.out_dir / name
+            if not path.exists() or not path.stat().st_size:
+                continue
+            tail = path.read_text(errors="replace").splitlines()[-LOG_TAIL_LINES:]
+            print(f"--- last {len(tail)} lines of {path.relative_to(self.repo)} ---",
+                  *tail, sep="\n", file=sys.stderr)
+
+
+def _stop(server: subprocess.Popen) -> None:
+    server.terminate()
+    try:
+        server.wait(timeout=STOP_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        os.killpg(server.pid, signal.SIGKILL)  # uv and the server it started
+        server.wait()
+
+
+USED_MARKER = ".perf-used"
 
 
 def merge_base_worktree(repo: Path, side: str) -> tuple[Path, str]:
     sha = _git(repo, "merge-base", "HEAD", "main").strip()
-    wt = cache_dir() / "worktrees" / sha[:12]
-    if not wt.exists():
-        _git(repo, "worktree", "prune")  # forget a cached worktree whose directory was deleted
-        _git(repo, "worktree", "add", "--detach", str(wt), sha)
-    if side == "frontend" and not (wt / ".perf-built").exists():
-        subprocess.run(["pnpm", "install", "--frozen-lockfile"], check=True, cwd=wt / "web",
-                       env={**_base_env(), "CI": "true"})
-        subprocess.run(["pnpm", "build"], check=True, cwd=wt / "web",
-                       env={**_base_env(), "CI": "true"})
-        (wt / ".perf-built").touch()
+    root = cache_dir() / "worktrees"
+    wt = root / sha[:12]
+    with cache_lock("worktrees", "the merge-base worktrees"):
+        if not wt.exists():
+            _git(repo, "worktree", "prune")  # forget a cached worktree whose directory was deleted
+            _git(repo, "worktree", "add", "--detach", str(wt), sha)
+        (wt / USED_MARKER).touch()  # marked before use, so a pruner never takes it mid-run
+        if side == "frontend" and not (wt / ".perf-built").exists():
+            subprocess.run(["pnpm", "install", "--frozen-lockfile"], check=True, cwd=wt / "web",
+                           env={**_base_env(), "CI": "true"})
+            subprocess.run(["pnpm", "build"], check=True, cwd=wt / "web",
+                           env={**_base_env(), "CI": "true"})
+            (wt / ".perf-built").touch()
+        prune_worktrees(repo, root, keep=wt)
     return wt, sha[:7]
+
+
+def prune_worktrees(repo: Path, root: Path, keep: Path) -> None:
+    """Remove merge-base worktrees unused for about a week. Call under the
+    worktrees lock."""
+    def last_used(wt: Path) -> float:
+        marker = wt / USED_MARKER
+        return (marker if marker.exists() else wt).stat().st_mtime
+    used = {p.name: last_used(p) for p in root.iterdir() if p.is_dir()}
+    for name in stale_entries(used, time.time(), {keep.name}, UNUSED_FOR_S):
+        try:
+            _git(repo, "worktree", "remove", "--force", str(root / name))
+        except subprocess.CalledProcessError:  # half-created, or another clone's
+            shutil.rmtree(root / name, ignore_errors=True)
+    _git(repo, "worktree", "prune")
 
 
 def _runner(repo: Path, side: str) -> BackendRunner | FrontendRunner:
@@ -227,6 +301,9 @@ def do_check(repo: Path, side: str) -> int:
         _write(path, c.new_baseline)
     print(f"## perf: {side}\n")
     print(render_table(c.findings, outcomes) if c.findings else "no changes against the baseline")
+    steps = next_steps(side, [outcomes.get((f.scenario, f.metric), f.kind) for f in c.findings])
+    if steps:
+        print("\nnext:\n" + "\n".join(f"- {line}" for line in steps))
     if improved and rc == 0:
         print(f"\nbaseline updated: {path.relative_to(repo)} — commit it with this change")
     elif improved:
@@ -260,7 +337,7 @@ def main() -> int:
                 rc |= do_bootstrap(repo, side, a.runs, at_merge_base=a.rebaseline)
             else:
                 rc |= do_check(repo, side)
-        except (PerfRunError, subprocess.CalledProcessError) as e:
+        except (PerfRunError, CacheLockTimeout, subprocess.CalledProcessError) as e:
             print(f"## perf: {side} failed — {e}", file=sys.stderr)
             rc |= 2
     return rc

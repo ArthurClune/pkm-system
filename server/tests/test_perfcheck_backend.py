@@ -64,6 +64,20 @@ def test_writes_hit_a_fresh_copy(small_fixture, result):
     assert con.execute("SELECT COUNT(*) FROM blocks WHERE uid LIKE 'pp%'").fetchone()[0] == 0
 
 
+def test_cached_fixture_is_opened_read_only(monkeypatch, small_fixture):
+    # the cached fixture is shared across sessions; only private copies are written
+    real, opened = backend.sqlite3.connect, []
+
+    def spy(target, *a, **k):
+        opened.append((str(target), k.get("uri", False)))
+        return real(target, *a, **k)
+    monkeypatch.setattr(backend.sqlite3, "connect", spy)
+    backend.run(small_fixture, only={"page/big"}, repeats=1, scale=0.02)
+    direct = [(t, uri) for t, uri in opened if small_fixture.name in t
+              and str(small_fixture.parent.name) in t]
+    assert direct and all(uri and t.endswith("?mode=ro") for t, uri in direct), direct
+
+
 def test_trace_sees_expanded_sql(small_fixture):
     from perfcheck.trace import Tracer
     t = Tracer()

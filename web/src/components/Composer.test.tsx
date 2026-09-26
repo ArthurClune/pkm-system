@@ -87,6 +87,26 @@ test("a mid-text completion places the caret after the ref before any frame (pkm
   }
 });
 
+// A pick that leaves the text unchanged (re-picking the title already inside
+// [[…]]) commits nothing, so no layout effect runs: the caret must move
+// past the ref at once, and no offset may be left pending for a later edit.
+test("a pick that leaves the text unchanged still places the caret, and leaves nothing pending", async () => {
+  stubFetch([["/api/titles", { titles: ["Alpha", "Alpine"] }]]);
+  render(<Composer onSend={vi.fn()} readOnly={false} />);
+  const ta = screen.getByRole("textbox", { name: "Add to this page" }) as
+    HTMLTextAreaElement;
+  fireEvent.change(ta, {
+    target: { value: "See [[Alpha]] x", selectionStart: 11, selectionEnd: 11 },
+  });
+  fireEvent.mouseDown(await screen.findByRole("option", { name: "Alpha" }));
+  expect(ta).toHaveValue("See [[Alpha]] x");
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([13, 13]);
+  fireEvent.change(ta, {
+    target: { value: "See [[Alpha]] xy", selectionStart: 16, selectionEnd: 16 },
+  });
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([16, 16]);
+});
+
 test("arrow keys choose an autocomplete row and Enter applies it", async () => {
   const onSend = vi.fn();
   stubFetch([["/api/titles", { titles: ["Alpha", "Alpine"] }]]);

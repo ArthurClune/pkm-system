@@ -37,7 +37,15 @@ export function Composer({ onSend, readOnly }: {
     if (!target) return; // caret has moved off the token; resolve closed it
     const applied = applyCompletion(target.text, target.caret, target.ctx,
                                     row.title);
-    pendingCaretRef.current = applied.cursor;
+    const el = taRef.current;
+    if (el && el.value === applied.text) {
+      // Nothing changes, so nothing commits and the layout effect below
+      // never runs: place the caret now rather than leave it pending for
+      // whatever edit comes next.
+      el.setSelectionRange(applied.cursor, applied.cursor);
+    } else {
+      pendingCaretRef.current = applied.cursor;
+    }
     setDraft(applied.text);
     ac.close();
   };

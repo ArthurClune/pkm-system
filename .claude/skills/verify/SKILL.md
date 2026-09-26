@@ -106,6 +106,25 @@ subsequent check is reload-and-drive against the same environment:
   verified state usually suffices; don't screenshot intermediate steps that a
   DOM read already confirms.
 
+## Performance
+
+Run `perf/check.sh` (from the repo root, in the worktree) after any
+server/web change, alongside the UI drive above — it's a separate gate, not
+a replacement for it. It picks backend and/or frontend automatically from
+the diff against `main`. The frontend side builds its own SPA and runs its
+own throwaway server on port 8977 with its own fixture, so it never
+conflicts with the scratch server this skill drives on 8975. Results land
+in `perf/out/`.
+
+Three verdicts:
+
+- **Regression** — read your own diff along the regressed path, find the
+  cause, fix it, re-run. Only bring it to Arthur, with the table and what
+  you found, if it survives.
+- **Unstable** — the harness itself is flaky; fix the harness, not the code.
+- **Stale baseline** — re-run with `perf/check.sh <side> --rebaseline` and
+  commit the rewritten baseline file with your change.
+
 ## Gotchas
 
 - The headless tab occasionally resets to `about:blank` and drops cookies

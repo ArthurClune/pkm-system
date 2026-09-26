@@ -1,5 +1,15 @@
 # Frontend performance harness
 
+## Gate vs investigation
+
+`check.mjs` is the gate: it runs headless via `perf/check.sh`, counts (not
+times) what the SPA does, and compares against the committed baseline in
+`perf/`. It shares its Playwright setup with `perf.mjs` through `harness.mjs`.
+Everything else in this directory — `perf.mjs`, `ws-probe.mjs` and the rest —
+is the investigation toolkit below: headed, exploratory, read by a human.
+`baselines/<date>/` here is that investigation's own history, not the gate's
+baseline.
+
 Playwright scripts that measure what the SPA actually does — timers, fetches,
 WebSocket attempts, forced layouts, long tasks, CPU — under idle, degraded
 network, typing, multi-tab, journal scroll, outline drag and cold load.

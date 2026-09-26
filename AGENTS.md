@@ -48,6 +48,7 @@ Run these from the repo root before considering backend/frontend work verified:
 - Web verification (typecheck, enforced unit coverage, and Playwright E2E): `cd web && pnpm verify`
 - Web unit tests only: `cd web && pnpm test:unit`
 - Web type check only: `cd web && pnpm typecheck`
+- Performance: `perf/check.sh` (picks backend and/or frontend from the diff against `main`). Run it before considering backend, DB, API or `web/` work verified. It gates on counts (queries, VM work, full scans, fetches, renders) and flags timings only when they clearly worsen. A **regression** means: read your own diff along the regressed path, find the cause, fix it, re-run — and only bring it to Arthur, with the table and what you found, if it survives. **Unstable** means the harness is flaky (fix the harness, not the code); **stale baseline** means `perf/check.sh <side> --rebaseline`. Commit any baseline file it rewrites (improvements) with the change. A branch's final review package includes the perf table.
 
 ### Skills
 

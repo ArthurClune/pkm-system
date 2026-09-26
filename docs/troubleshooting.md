@@ -140,4 +140,3 @@ Owner: [performance-checks.md](architecture/performance-checks.md)
 | Symptom | Cause | Where | Ref |
 |---|---|---|---|
 | A frontend check fails with `port 8977 is in use` while no other perf check is running | An orphaned fixture server. It runs in its own process group, so a hard-killed `run.py` leaves it holding the port. Find it with `lsof -iTCP:8977` and stop it; never move the check to 8974 or 8975 | [performance-checks.md § Shared state](architecture/performance-checks.md#shared-state) | pkm-uxop |
-| A frontend confirmation times out in setup, waiting for `pkm:replica-ready`, at the merge-base run | The merge base's SPA predates the `pkm:replica-ready` mark in `replicaSync.ts`. The branch's `check.mjs` needs it to time replica readiness and to know a context is ready | [performance-checks.md § Confirmation](architecture/performance-checks.md#confirmation) | replicaSync.test.ts |

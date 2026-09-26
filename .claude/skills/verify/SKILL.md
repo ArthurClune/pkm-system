@@ -108,9 +108,10 @@ subsequent check is reload-and-drive against the same environment:
 
 ## Performance
 
-Run `perf/check.sh` (from the repo root, in the worktree) after any
-server/web change, alongside the UI drive above — it's a separate gate, not
-a replacement for it. It picks backend and/or frontend automatically from
+Run `perf/check.sh` (from the repo root, in the worktree) when a piece of
+major work is complete and before merge — not on every commit in a branch —
+alongside the UI drive above; it's a separate gate, not a replacement for it.
+It picks backend and/or frontend automatically from
 the diff against `main`. The frontend side builds its own SPA and runs its
 own throwaway server on port 8977 with its own fixture, so it never
 conflicts with the scratch server this skill drives on 8975. Results land
@@ -133,10 +134,12 @@ What to do with each verdict (the table's `next:` lines say the same):
 
 Two situations the verdicts don't cover:
 
-- **Cannot compare: env differs** because your branch bumps the
-  environment (Python, SQLite, Chromium): read the diff, then
-  `perf/check.sh <side> --bootstrap` on the branch. `--rebaseline` would
-  record the merge base's old environment and refuse again.
+- **Cannot compare: env differs** because your branch bumps Python or
+  SQLite: read the diff, then `perf/check.sh <side> --bootstrap` on the
+  branch. `--rebaseline` would reproduce the merge base's old environment
+  (its own venv) and refuse again. A Chromium bump or a fixture change is
+  different: `check.mjs` always runs from the branch's Playwright, so
+  `--rebaseline` catches it up fine.
 - **Merge conflict in a `perf/baseline-*.json`**: take either side, then
   re-run `perf/check.sh` and commit what it writes.
 

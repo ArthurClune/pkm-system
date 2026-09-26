@@ -1,5 +1,9 @@
 # Performance regression checks — design
 
+The as-built description lives in
+[`docs/architecture/performance-checks.md`](../../architecture/performance-checks.md);
+this spec is the design record and has drifted from it in details.
+
 Date: 2026-09-26 · Status: implemented (plan: `docs/superpowers/plans/2026-09-26-perf-regression-checks.md`; bean pkm-q1hh)
 
 ## Intent

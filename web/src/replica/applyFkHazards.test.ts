@@ -105,6 +105,57 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     expect(queuedBatchIds(t.db)).toEqual(["batch-child"]);
   });
 
+  test("baseline tightening catches a DELETE-freed rowid reused by a later batch's dangling insert (pkm-ufjt)", () => {
+    // `blocks` is a rowid table (uid TEXT PRIMARY KEY, no AUTOINCREMENT): a
+    // new row's rowid is max(rowid)+1, so deleting the max-rowid row frees it
+    // for reuse by the very next insert in the same transaction. Demonstrate
+    // that in isolation first, on SNAP's own rows, inside a throwaway
+    // transaction the test rolls back itself (not db.transaction(), so this
+    // doesn't disturb the fixture the scenario below depends on):
+    t.db.exec("BEGIN");
+    expect(t.db.select<{ rowid: number }>(
+      "SELECT rowid FROM blocks WHERE uid = 'uid_b3'")[0].rowid).toBe(3);
+    t.db.exec("DELETE FROM blocks WHERE uid = 'uid_b3'"); // frees rowid 3
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
+      " collapsed, created_at, updated_at) VALUES ('uid_probe',1,NULL,99,'x',0,1,1)");
+    expect(t.db.select<{ rowid: number }>(
+      "SELECT rowid FROM blocks WHERE uid = 'uid_probe'")[0].rowid).toBe(3);
+    t.db.exec("ROLLBACK");
+
+    // Two batches queue clean at enqueue time: one deletes uid_b3 (rowid 3),
+    // the other creates uid_y under uid_b2 (rowid 2).
+    enqueueBatch(t.db, [{ op: "delete", uid: "uid_b3" }], 5, "batch-del-b3");
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_y", page_title: "Machine Learning",
+        parent_uid: "uid_b2", order_idx: 0, text: "typed offline" },
+    ], 6, "batch-create-y");
+    // The window tombstones uid_b2 -- cascading uid_y away -- and re-hydrates
+    // uid_b3 moved under a parent beyond the window (dependency-incomplete,
+    // same shape as the first test above). uid_b3 is a fresh INSERT (the
+    // pending delete already removed the old row optimistically) and lands
+    // on rowid 2, the lowest free slot: the window's own baseline is
+    // {[blocks,2,blocks,0]}.
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      tombstones: [{ kind: "block", entity_id: "uid_b2" }],
+      blocks: [block("uid_b3", 1, { parent_uid: "uid_far_parent" })],
+    }));
+    // batch-del-b3 deletes uid_b3 (rowid 2), shrinking the baseline to {} --
+    // the tightening under test. batch-create-y then inserts uid_y, which
+    // reuses that same freed rowid 2 and so reports the IDENTICAL key
+    // ([blocks,2,blocks,0], parent_uid still dangling on uid_b2). Against the
+    // tightened (now-empty) baseline that key is a new violation, so
+    // batch-create-y rolls back. Without the tightening it would still equal
+    // the untouched original baseline and be waved through, masking a
+    // dangling insert as the window's own already-known violation.
+    expect(res).toEqual({ status: "applied", cursor: 11 });
+    expect(getMeta(t.db, "cursor")).toBe("11");
+    expect(uids(t.db)).toEqual(["uid_b1"]);
+    expect(queuedBatchIds(t.db)).toEqual(["batch-del-b3", "batch-create-y"]);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
+  });
+
   test("a pending child of a poisoned batch's block does not wedge snapshot repair", () => {
     // Poison repair and Reset local data both re-run reapplyPending over a
     // fresh snapshot. The poisoned batch (which created the parent) is

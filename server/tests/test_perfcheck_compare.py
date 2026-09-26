@@ -111,6 +111,22 @@ def test_confirm_without_merge_base_means_regression():
                    doc({"a": {"n": ex(2)}}), None) == {("a", "n"): "regression"}
 
 
+def test_confirm_judges_a_reproduced_timing_against_the_merge_base_run():
+    # timings move with machine load, so a reproduced timing is judged
+    # against the merge base measured in the same confirmation
+    base = doc({"s": {"ms": tm(10.0)}})
+    cand = [Finding("s", "ms", "candidate", "10.0", "25.0")]
+    rerun = doc({"s": {"ms": tm(25.0)}})
+
+    def verdict(mb_ms):
+        return confirm(base, cand, rerun, doc({"s": {"ms": tm(mb_ms)}}))[("s", "ms")]
+    assert verdict(10.0) == "regression"       # branch clearly slower than base now
+    assert verdict(22.0) == "stale-baseline"   # base as slow now: baseline is stale
+    assert verdict(15.0) == "unstable"         # neither clearly slower: noise
+    assert confirm(base, cand, doc({"s": {"ms": tm(15.0)}}),
+                   doc({"s": {"ms": tm(10.0)}})) == {("s", "ms"): "unstable"}
+
+
 def test_bootstrap_builds_bands_and_timing_median():
     runs = [doc({"s": {"n": ex(4), "lt": bv(v), "ms": tm(t)}})
             for v, t in [(1, 10.0), (3, 30.0), (2, 20.0)]]

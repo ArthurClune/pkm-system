@@ -6,7 +6,8 @@ Every metric carries a class declared by the check that produced it:
 bootstrap, `timing` values must not clearly worsen. Improvements are folded
 into `Comparison.new_baseline` so they cannot silently erode later; a
 worsened value is only a *candidate* until `confirm` has seen a re-run and a
-merge-base run."""
+merge-base run; a reproduced timing is then judged against that merge-base
+run rather than the baseline."""
 from __future__ import annotations
 
 import copy
@@ -140,14 +141,30 @@ def compare(baseline: dict, result: dict) -> Comparison:
     return Comparison(tuple(findings), new)
 
 
-def _still_worse(baseline: dict, f: Finding, run: dict | None) -> bool | None:
-    """None when the run lacks the metric (treated as not reproduced)."""
+def _metric(run: dict | None, f: Finding) -> dict | None:
     if run is None:
         return None
-    m = run["scenarios"].get(f.scenario, {}).get(f.metric)
+    return run["scenarios"].get(f.scenario, {}).get(f.metric)
+
+
+def _still_worse(baseline: dict, f: Finding, run: dict | None) -> bool | None:
+    """None when the run lacks the metric (treated as not reproduced)."""
+    m = _metric(run, f)
     if m is None:
         return None
     return judge(baseline["scenarios"][f.scenario][f.metric], m)[0] == "candidate"
+
+
+def _confirm_timing(baseline: dict, f: Finding, rerun: dict, merge_base: dict | None) -> Outcome:
+    """A timing moves with machine load, which the re-run straight after the
+    first run shares; so the branch is judged against the merge base measured
+    in the same confirmation, not against the stored baseline."""
+    now, mb = _metric(rerun, f), _metric(merge_base, f)
+    if mb is None or now is None or now["value"] > mb["value"] * TIMING_FACTOR:
+        return "regression"
+    if _still_worse(baseline, f, merge_base):
+        return "stale-baseline"
+    return "unstable"
 
 
 def confirm(baseline: dict, candidates: Iterable[Finding], rerun: dict,
@@ -157,6 +174,8 @@ def confirm(baseline: dict, candidates: Iterable[Finding], rerun: dict,
         key = (f.scenario, f.metric)
         if not _still_worse(baseline, f, rerun):
             out[key] = "unstable"
+        elif baseline["scenarios"][f.scenario][f.metric]["class"] == "timing":
+            out[key] = _confirm_timing(baseline, f, rerun, merge_base)
         elif _still_worse(baseline, f, merge_base):
             out[key] = "stale-baseline"
         else:

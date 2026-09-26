@@ -85,13 +85,25 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
 const suffix = (d) => (d % 100 >= 10 && d % 100 <= 20) ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[d % 10] ?? "th");
 const dailyTitle = (dt) => `${MONTHS[dt.getMonth()]} ${dt.getDate()}${suffix(dt.getDate())}, ${dt.getFullYear()}`;
 
-async function assertFrozenToday(page) {
-  // The fixture's newest journal day is FROZEN's date (TZ=Europe/London); if
-  // the browser clock were real, the journal would open on an empty "today".
+const CLOCK_SLACK_MS = 10 * 60_000;
+
+async function assertFrozenClock(page) {
+  // The fake clock starts at FROZEN and flows, so the browser's now must sit
+  // just after it; a real clock would read today's date.
+  const seen = await page.evaluate(() => new Date().toISOString());
+  const lag = Date.parse(seen) - Date.parse(FROZEN);
+  if (!(lag >= 0 && lag < CLOCK_SLACK_MS)) {
+    throw new Error(`browser clock not frozen: want just after ${FROZEN}, browser reads ${seen}`);
+  }
+}
+
+async function assertNewestJournalDay(page) {
+  // The journal opens on the newest existing day, whatever the clock says,
+  // so this checks the fixture, not the clock: its newest day is FROZEN's.
   const want = dailyTitle(new Date(FROZEN));
   const first = await page.locator("section.journal-day").first().innerText();
   if (!first.includes(want)) {
-    throw new Error(`browser clock not frozen: want ${want}, first journal day reads ${JSON.stringify(first.slice(0, 40))}`);
+    throw new Error(`fixture's newest journal day is not ${want}: first journal day reads ${JSON.stringify(first.slice(0, 40))}`);
   }
 }
 
@@ -99,7 +111,8 @@ async function cold({ page, bag }) {
   await login(page);
   const readyMs = await replicaReadyMs(page);
   await page.waitForLoadState("networkidle");
-  await assertFrozenToday(page);
+  await assertFrozenClock(page);
+  await assertNewestJournalDay(page);
   scenarios["H/cold"] = {
     requests: ex(bag.requestTotal),
     api_bytes: ex(await apiBytes(page)),
@@ -236,7 +249,7 @@ async function drag({ page, cdp }, name, fromBottom) {
     fire(handle, "dragend", 200, bottom);
     return { meanMs: ms.reduce((s, v) => s + v, 0) / ms.length, notPrevented };
   }, { events: 120, paceMs: 16 });
-  if (d.error) throw new Error(`${name}: ${d.error}`);
+  if (d.error) throw new Error(d.error);
   await sleep(1500);
   const r = await page.evaluate(() => ({ ...window.__react }));
   scenarios[name] = { not_prevented: ex(d.notPrevented), react_commits: band(r.commits),
@@ -252,10 +265,34 @@ async function search({ page, bag }, name, term) {
   await input.click();
   for (const k of Object.keys(bag.requests)) delete bag.requests[k];
   await page.evaluate(() => { window.__perfReset(); window.__reactReset?.(); });
-  await input.pressSequentially(term, { delay: 150 });
-  const t0 = Date.now();
-  await page.waitForSelector("li.search-result mark", { timeout: 15_000 });
-  const resultsMs = Date.now() - t0;
+  // Type all but the last key and let its results land, then time the last
+  // key in the page: keydown to the render of that term's results. The
+  // `Create page "<term>"` row appears once results for exactly the typed
+  // term are on screen (no fixture page carries either term as its title).
+  const head = term.slice(0, -1), last = term.slice(-1);
+  const created = (q) => `li.search-result:has-text('Create page "${q}"')`;
+  await input.pressSequentially(head, { delay: 150 });
+  await page.waitForSelector(created(head), { timeout: 15_000 });
+  await page.waitForLoadState("networkidle");
+  await page.evaluate((label) => {
+    const input = document.querySelector("input.top-bar-search-input");
+    window.__searchMs = new Promise((resolve) => {
+      let t0 = null;
+      const done = () => [...document.querySelectorAll("li.search-result .result-page")]
+        .some((el) => el.textContent === label);
+      const mo = new MutationObserver(() => {
+        if (t0 !== null && done()) { mo.disconnect(); resolve(performance.now() - t0); }
+      });
+      mo.observe(document.body, { subtree: true, childList: true, characterData: true });
+      input.addEventListener("keydown", () => { t0 = performance.now(); },
+                             { once: true, capture: true });
+    });
+  }, `Create page "${term}"`);
+  await input.press(last);
+  const resultsMs = await page.evaluate(() => Promise.race([
+    window.__searchMs,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("no results for the full term")), 15_000)),
+  ]));
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   // Open a real block hit by clicking it: Enter on the synthetic
@@ -274,12 +311,26 @@ async function search({ page, bag }, name, term) {
 
 const any = (...ids) => ids.some((id) => ONLY.has(id));
 
-async function loggedIn(browser, opts) {
-  const ctx = await newContext(browser, opts);
-  const st = await openPage(ctx);
-  await login(st.page);
-  await replicaReadyMs(st.page);
-  return { ctx, st };
+// Every failure names what it was doing, so a broken gate says which
+// scenario to look at.
+async function step(label, fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    throw new Error(`${label} failed: ${e.message}`, { cause: e });
+  }
+}
+const run = (name, fn) => step(`scenario ${name}`, fn);
+
+async function loggedIn(browser, letters, opts) {
+  return step(`setup for ${letters}`, async () => {
+    const ctx = await newContext(browser, opts);
+    const st = await openPage(ctx);
+    await login(st.page);
+    await replicaReadyMs(st.page);
+    await assertFrozenClock(st.page);
+    return { ctx, st };
+  });
 }
 
 async function main() {
@@ -290,28 +341,35 @@ async function main() {
     if (any("H", "W")) {
       const ctx = await newContext(browser);
       const st = await openPage(ctx);
-      await cold(st);
-      if (ONLY.has("W")) await warm(st);
+      await run("H/cold", () => cold(st));
+      if (ONLY.has("W")) await run("W/warm", () => warm(st));
       if (!ONLY.has("H")) delete scenarios["H/cold"];
       await ctx.close();
     }
     // No React hook here: it walks the fiber tree on every commit and would
     // distort idle and typing behaviour.
     if (any("A", "B", "F", "I")) {
-      const { ctx, st } = await loggedIn(browser);
-      if (ONLY.has("A")) await idle(st.page, "A/idle-big", BIG_PAGE, "div.block-text");
-      if (ONLY.has("B")) await idle(st.page, "B/idle-journal", "/", "section.journal-day");
-      if (ONLY.has("F")) await typing(st);
-      if (ONLY.has("I")) await journalScroll(st);
+      const { ctx, st } = await loggedIn(browser, "A,B,F,I");
+      if (ONLY.has("A")) await run("A/idle-big", () =>
+        idle(st.page, "A/idle-big", BIG_PAGE, "div.block-text"));
+      if (ONLY.has("B")) await run("B/idle-journal", () =>
+        idle(st.page, "B/idle-journal", "/", "section.journal-day"));
+      if (ONLY.has("F")) await run("F/typing", () => typing(st));
+      if (ONLY.has("I")) await run("I/journal-scroll", () => journalScroll(st));
       await ctx.close();
     }
     // React-hook context for commit counts (J, K, S).
     if (any("J", "K", "S")) {
-      const { ctx, st } = await loggedIn(browser, { react: true });
-      if (ONLY.has("J")) await journalTyping(st);
-      if (ONLY.has("K")) { await drag(st, "K/drag-top", false); await drag(st, "K/drag-bottom", true); }
-      if (ONLY.has("S")) { await search(st, "S/search-common", "project");
-                           await search(st, "S/search-rare", "zyxquark"); }
+      const { ctx, st } = await loggedIn(browser, "J,K,S", { react: true });
+      if (ONLY.has("J")) await run("J/journal-typing", () => journalTyping(st));
+      if (ONLY.has("K")) {
+        await run("K/drag-top", () => drag(st, "K/drag-top", false));
+        await run("K/drag-bottom", () => drag(st, "K/drag-bottom", true));
+      }
+      if (ONLY.has("S")) {
+        await run("S/search-common", () => search(st, "S/search-common", "project"));
+        await run("S/search-rare", () => search(st, "S/search-rare", "zyxquark"));
+      }
       await ctx.close();
     }
     const doc = { commit: process.env.PERF_COMMIT ?? "working-tree",

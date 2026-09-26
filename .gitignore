@@ -26,3 +26,6 @@ docs/superpowers/handoffs/
 
 # codegraph working dir
 .codegraph
+
+# perf check outputs (baselines in perf/ are committed)
+perf/out/

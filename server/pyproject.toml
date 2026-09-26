@@ -24,6 +24,7 @@ dev = [
     "pyrefly>=1.1",
     "ruff>=0.15.20",
     "pytest-cov>=7.1.0",
+    "time-machine>=3.5.1",
 ]
 
 [build-system]
@@ -36,6 +37,7 @@ packages = ["src/pkm"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=pkm --cov-branch --cov-report=term-missing --cov-fail-under=95"
+pythonpath = ["tooling"]
 
 [tool.ruff]
 line-length = 120

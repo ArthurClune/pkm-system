@@ -37,7 +37,7 @@ flowchart LR
   G[fixture.py<br/>seed → ops] -->|ops_apply path| DB[(cached fixture DB<br/>keyed by generator+DDL hash)]
   DB --> BE[backend check<br/>TestClient in-process]
   DB --> SV[e2e_serve.py --from-db<br/>port 8977]
-  SV --> FE[frontend check<br/>perf.mjs --check, headless]
+  SV --> FE[frontend check<br/>check.mjs, headless]
   BE --> RB[perf-backend.json]
   FE --> RF[perf-frontend.json]
   RB & RF --> CMP[compare.py]
@@ -53,11 +53,13 @@ flowchart LR
 | Fixture builder | `server/tooling/perf/build_fixture.py` | Imperative Shell | Applies ops through the real ops-apply path into a DB under a gitignored cache dir; reuses it when the hash of generator source + `pkm.schema.DDL` matches |
 | Backend check | `server/tooling/perf/check_backend.py` | Imperative Shell | Copies the cached DB, runs the scenario list via `TestClient`, writes `perf-backend.json` |
 | Statement counter | `server/tooling/perf/trace.py` | Imperative Shell | Installs `set_trace_callback` on every connection the app opens for the duration of one request; collects distinct statements for `EXPLAIN QUERY PLAN` |
-| Frontend check | `web/tooling/perf/perf.mjs --check` | script | Runs the gated scenario subset headless, writes `perf-frontend.json` |
+| Frontend check | `web/tooling/perf/check.mjs` | script | Runs the gated scenario subset headless, writes `perf-frontend.json`; shares extracted helpers (`harness.mjs`) with `perf.mjs` |
 | e2e server option | `server/tests/e2e_serve.py` | Imperative Shell | New option: start from a copy of a given DB instead of an empty one |
 | Compare | `perf/compare.py` (core) + `perf/compare_cli.py` (shell) | Core + Shell | Applies the rules below to one result file vs one baseline file; returns a verdict, a table, and the new baseline |
-| Entry point | `perf/check.sh [backend\|frontend\|auto]` | script | Picks sides from the diff, builds the SPA when `web/` changed, runs checks, runs compare |
+| Orchestration | `server/tooling/perfcheck/run.py` | Imperative Shell | Picks sides from the diff, builds the SPA when `web/` changed, runs checks, runs compare |
+| Entry point | `perf/check.sh [backend\|frontend\|auto]` | script | Three-line wrapper: `python -m perfcheck.run` |
 | Baselines | `perf/baseline-backend.json`, `perf/baseline-frontend.json` | data | Committed |
+| Replica-ready mark | SPA (`web/src/…`) | Imperative Shell | `performance.mark("pkm:replica-ready")`, so the frontend check can time replica readiness (no DOM signal exists today) |
 
 Result and baseline files share one shape. Every metric carries its class
 (see Determinism); a `band` metric stores the min and max seen at bootstrap,
@@ -70,10 +72,12 @@ the others a single value:
   "env": {"python": "3.12.8", "sqlite": "3.47.2", "chromium": "131.0.6778.33"},
   "scenarios": {
     "backlinks/hub": {
-      "statements": {"class": "exact",  "value": 4},
-      "bytes":      {"class": "exact",  "value": 18433},
-      "full_scans": {"class": "exact",  "value": 0},
-      "median_ms":  {"class": "timing", "value": 11.2}
+      "statements":          {"class": "exact",  "value": 4},
+      "trigger_statements":  {"class": "exact",  "value": 0},
+      "vm_steps_k":          {"class": "exact",  "value": 7},
+      "bytes":               {"class": "exact",  "value": 18433},
+      "full_scans":          {"class": "exact",  "value": 0},
+      "median_ms":           {"class": "timing", "value": 11.2}
     },
     "F/typing": {
       "forced_layouts_per_key": {"class": "exact", "value": 1},
@@ -83,8 +87,10 @@ the others a single value:
 }
 ```
 
-A result file has the same shape with plain values; `env` is empty for the
-side it doesn't apply to (no `chromium` in the backend file).
+A result file has the same shape, `class` included on every metric — compare
+needs the class to know how to judge a metric that's new since the baseline
+was recorded. `env` is empty for the side it doesn't apply to (no `chromium`
+in the backend file).
 
 ## Fixture
 
@@ -124,15 +130,18 @@ Two different keys, on purpose:
 
 Each write scenario runs against a fresh copy of the fixture DB.
 
-Per scenario — counts: SQL statements executed, rows returned, response
-bytes, full-table scans (`SCAN <table>` without an index in `EXPLAIN QUERY
-PLAN` of any distinct statement). Timing: median wall time.
+Per scenario — counts: SQL statements executed, trigger statements executed,
+`vm_steps_k` (SQLite VM instructions, in thousands, via a progress handler
+firing every 1,000 steps — Python's sqlite3 can't count rows scanned
+cheaply, and this catches a full scan or a lost index deterministically),
+response bytes, full-table scans (`SCAN <table>` without an index in
+`EXPLAIN QUERY PLAN` of any distinct statement). Timing: median wall time.
 
 ### Frontend (headless, fixture DB served on 8977)
 
 | Id | Scenario | Counts | Timing |
 |---|---|---|---|
-| H | cold load, empty replica | requests, bytes fetched, snapshot pages pulled | replica ready |
+| H | cold load, empty replica | requests, API bytes (`/api/*` encodedBodySize), snapshot pages pulled | replica ready |
 | H' | warm load (replica + SW warm) | requests, `/api/sync/changes` pulls | first outline paint |
 | A/B | idle on big page / journal | timers armed, fetches, WS opens, long tasks | — |
 | F | typing on big page | forced layouts, DOM mutations outside the block, fetches (per keystroke) | — |
@@ -148,11 +157,17 @@ PLAN` of any distinct statement). Timing: median wall time.
 | `exact` metric goes up | candidate regression → confirmation (below) |
 | `band` metric goes above `max` | candidate regression → confirmation |
 | `timing` metric more than doubles | candidate regression → confirmation |
-| `exact` or `timing` goes down; `band` value below `min` | improvement: baseline rewritten (`value`, or `min`/`max` shifted down by the same amount) |
-| `band` value inside `[min, max]` | pass, baseline unchanged |
+| `exact` metric goes down; `band` value below `min` | improvement: baseline rewritten (`value`, or `min`/`max` shifted down by the same amount) |
+| `timing` metric more than halves | improvement: baseline rewritten to the new value |
+| `band` value inside `[min, max]`; `timing` metric changed but not past doubling or halving | pass, baseline unchanged |
 | New scenario or metric | recorded; new metrics start as `exact` unless the check declares otherwise |
 | Scenario missing from the result | lost coverage (regression, no confirmation needed) |
+| A metric's class differs from the baseline's | reclassified: needs `--bootstrap` — compare doesn't guess a band from one run |
 | `fixture_hash` or `env` differs from baseline | refuse to compare: `perf/check.sh --rebaseline` re-records the baseline at the merge base (temporary worktree, branch's generator, this machine's env), then compare |
+
+Timing improvements ratchet only past the halving line, not on any decrease:
+rewriting the baseline on every faster run would walk it down to the
+luckiest run seen and turn ordinary noise into future flags.
 
 **Confirmation.** A candidate regression is only reported as a regression
 after two further checks, both run automatically by `check.sh` on the

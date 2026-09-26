@@ -145,6 +145,7 @@ web/src/
 │   ├── blockRefs.ts          Shell        block_refs re-derivation, shared by both applies
 │   ├── errors.ts             Core         The availability taxonomy
 │   ├── openRetry.ts / poolCapacity.ts  Core  OPFS open policy
+│   ├── pendingGuard.ts       Core         May a window apply over a moved pending set
 │   ├── titles.ts             Core         Title canonicalization
 │   └── baseSchema.gen.ts     —            Generated from the server's BASE_DDL
 │

@@ -59,6 +59,54 @@ test("clicking an autocomplete row completes the page reference", async () => {
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
+// Same race as BlockInput's (pkm-j7ez): the caret after a pick used to be
+// placed in a requestAnimationFrame, so until the next frame it sat at the
+// end of the text and typing there was later yanked back. Frames are held
+// back here; the caret must be right without one and stay where typing put it.
+test("a mid-text completion places the caret after the ref before any frame (pkm-j7ez)", async () => {
+  const frames: FrameRequestCallback[] = [];
+  const spy = vi.spyOn(window, "requestAnimationFrame")
+    .mockImplementation((cb) => { frames.push(cb); return frames.length; });
+  try {
+    stubFetch([["/api/titles", { titles: ["Alpha", "Alpine"] }]]);
+    render(<Composer onSend={vi.fn()} readOnly={false} />);
+    const ta = screen.getByRole("textbox", { name: "Add to this page" }) as
+      HTMLTextAreaElement;
+    fireEvent.change(ta, {
+      target: { value: "See [[Al and more", selectionStart: 8, selectionEnd: 8 },
+    });
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "Alpha" }));
+    expect(ta).toHaveValue("See [[Alpha]] and more");
+    expect([ta.selectionStart, ta.selectionEnd]).toEqual([13, 13]);
+    fireEvent.change(ta, { target: { value: "See [[Alpha]]! and more" } });
+    ta.setSelectionRange(14, 14);
+    frames.splice(0).forEach((cb) => cb(0));
+    expect([ta.selectionStart, ta.selectionEnd]).toEqual([14, 14]);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+// A pick that leaves the text unchanged (re-picking the title already inside
+// [[…]]) commits nothing, so no layout effect runs: the caret must move
+// past the ref at once, and no offset may be left pending for a later edit.
+test("a pick that leaves the text unchanged still places the caret, and leaves nothing pending", async () => {
+  stubFetch([["/api/titles", { titles: ["Alpha", "Alpine"] }]]);
+  render(<Composer onSend={vi.fn()} readOnly={false} />);
+  const ta = screen.getByRole("textbox", { name: "Add to this page" }) as
+    HTMLTextAreaElement;
+  fireEvent.change(ta, {
+    target: { value: "See [[Alpha]] x", selectionStart: 11, selectionEnd: 11 },
+  });
+  fireEvent.mouseDown(await screen.findByRole("option", { name: "Alpha" }));
+  expect(ta).toHaveValue("See [[Alpha]] x");
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([13, 13]);
+  fireEvent.change(ta, {
+    target: { value: "See [[Alpha]] xy", selectionStart: 16, selectionEnd: 16 },
+  });
+  expect([ta.selectionStart, ta.selectionEnd]).toEqual([16, 16]);
+});
+
 test("arrow keys choose an autocomplete row and Enter applies it", async () => {
   const onSend = vi.fn();
   stubFetch([["/api/titles", { titles: ["Alpha", "Alpine"] }]]);

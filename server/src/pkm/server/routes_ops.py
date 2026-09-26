@@ -43,7 +43,13 @@ async def post_ops(request: Request,
         db.rollback()
         raise HTTPException(status_code=400,
                             detail={"index": e.index, "reason": e.reason})
-    response = {"ok": True, "ts": now, "applied": len(batch.ops)}
+    # Read inside the batch's own write transaction, so this is exactly the
+    # journal max including the batch's rows. A replica compares it with a
+    # sync window's latest_seq: a window whose latest_seq has reached it
+    # already carries this batch (pkm-ur2n). Acks stored before this field
+    # existed replay without it; clients treat a missing seq as unknown.
+    seq = db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+    response = {"ok": True, "ts": now, "applied": len(batch.ops), "seq": seq}
     try:
         db.execute(
             "INSERT INTO applied_batches VALUES (?,?,?,?)",

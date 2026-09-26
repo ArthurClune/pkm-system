@@ -7,14 +7,23 @@ import { chromium } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { BASE, BIG_PAGE, INIT, REACT_INIT, sleep, attachCounters, freshBag,
-         login } from "./harness.mjs";
+         resetBag, login } from "./harness.mjs";
 
 const arg = (name, dflt) => {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : dflt;
 };
 const OUT = arg("--out");
-const ONLY = new Set((arg("--only", "H,W,A,B,F,J,I,K,S")).split(","));
+const LETTERS = "H,W,A,B,F,J,I,K,S";
+const ONLY = new Set((arg("--only", LETTERS)).split(","));
+{
+  const valid = new Set(LETTERS.split(","));
+  const unknown = [...ONLY].filter((l) => !valid.has(l));
+  if (unknown.length) {
+    console.error(`--only: unknown scenario letter(s) ${unknown.join(",")}; valid letters: ${LETTERS}`);
+    process.exit(2);
+  }
+}
 const FROZEN = process.env.PERF_FROZEN_NOW;
 if (!OUT || !FROZEN) { console.error("need --out and PERF_FROZEN_NOW"); process.exit(2); }
 const IDLE_MS = 30_000;
@@ -31,6 +40,26 @@ const REAL_NOW = () => {
   const now = performance.now.bind(performance);
   window.__realNow = now;
 };
+
+// Playwright doesn't guarantee init-script execution order, so REAL_NOW
+// (registered before ctx.clock.install()) is not guaranteed to run first;
+// if the fake clock installs its performance stub before REAL_NOW runs,
+// window.__realNow would end up bound to the fake, whole-millisecond now().
+// Guard it directly rather than trust the registration order: the real
+// clock returns a fractional value most samples, the faked one never does.
+// Samples are taken as separate round trips spaced by a real sleep, not a
+// tight in-page loop — back-to-back reads can all land in the same coarse
+// timer bucket (browsers quantise performance.now() for a real clock too),
+// which would look identically "always integer" for a few microseconds.
+async function assertRealNowUnfaked(page) {
+  for (let i = 0; i < 8; i++) {
+    const n = await page.evaluate(() => window.__realNow?.());
+    if (typeof n === "number" && !Number.isInteger(n)) return;
+    await sleep(5);
+  }
+  throw new Error("window.__realNow looks faked (every sample over 40 ms was a whole "
+    + "millisecond): REAL_NOW's init script may have run after ctx.clock.install()");
+}
 
 // The fake clock replaces window.performance with a stub whose mark() is a
 // no-op and whose getEntries*() return [], so the app's marks never reach
@@ -65,6 +94,9 @@ async function newContext(browser, { react = false } = {}) {
 // waits until none of the page's requests has been in flight for QUIET_MS,
 // watching for at least that long itself: a request the app is about to
 // send (the pull starts just after the mark) must not find it already done.
+// This assumes any follow-up request starts within QUIET_MS of the one
+// before it settling — true of every retry/pull chain the app has today;
+// a slower chain would need a longer QUIET_MS, not a different mechanism.
 const QUIET_MS = 1000;
 const SETTLE_TIMEOUT_MS = 30_000;
 
@@ -169,8 +201,7 @@ async function cold(st) {
 
 async function warm(st) {
   const { page, bag } = st;
-  for (const k of Object.keys(bag.requests)) delete bag.requests[k];
-  bag.requestTotal = 0;
+  resetBag(bag);
   await page.goto(BASE + BIG_PAGE);
   await page.waitForSelector("div.block-text", { timeout: 30_000 });
   const paintMs = await page.evaluate(() => performance.now() - window.__docStart);
@@ -218,17 +249,20 @@ const ACK_MARGIN_MS = 100;
 const isPath = (p) => (url) => url.pathname === p;
 
 async function pinSaveOrder(page) {
-  let pullSent, ackDelivered;
+  let pullSent, ackDelivered, opsIntercepted = false;
   const pulled = new Promise((resolve) => { pullSent = resolve; });
   const acked = new Promise((resolve) => { ackDelivered = resolve; });
   const onChanges = async (route) => {
-    pullSent();
+    // Only a pull sent after this save's ops request was intercepted counts
+    // as "the nudge's pull" — an earlier, unrelated pull must not satisfy it.
+    if (opsIntercepted) pullSent();
     const response = await route.fetch();
     await acked;
     await sleep(ACK_MARGIN_MS);
     await route.fulfill({ response });
   };
   const onOps = async (route) => {
+    opsIntercepted = true;
     const response = await route.fetch();
     await Promise.race([pulled, sleep(PULL_WAIT_MS)]);
     await route.fulfill({ response });
@@ -319,7 +353,7 @@ async function journalScroll(st) {
   await page.goto(BASE + "/");
   await page.waitForSelector("section.journal-day", { timeout: 30_000 });
   await settle(st);
-  for (const k of Object.keys(bag.requests)) delete bag.requests[k];
+  resetBag(bag);
   for (let i = 0; i < 40; i++) { await page.mouse.wheel(0, 600); await sleep(250); }
   await settle(st);
   const pageFetches = Object.entries(bag.requests)
@@ -352,10 +386,15 @@ async function drag(st, name, fromBottom) {
   await page.goto(BASE + BIG_PAGE);
   await page.waitForSelector("div.block-text", { timeout: 30_000 });
   await settle(st);
+  await assertRealNowUnfaked(page);
   if (fromBottom) {
     await page.locator(".outline-drop-zone [data-uid]").last().scrollIntoViewIfNeeded();
     await sleep(1000);
   }
+  // The scroll's own commits (and any from the earlier navigation) can
+  // still be landing; wait for React to go quiet before the reset, same
+  // race J had (commit 0a390e1).
+  await reactQuiet(page);
   await page.evaluate(() => window.__reactReset?.());
   const l0 = await layoutCount(cdp);
   const d = await page.evaluate(async ({ events, paceMs }) => {
@@ -398,7 +437,10 @@ async function search(st, name, term) {
   await settle(st);
   const input = page.locator("input.top-bar-search-input");
   await input.click();
-  for (const k of Object.keys(bag.requests)) delete bag.requests[k];
+  // The click/caret placement can still be committing; wait for React to
+  // go quiet before the reset, same race J had (commit 0a390e1).
+  await reactQuiet(page);
+  resetBag(bag);
   await page.evaluate(() => { window.__perfReset(); window.__reactReset?.(); });
   // Type all but the last key and let its results land, then time the last
   // key in the page: keydown to the render of that term's results. The
@@ -444,6 +486,32 @@ async function search(st, name, term) {
     react_commits: band(r.commits),
     results_ms: tm(resultsMs),
   };
+}
+
+// Types the whole query at a pace well inside SearchBar's 150 ms debounce
+// (20-30 ms per key), so every key re-arms the same timer: with the
+// debounce intact, the whole term sends exactly one /api/search request,
+// 150 ms after the last key. Without it (one request per key), this comes
+// back as more than one. No fixed-pace read of "the last key" is taken —
+// a tail keystroke landing right on the debounce edge would otherwise turn
+// into a band; instead this waits for the full term's results and then for
+// network idle, so any late-firing debounce has already resolved before
+// the count is read (spec Determinism step 2).
+async function searchBurst(st, name, term) {
+  const { page, bag } = st;
+  await page.goto(BASE + "/");
+  await page.waitForSelector("section.journal-day", { timeout: 30_000 });
+  await settle(st);
+  const input = page.locator("input.top-bar-search-input");
+  await input.click();
+  await reactQuiet(page);
+  resetBag(bag);
+  await page.evaluate(() => { window.__perfReset(); window.__reactReset?.(); });
+  await input.pressSequentially(term, { delay: 25 });
+  await page.waitForSelector(`li.search-result:has-text('Create page "${term}"')`,
+                             { timeout: 15_000 });
+  await settle(st);
+  scenarios[name] = { search_requests: ex(count(bag, "/api/search")) };
 }
 
 const any = (...ids) => ids.some((id) => ONLY.has(id));
@@ -506,6 +574,7 @@ async function main() {
       if (ONLY.has("S")) {
         await run("S/search-common", () => search(st, "S/search-common", "project"));
         await run("S/search-rare", () => search(st, "S/search-rare", "zyxquark"));
+        await run("S/search-burst", () => searchBurst(st, "S/search-burst", "wibblefrotz"));
       }
       await ctx.close();
     }

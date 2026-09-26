@@ -7,13 +7,22 @@ from collections.abc import Iterable, Mapping
 
 _PLANNABLE = ("SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "REPLACE")
 
-_ALIASED = re.compile(r"\b(?:FROM|JOIN)\s+(\w+)(?:\s+AS)?\s+(\w+)", re.IGNORECASE)
 # Words that can follow an unaliased table name; never an alias.
 _NOT_ALIAS = frozenset({
     "WHERE", "ON", "USING", "JOIN", "LEFT", "RIGHT", "FULL", "INNER", "OUTER",
     "CROSS", "NATURAL", "GROUP", "ORDER", "LIMIT", "HAVING", "WINDOW", "UNION",
     "EXCEPT", "INTERSECT", "INDEXED", "NOT", "RETURNING", "SET", "VALUES",
     "AND", "OR", "WHEN", "THEN", "ELSE", "END", "AS"})
+
+# The alias word is only consumed as part of the match when it is not one of
+# _NOT_ALIAS: otherwise an unaliased table directly followed by JOIN (`FROM
+# blocks JOIN pages p`) would have its match swallow "JOIN" as a bogus alias
+# for "blocks", leaving nothing at that position for the next JOIN to match
+# against and dropping the real alias ("p" for "pages") entirely.
+_KEYWORDS = "|".join(sorted(_NOT_ALIAS))
+_ALIASED = re.compile(
+    rf"\b(?:FROM|JOIN)\s+(\w+)(?:\s+AS\s+(\w+)|\s+(?!(?:{_KEYWORDS})\b)(\w+))?",
+    re.IGNORECASE)
 
 
 def plannable(sql: str) -> bool:
@@ -23,7 +32,12 @@ def plannable(sql: str) -> bool:
 def aliases(sql: str) -> dict[str, str]:
     """alias -> name for `FROM t a` / `JOIN t AS a` in one statement.
     EXPLAIN QUERY PLAN names an aliased table by its alias (`SCAN b`)."""
-    return {m[2]: m[1] for m in _ALIASED.finditer(sql) if m[2].upper() not in _NOT_ALIAS}
+    out = {}
+    for m in _ALIASED.finditer(sql):
+        alias = m[2] or m[3]
+        if alias:
+            out[alias] = m[1]
+    return out
 
 
 def full_scans(details: Iterable[str], tables: set[str],

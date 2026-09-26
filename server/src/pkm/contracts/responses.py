@@ -441,9 +441,10 @@ class TitleMigrationApplyResponse(BaseModel):
 # -- Write acks ----------------------------------------------------------
 #
 # The two below are NOT declared as `response_model=` on their routes, and
-# should not be: no generated client reads them (the web app ignores both
-# bodies), so attaching them would add components to the published OpenAPI
-# schema for nothing. They exist because the CLI/MCP client does read them
+# should not be: no generated client reads them (the web app ignores the
+# asset-delete body and reads only the ops ack's optional `seq`, by hand), so
+# attaching them would add components to the published OpenAPI schema for
+# nothing. They exist because the CLI/MCP client does read them
 # -- `applied` is printed as "applied N ops" -- and reading them through a
 # model is what makes the read type-checked. tests/test_client_contracts.py
 # asserts each one still matches what its live route returns, which is the
@@ -454,6 +455,9 @@ class OpsAck(BaseModel):
     ok: bool
     ts: int
     applied: int
+    # The journal max as of this batch's commit. None for an ack stored (and
+    # so replayed verbatim) before the field existed.
+    seq: int | None = None
 
 
 class AssetDeleteAck(BaseModel):

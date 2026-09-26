@@ -20,10 +20,6 @@ const caretToEnd = (page: Page) =>
   input(page).evaluate((el: HTMLTextAreaElement) =>
     el.setSelectionRange(el.value.length, el.value.length));
 
-const afterPaint = (page: Page) =>
-  page.evaluate(() => new Promise<void>((resolve) =>
-    requestAnimationFrame(() => resolve())));
-
 test("core editing loop: create, split, indent, persist, link, backlink", async ({ page }) => {
   await login(page);
   const today = page.locator(".journal-day").first();
@@ -45,9 +41,7 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
   await caretToEnd(page);
   await input(page).pressSequentially(" ");
   await input(page).press("[");
-  await afterPaint(page); // auto-pair caret restoration runs after paint
   await input(page).press("[");
-  await afterPaint(page);
   await input(page).pressSequentially("E2E Target");
   await page.getByRole("option", { name: /New page: E2E Target/ }).click();
   await expect(input(page)).toHaveValue("second block [[E2E Target]]");
@@ -319,9 +313,7 @@ test("pausing mid [[ autocomplete does not create the partial page (pkm-xlah)", 
 
   await input(page).pressSequentially("see ");
   await input(page).press("[");
-  await afterPaint(page); // auto-pair caret restoration runs after paint
   await input(page).press("[");
-  await afterPaint(page);
   await input(page).pressSequentially(`Xlah${stamp} Wo`);
   // pause well past the 500ms draft debounce with the ref still half-typed;
   // the held draft must not autosave (autosaving would create the page)
@@ -380,15 +372,9 @@ test("Cmd-B bolds the selection and renders <strong> (pkm-kkpe)", async ({ page 
   await input(page).evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(5, 9));
   await input(page).press("Meta+b");
   await expect(input(page)).toHaveValue("make **bold** now");
-  // applyKeyEdit restores the post-toggle selection inside a rAF (the
-  // controlled-value re-render otherwise collapses it to the end, same as
-  // the bracket auto-pair caret restoration above) — wait for it before the
-  // next toggle reads the selection, or a fast enough press races it.
-  await afterPaint(page);
   // toggle straight back off (selection stays on the inner text), then on again
   await input(page).press("Meta+b");
   await expect(input(page)).toHaveValue("make bold now");
-  await afterPaint(page);
   await input(page).press("Meta+b");
   await input(page).press("Escape"); // blur: flushes the draft op
 

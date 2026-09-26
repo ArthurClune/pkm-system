@@ -194,7 +194,8 @@ def test_ops_ack_is_exactly_what_the_ops_route_returns(pkm_client, client):
         "ops": [{"op": "create_page", "page_title": "Ack Contract"}]})
     assert raw.status_code == 200
     assert OpsAck.model_validate(raw.json()) == OpsAck(
-        ok=True, ts=raw.json()["ts"], applied=1)
+        ok=True, ts=raw.json()["ts"], applied=1, seq=raw.json()["seq"])
+    assert isinstance(raw.json()["seq"], int)
 
 
 def test_asset_delete_ack_is_exactly_what_the_delete_route_returns(

@@ -77,9 +77,11 @@ export function useBlockDraft(
   // adoption must not call setDraft mid-composition (it would disturb the
   // native composition UI), so it's deferred and retried on compositionend.
   const composingRef = useRef(false);
-  // Caret offset to restore once an adoption's setDraft has committed (see
-  // the layout effect below); null when no restore is pending.
-  const pendingCaretRef = useRef<number | null>(null);
+  // Selection to restore once a setDraft (an adoption or a programmatic
+  // replace) has committed (see the layout effect below); null when no
+  // restore is pending.
+  const pendingSelectionRef =
+    useRef<{ start: number; end: number } | null>(null);
   // Held in a ref, not read as a dep: adoption is driven by the committed
   // text changing, and must not re-run just because the caller re-created its
   // callback on a render.
@@ -133,21 +135,28 @@ export function useBlockDraft(
     if (dirtyRef.current || composingRef.current) return;
     const el = ref.current;
     if (el && document.activeElement === el) {
-      pendingCaretRef.current = clampCaret(el.selectionStart ?? 0, text.length);
+      const at = clampCaret(el.selectionStart ?? 0, text.length);
+      pendingSelectionRef.current = { start: at, end: at };
     }
     onAdoptRef.current();
     setDraft(text);
   };
   useEffect(tryAdopt, [text]);
 
-  // Restore the caret after an adoption's setDraft has committed to the DOM
-  // (a plain value swap would otherwise leave the browser's default of
-  // moving the caret to the end of the new text).
+  // Restore the selection once a setDraft has committed to the DOM (a plain
+  // value swap would otherwise leave the browser's default of moving the
+  // caret to the end of the new text). A layout effect, never a
+  // requestAnimationFrame (pkm-j7ez): React commits a discrete event's update
+  // before the next event is dispatched, so the caret is right before any
+  // further keystroke can land. A frame callback runs later than that under
+  // load, and would move a caret the user has since typed past back to the
+  // offset captured at replace time -- /h1 then typing left the caret at 0,
+  // and Enter split the heading's text off into the block below.
   useLayoutEffect(() => {
-    const at = pendingCaretRef.current;
-    if (at === null) return;
-    pendingCaretRef.current = null;
-    ref.current?.setSelectionRange(at, at);
+    const sel = pendingSelectionRef.current;
+    if (sel === null) return;
+    pendingSelectionRef.current = null;
+    ref.current?.setSelectionRange(sel.start, sel.end);
   }, [draft]);
 
   return {
@@ -160,12 +169,16 @@ export function useBlockDraft(
     },
     replace: (next, selStart, selEnd, holdFlush) => {
       dirtyRef.current = true;
+      const el = ref.current;
+      if (el && el.value === next) {
+        // Selection-only edit (skipping over an auto-inserted closer): there
+        // is no commit to wait for, and no re-render to run the effect.
+        el.setSelectionRange(selStart, selEnd);
+      } else {
+        pendingSelectionRef.current = { start: selStart, end: selEnd };
+      }
       setDraft(next);
       onEdit(next, holdFlush);
-      // place the cursor after React commits the new value
-      requestAnimationFrame(() => {
-        ref.current?.setSelectionRange(selStart, selEnd);
-      });
     },
     onCompositionStart: () => {
       composingRef.current = true;

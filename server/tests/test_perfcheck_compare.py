@@ -90,8 +90,10 @@ def test_class_change_is_reclassified_and_blocks():
 def test_incomparable_on_fixture_or_env_change():
     base = doc({})
     assert incomparable_reason(base, doc({})) is None
-    assert "fixture_hash" in incomparable_reason(base, doc({}, fixture_hash="fx2"))  # pyrefly: ignore[not-iterable] (asserting non-None)
-    assert "sqlite" in incomparable_reason(base, doc({}, env={"python": "3.12.10", "sqlite": "3.48.0"}))  # pyrefly: ignore[not-iterable] (asserting non-None)
+    fixture_reason = incomparable_reason(base, doc({}, fixture_hash="fx2"))
+    assert fixture_reason is not None and "fixture_hash" in fixture_reason
+    env_reason = incomparable_reason(base, doc({}, env={"python": "3.12.10", "sqlite": "3.48.0"}))
+    assert env_reason is not None and "sqlite" in env_reason
 
 
 def test_confirm_outcomes():
@@ -132,7 +134,8 @@ def test_bootstrap_builds_bands_and_timing_median():
             for v, t in [(1, 10.0), (3, 30.0), (2, 20.0)]]
     base, unstable = bootstrap(runs)
     assert unstable == ()
-    assert base["scenarios"]["s"] == {"n": ex(4), "lt": band(1, 3), "ms": tm(20.0)}  # pyrefly: ignore[unsupported-operation] (asserting non-None)
+    assert base is not None
+    assert base["scenarios"]["s"] == {"n": ex(4), "lt": band(1, 3), "ms": tm(20.0)}
 
 
 def test_bootstrap_flags_unequal_exact():

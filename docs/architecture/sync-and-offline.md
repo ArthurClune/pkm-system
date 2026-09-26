@@ -55,8 +55,10 @@ sequenceDiagram
     B->>B: apply to replica, advance cursor,<br/>refetch visible views
 ```
 
-The HTTP response body is ignored; success is the 2xx, and the client's own
-state arrives through the same changes pull every other client uses. State flows
+Success is the 2xx, and the client's own state arrives through the same changes
+pull every other client uses. The one ack field the client reads is `seq`, which
+it hands to the pending-row delete (see
+[Windows and the pending queue](#windows-and-the-pending-queue)). State flows
 down one way. Incoming WS op echoes are never written to the replica: a tab
 drops its own, matched by `client_id`, and uses other tabs' only to update live
 views.
@@ -93,6 +95,31 @@ transaction:
   afterwards returns `needs-bootstrap`. Any other failure throws out of
   `applyWindow`, and `replicaSync` decides about a repeat (see
   [Rebootstrap triggers](#rebootstrap-triggers)).
+
+### Windows and the pending queue
+
+`pullLoop` snapshots the pending batch ids before each fetch and passes them to
+the worker's `applyChanges`. A window read before batch B committed lacks B. If
+B's ack deleted its row in the meantime, applying that window with nothing left
+to reapply would drop B's optimistic edit. So the worker compares the snapshot
+with the current pending ids (`web/src/replica/pendingGuard.ts`):
+
+| Pending ids since the snapshot | Result |
+|---|---|
+| unchanged | window applied |
+| some removed, each deleted on an ack whose `seq` ≤ the window's `latest_seq` | window applied |
+| any other removal, an addition, or a reorder | `pending-changed`: `pullLoop` refetches, at most `PENDING_CHANGED_CAP` times |
+
+The second row is safe because `sync_changes` reads `latest_seq` in the same
+read transaction as the window rows. A `latest_seq` at or past B's acked `seq`
+means the window and its continuation pages already carry B, which is all a
+refetch would add. It is also the common case after every save: the WS nudge
+starts a pull while the batch is still pending, and the HTTP ack lands during
+the fetch.
+
+The worker holds the acked seqs in memory, keyed by `pending_ops` row id. It
+drops entries outside the latest snapshot on each `applyChanges`, and clears
+them all on a schema rebuild, which restarts the AUTOINCREMENT ids.
 
 ## Post-commit nudges
 

@@ -56,12 +56,55 @@ def test_counts_are_deterministic_across_runs(small_fixture, result):
     assert strip(again) == strip(result)
 
 
-def test_writes_hit_a_fresh_copy(small_fixture, result):
-    # the paste scenario's statement count would grow run to run if writes
-    # accumulated in the cached fixture
+def test_writes_hit_a_fresh_copy(small_fixture):
+    # running the same write scenario's counted call twice must not leave
+    # the second run's inserts piled on top of the first's -- it would if
+    # _Env.fresh() were skipped or broken
     import sqlite3
+    lm = backend.generate(1, 0.02).landmarks
+    paste = next(s for s in backend.scenarios(lm, 0) if s.name == "ops/paste-50")
+    env = backend._Env(small_fixture)
+    try:
+        backend._count_once(env, paste, set())
+        backend._count_once(env, paste, set())
+        con = sqlite3.connect(env.db)
+        try:
+            n = con.execute("SELECT COUNT(*) FROM blocks WHERE uid LIKE 'pp%'").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 50
+    finally:
+        env.close()
+    # the shared, cached fixture file itself must never be written to
     con = sqlite3.connect(small_fixture)
-    assert con.execute("SELECT COUNT(*) FROM blocks WHERE uid LIKE 'pp%'").fetchone()[0] == 0
+    try:
+        assert con.execute("SELECT COUNT(*) FROM blocks WHERE uid LIKE 'pp%'").fetchone()[0] == 0
+    finally:
+        con.close()
+
+
+def test_read_after_write_without_a_fresh_copy_fails_loudly(small_fixture):
+    lm = backend.generate(1, 0.02).landmarks
+    write_s = next(s for s in backend.scenarios(lm, 0) if s.name == "ops/edit-1")
+    read_s = next(s for s in backend.scenarios(lm, 0) if s.name == "page/big")
+    env = backend._Env(small_fixture)
+    try:
+        backend._count_once(env, write_s, set())
+        with pytest.raises(backend.DirtyReadError, match="page/big"):
+            backend._count_once(env, read_s, set())
+    finally:
+        env.close()
+
+
+def test_env_init_cleans_up_its_tempdir_when_make_client_raises(monkeypatch, small_fixture, tmp_path):
+    made = tmp_path / "leaked-env-dir"
+    made.mkdir()
+    monkeypatch.setattr(backend.tempfile, "mkdtemp", lambda prefix=None: str(made))
+    monkeypatch.setattr(backend, "make_client",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError, match="boom"):
+        backend._Env(small_fixture)
+    assert not made.exists()
 
 
 def test_cached_fixture_is_opened_read_only(monkeypatch, small_fixture):

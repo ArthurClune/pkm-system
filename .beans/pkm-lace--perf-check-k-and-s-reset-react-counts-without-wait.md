@@ -1,10 +1,11 @@
 ---
 # pkm-lace
 title: 'Perf check: K and S reset React counts without waiting for quiet'
-status: todo
+status: completed
 type: bug
+priority: normal
 created_at: 2026-09-26T14:07:17Z
-updated_at: 2026-09-26T14:07:17Z
+updated_at: 2026-09-26T17:48:33Z
 ---
 
 ## Gap
@@ -25,3 +26,17 @@ and `search()`, then re-record the frontend baseline with
 further checks pass.
 
 Found in the final review of pkm-q1hh (M5).
+
+
+
+## Summary of Changes
+
+`web/tooling/perf/check.mjs`: `await reactQuiet(page)` added before the
+`__reactReset()` in `drag()` (after the optional scroll) and before the
+combined `__perfReset()`/`__reactReset()` in `search()` (right after
+`input.click()`), closing the same click/scroll-commit race J had (fixed
+in 0a390e1).
+
+Verified: `perf/check.sh frontend --bootstrap` (5 runs) then two further
+`perf/check.sh frontend` runs, both `no changes against the baseline`.
+`pnpm typecheck` and `pnpm test:unit` also green.

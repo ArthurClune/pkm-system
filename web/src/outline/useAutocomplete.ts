@@ -34,11 +34,11 @@ export interface AutocompleteController {
    * mouse pick, click) goes through — a null result means "the popup is not
    * live, let the key/click do its normal thing".
    *
-   * Safe to call from keydown and click, but NOT from keyup: both editors
-   * place the caret after a key-edit in a requestAnimationFrame (an auto-
-   * paired "[[" is the common case), and keyup always lands inside that
-   * window, where the DOM caret still sits at the end of the freshly
-   * committed value and every context would look stale. */
+   * It reads the DOM caret, so it relies on both editors placing a key-edit's
+   * or pick's caret in a layout effect of the same commit (an auto-paired
+   * "[[" is the common case), never a requestAnimationFrame (pkm-j7ez): in a
+   * frame callback's window the caret sits at the end of the freshly
+   * committed value and every context looks stale. */
   resolve: (el: HTMLTextAreaElement | null) => AcTarget | null;
 }
 

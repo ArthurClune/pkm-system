@@ -93,10 +93,13 @@ test("marks pkm:replica-ready once the first start completes", async () => {
     return feed();
   });
   const { onState } = collector();
-  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
-  await sync.start();
-  expect(mark).toHaveBeenCalledWith("pkm:replica-ready");
-  mark.mockRestore();
+  try {
+    const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+    await sync.start();
+    expect(mark).toHaveBeenCalledWith("pkm:replica-ready");
+  } finally {
+    mark.mockRestore();
+  }
 });
 
 test("start on a warm replica skips the snapshot and catches up the feed", async () => {

@@ -152,7 +152,6 @@ def generate(seed: int = 1, scale: float = 1.0) -> Fixture:
 
     # Blocks that attract ((refs)): created first so later text can cite them.
     seed_uids = g.page("Reference Library", max(10, round(50 * scale)), year_start)
-    g.popular = seed_uids
     popular_uid = seed_uids[0]
     # Weight the first seed block heavily so one block has many backlinks.
     g.popular = [popular_uid] * len(seed_uids) + seed_uids
@@ -228,8 +227,11 @@ def generate(seed: int = 1, scale: float = 1.0) -> Fixture:
                  description=f"a diagram of {g.words(5)}" if i % 4 else None)
         for i in range(max(10, round(200 * scale))))
 
-    move_uid = next(op["parent_uid"] for _, op in g.creates
-                    if op["page_title"] == BIG_PAGE and op["parent_uid"] is not None)
+    move_uid = next((op["parent_uid"] for _, op in g.creates
+                     if op["page_title"] == BIG_PAGE and op["parent_uid"] is not None), None)
+    if move_uid is None:
+        raise ValueError(f"{BIG_PAGE!r} has no nested block; the move-subtree "
+                         "scenario needs a parent with children to move")
     landmarks = Landmarks(
         big_page=BIG_PAGE, hub=HUBS[0], journal_day=journal_titles[-4],
         popular_uid=popular_uid, ref_uids=tuple(g.rng.sample(g.all_uids, 30)),

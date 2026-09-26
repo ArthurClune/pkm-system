@@ -32,6 +32,13 @@ def test_aliases_skips_keywords_after_unaliased_tables():
     assert aliases(sql) == {}
 
 
+def test_aliases_keeps_the_next_aliased_table_after_an_unaliased_one():
+    # an unaliased table directly followed by JOIN must not swallow that
+    # JOIN as its own (bogus, filtered) alias and so skip the real one after it
+    sql = "SELECT * FROM blocks JOIN pages p ON p.title = blocks.page_title"
+    assert aliases(sql) == {"p": "pages"}
+
+
 def test_full_scans_resolves_aliased_rows():
     details = ["SCAN b", "SCAN p USING INDEX idx_p", "SCAN a", "SEARCH r USING INDEX r (src=?)"]
     names = {"b": "blocks", "p": "pages", "a": "anc", "r": "refs"}

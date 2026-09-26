@@ -11,6 +11,7 @@ import type { ReplicaDb } from "./db";
 import { ReplicaUnavailableError } from "./errors";
 import { getMeta } from "./meta";
 import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
+import { pendingSetStillCovered } from "./pendingGuard";
 import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
          pendingCount, poisonedBatches } from "./queue";
 import { createRecoveryGate } from "./recoveryGate";
@@ -164,6 +165,11 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     fingerprint: string;
     expiryTimer: ReturnType<typeof setTimeout> | null;
   } | null = null;
+  // Batch row id -> the journal seq its server ack named, for batches deleted
+  // on an ack. applyChanges consults it to accept a window fetched while such
+  // a batch was still pending (see pendingGuard.ts). In memory only: a worker
+  // restart starts a fresh pull with a fresh pending snapshot.
+  const ackedSeqs = new Map<number, number>();
   const fingerprint = (rows: readonly DurablePendingRow[]): string =>
     JSON.stringify(rows);
   const clearPrepared = (token: string): void => {
@@ -180,6 +186,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     // Teardown order cannot be known for retired schemas. Disable FK actions
     // outside the transaction, then restore enforcement whether commit or
     // rollback wins; the transaction remains the atomic durability boundary.
+    // Dropping pending_ops also drops its AUTOINCREMENT counter, so row ids
+    // may be reused after this: no recorded acked seq may outlive it.
+    ackedSeqs.clear();
     d.exec("PRAGMA foreign_keys=OFF");
     try {
       d.transaction(() => {
@@ -242,9 +251,19 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       return gate.run(async () => nextBatch(await db()));
     },
     async deleteBatch(payload) {
-      return gate.run(async () => ({
-        pending: deleteBatch(await db(), payload as number),
-      }));
+      // A bare row id is accepted too: it is the pre-pkm-ur2n payload shape.
+      const { id, ackedSeq } = typeof payload === "number"
+        ? { id: payload, ackedSeq: undefined }
+        : payload as { id: number; ackedSeq?: number };
+      return gate.run(async () => {
+        const pending = deleteBatch(await db(), id);
+        if (typeof ackedSeq === "number" && Number.isFinite(ackedSeq)) {
+          ackedSeqs.set(id, ackedSeq);
+        } else {
+          ackedSeqs.delete(id);
+        }
+        return { pending };
+      });
     },
     async markPoisoned(payload) {
       return gate.run(async () => {
@@ -287,10 +306,16 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
           expectedPendingIds: number[];
         };
         const currentPendingIds = allBatches(d).map((batch) => batch.id);
-        if (currentPendingIds.length !== expectedPendingIds.length
-            || currentPendingIds.some((id, index) => id !== expectedPendingIds[index])) {
-          return { status: "pending-changed" };
+        const covered = pendingSetStillCovered(
+          expectedPendingIds, currentPendingIds, ackedSeqs, feed.latest_seq);
+        // pullLoop is single-flight and snapshots the pending set afresh for
+        // every window, so an acked seq for an id outside this snapshot can
+        // never be consulted again: drop it here to keep the map bounded.
+        const expected = new Set(expectedPendingIds);
+        for (const id of ackedSeqs.keys()) {
+          if (!expected.has(id)) ackedSeqs.delete(id);
         }
+        if (!covered) return { status: "pending-changed" };
         return applyChanges(d, feed, nowMs());
       });
     },

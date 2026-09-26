@@ -89,7 +89,11 @@ export interface Replica {
   pendingBatches(): Promise<PendingBatch[]>;
   /** Rejected durable rows, oldest first, for startup repair. */
   poisonedBatches(): Promise<PoisonedBatch[]>;
-  deleteBatch(id: number): Promise<{ pending: number }>;
+  /** `ackedSeq` is the journal seq the server's ack named for this batch's
+   * commit, when known: it lets a pull whose pending snapshot still held the
+   * batch apply a window that already carries it (pkm-ur2n). Deletes that are
+   * not an ack (recovery flush, rebase settle, poison discard) omit it. */
+  deleteBatch(id: number, ackedSeq?: number): Promise<{ pending: number }>;
   markPoisoned(id: number, error: string, batchId: string): Promise<{
     pending: number; matched: boolean;
   }>;
@@ -125,7 +129,7 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
     nextBatch: () => rpc.call("nextBatch"),
     pendingBatches: () => rpc.call("pendingBatches"),
     poisonedBatches: () => rpc.call("poisonedBatches"),
-    deleteBatch: (id) => rpc.call("deleteBatch", id),
+    deleteBatch: (id, ackedSeq) => rpc.call("deleteBatch", { id, ackedSeq }),
     markPoisoned: (id, error, batchId) =>
       rpc.call("markPoisoned", { id, error, batchId }),
     pendingCount: () => rpc.call("pendingCount"),

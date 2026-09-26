@@ -156,6 +156,16 @@ function postOps(ops: BlockOp[], batchId: string): Promise<unknown> {
   });
 }
 
+/** The journal seq an /api/ops ack names for its batch's commit, or
+ * undefined when it names none (an ack stored before the field existed is
+ * replayed verbatim without it). The OpenAPI schema types the ack as a bare
+ * object, so the field is read by hand. */
+function ackSeq(ack: unknown): number | undefined {
+  if (typeof ack !== "object" || ack === null) return undefined;
+  const seq = (ack as { seq?: unknown }).seq;
+  return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
+}
+
 /** An enqueue whose ops could not be persisted locally (a full disk, OPFS
  * access-handle contention, an exhausted SAH pool). Retained in FIFO order and
  * delivered by drain() under the same connectivity/retry/recovery policy as
@@ -537,8 +547,9 @@ function createReplicaQueue(replica: Replica,
         if (drainAgain) continue;
         return { status: "drained" };
       }
+      let ack: unknown;
       try {
-        await postOps(batch.ops, batch.batch_id);
+        ack = await postOps(batch.ops, batch.batch_id);
       } catch (error: unknown) {
         if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
           return rejectDurableBatch(batch, error);
@@ -547,7 +558,10 @@ function createReplicaQueue(replica: Replica,
       }
       let result;
       try {
-        result = await replica.deleteBatch(batch.id);
+        // The ack's seq lets a pull that snapshotted this batch as pending
+        // accept a window that already carries it, instead of refetching
+        // (pkm-ur2n: the save's WS nudge and this ack race).
+        result = await replica.deleteBatch(batch.id, ackSeq(ack));
       } catch (error: unknown) {
         noteReplicaFailure(error);
         return failed(error);

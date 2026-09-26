@@ -67,6 +67,29 @@ test("drains each persisted batch as one POST carrying its batch_id", async () =
   expect(counts.at(-1)).toBe(0);
 });
 
+test("an acknowledged batch is deleted with the journal seq its ack named", async () => {
+  // pkm-ur2n: the seq lets a pull that snapshotted this batch as pending
+  // apply a window that already carries it instead of refetching.
+  fetchSeq([
+    () => jsonResponse({ ok: true, ts: 1, applied: 1, seq: 42 }),
+    // an ack stored before the field existed replays without it
+    () => jsonResponse({ ok: true, ts: 1, applied: 1 }),
+  ]);
+  const replica = memReplica();
+  const base = replica.deleteBatch;
+  const deletes: Array<[number, number | undefined]> = [];
+  replica.deleteBatch = async (id, ackedSeq) => {
+    deletes.push([id, ackedSeq]);
+    return base(id);
+  };
+  const q = createOpQueue(replica, () => undefined);
+  q.enqueue([op("u1")]);
+  q.enqueue([op("u2")]);
+  await q.settled();
+  await q.drain();
+  expect(deletes).toEqual([[1, 42], [2, undefined]]);
+});
+
 test("offline: batches persist without posting; reconnect drains in order", async () => {
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica();

@@ -242,12 +242,34 @@ async function pinSaveOrder(page) {
   };
 }
 
+// Clicking into a block and placing the caret go on committing for a few
+// milliseconds after the calls return (the selectionchange lands a task
+// later), so a reset straight after them sometimes counted one of those
+// commits as typing. Wait until React has not committed for REACT_QUIET_MS.
+// Without the React hook (F) the count stays 0 and this is a short wait.
+const REACT_QUIET_MS = 500;
+
+async function reactQuiet(page) {
+  const start = Date.now();
+  let last = null, since = start;
+  for (;;) {
+    const n = await page.evaluate(() => window.__react?.commits ?? 0);
+    if (n !== last) { last = n; since = Date.now(); }
+    else if (Date.now() - since >= REACT_QUIET_MS) return;
+    if (Date.now() - start > SETTLE_TIMEOUT_MS) {
+      throw new Error(`React still committing after ${SETTLE_TIMEOUT_MS} ms`);
+    }
+    await sleep(25);
+  }
+}
+
 async function typeInto(st, rootSel, text, target) {
   const { page, cdp } = st;
   await target.click();
   await page.waitForSelector("textarea.block-input", { timeout: 10_000 });
   await page.locator("textarea.block-input").evaluate((el) =>
     el.setSelectionRange(el.value.length, el.value.length));
+  await reactQuiet(page);
   await page.evaluate((sel) => { window.__perfReset(); window.__reactReset?.();
                                  window.__perfMutStart(sel); }, rootSel);
   const requests = [];

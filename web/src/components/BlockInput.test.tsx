@@ -405,6 +405,74 @@ test("typing /h1 shows the heading rows; Enter strips the trigger and dispatches
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
+// A programmatic draft replace (slash pick, key edit, /date) used to restore
+// its caret in a requestAnimationFrame. Typing that landed before the next
+// frame -- routine under load -- was then yanked back to the offset captured
+// at replace time: /h1 then "Intro" left the caret at 0, so Enter split the
+// heading's text into the block below (pkm-j7ez). These tests hold frames
+// back entirely, so they see what a user who types before the next frame
+// sees; the caret must already be right, and must stay where typing put it.
+describe("caret placement after a programmatic replace (pkm-j7ez)", () => {
+  function holdFrames() {
+    const frames: FrameRequestCallback[] = [];
+    const spy = vi.spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb) => { frames.push(cb); return frames.length; });
+    return {
+      runFrames: () => { frames.splice(0).forEach((cb) => cb(0)); },
+      restore: () => spy.mockRestore(),
+    };
+  }
+
+  test("typing right after a /h1 pick keeps the caret where the typing left it", () => {
+    const raf = holdFrames();
+    try {
+      const h = handlers();
+      mount(h, 0, false, block("u1", "", { order_idx: 0 }));
+      const ta = focusedTextarea();
+      fireEvent.change(ta, { target: { value: "/h1" } });
+      ta.setSelectionRange(3, 3);
+      fireEvent.keyDown(ta, { key: "Enter" }); // pick "heading 1"
+      expect(ta).toHaveValue("");
+      // the user types before the next frame, as Playwright's fill() does
+      fireEvent.change(ta, { target: { value: "Intro" } });
+      ta.setSelectionRange(5, 5);
+      raf.runFrames();
+      expect([ta.selectionStart, ta.selectionEnd]).toEqual([5, 5]);
+      fireEvent.keyDown(ta, { key: "Enter" });
+      expect(h.onSplit).toHaveBeenCalledWith("u1", 5);
+    } finally {
+      raf.restore();
+    }
+  });
+
+  test("an auto-paired bracket puts the caret inside the pair before any frame", () => {
+    const raf = holdFrames();
+    try {
+      mount(handlers(), 0, false, block("u1", "", { order_idx: 0 }));
+      const ta = focusedTextarea();
+      fireEvent.keyDown(ta, { key: "[" });
+      expect(ta).toHaveValue("[]");
+      expect([ta.selectionStart, ta.selectionEnd]).toEqual([1, 1]);
+    } finally {
+      raf.restore();
+    }
+  });
+
+  test("skipping over a closer (text unchanged) moves the caret before any frame", () => {
+    const raf = holdFrames();
+    try {
+      mount(handlers(), 1, false, block("u1", "[]", { order_idx: 0 }));
+      const ta = focusedTextarea();
+      ta.setSelectionRange(1, 1);
+      fireEvent.keyDown(ta, { key: "]" });
+      expect(ta).toHaveValue("[]");
+      expect([ta.selectionStart, ta.selectionEnd]).toEqual([2, 2]);
+    } finally {
+      raf.restore();
+    }
+  });
+});
+
 test("/h1 on a block that is already h1 toggles back to plain text", () => {
   const h = handlers();
   mount(h, 0, false, block("u1", "hello [[World]]", { order_idx: 0, heading: 1 }));

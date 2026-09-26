@@ -206,9 +206,15 @@ fire no input event, so every action path goes through `resolve(textarea)`,
 which re-derives the context from the live selection and returns the caret to
 splice at. The live caret is `selectionEnd`, since `[[` wrapped around a
 selection leaves the query selected and `selectionStart` would read it as
-empty. `resolve` must not be called from `keyup`, which lands inside the
-`requestAnimationFrame` both editors place the caret in, where every context
-looks stale.
+empty.
+
+`resolve` and the user's next keystroke both read the DOM caret. So both
+editors place the caret after a pick or key edit in a layout effect of
+the commit that sets the new value (`useBlockDraft.replace`, `Composer`'s
+pick). React commits a keydown's or mousedown's update before the next event
+is dispatched, so the caret is right before the user's next keystroke. A
+`requestAnimationFrame` would run too late under load. It would move a caret
+the user has already typed past back to the offset captured at the pick.
 
 ### Paste
 

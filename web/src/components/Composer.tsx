@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // Phone-only (CSS) fixed bottom composer: append a top-level block to the
 // current page with [[ autocomplete and camera/photo-library upload.
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { applyCompletion } from "../outline/autocomplete";
 import { useAutocomplete } from "../outline/useAutocomplete";
 import { autocompleteKeyAction } from "../outline/keyboardPolicy";
@@ -19,6 +19,8 @@ export function Composer({ onSend, readOnly }: {
   // pointing at where the caret used to be.
   const ac = useAutocomplete();
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // Caret offset a pick wants once its setDraft commits; null when none.
+  const pendingCaretRef = useRef<number | null>(null);
   const options = useTitleOptions(ac.ctx ? ac.ctx.query : null);
   const acRows = ac.ctx ? buildRows(options, ac.ctx.query) : [];
 
@@ -35,12 +37,20 @@ export function Composer({ onSend, readOnly }: {
     if (!target) return; // caret has moved off the token; resolve closed it
     const applied = applyCompletion(target.text, target.caret, target.ctx,
                                     row.title);
+    pendingCaretRef.current = applied.cursor;
     setDraft(applied.text);
     ac.close();
-    requestAnimationFrame(() => {
-      taRef.current?.setSelectionRange(applied.cursor, applied.cursor);
-    });
   };
+
+  // Place a pick's caret once the new value has committed. A layout effect,
+  // not a requestAnimationFrame (pkm-j7ez, as in useBlockDraft): typing that
+  // lands before a late frame would otherwise be yanked back to this offset.
+  useLayoutEffect(() => {
+    const at = pendingCaretRef.current;
+    if (at === null) return;
+    pendingCaretRef.current = null;
+    taRef.current?.setSelectionRange(at, at);
+  }, [draft]);
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setDraft(e.target.value);

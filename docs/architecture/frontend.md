@@ -468,13 +468,11 @@ Playwright e2e against that build.**
   fails if the eager entry, largest asset, total output, service-worker
   precache, or the per-library owned bytes (mermaid/pdfjs/katex chunk
   families, attributed by Rollup module reachability) exceed their caps.
-- **Perf harness** (`web/tooling/perf/`, not a gate): Playwright scripts that
-  count timers, fetches, WebSocket attempts, forced layouts and CPU across
-  idle, degraded-link, typing, multi-tab and journal-scroll scenarios.
-  Scenarios `J` and `K` instead count React commits and re-rendered fibers
-  through a minimal DevTools hook, because a wasted re-render writes no DOM
-  for the other counters to see. Numbers are read against `baselines/`; the
-  README has the recipe and the traps that make naive measurements wrong.
+- **Perf harness** (`web/tooling/perf/`): `check.mjs` is the frontend half of
+  the `perf/check.sh` performance gate; see [performance-checks.md](performance-checks.md).
+  The rest (`perf.mjs`, `ws-probe.mjs`) is a headed investigation toolkit;
+  its [README](../../web/tooling/perf/README.md) has the recipe and the traps
+  that make naive measurements wrong.
 
 ## Build notes (`vite.config.ts`)
 

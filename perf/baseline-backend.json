@@ -1,0 +1,790 @@
+{
+  "commit": "bc1200b",
+  "env": {
+    "python": "3.12.10",
+    "sqlite": "3.47.1"
+  },
+  "fixture_hash": "bff4243e90e051e8",
+  "scenarios": {
+    "assets/range": {
+      "bytes": {
+        "class": "exact",
+        "value": 5602
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 2
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 2.13
+      },
+      "statements": {
+        "class": "exact",
+        "value": 18
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 197
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 4
+      }
+    },
+    "assets/search": {
+      "bytes": {
+        "class": "exact",
+        "value": 18992
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 2
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 3.12
+      },
+      "statements": {
+        "class": "exact",
+        "value": 53
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 652
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 12
+      }
+    },
+    "block-refs/30": {
+      "bytes": {
+        "class": "exact",
+        "value": 4320
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 1.89
+      },
+      "statements": {
+        "class": "exact",
+        "value": 1
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "block/backlinks": {
+      "bytes": {
+        "class": "exact",
+        "value": 309690
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 15.96
+      },
+      "statements": {
+        "class": "exact",
+        "value": 3
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 150
+      }
+    },
+    "block/get": {
+      "bytes": {
+        "class": "exact",
+        "value": 27038
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 9.74
+      },
+      "statements": {
+        "class": "exact",
+        "value": 4
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 15
+      }
+    },
+    "changed/week": {
+      "bytes": {
+        "class": "exact",
+        "value": 111458
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 2
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 15.38
+      },
+      "statements": {
+        "class": "exact",
+        "value": 2
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 335
+      }
+    },
+    "journal/before": {
+      "bytes": {
+        "class": "exact",
+        "value": 15135
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 13.52
+      },
+      "statements": {
+        "class": "exact",
+        "value": 31
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 147
+      }
+    },
+    "journal/head": {
+      "bytes": {
+        "class": "exact",
+        "value": 16892
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 13.73
+      },
+      "statements": {
+        "class": "exact",
+        "value": 33
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 147
+      }
+    },
+    "ops/edit-1": {
+      "bytes": {
+        "class": "exact",
+        "value": 42
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 2.61
+      },
+      "statements": {
+        "class": "exact",
+        "value": 18
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 9
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "ops/move-subtree": {
+      "bytes": {
+        "class": "exact",
+        "value": 42
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 2.6
+      },
+      "statements": {
+        "class": "exact",
+        "value": 38
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "ops/paste-50": {
+      "bytes": {
+        "class": "exact",
+        "value": 43
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 15.9
+      },
+      "statements": {
+        "class": "exact",
+        "value": 833
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 414
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 322
+      }
+    },
+    "page/big": {
+      "bytes": {
+        "class": "exact",
+        "value": 302096
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 11.81
+      },
+      "statements": {
+        "class": "exact",
+        "value": 7
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 24
+      }
+    },
+    "page/hub": {
+      "bytes": {
+        "class": "exact",
+        "value": 40018
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 5.51
+      },
+      "statements": {
+        "class": "exact",
+        "value": 9
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 28
+      }
+    },
+    "page/hub-deep": {
+      "bytes": {
+        "class": "exact",
+        "value": 18159
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 4.51
+      },
+      "statements": {
+        "class": "exact",
+        "value": 8
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 15
+      }
+    },
+    "page/journal-day": {
+      "bytes": {
+        "class": "exact",
+        "value": 2747
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 1.73
+      },
+      "statements": {
+        "class": "exact",
+        "value": 6
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "query/and-not": {
+      "bytes": {
+        "class": "exact",
+        "value": 57867
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 5.28
+      },
+      "statements": {
+        "class": "exact",
+        "value": 4
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 29
+      }
+    },
+    "rename/hub": {
+      "bytes": {
+        "class": "exact",
+        "value": 48
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 1
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 40.95
+      },
+      "statements": {
+        "class": "exact",
+        "value": 4064
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 3013
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 131
+      }
+    },
+    "search/common": {
+      "bytes": {
+        "class": "exact",
+        "value": 4538
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 60.74
+      },
+      "statements": {
+        "class": "exact",
+        "value": 4
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 43522
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 651
+      }
+    },
+    "search/many-hits": {
+      "bytes": {
+        "class": "exact",
+        "value": 22005
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 61.16
+      },
+      "statements": {
+        "class": "exact",
+        "value": 4
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 43682
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 653
+      }
+    },
+    "search/phrase": {
+      "bytes": {
+        "class": "exact",
+        "value": 2005
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 1.9
+      },
+      "statements": {
+        "class": "exact",
+        "value": 4
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 115
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "search/prefix": {
+      "bytes": {
+        "class": "exact",
+        "value": 3250
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 25.06
+      },
+      "statements": {
+        "class": "exact",
+        "value": 4
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 16996
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 253
+      }
+    },
+    "search/rare": {
+      "bytes": {
+        "class": "exact",
+        "value": 566
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 1.83
+      },
+      "statements": {
+        "class": "exact",
+        "value": 4
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 54
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "search/title": {
+      "bytes": {
+        "class": "exact",
+        "value": 3046
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 10.95
+      },
+      "statements": {
+        "class": "exact",
+        "value": 4
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 8220
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 121
+      }
+    },
+    "sidebar": {
+      "bytes": {
+        "class": "exact",
+        "value": 313
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 1
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 1.53
+      },
+      "statements": {
+        "class": "exact",
+        "value": 1
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "sync/changes-mid": {
+      "bytes": {
+        "class": "exact",
+        "value": 150259
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 5.02
+      },
+      "statements": {
+        "class": "exact",
+        "value": 10
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 20
+      }
+    },
+    "sync/snapshot": {
+      "bytes": {
+        "class": "exact",
+        "value": 15141959
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 2
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 344.91
+      },
+      "statements": {
+        "class": "exact",
+        "value": 212
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 1657
+      }
+    },
+    "titles/infix": {
+      "bytes": {
+        "class": "exact",
+        "value": 24
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 1.93
+      },
+      "statements": {
+        "class": "exact",
+        "value": 1
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 17
+      }
+    },
+    "titles/prefix": {
+      "bytes": {
+        "class": "exact",
+        "value": 142
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 2.49
+      },
+      "statements": {
+        "class": "exact",
+        "value": 1
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 65
+      }
+    },
+    "todos/all": {
+      "bytes": {
+        "class": "exact",
+        "value": 253621
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 1
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 20.2
+      },
+      "statements": {
+        "class": "exact",
+        "value": 1
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 224
+      }
+    },
+    "unlinked/hub": {
+      "bytes": {
+        "class": "exact",
+        "value": 3819
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 3.28
+      },
+      "statements": {
+        "class": "exact",
+        "value": 5
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 52
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 17
+      }
+    }
+  }
+}

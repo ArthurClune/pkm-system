@@ -106,6 +106,43 @@ subsequent check is reload-and-drive against the same environment:
   verified state usually suffices; don't screenshot intermediate steps that a
   DOM read already confirms.
 
+## Performance
+
+Run `perf/check.sh` (from the repo root, in the worktree) when a piece of
+major work is complete and before merge — not on every commit in a branch —
+alongside the UI drive above; it's a separate gate, not a replacement for it.
+It picks backend and/or frontend automatically from
+the diff against `main`. The frontend side builds its own SPA and runs its
+own throwaway server on port 8977 with its own fixture, so it never
+conflicts with the scratch server this skill drives on 8975. Results land
+in `perf/out/`.
+
+What to do with each verdict (the table's `next:` lines say the same):
+
+- **Regression** — read your own diff along the regressed path, find the
+  cause, fix it, re-run. Only bring it to Arthur, with the table and what
+  you found, if it survives. If Arthur accepts it, re-record with
+  `perf/check.sh <side> --bootstrap` and give his reason in the commit
+  message.
+- **Unstable** — the harness is flaky, not your change. File a bean against
+  the perf harness and carry on with your work; leave the harness alone in
+  this branch.
+- **Stale baseline** — re-run with `perf/check.sh <side> --rebaseline` and
+  commit the rewritten baseline file with your change.
+- **Lost / reclassified** — scenarios or metric classes changed; re-record
+  with `perf/check.sh <side> --bootstrap`, reason in the commit message.
+
+Two situations the verdicts don't cover:
+
+- **Cannot compare: env differs** because your branch bumps Python or
+  SQLite: read the diff, then `perf/check.sh <side> --bootstrap` on the
+  branch. `--rebaseline` would reproduce the merge base's old environment
+  (its own venv) and refuse again. A Chromium bump or a fixture change is
+  different: `check.mjs` always runs from the branch's Playwright, so
+  `--rebaseline` catches it up fine.
+- **Merge conflict in a `perf/baseline-*.json`**: take either side, then
+  re-run `perf/check.sh` and commit what it writes.
+
 ## Gotchas
 
 - The headless tab occasionally resets to `about:blank` and drops cookies

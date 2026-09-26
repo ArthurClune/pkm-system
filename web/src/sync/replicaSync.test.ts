@@ -85,6 +85,20 @@ test("start on an empty replica bootstraps from the snapshot then is ready", asy
   expect(states.at(-1)).toEqual({ mode: "ready" });
 });
 
+test("marks pkm:replica-ready once the first start completes", async () => {
+  const mark = vi.spyOn(performance, "mark");
+  const replica = fakeReplica({}, { empty: true, cursor: 0 });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const { onState } = collector();
+  const sync = createReplicaSync({ replica, fetchJson, clientId: "c1", onState });
+  await sync.start();
+  expect(mark).toHaveBeenCalledWith("pkm:replica-ready");
+  mark.mockRestore();
+});
+
 test("start on a warm replica skips the snapshot and catches up the feed", async () => {
   const replica = fakeReplica();
   const fetchJson = vi.fn(async () => feed({ next_since: 9, latest_seq: 9 }));

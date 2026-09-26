@@ -7,7 +7,21 @@ Also logs any unhandled exception (e.g. a real server bug, not a normal
 4xx) to web/e2e/.server.log, which web/e2e/global-teardown.ts scans and
 fails the run on -- see docs/2026-07-10-implementation-review.md finding 1,
 where a real "database is locked" 500 was invisible to `pnpm e2e` because
-nothing checked server-side errors."""
+nothing checked server-side errors.
+
+Five extra env vars exist for `perfcheck.run`, the performance regression
+check, and leave the defaults above unchanged when unset:
+- E2E_FROM_DB: copy this DB into the temp data dir instead of creating an
+  empty one (the perf fixture).
+- E2E_FROZEN_NOW: run the server inside `time_machine.travel` (`tick=True`)
+  starting at this ISO datetime, so every run starts from the same clock
+  but time keeps advancing from there.
+- E2E_WEB_DIST: serve this web/dist instead of the repo's own, so a
+  merge-base run can serve the base commit's build.
+- E2E_SERVER_LOG: log unhandled exceptions here instead of
+  web/e2e/.server.log, so a perf run never clobbers a `pnpm e2e` log.
+- E2E_INSTANCE: echo this token in an X-E2E-Instance header on /healthz, so
+  the perf check knows the server answering is the one it started."""
 from __future__ import annotations
 
 import atexit
@@ -19,12 +33,15 @@ import signal
 import sqlite3
 import sys
 import tempfile
+from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from types import FrameType
 
 import uvicorn
 from fastapi import Request
 from fastapi.responses import PlainTextResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import fake_goodlinks_server
 from fake_engine import FakeEngine
@@ -61,9 +78,45 @@ def _log_config(log_path: Path) -> dict:
     return config
 
 
+def server_log_path(root: Path, env: Mapping[str, str]) -> Path:
+    return Path(env["E2E_SERVER_LOG"]) if env.get("E2E_SERVER_LOG") else root / "web" / "e2e" / ".server.log"
+
+
+def with_instance_header(app: ASGIApp, token: str) -> ASGIApp:
+    """Wrap `app` so /healthz answers with an X-E2E-Instance: <token> header."""
+    header = (b"x-e2e-instance", token.encode())
+
+    async def wrapped(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["path"] != "/healthz":
+            await app(scope, receive, send)
+            return
+
+        async def send_with_header(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                message = {**message, "headers": [*message.get("headers", []), header]}
+            await send(message)
+        await app(scope, receive, send_with_header)
+    return wrapped
+
+
+def prepare_db(data: Path, from_db: Path | None) -> Path:
+    """Fresh empty DB, or a private copy of `from_db` (the perf fixture)."""
+    data.mkdir(parents=True, exist_ok=True)
+    db_path = data / "pkm.sqlite3"
+    if from_db is not None:
+        shutil.copyfile(from_db, db_path)
+    else:
+        con = sqlite3.connect(db_path)
+        con.executescript(DDL)
+        con.commit()
+        con.close()
+    init_db(db_path)  # WAL + migrations, once, before serving
+    return db_path
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[2]
-    web_dist = root / "web" / "dist"
+    web_dist = Path(os.environ["E2E_WEB_DIST"]) if os.environ.get("E2E_WEB_DIST") else root / "web" / "dist"
     assert (web_dist / "index.html").is_file(), \
         "web/dist missing - run `pnpm build` first (the e2e script does)"
     data = Path(tempfile.mkdtemp(prefix="pkm-e2e-"))
@@ -84,12 +137,8 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    db_path = data / "pkm.sqlite3"
-    con = sqlite3.connect(db_path)
-    con.executescript(DDL)
-    con.commit()
-    con.close()
-    init_db(db_path)  # WAL + migrations, once, before serving
+    from_db = os.environ.get("E2E_FROM_DB")
+    db_path = prepare_db(data, Path(from_db) if from_db else None)
     (data / "assets").mkdir()
     # A tiny local document root so web/e2e/local-docs.spec.ts can click a
     # Local copy:: link end to end (pkm-g1ep).
@@ -123,8 +172,20 @@ def main() -> int:
                              request.method, request.url, exc_info=exc)
         return PlainTextResponse("internal server error", status_code=500)
 
-    log_path = root / "web" / "e2e" / ".server.log"
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_config=_log_config(log_path))
+    log_path = server_log_path(root, os.environ)
+    instance = os.environ.get("E2E_INSTANCE")
+    served: ASGIApp = with_instance_header(app, instance) if instance else app
+
+    def run() -> None:
+        uvicorn.run(served, host="127.0.0.1", port=PORT, log_config=_log_config(log_path))
+
+    frozen = os.environ.get("E2E_FROZEN_NOW")
+    if frozen:
+        import time_machine
+        with time_machine.travel(datetime.fromisoformat(frozen), tick=True):
+            run()
+    else:
+        run()
     return 0
 
 

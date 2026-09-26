@@ -570,3 +570,5 @@ When measuring a slow request, prefer these durations to client-side timing.
   `PkmClient` wired to the in-process app.
 - `uv run pyrefly check` type-checks (pyright is configured as a second
   opinion) and `uv run ruff check` lints, at line length 120.
+- `server/tooling/perfcheck` is the performance gate behind `perf/check.sh`:
+  see [performance-checks.md](performance-checks.md).

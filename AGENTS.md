@@ -25,7 +25,7 @@ For ALL code changes, use worktrees and branches to enable parallel sessions.
 
 ### Architecture docs
 
-`docs/architecture/` (overview, backend, import-export-and-backup, frontend, frontend-editor, frontend-rendering, styling, sync-and-offline, cli-and-mcp, assistant, files-and-assets) describes the system as it *is*. Failures and the invariants their fixes installed are not architecture: they go in `docs/troubleshooting.md`, keyed by symptom. Before finishing a feature, epic, or any change that alters the shape of the system, check whether the docs need updating and update them in the same branch. Triggers, in rough order of how often they are missed:
+`docs/architecture/` (overview, backend, import-export-and-backup, frontend, frontend-editor, frontend-rendering, styling, sync-and-offline, cli-and-mcp, assistant, files-and-assets, performance-checks) describes the system as it *is*. Failures and the invariants their fixes installed are not architecture: they go in `docs/troubleshooting.md`, keyed by symptom. Before finishing a feature, epic, or any change that alters the shape of the system, check whether the docs need updating and update them in the same branch. Triggers, in rough order of how often they are missed:
 
 - A new HTTP route, or new query params/response fields on an existing one -> the API reference table in `backend.md`
 - A new module, view, or route in the SPA -> the module map and route list in `frontend.md`
@@ -48,6 +48,7 @@ Run these from the repo root before considering backend/frontend work verified:
 - Web verification (typecheck, enforced unit coverage, and Playwright E2E): `cd web && pnpm verify`
 - Web unit tests only: `cd web && pnpm test:unit`
 - Web type check only: `cd web && pnpm typecheck`
+- Performance: `perf/check.sh` (picks backend and/or frontend from the diff against `main`). Run it when a piece of major work is complete and before merge — not on every commit in a branch. It gates on counts (queries, VM work, full scans, fetches, renders) and flags timings only when they clearly worsen. A **regression** means: read your own diff along the regressed path, find the cause, fix it, re-run — and only bring it to Arthur, with the table and what you found, if it survives. If Arthur accepts a regression, re-record with `perf/check.sh <side> --bootstrap` and give the reason in the commit message. **Unstable** means the harness is flaky, not your change: file a bean against the perf harness and carry on, without touching the harness mid-feature; **stale baseline** means `perf/check.sh <side> --rebaseline`; **lost** or **reclassified** means `--bootstrap`. A branch that bumps Python or SQLite is refused as incomparable: read the diff, then `--bootstrap` on the branch (a Chromium bump or fixture change instead uses `--rebaseline`, since those come from the branch either way). A merge conflict in a baseline file is resolved by re-running the check. Commit any baseline file it rewrites (improvements) with the change. A branch's final review package includes the perf table.
 
 ### Skills
 

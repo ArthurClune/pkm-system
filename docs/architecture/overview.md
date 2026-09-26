@@ -25,6 +25,7 @@ in [`docs/design.md`](../design.md) and the specs under
 | [goodlinks.md](goodlinks.md) | GoodLinks copies: the proxy routes, resolve-or-save, the sanitised reader, the /goodlinks command |
 | [styling.md](styling.md) | Design tokens and theming, control families, confirmations, focus invariants |
 | [sync-and-offline.md](sync-and-offline.md) | The sync protocol and offline architecture, end to end |
+| [performance-checks.md](performance-checks.md) | The `perf/check.sh` regression gate: fixture, scenarios, metric classes, confirmation, shared state |
 | [troubleshooting.md](../troubleshooting.md) | Known failures indexed by symptom, each with its cause and the section that owns it |
 
 ## System context

@@ -132,3 +132,11 @@ Owner: [cli-and-mcp.md](architecture/cli-and-mcp.md)
 | `--section "## Notes"` returns an H3 or a plain block | A marked spec matches heading level and text together. Only a bare spec (`Notes`) matches any level | [cli-and-mcp.md § Section selection](architecture/cli-and-mcp.md#section-selection) | — |
 | A heading copied from `pkm todos`/`search`/`refs` output and written back with `pkm update` silently becomes plain text | Those verbs' response models have no `heading` field, so they print bare text (a snippet, for `search`). Only `pkm get`/`get_page`/`get_block` round-trip a heading | [cli-and-mcp.md § Heading round trip](architecture/cli-and-mcp.md#heading-round-trip) | — |
 | `pkm get -abc123` or `pkm update -abc123` fails with an unknown-option error | argparse reads a leading-`-` uid as a flag. Put `--` before the uid (`pkm get -- -abc123`), with `pkm update`'s `-D`/`-T` flags before the `--` | [cli-and-mcp.md § Writes, uids and missing pages](architecture/cli-and-mcp.md#writes-uids-and-missing-pages) | — |
+
+## Performance checks
+
+Owner: [performance-checks.md](architecture/performance-checks.md)
+
+| Symptom | Cause | Where | Ref |
+|---|---|---|---|
+| A frontend check fails with `port 8977 is in use` while no other perf check is running | An orphaned fixture server. It runs in its own process group, so a hard-killed `run.py` leaves it holding the port. Find it with `lsof -iTCP:8977` and stop it; never move the check to 8974 or 8975 | [performance-checks.md § Shared state](architecture/performance-checks.md#shared-state) | pkm-uxop |

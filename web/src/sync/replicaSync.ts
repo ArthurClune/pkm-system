@@ -709,6 +709,8 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       await bootstrap();
     }
     started = true;
+    // Read by web/tooling/perf/check.mjs to time replica readiness.
+    performance.mark?.("pkm:replica-ready");
     onState({ mode: "ready" });
     await pull();
   };

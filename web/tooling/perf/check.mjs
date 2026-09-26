@@ -406,7 +406,9 @@ async function search(st, name, term) {
   // term are on screen (no fixture page carries either term as its title).
   const head = term.slice(0, -1), last = term.slice(-1);
   const created = (q) => `li.search-result:has-text('Create page "${q}"')`;
-  await input.pressSequentially(head, { delay: 150 });
+  // 400 ms per key, well clear of SearchBar's 150 ms debounce, so every key
+  // sends its own search; at 150 ms two keys sometimes shared one.
+  await input.pressSequentially(head, { delay: 400 });
   await page.waitForSelector(created(head), { timeout: 15_000 });
   await settle(st);
   await page.evaluate((label) => {

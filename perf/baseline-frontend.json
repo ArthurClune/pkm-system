@@ -1,5 +1,5 @@
 {
-  "commit": "bc1200b+dirty",
+  "commit": "8d68529",
   "env": {
     "chromium": "149.0.7827.55",
     "node": "v26.8.2"
@@ -51,7 +51,7 @@
     "F/typing": {
       "api_requests": {
         "class": "exact",
-        "value": 3
+        "value": 4
       },
       "forced_layouts": {
         "class": "band",
@@ -74,7 +74,7 @@
       },
       "replica_ready_ms": {
         "class": "timing",
-        "value": 3486
+        "value": 3471
       },
       "requests": {
         "class": "exact",
@@ -106,12 +106,12 @@
       },
       "react_commits": {
         "class": "band",
-        "max": 56,
+        "max": 55,
         "min": 55
       },
       "rendered_fibers": {
         "class": "band",
-        "max": 178,
+        "max": 176,
         "min": 176
       }
     },
@@ -123,7 +123,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 66.4
+        "value": 65.8
       },
       "not_prevented": {
         "class": "exact",
@@ -143,7 +143,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 25
+        "value": 22.2
       },
       "not_prevented": {
         "class": "exact",
@@ -186,7 +186,7 @@
       },
       "results_ms": {
         "class": "timing",
-        "value": 162
+        "value": 165
       },
       "search_requests": {
         "class": "exact",
@@ -200,7 +200,7 @@
       },
       "first_outline_ms": {
         "class": "timing",
-        "value": 216
+        "value": 212
       },
       "requests": {
         "class": "exact",

@@ -7,7 +7,16 @@ Also logs any unhandled exception (e.g. a real server bug, not a normal
 4xx) to web/e2e/.server.log, which web/e2e/global-teardown.ts scans and
 fails the run on -- see docs/2026-07-10-implementation-review.md finding 1,
 where a real "database is locked" 500 was invisible to `pnpm e2e` because
-nothing checked server-side errors."""
+nothing checked server-side errors.
+
+Three extra env vars exist for `perfcheck.run`, the performance regression
+check, and leave the defaults above unchanged when unset:
+- E2E_FROM_DB: copy this DB into the temp data dir instead of creating an
+  empty one (the perf fixture).
+- E2E_FROZEN_NOW: run the server inside `time_machine.travel` at this ISO
+  datetime, so every request sees a fixed clock.
+- E2E_WEB_DIST: serve this web/dist instead of the repo's own, so a
+  merge-base run can serve the base commit's build."""
 from __future__ import annotations
 
 import atexit
@@ -19,6 +28,7 @@ import signal
 import sqlite3
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from types import FrameType
 
@@ -61,9 +71,24 @@ def _log_config(log_path: Path) -> dict:
     return config
 
 
+def prepare_db(data: Path, from_db: Path | None) -> Path:
+    """Fresh empty DB, or a private copy of `from_db` (the perf fixture)."""
+    data.mkdir(parents=True, exist_ok=True)
+    db_path = data / "pkm.sqlite3"
+    if from_db is not None:
+        shutil.copyfile(from_db, db_path)
+    else:
+        con = sqlite3.connect(db_path)
+        con.executescript(DDL)
+        con.commit()
+        con.close()
+    init_db(db_path)  # WAL + migrations, once, before serving
+    return db_path
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[2]
-    web_dist = root / "web" / "dist"
+    web_dist = Path(os.environ["E2E_WEB_DIST"]) if os.environ.get("E2E_WEB_DIST") else root / "web" / "dist"
     assert (web_dist / "index.html").is_file(), \
         "web/dist missing - run `pnpm build` first (the e2e script does)"
     data = Path(tempfile.mkdtemp(prefix="pkm-e2e-"))
@@ -84,12 +109,8 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    db_path = data / "pkm.sqlite3"
-    con = sqlite3.connect(db_path)
-    con.executescript(DDL)
-    con.commit()
-    con.close()
-    init_db(db_path)  # WAL + migrations, once, before serving
+    from_db = os.environ.get("E2E_FROM_DB")
+    db_path = prepare_db(data, Path(from_db) if from_db else None)
     (data / "assets").mkdir()
     # A tiny local document root so web/e2e/local-docs.spec.ts can click a
     # Local copy:: link end to end (pkm-g1ep).
@@ -124,7 +145,17 @@ def main() -> int:
         return PlainTextResponse("internal server error", status_code=500)
 
     log_path = root / "web" / "e2e" / ".server.log"
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_config=_log_config(log_path))
+
+    def run() -> None:
+        uvicorn.run(app, host="127.0.0.1", port=PORT, log_config=_log_config(log_path))
+
+    frozen = os.environ.get("E2E_FROZEN_NOW")
+    if frozen:
+        import time_machine
+        with time_machine.travel(datetime.fromisoformat(frozen), tick=True):
+            run()
+    else:
+        run()
     return 0
 
 

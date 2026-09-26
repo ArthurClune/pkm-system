@@ -75,7 +75,7 @@ def test_cached_fixture_is_opened_read_only(monkeypatch, small_fixture):
     backend.run(small_fixture, only={"page/big"}, repeats=1, scale=0.02)
     direct = [(t, uri) for t, uri in opened if small_fixture.name in t
               and str(small_fixture.parent.name) in t]
-    assert direct and all(uri and t.endswith("?mode=ro") for t, uri in direct), direct
+    assert direct and all(uri and "?mode=ro" in t for t, uri in direct), direct
 
 
 def test_trace_sees_expanded_sql(small_fixture):

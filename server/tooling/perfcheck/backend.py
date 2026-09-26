@@ -182,8 +182,9 @@ def _time(env: _Env, s: Scenario, repeats: int) -> float:
 def run(fixture_db: Path, *, only: set[str] | None = None, repeats: int = 5,
         scale: float = 1.0, commit: str = "working-tree") -> dict:
     fx = generate(1, scale)
-    # the cached fixture is shared by every session: never open it writable
-    con = sqlite3.connect(f"{fixture_db.resolve().as_uri()}?mode=ro", uri=True)
+    # the cached fixture is shared by every session and never changes once
+    # built: read-only, and immutable so no -wal/-shm is left beside it
+    con = sqlite3.connect(f"{fixture_db.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
     max_seq = con.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
     tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     con.close()

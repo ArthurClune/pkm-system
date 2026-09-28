@@ -43,6 +43,11 @@ server-local, as now). Nothing is inserted on the block's own page.
 | `update_text` with a hash, block missing | `[[conflict]] [[<page_title>]] — edit to a block the server no longer has` | the incoming text, verbatim |
 | same, no `page_title` | `[[conflict]] (page unknown) — edit to a block the server no longer has` | the incoming text |
 
+- Children are verbatim, so a lost `TODO …` becomes a live TODO in the
+  daily note and a lost `Key:: value` a live attribute of the header block.
+  Accepted for now (Arthur, 2026-09-28: "keep them verbatim for now");
+  neutralising them (e.g. a `was:` prefix) is the fallback if the
+  duplicates prove noisy.
 - Children carry no `[[conflict]]` prefix; the header's tag keeps every entry
   findable through search and the `conflict` page's backlinks, and the
   `[[Page]]` link lists it in that page's linked references.

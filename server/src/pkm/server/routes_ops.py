@@ -13,7 +13,7 @@ from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.ops_apply import apply_batch
-from pkm.server.ops_core import OpError, batch_request_hash
+from pkm.server.ops_core import OpError, batch_replay_hash, batch_request_hash
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -24,11 +24,20 @@ async def post_ops(request: Request,
                    db: sqlite3.Connection = Depends(get_db)) -> dict:
     now = int(time.time() * 1000)
     rhash = batch_request_hash(batch)
+    replay_hash = batch_replay_hash(batch)
     row = db.execute(
         "SELECT request_hash, response FROM applied_batches"
         " WHERE batch_id = ?", (batch.batch_id,)).fetchone()
     if row is not None:
-        if row["request_hash"] != rhash:
+        # request_hash holds one of two kinds (pkm-95ss): the strict hash,
+        # for a row written before this change (a pre-deploy retry must
+        # still replay it), or the replay hash, for one written after
+        # (tolerant of base_text_hash/page_title the worker fills into only
+        # one copy of a batch when a lost enqueue reply leaves the client
+        # retrying with the other). Either match means "same intent,
+        # replay"; neither means a genuinely different payload reused the
+        # batch_id.
+        if row["request_hash"] not in (rhash, replay_hash):
             # same dict shape as the 400 OpError detail below, so
             # clients parse one error contract (pkm-x7a5)
             raise HTTPException(
@@ -53,7 +62,7 @@ async def post_ops(request: Request,
     try:
         db.execute(
             "INSERT INTO applied_batches VALUES (?,?,?,?)",
-            (batch.batch_id, rhash, json.dumps(response), now))
+            (batch.batch_id, replay_hash, json.dumps(response), now))
     except sqlite3.IntegrityError:
         # two concurrent submissions of the same batch raced; this one
         # loses -- roll back its effects and serve the winner's ack

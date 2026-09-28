@@ -282,9 +282,14 @@ Key mechanics:
   first replays any `block_rewrites` row `store.rewrite_snapshotted_blocks`
   left for that block, so a device that never saw a rename cannot win with
   the old title and re-create the page it emptied.
-- **Idempotency.** A retried batch — same `batch_id`, identical canonical
-  request hash — replays the stored ack with no effects. The same id with a
-  different payload is a 409. Offline queue replay depends on it.
+- **Idempotency.** A retried batch — same `batch_id`, matching stored request
+  hash — replays the stored ack with no effects. The same id with a different
+  payload is a 409. Offline queue replay depends on it. New `applied_batches`
+  rows store `batch_replay_hash` (`ops_core.py`), which leaves out an
+  `update_text` op's `base_text_hash` and `page_title`: the worker can fill
+  those into the durable copy of a batch while the fallback-lane copy under the
+  same `batch_id` keeps the caller's ops. Rows written before it hold the
+  strict `batch_request_hash`, so the route accepts a match on either.
 - **Broadcast.** After commit, the WebSocket hub pushes the applied ops and a
   `{type:"seq", seq}` nudge to other clients (see
   [sync-and-offline.md](sync-and-offline.md)).

@@ -49,6 +49,33 @@ def _canonical_op(op: BlockOp) -> dict:
     return dump
 
 
+def batch_replay_hash(batch: OpBatch) -> str:
+    """Like `batch_request_hash`, but tolerant of base_text_hash and
+    page_title on update_text ops (pkm-95ss): the worker fills these
+    into the durable copy of a batch when the client omitted them,
+    but a lost enqueue reply leaves the client's in-memory fallback-lane
+    copy of the SAME batch_id with the original, unfilled ops. Both
+    copies eventually reach the server; they carry the same intent, so
+    the same batch_id replaying with only these guard/label fields
+    differing must not 409. Stored in applied_batches.request_hash for
+    rows written after this change -- see routes_ops.py for how a row
+    holding the (older) strict hash still replays."""
+    canon = json.dumps([_canonical_replay_op(op) for op in batch.ops],
+                       sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canon.encode()).hexdigest()
+
+
+def _canonical_replay_op(op: BlockOp) -> dict:
+    """`_canonical_op`, minus base_text_hash/page_title on update_text:
+    guard/label metadata that never changes which op is applied (see
+    `batch_replay_hash`)."""
+    dump = _canonical_op(op)
+    if isinstance(op, UpdateTextOp):
+        dump.pop("base_text_hash", None)
+        dump.pop("page_title", None)
+    return dump
+
+
 def conflict_label(page_title: str | None) -> str:
     """`[[title]]` for a usable page-title hint, else the generic label.
     Usable = present, non-blank after stripping, and syntactically valid

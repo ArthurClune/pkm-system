@@ -1,11 +1,11 @@
 ---
 # pkm-3g4n
 title: Conflicts always land in the daily note, grouped per block, naming the page
-status: in-progress
+status: completed
 type: feature
 priority: normal
 created_at: 2026-09-28T19:50:15Z
-updated_at: 2026-09-28T21:11:37Z
+updated_at: 2026-09-28T21:18:18Z
 ---
 
 Design approved 2026-09-28; spec docs/superpowers/specs/2026-09-28-conflicts-in-daily-note-design.md. Seen live: 13 queued edits of a never-created block produced six '[[conflict]] (original block deleted)' blocks on the daily note, none naming AI Agent Security.
@@ -19,7 +19,7 @@ Plan: docs/superpowers/plans/2026-09-28-conflicts-in-daily-note.md (5 tasks). Ex
 - [x] Task 4: web stamps page_title
 - [x] Task 5: docs, full verification, perf
 - [x] Final whole-branch review (strongest model) incl. perf table
-- [ ] Merge --no-ff, push, deploy (ask Arthur first)
+- [x] Merge --no-ff, push, deploy (ask Arthur first)
 
 ## Summary of Changes
 

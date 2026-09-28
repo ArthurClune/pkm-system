@@ -32,9 +32,21 @@ def batch_request_hash(batch: OpBatch) -> str:
     """Canonical content hash binding a batch_id to one payload forever
     (spec section 1): replay with a different payload is rejected, so a
     buggy client can't silently swap the ops behind an acknowledged id."""
-    canon = json.dumps([op.model_dump() for op in batch.ops],
+    canon = json.dumps([_canonical_op(op) for op in batch.ops],
                        sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canon.encode()).hexdigest()
+
+
+def _canonical_op(op: BlockOp) -> dict:
+    """The op as hashed. applied_batches keeps these hashes across deploys,
+    so an op that doesn't use a field added later must hash as it did
+    before the field existed: any new optional op field is left out here
+    while it is unset. Only those fields -- a blanket exclude_none would
+    re-hash older fields' None, such as a hashless edit's base_text_hash."""
+    dump = op.model_dump()
+    if isinstance(op, UpdateTextOp) and op.page_title is None:
+        del dump["page_title"]
+    return dump
 
 
 def conflict_label(page_title: str | None) -> str:

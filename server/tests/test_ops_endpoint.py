@@ -372,7 +372,10 @@ def test_live_conflict_goes_to_daily_note_not_the_page(client):
     start = client.get("/api/sync/changes").json()["latest_seq"]
     r = _post(client, {"op": "update_text", "uid": "uid_b1",
                        "text": "offline edit",
-                       "base_text_hash": text_hash("some stale base")})
+                       "base_text_hash": text_hash("some stale base"),
+                       # a live block's header names its own page, never
+                       # the client's hint
+                       "page_title": "Elsewhere"})
     assert r.status_code == 200
     texts = _ml_texts(client)
     assert "offline edit" in texts
@@ -462,9 +465,9 @@ def test_new_day_starts_a_fresh_header_and_prunes(client, seeded_config,
 
     day1, day2 = date(2026, 9, 27), date(2026, 9, 28)
     on(day1)
-    _post(client, _orphan_edit("uid_zz4", "day one"))
+    assert _post(client, _orphan_edit("uid_zz4", "day one")).status_code == 200
     on(day2)
-    _post(client, _orphan_edit("uid_zz4", "day two"))
+    assert _post(client, _orphan_edit("uid_zz4", "day two")).status_code == 200
 
     label = "[[conflict]] (page unknown)" + ORPHAN_SUFFIX
     assert _conflicts(client, day1) == [(label, ["day one"])]

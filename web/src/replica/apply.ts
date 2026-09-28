@@ -23,7 +23,7 @@
 
 import type { components } from "../api/types";
 import { reindexBlockRefs } from "./blockRefs";
-import type { ReplicaDb, SqlValue } from "./db";
+import { type ReplicaDb, rollbackToSavepoint, type SqlValue } from "./db";
 import { applyLocalOps } from "./localOps";
 import { getMeta, setMeta, setPlainSpaceTitleCanonicalization } from "./meta";
 import { allBatches } from "./queue";
@@ -119,12 +119,14 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
   for (const b of batches) {
     db.exec("SAVEPOINT reapply_batch");
     let result: { after: Set<string> } | null;
+    let failure: unknown;
     try {
       applyLocalOps(db, b.ops, nowMs);
       const after = fkViolations(db);
       result = addsFkViolation(before, after) ? null : { after };
-    } catch {
+    } catch (error: unknown) {
       result = null;
+      failure = error;
     }
     if (result !== null) {
       // A kept batch added no violation, so `after` is always a subset of
@@ -149,7 +151,7 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
       // empty, so there is nothing to hide behind there either.
       before = result.after;
     } else {
-      db.exec("ROLLBACK TO reapply_batch");
+      rollbackToSavepoint(db, "reapply_batch", failure);
     }
     db.exec("RELEASE reapply_batch");
   }

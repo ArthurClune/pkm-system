@@ -4,6 +4,7 @@ import { applySnapshot, type Snapshot } from "./apply";
 import type { ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION } from "./clientSchema";
 import { availabilityOf, ReplicaUnavailableError } from "./errors";
+import type { ReplicaDb } from "./db";
 import { openRawTestDb } from "./testDb";
 import { buildHandlers } from "./workerHandlers";
 
@@ -446,4 +447,78 @@ test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async
       pages: [], blocks: [], sidebar: [], tombstones: [] },
     expectedPendingIds: [first],
   })).resolves.toEqual({ status: "pending-changed" });
+});
+
+/** A database whose file-level structure is damaged: dropping a table walks
+ * the broken freelist, so every logical rebuild fails the same way (the
+ * 2026-09-28 iPad incident, pkm-h1c6). Reads still work. */
+const withDamagedFreelist = (db: ReplicaDb): ReplicaDb => ({
+  ...db,
+  exec(sql, params) {
+    if (/^DROP /i.test(sql)) {
+      throw new Error(
+        "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed");
+    }
+    db.exec(sql, params);
+  },
+  transaction: (fn) => db.transaction(fn),
+});
+
+test("a reset over a damaged file replaces the file and rebuilds into the new one", async () => {
+  const damaged = await openRawTestDb();
+  const fresh = await openRawTestDb();
+  let current = withDamagedFreelist(damaged.db);
+  const discardDbFile = vi.fn(() => { current = fresh.db; });
+  const handlers = buildHandlers({
+    openDb: async () => current, discardDbFile, nowMs: () => 10,
+  });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "a" });
+  const lease = await handlers.prepareRecovery(undefined) as {
+    token: string; batches: unknown[];
+  };
+  expect(lease.batches).toHaveLength(1);
+
+  await expect(handlers.commitRecovery({
+    token: lease.token, input: { kind: "reset", snapshot: SNAP },
+  })).resolves.toBeNull();
+
+  expect(discardDbFile).toHaveBeenCalledOnce();
+  expect(fresh.db.select("SELECT uid, text FROM blocks"))
+    .toEqual([{ uid: "uid_b1", text: "hello" }]);
+  await expect(handlers.pendingBatches(undefined)).resolves.toEqual([]);
+  await expect(handlers.enqueue({
+    ops: [{ op: "delete", uid: "uid_b1" }], batchId: "b",
+  })).resolves.toEqual({ pending: 1, batchId: "b" });
+});
+
+test("the no-pending reset replaces a damaged file too", async () => {
+  const damaged = await openRawTestDb();
+  const fresh = await openRawTestDb();
+  let current = withDamagedFreelist(damaged.db);
+  const discardDbFile = vi.fn(() => { current = fresh.db; });
+  const handlers = buildHandlers({ openDb: async () => current, discardDbFile });
+  await handlers.init(undefined);
+
+  await expect(handlers.reset(undefined)).resolves.toBeNull();
+  expect(discardDbFile).toHaveBeenCalledOnce();
+  expect(fresh.db.select(
+    "SELECT name FROM sqlite_master WHERE name = 'pending_ops'"))
+    .toEqual([{ name: "pending_ops" }]);
+});
+
+test("a reset failure that is not corruption keeps the file", async () => {
+  const t = await openRawTestDb();
+  const discardDbFile = vi.fn();
+  const handlers = buildHandlers({
+    openDb: async () => t.db, discardDbFile, nowMs: () => 10,
+    applySnapshot: () => { throw new Error("snapshot apply failed"); },
+  });
+  await handlers.init(undefined);
+  const lease = await handlers.prepareRecovery(undefined) as { token: string };
+  await expect(handlers.commitRecovery({
+    token: lease.token, input: { kind: "reset", snapshot: SNAP },
+  })).rejects.toThrow("snapshot apply failed");
+  expect(discardDbFile).not.toHaveBeenCalled();
 });

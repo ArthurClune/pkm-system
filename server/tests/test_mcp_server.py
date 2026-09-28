@@ -163,6 +163,37 @@ def test_update_block_rejects_an_unknown_mark(tools):
         tools.update_block("uid_b6", mark="MAYBE")
 
 
+def test_update_block_sends_page_hint(tools, pkm_client, monkeypatch):
+    # edit_block fetches the block before editing it, so it already knows
+    # the block's page -- confirm that fetched title rides along as the
+    # update_text op's page_title hint, which matters most for the
+    # server's edit-vs-delete rescue (ops_core.py): if this block is gone
+    # by the time the op lands, the hint is all the server has left to
+    # name the page the edit came from.
+    tools.save_note("temp", page="AI")
+    uid = next(n.uid for n in pkm_client.get_page("AI").blocks
+               if n.text == "temp")
+    stale = pkm_client.get_block(uid)
+    assert stale.page.title == "AI"
+    pkm_client.post_ops([{"op": "delete", "uid": uid}],
+                        batch_id="mcp-page-hint-delete-0001")
+    monkeypatch.setattr(pkm_client, "get_block", lambda u: stale)
+
+    captured: list = []
+    real_post_ops = pkm_client.post_ops
+
+    def spy(ops, batch_id):
+        captured.extend(ops)
+        return real_post_ops(ops, batch_id=batch_id)
+
+    monkeypatch.setattr(pkm_client, "post_ops", spy)
+
+    tools.update_block(uid, text="edited after delete")
+
+    [update_op] = [op for op in captured if op.op == "update_text"]
+    assert update_op.page_title == "AI"
+
+
 def test_batch(tools, pkm_client):
     out = tools.batch([
         {"command": "create", "params": {"page": "AI", "text": "b1"}},

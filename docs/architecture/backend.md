@@ -185,6 +185,10 @@ Around that base model:
     created_at)` — what a rename, merge or the title migration did to one
     block's text, replayed over a stale `update_text`. Pruned to 30 days on
     every rewrite.
+  - `conflict_headers(target_uid, day, header_uid)` — today's daily-note
+    conflict header for each block that has already had one, so a second
+    conflict on the same block the same day appends under it instead of
+    minting another. Pruned to today alone on every write.
   - `sync_meta` — the random `db_generation` token (a rebuilt database gets a
     new one and clients rebootstrap) and `plain_space_title_canonicalization`,
     the title-activation flag.
@@ -249,16 +253,32 @@ Key mechanics:
 - **Conflicts: per-block last-write-wins, with preservation.** `update_text`
   carries an optional `base_text_hash`, the sha256 of the text the edit was
   based on; a text hash rather than a version counter, so structural changes
-  don't manufacture conflicts. On mismatch the incoming edit wins and the
-  losing text is preserved as a `[[conflict]]` sibling block, whose uid the
-  server mints (`ops_apply.py`) with an alphanumeric first character so the CLI
-  can address it without `--` (see
-  [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)). An edit to a
-  since-deleted block is appended to today's daily page instead of vanishing.
-  `ops_core.replay_title_rewrites` first replays any `block_rewrites` row
-  `store.rewrite_snapshotted_blocks` left for that block, so a device that
-  never saw a rename cannot win with the old title and re-create the page it
-  emptied.
+  don't manufacture conflicts. On mismatch, or on an edit to a block that no
+  longer exists, the incoming edit still wins and the losing text is rescued
+  as a child block under a `[[conflict]]` header appended to today's daily
+  page (`title_for_date(date.today())`, server-local). A second conflict on
+  the same block the same day appends under that same header instead of
+  minting another (`conflict_headers`, above). The header text names the
+  page:
+
+  | Case | Header text |
+  |---|---|
+  | Block still exists (mismatch) | `` [[conflict]] [[Page]] — overwritten by ((uid)) ``, `Page` read from the live block's own row |
+  | Block gone, `update_text.page_title` hint usable | `` [[conflict]] [[Page]] — edit to a block the server no longer has ``, `Page` from the hint |
+  | Block gone, hint missing, blank, or syntactically invalid | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+
+  `page_title` only labels a header for the missing-block case; it never
+  changes whether or where an op applies. An invalid hint can't fail the
+  batch — `find_op_title_violation` never looks at it, so a bad title here
+  is never a 422. Header and child uids are minted (`ops_apply._new_uid`) with an
+  alphanumeric first character so the CLI can address them without `--` (see
+  [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)). A clean
+  hashed edit — matching hash, nothing in `block_rewrites` to replay — skips
+  the daily-page lookup entirely (`ops_apply._context_for`), so an ordinary
+  edit never touches or creates today's page. `ops_core.replay_title_rewrites`
+  first replays any `block_rewrites` row `store.rewrite_snapshotted_blocks`
+  left for that block, so a device that never saw a rename cannot win with
+  the old title and re-create the page it emptied.
 - **Idempotency.** A retried batch — same `batch_id`, identical canonical
   request hash — replays the stored ack with no effects. The same id with a
   different payload is a 409. Offline queue replay depends on it.

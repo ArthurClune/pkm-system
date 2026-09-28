@@ -26,10 +26,10 @@ acknowledged. While disconnected, reads and search come from the replica
 through a local shim that returns the API's shapes, and edits keep queueing.
 On reconnect the queue flushes (batch ids make replays idempotent), the feed
 catches up and views refetch. The server stays the sole authority. A text
-edit carries the hash of the text it was based on; on a mismatch the losing
-version is kept as a `[[conflict]]` block, and an edit to a since-deleted
-block lands on today's daily page. A service worker precaches the app shell,
-so a cold start needs no network.
+edit carries the hash of the text it was based on; on a mismatch, or on an
+edit to a since-deleted block, the losing text lands under a `[[conflict]]`
+header on today's daily page rather than being dropped. A service worker
+precaches the app shell, so a cold start needs no network.
 [sync-and-offline.md](architecture/sync-and-offline.md) has the protocol.
 
 Two alternatives were rejected. A client-side graph with op-log sync (Roam's

@@ -181,8 +181,8 @@ Text updates are hash-guarded, but the write always wins -- it is
 never rejected. `update` records the hash of the text you fetched; if
 the block changed since then (another writer got there first), your
 new text is still applied, and the text you overwrote is preserved,
-unmodified, as a new sibling block placed right after the target and
-tagged "[[conflict]] ..." -- find it via `pkm search`/`pkm refs
+unmodified, as a child of a "[[conflict]] ..." header block appended
+to today's daily note -- find it via `pkm search`/`pkm refs
 conflict` and merge by hand if needed. One exception: if the block was
 deleted underneath you AND your TEXT changes its heading level, the
 whole write fails loudly with "block not found" instead.
@@ -236,7 +236,7 @@ read from stdin, as one atomic write. Commands and their params:
       beginning "# ", "## " or "### " sets the heading level; text
       without hashes clears it. Unlike standalone `pkm update`, batch
       update carries NO hash guard: it always overwrites, and never
-      preserves a concurrent edit as a conflict sibling. It also costs
+      preserves a concurrent edit. It also costs
       two ops (update_text, set_heading) against the server's 500-op
       batch limit, so an update-heavy batch tops out at half the command
       count you might expect -- the client does not split an oversized

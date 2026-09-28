@@ -172,7 +172,7 @@ the editor builds the batch (`outline/baseTextHash.ts`) against the tree it was
 planned from, so op N leaves the text op N+1's hash matches. The worker fills it
 from `currentText` only when it is still `undefined`. Undo history records
 unstamped ops and `undoManager.dispatch` stamps at replay time, because an
-entry-time hash is stale and forks a spurious `[[conflict]]` sibling.
+entry-time hash is stale and forks a spurious `[[conflict]]` entry.
 
 The optimistic apply mirrors the server's timestamp rules as well as its row
 contents: `localOps.ts` leaves `blocks.updated_at` and `pages.updated_at` alone
@@ -241,14 +241,16 @@ block:
 | `base_text_hash` matches a pre-rename snapshot of this block | The rename or merge is replayed over the incoming text, which then meets the rows below as an edit of the rewritten text |
 | `hash(current) == base_text_hash` | Clean apply |
 | Incoming text equals current | No-op |
-| Hashes differ (concurrent edit) | Incoming wins; the overwritten text is preserved as a `[[conflict]] …` sibling block right after the winner |
-| Block was deleted meanwhile | Edit appended to today's daily page as `[[conflict]] (original block deleted) …` |
+| Hashes differ (concurrent edit) | Incoming wins; the overwritten text lands under a `[[conflict]]` header block on today's daily page |
+| Block was deleted meanwhile | Edit lands the same way, headed `[[conflict]] [[Page]] — edit to a block the server no longer has` (or `(page unknown)` if the client's `page_title` hint is unusable) |
 | No hash sent (legacy/CLI callers) | Unconditional last-write-wins |
 
-Nothing is discarded: conflict blocks are ordinary blocks, so they reach every
-client through the feed and are findable through search and the `[[conflict]]`
-page's backlinks. The first row's replay stops a device that never saw a rename
-from carrying the old title back, from records in the server-only
+The three header forms and the daily-page grouping are in
+[backend.md § The write path](backend.md#the-write-path). Nothing is
+discarded: conflict blocks are ordinary blocks, so they reach every client
+through the feed and are findable through search and the `[[conflict]]`
+page's backlinks. The first row's replay stops a device that never saw a
+rename from carrying the old title back, from records in the server-only
 `block_rewrites` table.
 
 ## Title activation across online and offline paths

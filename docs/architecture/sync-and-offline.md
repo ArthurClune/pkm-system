@@ -174,11 +174,10 @@ stamps `page_title`, the block's page, which labels the daily-note conflict
 header if the block is gone by the time the op lands. The worker
 (`replica/queue.ts`) fills the hash from `currentText` only when it is still
 `undefined`, and fills a missing `page_title` only alongside a hash it fills.
-That worker-filled copy can still diverge from the fallback-lane copy of the
-same `batch_id` (a lost enqueue reply keeps the lane's original, unfilled
-ops): the server's `batch_replay_hash` (`ops_core.py`) ignores `base_text_hash`
-and `page_title` for exactly this reason, so the second delivery replays
-instead of a 409 (pkm-95ss; see [backend.md](backend.md#the-write-path)).
+After a lost enqueue reply, the fallback lane holds the caller's unfilled ops
+under the durable row's `batch_id`. The server's `batch_replay_hash`
+(`ops_core.py`) ignores both fields, so the second delivery replays instead of
+a 409 (see [backend.md](backend.md#the-write-path)).
 Undo history records unstamped ops and
 `undoManager.dispatch` stamps at replay time, because an entry-time hash is
 stale and lands a spurious `[[conflict]]` entry.

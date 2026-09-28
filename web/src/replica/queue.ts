@@ -53,12 +53,11 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
           const base = currentText(db, op.uid);
           // block unknown locally -> no hash: server applies plain LWW
           if (base !== null) {
-            // page_title rides only with a hash filled here: a caller-hashed
-            // op is stored exactly as sent. A worker-filled hash/title can
-            // still diverge from the fallback-lane copy opQueue keeps of the
-            // same batch_id (pkm-ybgt) if a reply is lost -- the server's
-            // replay hash tolerates that (pkm-95ss), so this no longer needs
-            // to be byte-identical to avoid a 409
+            // page_title rides only with a hash filled here; a caller-hashed
+            // op is stored exactly as sent. A filled copy can differ from the
+            // fallback-lane copy opQueue keeps of the same batch_id (pkm-ybgt)
+            // when a reply is lost: the server's replay hash ignores both
+            // fields, so the second delivery still replays (pkm-95ss)
             const title = op.page_title === undefined
               ? currentPageTitle(db, op.uid) : null;
             wireOp = {

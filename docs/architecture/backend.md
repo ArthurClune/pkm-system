@@ -284,13 +284,12 @@ Key mechanics:
   the old title and re-create the page it emptied.
 - **Idempotency.** A retried batch — same `batch_id`, matching stored request
   hash — replays the stored ack with no effects. The same id with a different
-  payload is a 409. Offline queue replay depends on it. `applied_batches`
-  rows store `batch_replay_hash` (`ops_core.py`), which ignores an
-  `update_text` op's `base_text_hash`/`page_title`: guard/label metadata the
-  worker can fill into one copy of a batch and not the fallback-lane copy of
-  a lost-reply retry under the same `batch_id` (pkm-95ss). A row can also
-  hold the older, stricter `batch_request_hash` (rows written before this
-  change); the route accepts either.
+  payload is a 409. Offline queue replay depends on it. New `applied_batches`
+  rows store `batch_replay_hash` (`ops_core.py`), which leaves out an
+  `update_text` op's `base_text_hash` and `page_title`: the worker can fill
+  those into the durable copy of a batch while the fallback-lane copy under the
+  same `batch_id` keeps the caller's ops. Rows written before it hold the
+  strict `batch_request_hash`, so the route accepts a match on either.
 - **Broadcast.** After commit, the WebSocket hub pushes the applied ops and a
   `{type:"seq", seq}` nudge to other clients (see
   [sync-and-offline.md](sync-and-offline.md)).

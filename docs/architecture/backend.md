@@ -179,7 +179,8 @@ Around that base model:
   - `changes(seq AUTOINCREMENT, kind, entity_id, deleted)` — the append-only
     change journal, populated by row-level triggers rather than route code, so
     any new write path is journalled automatically. Cascade deletes journal
-    only because `recursive_triggers=ON`.
+    only because `recursive_triggers=ON`. The one direct writer is the
+    `JournalBlock` effect for an op on a missing target (below).
   - `applied_batches(batch_id, request_hash, response)` — op idempotency.
   - `block_rewrites(uid, base_hash, after_hash, old_title, new_title,
     created_at)` — what a rename, merge or the title migration did to one
@@ -224,7 +225,7 @@ flowchart LR
     R --> CTX["ops_apply._context_for (Shell)<br/>read SQLite → OpContext"]
     CTX --> P["ops_core.plan_op (Core)<br/>pure: op + context → effect tuples"]
     P --> X["ops_apply._execute (Shell)<br/>effects → SQL, one transaction"]
-    X --> J["change journal<br/>(triggers, automatic)"]
+    X --> J["change journal<br/>(triggers, plus JournalBlock)"]
     X --> B["WS broadcast + seq nudge<br/>(after commit)"]
 ```
 
@@ -267,6 +268,7 @@ Key mechanics:
   | Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
   | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
   | Block gone, hint missing, blank, syntactically invalid, or (naming no current page) itself containing a backtick | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+  | Block exists, but its move's target parent is gone | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
 
   `page_title` only labels a header for the missing-block case; it never
   changes whether or where an op applies. An invalid hint can't fail the
@@ -274,6 +276,11 @@ Key mechanics:
   looks at it. A hint naming no current page (renamed or deleted since the
   client saw it) is shown as inline code, which the ref extractor skips, so
   the header cannot re-create that page (`ops_apply._hint_page_exists`).
+  An existing page is linked only when `[[Page]]` reads back through
+  `refs.extract` as that same title (`ops_core.existing_page_label`). A title
+  ending in `]` or holding paired backticks reads back as another title,
+  which the ref indexer would create. Such a title is shown in inline code
+  instead, or as `(page unknown)` if it holds a backtick.
   Header and child uids are minted (`ops_apply._new_uid`) with an
   alphanumeric first character so the CLI can address them without `--` (see
   [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a second
@@ -285,7 +292,47 @@ Key mechanics:
   (`ops_core.replay_title_rewrites`), so a device that never saw a rename
   cannot win with the old title and re-create the page it emptied. `plan_op` and
   `ops_apply._context_for` both call it, so only a conflict resolves (and
-  may create) today's daily page. Hashless edits never touch it.
+  may create) today's daily page. Hashless edits to a live block never touch it.
+- **Missing targets.** They never reject a batch. A batch is atomic, so one op
+  whose block (or create/move parent) is gone would otherwise take every
+  valid op in it down with a 400 and wedge the client's queue.
+  `ops_core.classify_missing_target` sorts such an op before planning, and
+  `_context_for` calls it too, so the daily page is resolved only when an
+  entry lands:
+
+  | Op, situation | Outcome | Entry grouped under | Journalled |
+  |---|---|---|---|
+  | `set_collapsed`, block gone | no-op | — | the uid |
+  | `delete`, block gone | no-op | — | — |
+  | `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | the block's uid | the uid |
+  | `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | the block's uid | the uid |
+  | `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | the parent's uid | created uid and parent uid |
+  | `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | the block's uid | the parent uid, then every block of the moved subtree |
+
+  Grouping by uid means an orphaned edit and a skipped op on the same block
+  share one header, whichever landed first. Notes name uids as plain text,
+  since a `((ref))` to a missing block renders broken. A skipped op resolves
+  no op `page_title`, since `get_or_create_page` would create a page for an
+  op that never applied. A follow-on op in the same batch sees a diverted
+  create's block as missing too, so it lands rather than 400s. Each skipped
+  op is left out of the broadcast and reported in the ack's `skipped` list
+  (`ops_core.skip_report`).
+
+  `JournalBlock` writes the journal row the triggers would. The feed ships a
+  journalled uid with no block row as a tombstone, and a live one as its
+  current row. A replica applies tombstones first, and a block tombstone
+  cascades the whole local subtree. So a ghost parent's tombstone also
+  deletes the live blocks a replica optimistically moved under it, which is
+  why a move to a missing parent journals the moved subtree, not just its
+  root. `_plan_missing_target` emits tombstones before live rows, so a
+  window boundary can never put a tombstone after the rows that restore
+  what it cascades away.
+
+  Every other planning error is still a 400: invalid uid, uid already
+  exists, cycle, page mismatch, parent on another page, title syntax. So is
+  an op on a missing target whose uid (or missing parent uid) fails
+  `UID_RE` (`ops_core.impossible_uid_reason`). No client mints such a uid,
+  and it keeps arbitrary strings out of the journal and `conflict_headers`.
 - **Idempotency.** A retried batch — same `batch_id`, matching stored request
   hash — replays the stored ack with no effects. The same id with a different
   payload is a 409. Offline queue replay depends on it. New `applied_batches`
@@ -294,7 +341,8 @@ Key mechanics:
   those into the durable copy of a batch while the fallback-lane copy under the
   same `batch_id` keeps the caller's ops. Rows written before it hold the
   strict `batch_request_hash`, so the route accepts a match on either.
-- **Broadcast.** After commit, the WebSocket hub pushes the applied ops and a
+- **Broadcast.** After commit, the WebSocket hub pushes the applied ops (not
+  the skipped ones) and a
   `{type:"seq", seq}` nudge to other clients (see
   [sync-and-offline.md](sync-and-offline.md)).
 
@@ -438,7 +486,7 @@ requires the session cookie unless marked public, and FastAPI's `/docs` and
 | GET | `/{path}` *(public)* | SPA fallback: serves `web_dist` (index.html no-cache, hashed bundles under `/app-assets/`) |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` transactionally. Ack `{ok, ts, applied, seq}`: `seq` is the journal max read inside the batch's own transaction; a replayed `batch_id` returns its stored ack verbatim, so one stored before `seq` existed has none |
+| POST | `/api/ops` | Apply an `OpBatch` transactionally. Ack `{ok, ts, applied, seq, skipped?}`: `applied` counts every op processed, skipped ones included; `seq` is the journal max read inside the batch's own transaction; `skipped`, present only when non-empty, lists `{index, op, uid, reason, note_page}` for each op on a missing target (`reason` is `block_not_found` or `parent_not_found`, `note_page` the daily page its entry landed on or null). A replayed `batch_id` returns its stored ack verbatim, so one stored before `seq` or `skipped` existed lacks them; clients read a missing `skipped` as empty |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks + `block_ref_counts` (daily pages auto-created). Backlinks and unlinked mentions both skip blocks on the page itself |
 | GET | `/api/block/{uid}` | One block subtree with page context + breadcrumbs |

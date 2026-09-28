@@ -27,7 +27,8 @@ from pkm.planning import BuildError
 from pkm.render import (RenderError, clip_depth, render_assets,
                         render_backlinks, render_block, render_changed,
                         render_goodlinks_check, render_groups,
-                        render_local_check, render_page, render_search,
+                        render_local_check, render_ops_ack, render_page,
+                        render_search,
                         render_title_migration_apply,
                         render_title_migration_audit, select_section)
 
@@ -183,9 +184,10 @@ the block changed since then (another writer got there first), your
 new text is still applied, and the text you overwrote is preserved,
 unmodified, as a child of a "[[conflict]] ..." header block appended
 to today's daily note -- find it via `pkm search`/`pkm refs
-conflict` and merge by hand if needed. One exception: if the block was
-deleted underneath you AND your TEXT changes its heading level, the
-whole write fails loudly with "block not found" instead.
+conflict` and merge by hand if needed. If the block was deleted
+underneath you, your text lands on today's daily note the same way,
+under a header saying the server no longer has the block (plus a
+"heading change skipped" note if TEXT also changed its heading level).
 
 A TEXT beginning "# ", "## " or "### " makes the block a heading at
 that level; TEXT without those hashes makes it plain text, clearing any
@@ -278,6 +280,14 @@ mixing an indexed create/todo with plain (appending) creates/todos
 under the same parent within one batch: the plain ones count from the
 parent's original child count and can interleave with the indexed one
 instead of landing after it.
+
+An update, move or delete whose uid no longer exists is skipped by the
+server rather than failing the batch: the other commands still apply,
+each skipped op is printed with where its note or text landed on today's
+daily page, and the command exits 1. The batch is committed by then, so
+fix the skipped ops on their own; re-running it repeats the rest. A
+"((uid))" parent is checked before anything is sent, so a mistyped one
+fails the whole batch instead.
 
 example:
   pkm batch <<'EOF'
@@ -526,7 +536,15 @@ def cmd_batch(args: argparse.Namespace, client: PkmClient) -> int:
         return 1
     # BuildError from validation/planning propagates to main()'s handler
     # below, same as every other planning error.
-    print(f"applied {apply_batch(client, commands)} ops")
+    ack = apply_batch(client, commands)
+    print(render_ops_ack(ack))
+    # a skipped op usually means a mistyped or stale uid: not a clean run.
+    # Exit 1 here means "committed, partly skipped", never "nothing
+    # happened", so say so where a script checking the status will see it.
+    if ack.skipped:
+        print(f"pkm batch: {len(ack.skipped)} op(s) skipped; the rest were"
+              " committed, do not re-run the batch", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -41,7 +41,8 @@ def test_batch_without_batch_id_is_rejected(client):
 
 def test_rejected_batch_is_not_recorded(client):
     bad = {"client_id": "c1", "batch_id": "batch-0002-bbbb",
-           "ops": [{"op": "update_text", "uid": "no_such_uid", "text": "x"}]}
+           "ops": [{"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+                    "order_idx": 0}]}  # a cycle: still a 400
     assert client.post("/api/ops", json=bad).status_code == 400
     # the same batch_id with a now-valid payload must not be poisoned
     ok = {"client_id": "c1", "batch_id": "batch-0002-bbbb",

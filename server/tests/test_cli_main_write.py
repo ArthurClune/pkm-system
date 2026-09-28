@@ -426,3 +426,28 @@ def test_update_done_flag_on_a_legacy_leading_dash_uid_puts_flags_before_the_gua
     assert code == 0
     assert pkm_client.get_block(legacy_uid).block.text == \
         "{{DONE}} legacy task"
+
+
+def test_batch_reports_ops_skipped_for_a_missing_uid_and_exits_1(
+        run, pkm_client):
+    # batch update/move/delete send the uid unchecked; a mistyped one is
+    # skipped server-side (never a 400), so the ack's `skipped` list is
+    # the only signal -- it must not read as a clean success
+    from datetime import date
+    today = title_for_date(date.today())
+    cmds = [
+        {"command": "update", "params": {"uid": "uid_typo99",
+                                         "text": "meant for b3"}},
+        {"command": "delete", "params": {"uid": "uid_typo98"}},
+        {"command": "create", "params": {"page": "AI", "text": "kept"}},
+    ]
+    code, out, err = run("batch", stdin=json.dumps(cmds))
+    assert code == 1
+    assert out == (
+        "warning: skipped 3 of 4 ops; the other 1 was applied\n"
+        f"  update_text ^uid_typo99: block not found; noted on [[{today}]]\n"
+        f"  set_heading ^uid_typo99: block not found; noted on [[{today}]]\n"
+        "  delete ^uid_typo98: block not found; nothing written\n"
+        "the batch is committed: fix the skipped ops on their own, do not re-run it\n")
+    assert "do not re-run the batch" in err
+    assert "kept" in _page_texts(pkm_client, "AI")

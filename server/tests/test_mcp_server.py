@@ -202,6 +202,16 @@ def test_batch(tools, pkm_client):
     assert out == "applied 2 ops"
 
 
+def test_batch_flags_ops_skipped_for_a_missing_uid(tools, pkm_client):
+    out = tools.batch([
+        {"command": "delete", "params": {"uid": "uid_typo98"}},
+        {"command": "create", "params": {"page": "AI", "text": "b1"}},
+    ])
+    assert out == ("warning: skipped 1 of 2 ops; the other 1 was applied\n"
+                   "  delete ^uid_typo98: block not found; nothing written\n"
+                   "the batch is committed: fix the skipped ops on their own, do not re-run it")
+
+
 def test_batch_propagates_indexed_forbidden_reference_server_error(
         tools, pkm_client):
     commands = [

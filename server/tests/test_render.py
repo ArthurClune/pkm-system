@@ -446,3 +446,19 @@ def test_render_changed_truncation_shows_showing_n_of_m():
     })
     out = render_changed(payload, TZ)
     assert "(showing 1 of 5 total)" in out
+
+
+def test_render_ops_ack_clean_and_skipped():
+    from pkm.contracts.responses import OpsAck, SkippedOp
+    from pkm.render import render_ops_ack
+    assert render_ops_ack(OpsAck(ok=True, ts=1, applied=3)) == "applied 3 ops"
+    gone = SkippedOp(index=0, op="move", uid="uid_x1", reason="parent_not_found",
+                     note_page="September 28th, 2026")
+    assert render_ops_ack(OpsAck(ok=True, ts=1, applied=1, skipped=[gone])) == (
+        "warning: skipped 1 of 1 ops; nothing else was applied\n"
+        "  move ^uid_x1: parent block not found; noted on"
+        " [[September 28th, 2026]]\n"
+        "the batch is committed: fix the skipped ops on their own, do not re-run it")
+    assert render_ops_ack(OpsAck(ok=True, ts=1, applied=4, skipped=[gone])
+                          ).startswith(
+        "warning: skipped 1 of 4 ops; the other 3 were applied\n")

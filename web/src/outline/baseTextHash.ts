@@ -10,14 +10,14 @@
 // verbatim. The server then returns early into plain last-write-wins
 // (ops_core.py, "check 3: legacy"), so a concurrent edit from the tab that DOES
 // own the replica is overwritten outright instead of being landed on the
-// daily note as a conflict header; and the edit-vs-delete path, also gated on
-// the hash, raises "block not found" -> 400, which makes the lane discard the
-// entry (pkm-4ubd). "Two tabs open is normal" is the argument for
-// pkm-bjae's online-only fallback, and this was that decision's cost.
+// daily note as a conflict header (pkm-4ubd). (An edit to a block the server
+// no longer has lands on the daily note whether or not it carries a hash.)
+// "Two tabs open is normal" is the argument for pkm-bjae's online-only
+// fallback, and this was that decision's cost.
 //
 // page_title is stamped independently of the hash (pkm-3g4n): it never gates
 // whether the op applies, it only labels the daily-note header the server
-// writes when a hashed edit targets a block that no longer exists there. The
+// writes when an edit targets a block that no longer exists there. The
 // worker (replica/queue.ts) fills it from the replica only alongside a hash it
 // fills itself. A filled durable row can differ from the fallback-lane copy of
 // the same batch_id after a lost reply; the server's replay hash ignores both

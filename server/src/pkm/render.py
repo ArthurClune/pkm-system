@@ -16,7 +16,8 @@ from datetime import datetime, tzinfo
 from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      BlockPayload, BlockRefText, ChangedPayload,
                                      GoodlinksCheckPayload, GroupsPayload,
-                                     LocalCheckPayload, PagePayload, QueryPayload,
+                                     LocalCheckPayload, OpsAck, PagePayload,
+                                     QueryPayload,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationBlocker,
@@ -212,6 +213,31 @@ def _count_label(n: int, singular: str, plural: str | None = None) -> str:
     plural = plural or f"{singular}s"
     label = singular if n == 1 else plural
     return f"{n} {label}"
+
+
+def render_ops_ack(ack: OpsAck) -> str:
+    """A batch's result for `pkm batch` / MCP `batch`. The server skips an
+    op whose block (or parent) no longer exists instead of failing the
+    batch, so for a caller that sends uids unchecked the `skipped` list is
+    the only sign one was mistyped; it leads with a warning."""
+    if not ack.skipped:
+        return f"applied {ack.applied} ops"
+    done = ack.applied - len(ack.skipped)
+    rest = ("nothing else was applied" if done == 0 else
+            f"the other {done} {'was' if done == 1 else 'were'} applied")
+    lines = [f"warning: skipped {len(ack.skipped)} of {ack.applied} ops;"
+             f" {rest}"]
+    for s in ack.skipped:
+        what = ("block not found" if s.reason == "block_not_found"
+                else "parent block not found")
+        where = (f"noted on [[{s.note_page}]]" if s.note_page is not None
+                 else "nothing written")
+        lines.append(f"  {s.op} ^{s.uid}: {what}; {where}")
+    # the batch committed: a re-run is a new batch_id and repeats every
+    # op that did apply, creates included
+    lines.append("the batch is committed: fix the skipped ops on their own,"
+                 " do not re-run it")
+    return "\n".join(lines)
 
 
 def render_title_migration_audit(payload: TitleMigrationAuditPayload) -> str:

@@ -93,15 +93,19 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   (one header per block per day). If the block was deleted underneath you,
   your own text lands there instead. Nothing is added next to the target;
   find it via `pkm get today` or `pkm refs conflict` and merge by hand if
-  needed. One exception: if the block was deleted underneath you *and*
-  your text changes its heading level, the write fails loudly with `block
-  not found` rather than landing.
+  needed.
 - `batch` reads a JSON array of `{command, params}` — `create`, `todo`,
   `update`, `move`, `delete`, `outline`. `create`/`todo`/`move` accept an
   `"index"` param to insert at a specific position. `"as": "name"` labels a
   created block so later commands can target it as `"parent": "{{name}}"`
   or, for `update`/`move`/`delete`, as `"uid": "{{name}}"`; repeated
-  `"## Heading"` parents on the same page resolve to one heading.
+  `"## Heading"` parents on the same page resolve to one heading. An
+  `update`/`move`/`delete` whose uid no longer exists is skipped, not
+  rejected: the rest still applies and is committed, the output starts with
+  `warning:` and lists each skipped op, and `pkm batch` exits 1. Check that
+  warning — it usually means a mistyped or stale uid — and fix those ops on
+  their own: re-running the batch repeats everything that applied. A
+  mistyped `((uid))` parent fails the whole batch before anything is sent.
 - `rename` retitles a page case-sensitively and rewrites every `[[link]]`,
   `#tag`, `#[[tag]]`, and `attr::` reference to it. If `New Title` already
   exists it fails with a 409; pass `--allow-merge` to instead append the

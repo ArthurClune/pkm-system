@@ -206,10 +206,11 @@ def test_forbidden_title_in_second_op_refuses_complete_batch_before_mutation(
 def test_batch_is_atomic_and_reports_index(client):
     r = _post(client,
               {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
-              {"op": "delete", "uid": "ghost99"})
+              {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+               "order_idx": 0})
     assert r.status_code == 400
     assert r.json()["detail"]["index"] == 1
-    assert "not found" in r.json()["detail"]["reason"]
+    assert "cycle" in r.json()["detail"]["reason"]
     page = client.get("/api/page/Machine Learning").json()
     assert page["blocks"][1]["collapsed"] is False  # op 0 rolled back
 
@@ -294,7 +295,8 @@ def test_batch_rollback_undoes_auto_created_page(client, seeded_config):
                                       "ops": [
         {"op": "move", "uid": "uid_b4", "parent_uid": None, "order_idx": 0,
          "page_title": "Brand New Page"},
-        {"op": "delete", "uid": "ghost99"}]})
+        {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+         "order_idx": 0}]})  # a cycle
     assert r.status_code == 400
     assert r.json()["detail"]["index"] == 1
     con = sqlite3.connect(seeded_config.db_path)
@@ -534,11 +536,309 @@ def test_no_false_conflict_after_structural_change(client):
     assert not any("[[conflict]]" in b["text"] for b in page["blocks"])
 
 
-def test_hashless_update_on_missing_block_still_400s(client):
-    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "gone_uid1",
-                                      "ops": [
-        {"op": "update_text", "uid": "gone_uid1", "text": "x"}]})
+def test_hashless_update_on_missing_block_lands_like_a_hashed_one(client):
+    # the in-memory fallback lane and a same-batch create send edits
+    # without a hash; the block's absence is the signal, not the hash
+    r = _post(client, {"op": "update_text", "uid": "gone_uid1", "text": "x",
+                       "page_title": "AI"})
+    assert r.status_code == 200
+    assert _conflicts(client) == [("[[conflict]] [[AI]]" + ORPHAN_SUFFIX,
+                                   ["x"])]
+
+
+# --- ops on missing blocks never reject their batch (pkm-foap) -------------
+#
+# Each is skipped (with a note where the ruling asks for one), the rest of
+# the batch applies, and the uids a replica may hold a ghost of are
+# journalled so the feed corrects it.
+
+def _skip_note(what, uid):
+    return f"{what} skipped: block {uid} not found"
+
+
+def _skipped(index, op, uid, reason, noted=True):
+    return {"index": index, "op": op, "uid": uid, "reason": reason,
+            "note_page": title_for_date(date.today()) if noted else None}
+
+
+UNKNOWN_ORPHAN = "[[conflict]] (page unknown)" + ORPHAN_SUFFIX
+CLEAN_EDIT = {"op": "update_text", "uid": "uid_b1", "text": "kept edit",
+              "base_text_hash": text_hash("Tags:: #AI")}
+
+
+def _latest_seq(client):
+    return client.get("/api/sync/changes?since=0&limit=1").json()["latest_seq"]
+
+
+def _feed_since(client, seq):
+    feed = client.get(f"/api/sync/changes?since={seq}").json()
+    return ({b["uid"]: b for b in feed["blocks"]},
+            {t["entity_id"] for t in feed["tombstones"] if t["kind"] == "block"})
+
+
+def _page_exists(seeded_config, title):
+    from pkm.server.db import open_db
+    con = open_db(seeded_config.db_path)
+    row = con.execute("SELECT 1 FROM pages WHERE title = ?",
+                      (title,)).fetchone()
+    con.close()
+    return row is not None
+
+
+@pytest.mark.parametrize("op", [
+    {"op": "set_collapsed", "uid": "ghost_c1", "collapsed": True},
+    {"op": "delete", "uid": "ghost_c1"},
+], ids=["set_collapsed", "delete"])
+def test_noop_on_missing_block_applies_the_rest_and_lands_nothing(
+        client, seeded_config, op):
+    start = _latest_seq(client)
+    r = _post(client, op, CLEAN_EDIT)
+    assert r.status_code == 200
+    assert r.json()["skipped"] == [
+        _skipped(0, op["op"], "ghost_c1", "block_not_found", noted=False)]
+    assert r.json()["applied"] == 2  # ops processed, skipped ones included
+    assert _ml_texts(client)[0] == "kept edit"
+    # no note, and a clean batch never pays for today's daily page
+    assert not _page_exists(seeded_config, title_for_date(date.today()))
+    blocks, tombstones = _feed_since(client, start)
+    assert "uid_b1" in blocks
+    # a replica that collapsed the block holds a ghost of it; one that
+    # deleted it has already dropped its copy
+    assert tombstones == ({"ghost_c1"} if op["op"] == "set_collapsed"
+                          else set())
+
+
+@pytest.mark.parametrize("op, what", [
+    ({"op": "move", "uid": "ghost_s1", "parent_uid": None, "order_idx": 0,
+      "page_title": "Nowhere Yet"}, "move"),
+    ({"op": "set_heading", "uid": "ghost_s1", "heading": 2},
+     "heading change"),
+    ({"op": "set_view_type", "uid": "ghost_s1", "view_type": "numbered"},
+     "view type change"),
+], ids=["move", "set_heading", "set_view_type"])
+def test_structural_op_on_missing_block_is_skipped_with_a_note(
+        client, seeded_config, op, what):
+    start = _latest_seq(client)
+    r = _post(client, op, CLEAN_EDIT)
+    assert r.status_code == 200
+    assert r.json()["skipped"] == [
+        _skipped(0, op["op"], "ghost_s1", "block_not_found")]
+    assert _ml_texts(client)[0] == "kept edit"
+    assert _conflicts(client) == [(UNKNOWN_ORPHAN, [_skip_note(what, "ghost_s1")])]
+    # a skipped cross-page move must not create its destination page
+    assert not _page_exists(seeded_config, "Nowhere Yet")
+    _, tombstones = _feed_since(client, start)
+    assert "ghost_s1" in tombstones
+    assert r.json()["seq"] == _latest_seq(client)
+
+
+def test_skipped_op_shares_the_header_of_an_orphan_edit_to_the_same_block(
+        client):
+    r = _post(client, _orphan_edit("ghost_s2", "lost words",
+                                   page_title="AI"),
+              {"op": "move", "uid": "ghost_s2", "parent_uid": None,
+               "order_idx": 0})
+    assert r.status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] [[AI]]" + ORPHAN_SUFFIX,
+         ["lost words", _skip_note("move", "ghost_s2")])]
+
+
+def test_create_under_missing_parent_lands_its_text_not_the_block(
+        client, seeded_config):
+    start = _latest_seq(client)
+    r = _post(client,
+              {"op": "create", "uid": "diverted1", "page_title": "AI",
+               "parent_uid": "ghost_p1", "order_idx": 0,
+               "text": "typed under a deleted block"},
+              CLEAN_EDIT)
+    assert r.status_code == 200
+    assert r.json()["skipped"] == [
+        _skipped(0, "create", "diverted1", "parent_not_found")]
+    assert _ml_texts(client)[0] == "kept edit"
+    assert "diverted1" not in {b["uid"] for b in
+                               client.get("/api/page/AI").json()["blocks"]}
+    assert _conflicts(client) == [
+        ("[[conflict]] [[AI]]" + ORPHAN_SUFFIX,
+         ["typed under a deleted block"])]
+    # the replica's optimistic copy of the block (and any ghost of its
+    # parent) is dropped by tombstones, not by a snapshot repair
+    _, tombstones = _feed_since(client, start)
+    assert {"diverted1", "ghost_p1"} <= tombstones
+
+
+def test_create_under_missing_parent_does_not_create_its_page(
+        client, seeded_config):
+    r = _post(client, {"op": "create", "uid": "diverted2",
+                       "page_title": "Gone Page", "parent_uid": "ghost_p2",
+                       "order_idx": 0, "text": "orphaned child"})
+    assert r.status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] `Gone Page` (page not found)" + ORPHAN_SUFFIX,
+         ["orphaned child"])]
+    assert not _page_exists(seeded_config, "Gone Page")
+
+
+def test_blank_create_under_missing_parent_lands_nothing(
+        client, seeded_config):
+    start = _latest_seq(client)
+    r = _post(client, {"op": "create", "uid": "diverted3", "page_title": "AI",
+                       "parent_uid": "ghost_p3", "order_idx": 0, "text": ""})
+    assert r.status_code == 200
+    assert not _page_exists(seeded_config, title_for_date(date.today()))
+    _, tombstones = _feed_since(client, start)
+    assert {"diverted3", "ghost_p3"} <= tombstones
+
+
+def test_move_to_missing_parent_leaves_the_block_where_it_is(
+        client, seeded_config):
+    start = _latest_seq(client)
+    r = _post(client,
+              {"op": "move", "uid": "uid_b3", "parent_uid": "ghost_p4",
+               "order_idx": 0, "page_title": "Nowhere Yet"},
+              CLEAN_EDIT)
+    assert r.status_code == 200
+    assert _ml_texts(client)[0] == "kept edit"
+    page = client.get("/api/page/Machine%20Learning").json()
+    [papers] = [b for b in page["blocks"] if b["uid"] == "uid_b2"]
+    assert [c["uid"] for c in papers["children"]] == ["uid_b3"]
+    assert _conflicts(client) == [
+        ("[[conflict]] [[Machine Learning]] — ((uid_b3))",
+         ["move skipped: target parent ghost_p4 not found"])]
+    assert not _page_exists(seeded_config, "Nowhere Yet")
+    # the replica re-hydrates the block's real position and drops any ghost
+    # of the parent it was moved under
+    blocks, tombstones = _feed_since(client, start)
+    assert blocks["uid_b3"]["parent_uid"] == "uid_b2"
+    assert "ghost_p4" in tombstones
+    assert r.json()["skipped"] == [
+        _skipped(0, "move", "uid_b3", "parent_not_found")]
+
+
+def test_move_to_missing_parent_reships_the_moved_blocks_descendants(client):
+    # A replica that applied the move holds uid_b2 -- and its child uid_b3
+    # -- under a ghost of uid_ghostP. The parent's tombstone cascades that
+    # whole subtree away there, so the feed must ship every row of it back,
+    # not just the moved block.
+    start = _latest_seq(client)
+    r = _post(client, {"op": "move", "uid": "uid_b2",
+                       "parent_uid": "uid_ghostP", "order_idx": 0})
+    assert r.status_code == 200
+    blocks, tombstones = _feed_since(client, start)
+    assert "uid_ghostP" in tombstones
+    assert {"uid_b2", "uid_b3"} <= set(blocks)
+    assert blocks["uid_b3"]["parent_uid"] == "uid_b2"
+
+
+def test_tombstones_lead_the_journal_rows_a_skipped_op_writes(
+        client, seeded_config):
+    # a window boundary can fall anywhere: the ghost's tombstone must never
+    # land in a later window than the live rows it would cascade away
+    from pkm.server.db import open_db
+    start = _latest_seq(client)
+    assert _post(client, {"op": "move", "uid": "uid_b2",
+                          "parent_uid": "uid_ghostP", "order_idx": 0}
+                 ).status_code == 200
+    con = open_db(seeded_config.db_path)
+    rows = [(r["entity_id"], r["deleted"]) for r in con.execute(
+        "SELECT entity_id, deleted FROM changes WHERE seq > ? AND"
+        " kind = 'block' ORDER BY seq", (start,))]
+    con.close()
+    assert rows[0] == ("uid_ghostP", 1)
+    assert rows.index(("uid_b2", 0)) < rows.index(("uid_b3", 0))
+
+
+def test_hint_that_would_not_link_back_is_named_not_linked(
+        client, seeded_config):
+    # `[[x]]]` reads back as a ref to "x", so linking the existing page
+    # "x]" would make the ref indexer create a page "x"
+    assert _post(client, {"op": "create_page", "page_title": "x]"}
+                 ).status_code == 200
+    r = _post(client, _orphan_edit("uid_gone01", "t", page_title="x]"))
+    assert r.status_code == 200
+    assert _conflicts(client) == [("[[conflict]] `x]`" + ORPHAN_SUFFIX, ["t"])]
+    assert not _page_exists(seeded_config, "x")
+
+
+def test_blank_orphan_edit_lands_nothing(client, seeded_config):
+    start = _latest_seq(client)
+    r = _post(client, {"op": "update_text", "uid": "uid_gone02", "text": ""})
+    assert r.status_code == 200
+    assert r.json()["skipped"] == [
+        _skipped(0, "update_text", "uid_gone02", "block_not_found",
+                 noted=False)]
+    assert not _page_exists(seeded_config, title_for_date(date.today()))
+    _, tombstones = _feed_since(client, start)
+    assert "uid_gone02" in tombstones
+
+
+def test_impossible_uid_on_a_missing_target_still_400s(client):
+    r = _post(client, {"op": "delete", "uid": "not a uid!"})
     assert r.status_code == 400
+    assert r.json()["detail"] == {"index": 0,
+                                  "reason": "block not found: not a uid!"}
+
+
+def test_clean_batch_ack_omits_skipped(client):
+    # a missing list reads as empty (OpsAck's default, as for acks stored
+    # before the field existed), so a clean write's ack stays unchanged
+    r = _post(client, CLEAN_EDIT)
+    assert r.status_code == 200
+    assert "skipped" not in r.json()
+
+
+def test_ops_chained_on_a_diverted_create_lose_no_text(client):
+    # X is created under a missing parent, then edited, then given a child:
+    # once X is diverted it is missing too, so each follow-on op lands
+    # instead of rejecting the batch
+    start = _latest_seq(client)
+    r = _post(client,
+              {"op": "create", "uid": "chain_x1", "page_title": "AI",
+               "parent_uid": "ghost_p5", "order_idx": 0, "text": "x first"},
+              {"op": "update_text", "uid": "chain_x1", "text": "x edited",
+               "base_text_hash": text_hash("x first"), "page_title": "AI"},
+              {"op": "create", "uid": "chain_y1", "page_title": "AI",
+               "parent_uid": "chain_x1", "order_idx": 0, "text": "y child"},
+              {"op": "move", "uid": "uid_b6", "parent_uid": "chain_x1",
+               "order_idx": 0})
+    assert r.status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] [[AI]]" + ORPHAN_SUFFIX, ["x first"]),
+        ("[[conflict]] [[AI]]" + ORPHAN_SUFFIX, ["x edited", "y child"]),
+        ("[[conflict]] [[AI]] — ((uid_b6))",
+         ["move skipped: target parent chain_x1 not found"]),
+    ]
+    _, tombstones = _feed_since(client, start)
+    assert {"chain_x1", "chain_y1", "ghost_p5"} <= tombstones
+    assert r.json()["skipped"] == [
+        _skipped(0, "create", "chain_x1", "parent_not_found"),
+        _skipped(1, "update_text", "chain_x1", "block_not_found"),
+        _skipped(2, "create", "chain_y1", "parent_not_found"),
+        _skipped(3, "move", "uid_b6", "parent_not_found")]
+
+
+@pytest.mark.parametrize("op", [
+    {"op": "set_collapsed", "uid": "ghost_r1", "collapsed": True},
+    {"op": "delete", "uid": "ghost_r1"},
+    {"op": "move", "uid": "ghost_r1", "parent_uid": None, "order_idx": 0},
+    {"op": "set_heading", "uid": "ghost_r1", "heading": 1},
+    {"op": "set_view_type", "uid": "ghost_r1", "view_type": "document"},
+    {"op": "update_text", "uid": "ghost_r1", "text": "unhashed"},
+    {"op": "create", "uid": "ghost_r2", "page_title": "AI",
+     "parent_uid": "ghost_r1", "order_idx": 0, "text": "diverted"},
+    {"op": "move", "uid": "uid_b3", "parent_uid": "ghost_r1",
+     "order_idx": 0},
+], ids=["set_collapsed", "delete", "move", "set_heading", "set_view_type",
+        "update_text", "create", "move_parent"])
+def test_replayed_missing_target_batch_lands_nothing_twice(client, op):
+    first = _post(client, op, batch_id="missing_replay1")
+    assert first.status_code == 200
+    conflicts, seq = _conflicts(client), _latest_seq(client)
+    again = _post(client, op, batch_id="missing_replay1")
+    assert again.status_code == 200
+    assert again.json() == first.json()
+    assert _conflicts(client) == conflicts
+    assert _latest_seq(client) == seq
 
 
 # --- stale edits across a rename or merge ---------------------------------

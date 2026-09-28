@@ -160,7 +160,7 @@ def test_create_broadcast_uses_the_stored_page_title(db):
     broadcast = apply_batch(db, _batch(
         {"op": "create", "uid": "titlecast1", "page_title": title,
          "parent_uid": None, "order_idx": 0, "text": "body text"},
-    ), NOW)
+    ), NOW).broadcast_ops
 
     assert broadcast == [{
         "op": "create",
@@ -177,7 +177,7 @@ def test_create_broadcast_uses_the_stored_page_title(db):
 def test_create_page_broadcast_uses_the_stored_page_title(db):
     broadcast = apply_batch(db, _batch(
         {"op": "create_page", "page_title": "Paper/Levels of AGI:\nthe Path to AGI"},
-    ), NOW)
+    ), NOW).broadcast_ops
 
     assert broadcast == [{
         "op": "create_page",
@@ -189,7 +189,7 @@ def test_move_broadcast_uses_the_destination_page_title_after_apply(db):
     broadcast = apply_batch(db, _batch(
         {"op": "move", "uid": "uid_b4", "parent_uid": None,
          "order_idx": 0, "page_title": "Paper/Levels of AGI:\nthe Path to AGI"},
-    ), NOW)
+    ), NOW).broadcast_ops
 
     assert broadcast == [{
         "op": "move",
@@ -234,7 +234,7 @@ def test_applied_page_broadcast_fails_closed_when_authoritative_title_is_missing
 def test_same_page_move_broadcast_keeps_page_title_null(db):
     broadcast = apply_batch(db, _batch(
         {"op": "move", "uid": "uid_b3", "parent_uid": None, "order_idx": 0},
-    ), NOW)
+    ), NOW).broadcast_ops
 
     assert broadcast == [{
         "op": "move",
@@ -492,7 +492,8 @@ def test_op_error_index_reports_failing_op(db):
     with pytest.raises(OpError) as e:
         apply_batch(db, _batch(
             {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
-            {"op": "delete", "uid": "ghost99"},
+            {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+             "order_idx": 0},  # a cycle
         ), NOW)
     assert e.value.index == 1
     db.rollback()
@@ -632,3 +633,69 @@ def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
     assert ops_core.replay_title_rewrites(
         "[[A]] and [[B]] edited", text_hash(before), records) == (
             "[[A2]] and [[B2]] edited", text_hash(after))
+
+
+# --- ops on missing blocks (pkm-foap) ---------------------------------------
+
+
+def _journal_rows_since(db, seq):
+    return [(r["entity_id"], r["deleted"]) for r in db.execute(
+        "SELECT entity_id, deleted FROM changes WHERE seq > ? AND kind = 'block'"
+        " ORDER BY seq", (seq,))]
+
+
+def _max_seq(db):
+    return db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+
+
+def test_skipped_ops_are_not_broadcast_as_applied(db):
+    result = apply_batch(db, _batch(
+        {"op": "set_collapsed", "uid": "ghost_bc1", "collapsed": True},
+        {"op": "move", "uid": "ghost_bc1", "parent_uid": None,
+         "order_idx": 0},
+        {"op": "update_text", "uid": "ghost_bc1", "text": "lost"},
+        {"op": "create", "uid": "ghost_bc2", "page_title": "AI",
+         "parent_uid": "ghost_bc1", "order_idx": 0, "text": "child"},
+        {"op": "move", "uid": "uid_b3", "parent_uid": "ghost_bc1",
+         "order_idx": 0},
+        {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
+    ), NOW)
+    # only the op that actually applied reaches other tabs; they pick up
+    # the daily-note entries through the changes feed
+    assert result.broadcast_ops == [{"op": "set_collapsed", "uid": "uid_b2",
+                                     "collapsed": True}]
+    assert [(s["index"], s["op"], s["uid"], s["reason"])
+            for s in result.skipped] == [
+        (0, "set_collapsed", "ghost_bc1", "block_not_found"),
+        (1, "move", "ghost_bc1", "block_not_found"),
+        (2, "update_text", "ghost_bc1", "block_not_found"),
+        (3, "create", "ghost_bc2", "parent_not_found"),
+        (4, "move", "uid_b3", "parent_not_found")]
+
+
+def test_noop_batch_journals_the_ghost_without_a_daily_page(db):
+    before = _max_seq(db)
+    apply_batch(db, _batch(
+        {"op": "set_collapsed", "uid": "ghost_nb1", "collapsed": True},
+        {"op": "delete", "uid": "ghost_nb2"},
+    ), NOW)
+    db.commit()
+    assert _journal_rows_since(db, before) == [("ghost_nb1", 1)]
+    day = title_for_date(date.today())
+    assert db.execute("SELECT id FROM pages WHERE title = ?",
+                      (day,)).fetchone() is None
+
+
+def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
+    before = _max_seq(db)
+    apply_batch(db, _batch(
+        {"op": "move", "uid": "uid_b3", "parent_uid": "ghost_mp1",
+         "order_idx": 0},
+    ), NOW)
+    db.commit()
+    rows = _journal_rows_since(db, before)
+    assert rows[0] == ("ghost_mp1", 1)   # the tombstone leads
+    assert rows[-1] == ("uid_b3", 0)
+    row = db.execute("SELECT parent_uid, order_idx FROM blocks"
+                     " WHERE uid = 'uid_b3'").fetchone()
+    assert (row["parent_uid"], row["order_idx"]) == ("uid_b2", 0)

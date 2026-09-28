@@ -197,6 +197,21 @@ def test_ops_ack_is_exactly_what_the_ops_route_returns(pkm_client, client):
         ok=True, ts=raw.json()["ts"], applied=1, seq=raw.json()["seq"])
     assert isinstance(raw.json()["seq"], int)
 
+    skipping = client.post("/api/ops", json={
+        "client_id": "test", "batch_id": "ack-contract-2",
+        "ops": [{"op": "move", "uid": "uid_gone_ack", "parent_uid": None,
+                 "order_idx": 0}]})
+    ack = OpsAck.model_validate(skipping.json())
+    assert [s.model_dump() for s in ack.skipped] == skipping.json()["skipped"]
+    assert ack.skipped[0].reason == "block_not_found"
+
+
+def test_ops_ack_stored_before_skipped_existed_reads_as_none_skipped():
+    # applied_batches replays old acks verbatim, without the field
+    from pkm.contracts.responses import OpsAck
+    assert OpsAck.model_validate(
+        {"ok": True, "ts": 1, "applied": 2, "seq": 7}).skipped == []
+
 
 def test_asset_delete_ack_is_exactly_what_the_delete_route_returns(
         pkm_client, client, tmp_path):

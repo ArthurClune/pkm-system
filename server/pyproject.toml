@@ -43,8 +43,7 @@ pythonpath = ["tooling"]
 line-length = 120
 
 [tool.uv]
-# The global uv cooldown (exclude-newer = "5 days") held claude-agent-sdk at a
-# bundled CLI whose `sonnet` alias still meant Sonnet 5. This pin admits 0.2.161
-# (bundled CLI 2.1.284: opus -> claude-opus-5-5, sonnet -> claude-sonnet-5-5)
-# and nothing later. Drop it once the global cooldown has caught up.
-exclude-newer-package = { claude-agent-sdk = "2026-09-28T19:00:00Z" }
+# claude-agent-sdk is exempt from the global uv cooldown (exclude-newer =
+# "5 days"). Its bundled CLI maps the assistant's model aliases to model ids,
+# so a new Claude model reaches the assistant only through an SDK upgrade.
+exclude-newer-package = { claude-agent-sdk = false }

@@ -24,7 +24,7 @@ interface so it can be exercised without a session registry.
 `parentReadElection.ts` (`ParentReadHost`) elects the surface that starts a
 title's next full-payload parent read. `repairEpochs.ts` (`RepairTarget`) runs
 the post-settlement repair pass described in
-[sync-and-offline.md](sync-and-offline.md#what-the-queue-and-the-ui-do-with-it).
+[sync-recovery.md](sync-recovery.md#a-local-write-fails).
 
 ### Driving a session from a view
 

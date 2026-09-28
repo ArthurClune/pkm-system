@@ -1,0 +1,355 @@
+# Sync failure modes and recovery
+
+This doc covers what each guard on the sync path does when something fails:
+what detects the failure, what the response is, and which invariant must hold.
+The design those guards protect is in [sync-and-offline.md](sync-and-offline.md).
+Failures are indexed by what someone would observe in
+[troubleshooting.md](../troubleshooting.md).
+
+Every guard here follows from one rule in
+[sync-and-offline.md § The replica](sync-and-offline.md#the-replica): the
+replica is a cache and the queue is the user's intent.
+
+## Failure modes at a glance
+
+| Failure | Detected by | Response | Must hold | Section |
+|---|---|---|---|---|
+| A replica write fails: `SQLITE_CANTOPEN`, `IOERR`, a dead worker | `enqueue`'s catch in `opQueue.ts` | Op kept in the in-memory fallback lane | Only `ReplicaError.rejected` drops an op | [A local write fails](#a-local-write-fails) |
+| The replica refuses the op itself (title syntax) | `ReplicaError.rejected` | Ticket fails; `onDesync` repairs the outline | The only replica failure that discards | [A local write fails](#a-local-write-fails) |
+| Lane entries and durable rows are both waiting | `laneHeadPrecedes` | Ordered by batch identity | Every path that posts durable rows asks the queue first | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
+| An enqueue reply is lost after the row persisted | Two copies share one `batch_id` | The second delivery replays | `batch_id` is minted before the RPC | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
+| The OPFS file cannot be opened | `openWithRetry`, `ensureMinimumCapacity` | Up to 6 attempts, then `unusable` for the session | `forceReinitIfPreviouslyFailed`; pool top-up before the open | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
+| The worker RPC breaks | `RpcLifecycleError`, read as `unreachable` | Ops kept; recovery barrier held | `unreachable` never lifts the barrier | [Availability: two values, one owner](#availability-two-values-one-owner) |
+| A window was fetched before an ack deleted its pending row | `pendingSetStillCovered` | Applied if the ack's `seq` is covered, else refetched | No window applies without the edits it lacks | [Windows and the pending queue](#windows-and-the-pending-queue) |
+| Pending rows change while recovery runs | The fingerprint check in `commitRecovery` | Recovery aborts before anything is destroyed | Every mutating RPC passes the recovery gate | [Recovery never erases intent](#recovery-never-erases-intent) |
+| A re-applied pending batch dangles a foreign key | `PRAGMA foreign_key_check` diff in `reapplyPending` | That batch rolls back locally; its row stays | The queue row is never deleted locally | [Recovery never erases intent](#recovery-never-erases-intent) |
+| The server answers 4xx for a durable batch | The drain's `ApiError` branch | Row poisoned, delivery paused, snapshot repair drops it | Later rows never post ahead of it; the repair never resets | [A batch the server rejects](#a-batch-the-server-rejects) |
+| A pull keeps failing | `noteFailure`, counting only `isStallShaped` errors | Backoff retry; `stalled` after `STALL_AFTER_FAILURES` | Network-down and availability failures never count | [A pull that keeps failing](#a-pull-that-keeps-failing) |
+| Schema, generation, cursor, FK, title, corruption or repeated window failure | Seven detectors | `reset` or `rebase` from a snapshot | One lifecycle, `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
+| A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase carries the durable queue across | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
+| `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
+| An op names a block or parent the server no longer has | `ops_core.classify_missing_target` | Skipped with an ack 200; journal rows fix the replica | Tombstones are journalled before live rows | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
+| The replica opens, then fails every write | Nothing | Known gap | — | [What the UI shows](#what-the-ui-shows) |
+
+## A local write fails
+
+A failed replica RPC means "could not persist locally right now", the same as
+any other local write failure. **`opQueue` keeps the op unless the replica
+rejected the op itself.** The rule is a blocklist with one entry,
+`ReplicaError.rejected`, not a check on the availability type. A starved pool's
+`SQLITE_CANTOPEN` is neither `unusable` nor `unreachable`, so a type check
+would let it reach `onDesync`. Its repair wipes the active outline back to the
+server's edit-less state. That repair is the outline repair epoch
+(`outline/repairEpochs.ts`), owned by
+[frontend-editor.md](frontend-editor.md#per-title-outline-sessions); delivery
+resumes from its `onStable` callback.
+
+A full disk arrives the same way. The opfs-sahpool VFS reports
+`QuotaExceededError` as a bare `SQLITE_IOERR`, so there is no quota signal to
+act on, and the op is kept like any other.
+
+Kept ops join an ordered in-memory fallback lane. Once `noteReplicaFailure`
+latches `unavailable` from session-fatal evidence (see
+[Availability](#availability-two-values-one-owner)), the drain stops calling
+`nextBatch()`/`markPoisoned()` and delivers only the lane.
+
+### The in-memory fallback lane
+
+The lane is drained under the same connectivity, backoff and recovery-barrier
+policy as durable rows. Two outboxes feed one server, so order is decided by
+batch identity in one predicate, `laneHeadPrecedes`, never by a count of
+batches ahead:
+
+| Durable batch | Goes |
+|---|---|
+| persisted by this queue while the lane held entries (a mark in `follows`) | after every lane entry appended before it |
+| any other row: a previous session's, the offline shim's `create_page` | ahead of the lane |
+| none left (`nextBatch()` returns null) | the lane goes |
+
+**Every path that posts durable rows asks the queue first.** The drain applies
+the predicate to each batch `nextBatch()` hands it. The recovery flush
+(`flushBatches`) calls `deliverLaneAhead(batch_id)` before each leased batch.
+That method only posts; a lane entry's 4xx discard stays the drain's decision.
+A new path that posts durable rows without that call can put a move ahead of
+the create it depends on. The lane therefore waits for a `nextBatch()` read, so
+a failed read delays it through the normal backoff. A duplicate POST of one
+head from the drain and the flush is a server replay, and the head leaves the
+lane once.
+
+`opQueue.enqueue` mints an entry's `batch_id` *before* the persist RPC, and a
+retained entry keeps it. After a lost enqueue reply, a durable row and its lane
+copy therefore share one id. Whichever delivers second lands on the server's
+`applied_batches` replay instead of a create-collision 400. The two copies can
+differ: the worker fills `base_text_hash` and `page_title` into the durable
+row, while the lane holds the caller's unfilled ops. `batch_replay_hash`
+(`ops_core.py`) ignores both fields, so the second delivery replays instead of
+drawing a 409 (see [backend.md § The write path](backend.md#the-write-path)).
+
+Every entry counts towards "N changes pending" and is kept until delivered,
+rejected with a 4xx, or the queue is disposed. That 4xx is the only discard the
+queue makes on its own; it raises the repair barrier and calls `onDesync`.
+
+A reload destroys the lane, so `useUnloadGuard` interrupts one. It arms from
+`onUnsentInMemory`, the lane's own length, never from "N changes pending",
+whose total includes durable rows a reload finds again. The `beforeunload`
+listener attaches only while the lane is non-empty, because a permanent one
+opts the page out of the back/forward cache. It is a desktop protection: an iOS
+standalone PWA honours neither `beforeunload` nor `window.confirm`.
+
+## When the replica cannot be opened
+
+Both failure paths are races between an outgoing worker and its replacement, and
+both happen only as a worker starts. The policies are pure modules
+(`replica/openRetry.ts`, `replica/poolCapacity.ts`).
+
+```mermaid
+flowchart TD
+    W([replica worker starts])
+    B["attempt — up to 6, backoff 50→800ms"]
+    I["installOpfsSAHPoolVfs, once per worker<br/>(forceReinitIfPreviouslyFailed: true)"]
+    C{"pool capacity ≥ 6?"}
+    A["addCapacity up to 6<br/>(fresh random filenames)"]
+    O["open /pkm-replica.sqlite3"]
+    R{"SyncAccessHandle contention,<br/>and attempts left?"}
+    OK([replica ready])
+    X(["unusable — latched<br/>for the session"])
+    W --> B --> I --> C
+    C -->|"no: a sibling worker was<br/>mid-create, so capacity is 1"| A --> O
+    C -->|yes| O
+    O --> OK
+    I -.->|throws| R
+    A -.->|throws| R
+    O -.->|throws| R
+    R -->|yes| B
+    R -->|no| X
+```
+
+`forceReinitIfPreviouslyFailed` must stay in `SAH_POOL_INSTALL_OPTIONS`, because
+sqlite-wasm memoises `installOpfsSAHPoolVfs` per VFS name and otherwise
+re-awaits the cached rejection. The top-up to `MIN_POOL_CAPACITY` must run
+before the open, because nothing grows the pool later and every file SQLite
+opens claims a slot.
+
+### Availability: two values, one owner
+
+**The worker owns the answer and latches it until `close()`.** `db()` in
+`workerHandlers.ts` wraps the first `openDb()` failure in a
+`ReplicaUnavailableError` and keeps it in `unavailable`. Every later handler
+call throws that same object, including an `init()` that would now succeed. Only `close()` re-arms it, because lifting the barrier starts a drain
+against a freshly reopened, unexamined database.
+
+`ReplicaAvailability` has two values because its consumers need different
+evidence:
+
+| Value | Evidence | Keep the op? | May lift the barrier? |
+|---|---|---|---|
+| `unusable` | the worker's own `openDb()` failed, so there is no database: a `ReplicaUnavailableError`, on the wire as `unavailable: true` | yes | yes |
+| `unreachable` | the RPC broke (`worker-error`, `message-error`, `disposed`, `timeout`), so we could not ask: an `RpcLifecycleError` on the main thread | yes | no |
+
+`unreachable` may not lift the barrier: no answer is not evidence that nothing
+is poisoned. Only `unusable` crosses the wire, as a boolean in `rpc.ts`'s
+`{message, rejected, unavailable}`. `availabilityOf()` (`replica/errors.ts`)
+is where that boolean and the client-side `RpcLifecycleError` become one type.
+`isSessionFatal()` answers whether a consumer may latch the state, and says yes
+to everything but a bare timeout.
+
+### What the UI shows
+
+Startup raises a `replica-unavailable` problem for an `unusable` replica, and
+`OfflineIndicator` renders "Working online only — offline editing is
+unavailable for now." Its second sentence depends on connectivity:
+
+| State | Second sentence | Why |
+|---|---|---|
+| Connected | "Your changes are still being saved to the server." | Raised only for an `unusable` replica, never a `rejected` op, so the queue retains every write |
+| Offline, work pending | a warning that N unsent changes exist only in memory and a reload or closed tab discards them | They live only in the fallback lane, and `useUnloadGuard` interrupts a reload only where `beforeunload` is honoured, which an iOS standalone PWA does not |
+| Offline, clean queue | none — the first sentence stands alone | Nothing to promise and nothing to lose |
+
+Its action is Reload, not Retry, because the failed open is latched for the
+session. It confirms first when ops are pending.
+
+**Known gap:** nothing surfaces a replica that opens and then fails every write.
+`availabilityOf` returns `null` for it, so no banner shows, editing stays
+enabled, and the user keeps producing writes that live only in memory.
+
+## Windows and the pending queue
+
+`pullLoop` snapshots the pending batch ids before each fetch and passes them to
+the worker's `applyChanges`. A window read before batch B committed lacks B. If
+B's ack deleted its row in the meantime, applying that window with nothing left
+to reapply would drop B's optimistic edit. So the worker compares the snapshot
+with the current pending ids (`pendingSetStillCovered` in
+`web/src/replica/pendingGuard.ts`):
+
+| Pending ids since the snapshot | Result |
+|---|---|
+| unchanged | window applied |
+| some removed, each deleted on an ack whose `seq` ≤ the window's `latest_seq` | window applied |
+| any other removal, an addition, or a reorder | `pending-changed`: `pullLoop` refetches, at most `PENDING_CHANGED_CAP` (20) times, then throws `PullStarvedError` |
+
+The second row is safe because `sync_changes` reads `latest_seq` in the same
+read transaction as the window rows. A `latest_seq` at or past B's acked `seq`
+means the window and its continuation pages already carry B, which is all a
+refetch would add. It is also the common case after every save: the WS nudge
+starts a pull while the batch is still pending, and the HTTP ack lands during
+the fetch.
+
+The worker holds the acked seqs in memory (`ackedSeqs`), keyed by `pending_ops`
+row id. It drops entries outside the latest snapshot on each `applyChanges`,
+and clears them all on a schema rebuild, which restarts the AUTOINCREMENT ids.
+
+## Recovery never erases intent
+
+| Guard | Where | What it stops |
+|---|---|---|
+| Best-effort optimistic apply: an op that cannot apply locally is skipped, never dropped from the queue | `replica/queue.ts::enqueueBatch` | A local failure deleting an edit the server would accept |
+| A worker-owned FIFO recovery gate that every database-mutating RPC passes through | `recoveryGate.ts`, `workerHandlers.ts` | An enqueue landing mid-rebuild |
+| `prepareRecovery` fingerprints the durable pending rows; `commitRecovery` re-reads them just before the destructive step and aborts if they changed | `workerHandlers.ts` | Recovery erasing an acknowledged enqueue |
+| `reapplyPending` re-applies non-poisoned pending batches on top of every snapshot and feed window | `replica/apply.ts` | Later edits capturing stale base hashes |
+| `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
+
+The FK diff works whatever the enforcement pragmas say, so it also covers the
+reset rebuild, which runs under `foreign_keys=OFF`. The rolled-back batch stays
+in `pending_ops` and still flushes to the server.
+
+## A batch the server rejects
+
+A 4xx on a durable batch marks its row *poisoned* and pauses delivery.
+`SyncProvider` then runs the authoritative repair: `rebaseAuthoritative`, a
+`rebase` with flush `"skip"`, re-applies the non-poisoned batches over a fresh
+snapshot. The provider deletes the poisoned row by id and resumes delivery.
+
+The repair never escalates to a `reset`, because a reset drops `pending_ops`
+and the valid rows behind the poisoned one must stay durable until it is
+deleted. It also never posts those rows first. Its way past a damaged file is
+the rebase's own file replacement (see
+[Reset, rebase and file replacement](#reset-rebase-and-file-replacement)).
+
+Retained mark intents live in `localStorage`, not the replica, so they survive
+an unopenable database. A `retryPoisonMarks()` that fails while intents exist
+keeps its barrier and a "Saving rejected-change recovery failed: …" Retry
+banner. That banner also offers "Discard rejected change"
+(`Sync.discardProblem()`), which drops the intents and rejoins startup, since an
+intent otherwise clears only after a successful `markPoisoned`. Which recovery
+a Retry click runs is decided by `retryPolicy.ts::planRetry`.
+
+## A pull that keeps failing
+
+A pull failure that escapes `pullLoop` reaches `noteFailure`, which retries
+from `RETRY_BASE_MS` (1 s) doubling to `RETRY_MAX_MS` (60 s), with no timer
+while offline. The reconnect flow restarts the pull when the socket returns.
+`isStallShaped` decides whether the failure counts towards
+`STALL_AFTER_FAILURES` (3):
+
+| Failure | Counts? | Why |
+|---|---|---|
+| `ApiError`, `ReplicaError`, `PullStarvedError` | yes | the replica cannot make progress |
+| `OfflineError` (status 0, although it extends `ApiError`), a raw `fetch` rejection | no | the offline banner already owns network-down |
+| anything `availabilityOf()` classifies | no | a session already known to have no replica is not stalled, and `stalled` would take editing away |
+
+The third counted failure sets mode `stalled`, and the banner reads "Local sync
+is stuck" with Reset local data. `WINDOW_STRIKES` equals `STALL_AFTER_FAILURES`
+so that a window failing identically rebases before the banner can show.
+
+## Rebootstraps
+
+### Rebootstrap triggers
+
+Seven conditions cause a rebootstrap from `GET /api/sync/snapshot` on their own:
+
+| Trigger | Detected by | Kind |
+|---|---|---|
+| App deploy changed the client schema | `SCHEMA_VERSION` = sha256(base + client DDL) vs stored value | `reset` (drop and recreate every table) |
+| Server DB rebuilt or title activation rotated generation | `generation` token mismatch in any feed payload; a forced WS frame makes metadata-only rotation pull immediately | `rebase` (flush queue, re-snapshot) |
+| Cursor ahead of journal | `reset: true` from the feed | `rebase` |
+| Window cannot commit: deferred FK check fails (dependency-incomplete feed, e.g. an older server) | `applyChanges` catches the FK failure at COMMIT and returns `needs-bootstrap` | `rebase` |
+| A local page or sidebar row holds a title this window gives to another id, and the window neither retitles nor tombstones that row | a row still parked by `parkTakenTitles` after the upserts throws `StaleTitleHolderError`, and `applyChanges` returns `needs-bootstrap` | `rebase` |
+| The replica reports corruption (`SQLITE_CORRUPT`, or FTS5's `SQLITE_CORRUPT_VTAB`) applying a window or a rebase snapshot | `isCorruptionError` in `pullLoop` and `recover`, once per session; `replica.diagnostics()` (quick_check, FTS `integrity-check`, row counts, cursor) is posted to `POST /api/client/diagnostics` first | `reset`: a rebase would replay the snapshot through the same FTS triggers over the same corrupt index |
+| A window keeps failing for any other reason — a NOT NULL or CHECK violation, a bug in an upsert | `WINDOW_STRIKES` failures of one cursor with one message in `pullLoop`. `isWindowFailure` counts only a `ReplicaError` that is neither corruption nor an availability verdict, so transport failures never count. Posted with `replica.diagnostics()` under kind `window-unappliable`, once per session | `rebase`: nothing says the schema or the FTS index is bad, and a rebase keeps the pending queue's rows |
+
+Two more rebootstraps happen on request: the authoritative repair of a poisoned
+batch, and the user's own Reset local data.
+
+### runRecovery
+
+`runRecovery` (`web/src/sync/replicaSync.ts`) is the single lifecycle behind all
+of them:
+
+```mermaid
+flowchart TD
+    P["queue.pause('recovery')"] --> AW{"awaitInFlightPull?"}
+    AW -->|yes| WP["await the pull in flight"] --> L
+    AW -->|no| L["replica.prepareRecovery()<br/>gate held, pending rows fingerprinted"]
+    L --> F["flushLease: skip · preemptible · blocking"]
+    F --> S["GET /api/sync/snapshot"]
+    S --> C{"commitRecovery:<br/>pending rows unchanged?"}
+    C -->|"yes, reset"| RB["rebuildOrReplaceFile"]
+    C -->|"yes, rebase"| RS["rebaseOrReplaceFile"]
+    RB --> OK["adoptCursor(snapshot.seq)"]
+    RS --> OK
+    C -.->|no| AB["abortRecovery(token), rethrow"]
+    F -.->|throws| AB
+    S -.->|throws| AB
+    OK --> R["finally: queue.resume('recovery'),<br/>if resume and no poison repair owns recovery"]
+    AB --> R
+```
+
+Entrants differ only in the `RecoveryOptions` they pass:
+
+| Option | schema / feed recovery | poison repair | manual reset |
+|---|---|---|---|
+| `flush` | `"preemptible"`: abandon the run if a poison mark claims recovery mid-flush | `"skip"`: never post later valid rows ahead of a batch the server refused | `"blocking"`: a failed flush raises `ResetBlockedError` and keeps the database. `"skip"` when the user chose to discard pending changes |
+| `resume` | yes | no: `SyncProvider` resumes after deleting the durable row | yes |
+| `reportReplicaFailure` | yes, mode `recovery-failed` | no, the repair banner owns the report | no, the reset banner owns the report |
+| `awaitInFlightPull` | no | yes | yes |
+| `forceReadyOnSuccess` | no | no | yes: mode `ready`, pulls re-enabled |
+
+A pull past the pending-id guard must finish before the database is torn down,
+or its stale window applies after the fresh snapshot and moves the cursor
+backwards. Schema and feed recovery keeps `awaitInFlightPull` false because
+`pullLoop` calls it from inside the pull it would await. That entrant runs
+through `recover()`, which turns a `rebase` failing on fresh corruption into
+the session's one `reset`.
+
+### Reset, rebase and file replacement
+
+A `reset` rebuilds the tables inside the existing file, in one transaction, so
+a failure leaves the old database whole. That cannot get past damage to the
+file itself: a broken freelist or page map, which `quick_check` reports and the
+FTS checks do not. When the rebuild throws a corruption error,
+`rebuildOrReplaceFile` (`web/src/replica/workerHandlers.ts`) calls the worker's
+`discardDbFile`. That closes the database and unlinks the file and its
+`-journal` from the SAH pool, and the rebuild runs again on a fresh file. The
+journal goes too, or its first open would roll it back into the new file.
+Pending rows lose nothing, because a reset drops `pending_ops` anyway and its
+caller already holds them from `prepareRecovery`.
+
+A `rebase` meets the same damage when its snapshot apply deletes rows.
+`rebaseOrReplaceFile` takes the same escape but keeps the queue: the durable
+rows move to the new file verbatim, ids and `poisoned` included, and commit
+before the snapshot applies. This is how the rejected-batch repair gets past a
+damaged file without resetting.
+
+**Corruption must reach `isCorruptionError` with its own message.** SQLite
+rolls back the whole transaction by itself on `SQLITE_CORRUPT`, `IOERR` or
+`FULL`, and a later `ROLLBACK` or `ROLLBACK TO` then fails with "no transaction
+is active" or "no such savepoint". `wrapSqlite`'s `transaction` and
+`rollbackToSavepoint` (`web/src/replica/db.ts`) raise the original error
+instead. A masked message looks like an unappliable window, which earns a
+rebase over the same damaged file.
+
+## Ops on blocks the server no longer has
+
+An op whose block, or create/move parent, is gone never rejects its batch: the
+server skips it, lands any lost text on today's daily page, and acks 200 (the
+per-op table is in [backend.md § The write path](backend.md#the-write-path)).
+The client keeps its optimistic copy of the skipped op. So the server journals
+every uid involved in the same commit through `JournalBlock`, and the feed
+ships each as a tombstone, or as the block's real row if it exists.
+
+A replica applies tombstones first, and a block tombstone cascades its local
+subtree. For a move under a missing parent, the server journals the parent's
+tombstone and then every block of the moved subtree. `_plan_missing_target`
+emits tombstones before live rows, so a window boundary never puts a tombstone
+after the rows that restore what it cascades away. The ghost goes without a
+snapshot repair.

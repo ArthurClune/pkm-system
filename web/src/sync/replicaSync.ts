@@ -121,9 +121,13 @@ export interface ReplicaSyncDeps {
   ) => Promise<unknown>;
   clientId: string;
   onState: (s: ReplicaState) => void;
-  /** Delivery is paused while the worker recovery lease owns the database. */
+  /** Delivery is paused while the worker recovery lease owns the database.
+   * `deliverLaneAhead` is how the recovery flush below gets the drain's own
+   * lane-ordering guarantee (pkm-5ekv): this flush posts leased durable rows
+   * on its own, knowing nothing about the lane, so flushBatches asks the
+   * queue to deliver whatever the lane holds ahead of each one first. */
   queue?: Pick<OpQueue, "pause" | "resume"> &
-    Partial<Pick<OpQueue, "onPoisonPending">>;
+    Partial<Pick<OpQueue, "onPoisonPending" | "deliverLaneAhead">>;
   /** True while the socket is down (mirrors the offline gateway's own
    * `statusRef.current === "reconnecting"` predicate). A failed pull's retry
    * is pointless here -- every retry while offline just reproduces the same
@@ -373,6 +377,13 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // poisoned batches were already rejected by the server; retrying
       // them forever would wedge recovery (spec section 6)
       if (b.poisoned) continue;
+      beforePost();
+      // This flush knows nothing about the lane on its own (pkm-5ekv): ask
+      // the queue for the same ordering guarantee the drain enforces on
+      // itself before posting a batch it pulls. Checked again after, since
+      // deliverLaneAhead can take a while and a poison repair may claim
+      // recovery during it.
+      await queue.deliverLaneAhead?.(b.batch_id);
       beforePost();
       await fetchJson("/api/ops", {
         method: "POST",

@@ -526,6 +526,50 @@ test("schema mismatch flushes pending batches before reset, in order", async () 
   expect(states.at(-1)).toEqual({ mode: "ready" });
 });
 
+test("the recovery flush delivers each batch's lane-ahead entries before posting it (pkm-5ekv)",
+async () => {
+  // flushBatches posts leased durable rows on its own, knowing nothing about
+  // the fallback lane — the second overtaking path the original bean
+  // analysis missed. It must ask the queue's deliverLaneAhead for each batch
+  // before posting it, so a lane entry the batch follows still goes out
+  // first. A fake queue recording call order is enough to pin this: the
+  // queue's own contract for deliverLaneAhead is tested at the opQueue level.
+  const trace: string[] = [];
+  const batches: PendingBatch[] = [
+    { id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false },
+    { id: 2, batch_id: "b-2", ops: [{ op: "delete", uid: "uid_a2" }], poisoned: false },
+  ];
+  const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
+  const fetchJson = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/ops") {
+      trace.push(`flush ${JSON.parse(String(init?.body)).batch_id}`);
+      return { ok: true };
+    }
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const queue = {
+    pause: () => undefined,
+    resume: () => undefined,
+    deliverLaneAhead: async (batchId: string) => {
+      trace.push(`deliver lane ahead of ${batchId}`);
+    },
+  };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+
+  await sync.start();
+
+  expect(trace).toEqual([
+    "deliver lane ahead of b-1",
+    "flush b-1",
+    "deliver lane ahead of b-2",
+    "flush b-2",
+  ]);
+});
+
 test("a failed recovery flush keeps the database and reports the failure", async () => {
   const replica = fakeReplica({}, {
     schemaMismatch: true,

@@ -416,10 +416,25 @@ enabled, and the user keeps producing writes that live only in memory.
 
 ### The in-memory fallback lane
 
-The lane matches the durable path's policy and its payload. Order is preserved:
-each entry records a `pendingCount` of the durable batches queued ahead of it
-and posts only once every one is terminal, delivered or poisoned, and an empty
-durable queue clears every count.
+The lane matches the durable path's policy and its payload. Two outboxes feed
+one server, so order is decided by batch identity in one predicate,
+`laneHeadPrecedes`, never by a count of batches ahead:
+
+| Durable batch | Goes |
+|---|---|
+| persisted by this queue while the lane held entries (a mark in `follows`) | after every lane entry appended before it |
+| any other row: a previous session's, the offline shim's `create_page` | ahead of the lane |
+| none left (`nextBatch()` returns null) | the lane goes |
+
+**Every path that posts durable rows asks the queue first.** The drain applies
+the predicate to each batch `nextBatch()` hands it. The recovery flush
+(`flushBatches`) calls `deliverLaneAhead(batch_id)` before each leased batch,
+and that method only ever posts; a lane entry's 4xx discard stays the drain's
+decision. A new path that posts durable rows without that call can put a move
+ahead of the create it depends on. The cost of identity ordering is that the
+lane waits for a `nextBatch()` read, so a failed read delays it through the
+normal backoff. A duplicate POST of one head from the drain and the flush is a
+server replay, and the head leaves the lane once.
 
 An entry's `batch_id` is minted in `opQueue.enqueue` *before* the persist RPC,
 and a retained entry keeps it. A durable row and its lane copy therefore share

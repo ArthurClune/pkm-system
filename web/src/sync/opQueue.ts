@@ -123,6 +123,16 @@ export interface OpQueue {
    * the replica later opens, the unmarked batch redelivers, the server
    * rejects it again, and the normal poison → repair flow handles it then. */
   discardPoisonIntents(): void;
+  /** Deliver every lane entry that a durable batch (named by its batch_id)
+   * follows, in order, before that batch may itself be POSTed. This is how
+   * the recovery flush (replicaSync.flushBatches) — which posts leased
+   * durable rows on its own, knowing nothing about the lane — gets the same
+   * ordering guarantee the drain enforces on itself (pkm-5ekv): call it
+   * before every batch that flush posts. A no-op when nothing in the lane
+   * precedes `batchId`. Throws, and leaves the entry retained, on a POST
+   * failure — a discard is the drain's decision alone, never this door's —
+   * and throws if the queue is disposed. */
+  deliverLaneAhead(batchId: string): Promise<void>;
 }
 
 type Listener<T> = (value: T) => void;
@@ -176,10 +186,11 @@ interface FallbackEntry {
    * sha256 of the ops. */
   batchId: string;
   ops: BlockOp[];
-  /** Durable batches persisted BEFORE this entry that must be delivered
-   * first; decremented as they drain, and cleared once the durable queue is
-   * observed empty. */
-  durableAhead: number;
+  /** This entry's position in lane-append order, assigned once at append
+   * time from `laneAppended`. Compared against a durable batch's boundary in
+   * `follows` to decide whether that batch may overtake it (see
+   * laneHeadPrecedes) — ordering by identity, never by a count. */
+  seq: number;
   resolve(outcome: DeliveryOutcome): void;
 }
 
@@ -202,9 +213,22 @@ function createReplicaQueue(replica: Replica,
   const poison = listeners<PoisonEvent>();
   const deliveries = new Map<string, (outcome: DeliveryOutcome) => void>();
   const fallback: FallbackEntry[] = [];
-  // Durable batches persisted since the last fallback entry was appended:
-  // they sit BEHIND that entry and must not overtake it.
-  let durableSinceFallback = 0;
+  // Monotonic count of lane entries ever appended: the source of each
+  // entry's `seq` and of the boundary a durable batch's `follows` mark
+  // records (see FallbackEntry and laneHeadPrecedes).
+  let laneAppended = 0;
+  // batch_id -> the lane-append boundary that batch must wait behind: every
+  // entry whose `seq` is less than this value was appended to the lane
+  // before this durable batch was persisted, so it must be delivered first.
+  // Only set for a durable batch THIS queue persisted while the lane was
+  // non-empty (see enqueue's success path) — a durable row with no entry
+  // here (a previous session's rows, the offline shim's create_page in
+  // replica/localApi/router.ts) is ahead of the lane by default, since
+  // laneHeadPrecedes treats a missing mark as a boundary of -1. A mark is
+  // removed once its batch is delivered or rejected here, and the whole map
+  // is cleared once the lane empties or nextBatch() observes the durable
+  // queue empty, which catches batches flushed out of band.
+  const follows = new Map<string, number>();
   // The availability fact, DERIVED from this queue's own failed RPCs and
   // latched only on evidence that is itself permanent (the worker's latched
   // open, or a terminally failed RPC client — never a timeout). The queue does
@@ -264,25 +288,38 @@ function createReplicaQueue(replica: Replica,
     emitPending();
   };
 
-  /** A durable batch reached a terminal state — delivered, or poisoned and so
-   * never deliverable — so it no longer stands ahead of the retained head.
-   * Poisoning must count too: the recovery coordinator deletes the poisoned row
-   * outside the queue, so no deleteBatch ever arrives for it, and a head left
-   * waiting on it would be overtaken by the next batch enqueued after it.
-   * Only reached while that head still has batches ahead of it, since the lane
-   * branch posts a head whose durableAhead is 0 before any batch is pulled. */
-  const durableBatchSettled = (): void => {
-    if (fallback.length > 0) {
-      fallback[0].durableAhead = Math.max(0, fallback[0].durableAhead - 1);
-    }
+  /** True exactly when the fallback head must be delivered before `batchId`
+   * may itself go out. `batchId === null` means nextBatch() observed the
+   * durable queue empty, so any lane head qualifies outright — there is
+   * nothing left for it to wait behind. Otherwise a durable batch this queue
+   * never marked (see `follows`) is ahead of the lane by construction: the
+   * lookup's `-1` default can never exceed a real (non-negative) seq. This is
+   * the ONE predicate both the drain and deliverLaneAhead consult — ordering
+   * is decided here, once, by batch identity. */
+  const laneHeadPrecedes = (batchId: string | null): boolean => {
+    const head = fallback[0];
+    if (head === undefined) return false;
+    if (batchId === null) return true;
+    return head.seq < (follows.get(batchId) ?? -1);
   };
 
-  /** Zero the durable-precedence bookkeeping: no retained entry is left
-   * waiting on a durable predecessor, and no entry appended next inherits one.
-   * Each call site owns the argument for why that is true there. */
-  const clearDurablePrecedence = (): void => {
-    for (const entry of fallback) entry.durableAhead = 0;
-    durableSinceFallback = 0;
+  /** Settle the fallback head with `outcome`, shifting it out of the lane
+   * ONLY if it is still at the front. The drain and the recovery flush
+   * (replicaSync.flushBatches, via deliverLaneAhead) may race delivering the
+   * very same head: a duplicate POST of the same batch_id is a harmless
+   * server replay, but a double shift would drop the entry behind it instead
+   * of settling this one twice. Clearing `follows` here (rather than per
+   * removed mark) is what keeps an emptied lane from leaving a boundary
+   * behind for the next entry appended to inherit. */
+  const settleLaneHead = (
+    head: FallbackEntry, outcome: DeliveryOutcome,
+  ): void => {
+    if (fallback[0] === head) {
+      fallback.shift();
+      if (fallback.length === 0) follows.clear();
+    }
+    head.resolve(outcome);
+    emitPending();
   };
 
   const finishDelivery = (batchId: string, outcome: DeliveryOutcome): void => {
@@ -355,21 +392,20 @@ function createReplicaQueue(replica: Replica,
     };
   };
 
-  /** Returns true only for a genuinely new intent. A mark RPC that throws
-   * leaves the row deliverable, so an outside resume can hand the same batch
-   * out for a second rejection; the retained intent is what keeps the effects
-   * that must happen once per batch — notably the lane decrement — idempotent
-   * across those repeats. */
-  const rememberPoisonMark = (event: PoisonEvent): boolean => {
+  /** Retain the mark intent so a reload, or an RPC failure right after this
+   * call, still marks it. A mark RPC that throws leaves the row deliverable,
+   * so an outside resume can hand the same batch out for a second rejection
+   * — harmless here, since the only other effect a rejection drives, removing
+   * the batch's `follows` mark, is an idempotent Map delete rather than the
+   * decrement it used to be (pkm-yavj). */
+  const rememberPoisonMark = (event: PoisonEvent): void => {
     const key = `${event.rowId}\u0000${event.batchId}`;
     const retained = new Map(poisonMarkIntents.map((intent) =>
       [`${intent.rowId}\u0000${intent.batchId}`, intent]));
-    const isNew = !retained.has(key);
     retained.set(key, event);
     poisonMarkIntents = [...retained.values()].sort((a, b) =>
       a.rowId - b.rowId || a.batchId.localeCompare(b.batchId));
     writePoisonMarkIntents(poisonMarkIntents);
-    return isNew;
   };
 
   const markRetainedPoison = async (): Promise<readonly PoisonEvent[]> => {
@@ -404,8 +440,9 @@ function createReplicaQueue(replica: Replica,
     return matchedIntents;
   };
 
-  /** Deliver the retained head, which has no durable batch left ahead of it.
-   * Returns the outcome the drain must report, or null to keep looping. */
+  /** Deliver the retained head — the drain's own caller has already checked
+   * laneHeadPrecedes, so this only posts and settles. Returns the outcome the
+   * drain must report, or null to keep looping. */
   const deliverLaneHead = async (
     head: FallbackEntry,
   ): Promise<DrainOutcome | null> => {
@@ -420,17 +457,13 @@ function createReplicaQueue(replica: Replica,
         // recovery barrier, and let onDesync run the authoritative repair
         // that resumes it.
         dispatch({ type: "pause" });
-        fallback.shift();
-        head.resolve({ status: "failed", error });
-        emitPending();
+        settleLaneHead(head, { status: "failed", error });
         try { onDesync(error); } catch { /* listener isolation */ }
         return blocked("recovering", error);
       }
       return failed(error);
     }
-    fallback.shift();
-    head.resolve({ status: "delivered" });
-    emitPending();
+    settleLaneHead(head, { status: "delivered" });
     dispatch({ type: "batch-succeeded" });
     const laneBlock = terminalReason(qstate);
     if (laneBlock !== null) return blocked(laneBlock);
@@ -456,17 +489,13 @@ function createReplicaQueue(replica: Replica,
     // is stale before it begins its next POST.
     dispatch({ type: "pause" });
     poisonPending.emit(undefined);
-    const firstRejection = rememberPoisonMark(event);
+    rememberPoisonMark(event);
     finishDelivery(batch.batch_id, { status: "failed", error });
-    // Terminal for this batch: it is never POSTed again (the barrier
-    // holds until the repair, and marking is retried, never delivery), so
-    // it stops standing ahead of a retained entry from here. Keyed to a
-    // new mark intent so it counts once per batch: markPoisoned below can
-    // throw, and the still-unmarked row is then handed out again by an
-    // outside resume, taking the same 4xx. A second decrement would put
-    // the head's count below the batches actually ahead of it and let the
-    // retained op overtake one of them (pkm-yavj).
-    if (firstRejection) durableBatchSettled();
+    // Terminal for this batch: it is never POSTed again (the barrier holds
+    // until the repair, and marking is retried, never delivery), so its
+    // `follows` mark — if it had one at all — is removed here rather than
+    // waiting for a deleteBatch that will never arrive.
+    follows.delete(batch.batch_id);
     try {
       await markRetainedPoison();
     } catch (rpcError: unknown) {
@@ -501,7 +530,6 @@ function createReplicaQueue(replica: Replica,
      * because resolving them "delivered" would be a lie and resolving them
      * "failed" would change what the outline session's replay does. */
     const deferDurableQueue = (): DrainOutcome | null => {
-      clearDurablePrecedence();
       if (fallback.length > 0) return null;
       if (drainAgain) return null;
       return { status: "drained" };
@@ -509,13 +537,13 @@ function createReplicaQueue(replica: Replica,
 
     for (;;) {
       drainAgain = false;
-      const head = fallback[0];
-      if (head !== undefined && head.durableAhead === 0) {
-        const outcome = await deliverLaneHead(head);
-        if (outcome !== null) return outcome;
-        continue;
-      }
       if (unavailable !== null) {
+        const head = fallback[0];
+        if (head !== undefined) {
+          const outcome = await deliverLaneHead(head);
+          if (outcome !== null) return outcome;
+          continue;
+        }
         const outcome = deferDurableQueue();
         if (outcome !== null) return outcome;
         continue;
@@ -530,15 +558,24 @@ function createReplicaQueue(replica: Replica,
         if (outcome !== null) return outcome;
         continue;
       }
+      // The lane now needs this read before it can go out — a batch persisted
+      // after the head is what used to let it overtake (pkm-5ekv) — so a
+      // transient nextBatch() failure (caught above) delays the lane through
+      // the normal backoff rather than losing it.
+      if (laneHeadPrecedes(batch?.batch_id ?? null)) {
+        const outcome = await deliverLaneHead(fallback[0]!);
+        if (outcome !== null) return outcome;
+        continue;
+      }
       if (batch === null) {
         finishAllDeliveries({ status: "delivered" });
-        // Nothing durable is left, so nothing can still be ahead of a
-        // retained entry: clear counts a stale read (or a queue flushed by a
-        // rebase) left behind rather than waiting on a predecessor that will
-        // never arrive. durableSinceFallback counts batches that are equally
-        // gone, so it must be cleared too or the next appended entry inherits
-        // a phantom predecessor.
-        clearDurablePrecedence();
+        // Nothing durable is left, so no mark this queue holds can still be
+        // waiting on a real predecessor: a batch flushed out-of-band (a
+        // recovery lease, a rebase settle) never reaches deleteBatch or
+        // rejectDurableBatch here to remove its own mark, and a stale one left
+        // behind would hold the lane waiting on a batch_id that will never
+        // return.
+        follows.clear();
         // Published, not just assigned: an empty durable queue is exactly the
         // case where a stale over-count is cleared, and a banner still showing
         // the old number is the visible half of that.
@@ -567,7 +604,9 @@ function createReplicaQueue(replica: Replica,
         return failed(error);
       }
       finishDelivery(batch.batch_id, { status: "delivered" });
-      durableBatchSettled();
+      // This batch is delivered, so its mark (if it had one — see `follows`)
+      // no longer needs to hold any lane head behind it.
+      follows.delete(batch.batch_id);
       if (result.pending === 0) {
         // A durable row can be deleted outside this drain (a recovery flush
         // or a rebase settle): its ticket never gets a matching finishDelivery
@@ -666,7 +705,12 @@ function createReplicaQueue(replica: Replica,
         const batchId = newUid();
         try {
           const result = await replica.enqueue(ops, batchId);
-          if (fallback.length > 0) durableSinceFallback += 1;
+          // Persisted durably while the lane still holds entries: every one
+          // of them was appended before this batch existed, so it follows
+          // all of them (see `follows` and laneHeadPrecedes). Nothing to mark
+          // when the lane is empty — there is nothing for this batch to wait
+          // behind.
+          if (fallback.length > 0) follows.set(batchId, laneAppended);
           if (qstate.disposed) {
             resolveDelivery({
               status: "failed", error: new Error("op queue disposed"),
@@ -718,31 +762,14 @@ function createReplicaQueue(replica: Replica,
           // Retain the ops in an ordered in-memory lane and let drain()
           // deliver them: that keeps offline state, backoff and the
           // recovery barrier in force, and keeps these ops behind the
-          // durable batches that preceded them (pkm-49eh). countPending()
-          // may read a count that a concurrent drain is about to shrink. An
-          // over-count delays this entry, and until the durable queue is
-          // next observed empty (which clears every count) a batch persisted
-          // after it can go out first; what a stale count can never do is
-          // lose the ops, which is the property that matters here.
-          const durableAhead = fallback.length === 0
-            ? await countPending() : durableSinceFallback;
-          // countPending() is a worker RPC, so dispose() can have run its
-          // settle loop while it was in flight: an entry appended now would
-          // leave `delivered` pending forever, and every holder of that
-          // promise leaking with it.
-          if (qstate.disposed) {
-            resolveDelivery({
-              status: "failed", error: new Error("op queue disposed"),
-            });
-            return;
-          }
+          // durable batches that preceded them (pkm-49eh) — by construction,
+          // not by count: this entry gets the next `seq`, and any durable
+          // batch already persisted is simply unmarked in `follows`, which
+          // laneHeadPrecedes treats as ahead of the lane regardless.
           fallback.push({
-            batchId,
-            ops,
-            durableAhead,
-            resolve: resolveDelivery,
+            batchId, ops, seq: laneAppended, resolve: resolveDelivery,
           });
-          durableSinceFallback = 0;
+          laneAppended += 1;
           emitPending();
           kick();
         }
@@ -787,6 +814,16 @@ function createReplicaQueue(replica: Replica,
     discardPoisonIntents: () => {
       poisonMarkIntents = [];
       writePoisonMarkIntents(poisonMarkIntents);
+    },
+    async deliverLaneAhead(batchId) {
+      if (qstate.disposed) throw new Error("op queue disposed");
+      while (laneHeadPrecedes(batchId)) {
+        const head = fallback[0]!;
+        // Left retained on any error — a discard is the drain's decision
+        // alone, and this door never makes it.
+        await postOps(head.ops, head.batchId);
+        settleLaneHead(head, { status: "delivered" });
+      }
     },
   };
 }

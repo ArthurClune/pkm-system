@@ -4,14 +4,14 @@
 // tab refresh and browser restart. update_text captures a current
 // base_text_hash only when one is not already supplied; explicit
 // snapshot hashes are preserved, and a user's own edit chain therefore
-// flushes cleanly (op N leaves the text op N+1's hash matches). It fills
-// page_title the same way, from the replica's own pages table, so the
-// daily-note conflict header the server writes on a missing block can name
-// the page (pkm-3g4n).
+// flushes cleanly (op N leaves the text op N+1's hash matches). When it
+// fills a hash it also fills a missing page_title, from the replica's own
+// pages table, so the daily-note conflict header the server writes on a
+// missing block can name the page (pkm-3g4n).
 // Poisoned batches (server 4xx) are set aside, never retried forever
 // (spec section 6).
 
-import type { BlockOp, UpdateTextOp } from "../api/ops";
+import type { BlockOp } from "../api/ops";
 import type { PendingBatch, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
 import { applyLocalOps, LocalOpError } from "./localOps";
@@ -48,23 +48,21 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
       const augmented: BlockOp[] = [];
       for (const op of ops) {
         let wireOp: BlockOp = op;
-        if (op.op === "update_text" &&
-            (op.base_text_hash === undefined || op.page_title === undefined)) {
+        if (op.op === "update_text" && op.base_text_hash === undefined) {
           // capture BEFORE this op's own optimistic apply
-          const patch: Partial<UpdateTextOp> = {};
-          if (op.base_text_hash === undefined) {
-            const base = currentText(db, op.uid);
-            // block unknown locally -> no hash: server applies plain LWW
-            if (base !== null) patch.base_text_hash = sha256Hex(base);
-          }
-          if (op.page_title === undefined) {
-            const title = currentPageTitle(db, op.uid);
-            // block unknown locally -> no title: daily-note header falls
-            // back to "(page unknown)" if this op ever lands there
-            if (title !== null) patch.page_title = title;
-          }
-          if (Object.keys(patch).length > 0) {
-            wireOp = { ...op, ...patch } as UpdateTextOp;
+          const base = currentText(db, op.uid);
+          // block unknown locally -> no hash: server applies plain LWW
+          if (base !== null) {
+            // page_title rides only with a hash filled here: a caller-hashed
+            // op is stored exactly as sent, so it matches the fallback-lane
+            // copy opQueue keeps of the same batch_id (pkm-ybgt)
+            const title = op.page_title === undefined
+              ? currentPageTitle(db, op.uid) : null;
+            wireOp = {
+              ...op,
+              base_text_hash: sha256Hex(base),
+              ...(title !== null ? { page_title: title } : {}),
+            };
           }
         }
         augmented.push(wireOp);

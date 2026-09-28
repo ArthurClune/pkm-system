@@ -161,6 +161,20 @@ describe("enqueueBatch", () => {
       "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
     expect(ops[0].page_title).toBe("Explicit Page");
   });
+
+  test("a caller-hashed op is persisted exactly as the lane would keep it", () => {
+    // opQueue's fallback lane retains the ops as the caller passed them, so
+    // a lost enqueue reply leaves two copies of one batch_id; they must be
+    // byte-identical or the second delivery 409s instead of replaying
+    const ops: BlockOp[] = [{
+      op: "update_text", uid: "uid_q1", text: "linked",
+      base_text_hash: sha256Hex("original text"),
+    }];
+    enqueueBatch(t.db, ops, 99, "batch-lane-copy");
+    expect(t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops")[0].ops_json)
+      .toBe(JSON.stringify(ops));
+  });
 });
 
 describe("queue reads and lifecycle", () => {

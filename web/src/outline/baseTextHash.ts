@@ -18,8 +18,8 @@
 // page_title is stamped independently of the hash (pkm-3g4n): it never gates
 // whether the op applies, it only labels the daily-note header the server
 // writes when a hashed edit targets a block that no longer exists there. The
-// worker (replica/queue.ts) fills it in the same way, from the replica, when
-// undefined.
+// worker (replica/queue.ts) fills it from the replica only alongside a hash it
+// fills itself, so a hashed op reaches the durable row exactly as stamped here.
 //
 // The hash is taken against the tree the batch was planned from, walking the
 // batch in order, mirroring what the worker does inside its transaction:

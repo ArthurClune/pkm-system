@@ -375,7 +375,8 @@ injection seam (`fetchJson: apiFetch`).
 
 ## Sync and offline (UI-side summary)
 
-The protocol is in [sync-and-offline.md](sync-and-offline.md); what touches a
+The protocol is in [sync-and-offline.md](sync-and-offline.md) and its failure
+handling in [sync-recovery.md](sync-recovery.md); what touches a
 frontend contributor day-to-day:
 
 - Edits are optimistic: apply to the outline session, enqueue to a durable
@@ -392,7 +393,7 @@ frontend contributor day-to-day:
   `SyncProvider` raises. Its wordings encode what is and is not true of the
   user's unsent work, so the copy is documented with the mechanisms that
   decide it, in
-  [sync-and-offline.md](sync-and-offline.md#the-replica-and-its-recovery-invariants).
+  [sync-recovery.md](sync-recovery.md#what-the-ui-shows).
   Change it there too.
 - The service worker (Workbox, configured in `vite.config.ts`) precaches the
   app shell, sqlite wasm, the pdf.js worker and core KaTeX fonts,

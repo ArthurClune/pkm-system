@@ -3,11 +3,12 @@
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, expect, it } from "vitest";
+import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import { sha256Hex } from "../replica/sha256";
 import { SyncContext } from "../sync/SyncProvider";
 import { block, makeSync, type SyncFake } from "../test-helpers";
-import { resetHistory } from "./undoManager";
+import { recordHistory, resetHistory } from "./undoManager";
 import { useOutline, type Outline } from "./useOutline";
 
 function Harness({ pageTitle, initial, onReady }: {
@@ -162,6 +163,27 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text (pkm-4ubd)", 
   expect(sync.sent[sync.sent.length - 1][0]).toMatchObject({
     op: "update_text", uid: "a", text: "one",
     base_text_hash: sha256Hex("two"),
+  });
+});
+
+it("undo stamps page_title on the enqueued op, though the recorded entry carries none (pkm-3g4n)", () => {
+  // Mirrors the pkm-4ubd base_text_hash pattern above: history stores
+  // unstamped ops, and dispatch (undoManager.ts) stamps page_title fresh at
+  // replay time against the mounted session's own tree.
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, ab());
+  const inverse: BlockOp[] = [{ op: "update_text", uid: "a", text: "alpha" }];
+  expect(inverse[0]).not.toHaveProperty("page_title");
+  recordHistory({
+    pageTitle: PAGE,
+    ops: [{ op: "update_text", uid: "a", text: "one" }],
+    inverse,
+    focusBefore: null,
+    focusAfter: null,
+  });
+  act(() => outline().handlers.onUndo());
+  expect(sync.sent[sync.sent.length - 1][0]).toMatchObject({
+    op: "update_text", uid: "a", text: "alpha", page_title: PAGE,
   });
 });
 

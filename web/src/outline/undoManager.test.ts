@@ -90,7 +90,8 @@ it("navigates on undo when the page's session lingers with no mounted hooks (off
   // The lingering session IS a tree, so the replayed op is stamped against it
   // (pkm-4ubd); the other undo tests here have no session and go out unstamped.
   expect(sync.sent).toEqual([[{ op: "update_text", uid: "a", text: "before",
-                               base_text_hash: sha256Hex("after") }]]);
+                               base_text_hash: sha256Hex("after"),
+                               page_title: PAGE }]]);
   expect(handle.getSnapshot().blocks[0].text).toBe("before");
   expect(paths).toHaveLength(1);
   expect(paths[0]).toContain("Undo");

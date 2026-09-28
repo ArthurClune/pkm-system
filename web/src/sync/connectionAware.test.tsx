@@ -110,6 +110,7 @@ test("(b) an image upload completing after disconnect is preserved and flushes o
   expect(posts).toHaveLength(1);
   expect(posts[0].ops).toEqual([
     { op: "update_text", uid: "u1", text: "![pic.png](/assets/abc/pic.png)",
+      page_title: "Page",
       base_text_hash: sha256Hex("") },
   ]);
 });
@@ -132,6 +133,6 @@ test("(c) reconnect flushes the ops preserved while offline, in order", async ()
   expect(posts).toHaveLength(1);
   expect(posts[0].ops).toEqual([
     { op: "update_text", uid: "u1", text: "offline edit",
-      base_text_hash: sha256Hex("") },
+      base_text_hash: sha256Hex(""), page_title: "Page" },
   ]);
 });

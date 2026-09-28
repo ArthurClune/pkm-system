@@ -39,7 +39,7 @@ test("typing flushes one update_text op after the debounce", () => {
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "u1", text: "first edited",
-      base_text_hash: sha256Hex("first") }],
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
 
@@ -53,7 +53,8 @@ test("Enter splits: pending text flushes first, create follows, focus moves", ()
   expect(sync.sent).toHaveLength(1);
   const batch = sync.sent[0];
   expect(batch[0]).toEqual({ op: "update_text", uid: "u1", text: "first!",
-                            base_text_hash: sha256Hex("first") });
+                            base_text_hash: sha256Hex("first"),
+                            page_title: "Page" });
   expect(batch[1]).toMatchObject({ op: "create", page_title: "Page",
                                    parent_uid: null, order_idx: 1, text: "" });
   // the new block's textarea is now the focused one (empty draft)
@@ -215,7 +216,7 @@ test("Backspace at the start merges with the previous block", () => {
   fireEvent.keyDown(ta, { key: "Backspace" });
   expect(sync.sent).toEqual([[
     { op: "update_text", uid: "u1", text: "firstsecond",
-      base_text_hash: sha256Hex("first") },
+      base_text_hash: sha256Hex("first"), page_title: "Page" },
     { op: "delete", uid: "u2" },
   ]]);
   expect(screen.getByRole("textbox")).toHaveValue("firstsecond");
@@ -272,7 +273,7 @@ test("heading command selection queues text and heading ops", () => {
   fireEvent.keyDown(ta, { key: "Enter" });
   expect(sync.sent).toEqual([[
     { op: "update_text", uid: "u1", text: "",
-      base_text_hash: sha256Hex("first") },
+      base_text_hash: sha256Hex("first"), page_title: "Page" },
     { op: "set_heading", uid: "u1", heading: 1 },
   ]]);
 });
@@ -282,7 +283,7 @@ test("clicking a TODO checkbox queues the toggled text op", () => {
   fireEvent.click(screen.getByRole("checkbox", { name: "TODO" }));
   expect(sync.sent).toEqual([[
     { op: "update_text", uid: "u1", text: "{{DONE}} buy milk",
-      base_text_hash: sha256Hex("{{TODO}} buy milk") },
+      base_text_hash: sha256Hex("{{TODO}} buy milk"), page_title: "Page" },
   ]]);
 });
 
@@ -308,7 +309,7 @@ test("Cmd-Enter shows the cycled TODO marker immediately and survives the next f
 
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "u1", text: "{{TODO}} first edited more",
-      base_text_hash: sha256Hex("first") }],
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
 
@@ -370,7 +371,7 @@ test("focused block with a pending draft keeps the draft; it wins on flush", () 
     // The remote batch already landed on the block tree, so the flush hashes
     // what it is really replacing — "remote", not the "first" it was typed over.
     [{ op: "update_text", uid: "u1", text: "typed",
-      base_text_hash: sha256Hex("remote") }],
+      base_text_hash: sha256Hex("remote"), page_title: "Page" }],
   ]);
 });
 
@@ -417,7 +418,7 @@ test("pasting an image uploads it and splices markdown at the cursor", async () 
   await vi.waitFor(() => {
     expect(sync.sent.flat()).toContainEqual({
       op: "update_text", uid: "u1", text: `first![pic.png](${url})`,
-      base_text_hash: sha256Hex("first"),
+      base_text_hash: sha256Hex("first"), page_title: "Page",
     });
   });
 });
@@ -436,7 +437,7 @@ test("hiding the tab flushes the pending draft immediately", () => {
                         { value: "visible", configurable: true });
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "u1", text: "first draft",
-      base_text_hash: sha256Hex("first") }],
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
 });
 
@@ -462,7 +463,7 @@ function heldRefDraft(sync: SyncFake) {
 }
 
 const HELD_TEXT_OP = { op: "update_text", uid: "u1", text: "see [[Fresh Idea]]",
-                       base_text_hash: sha256Hex("first") };
+                       base_text_hash: sha256Hex("first"), page_title: "Page" };
 
 test("Ctrl-O over a held [[ref]] flushes the block text before navigating (pkm-hhbc)", () => {
   vi.useFakeTimers();
@@ -599,7 +600,7 @@ test("same-title fallback observes the owner's flushed optimistic tree", () => {
 
   expect(sync.sent).toEqual([[
     { op: "update_text", uid: "u1", text: "shared optimistic text",
-      base_text_hash: sha256Hex("first") },
+      base_text_hash: sha256Hex("first"), page_title: "Page" },
   ]]);
   const fallback = [...document.querySelectorAll(".block-tree")]
     .find((tree) => tree.closest(".outline-drop-zone") === null)!;

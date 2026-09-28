@@ -250,10 +250,10 @@ block:
 | `hash(current) == base_text_hash` | Clean apply |
 | Incoming text equals current | No-op |
 | Hashes differ (concurrent edit) | Incoming wins; the overwritten text lands under a `[[conflict]]` header block on today's daily page |
-| Block was deleted meanwhile | Edit lands the same way, headed `[[conflict]] [[Page]] — edit to a block the server no longer has` (or `(page unknown)` if the client's `page_title` hint is unusable) |
+| Block was deleted meanwhile | Edit lands the same way, headed `[[conflict]] [[Page]] — edit to a block the server no longer has` if the client's `page_title` hint names a page that still exists, `` [[conflict]] `Page` (page not found) — … `` if it doesn't, or `(page unknown)` if the hint itself is unusable |
 | No hash sent (legacy/CLI callers) | Unconditional last-write-wins |
 
-The three header forms and the daily-page grouping are in
+The four header forms and the daily-page grouping are in
 [backend.md § The write path](backend.md#the-write-path). Nothing is
 discarded: conflict blocks are ordinary blocks, so they reach every client
 through the feed and are findable through search and the `[[conflict]]`

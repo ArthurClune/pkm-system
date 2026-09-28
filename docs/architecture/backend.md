@@ -264,13 +264,17 @@ Key mechanics:
   | Case | Header text |
   |---|---|
   | Block still exists (mismatch) | `` [[conflict]] [[Page]] — overwritten by ((uid)) ``, `Page` read from the live block's own row |
-  | Block gone, `update_text.page_title` hint usable | `` [[conflict]] [[Page]] — edit to a block the server no longer has ``, `Page` from the hint |
-  | Block gone, hint missing, blank, or syntactically invalid | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+  | Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
+  | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
+  | Block gone, hint missing, blank, syntactically invalid, or (naming no current page) itself containing a backtick | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
 
   `page_title` only labels a header for the missing-block case; it never
   changes whether or where an op applies. An invalid hint can't fail the
   batch: `find_op_title_violation`, whose violations are a 400, never
-  looks at it. Header and child uids are minted (`ops_apply._new_uid`) with an
+  looks at it. A hint naming no current page (renamed or deleted since the
+  client saw it) is shown as inline code, which the ref extractor skips, so
+  the header cannot re-create that page (`ops_apply._hint_page_exists`).
+  Header and child uids are minted (`ops_apply._new_uid`) with an
   alphanumeric first character so the CLI can address them without `--` (see
   [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a second
   conflict on the same block the same day reuses its header's uid.

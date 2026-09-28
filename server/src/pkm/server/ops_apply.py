@@ -11,6 +11,7 @@ from datetime import date
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OpBatch, UpdateTextOp)
+from pkm.refs import canonicalize_title
 from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  Effect, InsertBlock, OpContext, OpError,
                                  RecordConflictHeader, ReindexRefs,
@@ -19,8 +20,9 @@ from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  classify_text_edit, find_op_title_violation,
                                  plan_op)
-from pkm.server.store import (BlankTitleError, get_or_create_page,
-                              reindex_refs_for_text)
+from pkm.server.store import (BlankTitleError, fetch_page,
+                              get_or_create_page, reindex_refs_for_text)
+from pkm.server.sync_meta import plain_space_title_canonicalization_active
 
 # Fallback title for an op's page_title that normalizes to "" (e.g. a
 # whitespace-only string -- pydantic's min_length=1 lets that through). The
@@ -52,6 +54,21 @@ def _resolve_page(db: sqlite3.Connection, title: str,
         return get_or_create_page(db, title, now_ms)
     except BlankTitleError:
         return get_or_create_page(db, UNTITLED_PAGE_TITLE, now_ms)
+
+
+def _hint_page_exists(db: sqlite3.Connection, page_title: str | None) -> bool:
+    """Does check 1's page_title hint name a page that exists now?
+    Canonicalized the way get_or_create_page looks pages up. A hint whose
+    page was renamed or deleted since the client saw it simply doesn't
+    exist: block_rewrites can't map it to the new title, being keyed by
+    referencing block, with rows only where some block referenced the page."""
+    if page_title is None:
+        return False
+    title = canonicalize_title(
+        page_title,
+        plain_space=plain_space_title_canonicalization_active(db),
+    )
+    return fetch_page(db, title) is not None
 
 
 def _block_info(db: sqlite3.Connection, uid: str) -> BlockInfo | None:
@@ -178,8 +195,10 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
                          subtree=_subtree_deepest_first(db, op.uid))
     if isinstance(op, UpdateTextOp) and op.base_text_hash is not None:
         if block is None:
-            return _with_conflict_landing(db, op.uid, now_ms,
-                                          OpContext(block=None))
+            hint_exists = _hint_page_exists(db, op.page_title)
+            return _with_conflict_landing(
+                db, op.uid, now_ms,
+                OpContext(block=None, hint_page_exists=hint_exists))
         row = db.execute(
             "SELECT b.text, b.order_idx, p.title FROM blocks b"
             " JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",

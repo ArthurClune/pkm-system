@@ -452,10 +452,12 @@ test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async
 /** A database whose file-level structure is damaged: dropping a table walks
  * the broken freelist, so every logical rebuild fails the same way (the
  * 2026-09-28 iPad incident, pkm-h1c6). Reads still work. */
-const withDamagedFreelist = (db: ReplicaDb): ReplicaDb => ({
+const withDamagedFreelist = (
+  db: ReplicaDb, freesPages: RegExp = /^DROP /i, isDamaged = () => true,
+): ReplicaDb => ({
   ...db,
   exec(sql, params) {
-    if (/^DROP /i.test(sql)) {
+    if (isDamaged() && freesPages.test(sql)) {
       throw new Error(
         "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed");
     }
@@ -521,4 +523,77 @@ test("a reset failure that is not corruption keeps the file", async () => {
     token: lease.token, input: { kind: "reset", snapshot: SNAP },
   })).rejects.toThrow("snapshot apply failed");
   expect(discardDbFile).not.toHaveBeenCalled();
+});
+
+test("a rebase over a damaged file carries every durable row into a new file", async () => {
+  // The rejected-batch repair is a rebase and must never drop the valid rows
+  // queued behind the poisoned one (pkm-1b2w): they move across verbatim.
+  const damaged = await openRawTestDb();
+  const fresh = await openRawTestDb();
+  let isDamaged = false;
+  let current = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
+  const discardDbFile = vi.fn(() => { current = fresh.db; });
+  const handlers = buildHandlers({
+    openDb: async () => current, discardDbFile, nowMs: () => 10,
+  });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({
+    ops: [{ op: "move", uid: "uid_gone", parent_uid: "uid_b1", order_idx: 1 }],
+    batchId: "rejected",
+  });
+  await handlers.enqueue({
+    ops: [{ op: "update_text", uid: "uid_b1", text: "edited" }],
+    batchId: "valid",
+  });
+  await handlers.markPoisoned({ id: 1, error: "HTTP 400", batchId: "rejected" });
+  const rowsBefore = damaged.db.select(
+    "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id");
+  isDamaged = true;
+  const lease = await handlers.prepareRecovery(undefined) as { token: string };
+
+  await expect(handlers.commitRecovery({
+    token: lease.token, input: { kind: "rebase", snapshot: SNAP },
+  })).resolves.toBeNull();
+
+  expect(discardDbFile).toHaveBeenCalledOnce();
+  expect(fresh.db.select(
+    "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id"))
+    .toEqual(rowsBefore);
+  // snapshot applied, and the valid batch re-applied over it
+  expect(fresh.db.select("SELECT uid, text FROM blocks"))
+    .toEqual([{ uid: "uid_b1", text: "edited" }]);
+  // the provider's post-repair delete by row id still finds the poisoned row
+  await expect(handlers.deleteBatch({ id: 1 })).resolves.toMatchObject({ pending: 1 });
+  await expect(handlers.enqueue({
+    ops: [{ op: "delete", uid: "uid_b1" }], batchId: "next",
+  })).resolves.toEqual({ pending: 2, batchId: "next" });
+});
+
+test("a rebase keeps the carried rows even if the snapshot then fails on the new file", async () => {
+  const damaged = await openRawTestDb();
+  const fresh = await openRawTestDb();
+  let isDamaged = false;
+  let current = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
+  let failSnapshot = false;
+  const handlers = buildHandlers({
+    openDb: async () => current,
+    discardDbFile: () => { current = fresh.db; },
+    nowMs: () => 10,
+    applySnapshot: (db, snapshot, nowMs) => {
+      if (failSnapshot && db === fresh.db) throw new Error("snapshot apply failed");
+      applySnapshot(db, snapshot, nowMs);
+    },
+  });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "kept" });
+  isDamaged = true;
+  failSnapshot = true;
+  const lease = await handlers.prepareRecovery(undefined) as { token: string };
+  await expect(handlers.commitRecovery({
+    token: lease.token, input: { kind: "rebase", snapshot: SNAP },
+  })).rejects.toThrow();
+  expect(fresh.db.select("SELECT batch_id FROM pending_ops"))
+    .toEqual([{ batch_id: "kept" }]);
 });

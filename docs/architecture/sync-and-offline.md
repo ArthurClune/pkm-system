@@ -461,6 +461,14 @@ journal goes too, or its first open would roll it back into the new file.
 Pending rows lose nothing, because a reset drops `pending_ops` anyway and its
 caller already holds them from `prepareRecovery`.
 
+A `rebase` meets the same damage when its snapshot apply deletes rows, and
+`rebaseOrReplaceFile` takes the same escape with one difference: it keeps the
+queue. The durable rows move to the new file verbatim, ids and `poisoned`
+included, and commit before the snapshot applies. This is what lets the
+rejected-batch repair, which must never reset, get past a damaged file: the
+provider still deletes the poisoned row by id afterwards, and the valid rows
+behind it are neither posted early nor lost.
+
 **Corruption must reach `isCorruptionError` with its own message.** SQLite
 rolls back the whole transaction by itself on `SQLITE_CORRUPT`, `IOERR` or
 `FULL`, and a later `ROLLBACK` or `ROLLBACK TO` then fails with "no transaction

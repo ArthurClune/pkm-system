@@ -276,10 +276,10 @@ Key mechanics:
   conflict on the same block the same day reuses its header's uid.
 
   `ops_core.classify_text_edit` sorts a hashed edit to a live block into
-  identical, clean or conflict, after replaying any `block_rewrites` row
+  identical, clean or conflict. It first replays any `block_rewrites` row
   `store.rewrite_snapshotted_blocks` left for that block
-  (`replay_title_rewrites`), so a device that never saw a rename cannot win
-  with the old title and re-create the page it emptied. `plan_op` and
+  (`ops_core.replay_title_rewrites`), so a device that never saw a rename
+  cannot win with the old title and re-create the page it emptied. `plan_op` and
   `ops_apply._context_for` both call it, so only a conflict resolves (and
   may create) today's daily page. Hashless edits never touch it.
 - **Idempotency.** A retried batch — same `batch_id`, matching stored request

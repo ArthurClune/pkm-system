@@ -290,18 +290,15 @@ def plan_update(uid: str, text: str, base_text: str | None = None,
     `current_heading` is the block's level before this update, as read by
     the caller (`client.get_block(uid).block.heading`). When it
     equals the new level, `set_heading` is skipped and only `update_text`
-    is emitted. This is not just an optimization: a guarded `update_text`
-    on a block deleted out from under it is deliberately *rescued* by the
-    server -- the edit is preserved under a `[[conflict]]` header on
-    today's daily page (ops_core.py) -- but a trailing `set_heading` for
-    the same now-missing uid is not, since the block it targets no longer
-    exists; that turns the rescue into a rolled-back 400. Since the level
-    is unchanged for most updates, omitting the redundant op keeps that
-    race survivable. `pkm batch`'s `update` command leaves
-    `current_heading` at its `_NOT_GIVEN` default and so always emits
-    `set_heading`, as before -- it has no fetched block to compare
-    against, and batch updates carry no hash guard anyway, so there is no
-    rescue to protect.
+    is emitted. An `update_text` on a block deleted out from under it is
+    *rescued* by the server -- the edit is preserved under a
+    `[[conflict]]` header on today's daily page (ops_core.py) -- and a
+    trailing `set_heading` for the same missing uid adds a "heading change
+    skipped" note under that header, so omitting the redundant op keeps
+    that note from appearing when the level didn't change. `pkm batch`'s
+    `update` command leaves `current_heading` at its `_NOT_GIVEN` default
+    and so always emits `set_heading` -- it has no fetched block to
+    compare against.
 
     `base_text`, when given, adds the `base_text_hash` concurrent-edit
     guard (the standalone `pkm update` / `update_block` path). `pkm batch`'s

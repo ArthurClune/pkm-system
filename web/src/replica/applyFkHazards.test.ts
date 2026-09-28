@@ -11,7 +11,7 @@ import type { Changes, Snapshot, SyncBlock } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
 import type { ReplicaDb } from "./db";
 import { getMeta } from "./meta";
-import { enqueueBatch, markPoisoned, nextBatch } from "./queue";
+import { deleteBatch, enqueueBatch, markPoisoned, nextBatch } from "./queue";
 import { openTestDb, type TestDb } from "./testDb";
 
 const block = (uid: string, pageId: number, over: Partial<SyncBlock> = {}): SyncBlock => ({
@@ -103,6 +103,36 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     // resolution still owns it
     expect(uids(t.db)).toEqual(["uid_b1"]);
     expect(queuedBatchIds(t.db)).toEqual(["batch-child"]);
+  });
+
+  test("tombstones the server journals for a skipped op drop a ghost and its local-only child (pkm-foap)", () => {
+    // The server skips an op on a missing target and journals the uids a
+    // replica may hold a ghost of. uid_ghost is one: an acked create the
+    // server diverted to the daily note, still in the replica because the
+    // ack deleted its batch. uid_ghost_child is a queued create under it.
+    // uid_never_seen is a journalled uid this replica never had (the
+    // missing parent of a diverted create) -- a DELETE that matches no row.
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_ghost", page_title: "Machine Learning",
+        parent_uid: null, order_idx: 5, text: "diverted server-side" },
+    ], 5, "batch-ghost");
+    deleteBatch(t.db, nextBatch(t.db)!.id); // the ack
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_ghost_child", page_title: "Machine Learning",
+        parent_uid: "uid_ghost", order_idx: 0, text: "typed under it" },
+    ], 6, "batch-child");
+    expect(uids(t.db)).toContain("uid_ghost_child");
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      tombstones: [{ kind: "block", entity_id: "uid_ghost" },
+                   { kind: "block", entity_id: "uid_never_seen" }],
+    }));
+    expect(res).toEqual({ status: "applied", cursor: 11 });
+    expect(uids(t.db)).toEqual(["uid_b1", "uid_b2", "uid_b3"]);
+    // the child's batch is skipped locally, not deleted: its push lands it
+    // under the missing parent's daily-note header
+    expect(queuedBatchIds(t.db)).toEqual(["batch-child"]);
+    expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
   });
 
   test("baseline tightening catches a DELETE-freed rowid reused by a later batch's dangling insert (pkm-ufjt)", () => {

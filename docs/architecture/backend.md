@@ -179,7 +179,8 @@ Around that base model:
   - `changes(seq AUTOINCREMENT, kind, entity_id, deleted)` — the append-only
     change journal, populated by row-level triggers rather than route code, so
     any new write path is journalled automatically. Cascade deletes journal
-    only because `recursive_triggers=ON`.
+    only because `recursive_triggers=ON`. The one direct writer is the
+    `JournalBlock` effect for an op on a missing target (below).
   - `applied_batches(batch_id, request_hash, response)` — op idempotency.
   - `block_rewrites(uid, base_hash, after_hash, old_title, new_title,
     created_at)` — what a rename, merge or the title migration did to one
@@ -267,6 +268,7 @@ Key mechanics:
   | Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
   | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
   | Block gone, hint missing, blank, syntactically invalid, or (naming no current page) itself containing a backtick | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+  | Block exists, but its move's target parent is gone | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
 
   `page_title` only labels a header for the missing-block case; it never
   changes whether or where an op applies. An invalid hint can't fail the
@@ -285,7 +287,33 @@ Key mechanics:
   (`ops_core.replay_title_rewrites`), so a device that never saw a rename
   cannot win with the old title and re-create the page it emptied. `plan_op` and
   `ops_apply._context_for` both call it, so only a conflict resolves (and
-  may create) today's daily page. Hashless edits never touch it.
+  may create) today's daily page. Hashless edits to a live block never touch it.
+- **Missing targets.** They never reject a batch. A batch is atomic, so one op
+  whose block (or create/move parent) is gone would otherwise take every
+  valid op in it down with a 400 and wedge the client's queue.
+  `ops_core.classify_missing_target` sorts such an op before planning, and
+  `_context_for` calls it too, so the daily page is resolved only when an
+  entry lands:
+
+  | Op, situation | Outcome | Entry grouped under | Journalled |
+  |---|---|---|---|
+  | `set_collapsed`, block gone | no-op | — | the uid |
+  | `delete`, block gone | no-op | — | — |
+  | `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block not found` (or `heading change` / `view type change`) under the `(page unknown)` header | the block's uid | the uid |
+  | `update_text`, block gone, hashed or not | text lands (header table above) | the block's uid | the uid |
+  | `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | the parent's uid | created uid and parent uid |
+  | `move`, block exists, parent gone | block stays put; child `move skipped: target parent not found` | the block's uid | the block and the parent uid |
+
+  Grouping by uid means an orphaned edit and a skipped op on the same block
+  share one header, whichever landed first. A skipped op resolves no op
+  `page_title`, since `get_or_create_page` would create a page for an op
+  that never applied. `JournalBlock` writes the journal row the triggers
+  would. The feed ships a journalled uid with no block row as a tombstone,
+  which drops a replica's ghost of a create or move the server skipped. Skipped ops are left out of the broadcast. A follow-on op in the
+  same batch sees a diverted create's block as missing too, so it lands
+  rather than 400s. Every other planning error (invalid uid, uid already
+  exists, cycle, page mismatch, parent on another page, title syntax) is
+  still a 400.
 - **Idempotency.** A retried batch — same `batch_id`, matching stored request
   hash — replays the stored ack with no effects. The same id with a different
   payload is a 409. Offline queue replay depends on it. New `applied_batches`
@@ -294,7 +322,8 @@ Key mechanics:
   those into the durable copy of a batch while the fallback-lane copy under the
   same `batch_id` keeps the caller's ops. Rows written before it hold the
   strict `batch_request_hash`, so the route accepts a match on either.
-- **Broadcast.** After commit, the WebSocket hub pushes the applied ops and a
+- **Broadcast.** After commit, the WebSocket hub pushes the applied ops (not
+  the skipped ones) and a
   `{type:"seq", seq}` nudge to other clients (see
   [sync-and-offline.md](sync-and-offline.md)).
 

@@ -250,8 +250,18 @@ block:
 | `hash(current) == base_text_hash` | Clean apply |
 | Incoming text equals current | No-op |
 | Hashes differ (concurrent edit) | Incoming wins; the overwritten text lands under a `[[conflict]]` header block on today's daily page |
-| Block was deleted meanwhile | Edit lands the same way, headed `[[conflict]] [[Page]] — edit to a block the server no longer has` if the client's `page_title` hint names a page that still exists, `` [[conflict]] `Page` (page not found) — … `` if it doesn't, or `(page unknown)` if the hint itself is unusable |
-| No hash sent (legacy/CLI callers) | Unconditional last-write-wins |
+| Block was deleted meanwhile (hash sent or not) | Edit lands the same way, headed `[[conflict]] [[Page]] — edit to a block the server no longer has` if the client's `page_title` hint names a page that still exists, `` [[conflict]] `Page` (page not found) — … `` if it doesn't, or `(page unknown)` if the hint itself is unusable |
+| No hash sent, block exists (legacy/CLI callers) | Unconditional last-write-wins |
+
+Structural ops are resolved the same way. A move, heading or view change of a
+block the server no longer has, a create under a missing parent, and a move to
+a missing parent are skipped with a daily-note entry. A collapse or delete of a
+missing block is a silent no-op. The batch is acked 200, so the queue never
+poisons on another device's delete; the rules are in
+[backend.md § The write path](backend.md#the-write-path). The client keeps its
+optimistic copy of a skipped op, so the server journals the uids involved in
+the same commit. The feed ships each as a tombstone, or as the block's real
+row if it exists, which drops the ghost without a snapshot repair.
 
 The four header forms and the daily-page grouping are in
 [backend.md § The write path](backend.md#the-write-path). Nothing is

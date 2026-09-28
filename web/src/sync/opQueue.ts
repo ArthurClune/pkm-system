@@ -491,8 +491,8 @@ function createReplicaQueue(replica: Replica,
      * ordering is defensible rather than merely accepted, because
      * base_text_hash is now stamped on update_text ops at both choke points —
      * the durable row's hash was taken against text that is now stale, so the
-     * server forks a `[[conflict]]` sibling instead of silently
-     * LWW-overwriting the newer lane op.
+     * server lands it under a daily-note `[[conflict]]` header instead of
+     * silently LWW-overwriting the newer lane op.
      *
      * pendingCount is deliberately NOT zeroed: durable rows persisted before
      * the replica died are genuinely undelivered and belong in the pending

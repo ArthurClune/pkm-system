@@ -201,8 +201,9 @@ export function useOutline(
     // stays best-effort.
     //
     // Deliberately the UNSTAMPED ops: a hash captured now is stale by the time
-    // undo/redo replays the entry, and a stale hash forks a spurious
-    // [[conflict]] sibling. undoManager stamps at replay time instead.
+    // undo/redo replays the entry, and a stale hash lands a spurious
+    // [[conflict]] header on the daily note. undoManager stamps at replay
+    // time instead.
     const inverse = invertOps(pre, pageTitle, ops);
     if (inverse !== null && inverse.length > 0) {
       recordHistory({

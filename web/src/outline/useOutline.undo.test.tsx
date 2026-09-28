@@ -140,8 +140,8 @@ it("run() records UNSTAMPED ops, so a redo hashes the current text (pkm-4ubd)", 
   // would carry the hash of "alpha" forever, and stampBaseTextHashes in
   // undoManager.dispatch would PRESERVE that stale hash (it only fills in an
   // undefined one) — so this redo would claim to be replacing "alpha" when the
-  // block really reads "two", and the server would fork a spurious [[conflict]]
-  // sibling against another tab's edit. Driven through the handlers on purpose:
+  // block really reads "two", and the server would land a spurious daily-note
+  // [[conflict]] header against another tab's edit. Driven through the handlers on purpose:
   // recordHistory's argument is the thing under test, so an entry built by
   // calling recordHistory() directly would prove nothing here.
   const sync = makeSync();

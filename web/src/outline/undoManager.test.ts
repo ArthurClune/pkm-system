@@ -107,9 +107,10 @@ it("performUndo returns false on an empty stack without enqueueing", () => {
 
 it("redo stamps against the current tree, not the recorded one (pkm-4ubd)", () => {
   // History deliberately records UNSTAMPED ops: a hash taken when the entry was
-  // recorded is stale by the time it is replayed, and a stale hash would fork a
-  // spurious [[conflict]] sibling against the user's own later edit. So the
-  // hash must be of "two" — the text the server will actually be replacing —
+  // recorded is stale by the time it is replayed, and a stale hash would land a
+  // spurious daily-note [[conflict]] header against the user's own later edit.
+  // So the hash must be of "two" — the text the server will actually be
+  // replacing —
   // not of "one", the text the entry was recorded against.
   const sync = makeSync();
   const handle = acquireOutlineSession(PAGE, [block("a", "one", { order_idx: 0 })]);

@@ -244,13 +244,43 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     try {
       rebuildSchema(await db(), snapshot);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!deps.discardDbFile || !isCorruptionMessage(message)) throw error;
-      console.warn("replica: rebuild hit file-level corruption, replacing the file",
-                   error);
-      await deps.discardDbFile();
-      dbPromise = null;
-      rebuildSchema(await db(), snapshot);
+      rebuildSchema(await replaceFileAfter(error), snapshot);
+    }
+  };
+  /** Delete the damaged file and open a fresh one, if `error` is corruption
+   * and the host can delete files; otherwise rethrow `error`. */
+  const replaceFileAfter = async (error: unknown): Promise<ReplicaDb> => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!deps.discardDbFile || !isCorruptionMessage(message)) throw error;
+    console.warn("replica: rebuild hit file-level corruption, replacing the file",
+                 error);
+    await deps.discardDbFile();
+    dbPromise = null;
+    return db();
+  };
+  /** A rebase, and on the same file-level damage the same escape, except
+   * that a rebase keeps the durable queue: the rejected-batch repair runs one
+   * so the valid rows behind a poisoned batch are not posted ahead of it or
+   * lost (pkm-1b2w). `rows` move across verbatim, ids included, since the
+   * provider deletes the poisoned row by id afterwards. They commit before
+   * the snapshot applies, so a failed apply still leaves them durable. */
+  const rebaseOrReplaceFile = async (
+    snapshot: Snapshot, rows: readonly DurablePendingRow[],
+  ): Promise<void> => {
+    try {
+      applySnapshotToDb(await db(), snapshot, nowMs());
+    } catch (error: unknown) {
+      const fresh = await replaceFileAfter(error);
+      rebuildSchema(fresh);
+      fresh.transaction(() => {
+        for (const row of rows) {
+          fresh.exec(
+            "INSERT INTO pending_ops(id, batch_id, ops_json, poisoned, error)" +
+            " VALUES (?, ?, ?, ?, ?)",
+            [row.id, row.batch_id, row.ops_json, row.poisoned, row.error]);
+        }
+      });
+      applySnapshotToDb(fresh, snapshot, nowMs());
     }
   };
 
@@ -411,7 +441,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
           if (input.kind === "reset") {
             await rebuildOrReplaceFile(input.snapshot);
           } else {
-            applySnapshotToDb(await db(), input.snapshot, nowMs());
+            await rebaseOrReplaceFile(input.snapshot, current);
           }
         });
         return null;

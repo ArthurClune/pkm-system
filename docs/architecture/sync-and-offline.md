@@ -169,10 +169,16 @@ own SAVEPOINT. The header shows "Offline — N changes pending".
 
 `base_text_hash` is the sha256 of the text the edit was based on, stamped while
 the editor builds the batch (`outline/baseTextHash.ts`) against the tree it was
-planned from, so op N leaves the text op N+1's hash matches. The worker fills it
-from `currentText` only when it is still `undefined`. Undo history records
-unstamped ops and `undoManager.dispatch` stamps at replay time, because an
-entry-time hash is stale and forks a spurious `[[conflict]]` entry.
+planned from, so op N leaves the text op N+1's hash matches. The same pass
+stamps `page_title`, the block's page, which labels the daily-note conflict
+header if the block is gone by the time the op lands. The worker
+(`replica/queue.ts`) fills the hash from `currentText` only when it is still
+`undefined`, and fills a missing `page_title` only alongside a hash it fills.
+An op that arrives hashed is stored exactly as sent, so the durable row and
+the fallback-lane copy of one `batch_id` carry the same payload and the second
+delivery replays instead of a 409. Undo history records unstamped ops and
+`undoManager.dispatch` stamps at replay time, because an entry-time hash is
+stale and lands a spurious `[[conflict]]` entry.
 
 The optimistic apply mirrors the server's timestamp rules as well as its row
 contents: `localOps.ts` leaves `blocks.updated_at` and `pages.updated_at` alone
@@ -289,8 +295,10 @@ force:true, generation:<new token>}`; the force bit makes a client pull even
 when that seq equals its cursor, and it never advances the cursor. Applied-op
 echoes carry the stored title, not the caller's spelling, for `create`,
 `create_page` and moves with a resolved page target, a same-page move with no
-`page_title` staying null. If the row cannot be loaded, broadcast assembly fails
-closed and the op transaction rolls back.
+`page_title` staying null. An `update_text` echo carries the caller's
+`page_title` hint unresolved, so no consumer may treat it as the block's page.
+If the row cannot be loaded, broadcast assembly fails closed and the op
+transaction rolls back.
 
 ## The replica and its recovery invariants
 

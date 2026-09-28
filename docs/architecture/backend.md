@@ -188,7 +188,7 @@ Around that base model:
   - `conflict_headers(target_uid, day, header_uid)` — today's daily-note
     conflict header for each block that has already had one, so a second
     conflict on the same block the same day appends under it instead of
-    minting another. Pruned to today alone on every write.
+    minting another. Recording a new header deletes every other day's rows.
   - `sync_meta` — the random `db_generation` token (a rebuilt database gets a
     new one and clients rebootstrap) and `plain_space_title_canonicalization`,
     the title-activation flag.
@@ -210,7 +210,7 @@ operations:
 | Op | Does |
 |---|---|
 | `create` | insert a block, optionally creating its page via `page_title` |
-| `update_text` | replace a block's text; optional `base_text_hash` rides the conflict path |
+| `update_text` | replace a block's text; optional `base_text_hash` rides the conflict path, optional `page_title` labels a missing block's conflict header |
 | `move` | reposition or reparent; cross-page moves re-page the whole subtree |
 | `delete` | remove a block and its subtree |
 | `set_heading` | set the block's heading level |
@@ -269,13 +269,16 @@ Key mechanics:
 
   `page_title` only labels a header for the missing-block case; it never
   changes whether or where an op applies. An invalid hint can't fail the
-  batch — `find_op_title_violation` never looks at it, so a bad title here
-  is never a 422. Header and child uids are minted (`ops_apply._new_uid`) with an
+  batch: `find_op_title_violation`, whose violations are a 400, never
+  looks at it. Header and child uids are minted (`ops_apply._new_uid`) with an
   alphanumeric first character so the CLI can address them without `--` (see
-  [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)). A clean
-  hashed edit — matching hash, nothing in `block_rewrites` to replay — skips
-  the daily-page lookup entirely (`ops_apply._context_for`), so an ordinary
-  edit never touches or creates today's page. `ops_core.replay_title_rewrites`
+  [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)). Only a
+  clean hashed edit, with a matching hash and no `block_rewrites` row for
+  the block, skips the daily-page lookup (`ops_apply._context_for`).
+  Every other hashed edit resolves today's page first and creates it if
+  missing, even when it turns out not to conflict. That includes a clean
+  edit to a block with `block_rewrites` rows and a stale hash whose text is
+  unchanged. Hashless edits never touch it. `ops_core.replay_title_rewrites`
   first replays any `block_rewrites` row `store.rewrite_snapshotted_blocks`
   left for that block, so a device that never saw a rename cannot win with
   the old title and re-create the page it emptied.

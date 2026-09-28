@@ -10,7 +10,7 @@ dependencies = [
     "websockets>=13",
     "httpx2>=2.5.0",
     "mcp>=1.28",
-    "claude-agent-sdk>=0.2.125",
+    "claude-agent-sdk>=0.2.161",
     "nh3>=0.3.7",
 ]
 
@@ -41,3 +41,9 @@ pythonpath = ["tooling"]
 
 [tool.ruff]
 line-length = 120
+
+[tool.uv]
+# claude-agent-sdk is exempt from the global uv cooldown (exclude-newer =
+# "5 days"). Its bundled CLI maps the assistant's model aliases to model ids,
+# so a new Claude model reaches the assistant only through an SDK upgrade.
+exclude-newer-package = { claude-agent-sdk = false }

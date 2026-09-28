@@ -169,10 +169,16 @@ own SAVEPOINT. The header shows "Offline — N changes pending".
 
 `base_text_hash` is the sha256 of the text the edit was based on, stamped while
 the editor builds the batch (`outline/baseTextHash.ts`) against the tree it was
-planned from, so op N leaves the text op N+1's hash matches. The worker fills it
-from `currentText` only when it is still `undefined`. Undo history records
-unstamped ops and `undoManager.dispatch` stamps at replay time, because an
-entry-time hash is stale and forks a spurious `[[conflict]]` sibling.
+planned from, so op N leaves the text op N+1's hash matches. The same pass
+stamps `page_title`, the block's page, which labels the daily-note conflict
+header if the block is gone by the time the op lands. The worker
+(`replica/queue.ts`) fills the hash from `currentText` only when it is still
+`undefined`, and fills a missing `page_title` only alongside a hash it fills.
+An op that arrives hashed is stored exactly as sent, so the durable row and
+the fallback-lane copy of one `batch_id` carry the same payload and the second
+delivery replays instead of a 409. Undo history records unstamped ops and
+`undoManager.dispatch` stamps at replay time, because an entry-time hash is
+stale and lands a spurious `[[conflict]]` entry.
 
 The optimistic apply mirrors the server's timestamp rules as well as its row
 contents: `localOps.ts` leaves `blocks.updated_at` and `pages.updated_at` alone
@@ -241,14 +247,16 @@ block:
 | `base_text_hash` matches a pre-rename snapshot of this block | The rename or merge is replayed over the incoming text, which then meets the rows below as an edit of the rewritten text |
 | `hash(current) == base_text_hash` | Clean apply |
 | Incoming text equals current | No-op |
-| Hashes differ (concurrent edit) | Incoming wins; the overwritten text is preserved as a `[[conflict]] …` sibling block right after the winner |
-| Block was deleted meanwhile | Edit appended to today's daily page as `[[conflict]] (original block deleted) …` |
+| Hashes differ (concurrent edit) | Incoming wins; the overwritten text lands under a `[[conflict]]` header block on today's daily page |
+| Block was deleted meanwhile | Edit lands the same way, headed `[[conflict]] [[Page]] — edit to a block the server no longer has` (or `(page unknown)` if the client's `page_title` hint is unusable) |
 | No hash sent (legacy/CLI callers) | Unconditional last-write-wins |
 
-Nothing is discarded: conflict blocks are ordinary blocks, so they reach every
-client through the feed and are findable through search and the `[[conflict]]`
-page's backlinks. The first row's replay stops a device that never saw a rename
-from carrying the old title back, from records in the server-only
+The three header forms and the daily-page grouping are in
+[backend.md § The write path](backend.md#the-write-path). Nothing is
+discarded: conflict blocks are ordinary blocks, so they reach every client
+through the feed and are findable through search and the `[[conflict]]`
+page's backlinks. The first row's replay stops a device that never saw a
+rename from carrying the old title back, from records in the server-only
 `block_rewrites` table.
 
 ## Title activation across online and offline paths
@@ -287,8 +295,10 @@ force:true, generation:<new token>}`; the force bit makes a client pull even
 when that seq equals its cursor, and it never advances the cursor. Applied-op
 echoes carry the stored title, not the caller's spelling, for `create`,
 `create_page` and moves with a resolved page target, a same-page move with no
-`page_title` staying null. If the row cannot be loaded, broadcast assembly fails
-closed and the op transaction rolls back.
+`page_title` staying null. An `update_text` echo carries the caller's
+`page_title` hint unresolved, so no consumer may treat it as the block's page.
+If the row cannot be loaded, broadcast assembly fails closed and the op
+transaction rolls back.
 
 ## The replica and its recovery invariants
 

@@ -156,7 +156,8 @@ it("quoted TODO controls preserve the quote prefix and update optimistically", (
   act(() => getOutline().handlers.onToggleTodo("u1"));
   expect(sync.sent).toEqual([[
     { op: "update_text", uid: "u1", text: "> {{[[DONE]]}} quoted task",
-      base_text_hash: sha256Hex("> {{[[TODO]]}} quoted task") },
+      base_text_hash: sha256Hex("> {{[[TODO]]}} quoted task"),
+      page_title: "Page" },
   ]]);
   expect(findNode(getOutline().blocks, "u1")!.text)
     .toBe("> {{[[DONE]]}} quoted task");

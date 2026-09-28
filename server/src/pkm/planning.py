@@ -279,7 +279,8 @@ _NOT_GIVEN = _NotGiven()
 
 
 def plan_update(uid: str, text: str, base_text: str | None = None,
-                current_heading: int | None | _NotGiven = _NOT_GIVEN
+                current_heading: int | None | _NotGiven = _NOT_GIVEN,
+                page_title: str | None = None
                 ) -> list[BlockOp]:
     """Ops for replacing a block's text: `update_text` plus, when the
     heading level is actually changing, the `set_heading` that keeps the
@@ -291,19 +292,25 @@ def plan_update(uid: str, text: str, base_text: str | None = None,
     equals the new level, `set_heading` is skipped and only `update_text`
     is emitted. This is not just an optimization: a guarded `update_text`
     on a block deleted out from under it is deliberately *rescued* by the
-    server -- the edit is preserved as a `[[conflict]]` sibling on today's
-    daily page (ops_core.py) -- but a trailing `set_heading` for the same
-    now-missing uid is not, since the block it targets no longer exists;
-    that turns the rescue into a rolled-back 400. Since the level is
-    unchanged for most updates, omitting the redundant op keeps that race
-    survivable. `pkm batch`'s `update` command leaves `current_heading` at
-    its `_NOT_GIVEN` default and so always emits `set_heading`, as
-    before -- it has no fetched block to compare against, and batch
-    updates carry no hash guard anyway, so there is no rescue to protect.
+    server -- the edit is preserved under a `[[conflict]]` header on
+    today's daily page (ops_core.py) -- but a trailing `set_heading` for
+    the same now-missing uid is not, since the block it targets no longer
+    exists; that turns the rescue into a rolled-back 400. Since the level
+    is unchanged for most updates, omitting the redundant op keeps that
+    race survivable. `pkm batch`'s `update` command leaves
+    `current_heading` at its `_NOT_GIVEN` default and so always emits
+    `set_heading`, as before -- it has no fetched block to compare
+    against, and batch updates carry no hash guard anyway, so there is no
+    rescue to protect.
 
     `base_text`, when given, adds the `base_text_hash` concurrent-edit
     guard (the standalone `pkm update` / `update_block` path). `pkm batch`'s
     `update` command passes None: batch updates carry no guard by design.
+
+    `page_title`, when given, rides on `update_text` as the conflict-label
+    hint the server falls back to if this uid is gone by the time the op
+    lands (`UpdateTextOp.page_title`). It only labels a rescue header; it
+    never changes where or whether the edit applies.
 
     Callers must NOT route a task-marker change (`-D`/`-T`/`mark=`)
     through here: the text those read back from the API is already bare,
@@ -312,23 +319,29 @@ def plan_update(uid: str, text: str, base_text: str | None = None,
     body, level = split_heading(text)
     ops: list[BlockOp] = [UpdateTextOp(
         op="update_text", uid=uid, text=body,
-        base_text_hash=None if base_text is None else text_hash(base_text))]
+        base_text_hash=None if base_text is None else text_hash(base_text),
+        page_title=page_title)]
     if isinstance(current_heading, _NotGiven) or current_heading != level:
         ops.append(SetHeadingOp(op="set_heading", uid=uid, heading=level))
     return ops
 
 
-def plan_mark(uid: str, current_text: str, mark: str) -> list[UpdateTextOp]:
+def plan_mark(uid: str, current_text: str, mark: str,
+             page_title: str | None = None) -> list[UpdateTextOp]:
     """Ops for a task-marker change (`pkm update -D`/`-T`, `update_block
     mark=`): `update_text` with the marker applied to `current_text`, plus
     the `base_text_hash` concurrent-edit guard. Deliberately never
     `plan_update` and never emits `set_heading`: `current_text` is read
     back from the API already bare (the heading level lives in its own
     column), so splitting it would find no hashes and demote a real
-    heading to plain text."""
+    heading to plain text.
+
+    `page_title`, when given, is the same conflict-label hint
+    `plan_update` attaches -- see its docstring."""
     return [UpdateTextOp(op="update_text", uid=uid,
                         text=with_state(current_text, mark),
-                        base_text_hash=text_hash(current_text))]
+                        base_text_hash=text_hash(current_text),
+                        page_title=page_title)]
 
 
 def asset_block_text(filename: str, mime: str, url: str) -> str:

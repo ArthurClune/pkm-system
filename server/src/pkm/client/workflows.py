@@ -79,17 +79,23 @@ def edit_block(client: PkmClient, uid: str, text: str | None = None,
     no `set_heading` (which would turn the server's conflict rescue into
     a hard failure -- see `plan_update`). A marker change goes through
     `plan_mark` precisely so it does NOT re-derive the heading from text
-    the API already returned bare."""
+    the API already returned bare. The same fetch also hands both paths
+    the block's page title, which rides along as the `update_text` op's
+    conflict-label hint (`page_title`) for the edit-vs-delete race."""
     if (text is None) == (mark is None):
         raise ValueError("provide exactly one of text or mark")
     if mark is not None and mark not in ("TODO", "DONE"):
         raise ValueError("mark must be 'TODO' or 'DONE'")
-    block = client.get_block(uid).block
+    fetched = client.get_block(uid)
+    block = fetched.block
+    page_title = fetched.page.title
     if mark is not None:
-        ops: list[BlockOp] = list(plan_mark(uid, block.text, mark))
+        ops: list[BlockOp] = list(plan_mark(uid, block.text, mark,
+                                            page_title=page_title))
     else:
         assert text is not None
-        ops = plan_update(uid, text, block.text, block.heading)
+        ops = plan_update(uid, text, block.text, block.heading,
+                          page_title=page_title)
     client.post_ops(ops, batch_id=_batch_id())
 
 

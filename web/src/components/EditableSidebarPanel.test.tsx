@@ -97,7 +97,7 @@ test("editing a block in the panel sends the op after the debounce", async () =>
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
     [{ op: "update_text", uid: "uid_s1", text: "edited in panel",
-      base_text_hash: sha256Hex("a paper block") }],
+      base_text_hash: sha256Hex("a paper block"), page_title: "Paper" }],
   ]);
 });
 

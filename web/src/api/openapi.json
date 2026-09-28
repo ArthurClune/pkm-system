@@ -4341,6 +4341,17 @@
               }
             ],
             "title": "Base Text Hash"
+          },
+          "page_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Title"
           }
         },
         "type": "object",

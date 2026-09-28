@@ -118,3 +118,30 @@ def test_ack_carries_the_journal_seq_that_includes_the_batch(client):
              "ops": [{"op": "update_text", "uid": "uid_b1", "text": "later"}]}
     assert client.post("/api/ops", json=other).json()["seq"] > after
     assert client.post("/api/ops", json=BATCH).json()["seq"] == after
+
+
+def _request_hash(ops) -> str:
+    from pkm.contracts.ops import OpBatch
+    from pkm.server.ops_core import batch_request_hash
+    return batch_request_hash(OpBatch.model_validate(
+        {"client_id": "c1", "batch_id": "batch-gold-0001", "ops": ops}))
+
+
+HINTLESS = [{"op": "update_text", "uid": "uid_b1", "text": "golden",
+             "base_text_hash": "0" * 64}]
+
+
+def test_hintless_update_text_hash_is_unchanged_across_deploys():
+    """applied_batches stores this hash, so a batch committed before a
+    deploy and retried after it must hash the same or it 409s. Both values
+    were computed with the code before page_title existed (770af38)."""
+    assert _request_hash(HINTLESS) == (
+        "dad8c889b2956a264f6eb8a10486d50ed0e6d9314b294fdd813988d828cf9e14")
+    hashless = [{"op": "update_text", "uid": "uid_b1", "text": "golden"}]
+    assert _request_hash(hashless) == (
+        "06914b5c0599a33509bbc46f3da86a3e3e931924fdf6121c976738960b28fac1")
+
+
+def test_page_title_hint_is_part_of_the_request_hash():
+    hinted = [dict(HINTLESS[0], page_title="AI")]
+    assert _request_hash(hinted) != _request_hash(HINTLESS)

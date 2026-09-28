@@ -621,3 +621,15 @@ def test_plan_mark_never_emits_set_heading():
     ops = plan_mark("u3", "## Overview", "TODO")
     assert all(op.op != "set_heading" for op in ops)
     assert ops[0].text == "{{TODO}} ## Overview"
+
+
+def test_plan_update_carries_page_title_hint():
+    ops = plan_update("uid_a1", "x", "y", None, page_title="AI")
+    assert ops == [UpdateTextOp(op="update_text", uid="uid_a1", text="x",
+                                base_text_hash=text_hash("y"),
+                                page_title="AI")]
+
+
+def test_plan_mark_carries_page_title_hint():
+    ops = plan_mark("u3", "buy milk", "TODO", page_title="AI")
+    assert ops[0].page_title == "AI"

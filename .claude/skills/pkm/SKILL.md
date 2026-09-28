@@ -88,12 +88,14 @@ option. Use `--` to end option parsing, flags before it: `pkm get --
   copied from those verbs into `update` loses a heading silently.
 - `update` is guarded by a hash of the text the CLI fetched, but the write
   always wins — it is never rejected. If the block changed underneath you,
-  your new text still applies and the text you overwrote is preserved as a
-  new `[[conflict]]`-tagged sibling block right after the target; find it
-  via `pkm search`/`pkm refs conflict` and merge by hand if needed. One
-  exception: if the block was deleted underneath you *and* your text
-  changes its heading level, the write fails loudly with `block not
-  found` rather than landing.
+  your new text still applies and the text you overwrote is preserved on
+  today's daily note, as a child of a `[[conflict]] [[Page]] — …` header
+  (one header per block per day). If the block was deleted underneath you,
+  your own text lands there instead. Nothing is added next to the target;
+  find it via `pkm get today` or `pkm refs conflict` and merge by hand if
+  needed. One exception: if the block was deleted underneath you *and*
+  your text changes its heading level, the write fails loudly with `block
+  not found` rather than landing.
 - `batch` reads a JSON array of `{command, params}` — `create`, `todo`,
   `update`, `move`, `delete`, `outline`. `create`/`todo`/`move` accept an
   `"index"` param to insert at a specific position. `"as": "name"` labels a

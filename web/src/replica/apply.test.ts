@@ -313,7 +313,7 @@ describe("applyChanges", () => {
     // a feed window can deliver a block's OLDER server row while a newer
     // local update_text is still queued; letting the row win would revert
     // the visible text AND poison the next op's base_text_hash into a
-    // spurious server-side conflict copy
+    // spurious daily-note conflict header
     enqueueBatch(t.db, [
       { op: "update_text", uid: "uid_b1", text: "local newer text" },
     ], 5, "b-opt");

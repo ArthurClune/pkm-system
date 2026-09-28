@@ -76,6 +76,7 @@ export function UnlinkedSection({ title, onLinked }: {
       uid: item.uid,
       text: transformed.text,
       base_text_hash: sha256Hex(item.text),
+      page_title: group.page_title,
     };
 
     let ticket: WriteTicket;

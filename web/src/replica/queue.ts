@@ -4,11 +4,14 @@
 // tab refresh and browser restart. update_text captures a current
 // base_text_hash only when one is not already supplied; explicit
 // snapshot hashes are preserved, and a user's own edit chain therefore
-// flushes cleanly (op N leaves the text op N+1's hash matches).
+// flushes cleanly (op N leaves the text op N+1's hash matches). When it
+// fills a hash it also fills a missing page_title, from the replica's own
+// pages table, so the daily-note conflict header the server writes on a
+// missing block can name the page (pkm-3g4n).
 // Poisoned batches (server 4xx) are set aside, never retried forever
 // (spec section 6).
 
-import type { BlockOp, UpdateTextOp } from "../api/ops";
+import type { BlockOp } from "../api/ops";
 import type { PendingBatch, PoisonedBatch } from "./client";
 import { type ReplicaDb, rollbackToSavepoint } from "./db";
 import { applyLocalOps, LocalOpError } from "./localOps";
@@ -19,6 +22,13 @@ const currentText = (db: ReplicaDb, uid: string): string | null => {
   const rows = db.select<{ text: string }>(
     "SELECT text FROM blocks WHERE uid = ?", [uid]);
   return rows.length > 0 ? rows[0].text : null;
+};
+
+const currentPageTitle = (db: ReplicaDb, uid: string): string | null => {
+  const rows = db.select<{ title: string }>(
+    "SELECT p.title FROM blocks b JOIN pages p ON p.id = b.page_id" +
+    " WHERE b.uid = ?", [uid]);
+  return rows.length > 0 ? rows[0].title : null;
 };
 
 export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
@@ -41,9 +51,18 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
         if (op.op === "update_text" && op.base_text_hash === undefined) {
           // capture BEFORE this op's own optimistic apply
           const base = currentText(db, op.uid);
+          // block unknown locally -> no hash: server applies plain LWW
           if (base !== null) {
-            // block unknown locally -> no hash: server applies plain LWW
-            wireOp = { ...op, base_text_hash: sha256Hex(base) } as UpdateTextOp;
+            // page_title rides only with a hash filled here: a caller-hashed
+            // op is stored exactly as sent, so it matches the fallback-lane
+            // copy opQueue keeps of the same batch_id (pkm-ybgt)
+            const title = op.page_title === undefined
+              ? currentPageTitle(db, op.uid) : null;
+            wireOp = {
+              ...op,
+              base_text_hash: sha256Hex(base),
+              ...(title !== null ? { page_title: title } : {}),
+            };
           }
         }
         augmented.push(wireOp);

@@ -568,6 +568,7 @@ it("queues a canonical update with the snapshot hash and source scope", async ()
     uid: "uid_u1",
     text: "[[ACME]] created it",
     base_text_hash: sha256Hex("Acme created it"),
+    page_title: "Source",
   }]);
   expect(sync.tickets[0].scope).toEqual(["page", "Source"]);
 });

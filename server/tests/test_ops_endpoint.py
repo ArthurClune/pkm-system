@@ -1,7 +1,9 @@
 import sqlite3
+from datetime import date
 
 import pytest
 
+from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import text_hash
 
 
@@ -335,18 +337,161 @@ def test_create_page_op_reaches_changes_feed(client):
     assert "Feed Visible" in {p["title"] for p in feed["pages"]}
 
 
-def test_conflict_copy_lands_next_to_target(client):
+# --- conflicts land in the daily note (pkm-3g4n) ---------------------------
+#
+# Every text conflict lands on today's daily page as a top-level
+# "[[conflict]] [[Page]] — ..." header, with the lost texts as its children,
+# one header per block per day.
+
+def _conflicts(client, day=None):
+    """(header text, [child texts]) for each [[conflict]] header on the
+    daily page for `day` (default: today)."""
+    title = title_for_date(day if day is not None else date.today())
+    r = client.get(f"/api/page/{title}")
+    if r.status_code == 404:
+        return []
+    return [(b["text"], [c["text"] for c in b["children"]])
+            for b in r.json()["blocks"]
+            if b["text"].startswith("[[conflict]]")]
+
+
+def _orphan_edit(uid, text, page_title=None):
+    op = {"op": "update_text", "uid": uid, "text": text,
+          "base_text_hash": text_hash("whatever")}
+    if page_title is not None:
+        op["page_title"] = page_title
+    return op
+
+
+ORPHAN_SUFFIX = " — edit to a block the server no longer has"
+
+
+def test_live_conflict_goes_to_daily_note_not_the_page(client):
     # uid_b1's live text is "Tags:: #AI" (conftest seed); simulate an
     # offline edit based on stale text
-    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "conflict1",
-                                      "ops": [
-        {"op": "update_text", "uid": "uid_b1", "text": "offline edit",
-         "base_text_hash": text_hash("some stale base")}]})
+    start = client.get("/api/sync/changes").json()["latest_seq"]
+    r = _post(client, {"op": "update_text", "uid": "uid_b1",
+                       "text": "offline edit",
+                       "base_text_hash": text_hash("some stale base"),
+                       # a live block's header names its own page, never
+                       # the client's hint
+                       "page_title": "Elsewhere"})
     assert r.status_code == 200
-    page = client.get("/api/page/Machine%20Learning").json()
-    texts = [b["text"] for b in page["blocks"]]
-    i = texts.index("offline edit")
-    assert texts[i + 1] == "[[conflict]] Tags:: #AI"
+    texts = _ml_texts(client)
+    assert "offline edit" in texts
+    assert not any("[[conflict]]" in t for t in texts)
+    header = "[[conflict]] [[Machine Learning]] — overwritten by ((uid_b1))"
+    assert _conflicts(client) == [(header, ["Tags:: #AI"])]
+
+    # the header is an ordinary block: its refs are indexed ...
+    daily = client.get(f"/api/page/{title_for_date(date.today())}").json()
+    [header_block] = [b for b in daily["blocks"] if b["text"] == header]
+    header_uid = header_block["uid"]
+    child_uid = header_block["children"][0]["uid"]
+    for title in ("conflict", "Machine%20Learning"):
+        page = client.get(f"/api/page/{title}").json()
+        uids = {i["uid"] for g in page["backlinks"]["groups"]
+                for i in g["items"]}
+        assert header_uid in uids
+    # ... and both new blocks reach the changes journal
+    feed = client.get(f"/api/sync/changes?since={start}").json()
+    assert {header_uid, child_uid} <= {b["uid"] for b in feed["blocks"]}
+
+
+def test_clean_hashed_edit_does_not_create_todays_daily_page(
+        client, seeded_config):
+    from pkm.server.db import open_db
+
+    r = _post(client, {"op": "update_text", "uid": "uid_b1",
+                       "text": "clean edit",
+                       "base_text_hash": text_hash("Tags:: #AI")})
+    assert r.status_code == 200
+    # checked in the DB: a GET of today's page would itself create it
+    con = open_db(seeded_config.db_path)
+    row = con.execute("SELECT 1 FROM pages WHERE title = ?",
+                      (title_for_date(date.today()),)).fetchone()
+    con.close()
+    assert row is None
+
+
+def test_orphan_conflict_names_hinted_page(client):
+    _post(client, {"op": "delete", "uid": "uid_b6"})
+    r = _post(client, _orphan_edit("uid_b6", "edited after delete",
+                                   page_title="Machine Learning"))
+    assert r.status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] [[Machine Learning]]" + ORPHAN_SUFFIX,
+         ["edited after delete"])]
+
+
+def test_repeated_orphan_edits_group_under_one_header(client):
+    for text in ("O", "Op", "Ope"):
+        assert _post(client, _orphan_edit("uid_zz1", text)).status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["O", "Op", "Ope"])]
+
+
+def test_two_conflicts_in_one_batch_group(client):
+    r = _post(client, _orphan_edit("uid_zz2", "first"),
+              _orphan_edit("uid_zz2", "second"))
+    assert r.status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["first", "second"])]
+
+
+def test_deleted_header_starts_a_fresh_one(client):
+    _post(client, _orphan_edit("uid_zz3", "before"))
+    daily = client.get(f"/api/page/{title_for_date(date.today())}").json()
+    [header] = [b for b in daily["blocks"]
+                if b["text"].startswith("[[conflict]]")]
+    assert _post(client, {"op": "delete", "uid": header["uid"]}
+                 ).status_code == 200
+    _post(client, _orphan_edit("uid_zz3", "after"))
+    assert _conflicts(client) == [
+        ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["after"])]
+
+
+def test_new_day_starts_a_fresh_header_and_prunes(client, seeded_config,
+                                                   monkeypatch):
+    from pkm.server import ops_apply
+    from pkm.server.db import open_db
+
+    def on(day):
+        class _Date:
+            @staticmethod
+            def today():
+                return day
+        monkeypatch.setattr(ops_apply, "date", _Date)
+
+    day1, day2 = date(2026, 9, 27), date(2026, 9, 28)
+    on(day1)
+    assert _post(client, _orphan_edit("uid_zz4", "day one")).status_code == 200
+    on(day2)
+    assert _post(client, _orphan_edit("uid_zz4", "day two")).status_code == 200
+
+    label = "[[conflict]] (page unknown)" + ORPHAN_SUFFIX
+    assert _conflicts(client, day1) == [(label, ["day one"])]
+    assert _conflicts(client, day2) == [(label, ["day two"])]
+    con = open_db(seeded_config.db_path)
+    days = [r["day"] for r in con.execute("SELECT day FROM conflict_headers")]
+    con.close()
+    assert days == [title_for_date(day2)]
+
+
+def test_unusable_hint_is_labelled_not_rejected(client):
+    r = _post(client, _orphan_edit("uid_zz5", "kept",
+                                   page_title="bad[[title"))
+    assert r.status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["kept"])]
+
+
+def test_replayed_conflict_batch_adds_nothing(client):
+    op = _orphan_edit("uid_zz6", "once")
+    assert _post(client, op, batch_id="replayed_conflict1").status_code == 200
+    assert _post(client, op, batch_id="replayed_conflict1").status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] (page unknown)" + ORPHAN_SUFFIX, ["once"])]
 
 
 def test_no_false_conflict_after_structural_change(client):
@@ -362,23 +507,6 @@ def test_no_false_conflict_after_structural_change(client):
     assert r.status_code == 200
     page = client.get("/api/page/Machine%20Learning").json()
     assert not any("[[conflict]]" in b["text"] for b in page["blocks"])
-
-
-def test_orphaned_edit_lands_on_todays_daily_page(client):
-    from datetime import date
-    from pkm.contracts.daily import title_for_date
-    client.post("/api/ops", json={"client_id": "c1", "batch_id": "orphan_edit1",
-                                  "ops": [
-        {"op": "delete", "uid": "uid_b6"}]})
-    r = client.post("/api/ops", json={"client_id": "c1", "batch_id": "orphan_edit2",
-                                      "ops": [
-        {"op": "update_text", "uid": "uid_b6", "text": "edited after delete",
-         "base_text_hash": text_hash("whatever")}]})
-    assert r.status_code == 200
-    daily = client.get(f"/api/page/{title_for_date(date.today())}").json()
-    assert any(
-        b["text"] == "[[conflict]] (original block deleted) edited after delete"
-        for b in daily["blocks"])
 
 
 def test_hashless_update_on_missing_block_still_400s(client):
@@ -455,9 +583,9 @@ def test_stale_edit_matching_no_rewrite_still_takes_the_conflict_path(client):
     _rename(client, "AI", "Artificial Intelligence")
     _stale_push(client, "some stale base", text="offline edit")
 
-    texts = _ml_texts(client)
-    i = texts.index("offline edit")
-    assert texts[i + 1] == "[[conflict]] Tags:: #[[Artificial Intelligence]]"
+    assert "offline edit" in _ml_texts(client)
+    [(_, lost)] = _conflicts(client)
+    assert lost == ["Tags:: #[[Artificial Intelligence]]"]
 
 
 def test_edit_after_a_rename_keeps_the_conflict_path_under_the_new_title(client):
@@ -469,8 +597,9 @@ def test_edit_after_a_rename_keeps_the_conflict_path_under_the_new_title(client)
 
     texts = _ml_texts(client)
     assert texts[0] == "Tags:: #[[Artificial Intelligence]] plus offline words"
-    assert texts[1] == "[[conflict]] Tags:: #[[Artificial Intelligence]] fresh"
-    assert not any("#AI" in t for t in texts)
+    [(_, lost)] = _conflicts(client)
+    assert lost == ["Tags:: #[[Artificial Intelligence]] fresh"]
+    assert not any("#AI" in t for t in texts + lost)
     assert client.get("/api/page/AI").status_code == 404
 
 

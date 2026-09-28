@@ -47,7 +47,7 @@ it("onPasteOutline enqueues one batch and focuses the last pasted block", () => 
 
   expect(sync.sent).toEqual([[
     { op: "update_text", uid: "a", text: "seed!",
-      base_text_hash: sha256Hex("seed") },
+      base_text_hash: sha256Hex("seed"), page_title: "Page" },
     { op: "create", uid: expect.any(String), page_title: "Page",
       parent_uid: null, order_idx: 1, text: "next" },
     { op: "create", uid: expect.any(String), page_title: "Page",

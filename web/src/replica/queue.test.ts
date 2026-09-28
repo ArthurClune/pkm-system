@@ -133,6 +133,48 @@ describe("enqueueBatch", () => {
     expect(enqueueBatch(t.db, [], 99, "batch-dddd").pending).toBe(0);
     expect(pendingCount(t.db)).toBe(0);
   });
+
+  test("enqueueBatch fills page_title from the replica when absent", () => {
+    enqueueBatch(t.db, [
+      { op: "update_text", uid: "uid_q1", text: "edited once" },
+    ], 99, "batch-title");
+    const ops = JSON.parse(t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    expect(ops[0].page_title).toBe("AI");
+  });
+
+  test("leaves an unknown block's op without a page_title", () => {
+    enqueueBatch(t.db, [
+      { op: "update_text", uid: "uid_ghost", text: "edited before hydration" },
+    ], 99, "batch-title-ghost");
+    const ops = JSON.parse(t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    expect(ops[0].page_title).toBeUndefined();
+  });
+
+  test("preserves an explicit page_title", () => {
+    enqueueBatch(t.db, [{
+      op: "update_text", uid: "uid_q1", text: "edited",
+      page_title: "Explicit Page",
+    }], 99, "batch-title-explicit");
+    const ops = JSON.parse(t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops")[0].ops_json) as UpdateTextOp[];
+    expect(ops[0].page_title).toBe("Explicit Page");
+  });
+
+  test("a caller-hashed op is persisted exactly as the lane would keep it", () => {
+    // opQueue's fallback lane retains the ops as the caller passed them, so
+    // a lost enqueue reply leaves two copies of one batch_id; they must be
+    // byte-identical or the second delivery 409s instead of replaying
+    const ops: BlockOp[] = [{
+      op: "update_text", uid: "uid_q1", text: "linked",
+      base_text_hash: sha256Hex("original text"),
+    }];
+    enqueueBatch(t.db, ops, 99, "batch-lane-copy");
+    expect(t.db.select<{ ops_json: string }>(
+      "SELECT ops_json FROM pending_ops")[0].ops_json)
+      .toBe(JSON.stringify(ops));
+  });
 });
 
 describe("queue reads and lifecycle", () => {

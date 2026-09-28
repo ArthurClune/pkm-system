@@ -205,6 +205,21 @@ CREATE TABLE IF NOT EXISTS block_rewrites(
 CREATE INDEX IF NOT EXISTS idx_block_rewrites_uid
   ON block_rewrites(uid, base_hash);
 
+-- Today's daily-note conflict header for each block that has had a text
+-- conflict today (pkm-3g4n), so later conflicts on the same block append
+-- under it rather than minting another header. day is the daily page's
+-- title. Server-only like block_rewrites: conflicts are resolved at push
+-- time, clients only ever see the header and child blocks. Every recorded
+-- header prunes the rows for other days, so the table holds today's alone;
+-- a row whose header the user deleted is inert (the lookup checks the block
+-- is still on that day's page).
+CREATE TABLE IF NOT EXISTS conflict_headers(
+  target_uid TEXT NOT NULL,
+  day        TEXT NOT NULL,
+  header_uid TEXT NOT NULL,
+  PRIMARY KEY (target_uid, day)
+);
+
 -- Generation token (pkm-o9o5): a rebuilt database (importer swap) repopulates
 -- the journal, so a stale client cursor usually sits BELOW latest_seq and the
 -- since>latest reset check never fires -- a replica would silently pull from

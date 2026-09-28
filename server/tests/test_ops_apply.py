@@ -1,5 +1,8 @@
+from datetime import date
+
 import pytest
 
+from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import OpBatch, text_hash
 from pkm.server import ops_apply, ops_core
 from pkm.server.db import open_db
@@ -358,12 +361,12 @@ def test_set_view_type_updates_metadata_without_changing_block_state(db):
     assert row["view_type"] == "numbered"
 
 
-def test_conflict_sibling_uid_retries_until_alphanumeric_first_char(
-        db, monkeypatch):
-    # The server mints a fresh uid for the conflict-copy sibling the same
-    # way the CLI mints uids for new blocks; a leading '-' or '_' would make
-    # that sibling unaddressable via a bare CLI argument (pkm-y5yv).
-    candidates = iter(["-leadingdash1", "goodstart123"])
+def test_conflict_uids_retry_until_alphanumeric_first_char(db, monkeypatch):
+    # The server mints fresh uids for the conflict header and its child the
+    # same way the CLI mints uids for new blocks; a leading '-' or '_' would
+    # make either unaddressable via a bare CLI argument (pkm-y5yv).
+    candidates = iter(["-leadingdash1", "goodheader12",
+                       "_underscore12", "goodchild123"])
     monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
                         lambda n: next(candidates))
     apply_batch(db, _batch(
@@ -371,10 +374,12 @@ def test_conflict_sibling_uid_retries_until_alphanumeric_first_char(
          "base_text_hash": text_hash("some stale base")},
     ), NOW)
     db.commit()
-    row = db.execute(
-        "SELECT uid FROM blocks WHERE text = '[[conflict]] Tags:: #AI'"
-    ).fetchone()
-    assert row["uid"] == "goodstart123"
+    child = db.execute(
+        "SELECT b.uid, b.parent_uid FROM blocks b JOIN pages p"
+        " ON p.id = b.page_id WHERE b.text = 'Tags:: #AI' AND p.title = ?",
+        (title_for_date(date.today()),)).fetchone()
+    assert (child["uid"], child["parent_uid"]) == ("goodchild123",
+                                                   "goodheader12")
 
 
 @pytest.mark.parametrize(

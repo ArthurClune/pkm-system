@@ -183,8 +183,13 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
                          order_idx=row["order_idx"], page_title=row["title"],
                          block_rewrites=rewrites)
         if not rewrites and text_hash(row["text"]) == op.base_text_hash:
-            # plan_op can only reach check 2 or 4 (no conflict), so skip
-            # finding -- and creating -- today's daily page
+            # A clean hashed edit must not create today's daily page, nor
+            # pay the landing's extra queries: with no rewrites to replay
+            # and a matching hash, plan_op can only reach check 2 or 4.
+            # Anything with rewrites takes the full context rather than
+            # predicting the replay. Should this ever misjudge, plan_op's
+            # "conflict context missing" guard fails the op loudly instead
+            # of dropping the lost text.
             return dataclasses.replace(live, conflict_uid=_new_uid())
         return _with_conflict_landing(db, op.uid, now_ms, live)
     return OpContext(block=block)

@@ -77,25 +77,15 @@ def _canonical_replay_op(op: BlockOp) -> dict:
 
 
 def conflict_label(page_title: str | None, hint_page_exists: bool) -> str:
-    """Label for a client-supplied page-title hint (spec section 2), never
-    a page reference the ref indexer would create a page for unless the
-    hint currently names one:
+    """Label for check 1's client page-title hint (spec section 2). It
+    never fails the op, and it must not be a `[[link]]` to a page that does
+    not exist, or the ref indexer creates one:
 
-    - unusable (missing, blank after stripping, or syntactically invalid,
-      e.g. containing `[[`/`]]`/`#`) -- an unusable hint can never fail the
-      op, it just falls back to the generic label.
-    - usable and `hint_page_exists` -- `[[title]]`, same as before a hint
-      could go stale.
-    - usable, no such page, but the title itself holds a backtick -- wrapping
-      it in one more pair would close early or read as broken code, so this
-      also falls back to the generic label.
-    - usable, no such page, no backtick -- inline code: the ref extractor
-      never scans inside a code span, so the title is named without minting
-      a page for it (pkm-x8e3: the page could be stale because it was
-      renamed or deleted after the client last saw it -- `hint_page_exists`
-      is a live existence check, not a rename lookup; `block_rewrites` can't
-      serve that either, since it is keyed by referencing block and only
-      has rows when some other block actually referenced the renamed page).
+    - unusable (missing, blank, or syntactically invalid): the generic label
+    - page exists: `[[title]]`
+    - no such page: the title as inline code, which the ref extractor never
+      scans; a title holding a backtick can't be fenced that simply, so it
+      gets the generic label
     """
     if (page_title is None or not page_title.strip()
             or title_syntax_reason(page_title) is not None):

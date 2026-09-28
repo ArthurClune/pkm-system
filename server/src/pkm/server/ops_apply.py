@@ -57,14 +57,11 @@ def _resolve_page(db: sqlite3.Connection, title: str,
 
 
 def _hint_page_exists(db: sqlite3.Connection, page_title: str | None) -> bool:
-    """Does a page named by op.page_title (check 1's client hint) currently
-    exist? Canonicalized the same way get_or_create_page looks pages up, so
-    "exists" agrees with what a real [[link]] to that title would resolve
-    to. Not a rename lookup: block_rewrites is keyed by referencing block
-    and only has rows when some other block referenced the renamed page, so
-    it has no history of a page's own former titles (pkm-x8e3) -- a hint
-    naming a page that was renamed or deleted after the client last saw it
-    reads as simply not existing, same as a typo would."""
+    """Does check 1's page_title hint name a page that exists now?
+    Canonicalized the way get_or_create_page looks pages up. A hint whose
+    page was renamed or deleted since the client saw it simply doesn't
+    exist: block_rewrites can't map it to the new title, being keyed by
+    referencing block, with rows only where some block referenced the page."""
     if page_title is None:
         return False
     title = canonicalize_title(

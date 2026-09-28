@@ -121,11 +121,13 @@ transaction:
 `index` inserts a `create`, `todo` or `move` at that position. Without it, the
 block is appended.
 
-An `update`, `move` or `delete` whose uid no longer exists, or a `((uid))`
-parent that doesn't, is skipped rather than failing the transaction. The other
-commands still apply. The output starts with `warning:`, lists each skipped op
-and the daily page its note landed on, and `pkm batch` exits 1. The MCP `batch`
-tool returns the same text.
+An `update`, `move` or `delete` whose uid no longer exists is skipped rather
+than failing the transaction. The other commands still apply and are
+committed. The output starts with `warning:`, lists each skipped op and the
+daily page its note landed on, and `pkm batch` exits 1. Fix the skipped ops on
+their own: re-running the batch repeats everything that applied. A `((uid))`
+parent is checked before anything is sent, so a mistyped one fails the whole
+batch. The MCP `batch` tool returns the same text.
 
 `as` names a created block so later commands can refer to it as
 `"parent": "{{alias}}"`, or as `"uid": "{{alias}}"` for `update`, `move` and

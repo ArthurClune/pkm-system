@@ -281,11 +281,13 @@ under the same parent within one batch: the plain ones count from the
 parent's original child count and can interleave with the indexed one
 instead of landing after it.
 
-An update, move or delete whose uid no longer exists (or a "((uid))"
-parent that doesn't) is skipped by the server rather than failing the
-batch: the other commands still apply, each skipped op is printed with
-where its note or text landed on today's daily page, and the command
-exits 1.
+An update, move or delete whose uid no longer exists is skipped by the
+server rather than failing the batch: the other commands still apply,
+each skipped op is printed with where its note or text landed on today's
+daily page, and the command exits 1. The batch is committed by then, so
+fix the skipped ops on their own; re-running it repeats the rest. A
+"((uid))" parent is checked before anything is sent, so a mistyped one
+fails the whole batch instead.
 
 example:
   pkm batch <<'EOF'
@@ -536,8 +538,14 @@ def cmd_batch(args: argparse.Namespace, client: PkmClient) -> int:
     # below, same as every other planning error.
     ack = apply_batch(client, commands)
     print(render_ops_ack(ack))
-    # a skipped op usually means a mistyped or stale uid: not a clean run
-    return 1 if ack.skipped else 0
+    # a skipped op usually means a mistyped or stale uid: not a clean run.
+    # Exit 1 here means "committed, partly skipped", never "nothing
+    # happened", so say so where a script checking the status will see it.
+    if ack.skipped:
+        print(f"pkm batch: {len(ack.skipped)} op(s) skipped; the rest were"
+              " committed, do not re-run the batch", file=sys.stderr)
+        return 1
+    return 0
 
 
 def cmd_assets(args: argparse.Namespace, client: PkmClient) -> int:

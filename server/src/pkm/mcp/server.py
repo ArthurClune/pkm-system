@@ -132,10 +132,12 @@ def batch(commands: list[dict]) -> str:
     the same spec across commands reuses the heading already created.
     A create/todo/outline text beginning '# ', '## ' or '### ' becomes a
     heading at that level; an `update` text sets or clears the level the
-    same way. An update/move/delete whose uid (or parent) no longer
-    exists is skipped rather than failing the batch; the result then
-    starts with 'warning:' and lists each skipped op and where its note
-    landed, while the other ops were applied."""
+    same way. An update/move/delete whose uid no longer exists is
+    skipped rather than failing the batch; the result then starts with
+    'warning:' and lists each skipped op and where its note landed, while
+    the other ops were applied and committed (do not re-send the batch). A
+    '((uid))' parent is checked before sending, so a mistyped one fails
+    the whole batch."""
     return render_ops_ack(apply_batch(_client(), commands))
 
 

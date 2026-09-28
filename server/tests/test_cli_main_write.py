@@ -441,11 +441,13 @@ def test_batch_reports_ops_skipped_for_a_missing_uid_and_exits_1(
         {"command": "delete", "params": {"uid": "uid_typo98"}},
         {"command": "create", "params": {"page": "AI", "text": "kept"}},
     ]
-    code, out, _ = run("batch", stdin=json.dumps(cmds))
+    code, out, err = run("batch", stdin=json.dumps(cmds))
     assert code == 1
     assert out == (
         "warning: skipped 3 of 4 ops; the other 1 was applied\n"
         f"  update_text ^uid_typo99: block not found; noted on [[{today}]]\n"
         f"  set_heading ^uid_typo99: block not found; noted on [[{today}]]\n"
-        "  delete ^uid_typo98: block not found; nothing written\n")
+        "  delete ^uid_typo98: block not found; nothing written\n"
+        "the batch is committed: fix the skipped ops on their own, do not re-run it\n")
+    assert "do not re-run the batch" in err
     assert "kept" in _page_texts(pkm_client, "AI")

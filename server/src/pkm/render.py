@@ -233,6 +233,10 @@ def render_ops_ack(ack: OpsAck) -> str:
         where = (f"noted on [[{s.note_page}]]" if s.note_page is not None
                  else "nothing written")
         lines.append(f"  {s.op} ^{s.uid}: {what}; {where}")
+    # the batch committed: a re-run is a new batch_id and repeats every
+    # op that did apply, creates included
+    lines.append("the batch is committed: fix the skipped ops on their own,"
+                 " do not re-run it")
     return "\n".join(lines)
 
 

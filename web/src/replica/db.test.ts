@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, test } from "vitest";
+import { rollbackToSavepoint } from "./db";
 import { openTestDb } from "./testDb";
 import { CLIENT_DDL, SCHEMA_VERSION, installSchema } from "./clientSchema";
 import { getMeta, setMeta } from "./meta";
@@ -46,6 +47,42 @@ describe("wrapSqlite + installSchema", () => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
     });
     expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 1 }]);
+    t.close();
+  });
+
+  test("an engine auto-rollback does not replace the original error", async () => {
+    // SQLite rolls the transaction back itself on SQLITE_CORRUPT/IOERR/FULL;
+    // the wrapper's own ROLLBACK then fails with "no transaction is active".
+    // The caller must still see the error that caused it (pkm-h1c6).
+    const t = await openTestDb();
+    expect(() => t.db.transaction(() => {
+      t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
+      t.db.exec("ROLLBACK");
+      throw new Error("SQLITE_CORRUPT: database disk image is malformed");
+    })).toThrow("SQLITE_CORRUPT");
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
+    t.db.transaction(() => {
+      t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
+    });
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 1 }]);
+    t.close();
+  });
+
+  test("rollbackToSavepoint raises the cause when the engine already rolled back", async () => {
+    const t = await openTestDb();
+    const cause = new Error("SQLITE_CORRUPT: database disk image is malformed");
+    expect(() => t.db.transaction(() => {
+      t.db.exec("SAVEPOINT sp");
+      t.db.exec("ROLLBACK");
+      rollbackToSavepoint(t.db, "sp", cause);
+    })).toThrow(cause);
+    t.db.transaction(() => {
+      t.db.exec("SAVEPOINT sp");
+      t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");
+      rollbackToSavepoint(t.db, "sp", cause);
+      t.db.exec("RELEASE sp");
+    });
+    expect(t.db.select("SELECT COUNT(*) AS n FROM pages")).toEqual([{ n: 0 }]);
     t.close();
   });
 

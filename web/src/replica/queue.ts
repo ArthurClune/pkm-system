@@ -10,7 +10,7 @@
 
 import type { BlockOp, UpdateTextOp } from "../api/ops";
 import type { PendingBatch, PoisonedBatch } from "./client";
-import type { ReplicaDb } from "./db";
+import { type ReplicaDb, rollbackToSavepoint } from "./db";
 import { applyLocalOps, LocalOpError } from "./localOps";
 import { sha256Hex } from "./sha256";
 import { findOpTitleViolation } from "./titles";
@@ -56,8 +56,8 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
         try {
           applyLocalOps(db, [wireOp], nowMs);
           db.exec("RELEASE optimistic_op");
-        } catch {
-          db.exec("ROLLBACK TO optimistic_op");
+        } catch (error: unknown) {
+          rollbackToSavepoint(db, "optimistic_op", error);
           db.exec("RELEASE optimistic_op");
         }
       }

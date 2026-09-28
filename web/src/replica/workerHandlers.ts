@@ -8,7 +8,7 @@ import { applyChanges, applySnapshot } from "./apply";
 import type { PendingBatch, RecoveryCommit, ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
-import { ReplicaUnavailableError } from "./errors";
+import { isCorruptionMessage, ReplicaUnavailableError } from "./errors";
 import { getMeta } from "./meta";
 import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { pendingSetStillCovered } from "./pendingGuard";
@@ -21,6 +21,10 @@ export interface WorkerDeps {
   openDb(): Promise<ReplicaDb>;
   /** Close the active database resource before the worker is terminated. */
   closeDb?(): Promise<void> | void;
+  /** Close the database and delete its file (and any rollback journal), so
+   * the next openDb() creates an empty one. The reset path's escape from
+   * damage a logical rebuild cannot get past (pkm-h1c6). */
+  discardDbFile?(): Promise<void> | void;
   /** Injectable for tests; the worker uses Date.now/crypto.randomUUID.
    * nowMs and clockMs both default to Date.now and are two names for the
    * same wall clock, kept distinct because they measure different things:
@@ -230,6 +234,25 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       d.exec("PRAGMA foreign_keys=ON");
     }
   };
+  /** rebuildSchema, falling back to a brand-new file. The logical rebuild
+   * rewrites the same file, so page-level damage (a broken freelist or page
+   * map, which quick_check reports and the FTS checks do not) fails its DROPs
+   * with SQLITE_CORRUPT every time, and so does every later reset. Pending
+   * rows lose nothing: a reset drops pending_ops either way, and its caller
+   * already holds them from prepareRecovery. */
+  const rebuildOrReplaceFile = async (snapshot?: Snapshot): Promise<void> => {
+    try {
+      rebuildSchema(await db(), snapshot);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!deps.discardDbFile || !isCorruptionMessage(message)) throw error;
+      console.warn("replica: rebuild hit file-level corruption, replacing the file",
+                   error);
+      await deps.discardDbFile();
+      dbPromise = null;
+      rebuildSchema(await db(), snapshot);
+    }
+  };
 
   return {
     async enqueue(payload) {
@@ -385,11 +408,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
           if (fingerprint(current) !== preparedRows.fingerprint) {
             throw new Error("pending rows changed during recovery");
           }
-          const d = await db();
           if (input.kind === "reset") {
-            rebuildSchema(d, input.snapshot);
+            await rebuildOrReplaceFile(input.snapshot);
           } else {
-            applySnapshotToDb(d, input.snapshot, nowMs());
+            applySnapshotToDb(await db(), input.snapshot, nowMs());
           }
         });
         return null;
@@ -414,7 +436,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         if (current.length > 0) {
           throw new Error("cannot reset replica with pending rows");
         }
-        rebuildSchema(await db());
+        await rebuildOrReplaceFile();
         return null;
       });
     },

@@ -442,13 +442,32 @@ Seven conditions cause a rebootstrap from `GET /api/sync/snapshot` on their own:
 
 | Trigger | Detected by | Kind |
 |---|---|---|
-| App deploy changed the client schema | `SCHEMA_VERSION` = sha256(base + client DDL) vs stored value | `reset` (rebuild file) |
+| App deploy changed the client schema | `SCHEMA_VERSION` = sha256(base + client DDL) vs stored value | `reset` (drop and recreate every table) |
 | Server DB rebuilt or title activation rotated generation | `generation` token mismatch in any feed payload; a forced WS frame makes metadata-only rotation pull immediately | `rebase` (flush queue, re-snapshot) |
 | Cursor ahead of journal | `reset: true` from the feed | `rebase` |
 | Window cannot commit: deferred FK check fails (dependency-incomplete feed, e.g. an older server) | `applyChanges` catches the FK failure at COMMIT and returns `needs-bootstrap` | `rebase` |
 | A local page or sidebar row holds a title this window gives to another id, and the window neither retitles nor tombstones that row | a row still parked by `parkTakenTitles` after the upserts throws `StaleTitleHolderError`, and `applyChanges` returns `needs-bootstrap` | `rebase` |
-| The replica reports corruption (`SQLITE_CORRUPT`, or FTS5's `SQLITE_CORRUPT_VTAB`) applying a window or a rebase snapshot | `isCorruptionError` in `pullLoop` and `recover`, once per session; `replica.diagnostics()` (quick_check, FTS `integrity-check`, row counts, cursor) is posted to `POST /api/client/diagnostics` first | `reset`: a rebase would replay the snapshot through the same FTS triggers over the same corrupt index |
+| The replica reports corruption (`SQLITE_CORRUPT`, or FTS5's `SQLITE_CORRUPT_VTAB`) applying a window or a rebase snapshot | `isCorruptionError` in `pullLoop` and `recover`, once per session; `replica.diagnostics()` (quick_check, FTS `integrity-check`, row counts, cursor) is posted to `POST /api/client/diagnostics` first | `reset`: a rebase would replay the snapshot through the same FTS triggers over the same corrupt index. Page-level damage fails the reset's own `DROP`s, so the worker then replaces the file |
 | A window keeps failing for any other reason — a NOT NULL or CHECK violation, a bug in an upsert | `WINDOW_STRIKES` failures of one cursor with one message in `pullLoop`; `isWindowFailure` counts only a `ReplicaError` that is neither corruption nor an availability verdict, so transport failures never count. Posted with `replica.diagnostics()` under kind `window-unappliable`, once per session | `rebase`: nothing says the schema or the FTS index is bad, and a rebase keeps the pending queue's rows |
+
+A `reset` rebuilds the tables inside the existing file, in one transaction, so
+a failure leaves the old database whole. That cannot get past damage to the
+file itself: a broken freelist or page map, which `quick_check` reports and the
+FTS checks do not. When the rebuild throws a corruption error,
+`rebuildOrReplaceFile` (`web/src/replica/workerHandlers.ts`) calls the worker's
+`discardDbFile`. That closes the database and unlinks the file and its
+`-journal` from the SAH pool, and the rebuild runs again on a fresh file. The
+journal goes too, or its first open would roll it back into the new file.
+Pending rows lose nothing, because a reset drops `pending_ops` anyway and its
+caller already holds them from `prepareRecovery`.
+
+**Corruption must reach `isCorruptionError` with its own message.** SQLite
+rolls back the whole transaction by itself on `SQLITE_CORRUPT`, `IOERR` or
+`FULL`, and a later `ROLLBACK` or `ROLLBACK TO` then fails with "no transaction
+is active" or "no such savepoint". `wrapSqlite`'s `transaction` and
+`rollbackToSavepoint` (`web/src/replica/db.ts`) raise the original error
+instead. A masked message looks like an unappliable window, which earns a
+rebase over the same damaged file.
 
 Two more rebootstraps happen on request: the authoritative repair of a poisoned
 batch, and the user's own Reset local data.

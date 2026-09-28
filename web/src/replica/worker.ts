@@ -24,6 +24,7 @@ interface SahPoolOptions {
 
 interface PoolUtil extends CapacityPool {
   OpfsSAHPoolDb: new (filename: string) => Oo1DbLike & { close(): void };
+  unlink(filename: string): boolean;
 }
 
 let sqlite3: {
@@ -66,5 +67,13 @@ function closeDb(): void {
   rawDb = null;
 }
 
+function discardDbFile(): void {
+  closeDb();
+  // The journal too: a hot journal left in the pool would be rolled back
+  // into the new, empty file on its first open.
+  pool?.unlink(`${DB_FILE}-journal`);
+  pool?.unlink(DB_FILE);
+}
+
 serveRpc(toPortLike(self as unknown as { postMessage(msg: unknown): void; onmessage: unknown }),
-         buildHandlers({ openDb, closeDb }));
+         buildHandlers({ openDb, closeDb, discardDbFile }));

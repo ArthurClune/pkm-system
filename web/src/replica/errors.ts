@@ -112,6 +112,12 @@ export function isSessionFatal(error: unknown): boolean {
 export function isCorruptionError(error: unknown): boolean {
   if (!(error instanceof ReplicaError)) return false;
   if (error instanceof ReplicaUnavailableError) return false;
+  return isCorruptionMessage(error.message);
+}
+
+/** The engine-message half of isCorruptionError, for the worker, which sees
+ * sqlite-wasm's own errors before any ReplicaError wraps them. */
+export function isCorruptionMessage(message: string): boolean {
   return /\bSQLITE_CORRUPT(_VTAB)?\b|database disk image is malformed/
-    .test(error.message);
+    .test(message);
 }

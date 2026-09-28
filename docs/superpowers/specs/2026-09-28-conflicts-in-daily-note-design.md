@@ -27,7 +27,7 @@ where or whether the edit applies. Clients that omit it keep working.
 | Producer | Source of `page_title` |
 |---|---|
 | Web main thread | `stampBaseTextHashes` (`web/src/outline/baseTextHash.ts`) already receives the planning page's `pageTitle`; it stamps `page_title` on every `update_text` whose block it finds in that tree, alongside `base_text_hash`. Undo history keeps recording unstamped ops; `undoManager.dispatch` stamps at replay time, as it does for the hash. |
-| Web worker | `enqueueBatch` (`web/src/replica/queue.ts`) fills `page_title` from the replica when it is undefined, where it fills `base_text_hash` (the block's page title from `pages`). |
+| Web worker | `enqueueBatch` (`web/src/replica/queue.ts`) fills `page_title` from the replica only when it also fills `base_text_hash` itself (the block's page title from `pages`); an op that arrives already hashed is persisted unchanged, so the durable row and the fallback-lane copy stay byte-identical (as shipped; see `sync-and-offline.md`). |
 | CLI / MCP | `plan_update` / the guarded update path (`server/src/pkm/planning.py`) passes the fetched block's page title. |
 
 `openapi.json` and the generated web types are regenerated.

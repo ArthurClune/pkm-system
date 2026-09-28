@@ -5,10 +5,11 @@ from pkm.contracts.ops import (CreateOp, DeleteOp, MoveOp, OpBatch,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
                                UpdateTextOp, text_hash)
 from pkm.server.ops_core import (BlockInfo, DeleteBlocks, InsertBlock,
-                                 OpContext, OpError, ReindexRefs,
-                                 SetCollapsed, SetHeading, SetPageId,
-                                 SetParent, SetViewType, ShiftSiblings,
-                                 TouchPage, UpdateText, plan_op)
+                                 OpContext, OpError, RecordConflictHeader,
+                                 ReindexRefs, SetCollapsed, SetHeading,
+                                 SetPageId, SetParent, SetViewType,
+                                 ShiftSiblings, TouchPage, UpdateText,
+                                 plan_op)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 
@@ -224,18 +225,54 @@ def _ctx(current="old text", order=2):
                      conflict_uid="uid_cf1")
 
 
-def _op(text="new text", base="old text"):
+def _daily_ctx(**overrides):
+    fields = dict(daily_page_id=9, daily_append_idx=4,
+                 daily_title="September 28th, 2026", conflict_uid="uid_hd1",
+                 conflict_child_uid="uid_ch1")
+    fields.update(overrides)
+    return fields
+
+
+def _op(text="new text", base="old text", page_title=None):
     return UpdateTextOp(op="update_text", uid="uid_t1", text=text,
-                        base_text_hash=text_hash(base))
+                        base_text_hash=text_hash(base),
+                        page_title=page_title)
 
 
-def test_check_1_missing_block_lands_on_daily_page():
-    ctx = OpContext(block=None, conflict_uid="uid_cf1",
-                    daily_page_id=9, daily_append_idx=4)
-    effs = plan_op(0, _op(), ctx)
-    ins = next(e for e in effs if isinstance(e, InsertBlock))
-    assert ins.page_id == 9 and ins.order_idx == 4 and ins.parent_uid is None
-    assert ins.text == "[[conflict]] (original block deleted) new text"
+def test_missing_block_creates_daily_header_naming_the_hint():
+    ctx = OpContext(block=None, **_daily_ctx())
+    effs = plan_op(0, _op(page_title="AI Agent Security"), ctx)
+    header = next(e for e in effs if isinstance(e, InsertBlock)
+                  and e.uid == "uid_hd1")
+    assert (header.page_id, header.parent_uid, header.order_idx) == (9, None, 4)
+    assert header.text == ("[[conflict]] [[AI Agent Security]] — edit to a "
+                           "block the server no longer has")
+    child = next(e for e in effs if isinstance(e, InsertBlock)
+                and e.uid == "uid_ch1")
+    assert (child.page_id, child.parent_uid, child.order_idx) == (9, "uid_hd1", 0)
+    assert child.text == "new text"
+    record = next(e for e in effs if isinstance(e, RecordConflictHeader))
+    assert record == RecordConflictHeader("uid_t1", "September 28th, 2026",
+                                          "uid_hd1")
+
+
+@pytest.mark.parametrize("page_title", [None, "  ", "a[[b"])
+def test_missing_block_without_usable_hint_says_page_unknown(page_title):
+    ctx = OpContext(block=None, **_daily_ctx())
+    effs = plan_op(0, _op(page_title=page_title), ctx)
+    header = next(e for e in effs if isinstance(e, InsertBlock)
+                  and e.uid == "uid_hd1")
+    assert header.text == ("[[conflict]] (page unknown) — edit to a block "
+                           "the server no longer has")
+
+
+def test_missing_block_appends_under_todays_header():
+    ctx = OpContext(block=None, **_daily_ctx(
+        conflict_header_uid="uid_old", conflict_header_next_idx=3))
+    effs = plan_op(0, _op(page_title="AI Agent Security"), ctx)
+    inserts = [e for e in effs if isinstance(e, InsertBlock)]
+    assert inserts == [InsertBlock("uid_ch1", 9, "uid_old", 3, "new text", None)]
+    assert not any(isinstance(e, RecordConflictHeader) for e in effs)
 
 
 def test_check_2_identical_text_is_noop_even_with_stale_hash():
@@ -259,12 +296,31 @@ def test_check_4_matching_hash_applies_without_conflict():
     assert not any(isinstance(e, InsertBlock) for e in effs)
 
 
-def test_check_5_stale_hash_wins_and_preserves_loser_as_sibling():
-    effs = plan_op(0, _op(base="what I saw before going offline"),
-                   _ctx(current="server text meanwhile"))
+def test_check_5_incoming_wins_and_loser_goes_to_daily_header():
+    ctx = OpContext(block=_BLK, current_text="server text meanwhile", order_idx=2,
+                    page_title="Machine Learning", **_daily_ctx())
+    effs = plan_op(0, _op(base="what I saw before going offline"), ctx)
     upd = next(e for e in effs if isinstance(e, UpdateText))
-    assert upd.text == "new text"  # incoming wins (LWW)
-    shift = next(e for e in effs if isinstance(e, ShiftSiblings))
-    ins = next(e for e in effs if isinstance(e, InsertBlock))
-    assert shift.from_idx == 3 and ins.order_idx == 3  # right after target
-    assert ins.text == "[[conflict]] server text meanwhile"
+    assert upd == UpdateText("uid_t1", "new text")  # incoming wins (LWW)
+    assert not any(isinstance(e, ShiftSiblings) for e in effs)
+    header = next(e for e in effs if isinstance(e, InsertBlock)
+                  and e.uid == "uid_hd1")
+    assert header.text == ("[[conflict]] [[Machine Learning]] — overwritten "
+                           "by ((uid_t1))")
+    child = next(e for e in effs if isinstance(e, InsertBlock)
+                and e.uid == "uid_ch1")
+    assert child.text == "server text meanwhile"
+    assert not any(isinstance(e, InsertBlock) and e.page_id == _BLK.page_id
+                  for e in effs)
+
+
+def test_check_5_appends_under_todays_header():
+    ctx = OpContext(block=_BLK, current_text="server text meanwhile", order_idx=2,
+                    page_title="Machine Learning",
+                    **_daily_ctx(conflict_header_uid="uid_old",
+                                conflict_header_next_idx=3))
+    effs = plan_op(0, _op(base="what I saw before going offline"), ctx)
+    inserts = [e for e in effs if isinstance(e, InsertBlock)]
+    assert inserts == [InsertBlock("uid_ch1", 9, "uid_old", 3,
+                                   "server text meanwhile", None)]
+    assert any(isinstance(e, UpdateText) for e in effs)

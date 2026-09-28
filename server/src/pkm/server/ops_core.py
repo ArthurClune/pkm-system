@@ -37,14 +37,28 @@ def batch_request_hash(batch: OpBatch) -> str:
     return hashlib.sha256(canon.encode()).hexdigest()
 
 
-def conflict_copy_text(lost_text: str) -> str:
-    """Overwritten text preserved as an ordinary block, [[conflict]]-tagged
-    so it is findable via search and the conflict page's backlinks."""
-    return f"[[conflict]] {lost_text}"
+def conflict_label(page_title: str | None) -> str:
+    """`[[title]]` for a usable page-title hint, else the generic label.
+    Usable = present, non-blank after stripping, and syntactically valid
+    (spec section 2) -- an unusable hint can never fail the op, it just
+    falls back to the generic label."""
+    if (page_title is None or not page_title.strip()
+            or title_syntax_reason(page_title) is not None):
+        return "(page unknown)"
+    return f"[[{page_title}]]"
 
 
-def orphan_conflict_text(text: str) -> str:
-    return f"[[conflict]] (original block deleted) {text}"
+def overwritten_header_text(page_title: str, uid: str) -> str:
+    """Header for check 5: the live block's own page, read straight from
+    its row -- always a real title, never a client-supplied hint."""
+    return f"[[conflict]] [[{page_title}]] — overwritten by (({uid}))"
+
+
+def orphan_header_text(page_title: str | None) -> str:
+    """Header for check 1: page_title is the client's op.page_title hint,
+    which may be missing or unusable."""
+    return (f"[[conflict]] {conflict_label(page_title)} — edit to a block "
+           "the server no longer has")
 
 
 class OpError(ValueError):
@@ -171,9 +185,14 @@ class OpContext:
     # shell only when the op carries base_text_hash
     current_text: str | None = None      # target's text right now
     order_idx: int | None = None         # target's order_idx
-    conflict_uid: str | None = None      # fresh uid for a conflict copy
-    daily_page_id: int | None = None     # orphan landing page
-    daily_append_idx: int | None = None  # next top-level idx there
+    page_title: str | None = None        # live block's page title (unused for missing blocks)
+    conflict_uid: str | None = None      # fresh uid for a conflict header (becomes the header uid when one is created)
+    conflict_child_uid: str | None = None  # fresh uid for the conflict entry (lost text) block
+    daily_page_id: int | None = None     # today's daily page
+    daily_append_idx: int | None = None  # next top-level idx there (new header)
+    daily_title: str | None = None       # today's daily page title (for RecordConflictHeader)
+    conflict_header_uid: str | None = None       # today's live header for op.uid, if any
+    conflict_header_next_idx: int | None = None  # next child order_idx under it
     # rename/merge rewrites of op.uid, newest first (replay_title_rewrites)
     block_rewrites: tuple[BlockRewrite, ...] = ()
 
@@ -249,9 +268,50 @@ class SetPageId:
     page_id: int
 
 
+@dataclass(frozen=True)
+class RecordConflictHeader:
+    """A fresh conflict header was created for target_uid on day: later
+    conflicts on the same block that land the same day append under it
+    instead of creating another header (spec section 2)."""
+    target_uid: str
+    day: str
+    header_uid: str
+
+
 Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
                DeleteBlocks, SetCollapsed, SetHeading, SetViewType,
-               ReindexRefs, TouchPage, SetPageId]
+               ReindexRefs, TouchPage, SetPageId, RecordConflictHeader]
+
+
+def conflict_entry_effects(
+    target_uid: str, lost_text: str, header_text: str, ctx: OpContext,
+) -> tuple[Effect, ...]:
+    """Lost text landing in today's daily note (spec section 2): appended
+    under today's existing header for this target if there is one,
+    otherwise a fresh header is created and recorded so later conflicts on
+    the same block land under it too."""
+    assert ctx.conflict_child_uid is not None and ctx.daily_page_id is not None
+    if ctx.conflict_header_uid is not None:
+        assert ctx.conflict_header_next_idx is not None
+        return (
+            InsertBlock(ctx.conflict_child_uid, ctx.daily_page_id,
+                        ctx.conflict_header_uid, ctx.conflict_header_next_idx,
+                        lost_text, None),
+            ReindexRefs(ctx.conflict_child_uid, lost_text),
+            TouchPage(ctx.daily_page_id),
+        )
+    assert ctx.conflict_uid is not None and ctx.daily_append_idx is not None
+    assert ctx.daily_title is not None
+    return (
+        InsertBlock(ctx.conflict_uid, ctx.daily_page_id, None,
+                    ctx.daily_append_idx, header_text, None),
+        ReindexRefs(ctx.conflict_uid, header_text),
+        InsertBlock(ctx.conflict_child_uid, ctx.daily_page_id, ctx.conflict_uid,
+                    0, lost_text, None),
+        ReindexRefs(ctx.conflict_child_uid, lost_text),
+        RecordConflictHeader(target_uid, ctx.daily_title, ctx.conflict_uid),
+        TouchPage(ctx.daily_page_id),
+    )
 
 
 def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
@@ -281,16 +341,15 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
     if (isinstance(op, UpdateTextOp) and op.base_text_hash is not None
             and ctx.block is None):
         # edit-vs-delete race: uid+text is all we have, the deleted row's
-        # page/parent are gone -> conflict block appended to today's daily
-        # page rather than dropping the edit (spec section 2, check 1)
-        if (ctx.conflict_uid is None or ctx.daily_page_id is None
-                or ctx.daily_append_idx is None):
+        # page/parent are gone -> conflict entry appended under today's
+        # daily-note header naming the hint, rather than dropping the edit
+        # (spec section 2, check 1)
+        if (ctx.conflict_uid is None or ctx.conflict_child_uid is None
+                or ctx.daily_page_id is None or ctx.daily_append_idx is None
+                or ctx.daily_title is None):
             raise OpError(index, "conflict context missing")
-        text = orphan_conflict_text(op.text)
-        return (InsertBlock(ctx.conflict_uid, ctx.daily_page_id, None,
-                            ctx.daily_append_idx, text, None),
-                ReindexRefs(ctx.conflict_uid, text),
-                TouchPage(ctx.daily_page_id))
+        return conflict_entry_effects(
+            op.uid, op.text, orphan_header_text(op.page_title), ctx)
     if ctx.block is None:
         raise OpError(index, f"block not found: {op.uid}")
     if isinstance(op, UpdateTextOp):
@@ -313,14 +372,15 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
             return ()                                # check 2: identical
         if text_hash(ctx.current_text) == base_hash:
             return base_effects                      # check 4: clean apply
-        # check 5: concurrent edit -- incoming wins, loser preserved as a
-        # sibling right after the target
-        lost = conflict_copy_text(ctx.current_text)
-        idx = ctx.order_idx + 1
-        return (ShiftSiblings(ctx.block.page_id, ctx.block.parent_uid, idx),
-                InsertBlock(ctx.conflict_uid, ctx.block.page_id,
-                            ctx.block.parent_uid, idx, lost, None),
-                ReindexRefs(ctx.conflict_uid, lost),
+        # check 5: concurrent edit -- incoming wins, loser preserved under
+        # today's daily-note conflict header naming the block's page
+        if (ctx.conflict_child_uid is None or ctx.daily_page_id is None
+                or ctx.daily_append_idx is None or ctx.daily_title is None
+                or ctx.page_title is None):
+            raise OpError(index, "conflict context missing")
+        header_text = overwritten_header_text(ctx.page_title, op.uid)
+        return (*conflict_entry_effects(op.uid, ctx.current_text,
+                                        header_text, ctx),
                 *base_effects)
     if isinstance(op, MoveOp):
         if op.parent_uid is not None:

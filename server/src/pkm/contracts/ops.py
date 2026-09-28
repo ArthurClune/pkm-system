@@ -41,6 +41,12 @@ class UpdateTextOp(BaseModel):
     # never manufacture a text conflict).
     base_text_hash: str | None = Field(default=None, min_length=64,
                                        max_length=64)
+    # A conflict-header label only: names the page the client believed it
+    # was editing, for when the block itself is gone by the time this
+    # lands (edit-vs-delete race). Never checked against the target block
+    # and never validated as a title -- an unusable hint just falls back
+    # to a generic label, it can never fail the op.
+    page_title: str | None = None
 
 
 class MoveOp(BaseModel):

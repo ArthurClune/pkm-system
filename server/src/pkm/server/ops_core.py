@@ -76,15 +76,35 @@ def _canonical_replay_op(op: BlockOp) -> dict:
     return dump
 
 
-def conflict_label(page_title: str | None) -> str:
-    """`[[title]]` for a usable page-title hint, else the generic label.
-    Usable = present, non-blank after stripping, and syntactically valid
-    (spec section 2) -- an unusable hint can never fail the op, it just
-    falls back to the generic label."""
+def conflict_label(page_title: str | None, hint_page_exists: bool) -> str:
+    """Label for a client-supplied page-title hint (spec section 2), never
+    a page reference the ref indexer would create a page for unless the
+    hint currently names one:
+
+    - unusable (missing, blank after stripping, or syntactically invalid,
+      e.g. containing `[[`/`]]`/`#`) -- an unusable hint can never fail the
+      op, it just falls back to the generic label.
+    - usable and `hint_page_exists` -- `[[title]]`, same as before a hint
+      could go stale.
+    - usable, no such page, but the title itself holds a backtick -- wrapping
+      it in one more pair would close early or read as broken code, so this
+      also falls back to the generic label.
+    - usable, no such page, no backtick -- inline code: the ref extractor
+      never scans inside a code span, so the title is named without minting
+      a page for it (pkm-x8e3: the page could be stale because it was
+      renamed or deleted after the client last saw it -- `hint_page_exists`
+      is a live existence check, not a rename lookup; `block_rewrites` can't
+      serve that either, since it is keyed by referencing block and only
+      has rows when some other block actually referenced the renamed page).
+    """
     if (page_title is None or not page_title.strip()
             or title_syntax_reason(page_title) is not None):
         return "(page unknown)"
-    return f"[[{page_title}]]"
+    if hint_page_exists:
+        return f"[[{page_title}]]"
+    if "`" in page_title:
+        return "(page unknown)"
+    return f"`{page_title}` (page not found)"
 
 
 def overwritten_header_text(page_title: str, uid: str) -> str:
@@ -93,11 +113,12 @@ def overwritten_header_text(page_title: str, uid: str) -> str:
     return f"[[conflict]] [[{page_title}]] — overwritten by (({uid}))"
 
 
-def orphan_header_text(page_title: str | None) -> str:
+def orphan_header_text(page_title: str | None, hint_page_exists: bool) -> str:
     """Header for check 1: page_title is the client's op.page_title hint,
-    which may be missing or unusable."""
-    return (f"[[conflict]] {conflict_label(page_title)} — edit to a block "
-           "the server no longer has")
+    which may be missing, unusable, or stale (naming a page the store no
+    longer has); hint_page_exists is resolved by the shell (see OpContext)."""
+    return (f"[[conflict]] {conflict_label(page_title, hint_page_exists)}"
+           " — edit to a block the server no longer has")
 
 
 class OpError(ValueError):
@@ -254,6 +275,10 @@ class OpContext:
     current_text: str | None = None      # target's text right now
     order_idx: int | None = None         # target's order_idx
     page_title: str | None = None        # live block's page title (unused for missing blocks)
+    # check 1 only: does a page with op.page_title (the client's hint)
+    # currently exist? Resolved by the shell (ops_apply._context_for) since
+    # it's a store lookup; decides conflict_label's link-vs-code-span choice.
+    hint_page_exists: bool = False
     conflict_uid: str | None = None      # fresh uid for a conflict header (becomes the header uid when one is created)
     conflict_child_uid: str | None = None  # fresh uid for the conflict entry (lost text) block
     daily_page_id: int | None = None     # today's daily page
@@ -429,7 +454,8 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         if not _conflict_landing_ready(ctx):
             raise OpError(index, "conflict context missing")
         return conflict_entry_effects(
-            op.uid, op.text, orphan_header_text(op.page_title), ctx)
+            op.uid, op.text,
+            orphan_header_text(op.page_title, ctx.hint_page_exists), ctx)
     if ctx.block is None:
         raise OpError(index, f"block not found: {op.uid}")
     if isinstance(op, UpdateTextOp):

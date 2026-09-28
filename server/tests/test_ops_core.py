@@ -10,7 +10,7 @@ from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  SetCollapsed, SetHeading, SetPageId,
                                  SetParent, SetViewType, ShiftSiblings,
                                  TextEditOutcome, TouchPage, UpdateText,
-                                 classify_text_edit, plan_op)
+                                 classify_text_edit, conflict_label, plan_op)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 
@@ -241,7 +241,7 @@ def _op(text="new text", base="old text", page_title=None):
 
 
 def test_missing_block_creates_daily_header_naming_the_hint():
-    ctx = OpContext(block=None, **_daily_ctx())
+    ctx = OpContext(block=None, hint_page_exists=True, **_daily_ctx())
     effs = plan_op(0, _op(page_title="AI Agent Security"), ctx)
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
@@ -259,12 +259,56 @@ def test_missing_block_creates_daily_header_naming_the_hint():
 
 @pytest.mark.parametrize("page_title", [None, "  ", "a[[b"])
 def test_missing_block_without_usable_hint_says_page_unknown(page_title):
-    ctx = OpContext(block=None, **_daily_ctx())
+    # hint_page_exists is irrelevant here -- an unusable hint always falls
+    # back to the generic label regardless.
+    ctx = OpContext(block=None, hint_page_exists=True, **_daily_ctx())
     effs = plan_op(0, _op(page_title=page_title), ctx)
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] (page unknown) — edit to a block "
                            "the server no longer has")
+
+
+def test_missing_block_hint_names_a_renamed_away_page_says_not_found():
+    # usable hint, but hint_page_exists is False (pkm-x8e3): the page it
+    # names is gone -- renamed or deleted since the client last saw it --
+    # so the header must not link it (that would recreate the page).
+    ctx = OpContext(block=None, hint_page_exists=False, **_daily_ctx())
+    effs = plan_op(0, _op(page_title="Old Title"), ctx)
+    header = next(e for e in effs if isinstance(e, InsertBlock)
+                  and e.uid == "uid_hd1")
+    assert header.text == ("[[conflict]] `Old Title` (page not found) — "
+                           "edit to a block the server no longer has")
+
+
+def test_missing_block_hint_with_backtick_and_no_page_says_page_unknown():
+    # usable hint, no such page, but the title itself holds a backtick: an
+    # inline-code span can't safely wrap it, so this also falls back to the
+    # generic label rather than emitting a broken/misleading code span.
+    ctx = OpContext(block=None, hint_page_exists=False, **_daily_ctx())
+    effs = plan_op(0, _op(page_title="a`b"), ctx)
+    header = next(e for e in effs if isinstance(e, InsertBlock)
+                  and e.uid == "uid_hd1")
+    assert header.text == ("[[conflict]] (page unknown) — edit to a block "
+                           "the server no longer has")
+
+
+@pytest.mark.parametrize(
+    "page_title, hint_page_exists, label",
+    [
+        ("AI Agent Security", True, "[[AI Agent Security]]"),
+        ("Old Title", False, "`Old Title` (page not found)"),
+        ("a`b", False, "(page unknown)"),
+        (None, False, "(page unknown)"),
+        ("  ", False, "(page unknown)"),
+        ("a[[b", False, "(page unknown)"),
+        # a hint could exist and still be unusable syntax at the same
+        # time (e.g. it names a real page's title that happens to hold
+        # `[[`) -- unusable always wins.
+        ("a[[b", True, "(page unknown)"),
+    ])
+def test_conflict_label_table(page_title, hint_page_exists, label):
+    assert conflict_label(page_title, hint_page_exists) == label
 
 
 def test_missing_block_appends_under_todays_header():

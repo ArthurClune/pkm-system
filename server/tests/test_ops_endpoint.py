@@ -424,6 +424,31 @@ def test_orphan_conflict_names_hinted_page(client):
          ["edited after delete"])]
 
 
+def test_orphan_conflict_hint_naming_a_renamed_away_page_does_not_recreate_it(
+        client, seeded_config):
+    # pkm-x8e3: the client's hint is stale -- "Machine Learning" was renamed
+    # away before this offline edit reached the server. The header must name
+    # it without linking it (a [[link]] would make the ref indexer recreate
+    # an empty page under the old title -- exactly what replay_title_rewrites
+    # exists to prevent for live blocks).
+    from pkm.server.db import open_db
+
+    r = client.post("/api/page/Machine Learning/rename",
+                    json={"new_title": "ML Renamed"})
+    assert r.status_code == 200
+    r = _post(client, _orphan_edit("uid_zz_renamed", "edited after rename",
+                                   page_title="Machine Learning"))
+    assert r.status_code == 200
+    assert _conflicts(client) == [
+        ("[[conflict]] `Machine Learning` (page not found)" + ORPHAN_SUFFIX,
+         ["edited after rename"])]
+    con = open_db(seeded_config.db_path)
+    row = con.execute("SELECT 1 FROM pages WHERE title = ?",
+                      ("Machine Learning",)).fetchone()
+    con.close()
+    assert row is None
+
+
 def test_repeated_orphan_edits_group_under_one_header(client):
     for text in ("O", "Op", "Ope"):
         assert _post(client, _orphan_edit("uid_zz1", text)).status_code == 200

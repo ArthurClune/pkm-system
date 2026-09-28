@@ -1802,6 +1802,8 @@ export interface components {
             text: string;
             /** Base Text Hash */
             base_text_hash?: string | null;
+            /** Page Title */
+            page_title?: string | null;
         };
         /** ValidationError */
         ValidationError: {

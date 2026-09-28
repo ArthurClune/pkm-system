@@ -3,16 +3,18 @@
 Runs inside the caller's transaction; never commits or rolls back."""
 from __future__ import annotations
 
+import dataclasses
 import secrets
 import sqlite3
 from datetime import date
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
-                               OpBatch, UpdateTextOp)
+                               OpBatch, UpdateTextOp, text_hash)
 from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  Effect, InsertBlock, OpContext, OpError,
-                                 ReindexRefs, SetCollapsed, SetHeading,
+                                 RecordConflictHeader, ReindexRefs,
+                                 SetCollapsed, SetHeading,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  find_op_title_violation, plan_op)
@@ -31,8 +33,8 @@ UNTITLED_PAGE_TITLE = "Untitled"
 
 def _new_uid() -> str:
     # 12 chars of [A-Za-z0-9_-]: fits UID_RE. Retry until the first char is
-    # alphanumeric so a conflict-sibling uid is never unaddressable via a
-    # bare CLI argument the same way a client-minted uid could be
+    # alphanumeric so a conflict header/child uid is never unaddressable
+    # via a bare CLI argument the same way a client-minted uid could be
     # (pkm-y5yv).
     while True:
         uid = secrets.token_urlsafe(9)
@@ -110,6 +112,44 @@ def _subtree_deepest_first(db: sqlite3.Connection,
     return tuple(r["uid"] for r in rows)
 
 
+def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
+                     daily_page_id: int) -> tuple[str, int] | None:
+    """(header_uid, next child order_idx) of today's conflict header for
+    target_uid, or None when there is none or the user has deleted it (or
+    moved it off the daily page) since it was recorded."""
+    row = db.execute(
+        "SELECT h.header_uid FROM conflict_headers h"
+        " JOIN blocks b ON b.uid = h.header_uid"
+        " WHERE h.target_uid = ? AND h.day = ? AND b.page_id = ?",
+        (target_uid, day, daily_page_id)).fetchone()
+    if row is None:
+        return None
+    idx = db.execute(
+        "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
+        " WHERE parent_uid = ?", (row["header_uid"],)).fetchone()[0]
+    return row["header_uid"], idx
+
+
+def _with_conflict_landing(db: sqlite3.Connection, target_uid: str,
+                           now_ms: int, ctx: OpContext) -> OpContext:
+    """ctx plus where a text conflict on target_uid would land: today's
+    daily page, under its existing header for the block or at a fresh
+    top-level slot. The day key is the server's local date, same as the
+    daily page."""
+    day = title_for_date(date.today())
+    daily = get_or_create_page(db, day, now_ms)
+    idx = db.execute(
+        "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
+        " WHERE page_id = ? AND parent_uid IS NULL",
+        (daily["id"],)).fetchone()[0]
+    header = _conflict_header(db, target_uid, day, daily["id"])
+    return dataclasses.replace(
+        ctx, conflict_uid=_new_uid(), conflict_child_uid=_new_uid(),
+        daily_page_id=daily["id"], daily_append_idx=idx, daily_title=day,
+        conflict_header_uid=header[0] if header is not None else None,
+        conflict_header_next_idx=header[1] if header is not None else None)
+
+
 def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     if isinstance(op, CreatePageOp):
         page = _resolve_page(db, op.page_title, now_ms)
@@ -131,24 +171,22 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
         return OpContext(block=block,
                          subtree=_subtree_deepest_first(db, op.uid))
     if isinstance(op, UpdateTextOp) and op.base_text_hash is not None:
-        conflict_uid = _new_uid()
         if block is None:
-            daily = get_or_create_page(
-                db, title_for_date(date.today()), now_ms)
-            idx = db.execute(
-                "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
-                " WHERE page_id = ? AND parent_uid IS NULL",
-                (daily["id"],)).fetchone()[0]
-            return OpContext(block=None, conflict_uid=conflict_uid,
-                             daily_page_id=daily["id"],
-                             daily_append_idx=idx)
+            return _with_conflict_landing(db, op.uid, now_ms,
+                                          OpContext(block=None))
         row = db.execute(
-            "SELECT text, order_idx FROM blocks WHERE uid = ?",
+            "SELECT b.text, b.order_idx, p.title FROM blocks b"
+            " JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
             (op.uid,)).fetchone()
-        return OpContext(block=block, current_text=row["text"],
-                         order_idx=row["order_idx"],
-                         conflict_uid=conflict_uid,
-                         block_rewrites=_block_rewrites(db, op.uid))
+        rewrites = _block_rewrites(db, op.uid)
+        live = OpContext(block=block, current_text=row["text"],
+                         order_idx=row["order_idx"], page_title=row["title"],
+                         block_rewrites=rewrites)
+        if not rewrites and text_hash(row["text"]) == op.base_text_hash:
+            # plan_op can only reach check 2 or 4 (no conflict), so skip
+            # finding -- and creating -- today's daily page
+            return dataclasses.replace(live, conflict_uid=_new_uid())
+        return _with_conflict_landing(db, op.uid, now_ms, live)
     return OpContext(block=block)
 
 
@@ -199,6 +237,12 @@ def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
         db.executemany(
             "UPDATE blocks SET page_id = ?, updated_at = ? WHERE uid = ?",
             [(eff.page_id, now_ms, u) for u in eff.uids])
+    elif isinstance(eff, RecordConflictHeader):
+        db.execute("DELETE FROM conflict_headers WHERE day <> ?", (eff.day,))
+        db.execute(
+            "INSERT OR REPLACE INTO conflict_headers(target_uid, day,"
+            " header_uid) VALUES (?,?,?)",
+            (eff.target_uid, eff.day, eff.header_uid))
     else:
         raise AssertionError(f"unhandled effect: {eff!r}")
 

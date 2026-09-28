@@ -180,6 +180,35 @@ def replay_title_rewrites(
 
 
 @dataclass(frozen=True)
+class TextEditOutcome:
+    """Where a hashed update_text op on a live block lands, once any rename/
+    merge rewrites it predates have been replayed onto it
+    (replay_title_rewrites): identical to the block's current text (check 2,
+    a no-op), a clean apply (check 4), or a concurrent edit that must land as
+    a conflict (check 5). `text` is the replayed edit -- what actually gets
+    applied or diffed, not the caller's original op.text.
+
+    Both `plan_op` and `ops_apply._context_for` classify through
+    `classify_text_edit`, so the shell's decision to pay for conflict-landing
+    context and the planner's decision to use it can never drift apart."""
+    kind: Literal["identical", "clean", "conflict"]
+    text: str
+
+
+def classify_text_edit(
+    text: str, base_hash: str, current_text: str,
+    rewrites: Sequence[BlockRewrite],
+) -> TextEditOutcome:
+    replayed_text, replayed_hash = replay_title_rewrites(
+        text, base_hash, rewrites)
+    if replayed_text == current_text:
+        return TextEditOutcome("identical", replayed_text)
+    if text_hash(current_text) == replayed_hash:
+        return TextEditOutcome("clean", replayed_text)
+    return TextEditOutcome("conflict", replayed_text)
+
+
+@dataclass(frozen=True)
 class BlockInfo:
     uid: str
     page_id: int
@@ -295,6 +324,20 @@ Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
                ReindexRefs, TouchPage, SetPageId, RecordConflictHeader]
 
 
+def _conflict_landing_ready(ctx: OpContext) -> bool:
+    """True once ctx carries everything `conflict_entry_effects` needs: the
+    daily page, its append slot and the conflict-entry uid, plus -- only
+    when no header already exists for target_uid today -- a fresh header
+    uid. `_with_conflict_landing` mints `conflict_uid` only in that second
+    case."""
+    return (ctx.conflict_child_uid is not None
+            and ctx.daily_page_id is not None
+            and ctx.daily_append_idx is not None
+            and ctx.daily_title is not None
+            and (ctx.conflict_header_uid is not None
+                 or ctx.conflict_uid is not None))
+
+
 def conflict_entry_effects(
     target_uid: str, lost_text: str, header_text: str, ctx: OpContext,
 ) -> tuple[Effect, ...]:
@@ -356,9 +399,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         # page/parent are gone -> conflict entry appended under today's
         # daily-note header naming the hint, rather than dropping the edit
         # (spec section 2, check 1)
-        if (ctx.conflict_uid is None or ctx.conflict_child_uid is None
-                or ctx.daily_page_id is None or ctx.daily_append_idx is None
-                or ctx.daily_title is None):
+        if not _conflict_landing_ready(ctx):
             raise OpError(index, "conflict context missing")
         return conflict_entry_effects(
             op.uid, op.text, orphan_header_text(op.page_title), ctx)
@@ -369,26 +410,25 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
             return (UpdateText(op.uid, op.text),
                     ReindexRefs(op.uid, op.text),
                     TouchPage(ctx.block.page_id))
-        if ctx.current_text is None or ctx.order_idx is None \
-                or ctx.conflict_uid is None:
+        if ctx.current_text is None or ctx.order_idx is None:
             raise OpError(index, "conflict context missing")
         # Renames this edit predates are replayed over it first, so the
         # checks below compare like with like and no old title can ride a
-        # stale edit back in (see replay_title_rewrites).
-        text, base_hash = replay_title_rewrites(
-            op.text, op.base_text_hash, ctx.block_rewrites)
-        base_effects = (UpdateText(op.uid, text),
-                        ReindexRefs(op.uid, text),
-                        TouchPage(ctx.block.page_id))
-        if text == ctx.current_text:
+        # stale edit back in (see replay_title_rewrites); classify_text_edit
+        # is the one place that decides identical/clean/conflict, shared
+        # with ops_apply._context_for so the two can't disagree.
+        outcome = classify_text_edit(op.text, op.base_text_hash,
+                                     ctx.current_text, ctx.block_rewrites)
+        if outcome.kind == "identical":
             return ()                                # check 2: identical
-        if text_hash(ctx.current_text) == base_hash:
+        base_effects = (UpdateText(op.uid, outcome.text),
+                        ReindexRefs(op.uid, outcome.text),
+                        TouchPage(ctx.block.page_id))
+        if outcome.kind == "clean":
             return base_effects                      # check 4: clean apply
         # check 5: concurrent edit -- incoming wins, loser preserved under
         # today's daily-note conflict header naming the block's page
-        if (ctx.conflict_child_uid is None or ctx.daily_page_id is None
-                or ctx.daily_append_idx is None or ctx.daily_title is None
-                or ctx.page_title is None):
+        if ctx.page_title is None or not _conflict_landing_ready(ctx):
             raise OpError(index, "conflict context missing")
         header_text = overwritten_header_text(ctx.page_title, op.uid)
         return (*conflict_entry_effects(op.uid, ctx.current_text,

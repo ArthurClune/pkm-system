@@ -10,14 +10,15 @@ from datetime import date
 
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
-                               OpBatch, UpdateTextOp, text_hash)
+                               OpBatch, UpdateTextOp)
 from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  Effect, InsertBlock, OpContext, OpError,
                                  RecordConflictHeader, ReindexRefs,
                                  SetCollapsed, SetHeading,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
-                                 find_op_title_violation, plan_op)
+                                 classify_text_edit, find_op_title_violation,
+                                 plan_op)
 from pkm.server.store import (BlankTitleError, get_or_create_page,
                               reindex_refs_for_text)
 
@@ -143,8 +144,13 @@ def _with_conflict_landing(db: sqlite3.Connection, target_uid: str,
         " WHERE page_id = ? AND parent_uid IS NULL",
         (daily["id"],)).fetchone()[0]
     header = _conflict_header(db, target_uid, day, daily["id"])
+    # A fresh header uid is only needed when there's no existing header to
+    # append under (conflict_entry_effects only reads conflict_uid for a
+    # brand-new header) -- minting one anyway would be a uid neither this
+    # apply nor any later one ever uses.
     return dataclasses.replace(
-        ctx, conflict_uid=_new_uid(), conflict_child_uid=_new_uid(),
+        ctx, conflict_uid=_new_uid() if header is None else None,
+        conflict_child_uid=_new_uid(),
         daily_page_id=daily["id"], daily_append_idx=idx, daily_title=day,
         conflict_header_uid=header[0] if header is not None else None,
         conflict_header_next_idx=header[1] if header is not None else None)
@@ -182,15 +188,14 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
         live = OpContext(block=block, current_text=row["text"],
                          order_idx=row["order_idx"], page_title=row["title"],
                          block_rewrites=rewrites)
-        if not rewrites and text_hash(row["text"]) == op.base_text_hash:
-            # A clean hashed edit must not create today's daily page, nor
-            # pay the landing's extra queries: with no rewrites to replay
-            # and a matching hash, plan_op can only reach check 2 or 4.
-            # Anything with rewrites takes the full context rather than
-            # predicting the replay. Should this ever misjudge, plan_op's
-            # "conflict context missing" guard fails the op loudly instead
-            # of dropping the lost text.
-            return dataclasses.replace(live, conflict_uid=_new_uid())
+        # classify_text_edit runs the same replay+hash logic plan_op uses to
+        # decide check 2/4/5, so the shell and the planner can't drift on
+        # what counts as clean: only a real conflict pays for today's daily
+        # page and its ~3 extra queries.
+        outcome = classify_text_edit(op.text, op.base_text_hash,
+                                     row["text"], rewrites)
+        if outcome.kind != "conflict":
+            return live
         return _with_conflict_landing(db, op.uid, now_ms, live)
     return OpContext(block=block)
 

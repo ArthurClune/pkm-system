@@ -535,6 +535,91 @@ def test_replay_leaves_an_unrecorded_base_hash_untouched():
         "[[T0]] edited", stale, ()) == ("[[T0]] edited", stale)
 
 
+def test_clean_edit_with_block_rewrites_does_not_create_daily_page(db):
+    # pkm-wy1v case (a): a block with recorded rename rewrites still applies
+    # cleanly when the replayed edit matches the live text's hash -- having
+    # block_rewrites at all must not force paying for today's daily page.
+    t0, t1 = "see [[Old]] page", "see [[New]] page"
+    db.execute(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
+        " heading, collapsed, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,0,?,?)",
+        ("rew_uid1", 1, None, 99, t1, None, NOW, NOW))
+    db.execute(
+        "INSERT INTO block_rewrites(uid, base_hash, after_hash, old_title,"
+        " new_title, created_at) VALUES (?,?,?,?,?,?)",
+        ("rew_uid1", text_hash(t0), text_hash(t1), "Old", "New", NOW))
+    db.commit()
+
+    apply_batch(db, _batch(
+        {"op": "update_text", "uid": "rew_uid1",
+         "text": "see [[Old]] page plus extra",
+         "base_text_hash": text_hash(t0)},
+    ), NOW)
+    db.commit()
+
+    assert db.execute("SELECT text FROM blocks WHERE uid='rew_uid1'"
+                      ).fetchone()[0] == "see [[New]] page plus extra"
+    day = title_for_date(date.today())
+    assert db.execute("SELECT id FROM pages WHERE title = ?",
+                      (day,)).fetchone() is None
+
+
+def test_stale_hash_identical_text_does_not_create_daily_page(db):
+    # pkm-wy1v case (b): device 2 pushes text device 1 already synced, under
+    # a stale base hash -- check 2 (identical), never a conflict, so no
+    # daily page gets created for it.
+    apply_batch(db, _batch(
+        {"op": "update_text", "uid": "uid_b1", "text": "Tags:: #AI",
+         "base_text_hash": text_hash("something else entirely")},
+    ), NOW)
+    db.commit()
+
+    assert db.execute("SELECT text FROM blocks WHERE uid='uid_b1'"
+                      ).fetchone()[0] == "Tags:: #AI"
+    day = title_for_date(date.today())
+    assert db.execute("SELECT id FROM pages WHERE title = ?",
+                      (day,)).fetchone() is None
+
+
+def test_second_conflict_same_day_reuses_header_and_mints_no_stray_conflict_uid(
+        db, monkeypatch):
+    # A real conflict still lands exactly as before (header + child under
+    # today's daily page); a second conflict on the same block the same day
+    # must append under the *existing* header rather than minting another
+    # one, and (pkm-wy1v) must not mint a conflict_uid it never uses.
+    uids = iter(["headerabc123", "childabc1234", "childdef5678",
+                "unusedghij12"])
+    monkeypatch.setattr(ops_apply.secrets, "token_urlsafe",
+                        lambda n: next(uids))
+
+    apply_batch(db, _batch(
+        {"op": "update_text", "uid": "uid_b1", "text": "offline edit 1",
+         "base_text_hash": text_hash("stale base 1")},
+    ), NOW)
+    db.commit()
+    apply_batch(db, _batch(
+        {"op": "update_text", "uid": "uid_b1", "text": "offline edit 2",
+         "base_text_hash": text_hash("stale base 2")},
+    ), NOW)
+    db.commit()
+
+    # exactly 3 uids consumed: a header + child for the first conflict, a
+    # child only for the second -- the 4th candidate is never drawn.
+    assert next(uids) == "unusedghij12"
+
+    header_uid = db.execute(
+        "SELECT header_uid FROM conflict_headers WHERE target_uid='uid_b1'"
+    ).fetchone()["header_uid"]
+    assert header_uid == "headerabc123"
+    children = db.execute(
+        "SELECT text FROM blocks WHERE parent_uid = ? ORDER BY order_idx",
+        (header_uid,)).fetchall()
+    assert [r["text"] for r in children] == ["Tags:: #AI", "offline edit 1"]
+    assert db.execute("SELECT text FROM blocks WHERE uid='uid_b1'"
+                      ).fetchone()[0] == "offline edit 2"
+
+
 def test_replay_applies_one_multi_title_rewrite_as_a_single_step():
     """The title migration rewrites several titles in one block at once, so
     its records share before/after hashes and must be replayed as one map --

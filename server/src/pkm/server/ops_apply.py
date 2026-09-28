@@ -20,7 +20,8 @@ from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
                                  classify_missing_target, classify_text_edit,
-                                 find_op_title_violation, plan_op)
+                                 find_op_title_violation, plan_op,
+                                 skip_report)
 from pkm.server.store import (BlankTitleError, fetch_page,
                               get_or_create_page, reindex_refs_for_text)
 from pkm.server.sync_meta import plain_space_title_canonicalization_active
@@ -189,7 +190,8 @@ def _missing_target_context(db: sqlite3.Connection, op, miss: MissingTarget,
     if miss.kind == "move_parent_missing":
         assert block is not None  # the block exists; only its parent is gone
         ctx = dataclasses.replace(ctx,
-                                  page_title=_page_title(db, block.page_id))
+                                  page_title=_page_title(db, block.page_id),
+                                  subtree=_subtree_deepest_first(db, op.uid))
     return _with_conflict_landing(db, miss.landing_uid, now_ms, ctx)
 
 
@@ -332,17 +334,12 @@ def _broadcast_page_title(db: sqlite3.Connection, op,
     return _require_page_title(db, row["page_id"])
 
 
-def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict | None:
-    """The op as broadcast to remote clients, or None for an op on a
-    missing target: it was not applied, so it is not echoed as if it were
-    (its daily-note entry and journal rows reach them through the feed).
+def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:
+    """The op as broadcast to remote clients.
 
     For create/create_page and any move that lands on a different page, the
     broadcast page_title comes from the authoritative stored page row the op
     actually applied to, not from the caller's spelling."""
-    if not isinstance(op, CreatePageOp) and classify_missing_target(
-            op, ctx.block is not None, ctx.parent is not None) is not None:
-        return None
     d = op.model_dump()
     title = _broadcast_page_title(db, op, ctx)
     if title is not None:
@@ -350,10 +347,20 @@ def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict | None:
     return d
 
 
+@dataclasses.dataclass(frozen=True)
+class AppliedBatch:
+    """What apply_batch did: the applied ops as they should be broadcast
+    (see _broadcast_op), and one `ops_core.skip_report` per op on a
+    missing target. A skipped op is not echoed as if it were applied; its
+    daily-note entry and journal rows reach other clients through the
+    feed."""
+    broadcast_ops: list[dict]
+    skipped: list[dict]
+
+
 def apply_batch(db: sqlite3.Connection, batch: OpBatch,
-                now_ms: int) -> list[dict]:
-    """Apply a batch inside the caller's transaction and return the ops as
-    they should be broadcast (see _broadcast_op)."""
+                now_ms: int) -> AppliedBatch:
+    """Apply a batch inside the caller's transaction."""
     violation = find_op_title_violation(batch.ops)
     if violation is not None:
         raise OpError(
@@ -361,11 +368,16 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
             f"unsupported {violation.source} title syntax: {violation.title!r}",
         )
     broadcast_ops: list[dict] = []
+    skipped: list[dict] = []
     for index, op in enumerate(batch.ops):
         ctx = _context_for(db, op, now_ms)
         for eff in plan_op(index, op, ctx):
             _execute(db, eff, now_ms)
-        echoed = _broadcast_op(db, op, ctx)
-        if echoed is not None:
-            broadcast_ops.append(echoed)
-    return broadcast_ops
+        miss = (None if isinstance(op, CreatePageOp) else
+                classify_missing_target(op, ctx.block is not None,
+                                        ctx.parent is not None))
+        if miss is None:
+            broadcast_ops.append(_broadcast_op(db, op, ctx))
+        else:
+            skipped.append(skip_report(index, op, miss, ctx))
+    return AppliedBatch(broadcast_ops, skipped)

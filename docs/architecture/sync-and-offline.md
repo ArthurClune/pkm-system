@@ -261,9 +261,12 @@ poisons on another device's delete; the rules are in
 [backend.md § The write path](backend.md#the-write-path). The client keeps its
 optimistic copy of a skipped op, so the server journals the uids involved in
 the same commit. The feed ships each as a tombstone, or as the block's real
-row if it exists, which drops the ghost without a snapshot repair.
+row if it exists. A tombstone cascades the replica's local subtree. So for a
+move under a missing parent, the server journals the parent's tombstone first
+and then every block of the moved subtree, for the same or a later window to
+restore. That drops the ghost without a snapshot repair.
 
-The four header forms and the daily-page grouping are in
+The header forms and the daily-page grouping are in
 [backend.md § The write path](backend.md#the-write-path). Nothing is
 discarded: conflict blocks are ordinary blocks, so they reach every client
 through the feed and are findable through search and the `[[conflict]]`

@@ -135,6 +135,34 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
   });
 
+  test("a block moved under a ghost keeps its subtree when the ghost's tombstone and the re-shipped subtree share a window (pkm-foap)", () => {
+    // The client moved uid_b2 (child uid_b3) under uid_ghost_p, a parent the
+    // server never had; both batches are acked. The server skips the move
+    // and journals the parent's tombstone first, then every row of the moved
+    // subtree. The tombstone cascades uid_b2 and uid_b3 away locally; the
+    // upserts that follow must bring both back at their real position.
+    enqueueBatch(t.db, [
+      { op: "create", uid: "uid_ghost_p", page_title: "Machine Learning",
+        parent_uid: null, order_idx: 5, text: "ghost parent" },
+    ], 5, "batch-ghost-p");
+    deleteBatch(t.db, nextBatch(t.db)!.id);
+    enqueueBatch(t.db, [
+      { op: "move", uid: "uid_b2", parent_uid: "uid_ghost_p", order_idx: 0 },
+    ], 6, "batch-move");
+    deleteBatch(t.db, nextBatch(t.db)!.id);
+    const res = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      tombstones: [{ kind: "block", entity_id: "uid_ghost_p" }],
+      blocks: [block("uid_b2", 1, { order_idx: 1 }),
+               block("uid_b3", 1, { parent_uid: "uid_b2" })],
+    }));
+    expect(res).toEqual({ status: "applied", cursor: 11 });
+    expect(t.db.select("SELECT uid, parent_uid FROM blocks ORDER BY uid"))
+      .toEqual([{ uid: "uid_b1", parent_uid: null },
+                { uid: "uid_b2", parent_uid: null },
+                { uid: "uid_b3", parent_uid: "uid_b2" }]);
+  });
+
   test("baseline tightening catches a DELETE-freed rowid reused by a later batch's dangling insert (pkm-ufjt)", () => {
     // `blocks` is a rowid table (uid TEXT PRIMARY KEY, no AUTOINCREMENT): a
     // new row's rowid is max(rowid)+1, so deleting the max-rowid row frees it

@@ -28,7 +28,7 @@ means deciding which side it joins.
 | `search_assets` | read | uploads by image description or filename |
 | `save_note` | write | create block(s); multi-line text becomes an outline, default page is today's daily note |
 | `update_block` | write | replace a block's text or set its task marker |
-| `batch` | write | several commands in one atomic transaction |
+| `batch` | write | several commands in one atomic transaction; ops on missing uids are skipped and flagged with `warning:` |
 | `upload_asset` | write | upload a local file and link it from a page |
 | `rename_page` | write | retitle a page, rewriting every `[[link]]`/`#tag`/`attr::` reference to it; 409 unless `allow_merge` |
 
@@ -69,7 +69,12 @@ may already be referenced by unrelated blocks. Asset store:
 ## Writes, uids and missing pages
 
 Writes go through `POST /api/ops` with a fresh `batch_id`. `pkm update` fetches
-the current text first and rides the `base_text_hash` conflict path.
+the current text first and rides the `base_text_hash` conflict path, so a
+missing uid 404s before any op is sent. `pkm batch` sends `update`, `move` and
+`delete` uids unchecked, and the server skips an op on a missing block rather
+than rejecting the batch. The ack's `skipped` list is therefore the only sign
+of a mistyped uid: `render.render_ops_ack` leads with `warning:` when it is
+non-empty, and `cmd_batch` then exits 1.
 
 Every uid minter resamples until the first character is alphanumeric:
 `client/api.py::new_uid`, `server/ops_apply.py::_new_uid` and

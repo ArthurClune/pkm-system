@@ -19,7 +19,8 @@ from pkm.contracts.ops import (UID_RE, BlockOp, CreateOp, CreatePageOp,
                                SetHeadingOp, SetViewTypeOp, UpdateTextOp,
                                ViewType,
                                text_hash)
-from pkm.refs import TitleSyntaxReason, extract, title_syntax_reason
+from pkm.refs import (TitleSyntaxReason, extract, normalize_title,
+                      title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
 
 # Most renames a stale edit can be behind. Each step is one recorded
@@ -77,22 +78,42 @@ def _canonical_replay_op(op: BlockOp) -> dict:
     return dump
 
 
+def _links_back(title: str) -> bool:
+    """Does `[[title]]` read back as a ref to exactly `title`? Not for
+    every title: a trailing `]` or a pair of backticks shifts what the
+    extractor sees, and the ref indexer would create THAT page."""
+    refs = extract(f"[[{title}]]").refs
+    return ([normalize_title(r.title) for r in refs]
+            == [normalize_title(title)])
+
+
+def existing_page_label(title: str) -> str:
+    """A page that exists, as a header names it: a `[[link]]` when that
+    reads back as the page, else inline code (which the ref extractor
+    never scans), else -- a title holding a backtick can't be fenced that
+    simply -- the generic label."""
+    if _links_back(title):
+        return f"[[{title}]]"
+    if "`" in title:
+        return "(page unknown)"
+    return f"`{title}`"
+
+
 def conflict_label(page_title: str | None, hint_page_exists: bool) -> str:
     """Label for check 1's client page-title hint (spec section 2). It
-    never fails the op, and it must not be a `[[link]]` to a page that does
-    not exist, or the ref indexer creates one:
+    never fails the op, and it must not produce a `[[link]]` to a page that
+    does not exist, or the ref indexer creates one:
 
     - unusable (missing, blank, or syntactically invalid): the generic label
-    - page exists: `[[title]]`
-    - no such page: the title as inline code, which the ref extractor never
-      scans; a title holding a backtick can't be fenced that simply, so it
-      gets the generic label
+    - page exists: `existing_page_label`
+    - no such page: the title as inline code, or the generic label for a
+      title holding a backtick
     """
     if (page_title is None or not page_title.strip()
             or title_syntax_reason(page_title) is not None):
         return "(page unknown)"
     if hint_page_exists:
-        return f"[[{page_title}]]"
+        return existing_page_label(page_title)
     if "`" in page_title:
         return "(page unknown)"
     return f"`{page_title}` (page not found)"
@@ -101,7 +122,8 @@ def conflict_label(page_title: str | None, hint_page_exists: bool) -> str:
 def overwritten_header_text(page_title: str, uid: str) -> str:
     """Header for check 5: the live block's own page, read straight from
     its row -- always a real title, never a client-supplied hint."""
-    return f"[[conflict]] [[{page_title}]] — overwritten by (({uid}))"
+    return (f"[[conflict]] {existing_page_label(page_title)}"
+            f" — overwritten by (({uid}))")
 
 
 def orphan_header_text(page_title: str | None, hint_page_exists: bool) -> str:
@@ -118,7 +140,7 @@ def live_block_header_text(page_title: str, uid: str) -> str:
     """Header for a change to a live block that could not be applied (a
     move whose target parent is gone): names the block's own page, read
     from its row like check 5's, and embeds the block itself."""
-    return f"[[conflict]] [[{page_title}]] — (({uid}))"
+    return f"[[conflict]] {existing_page_label(page_title)} — (({uid}))"
 
 
 class OpError(ValueError):
@@ -271,7 +293,7 @@ class MissingTarget:
     - skipped: move / set_heading / set_view_type of a missing block; a
       note says what was skipped
     - orphan_edit: update_text of a missing block, hashed or not (check 1);
-      its text lands
+      its text lands unless blank
     - diverted_create: create under a missing parent; the block is not
       created and its text lands instead
     - move_parent_missing: the block exists but its move target doesn't;
@@ -307,8 +329,27 @@ def classify_missing_target(op: BlockOp, block_exists: bool,
     if isinstance(op, (SetCollapsedOp, DeleteOp)):
         return MissingTarget("noop", None)
     if isinstance(op, UpdateTextOp):
-        return MissingTarget("orphan_edit", op.uid)
+        return MissingTarget("orphan_edit",
+                             op.uid if op.text.strip() else None)
     return MissingTarget("skipped", op.uid)
+
+
+SkipReason = Literal["block_not_found", "parent_not_found"]
+
+
+def skip_report(index: int, op: BlockOp, miss: MissingTarget,
+                ctx: OpContext) -> dict:
+    """The ack's `skipped` entry for an op `classify_missing_target`
+    flagged: which op, which uid, why, and the daily page its entry landed
+    on (None when nothing landed). It is the only signal a caller that
+    sends uids unchecked (`pkm batch`) gets for a mistyped one."""
+    assert not isinstance(op, CreatePageOp)  # never classified missing
+    reason: SkipReason = ("parent_not_found" if miss.kind in
+                          ("diverted_create", "move_parent_missing")
+                          else "block_not_found")
+    return {"index": index, "op": op.op, "uid": op.uid, "reason": reason,
+            "note_page": (ctx.daily_title if miss.landing_uid is not None
+                          else None)}
 
 
 @dataclass(frozen=True)
@@ -444,13 +485,22 @@ Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
                ReindexRefs, TouchPage, SetPageId, RecordConflictHeader,
                JournalBlock]
 
-# Child text for a skipped op on a missing block (MissingTarget "skipped")
-_SKIPPED_NOTES: dict[type, str] = {
-    MoveOp: "move skipped: block not found",
-    SetHeadingOp: "heading change skipped: block not found",
-    SetViewTypeOp: "view type change skipped: block not found",
+# What a skipped op on a missing block (MissingTarget "skipped") was, for
+# its note. Notes name uids as plain text: a ((ref)) to a block that does
+# not exist renders broken.
+_SKIPPED_WHAT: dict[type, str] = {
+    MoveOp: "move",
+    SetHeadingOp: "heading change",
+    SetViewTypeOp: "view type change",
 }
-MOVE_PARENT_MISSING_NOTE = "move skipped: target parent not found"
+
+
+def skipped_note(what: str, uid: str) -> str:
+    return f"{what} skipped: block {uid} not found"
+
+
+def move_parent_missing_note(parent_uid: str) -> str:
+    return f"move skipped: target parent {parent_uid} not found"
 
 
 def _conflict_landing_ready(ctx: OpContext) -> bool:
@@ -502,8 +552,14 @@ def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
                          ctx: OpContext) -> tuple[Effect, ...]:
     """Effects for an op `classify_missing_target` flagged: a daily-note
     entry when it has a landing_uid, plus JournalBlock for every uid a
-    replica may hold a ghost of, so the feed corrects it."""
+    replica may hold a ghost of, so the feed corrects it.
+
+    Tombstones (uids with no row) always lead, live rows always trail: a
+    ghost's tombstone cascades its whole local subtree away on a replica,
+    and a window boundary between the two must never put it after the live
+    rows that bring the survivors back."""
     assert not isinstance(op, CreatePageOp)  # never classified missing
+    live: tuple[Effect, ...] = ()
     if miss.kind == "noop":
         # a replica that just collapsed a block the server lacks holds a
         # ghost of it; one that deleted it already dropped its copy
@@ -511,9 +567,8 @@ def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
                 if isinstance(op, SetCollapsedOp) else ())
     if isinstance(op, CreateOp):                     # diverted_create
         assert op.parent_uid is not None
-        journal = (JournalBlock(op.uid, True), JournalBlock(op.parent_uid, True))
-        if miss.landing_uid is None:
-            return journal
+        tombstones = (JournalBlock(op.uid, True),
+                      JournalBlock(op.parent_uid, True))
         lost_text = op.text
         header_text = orphan_header_text(op.page_title, ctx.hint_page_exists)
     elif isinstance(op, UpdateTextOp):               # orphan_edit (check 1)
@@ -521,29 +576,49 @@ def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
         # page/parent are gone -> conflict entry appended under today's
         # daily-note header naming the hint, rather than dropping the edit
         # (spec section 2, check 1)
-        journal = (JournalBlock(op.uid, True),)
+        tombstones = (JournalBlock(op.uid, True),)
         lost_text = op.text
         header_text = orphan_header_text(op.page_title, ctx.hint_page_exists)
     elif miss.kind == "move_parent_missing":
         assert isinstance(op, MoveOp) and op.parent_uid is not None
-        if ctx.page_title is None:
+        if ctx.page_title is None or not ctx.subtree:
             raise OpError(index, "conflict context missing")
-        journal = (JournalBlock(op.uid, False),
-                   JournalBlock(op.parent_uid, True))
-        lost_text = MOVE_PARENT_MISSING_NOTE
+        tombstones = (JournalBlock(op.parent_uid, True),)
+        # the whole moved subtree, root first: a replica that applied the
+        # move loses all of it to the parent's tombstone cascade
+        live = tuple(JournalBlock(u, False)
+                     for u in reversed(ctx.subtree))
+        lost_text = move_parent_missing_note(op.parent_uid)
         header_text = live_block_header_text(ctx.page_title, op.uid)
     else:                                            # skipped
         # a structural op carries no page hint worth naming: a move's
         # page_title is where it was going, not where the block was
-        journal = (JournalBlock(op.uid, True),)
-        lost_text = _SKIPPED_NOTES[type(op)]
+        tombstones = (JournalBlock(op.uid, True),)
+        lost_text = skipped_note(_SKIPPED_WHAT[type(op)], op.uid)
         header_text = orphan_header_text(None, False)
-    assert miss.landing_uid is not None
+    if miss.landing_uid is None:                     # blank text: nothing lost
+        return (*tombstones, *live)
     if not _conflict_landing_ready(ctx):
         raise OpError(index, "conflict context missing")
-    return (*conflict_entry_effects(miss.landing_uid, lost_text, header_text,
+    return (*tombstones,
+            *conflict_entry_effects(miss.landing_uid, lost_text, header_text,
                                     ctx),
-            *journal)
+            *live)
+
+
+def impossible_uid_reason(op: BlockOp, miss: MissingTarget) -> str | None:
+    """The 400 an op on a missing target still gets when the uid it would
+    journal or land under could never have been minted (fails UID_RE).
+    Clients only mint valid uids, so this never wedges a real queue; it
+    keeps arbitrary strings out of the journal and conflict_headers."""
+    assert not isinstance(op, CreatePageOp)  # never classified missing
+    if not isinstance(op, CreateOp) and not UID_RE.match(op.uid):
+        return f"block not found: {op.uid}"
+    if (miss.kind in ("diverted_create", "move_parent_missing")
+            and isinstance(op, (CreateOp, MoveOp))
+            and op.parent_uid is not None and not UID_RE.match(op.parent_uid)):
+        return f"parent not found: {op.parent_uid}"
+    return None
 
 
 def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
@@ -561,6 +636,9 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
     miss = classify_missing_target(op, ctx.block is not None,
                                    ctx.parent is not None)
     if miss is not None:
+        reason = impossible_uid_reason(op, miss)
+        if reason is not None:
+            raise OpError(index, reason)
         return _plan_missing_target(index, op, miss, ctx)
     if isinstance(op, CreateOp):
         if ctx.page_id is None:

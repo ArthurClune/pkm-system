@@ -27,7 +27,8 @@ from pkm.planning import BuildError
 from pkm.render import (RenderError, clip_depth, render_assets,
                         render_backlinks, render_block, render_changed,
                         render_goodlinks_check, render_groups,
-                        render_local_check, render_page, render_search,
+                        render_local_check, render_ops_ack, render_page,
+                        render_search,
                         render_title_migration_apply,
                         render_title_migration_audit, select_section)
 
@@ -280,6 +281,12 @@ under the same parent within one batch: the plain ones count from the
 parent's original child count and can interleave with the indexed one
 instead of landing after it.
 
+An update, move or delete whose uid no longer exists (or a "((uid))"
+parent that doesn't) is skipped by the server rather than failing the
+batch: the other commands still apply, each skipped op is printed with
+where its note or text landed on today's daily page, and the command
+exits 1.
+
 example:
   pkm batch <<'EOF'
   [
@@ -527,8 +534,10 @@ def cmd_batch(args: argparse.Namespace, client: PkmClient) -> int:
         return 1
     # BuildError from validation/planning propagates to main()'s handler
     # below, same as every other planning error.
-    print(f"applied {apply_batch(client, commands)} ops")
-    return 0
+    ack = apply_batch(client, commands)
+    print(render_ops_ack(ack))
+    # a skipped op usually means a mistyped or stale uid: not a clean run
+    return 1 if ack.skipped else 0
 
 
 def cmd_assets(args: argparse.Namespace, client: PkmClient) -> int:

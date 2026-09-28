@@ -56,3 +56,36 @@ Everything else in the batch applies; the response is 200. Other 400s stay 400.
 - Docs: backend.md write path (missing-targets table, header row, journal
   note), sync-and-offline.md conflict table + convergence paragraph,
   troubleshooting row.
+
+### Review fixes (adversarial review, 2026-09-28)
+
+- C1: a move to a missing parent now journals the parent's tombstone first,
+  then every block of the moved subtree (root first), so a replica whose
+  cascade removed the moved block's descendants gets them back. Every
+  missing-target plan emits tombstones before live rows.
+- I1: the ack carries `skipped: [{index, op, uid, reason, note_page}]`
+  (only when non-empty; a missing list reads as empty, as for older stored
+  acks). `pkm batch` prints a `warning:` block listing each skipped op and
+  where its note landed and exits 1; MCP `batch` returns the same text.
+  `applied` still counts every op processed, now documented.
+- M1: a page is linked in a conflict header only if `[[title]]` reads back
+  as that title (`existing_page_label`, also used for the live-page headers);
+  otherwise inline code, or `(page unknown)` for a title with a backtick.
+- M4: skipped-op notes name the uid as plain text.
+- M5: a blank orphan update_text lands nothing (still journals).
+- M8: an op on a missing target whose uid (or missing parent uid) fails
+  UID_RE still 400s (`impossible_uid_reason`).
+- M6: stale text fixed in sync-and-offline.md, backend.md (mermaid label,
+  API table, missing-targets table), cli-and-mcp.md, docs/cli.md, pkm
+  SKILL.md, client/workflows.py, the MCP `batch` docstring and the CLI
+  `batch` epilog.
+- openapi.json unchanged (OpsAck is not a response_model by design), so no
+  gen-types diff.
+
+### Perf (M10)
+
+`perf/check.sh backend`, first run (0038a9bf): no changes against the
+baseline. After the review fixes, the first run flagged `bytes`
+regressions on ops/edit-1, ops/move-subtree and ops/paste-50 (55 -> 68):
+an always-present `"skipped":[]` in every ack. `skipped` is now sent only
+when non-empty; re-run: no changes against the baseline.

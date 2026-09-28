@@ -450,14 +450,30 @@ class TitleMigrationApplyResponse(BaseModel):
 # asserts each one still matches what its live route returns, which is the
 # thing a `response_model` would otherwise have enforced.
 
+class SkippedOp(BaseModel):
+    """One op the server skipped because its block (or, for create/move,
+    its parent) no longer exists (`ops_core.skip_report`)."""
+    index: int
+    op: str
+    uid: str
+    reason: Literal["block_not_found", "parent_not_found"]
+    # the daily page the op's note or lost text landed on; None when
+    # nothing was written (a collapse/delete no-op, a blank text)
+    note_page: str | None
+
+
 class OpsAck(BaseModel):
     """POST /api/ops (routes_ops.py)."""
     ok: bool
     ts: int
+    # every op processed, skipped ones included
     applied: int
     # The journal max as of this batch's commit. None for an ack stored (and
     # so replayed verbatim) before the field existed.
     seq: int | None = None
+    # Empty for an ack stored before the field existed, same as for a batch
+    # that skipped nothing.
+    skipped: list[SkippedOp] = Field(default_factory=list)
 
 
 class AssetDeleteAck(BaseModel):

@@ -552,7 +552,15 @@ def test_hashless_update_on_missing_block_lands_like_a_hashed_one(client):
 # the batch applies, and the uids a replica may hold a ghost of are
 # journalled so the feed corrects it.
 
-SKIP_NOTE_SUFFIX = " skipped: block not found"
+def _skip_note(what, uid):
+    return f"{what} skipped: block {uid} not found"
+
+
+def _skipped(index, op, uid, reason, noted=True):
+    return {"index": index, "op": op, "uid": uid, "reason": reason,
+            "note_page": title_for_date(date.today()) if noted else None}
+
+
 UNKNOWN_ORPHAN = "[[conflict]] (page unknown)" + ORPHAN_SUFFIX
 CLEAN_EDIT = {"op": "update_text", "uid": "uid_b1", "text": "kept edit",
               "base_text_hash": text_hash("Tags:: #AI")}
@@ -586,6 +594,9 @@ def test_noop_on_missing_block_applies_the_rest_and_lands_nothing(
     start = _latest_seq(client)
     r = _post(client, op, CLEAN_EDIT)
     assert r.status_code == 200
+    assert r.json()["skipped"] == [
+        _skipped(0, op["op"], "ghost_c1", "block_not_found", noted=False)]
+    assert r.json()["applied"] == 2  # ops processed, skipped ones included
     assert _ml_texts(client)[0] == "kept edit"
     # no note, and a clean batch never pays for today's daily page
     assert not _page_exists(seeded_config, title_for_date(date.today()))
@@ -610,8 +621,10 @@ def test_structural_op_on_missing_block_is_skipped_with_a_note(
     start = _latest_seq(client)
     r = _post(client, op, CLEAN_EDIT)
     assert r.status_code == 200
+    assert r.json()["skipped"] == [
+        _skipped(0, op["op"], "ghost_s1", "block_not_found")]
     assert _ml_texts(client)[0] == "kept edit"
-    assert _conflicts(client) == [(UNKNOWN_ORPHAN, [what + SKIP_NOTE_SUFFIX])]
+    assert _conflicts(client) == [(UNKNOWN_ORPHAN, [_skip_note(what, "ghost_s1")])]
     # a skipped cross-page move must not create its destination page
     assert not _page_exists(seeded_config, "Nowhere Yet")
     _, tombstones = _feed_since(client, start)
@@ -628,7 +641,7 @@ def test_skipped_op_shares_the_header_of_an_orphan_edit_to_the_same_block(
     assert r.status_code == 200
     assert _conflicts(client) == [
         ("[[conflict]] [[AI]]" + ORPHAN_SUFFIX,
-         ["lost words", "move" + SKIP_NOTE_SUFFIX])]
+         ["lost words", _skip_note("move", "ghost_s2")])]
 
 
 def test_create_under_missing_parent_lands_its_text_not_the_block(
@@ -640,6 +653,8 @@ def test_create_under_missing_parent_lands_its_text_not_the_block(
                "text": "typed under a deleted block"},
               CLEAN_EDIT)
     assert r.status_code == 200
+    assert r.json()["skipped"] == [
+        _skipped(0, "create", "diverted1", "parent_not_found")]
     assert _ml_texts(client)[0] == "kept edit"
     assert "diverted1" not in {b["uid"] for b in
                                client.get("/api/page/AI").json()["blocks"]}
@@ -689,13 +704,87 @@ def test_move_to_missing_parent_leaves_the_block_where_it_is(
     assert [c["uid"] for c in papers["children"]] == ["uid_b3"]
     assert _conflicts(client) == [
         ("[[conflict]] [[Machine Learning]] — ((uid_b3))",
-         ["move skipped: target parent not found"])]
+         ["move skipped: target parent ghost_p4 not found"])]
     assert not _page_exists(seeded_config, "Nowhere Yet")
     # the replica re-hydrates the block's real position and drops any ghost
     # of the parent it was moved under
     blocks, tombstones = _feed_since(client, start)
     assert blocks["uid_b3"]["parent_uid"] == "uid_b2"
     assert "ghost_p4" in tombstones
+    assert r.json()["skipped"] == [
+        _skipped(0, "move", "uid_b3", "parent_not_found")]
+
+
+def test_move_to_missing_parent_reships_the_moved_blocks_descendants(client):
+    # A replica that applied the move holds uid_b2 -- and its child uid_b3
+    # -- under a ghost of uid_ghostP. The parent's tombstone cascades that
+    # whole subtree away there, so the feed must ship every row of it back,
+    # not just the moved block.
+    start = _latest_seq(client)
+    r = _post(client, {"op": "move", "uid": "uid_b2",
+                       "parent_uid": "uid_ghostP", "order_idx": 0})
+    assert r.status_code == 200
+    blocks, tombstones = _feed_since(client, start)
+    assert "uid_ghostP" in tombstones
+    assert {"uid_b2", "uid_b3"} <= set(blocks)
+    assert blocks["uid_b3"]["parent_uid"] == "uid_b2"
+
+
+def test_tombstones_lead_the_journal_rows_a_skipped_op_writes(
+        client, seeded_config):
+    # a window boundary can fall anywhere: the ghost's tombstone must never
+    # land in a later window than the live rows it would cascade away
+    from pkm.server.db import open_db
+    start = _latest_seq(client)
+    assert _post(client, {"op": "move", "uid": "uid_b2",
+                          "parent_uid": "uid_ghostP", "order_idx": 0}
+                 ).status_code == 200
+    con = open_db(seeded_config.db_path)
+    rows = [(r["entity_id"], r["deleted"]) for r in con.execute(
+        "SELECT entity_id, deleted FROM changes WHERE seq > ? AND"
+        " kind = 'block' ORDER BY seq", (start,))]
+    con.close()
+    assert rows[0] == ("uid_ghostP", 1)
+    assert rows.index(("uid_b2", 0)) < rows.index(("uid_b3", 0))
+
+
+def test_hint_that_would_not_link_back_is_named_not_linked(
+        client, seeded_config):
+    # `[[x]]]` reads back as a ref to "x", so linking the existing page
+    # "x]" would make the ref indexer create a page "x"
+    assert _post(client, {"op": "create_page", "page_title": "x]"}
+                 ).status_code == 200
+    r = _post(client, _orphan_edit("uid_gone01", "t", page_title="x]"))
+    assert r.status_code == 200
+    assert _conflicts(client) == [("[[conflict]] `x]`" + ORPHAN_SUFFIX, ["t"])]
+    assert not _page_exists(seeded_config, "x")
+
+
+def test_blank_orphan_edit_lands_nothing(client, seeded_config):
+    start = _latest_seq(client)
+    r = _post(client, {"op": "update_text", "uid": "uid_gone02", "text": ""})
+    assert r.status_code == 200
+    assert r.json()["skipped"] == [
+        _skipped(0, "update_text", "uid_gone02", "block_not_found",
+                 noted=False)]
+    assert not _page_exists(seeded_config, title_for_date(date.today()))
+    _, tombstones = _feed_since(client, start)
+    assert "uid_gone02" in tombstones
+
+
+def test_impossible_uid_on_a_missing_target_still_400s(client):
+    r = _post(client, {"op": "delete", "uid": "not a uid!"})
+    assert r.status_code == 400
+    assert r.json()["detail"] == {"index": 0,
+                                  "reason": "block not found: not a uid!"}
+
+
+def test_clean_batch_ack_omits_skipped(client):
+    # a missing list reads as empty (OpsAck's default, as for acks stored
+    # before the field existed), so a clean write's ack stays unchanged
+    r = _post(client, CLEAN_EDIT)
+    assert r.status_code == 200
+    assert "skipped" not in r.json()
 
 
 def test_ops_chained_on_a_diverted_create_lose_no_text(client):
@@ -717,10 +806,15 @@ def test_ops_chained_on_a_diverted_create_lose_no_text(client):
         ("[[conflict]] [[AI]]" + ORPHAN_SUFFIX, ["x first"]),
         ("[[conflict]] [[AI]]" + ORPHAN_SUFFIX, ["x edited", "y child"]),
         ("[[conflict]] [[AI]] — ((uid_b6))",
-         ["move skipped: target parent not found"]),
+         ["move skipped: target parent chain_x1 not found"]),
     ]
     _, tombstones = _feed_since(client, start)
     assert {"chain_x1", "chain_y1", "ghost_p5"} <= tombstones
+    assert r.json()["skipped"] == [
+        _skipped(0, "create", "chain_x1", "parent_not_found"),
+        _skipped(1, "update_text", "chain_x1", "block_not_found"),
+        _skipped(2, "create", "chain_y1", "parent_not_found"),
+        _skipped(3, "move", "uid_b6", "parent_not_found")]
 
 
 @pytest.mark.parametrize("op", [

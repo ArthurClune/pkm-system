@@ -11,7 +11,8 @@ from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TextEditOutcome, TouchPage,
                                  UpdateText, classify_missing_target,
-                                 classify_text_edit, conflict_label, plan_op)
+                                 classify_text_edit, conflict_label, plan_op,
+                                 skip_report)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 
@@ -291,6 +292,14 @@ def test_missing_block_hint_with_backtick_and_no_page_says_page_unknown():
         # time (e.g. it names a real page's title that happens to hold
         # `[[`) -- unusable always wins.
         ("a[[b", True, "(page unknown)"),
+        # the page exists, but `[[title]]` would read back as a different
+        # title (a trailing `]`, paired backticks), and the ref indexer
+        # would create THAT page -- so it is named, not linked
+        ("x]", True, "`x]`"),
+        ("[x]", True, "`[x]`"),
+        ("a}]", True, "`a}]`"),
+        ("a`b`c", True, "(page unknown)"),
+        ("  Padded  ", True, "[[  Padded  ]]"),
     ])
 def test_conflict_label_table(page_title, hint_page_exists, label):
     assert conflict_label(page_title, hint_page_exists) == label
@@ -491,6 +500,9 @@ def _create_under(parent_uid="ghost_p1", text="lost child", page_title="AI"):
     (UpdateTextOp(op="update_text", uid="ghost99", text="x",
                   base_text_hash=text_hash("y")), False, False,
      MissingTarget("orphan_edit", "ghost99")),
+    # ... unless blank: nothing lost, nothing lands (same as a blank create)
+    (UpdateTextOp(op="update_text", uid="ghost99", text=" "), False, False,
+     MissingTarget("orphan_edit", None)),
     # a create under a missing parent lands under the PARENT's uid ...
     (_create_under(), False, False,
      MissingTarget("diverted_create", "ghost_p1")),
@@ -518,21 +530,23 @@ def test_delete_of_missing_block_is_empty():
 
 
 @pytest.mark.parametrize("op, note", [
-    (_MOVE, "move skipped: block not found"),
-    (_HEADING, "heading change skipped: block not found"),
-    (_VIEW, "view type change skipped: block not found"),
+    (_MOVE, "move skipped: block ghost99 not found"),
+    (_HEADING, "heading change skipped: block ghost99 not found"),
+    (_VIEW, "view type change skipped: block ghost99 not found"),
 ])
 def test_skipped_op_on_missing_block_lands_a_note_under_the_orphan_header(
         op, note):
     effs = plan_op(0, op, OpContext(**_daily_ctx()))
+    # the tombstone leads: journal rows reach replicas in seq order, and a
+    # window boundary must never put a ghost's tombstone after live rows
     assert effs == (
+        JournalBlock("ghost99", deleted=True),
         InsertBlock("uid_hd1", 9, None, 4, _ORPHAN_HEADER, None),
         ReindexRefs("uid_hd1", _ORPHAN_HEADER),
         InsertBlock("uid_ch1", 9, "uid_hd1", 0, note, None),
         ReindexRefs("uid_ch1", note),
         RecordConflictHeader("ghost99", "September 28th, 2026", "uid_hd1"),
         TouchPage(9),
-        JournalBlock("ghost99", deleted=True),
     )
 
 
@@ -542,7 +556,34 @@ def test_skipped_op_appends_under_an_existing_header_for_the_block():
         conflict_header_next_idx=2)))
     assert [e for e in effs if isinstance(e, InsertBlock)] == [
         InsertBlock("uid_ch1", 9, "uid_old", 2,
-                    "move skipped: block not found", None)]
+                    "move skipped: block ghost99 not found", None)]
+
+
+@pytest.mark.parametrize("op, reason", [
+    (DeleteOp(op="delete", uid="bad uid!"), "block not found: bad uid!"),
+    (SetCollapsedOp(op="set_collapsed", uid="x" * 40, collapsed=True),
+     "block not found: " + "x" * 40),
+    (UpdateTextOp(op="update_text", uid="a!", text="t"),
+     "block not found: a!"),
+    (MoveOp(op="move", uid="uid_b3", parent_uid="bad parent", order_idx=0),
+     "parent not found: bad parent"),
+    (CreateOp(op="create", uid="newuid1", page_title="P",
+              parent_uid="bad parent", order_idx=0, text="t"),
+     "parent not found: bad parent"),
+])
+def test_missing_target_with_an_impossible_uid_still_400s(op, reason):
+    # clients only mint UID_RE uids, so this never wedges a real queue; it
+    # keeps unvalidated strings out of the journal and conflict_headers
+    block = B if isinstance(op, MoveOp) else None
+    with pytest.raises(OpError) as e:
+        plan_op(0, op, OpContext(block=block, page_title="Machine Learning",
+                                 **_daily_ctx()))
+    assert e.value.reason == reason
+
+
+def test_blank_orphan_edit_only_journals():
+    op = UpdateTextOp(op="update_text", uid="ghost99", text="")
+    assert plan_op(0, op, OpContext()) == (JournalBlock("ghost99", True),)
 
 
 def test_skipped_op_without_landing_context_is_an_error():
@@ -557,7 +598,7 @@ def test_unhashed_edit_of_missing_block_lands_like_a_hashed_one():
     hashed = plan_op(0, _op(page_title="AI Agent Security"),
                      OpContext(hint_page_exists=True, **_daily_ctx()))
     assert effs == hashed
-    assert effs[-1] == JournalBlock("uid_t1", deleted=True)
+    assert effs[0] == JournalBlock("uid_t1", deleted=True)
     assert [e.text for e in effs if isinstance(e, InsertBlock)] == [
         "[[conflict]] [[AI Agent Security]] — edit to a block the server"
         " no longer has", "new text"]
@@ -569,14 +610,14 @@ def test_create_under_missing_parent_lands_its_text_under_the_parent():
     header = ("[[conflict]] [[AI]] — edit to a block the server no longer"
               " has")
     assert effs == (
+        JournalBlock("newuid1", deleted=True),
+        JournalBlock("ghost_p1", deleted=True),
         InsertBlock("uid_hd1", 9, None, 4, header, None),
         ReindexRefs("uid_hd1", header),
         InsertBlock("uid_ch1", 9, "uid_hd1", 0, "lost child", None),
         ReindexRefs("uid_ch1", "lost child"),
         RecordConflictHeader("ghost_p1", "September 28th, 2026", "uid_hd1"),
         TouchPage(9),
-        JournalBlock("newuid1", deleted=True),
-        JournalBlock("ghost_p1", deleted=True),
     )
 
 
@@ -604,11 +645,16 @@ def test_create_under_missing_parent_still_checks_its_uid():
 
 def test_move_to_missing_parent_leaves_the_block_and_notes_why():
     op = MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0)
-    effs = plan_op(0, op, OpContext(block=B, page_title="Machine Learning",
-                                    **_daily_ctx()))
+    effs = plan_op(0, op, OpContext(
+        block=B, page_title="Machine Learning",
+        subtree=("uid_gc", "uid_c1", "uid_b3"), **_daily_ctx()))
     header = "[[conflict]] [[Machine Learning]] — ((uid_b3))"
-    note = "move skipped: target parent not found"
+    note = "move skipped: target parent ghost_p1 not found"
+    # A replica that applied the move holds the whole subtree under a ghost
+    # of the parent; the parent's tombstone cascades all of it away there,
+    # so it leads and every row of the subtree (root first) is re-shipped.
     assert effs == (
+        JournalBlock("ghost_p1", deleted=True),
         InsertBlock("uid_hd1", 9, None, 4, header, None),
         ReindexRefs("uid_hd1", header),
         InsertBlock("uid_ch1", 9, "uid_hd1", 0, note, None),
@@ -616,7 +662,8 @@ def test_move_to_missing_parent_leaves_the_block_and_notes_why():
         RecordConflictHeader("uid_b3", "September 28th, 2026", "uid_hd1"),
         TouchPage(9),
         JournalBlock("uid_b3", deleted=False),
-        JournalBlock("ghost_p1", deleted=True),
+        JournalBlock("uid_c1", deleted=False),
+        JournalBlock("uid_gc", deleted=False),
     )
 
 
@@ -624,3 +671,29 @@ def test_move_to_missing_parent_needs_the_live_page_title():
     op = MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0)
     with pytest.raises(OpError, match="conflict context missing"):
         plan_op(0, op, OpContext(block=B, **_daily_ctx()))
+    # ... and the subtree, without which the replica loses the descendants
+    with pytest.raises(OpError, match="conflict context missing"):
+        plan_op(0, op, OpContext(block=B, page_title="Machine Learning",
+                                 **_daily_ctx()))
+
+
+@pytest.mark.parametrize("op, miss, note_page, expected", [
+    (_MOVE, MissingTarget("skipped", "ghost99"), "September 28th, 2026",
+     {"index": 3, "op": "move", "uid": "ghost99", "reason": "block_not_found",
+      "note_page": "September 28th, 2026"}),
+    (_DELETE, MissingTarget("noop", None), None,
+     {"index": 3, "op": "delete", "uid": "ghost99",
+      "reason": "block_not_found", "note_page": None}),
+    (_create_under(), MissingTarget("diverted_create", "ghost_p1"),
+     "September 28th, 2026",
+     {"index": 3, "op": "create", "uid": "newuid1",
+      "reason": "parent_not_found", "note_page": "September 28th, 2026"}),
+    (MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0),
+     MissingTarget("move_parent_missing", "uid_b3"), "September 28th, 2026",
+     {"index": 3, "op": "move", "uid": "uid_b3",
+      "reason": "parent_not_found", "note_page": "September 28th, 2026"}),
+])
+def test_skip_report_names_the_op_and_where_its_note_landed(
+        op, miss, note_page, expected):
+    ctx = OpContext(**_daily_ctx()) if note_page else OpContext()
+    assert skip_report(3, op, miss, ctx) == expected

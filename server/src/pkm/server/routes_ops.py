@@ -47,7 +47,7 @@ async def post_ops(request: Request,
                                   " different ops"})
         return json.loads(row["response"])  # replay: stored ack, no effects
     try:
-        broadcast_ops = apply_batch(db, batch, now)
+        result = apply_batch(db, batch, now)
     except OpError as e:
         db.rollback()
         raise HTTPException(status_code=400,
@@ -58,7 +58,14 @@ async def post_ops(request: Request,
     # already carries this batch (pkm-ur2n). Acks stored before this field
     # existed replay without it; clients treat a missing seq as unknown.
     seq = db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
+    # `applied` counts every op processed, skipped ones included; `skipped`
+    # lists the ops whose target no longer exists (ops_core.skip_report).
+    # It is sent only when non-empty: clients already read a missing list
+    # as empty (acks stored before the field existed replay without it),
+    # and every clean write's ack stays byte-for-byte what it was.
     response = {"ok": True, "ts": now, "applied": len(batch.ops), "seq": seq}
+    if result.skipped:
+        response["skipped"] = result.skipped
     try:
         db.execute(
             "INSERT INTO applied_batches VALUES (?,?,?,?)",
@@ -76,7 +83,7 @@ async def post_ops(request: Request,
     await request.app.state.hub.broadcast({
         "client_id": batch.client_id,
         "ts": now,
-        "ops": broadcast_ops,
+        "ops": result.broadcast_ops,
     })
     await notify.nudge(request, db)
     return response

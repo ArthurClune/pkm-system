@@ -24,6 +24,7 @@ from pkm.client.api import PkmClient, new_uid
 from pkm.client.core import ApiError
 from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import BlockOp, CreateOp
+from pkm.contracts.responses import OpsAck
 from pkm.planning import (asset_block_text, create_page_ops, plan_mark,
                           plan_save, plan_update, resolve_parent)
 
@@ -76,8 +77,9 @@ def edit_block(client: PkmClient, uid: str, text: str | None = None,
     Both paths read the block first, and must: a text edit rides a
     `base_text_hash` guard computed from what was actually stored, and
     passes the block's current heading level so an unchanged level emits
-    no `set_heading` (which would turn the server's conflict rescue into
-    a hard failure -- see `plan_update`). A marker change goes through
+    no `set_heading` (which, on a block deleted meanwhile, would add a
+    "heading change skipped" note beside the rescued text -- see
+    `plan_update`). A marker change goes through
     `plan_mark` precisely so it does NOT re-derive the heading from text
     the API already returned bare. The same fetch also hands both paths
     the block's page title, which rides along as the `update_text` op's
@@ -99,9 +101,12 @@ def edit_block(client: PkmClient, uid: str, text: str | None = None,
     client.post_ops(ops, batch_id=_batch_id())
 
 
-def apply_batch(client: PkmClient, commands: object) -> int:
-    """Apply a `{command, params}` batch atomically; returns the op count
-    the server applied.
+def apply_batch(client: PkmClient, commands: object) -> OpsAck:
+    """Apply a `{command, params}` batch atomically; returns the server's
+    ack. Its `skipped` list names ops whose uid no longer exists: the
+    server skips those (noting them on today's daily page) rather than
+    failing the batch, and batch commands send uids unchecked, so the
+    shells must report it.
 
     Validation runs before any page is fetched or created, so a malformed
     batch triggers no I/O at all (pkm-4w23), and every page the batch
@@ -115,7 +120,7 @@ def apply_batch(client: PkmClient, commands: object) -> int:
                if is_missing]
     ops: list[BlockOp] = [*create_page_ops(missing),
                           *plan_batch(parsed, pages, uids=_uids())]
-    return client.post_ops(ops, batch_id=_batch_id()).applied
+    return client.post_ops(ops, batch_id=_batch_id())
 
 
 def upload_and_link(client: PkmClient, path: Path, page: str | None = None,

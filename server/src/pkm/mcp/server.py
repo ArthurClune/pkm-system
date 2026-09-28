@@ -17,7 +17,8 @@ from pkm.changed import local_tz
 from pkm.client.workflows import (apply_batch, edit_block, save_blocks,
                                   upload_and_link)
 from pkm.render import (render_assets, render_backlinks, render_block,
-                        render_changed, render_groups, render_page,
+                        render_changed, render_groups, render_ops_ack,
+                        render_page,
                         render_search)
 
 mcp = FastMCP("pkm")
@@ -131,8 +132,11 @@ def batch(commands: list[dict]) -> str:
     the same spec across commands reuses the heading already created.
     A create/todo/outline text beginning '# ', '## ' or '### ' becomes a
     heading at that level; an `update` text sets or clears the level the
-    same way."""
-    return f"applied {apply_batch(_client(), commands)} ops"
+    same way. An update/move/delete whose uid (or parent) no longer
+    exists is skipped rather than failing the batch; the result then
+    starts with 'warning:' and lists each skipped op and where its note
+    landed, while the other ops were applied."""
+    return render_ops_ack(apply_batch(_client(), commands))
 
 
 def upload_asset(path: str, page: str | None = None,

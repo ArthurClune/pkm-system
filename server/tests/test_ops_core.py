@@ -4,12 +4,13 @@ from pydantic import ValidationError
 from pkm.contracts.ops import (CreateOp, DeleteOp, MoveOp, OpBatch,
                                SetCollapsedOp, SetHeadingOp, SetViewTypeOp,
                                UpdateTextOp, text_hash)
-from pkm.server.ops_core import (BlockInfo, DeleteBlocks, InsertBlock,
-                                 OpContext, OpError, RecordConflictHeader,
-                                 ReindexRefs, SetCollapsed, SetHeading,
-                                 SetPageId, SetParent, SetViewType,
-                                 ShiftSiblings, TouchPage, UpdateText,
-                                 plan_op)
+from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
+                                 InsertBlock, OpContext, OpError,
+                                 RecordConflictHeader, ReindexRefs,
+                                 SetCollapsed, SetHeading, SetPageId,
+                                 SetParent, SetViewType, ShiftSiblings,
+                                 TextEditOutcome, TouchPage, UpdateText,
+                                 classify_text_edit, plan_op)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
 
@@ -324,3 +325,88 @@ def test_check_5_appends_under_todays_header():
     assert inserts == [InsertBlock("uid_ch1", 9, "uid_old", 3,
                                    "server text meanwhile", None)]
     assert any(isinstance(e, UpdateText) for e in effs)
+
+
+def test_check_4_clean_apply_needs_no_conflict_uid():
+    # pkm-wy1v: check 2/4 must not require ctx.conflict_uid -- ops_apply no
+    # longer mints one for a clean hashed edit.
+    ctx = OpContext(block=_BLK, current_text="old text", order_idx=2)
+    effs = plan_op(0, _op(), ctx)
+    assert effs == (UpdateText("uid_t1", "new text"),
+                    ReindexRefs("uid_t1", "new text"), TouchPage(1))
+
+
+def test_check_2_identical_needs_no_conflict_uid():
+    ctx = OpContext(block=_BLK, current_text="same", order_idx=2)
+    effs = plan_op(0, _op(text="same", base="anything else"), ctx)
+    assert effs == ()
+
+
+def test_missing_block_header_already_exists_needs_no_conflict_uid():
+    # pkm-wy1v: _with_conflict_landing only mints conflict_uid when no
+    # header exists yet -- plan_op must accept conflict_uid=None once a
+    # header for today is already recorded.
+    ctx = OpContext(block=None, **_daily_ctx(
+        conflict_uid=None, conflict_header_uid="uid_old",
+        conflict_header_next_idx=3))
+    effs = plan_op(0, _op(page_title="AI Agent Security"), ctx)
+    inserts = [e for e in effs if isinstance(e, InsertBlock)]
+    assert inserts == [InsertBlock("uid_ch1", 9, "uid_old", 3,
+                                   "new text", None)]
+    assert not any(isinstance(e, RecordConflictHeader) for e in effs)
+
+
+# --- classify_text_edit: the shared identical/clean/conflict predicate ----
+
+
+def test_classify_text_edit_identical_without_rewrites():
+    outcome = classify_text_edit("same", text_hash("anything else"),
+                                 "same", ())
+    assert outcome == TextEditOutcome("identical", "same")
+
+
+def test_classify_text_edit_clean_without_rewrites():
+    outcome = classify_text_edit("new text", text_hash("old text"),
+                                 "old text", ())
+    assert outcome == TextEditOutcome("clean", "new text")
+
+
+def test_classify_text_edit_conflict_without_rewrites():
+    outcome = classify_text_edit(
+        "new text", text_hash("what I saw before going offline"),
+        "server text meanwhile", ())
+    assert outcome == TextEditOutcome("conflict", "new text")
+
+
+def test_classify_text_edit_identical_with_rewrite_replay():
+    # The rename replay is the only difference between the stale edit and
+    # the live text: replaying it makes the edit identical, not a conflict.
+    t0, t1 = "note about [[Old]]", "note about [[New]]"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New"),)
+    outcome = classify_text_edit(t0, text_hash(t0), t1, rewrites)
+    assert outcome == TextEditOutcome("identical", t1)
+
+
+def test_classify_text_edit_clean_with_rewrite_replay():
+    # A stale hash that would look like a conflict without replay (base
+    # hashes the pre-rename text, live is what the rename produced) becomes
+    # a clean apply once the same rename is replayed onto the offline edit
+    # (pkm-wy1v case (a): a rewritten block whose replayed edit is clean).
+    t0, t1 = "note about [[Old]]", "note about [[New]]"
+    edit = "note about [[Old]] plus comment"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New"),)
+    outcome = classify_text_edit(edit, text_hash(t0), t1, rewrites)
+    assert outcome == TextEditOutcome("clean", "note about [[New]] plus comment")
+
+
+def test_classify_text_edit_conflict_with_rewrite_replay():
+    # Something else changed the block after the rename too: the replayed
+    # edit neither matches the live text nor its post-rename hash, so it's
+    # still a genuine conflict.
+    t0, t1 = "note about [[Old]]", "note about [[New]]"
+    live = "note about [[New]] and more edits"
+    edit = "note about [[Old]] plus comment"
+    rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New"),)
+    outcome = classify_text_edit(edit, text_hash(t0), live, rewrites)
+    assert outcome == TextEditOutcome(
+        "conflict", "note about [[New]] plus comment")

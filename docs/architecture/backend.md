@@ -272,16 +272,16 @@ Key mechanics:
   batch: `find_op_title_violation`, whose violations are a 400, never
   looks at it. Header and child uids are minted (`ops_apply._new_uid`) with an
   alphanumeric first character so the CLI can address them without `--` (see
-  [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)). Only a
-  clean hashed edit, with a matching hash and no `block_rewrites` row for
-  the block, skips the daily-page lookup (`ops_apply._context_for`).
-  Every other hashed edit resolves today's page first and creates it if
-  missing, even when it turns out not to conflict. That includes a clean
-  edit to a block with `block_rewrites` rows and a stale hash whose text is
-  unchanged. Hashless edits never touch it. `ops_core.replay_title_rewrites`
-  first replays any `block_rewrites` row `store.rewrite_snapshotted_blocks`
-  left for that block, so a device that never saw a rename cannot win with
-  the old title and re-create the page it emptied.
+  [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a second
+  conflict on the same block the same day reuses its header's uid.
+
+  `ops_core.classify_text_edit` sorts a hashed edit to a live block into
+  identical, clean or conflict, after replaying any `block_rewrites` row
+  `store.rewrite_snapshotted_blocks` left for that block
+  (`replay_title_rewrites`), so a device that never saw a rename cannot win
+  with the old title and re-create the page it emptied. `plan_op` and
+  `ops_apply._context_for` both call it, so only a conflict resolves (and
+  may create) today's daily page. Hashless edits never touch it.
 - **Idempotency.** A retried batch — same `batch_id`, matching stored request
   hash — replays the stored ack with no effects. The same id with a different
   payload is a 409. Offline queue replay depends on it. New `applied_batches`

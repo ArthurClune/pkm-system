@@ -32,7 +32,7 @@ replica is a cache and the queue is the user's intent.
 | An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json` | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | The same, but the tab has no replica (no feed to tombstone the ghost) | `deliverLaneHead` reads the ack's `skipped` list, only while `unavailable` is latched | Bumps resync; every mounted view's guarded read refetches | Never fires for a replica-backed lane delivery, which gets the tombstone from its feed instead | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | Another device moved an op's parent, or made its move a cycle | `_context_for` and `classify_missing_target` on the server; `applyOne` and `skipsOnMissingTarget` in the replica | Create and move follow the parent; a cycle move is skipped on both sides | A stale `page_title` is never resolved; a cycle skip journals the moved subtree | [Ops another device's tree edit overtook](#ops-another-devices-tree-edit-overtook) |
-| The replica opens, then fails every write | Nothing | Known gap | — | [What the UI shows](#what-the-ui-shows) |
+| The replica opens, then fails every write | `unsentInMemory > 0` while `status !== "connected"` | The offline connectivity banner appends the same "exists only in memory" sentence as the unavailable-replica banner | The sentence never fires while connected, since the lane drains within a drain cycle | [What the UI shows](#what-the-ui-shows) |
 
 ## A local write fails
 
@@ -176,9 +176,15 @@ unavailable for now." Its second sentence depends on connectivity:
 Its action is Reload, not Retry, because the failed open is latched for the
 session. It confirms first when ops are pending.
 
-**Known gap:** nothing surfaces a replica that opens and then fails every write.
-`availabilityOf` returns `null` for it, so no banner shows, editing stays
-enabled, and the user keeps producing writes that live only in memory.
+`availabilityOf` still returns `null` for a replica that opens and then fails
+every write, so no problem banner mounts and editing stays enabled. The offline
+`ConnectivityBanner` covers the risk instead: it appends `memoryOnlySentence`'s
+output — the same "exists only in memory" sentence as the table above —
+whenever `unsentInMemory > 0` and the socket is not `connected`, in both the
+editable and read-only offline states. This narrows the earlier decision to
+drop a degraded-write banner rather than reversing it: that banner needed a
+failure counter and a threshold, and this is a display rule over the count
+`unsentInMemory` already tracks.
 
 ## Windows and the pending queue
 

@@ -51,14 +51,14 @@ export interface Outline {
   dnd: OutlineDndApi;
   createFirstBlock(): void;
   appendBlock(text: string): void;
-  /** Most recent /upload, paste, or drag-drop failure, if any (pkm-gbsb). */
+  /** Most recent /upload, paste, or drag-drop failure, if any. */
   uploadError: string | null;
   dismissUploadError(): void;
   /** Outcome of the last /goodlinks pick: "Saved to Goodlinks" or a
    * failure notice (see outline/goodlinks.ts). */
   goodlinksNotice: string | null;
   dismissGoodlinksNotice(): void;
-  /** In-app confirm dialog (pkm-2jaz): render this once in the owning
+  /** In-app confirm dialog: render this once in the owning
    * component's tree. Backs onDeleteBlockSelection's large-selection prompt —
    * window.confirm is suppressed by iPadOS Safari in standalone mode. */
   dialog: ReactNode;
@@ -72,7 +72,7 @@ export function useOutline(
   // Actions and editability only, deliberately: `sync` is a dependency of
   // run(), handlers and dnd below, so subscribing to the delivery counters
   // here would rebuild all three — for every mounted Journal day — twice per
-  // flushed edit (pkm-qfee).
+  // flushed edit.
   const sync = useSyncActions();
   const { canEdit } = useSyncEditability();
   const { confirm, dialog } = useConfirm();
@@ -80,7 +80,7 @@ export function useOutline(
   const [session, setSession] = useState<OutlineSessionHandle | null>(null);
   const [ownsEditor, setOwnsEditor] = useState(false);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
-  // Most recent /upload, paste, or drag-drop failure (pkm-gbsb): uploadAsset
+  // Most recent /upload, paste, or drag-drop failure: uploadAsset
   // rejections used to be swallowed silently. Cleared at the start of the
   // next upload attempt, or explicitly via dismissUploadError.
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -180,8 +180,8 @@ export function useOutline(
     const ops = [...textOps, ...result.ops];
     if (ops.length === 0) return;
     const next = result.ops.length > 0 ? result.blocks : base;
-    // Conflict protection must not depend on the ops reaching the database
-    // (pkm-4ubd): base_text_hash is stamped here, against `pre` — the
+    // Conflict protection must not depend on the ops reaching the database:
+    // base_text_hash is stamped here, against `pre` — the
     // pre-flush tree the whole batch grew from — because an online-only
     // session's ops never reach replica/queue.ts, which is where the worker
     // would otherwise fill it in.
@@ -193,7 +193,7 @@ export function useOutline(
       blocksRef.current = next;
       setBlocks(next);
     }
-    // Undo history (pkm-7q14): record the batch with its inverse, computed
+    // Undo history: record the batch with its inverse, computed
     // against the pre-flush tree the full batch (textOps + result.ops) grew
     // from. Empty inverse = nothing undoable (collapse-only / create_page);
     // null = not invertible from this tree (cross-page move) — skip, history
@@ -263,10 +263,10 @@ export function useOutline(
       document.removeEventListener("visibilitychange", onVisibility);
   }, [flushNow]);
 
-  // Unmount is the last commit point (pkm-mvdx). An ordinary draft needs no
+  // Unmount is the last commit point. An ordinary draft needs no
   // help — nothing cancels its pending debounce, so the timer still fires and
   // flushes after this outline is gone — but a flush-held draft (caret mid
-  // [[ref / #tag token, pkm-xlah) has no timer at all, and React delivers no
+  // [[ref / #tag token) has no timer at all, and React delivers no
   // blur for a node it removes. So any navigation that never touches the
   // textarea (App's global Ctrl-Shift-D chord, browser back/forward) would
   // otherwise drop the block's text. The ops are enqueued for delivery even
@@ -338,7 +338,7 @@ export function useOutline(
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-      // held (pkm-xlah): the caret is mid [[ref / #tag token — autosaving now
+      // held: the caret is mid [[ref / #tag token — autosaving now
       // would create a page from the half-typed title. The draft stays
       // pending; blur, structural edits, undo, tab-hide and navigation
       // (onFlushDraft, below) still flush it.
@@ -357,7 +357,7 @@ export function useOutline(
       if (pendingRef.current?.uid !== uid) return;
       draftSelectionRef.current = { uid, start: selStart, end: selEnd };
     },
-    // In-editor navigation (pkm-hhbc): the tree asks for the flush before it
+    // In-editor navigation: the tree asks for the flush before it
     // takes the user off this page, because its own unmount produces no blur.
     // Focus is deliberately left alone — Ctrl-Shift-O only opens the sidebar,
     // and the caret stays in the block the ref was typed in.
@@ -422,10 +422,10 @@ export function useOutline(
           // typing during a slow upload (accepted for v1)
           const spliced = spliceUploadedMarkdown(node.text, cursor, inserted);
           const ops: BlockOp[] = [{ op: "update_text", uid, text: spliced.text }];
-          // Re-focus only if this block still owns focus (pkm-s6i6): paste
+          // Re-focus only if this block still owns focus: paste
           // and drag-drop fire from that block's own textarea and need the
           // caret moved past the inserted markdown, but the /upload pick has
-          // already blurred the block itself (pkm-zrjc) before the upload
+          // already blurred the block itself before the upload
           // started — refocusing it here would swap it back to a
           // raw-markdown textarea and hide the image that should now be
           // rendering. `focus: null` means "leave focus as it is", not
@@ -467,7 +467,7 @@ export function useOutline(
         if (link.created) setGoodlinksNotice("Saved to Goodlinks");
       })();
     },
-    // Multi-line text paste (pkm-tu3a): one planned batch through run() —
+    // Multi-line text paste: one planned batch through run() —
     // flushed draft, optimistic apply, single server batch, single undo entry.
     onPasteOutline: (uid, selStart, selEnd, text) =>
       run((b) => planOutlinePaste(b, pageTitle, uid, selStart, selEnd, text,
@@ -481,7 +481,7 @@ export function useOutline(
       setFocus(null);
       setSelection({ anchor: uid, head });
     },
-    // Ctrl+Cmd+Up/Down in a block (pkm-am54): a one-block selection anchored
+    // Ctrl+Cmd+Up/Down in a block: a one-block selection anchored
     // on that block — the "select the whole block" step that further presses
     // then extend. Same flush/blur contract as onStartBlockSelection.
     onSelectBlock: (uid) => {
@@ -511,9 +511,9 @@ export function useOutline(
       if (!selection) return;
       run((b) => moveSelectionDown(b, pageTitle, selectedUids(b, selection)));
     },
-    // Backspace/Delete while a block selection is active (pkm-q89w): delete
+    // Backspace/Delete while a block selection is active: delete
     // every selected block as a set, confirming first for a large selection.
-    // The confirm (pkm-2jaz) goes through the app's own dialog rather than
+    // The confirm goes through the app's own dialog rather than
     // window.confirm, which iPadOS Safari can suppress in standalone mode.
     // The wording must stay truthful: this delete is a normal history entry
     // (undoManager.ts), undoable per tab until reload, not irreversible.
@@ -531,7 +531,7 @@ export function useOutline(
         run((b) => deleteSelection(b, pageTitle, selectedUids(b, selection)));
       })();
     },
-    // App-level undo/redo (pkm-7q14): global history, not per-outline. No
+    // App-level undo/redo: global history, not per-outline. No
     // explicit flush here — performUndo/performRedo call every registered
     // flushPending, including this outline's.
     onUndo: () => { performUndo(sync); },
@@ -584,7 +584,7 @@ export function useOutline(
     ownsEditor,
     focus,
     selection,
-    // offline editing (pkm-y8p0): the replica persists + renders edits
+    // offline editing: the replica persists + renders edits
     readOnly: !canEdit,
     handlers,
     dnd,

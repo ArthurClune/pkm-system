@@ -317,6 +317,17 @@ the pending queue across a
 worker that dies during one leaves it behind, and the next queue handler
 adopts and removes it.
 
+A commit is atomic across the worker's death. The pool VFS reports a RESERVED
+lock only when a file it has open on that path holds one, so SQLite takes the
+`-journal` a killed worker left as hot. The next read of that file plays the
+journal back and removes it. Upstream sqlite-wasm answers
+`xCheckReservedLock` with a constant 1, which makes every leftover journal
+look like a live writer's; `web/patches/@sqlite.org__sqlite-wasm@3.53.0-build1.patch`
+carries the fix. It needs one live connection per pool file. The pool's
+access handles are exclusive across workers and tabs, and the worker keeps
+one connection per file. `web/e2e/replica-hot-journal.spec.ts` kills a
+writer mid-transaction and checks that the app's next open rolls it back.
+
 **The replica is a cache; the queue is the user's intent.** A snapshot can
 always be re-fetched; an unflushed pending op cannot. Every guard in
 [sync-recovery.md](sync-recovery.md) follows from that:

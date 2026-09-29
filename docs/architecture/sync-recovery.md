@@ -356,8 +356,7 @@ FTS checks do not. When the rebuild throws a corruption error,
 `rebuildOrReplaceFile` (`web/src/replica/workerHandlers.ts`) calls the worker's
 `discardDbFile`. That closes the database and unlinks the file and its
 `-journal` from the SAH pool, and the rebuild runs again on a fresh file. The
-journal goes too: this VFS never rolls a journal back, so one a killed worker
-left would otherwise hold a pool slot for good.
+journal goes too, since it describes only that file.
 Pending rows lose nothing, because a reset drops `pending_ops` anyway and its
 caller already holds them from `prepareRecovery`.
 
@@ -377,11 +376,11 @@ by id afterwards.
 | 4 | `carry.discard()` | the new file |
 | 5 | The snapshot applies and re-applies pending | the new file |
 
-A commit is not atomic across a worker's death on this VFS. It never rolls
-back a journal a killed worker left, so a death inside a commit leaves that
-file torn. The carry guarantees that no row is lost at any instant: at every
-step, a file that is not being written holds them all. It does not guarantee
-that the file being written is readable, and adoption handles that case.
+A write cut short by a worker's death rolls back on the next open of its
+file ([The replica](sync-and-offline.md#the-replica)). The carry does not
+depend on that. At every step, a file that is not being written holds every
+row. A file that still cannot be read is storage damage, and adoption handles
+that case.
 
 A failed carry write leaves the damaged file untouched and discards the
 carry, best effort. Without a carry store a rebase rethrows rather than
@@ -405,11 +404,11 @@ replica is a cache. That makes adoption's two escapes safe:
 
 | Adoption meets | Outcome | Why no row is lost |
 |---|---|---|
-| A carry that reads as `SQLITE_CORRUPT*` or `SQLITE_NOTADB` (`isUnreadableFileMessage`, `errors.ts`) | The carry is discarded with a warning | Only a death inside step 1 tears it, and step 1 precedes the unlink, so the replica still holds the rows |
+| A carry that reads as `SQLITE_CORRUPT*` or `SQLITE_NOTADB` (`isUnreadableFileMessage`, `errors.ts`) | The carry is discarded with a warning | A carry write cut short rolls back on the next open, to fewer rows or none, so an unreadable carry is storage damage. Step 1 precedes the unlink, so the replica still holds the rows |
 | A replica whose `installSchema` or `importPendingRows` throws | The carry's rows are merged by id with every row the old file can still be read for (`mergeCarriedRows`, `carryMerge.ts`; the carry's row wins a clash) and written back to the carry, then `discardDbFile` runs, then the new file imports the merged rows from the carry, which is then discarded | A short carry cannot shed rows only the old file held. Rows are lost only if the carry is short and the old file unreadable, both files damaged at once |
 | Any other read error (contention, transient I/O), or a replacement that fails too | The handler fails and the carry is kept | The merged write lands before the old file goes, so the carry is always the rows' sure copy from that point on |
 
-Without the escapes, one torn file would fail every handler for good,
+Without the escapes, one damaged file would fail every handler for good,
 `prepareRecovery` included, and no edit would leave the device again.
 
 A replacement that keeps failing leaves the carry for the next handler, which

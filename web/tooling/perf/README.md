@@ -15,7 +15,7 @@ baseline.
 Playwright scripts that measure what the SPA actually does — timers, fetches,
 WebSocket attempts, forced layouts, long tasks, CPU — under idle, degraded
 network, typing, multi-tab, journal scroll, outline drag and cold load.
-Written for the 2026-09-01 investigation (epic pkm-fgjg); rerun after any
+Written for the 2026-09-01 investigation; rerun after any
 change to sync, reconnect, the editor keystroke path, the Journal loader or
 the drop zone, and compare with `baselines/`.
 

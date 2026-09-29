@@ -34,8 +34,8 @@ class _StubHandle:
         # a turn that blocks (as a live turn does) until the consumer drops,
         # at which point cleanup attempts an interrupt that never lands, and
         # the handle goes unhealthy. Blocking rather than returning early
-        # matters here (pkm-mbcc lesson): a fake that resolves immediately
-        # never exercises the cancellation-triggered cleanup path.
+        # matters here: a fake that resolves immediately never exercises
+        # the cancellation-triggered cleanup path.
         self._unhealthy_after_interrupt = unhealthy_after_interrupt
 
     def send(self, text: str) -> AsyncGenerator[AssistantEvent, None]:
@@ -145,8 +145,8 @@ def test_default_available_models_hides_glm_and_rejects_it():
 
 
 def test_default_model_follows_availability():
-    # pkm-452i: glm is the preferred default but only when it is servable;
-    # a keyless service (or bare test double) defaults to sonnet.
+    # glm is the preferred default but only when it is servable; a keyless
+    # service (or bare test double) defaults to sonnet.
     keyless = AssistantService(FakeEngine())
     assert keyless.default_model == "sonnet"
     keyed_engine = FakeEngine()
@@ -192,10 +192,10 @@ def test_idle_conversations_reaped_on_create():
 
 
 def test_full_cap_evicts_oldest_idle_instead_of_raising():
-    # pkm-c98s item 1: a page reload orphans a conversation id client-side
-    # without deleting it server-side; three reloads used to exhaust the cap
-    # and 409 the next create for up to idle_ttl. Evicting the
-    # least-recently-used idle conversation avoids that lockout.
+    # A page reload orphans a conversation id client-side without deleting
+    # it server-side; three reloads used to exhaust the cap and 409 the
+    # next create for up to idle_ttl. Evicting the least-recently-used idle
+    # conversation avoids that lockout.
     clock = FakeClock()
     engine = FakeEngine()
     service = AssistantService(engine, max_conversations=3, idle_ttl=900.0, clock=clock)
@@ -243,9 +243,9 @@ def test_full_cap_raises_when_every_conversation_is_busy():
 
 
 def test_send_race_second_synchronous_call_raises_busy_immediately():
-    # pkm-c98s item 7: two near-simultaneous sends must not both observe
-    # "free" -- the reservation happens synchronously in send(), before the
-    # returned generator is ever iterated.
+    # Two near-simultaneous sends must not both observe "free" -- the
+    # reservation happens synchronously in send(), before the returned
+    # generator is ever iterated.
     engine = FakeEngine()
     service = AssistantService(engine)
 
@@ -314,9 +314,8 @@ def test_confirm_unknown_conversation_raises():
         service.confirm("nope", "t1", True)
 
 
-# --- pkm-rwwc: an interrupt that never lands leaves the harness state
-# uncertain -- the conversation must be retired, not reused for a later
-# turn. ---
+# --- an interrupt that never lands leaves the harness state uncertain --
+# the conversation must be retired, not reused for a later turn. ---
 
 
 async def _drain(stream: AsyncIterator[AssistantEvent]) -> None:
@@ -413,7 +412,7 @@ def test_delete_closes_and_is_idempotent():
     assert engine.conversations[0].closed is True
 
 
-# --- pkm-rovq: admission (cap check + eviction + creation) must be serialized ---
+# --- admission (cap check + eviction + creation) must be serialized -------
 
 
 def test_concurrent_creates_never_enter_engine_simultaneously():
@@ -443,9 +442,9 @@ def test_concurrent_creates_never_enter_engine_simultaneously():
 
 
 def test_cap_never_exceeded_across_a_pending_creation():
-    # pkm-rovq: with max_conversations=1 and no existing entries, two
-    # concurrent create() calls used to both observe "0 >= 1 is false" and
-    # both proceed, ending with 2 entries against a cap of 1. The lock must
+    # With max_conversations=1 and no existing entries, two concurrent
+    # create() calls must not both observe "0 >= 1 is false" and both
+    # proceed, ending with 2 entries against a cap of 1. The lock must
     # force the second call to re-check the cap only after the first
     # creation has actually landed (or failed), so it evicts the first
     # conversation instead of exceeding the cap.
@@ -511,9 +510,9 @@ def test_cancelled_creation_releases_the_admission_lock():
     assert len(service._entries) == 1
 
 
-# --- pkm-rovq review round 1: neither an unbounded engine.connect() nor an
-# unbounded teardown close() of a reaped/evicted conversation may hold the
-# admission lock indefinitely and wedge every future create(). ---
+# --- neither an unbounded engine.connect() nor an unbounded teardown
+# close() of a reaped/evicted conversation may hold the admission lock
+# indefinitely and wedge every future create(). ---
 
 
 def test_hung_engine_connect_times_out_and_releases_the_lock():
@@ -576,16 +575,14 @@ def test_hung_teardown_of_an_evicted_conversation_does_not_block_the_next_admiss
 
 
 def test_close_loop_continues_past_a_cancelled_handle_and_reraises():
-    # pkm-4zq4 final-review fix wave: the outer-finally teardown loop caught
-    # only `except Exception` around each queued handle's close(). A
-    # CancelledError (BaseException) landing while parked in one handle's
-    # close() used to abort the loop entirely -- and every remaining
-    # to_close entry was already popped from _entries under the lock above,
-    # so nothing would ever close it: its subprocess and 0600 session-token
-    # config file (pkm-4zq4) leak until process exit. This resurrects the
-    # exact credential-leak class pkm-4zq4 closes, one layer up. The fix
-    # must keep closing the rest of the queue after a cancellation and only
-    # re-raise once every entry has been attempted.
+    # The outer-finally teardown loop must guard each queued handle's
+    # close() against BaseException, not just Exception. A CancelledError
+    # landing while parked in one handle's close() must not abort the loop
+    # entirely -- every remaining to_close entry is already popped from
+    # _entries under the lock above, so nothing else would ever close it:
+    # its subprocess and 0600 session-token config file would leak until
+    # process exit. The loop must keep closing the rest of the queue after
+    # a cancellation and only re-raise once every entry has been attempted.
     clock = FakeClock()
     engine = FakeEngine()
     service = AssistantService(engine, max_conversations=5, idle_ttl=1.0, clock=clock)

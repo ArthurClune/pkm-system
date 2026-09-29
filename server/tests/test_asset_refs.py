@@ -1,4 +1,4 @@
-"""GET /api/assets/search returns referencing blocks (pkm-t5pu)."""
+"""GET /api/assets/search returns referencing blocks."""
 
 
 def _upload(client, content=b"PNGDATA", name="pic.png"):

@@ -1,4 +1,4 @@
-"""GET /api/todos: {{TODO}}-marker listing (pkm-w05j)."""
+"""GET /api/todos: {{TODO}}-marker listing."""
 import pytest
 
 

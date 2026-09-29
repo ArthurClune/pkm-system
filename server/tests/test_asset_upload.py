@@ -48,9 +48,9 @@ def test_upload_dedupes_by_content(client, seeded_config):
 
 
 def test_upload_existing_flag_distinguishes_new_from_deduped_uploads(client):
-    # Callers that upload-then-link (pkm-c17m) use this flag to decide
-    # whether a failed link makes THEM the orphan's sole owner, and so
-    # safe to delete -- a dedup hit must never look deletable.
+    # Callers that upload-then-link use this flag to decide whether a
+    # failed link makes THEM the orphan's sole owner, and so safe to
+    # delete -- a dedup hit must never look deletable.
     first = _upload(client, name="a.png").json()
     assert first["existing"] is False
     second = _upload(client, name="b.png").json()

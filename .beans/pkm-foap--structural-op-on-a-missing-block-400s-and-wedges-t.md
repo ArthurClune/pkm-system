@@ -89,3 +89,14 @@ baseline. After the review fixes, the first run flagged `bytes`
 regressions on ops/edit-1, ops/move-subtree and ops/paste-50 (55 -> 68):
 an always-present `"skipped":[]` in every ack. `skipped` is now sent only
 when non-empty; re-run: no changes against the baseline.
+
+## Ruling record (2026-09-29)
+
+`set_collapsed` on a missing block journals a row (`JournalBlock(uid, True)`
+in `ops_core._plan_missing_target`), so it is not the plain no-op the ruling
+table above states: a replica that collapsed a block the server lacks holds a
+ghost of it, and the journalled tombstone removes it. This is the one
+departure from the no-op ruling. Both sync reviews (2026-09-29) judged it the
+right call, and Arthur confirmed it. `backend.md § Missing targets` says so in
+its `set_collapsed` row. `delete` on a missing block stays a plain no-op,
+since the deleting replica already dropped its copy.

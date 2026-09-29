@@ -60,6 +60,7 @@ This project uses the functional-core imperative-shell pattern:
 
 - Pure logic (calculations, validations, transformations) lives in Functional Core files. I/O (filesystem, database, HTTP, env vars, clock/randomness) lives in thin Imperative Shell files that gather data, call the core, and persist results. Loggers are permitted in both.
 - Every file with runtime behaviour declares `# pattern: Functional Core` or `# pattern: Imperative Shell` near the top. If it genuinely can't be separated, use `# pattern: Mixed (needs refactoring)` or `# pattern: Mixed (unavoidable)` with a reason. Tests, type-only/constants files, configs, scripts, and data files are exempt.
+- Code and test comments carry no bean ids, the same rule as `docs/architecture/`: a comment states the rule it enforces, and history lives in git, the beans and `docs/troubleshooting.md`. Ids still in older comments are being swept out; don't copy them.
 
 For routine edits these rules are sufficient. Invoke the `howto-functional-vs-imperative` skill only for structural work: designing new modules, refactoring files that mix logic with I/O, or when a classification is genuinely unclear.
 

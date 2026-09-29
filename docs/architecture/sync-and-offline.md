@@ -58,12 +58,12 @@ sequenceDiagram
 ```
 
 Success is the 2xx, and the client's own state arrives through the same changes
-pull every other client uses. The client reads two ack fields. `seq` goes to
-the pending-row delete, so a pull already in flight can accept its window (see
+pull every other client uses. The client reads the ack's `seq` and
+`skipped`. `seq` goes to the pending-row delete, so a pull already in flight can accept its window (see
 [sync-recovery.md § Windows and the pending queue](sync-recovery.md#windows-and-the-pending-queue)).
-A non-empty `skipped` bumps `resyncSeq` regardless of replica state (see the
-`resyncSeq` note below): a replica-backed tab's own feed tombstones the row,
-but nothing else refetches the view for it.
+A non-empty `skipped` bumps `resyncSeq` regardless of replica state (see
+[When views refetch](#when-views-refetch)): a replica-backed tab's own feed
+tombstones the row, but nothing else refetches the view for it.
 State flows down one way. Incoming WS op echoes are never written to the
 replica: a tab drops its own, matched by `client_id`, and uses other tabs' only
 to update live views.
@@ -103,9 +103,9 @@ transaction:
 
 ## Post-commit nudges
 
-Three tables have change-journal triggers in `schema.py`'s `SERVER_DDL`:
-`blocks`, `pages` and `sidebar_entries`. **Every route whose commit touches one
-of them must send a WS `{type:"seq", seq}` nudge immediately after that
+The change-journal triggers in `schema.py`'s `SERVER_DDL` sit on `blocks`,
+`pages` and `sidebar_entries`. **Every route whose commit touches a journalled
+table must send a WS `{type:"seq", seq}` nudge immediately after that
 commit**. A committed metadata or generation change that may leave `changes.seq`
 unchanged sends the same frame with `force:true` and the new `generation`. `seq`
 is always the actual journal maximum.
@@ -180,7 +180,7 @@ counterpart of the server's `store.reindex_refs_for_text`. Neither opens a
 transaction: the caller owns one, because the delete and re-insert must land
 together.
 
-The shim holds two invariants:
+The shim holds these invariants:
 
 - Every response builder declares a generated return type (`PagePayload`,
   `JournalPayload`, `SearchPayload`, …), so an unfollowed server-side field
@@ -189,12 +189,11 @@ The shim holds two invariants:
   (`selectObjects(...) as T[]`), so each query maps rows into a checked object
   literal; a renamed *column* stays a runtime failure that
   `shim_parity.json`'s recorded values catch.
-- `localApi/tree.ts`'s ancestor CTE and `localOps.ts::subtreeUids` are uncapped
-  and cycle-safe, each carrying a `path` column of `,uid,uid,…,` and recursing
-  only while `instr(path, ',' || b.uid || ',') = 0`. Both mirror the server's
-  `_fetch_ancestors` (see
-  [backend.md](backend.md#breadcrumbs-and-recursive-traversal)), and all three
-  change together.
+- Every recursive walk in the replica (`localApi/tree.ts`'s ancestor CTE,
+  `localOps.ts::parentChain` and `subtreeUids`) is uncapped, cycle-safe and a
+  copy of one server walk. The pairs and their shared guard are tabled in
+  [backend.md § Breadcrumbs and recursive traversal](backend.md#breadcrumbs-and-recursive-traversal);
+  each pair changes together.
 
 ### The reconnect drain
 
@@ -221,7 +220,7 @@ sequenceDiagram
         end
     end
     Q->>S: pull changes feed to latest seq
-    Q->>U: bump resyncSeq → views refetch
+    Q->>U: bump resyncSeq if the pull moved data → views refetch
 ```
 
 Reconnect ordering in `reconnectFlow.ts` is fixed: **drain the queue first, then
@@ -231,6 +230,28 @@ observer share one completion, which is what finishes a reconnect whose first
 drain was blocked. The terminal-4xx branch's repair, and which statuses count
 as terminal (`isTerminalRejection`), are in
 [sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects).
+
+### When views refetch
+
+`resyncSeq` is the React counter that makes visible views refetch, separate
+from the replica's persisted cursor. Views subscribe through `useResyncSeq()`
+and read through the guarded read every trigger shares, not the outline
+repair epoch, so pending edits elsewhere on a page survive a bump. Every bump
+comes from one of these:
+
+| Trigger | Bumps when | Where |
+|---|---|---|
+| A reconnect completes | its catch-up moved local data, which `replicaSync.appliedVersion()` counts | `reconnectFlow.ts` |
+| A reconnect with no usable replica | always: `appliedVersion()` returns null, which counts as moved | `reconnectFlow.ts` |
+| A first connect | only when it passes `begin({ viewsAreStale: true })`: the durable queue holds a previous page load's rows, or `replicaSync.hasStarted()` is still false because an offline cold start's bootstrap failed | `useSocketLifecycle.ts` |
+| An ack lists skipped ops | always, whatever the replica state | `opQueue.ts`, `ops-skipped`; [sync-recovery.md § Ops on blocks the server no longer has](sync-recovery.md#ops-on-blocks-the-server-no-longer-has) |
+| A repair or reset succeeds | always | `syncState.ts`; [sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects) |
+| The replica turns ready while the socket is not connected | always: views that read before it was ready refetch through the shim | `syncState.ts`, `mode-ready-check` |
+
+A first connect with nothing left over bumps nothing, because its views have
+just read the server. With leftovers, `viewsAreStale` skips the cursor
+comparison: the mount-time catch-up may already have absorbed the flush,
+leaving the comparison nothing to report.
 
 ### Conflicts at push time
 
@@ -248,10 +269,12 @@ block:
 | Structural op on a block or parent the server no longer has | Skipped or a no-op, with a daily-note entry wherever something was lost; the batch still acks 200 |
 | Create or move under a parent another device moved to another page | Follows the parent onto its current page |
 | Move that another device's move made a cycle | Skipped with a daily-note entry; the batch still acks 200 |
+| `delete` of a block another device edited since this one last saw it | The delete wins and the edit is lost, with no conflict copy. This gap is open until a hash-guarded delete ships |
 
-The header forms, the daily-page grouping and the per-op tables for missing
-targets and concurrent structure edits are in
-[backend.md § The write path](backend.md#the-write-path).
+The header forms and the daily-page grouping are in
+[backend.md § Conflicts](backend.md#conflicts); the per-op tables are in
+[§ Missing targets](backend.md#missing-targets) and
+[§ Concurrent structure edits](backend.md#concurrent-structure-edits).
 An editor flush hashes the text the user typed over
 ([frontend-editor.md § Drafts and commit points](frontend-editor.md#drafts-and-commit-points)).
 So two concurrent edits from the same base keep both texts whichever arrives
@@ -353,18 +376,6 @@ always be re-fetched; an unflushed pending op cannot. Every guard in
   visibility after `RESUME_STALE_MS` (30 s), a socket still reporting `OPEN` is
   closed on the spot, because the OS may have frozen it (iPadOS/Safari
   `freeze`).
-- **`resyncSeq`** is the React counter that makes visible views refetch,
-  separate from the replica's persisted cursor. A repair bumps it
-  unconditionally; a reconnect bumps it only when its catch-up moved local data,
-  which `replicaSync.appliedVersion()` counts. Two callers skip that comparison.
-  A session with no usable replica has `appliedVersion()` return null, so every
-  reconnect refetches. A first connect flushing a previous page load's
-  leftovers passes `begin({ viewsAreStale: true })`. That first-connect gate
-  also fires on an empty durable queue while `replicaSync.hasStarted()` is
-  still false, an offline cold start whose mount-time bootstrap failed. A tab
-  with no replica also bumps it when an ack lists skipped ops, because no feed
-  will tombstone the ghost block
-  ([sync-recovery.md](sync-recovery.md#ops-on-blocks-the-server-no-longer-has)).
 - Connectivity and delivery health are reported independently: the app can be
   online with delivery blocked by a poisoned batch.
 - **Online-only features** degrade explicitly rather than queueing:

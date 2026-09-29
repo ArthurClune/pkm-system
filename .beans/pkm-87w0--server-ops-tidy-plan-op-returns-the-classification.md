@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: low
 created_at: 2026-09-29T13:20:54Z
-updated_at: 2026-09-29T20:12:58Z
+updated_at: 2026-09-29T20:14:00Z
 parent: pkm-a4t2
 ---
 
@@ -39,6 +39,6 @@ Bounded refactors; no spec. After the fixes in this epic land.
 - [x] MissingTarget family renamed (Skip, orphan_structural)
 - [x] Per-kind contexts carry the shell's one classification
 - [x] Docs updated
-- [ ] Stale test comments; apply.test.ts groups named by behaviour
+- [x] Stale test comments; apply.test.ts groups named by behaviour
 - [ ] describe grouping in the flat web test files
 - [ ] Verification; findings recorded in the report

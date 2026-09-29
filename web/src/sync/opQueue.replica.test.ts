@@ -1106,9 +1106,9 @@ async () => {
 
 test("a retained op queued behind one durable batch keeps its place between them",
 async () => {
-  // The three-way interleave: only the count of durable batches persisted
-  // *since* the previous retained entry keeps the second entry behind the
-  // durable row while still ahead of nothing else.
+  // The three-way interleave: the durable row's `follows` mark records the
+  // lane boundary at its enqueue, so it waits behind retained-1 only, and
+  // retained-2, appended after that boundary, waits behind it.
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
   const replica = memReplica();
   const durableEnqueue = replica.enqueue.bind(replica);
@@ -1142,9 +1142,9 @@ async () => {
 test("a poisoned durable batch stops standing ahead of a retained op",
 async () => {
   // A 4xx poisons the durable row and the recovery coordinator deletes it
-  // outside the queue, so no deleteBatch ever arrives to decrement the lane.
-  // The poison itself must, or once the repair resumes a batch enqueued
-  // *after* the retained op would be posted ahead of it.
+  // outside the queue, so no deleteBatch ever arrives for it. The retained
+  // op must still go out before a batch enqueued *after* it once the repair
+  // resumes: that batch's `follows` mark keeps it behind the lane entry.
   const { bodies } = fetchSeq([
     () => jsonResponse({ detail: "bad op" }, 400),
     () => jsonResponse({ ok: true }),

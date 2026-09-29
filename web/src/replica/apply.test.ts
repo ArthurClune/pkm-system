@@ -600,7 +600,7 @@ describe("applyChanges: a page id deleted and reused inside one window", () => {
   });
 });
 
-describe("pkm-7788: a create under a ghost parent no longer reverts its sibling", () => {
+describe("applySnapshot and applyChanges: a create under a ghost parent keeps the rest of its batch", () => {
   // Regression for the bean: a pending batch [create C under parent G,
   // update_text L] optimistically applies both while G is still present
   // locally. When G is later gone (a snapshot that omits it, or a window
@@ -665,7 +665,7 @@ describe("pkm-7788: a create under a ghost parent no longer reverts its sibling"
   });
 });
 
-describe("pkm-b0zf: a windowed reapply keeps a batch whose create already applied", () => {
+describe("applyChanges: a windowed reapply keeps a batch whose create already applied", () => {
   // A window does not wipe the replica, so a pending create finds its own
   // row from the enqueue-time apply. That used to fail the INSERT and roll
   // the whole batch back for the window, reverting its other ops.
@@ -756,7 +756,7 @@ describe("pkm-b0zf: a windowed reapply keeps a batch whose create already applie
   });
 });
 
-describe("pkm-b0zf: a replayed move does not re-shift siblings it already made room past", () => {
+describe("applyChanges: a replayed move does not re-shift siblings it already made room past", () => {
   const topLevel = () => t.db.select<{ uid: string; order_idx: number }>(
     "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
     " AND parent_uid IS NULL ORDER BY order_idx, uid");
@@ -797,7 +797,7 @@ describe("pkm-b0zf: a replayed move does not re-shift siblings it already made r
   });
 });
 
-describe("pkm-fe9b: concurrent structure edits converge without a snapshot repair", () => {
+describe("applyChanges: concurrent structure edits converge without a snapshot repair", () => {
   // The server no longer 400s these batches (a 400 used to buy a snapshot
   // repair that also cleaned the optimistic state), so the replica has to
   // reach the server's rows from the feed alone.

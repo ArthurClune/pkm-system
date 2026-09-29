@@ -163,7 +163,7 @@ test("nothing finishes or resyncs after unmount", async () => {
   expect(trace).toEqual(["drain"]);
 });
 
-test("a no-replica session still bumps resync on reconnect (pkm-9x6u)", async () => {
+test("a no-replica session still bumps resync on reconnect", async () => {
   const { flow, trace } = harness({ replicaSync: null });
 
   await flow.begin();
@@ -171,8 +171,8 @@ test("a no-replica session still bumps resync on reconnect (pkm-9x6u)", async ()
   expect(trace).toEqual(["drain", "resync"]);
 });
 
-test("a reconnect that changed nothing pulls the feed but does not resync "
-   + "(pkm-5fak)", async () => {
+test("a reconnect that changed nothing pulls the feed but does not resync",
+   async () => {
   // The train symptom: a 2 s blip with an empty queue and nothing on the
   // server costs one changes pull and no view refetch.
   const { flow, trace } = harness({ replicaSync: unmovedReplica });
@@ -182,7 +182,7 @@ test("a reconnect that changed nothing pulls the feed but does not resync "
   expect(trace).toEqual(["drain", "start", "idle"]);
 });
 
-test("a stale-views connect resyncs even when nothing moved (pkm-5fak)",
+test("a stale-views connect resyncs even when nothing moved",
 async () => {
   // A first connect flushing a previous page load's leftovers: the views read
   // the server before any of this, and the mount-time catch-up may already
@@ -194,7 +194,7 @@ async () => {
   expect(trace).toEqual(["drain", "start", "idle", "resync"]);
 });
 
-test("a stale-views connect finished out of band still resyncs (pkm-5fak)",
+test("a stale-views connect finished out of band still resyncs",
 async () => {
   // The intent carries the staleness, not the call: the queue's own retry is
   // what got the leftovers through, so observeDrain completes this reconnect.
@@ -217,8 +217,8 @@ async () => {
   });
 });
 
-test("a replica that cannot say whether anything moved still resyncs "
-   + "(pkm-5fak)", async () => {
+test("a replica that cannot say whether anything moved still resyncs",
+   async () => {
   // appliedVersion() is null for a session with no usable database: there is
   // no cursor to compare, so the reconnect must be treated as a change or an
   // online-only session would never refresh its views again.
@@ -235,8 +235,8 @@ test("a replica that cannot say whether anything moved still resyncs "
   expect(trace).toEqual(["drain", "start", "idle", "resync"]);
 });
 
-test("a reconnect resyncs once a pull reports the replica has become unusable "
-   + "(pkm-5fak)", async () => {
+test("a reconnect resyncs once a pull reports the replica has become unusable",
+   async () => {
   // The real replicaSync, not a fake: a mid-session database death is only
   // observable through a pull, and the point of the test is that the real one
   // still reports it. The worker latches its own failed open, so every db()

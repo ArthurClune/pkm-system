@@ -40,7 +40,7 @@ function fakeDeps(over: Partial<SocketLifecycleDeps> = {}): SocketLifecycleDeps 
 
 afterEach(() => { vi.restoreAllMocks(); });
 
-test("a first-connect reconnect().begin() rejection is logged, not left unhandled (pkm-fgjg)",
+test("a first-connect reconnect().begin() rejection is logged, not left unhandled",
 async () => {
   // reconnectFlow's begin() does not swallow (unlike observeDrain, which
   // wraps its own finish() in a .catch). A non-empty durable queue on first
@@ -74,7 +74,7 @@ async () => {
   expect(logged.some((args) => args.includes(boom))).toBe(true);
 });
 
-test("a reconnect's begin() rejection is logged, not left unhandled (pkm-fgjg)", async () => {
+test("a reconnect's begin() rejection is logged, not left unhandled", async () => {
   const boom = new Error("replica start failed");
   const replicaSync = {
     start: async () => { throw boom; },
@@ -108,7 +108,7 @@ test("a reconnect's begin() rejection is logged, not left unhandled (pkm-fgjg)",
   expect(logged.some((args) => args.includes(boom))).toBe(true);
 });
 
-test("offline cold start with an empty queue still bootstraps once online (pkm-8k2c)",
+test("offline cold start with an empty queue still bootstraps once online",
 async () => {
   // The mount-time startupRun() already tried replicaSync.start() before the
   // first connect (SyncProvider.tsx's own effect); while offline that attempt's
@@ -140,7 +140,7 @@ async () => {
 });
 
 test("online cold start with an already-bootstrapped replica and empty queue " +
-"stays quiet (pkm-8k2c)", async () => {
+"stays quiet", async () => {
   // Widening the gate must not make every first connect redundantly re-run
   // the reconnect protocol: a replica that mount-time startupRun() already
   // got to "ready" (this session, or reading data persisted from a previous

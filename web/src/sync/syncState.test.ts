@@ -33,7 +33,7 @@ describe("computeEditability", () => {
 
   it("allows offline editing with a ready replica, even if writes may fail", () => {
     // There is no storage-exhaustion read-only mode: an exhausted disk is
-    // indistinguishable from any other SQLITE_IOERR (pkm-avag), so a write that
+    // indistinguishable from any other SQLITE_IOERR, so a write that
     // cannot be persisted is retained by the op queue rather than refused here.
     expect(computeEditability("reconnecting", "ready")).toEqual({
       canEdit: true, readOnlyReason: undefined,
@@ -135,7 +135,7 @@ describe("transitionSync rejected-batch repair", () => {
   });
 
   it("clears a mark-failed problem when its retained intents are discarded", () => {
-    // pkm-tu5k: the discard escape hatch. replica-unavailable deliberately
+    // The discard escape hatch. replica-unavailable deliberately
     // never stomps another problem kind, so without this event the stale
     // mark-failed banner would outlive the intents it reports on.
     const t = transitionSync(withProblem({
@@ -187,7 +187,7 @@ describe("transitionSync poison discovery", () => {
   });
 
   it("reports a session committed to online-only", () => {
-    // pkm-bjae: this state used to be silent. The user has lost offline
+    // This state must not be silent. The user has lost offline
     // editing for the session and needs to know, and to have a way out.
     const t = transitionSync(createSyncState(), {
       type: "replica-unavailable", error: "Access Handles cannot be created",
@@ -199,9 +199,9 @@ describe("transitionSync poison discovery", () => {
   });
 
   it("online-only never stomps a delivery problem the user can act on", () => {
-    // pkm-bjae review: replica-unavailable was the only problem event with no
-    // precedence rule, so it overwrote a failed legacy repair — and with it the
-    // Retry that reaches repairLegacyRef, stranding that repair.
+    // replica-unavailable needs a precedence rule: without one it would
+    // overwrite a failed legacy repair — and with it the Retry that reaches
+    // repairLegacyRef, stranding that repair.
     const failed: SyncProblem = {
       kind: "legacy-rejected", repair: "failed",
       error: "rejected", repairError: "snapshot unavailable",

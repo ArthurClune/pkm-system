@@ -1,4 +1,4 @@
-// Regression coverage for pkm-falb: the op queue is connection-aware, so async
+// The op queue is connection-aware, so async
 // work that resolves after the socket drops (a debounced text op, an image
 // upload completion) never POSTs while offline, and preserved work flushes on
 // reconnect after authoritative state is re-established.

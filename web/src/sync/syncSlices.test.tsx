@@ -1,6 +1,6 @@
-// The Sync context used to hand every consumer one value, so an op-queue tick
-// or a socket flap re-rendered all of them — in the app, one mounted outline
-// per loaded Journal day (pkm-qfee). These tests pin which consumer wakes for
+// The Sync context must not hand every consumer one value: an op-queue tick
+// or a socket flap must not re-render all of them — in the app, one mounted
+// outline per loaded Journal day. These tests pin which consumer wakes for
 // which change; they are render-count tests, so they assert on counters
 // rather than on the DOM.
 import { act, render, screen } from "@testing-library/react";

@@ -56,6 +56,10 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     },
     onDirty: (shown) => handlers.onDraftStart(node.uid, shown),
     onAdopt: () => setDatePickerAt(null), // adopted text invalidates the offset
+    // `?? null`: a handler fake may answer undefined.
+    resume: () => handlers.pendingDraft(node.uid) ?? null,
+    onUnmount: (selStart, selEnd) =>
+      handlers.onInputUnmount(node.uid, selStart, selEnd),
   });
   // Shared with the phone Composer (pkm-noow): the completion context and the
   // caret a pick splices at are re-derived from the live textarea selection,

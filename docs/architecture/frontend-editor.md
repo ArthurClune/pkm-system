@@ -191,7 +191,14 @@ text, and the next draft would be typed over text the tree no longer holds.
 Hashing `base` is what lets the server keep both texts when another device
 edited the block from the same base. A draft on one block is flushed before
 focus or a new draft moves to another block. When a remote batch removes the
-block, its textarea unmounts with no blur, so nothing else would flush it. Undo history
+block, its textarea unmounts with no blur, so nothing else would flush it.
+A remote batch that reparents the block, or one of its ancestors, within the
+page remounts its textarea, again with no blur, while the draft is pending.
+`BlockInput` asks `handlers.pendingDraft(uid)` at mount, and `useBlockDraft`
+resumes that text dirty. The tree's text does not replace it, and no new
+`onDraftStart` fires, so the draft keeps its base. The old textarea reports its
+selection as it unmounts (`onInputUnmount`), and the new one restores it, or
+puts the caret at the end of the draft when none was recorded. Undo history
 records the flushed op with its stamps removed (`withoutStamps`), so a redo
 hashes the tree it replays against. It leaves out a text op whose block has
 left the tree, which cannot be inverted there, so the rest of its batch stays

@@ -8,7 +8,7 @@ import type { WriteTicket } from "./sync/opQueue";
 
 /** Hold the outline editor for `title` so a test's own mount cannot win the
  * lease, and return the release. Sessions are global to the module, so the
- * handle is released before throwing on an ungranted lease (pkm-l457):
+ * handle is released before throwing on an ungranted lease:
  * leaking it would cascade into every later test in the process. */
 export function reserveOutlineEditor(title: string): () => void {
   const handle = acquireOutlineSession(title, null);
@@ -24,7 +24,7 @@ export function reserveOutlineEditor(title: string): () => void {
 }
 
 /** What `apiFetch` hands `fetch` for a read: the verb, plus the abort signal
- * carrying the READ_TIMEOUT_MS deadline (pkm-d6i6). Assert with this rather
+ * carrying the READ_TIMEOUT_MS deadline. Assert with this rather
  * than a bare `{ method: "GET" }`, which no longer matches. */
 export const READ_INIT = { method: "GET", signal: expect.any(AbortSignal) };
 
@@ -105,7 +105,7 @@ export class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   // Mirrors the real WebSocket readyState constants so production code that
   // branches on `ws.readyState === WebSocket.OPEN` (the frozen-socket resume
-  // heuristic, pkm-uue4) sees the same values under the stubbed global.
+  // heuristic) sees the same values under the stubbed global.
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSING = 2;
@@ -130,8 +130,8 @@ export class FakeWebSocket {
    * mirrors calling the real method -- but the resulting close event does
    * not: a real WebSocket's close is an async task, so `onclose` here is
    * deferred (setTimeout(0), driven by fake timers) rather than fired
-   * inline. This matters for pkm-uue4's resume heuristic: production code
-   * calls `ws.close()` and then falls through to `reconnectNow()` in the
+   * inline. This matters for the frozen-socket resume heuristic: production
+   * code calls `ws.close()` and then falls through to `reconnectNow()` in the
    * same synchronous handler, trusting that the close event -- and the
    * scheduleReconnect() it triggers -- hasn't happened yet. A synchronous
    * onclose here would let that same-tick reconnectNow() see a freshly

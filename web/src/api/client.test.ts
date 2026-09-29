@@ -41,7 +41,7 @@ it("throws ApiError carrying the status on other failures", async () => {
   expect((err as ApiError).status).toBe(404);
 });
 
-it("surfaces the server's detail message on ApiError (pkm-c98s item 5)", async () => {
+it("surfaces the server's detail message on ApiError", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue(jsonResponse({ detail: "at most 3 concurrent conversations" }, 409)),
@@ -115,7 +115,7 @@ function abortOnlyFetch(): ReturnType<typeof vi.fn> {
   }));
 }
 
-it("aborts a read that outlives the read timeout (pkm-d6i6)", async () => {
+it("aborts a read that outlives the read timeout", async () => {
   vi.useFakeTimers();
   try {
     vi.stubGlobal("fetch", abortOnlyFetch());
@@ -145,7 +145,7 @@ it("leaves mutations untimed: an aborted-but-applied write is worse than a slow 
   }
 });
 
-it("leaves an opted-out read untimed however long it runs (pkm-d6i6)", async () => {
+it("leaves an opted-out read untimed however long it runs", async () => {
   vi.useFakeTimers();
   try {
     const fetchMock = abortOnlyFetch();

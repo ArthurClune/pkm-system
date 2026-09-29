@@ -14,7 +14,7 @@ afterEach(() => {
 
 test("resamples the first byte until it lands on an alphanumeric symbol", () => {
   // argparse on the Python CLI reads a bare uid starting with '-' as an
-  // option (pkm-y5yv); the web minter must never hand out one either. Drive
+  // option; the web minter must never hand out one either. Drive
   // crypto.getRandomValues through two rejected first bytes ('-', then '_')
   // before an accepted one, deterministically -- not relying on the ~1-in-32
   // chance of a bad byte actually occurring in a real run.

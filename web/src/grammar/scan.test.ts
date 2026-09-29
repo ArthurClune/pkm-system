@@ -180,8 +180,9 @@ describe("scanGrammar: opaque code", () => {
   });
 
   it("a fence opener with an info string cannot close an outer fence", () => {
-    // pkm-9qgk: ```css used to close the outer ```markdown fence, exposing
-    // the css body — hex colours like #ffcdd2 then minted pages.
+    // A nested ```css fence opener must not close the outer ```markdown
+    // fence — otherwise the css body leaks out and hex colours like
+    // #ffcdd2 mint pages.
     expect(tokens("```markdown\na\n```css\nb #ffcdd2\n```\n#Real")).toEqual([
       { kind: "code-fence", start: 0, end: 34 },
       { kind: "hashtag", title: "Real", start: 35, end: 40 },

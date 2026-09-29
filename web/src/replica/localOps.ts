@@ -8,7 +8,9 @@
 // NEGATIVE ids, reconciled when the feed delivers the authoritative row
 // (reconcile.ts); ops carry titles, so negative ids never go on the wire.
 // An op on a missing block or create/move parent is skipped, as the server
-// skips it (missingTarget.ts, pkm-7788).
+// skips it (missingTarget.ts, pkm-7788). A re-applied batch (reapply)
+// finds its own create and move effects already in place and does not
+// repeat them (pkm-b0zf).
 
 import type { BlockOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
@@ -88,12 +90,30 @@ const shiftSiblings = (db: ReplicaDb, pageId: number,
     [pageId, parentUid, fromIdx]);
 };
 
-interface BlockInfo { page_id: number; parent_uid: string | null }
+interface BlockInfo {
+  page_id: number; parent_uid: string | null; order_idx: number;
+}
 
 const blockInfo = (db: ReplicaDb, uid: string): BlockInfo | null => {
   const rows = db.select<BlockInfo>(
-    "SELECT page_id, parent_uid FROM blocks WHERE uid = ?", [uid]);
+    "SELECT page_id, parent_uid, order_idx FROM blocks WHERE uid = ?", [uid]);
   return rows.length > 0 ? rows[0] : null;
+};
+
+/** Replay of a create or move already in place: shifting again would drift
+ * every later sibling's order_idx on each feed window, until a sibling the
+ * feed re-ships at its server index overtakes one that drifted. Shift only
+ * when a sibling the window re-shipped now shares this block's slot. */
+const keepSlot = (db: ReplicaDb, uid: string, at: BlockInfo): void => {
+  const clash = db.select(
+    "SELECT 1 AS x FROM blocks WHERE page_id = ? AND parent_uid IS ?" +
+    " AND order_idx = ? AND uid != ? LIMIT 1",
+    [at.page_id, at.parent_uid, at.order_idx, uid]);
+  if (clash.length === 0) return;
+  db.exec(
+    "UPDATE blocks SET order_idx = order_idx + 1" +
+    " WHERE page_id = ? AND parent_uid IS ? AND order_idx >= ? AND uid != ?",
+    [at.page_id, at.parent_uid, at.order_idx, uid]);
 };
 
 export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
@@ -107,7 +127,8 @@ export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
      )
      SELECT uid FROM sub ORDER BY depth DESC`, [uid]).map((r) => r.uid);
 
-function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
+function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
+                  reapply: boolean): void {
   if (op.op === "create_page") {
     getOrCreateLocalPage(db, op.page_title, nowMs);
     return;
@@ -120,7 +141,13 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
 
   switch (op.op) {
     case "create": {
-      // a create onto an existing uid fails the INSERT, as the server 400s
+      // On replay the row is this create's own: the enqueue-time apply, or
+      // the server's echo. Later ops re-apply over it; keep it as it is.
+      if (reapply && info !== null) {
+        keepSlot(db, op.uid, info);
+        return;
+      }
+      // otherwise an existing uid fails the INSERT, as the server 400s
       const pageId = getOrCreateLocalPage(db, op.page_title, nowMs);
       shiftSiblings(db, pageId, op.parent_uid ?? null, op.order_idx);
       db.exec(
@@ -150,6 +177,12 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
         : (op.page_title != null
            ? getOrCreateLocalPage(db, op.page_title, nowMs)
            : block.page_id);
+      if (reapply && block.page_id === targetPage
+          && block.parent_uid === (op.parent_uid ?? null)
+          && block.order_idx === op.order_idx) {
+        keepSlot(db, op.uid, block);
+        return;
+      }
       shiftSiblings(db, targetPage, op.parent_uid ?? null, op.order_idx);
       db.exec(
         "UPDATE blocks SET parent_uid = ?, order_idx = ?, updated_at = ?" +
@@ -204,12 +237,17 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number): void {
  * skips it, so the rest of the batch still lands (the replica may simply be
  * behind the editor). What still throws: a create onto an existing uid, a
  * title the grammar refuses. Callers treat the local apply as best-effort
- * cache maintenance, never as durability. */
-export function applyLocalOps(db: ReplicaDb, ops: BlockOp[],
-                              nowMs: number): void {
+ * cache maintenance, never as durability.
+ *
+ * `reapply` is reapplyPending's replay of a batch already applied once: a
+ * create whose uid exists and a move whose block already sits at its target
+ * are kept in place (keepSlot) instead of failing or shifting again. */
+export function applyLocalOps(db: ReplicaDb, ops: BlockOp[], nowMs: number,
+                              { reapply = false }: { reapply?: boolean } = {},
+): void {
   const violation = findOpTitleViolation(ops);
   if (violation !== null) throw titleViolationError(violation);
   db.transaction(() => {
-    for (const op of ops) applyOne(db, op, nowMs);
+    for (const op of ops) applyOne(db, op, nowMs, reapply);
   });
 }

@@ -602,3 +602,135 @@ describe("pkm-7788: a create under a ghost parent no longer reverts its sibling"
     });
   });
 });
+
+describe("pkm-b0zf: a windowed reapply keeps a batch whose create already applied", () => {
+  // A window does not wipe the replica, so a pending create finds its own
+  // row from the enqueue-time apply. That used to fail the INSERT and roll
+  // the whole batch back for the window, reverting its other ops.
+  const topLevel = () => t.db.select<{ uid: string; order_idx: number }>(
+    "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
+    " AND parent_uid IS NULL ORDER BY order_idx, uid");
+  const enqueueCreateAndEdit = () => enqueueBatch(t.db, [
+    { op: "create", uid: "uid_new1", page_title: "Machine Learning",
+      parent_uid: null, order_idx: 1, text: "fresh" },
+    { op: "update_text", uid: "uid_b1", text: "mine" },
+  ], 5, "batch-create");
+  const expectStillPending = () => {
+    const batches = allBatches(t.db);
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toMatchObject({
+      batch_id: "batch-create", poisoned: false,
+    });
+  };
+
+  test("a window re-shipping a block the batch edits keeps the optimistic text", () => {
+    enqueueCreateAndEdit();
+
+    const result = applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      blocks: [block("uid_b1", 1, { text: "another device" })],
+    }), 6);
+
+    expect(result).toEqual({ status: "applied", cursor: 11 });
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ text: "mine" }]);
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_new1'"))
+      .toEqual([{ text: "fresh" }]);
+    expect(topLevel()).toEqual([
+      { uid: "uid_b1", order_idx: 0 },
+      { uid: "uid_new1", order_idx: 1 },
+      { uid: "uid_b2", order_idx: 2 },
+    ]);
+    expectStillPending();
+  });
+
+  test("our own echo landing before the ack matches the server exactly", () => {
+    enqueueCreateAndEdit();
+
+    // the server applied the batch: it shifted uid_b2 and journaled all three
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      blocks: [
+        block("uid_new1", 1, { order_idx: 1, text: "fresh" }),
+        block("uid_b1", 1, { text: "mine" }),
+        block("uid_b2", 1, { order_idx: 2 }),
+      ],
+    }), 6);
+
+    expect(t.db.select("SELECT text FROM blocks WHERE uid = 'uid_b1'"))
+      .toEqual([{ text: "mine" }]);
+    expect(topLevel()).toEqual([
+      { uid: "uid_b1", order_idx: 0 },
+      { uid: "uid_new1", order_idx: 1 },
+      { uid: "uid_b2", order_idx: 2 },
+    ]);
+    expectStillPending();
+  });
+
+  test("a sibling re-shipped onto the created block's slot is moved past it", () => {
+    enqueueCreateAndEdit();
+
+    // another device edited uid_b2; the server has not seen our create, so
+    // it ships uid_b2 at its unshifted index -- the slot uid_new1 holds
+    applyChanges(t.db, emptyFeed({
+      next_since: 11, latest_seq: 11,
+      blocks: [block("uid_b2", 1, { order_idx: 1, text: "edited elsewhere" })],
+    }), 6);
+
+    expect(topLevel().map((r) => r.uid))
+      .toEqual(["uid_b1", "uid_new1", "uid_b2"]);
+  });
+
+  test("windows that do not touch its siblings leave their order_idx alone", () => {
+    enqueueCreateAndEdit();
+    for (const seq of [11, 12, 13]) {
+      applyChanges(t.db, emptyFeed({ next_since: seq, latest_seq: seq }), 6);
+    }
+    expect(topLevel()).toEqual([
+      { uid: "uid_b1", order_idx: 0 },
+      { uid: "uid_new1", order_idx: 1 },
+      { uid: "uid_b2", order_idx: 2 },
+    ]);
+  });
+});
+
+describe("pkm-b0zf: a replayed move does not re-shift siblings it already made room past", () => {
+  const topLevel = () => t.db.select<{ uid: string; order_idx: number }>(
+    "SELECT uid, order_idx FROM blocks WHERE page_id = 1" +
+    " AND parent_uid IS NULL ORDER BY order_idx, uid");
+
+  test("sibling order_idx is stable across windows", () => {
+    enqueueBatch(t.db, [
+      { op: "move", uid: "uid_b3", parent_uid: null, order_idx: 1 },
+    ], 5, "batch-move");
+    for (const seq of [11, 12, 13]) {
+      applyChanges(t.db, emptyFeed({ next_since: seq, latest_seq: seq }), 6);
+    }
+    expect(topLevel()).toEqual([
+      { uid: "uid_b1", order_idx: 0 },
+      { uid: "uid_b3", order_idx: 1 },
+      { uid: "uid_b2", order_idx: 2 },
+    ]);
+  });
+
+  test("drift no longer lets a re-shipped sibling overtake a drifted one", () => {
+    // a third sibling so one can be re-shipped below another's drifted index
+    t.db.exec(
+      "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
+      " heading, collapsed, created_at, updated_at)" +
+      " VALUES ('uid_b4', 1, NULL, 2, 'fourth', NULL, 0, 1, 1)");
+    enqueueBatch(t.db, [
+      { op: "move", uid: "uid_b3", parent_uid: null, order_idx: 1 },
+    ], 5, "batch-move");
+    for (const seq of [11, 12]) {
+      applyChanges(t.db, emptyFeed({ next_since: seq, latest_seq: seq }), 6);
+    }
+    // another device edits uid_b4; the server ships it at its own index 2
+    applyChanges(t.db, emptyFeed({
+      next_since: 13, latest_seq: 13,
+      blocks: [block("uid_b4", 1, { order_idx: 2, text: "edited elsewhere" })],
+    }), 6);
+    expect(topLevel().map((r) => r.uid))
+      .toEqual(["uid_b1", "uid_b3", "uid_b2", "uid_b4"]);
+  });
+});

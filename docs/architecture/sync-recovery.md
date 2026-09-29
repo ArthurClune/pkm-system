@@ -207,10 +207,20 @@ and clears them all on a schema rebuild, which restarts the AUTOINCREMENT ids.
 | `prepareRecovery` fingerprints the durable pending rows; `commitRecovery` re-reads them just before the destructive step and aborts if they changed | `workerHandlers.ts` | Recovery erasing an acknowledged enqueue |
 | `reapplyPending` re-applies non-poisoned pending batches on top of every snapshot and feed window | `replica/apply.ts` | Later edits capturing stale base hashes |
 | `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
+| Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; sibling `order_idx` drifting up per window |
 
 The FK diff works whatever the enforcement pragmas say, so it also covers the
 reset rebuild, which runs under `foreign_keys=OFF`. The rolled-back batch stays
 in `pending_ops` and still flushes to the server.
+
+A snapshot wipes before the replay; a window does not. So a windowed replay runs
+over the batch's own effects, and the result must still equal window rows plus
+every pending batch. A create's existing row is its own, from the enqueue-time
+apply or the server's echo. Replaying its insert would hit the PRIMARY KEY, and
+replaying a move's sibling shift would push later siblings up again. `keepSlot`
+shifts siblings only when one the window re-shipped at its server index shares
+the block's slot. At enqueue a create onto an existing uid still fails, as the
+server 400s it.
 
 ## A batch the server rejects
 

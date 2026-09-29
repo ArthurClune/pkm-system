@@ -502,6 +502,55 @@ test("a needs-bootstrap feed answer re-bootstraps when the queue is empty", asyn
   );
 });
 
+test("an unmatched poison round releases ownership so a later needs-bootstrap pull can rebootstrap",
+async () => {
+  let applyCall = 0;
+  const replica = fakeReplica({
+    applyChanges: vi.fn(async (window: Changes) => {
+      applyCall += 1;
+      return applyCall === 1
+        ? { status: "applied" as const, cursor: window.next_since }
+        : { status: "needs-bootstrap" as const };
+    }),
+  });
+  const fetchJson = vi.fn(async (path: string) =>
+    path === "/api/sync/snapshot" ? SNAP : feed());
+  let signalPoisonPending: () => void = () => undefined;
+  let signalUnmatched: () => void = () => undefined;
+  const queue = {
+    pause: vi.fn(),
+    resume: vi.fn(),
+    onPoisonPending: (listener: () => void) => {
+      signalPoisonPending = listener;
+      return () => undefined;
+    },
+    onPoisonMarkUnmatched: (listener: () => void) => {
+      signalUnmatched = listener;
+      return () => undefined;
+    },
+  };
+  const { onState } = collector();
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState, queue,
+  });
+  await sync.start(); // consumes applyCall #1 ("applied"), nothing poison-related yet
+
+  // Calling the unmatched signal with no claim held is a no-op: nothing to
+  // release, so resume must not fire yet.
+  signalUnmatched();
+  expect(queue.resume).not.toHaveBeenCalled();
+
+  signalPoisonPending(); // claims ownership, as rejectDurableBatch would
+  signalUnmatched(); // the marking round matched nothing
+  expect(queue.resume).toHaveBeenCalledTimes(1);
+
+  sync.onSeq(9);
+  await sync.idle(); // drives applyCall #2 ("needs-bootstrap")
+
+  expect(replica.calls).toContain("prepareRecovery"); // rebase actually ran
+  expect(replica.calls).toContain("commitRecovery");
+});
+
 test("schema mismatch flushes pending batches before reset, in order", async () => {
   const posted: unknown[] = [];
   const replica = fakeReplica({}, {

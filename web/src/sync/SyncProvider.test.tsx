@@ -943,6 +943,166 @@ test("rejected batch repair finishes before resync and later delivery", async ()
   expect(sync.resyncSeq).toBe(baselineResync + 1);
 });
 
+test("discardProblem releases ownership before resuming, not only after the re-POST heals",
+async () => {
+  // The re-POST discardProblem's own resume triggers is gated at its SECOND
+  // attempt: the assertion below runs while that re-POST is still in flight,
+  // before it could reject and (via a matched mark) repair its own way to a
+  // release. That isolates discardProblem's release from Path B's natural
+  // self-heal, which would otherwise make this pass even with the bug.
+  let releaseRepost!: () => void;
+  const repostGate = new Promise<void>((resolve) => { releaseRepost = resolve; });
+  let badBatchPosts = 0;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      const body = JSON.parse(String(init?.body)) as { batch_id: string };
+      if (body.batch_id === "bad-batch") {
+        badBatchPosts += 1;
+        if (badBatchPosts > 1) await repostGate;
+        return jsonResponse({ detail: "bad op" }, 400);
+      }
+      return jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+
+  const replica = fakeReplicaForProvider();
+  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                     poisoned: boolean }> = [];
+  let nextId = 1;
+  replica.init = async () => ({
+    empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+  });
+  replica.enqueue = async (ops) => {
+    const id = nextId++;
+    const batch_id = id === 1 ? "bad-batch" : "good-batch";
+    rows.push({ id, batch_id, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
+  };
+  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+  // The mark RPC itself fails every time (not a match failure): the row
+  // stays unpoisoned and deliverable, reaching problem.repair === "mark-failed"
+  // mid-session, exactly the branch discardProblem's fix must release.
+  replica.markPoisoned = async () => {
+    throw new Error("Access Handles cannot be created");
+  };
+  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+  replica.pendingBatches = async () => [...rows];
+
+  let sync!: Sync;
+  function Grab() { sync = useSyncWhole(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+    await Promise.resolve();
+  });
+  await vi.waitFor(() => {
+    expect(sync.problem).toMatchObject({
+      kind: "rejected-batch", repair: "mark-failed",
+    });
+  });
+
+  await act(async () => { await sync.discardProblem(); });
+  // The still-unmarked row redelivers as designed; wait for that re-POST to
+  // actually be in flight (gated, not yet rejected) before checking release.
+  await vi.waitFor(() => { expect(badBatchPosts).toBeGreaterThan(1); });
+
+  // Ownership was actually released, not merely "will heal once redelivered":
+  // resetLocalData's own barrier guard must no longer see a repair in progress,
+  // even though the re-POST above has not yet had a chance to reject and
+  // repair its own way to a release.
+  await act(async () => { await sync.resetReplica(true); });
+  // syncState's "reset-failed" case stores the message in `resetError`, not
+  // `error` (that field is the stalled-base default and stays ""); discarding
+  // cleared `problem` to undefined first, so this is the only source of a
+  // "reset-failed" problem here.
+  expect(sync.problem).not.toMatchObject({
+    reset: "failed", resetError: expect.stringContaining("in progress"),
+  });
+
+  releaseRepost();
+});
+
+test("an unmatched poison mark releases ownership so delivery resumes and a later rebootstrap can run",
+async () => {
+  // Composed across the real opQueue + replicaSync + SyncProvider stack (no
+  // mocked queue below the provider), unlike the other two branch tests
+  // above: this is the boundary the signal has to cross.
+  const posts: string[] = [];
+  const trace: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL,
+                                      init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/ops") {
+      const body = JSON.parse(String(init?.body)) as { batch_id: string };
+      posts.push(body.batch_id);
+      return body.batch_id === "bad-batch"
+        ? jsonResponse({ detail: "bad op" }, 400)
+        : jsonResponse({ ok: true });
+    }
+    if (url === "/api/sync/snapshot") return jsonResponse(SNAPSHOT);
+    if (url.startsWith("/api/sync/changes")) return jsonResponse(EMPTY_FEED);
+    return jsonResponse({ detail: "not found" }, 404);
+  }));
+
+  const replica = fakeReplicaForProvider();
+  const rows: Array<{ id: number; batch_id: string; ops: BlockOp[];
+                     poisoned: boolean }> = [];
+  let nextId = 1;
+  replica.init = async () => ({
+    empty: false, cursor: 5, schemaMismatch: false, pendingBatches: [],
+  });
+  replica.enqueue = async (ops) => {
+    const id = nextId++;
+    const batch_id = id === 1 ? "bad-batch" : "good-batch";
+    rows.push({ id, batch_id, ops, poisoned: false });
+    return { pending: rows.filter((row) => !row.poisoned).length, batchId: batch_id };
+  };
+  replica.nextBatch = async () => rows.find((row) => !row.poisoned) ?? null;
+  // Path A: the row vanished between POST and mark (e.g. a concurrent manual
+  // reset raced the drain) — nothing left to mark, so nothing matches.
+  replica.markPoisoned = async (id) => {
+    const idx = rows.findIndex((row) => row.id === id);
+    if (idx !== -1) rows.splice(idx, 1);
+    return { pending: rows.filter((row) => !row.poisoned).length, matched: false };
+  };
+  replica.prepareRecovery = async () => {
+    trace.push("prepare repair");
+    return { token: "poison-lease", batches: [...rows] };
+  };
+  replica.deleteBatch = async (id) => {
+    const idx = rows.findIndex((row) => row.id === id);
+    if (idx !== -1) rows.splice(idx, 1);
+    return { pending: rows.filter((row) => !row.poisoned).length };
+  };
+  replica.pendingCount = async () => rows.filter((row) => !row.poisoned).length;
+  replica.pendingBatches = async () => [...rows];
+
+  let sync!: Sync;
+  function Grab() { sync = useSyncWhole(); return null; }
+  render(<SyncProvider replica={replica}><Grab /></SyncProvider>);
+  await act(async () => { lastWs().open(); });
+  await act(async () => {
+    await sync.enqueue([{ op: "delete", uid: "bad" }]).settled;
+    await sync.enqueue([{ op: "delete", uid: "good" }]).settled;
+    await Promise.resolve();
+  });
+  await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
+
+  // No repair ever ran (nothing matched), yet delivery still resumed and a
+  // later bootstrap-needed pull is not silently deferred.
+  expect(trace).not.toContain("prepare repair");
+  await act(async () => { await sync.resetReplica(true); });
+  expect(sync.problem).not.toMatchObject({
+    reset: "failed", resetError: expect.stringContaining("in progress"),
+  });
+});
+
 test("startup repairs durable poison before posting a later batch", async () => {
   let releaseSnapshot!: () => void;
   const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });

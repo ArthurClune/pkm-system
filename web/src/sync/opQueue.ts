@@ -115,6 +115,11 @@ export interface OpQueue {
   onPoisonPending(fn: () => void): () => void;
   onPoisonMarkFailed(fn: (failure: PoisonMarkFailure) => void): () => void;
   onPoison(fn: (event: PoisonEvent) => void): () => void;
+  /** Fires once per markRetainedPoison call in which intents existed and NONE
+   * matched a durable row — the ownership claim this signals has nothing left
+   * to repair, unlike onPoison's per-matched-intent report. Never fires for a
+   * round with no retained intents. */
+  onPoisonMarkUnmatched(fn: () => void): () => void;
   /** Retained mark intents, including reload fallback metadata. */
   poisonMarkIntents(): readonly PoisonEvent[];
   /** Retry only durable poison marking. Never performs an ops POST. */
@@ -227,6 +232,7 @@ function createReplicaQueue(replica: Replica,
   const poisonPending = listeners<void>();
   const poisonMarkFailed = listeners<PoisonMarkFailure>();
   const poison = listeners<PoisonEvent>();
+  const poisonMarkUnmatched = listeners<void>();
   const deliveries = new Map<string, (outcome: DeliveryOutcome) => void>();
   const fallback: FallbackEntry[] = [];
   // Monotonic count of lane entries ever appended: the source of each
@@ -453,6 +459,9 @@ function createReplicaQueue(replica: Replica,
     writePoisonMarkIntents([]);
     poisonMarkIntents = [];
     matchedIntents.forEach((event) => poison.emit(event));
+    if (intents.length > 0 && matchedIntents.length === 0) {
+      poisonMarkUnmatched.emit(undefined);
+    }
     return matchedIntents;
   };
 
@@ -840,6 +849,7 @@ function createReplicaQueue(replica: Replica,
     onPoisonPending: poisonPending.add,
     onPoisonMarkFailed: poisonMarkFailed.add,
     onPoison: poison.add,
+    onPoisonMarkUnmatched: poisonMarkUnmatched.add,
     poisonMarkIntents: () => [...poisonMarkIntents],
     retryPoisonMarks: markRetainedPoison,
     discardPoisonIntents: () => {

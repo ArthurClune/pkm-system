@@ -667,6 +667,11 @@ export function SyncProvider({ children, replica }: {
             currentProblem.repair !== "mark-failed") return Promise.resolve();
         queue.discardPoisonIntents();
         applySync({ type: "poison-intents-discarded" });
+        // Releases a claim this session may be holding from a rejection that
+        // has not yet re-entered rejectDurableBatch; harmless when no claim is
+        // held (completeAuthoritativeRepair only clears its own matching
+        // reason).
+        replicaSync!.completeAuthoritativeRepair("poison");
         if (startupDiscoveringPoisonRef.current) {
           // Rejoin the normal startup: discovery runs against the replica,
           // and an unopenable one falls into the pkm-bjae online-only

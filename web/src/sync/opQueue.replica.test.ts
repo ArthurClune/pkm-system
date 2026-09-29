@@ -886,6 +886,43 @@ async () => {
   expect(published).toEqual([]);
 });
 
+test("an unmatched marking round reports itself once, not per intent", async () => {
+  const staleOne: PoisonEvent = {
+    rowId: 1, batchId: "deleted-batch-1", ops: [op("old1")], status: 400,
+    message: "old rejection 1",
+  };
+  const staleTwo: PoisonEvent = {
+    rowId: 2, batchId: "deleted-batch-2", ops: [op("old2")], status: 400,
+    message: "old rejection 2",
+  };
+  localStorage.setItem("pkm.poison-mark-intents.v1", JSON.stringify({
+    version: 1, intents: [staleOne, staleTwo],
+  }));
+  // No rows in the replica at all: both intents' rowId/batchId pairs match
+  // nothing, so both mark calls report matched: false.
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  const unmatchedRounds: number[] = [];
+  q.onPoisonMarkUnmatched(() => { unmatchedRounds.push(1); });
+
+  await expect(q.retryPoisonMarks()).resolves.toEqual([]);
+
+  expect(unmatchedRounds).toHaveLength(1);
+});
+
+test("a round with no retained intents never reports an unmatched round", async () => {
+  const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
+  const replica = memReplica();
+  const q = createOpQueue(replica, () => undefined);
+  const unmatchedRounds: number[] = [];
+  q.onPoisonMarkUnmatched(() => { unmatchedRounds.push(1); });
+
+  await expect(q.retryPoisonMarks()).resolves.toEqual([]);
+
+  expect(unmatchedRounds).toEqual([]);
+  expect(bodies).toEqual([]);
+});
+
 test("discarding retained mark intents clears them without touching the replica",
 async () => {
   // pkm-tu5k: the escape from a permanently-wedged profile. Discard must not

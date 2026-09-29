@@ -176,6 +176,20 @@ function ackSeq(ack: unknown): number | undefined {
   return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
 }
 
+/** Whether an /api/ops ack named any op the server skipped -- a block, or
+ * create/move parent, it no longer had (see `ops_core.classify_missing_target`
+ * and `render.render_ops_ack` on the server; `skipped` is present only when
+ * non-empty). Read by hand exactly like ackSeq's `seq`, for the same reason:
+ * `OpsAck` is not a `response_model`, so the OpenAPI schema types the ack as a
+ * bare object and regenerating it is a no-op. Missing, absent, or malformed
+ * (not an array) all mean nothing was skipped -- the honest reading of a
+ * shape this loose is "no evidence of a skip", not a thrown error. */
+function ackSkipped(ack: unknown): boolean {
+  if (typeof ack !== "object" || ack === null) return false;
+  const skipped = (ack as { skipped?: unknown }).skipped;
+  return Array.isArray(skipped) && skipped.length > 0;
+}
+
 /** An enqueue whose ops could not be persisted locally (a full disk, OPFS
  * access-handle contention, an exhausted SAH pool). Retained in FIFO order and
  * delivered by drain() under the same connectivity/retry/recovery policy as
@@ -196,7 +210,8 @@ interface FallbackEntry {
 
 function createReplicaQueue(replica: Replica,
                             onDesync: (error: unknown) => void,
-                            onDrain: (outcome: DrainOutcome) => void): OpQueue {
+                            onDrain: (outcome: DrainOutcome) => void,
+                            onSkippedNoReplica: () => void): OpQueue {
   let poisonMarkIntents = readPoisonMarkIntents();
   // Connectivity + retry policy lives in the queueState core; this shell owns
   // the timer handle and dispatches events into it.
@@ -446,8 +461,9 @@ function createReplicaQueue(replica: Replica,
   const deliverLaneHead = async (
     head: FallbackEntry,
   ): Promise<DrainOutcome | null> => {
+    let ack: unknown;
     try {
-      await postOps(head.ops, head.batchId);
+      ack = await postOps(head.ops, head.batchId);
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status >= 400
           && error.status < 500) {
@@ -462,6 +478,16 @@ function createReplicaQueue(replica: Replica,
         return blocked("recovering", error);
       }
       return failed(error);
+    }
+    // pkm-c2gs: this batch committed (skipped ops are not a rejection), but
+    // ONLY while this session has no replica (`unavailable !== null`) is
+    // there no changes feed to tombstone the ghost block a skipped op
+    // targeted. A replica-backed lane delivery (ordering-only, pkm-5ekv) has
+    // a feed that will tombstone it, so firing here too would just be a
+    // redundant refetch racing the feed — narrowed to the case that actually
+    // leaves a ghost on screen.
+    if (unavailable !== null && ackSkipped(ack)) {
+      try { onSkippedNoReplica(); } catch { /* listener isolation */ }
     }
     settleLaneHead(head, { status: "delivered" });
     dispatch({ type: "batch-succeeded" });
@@ -831,6 +857,14 @@ function createReplicaQueue(replica: Replica,
 export function createOpQueue(replica: Replica,
                               onDesync: (error: unknown) => void,
                               onDrain: (outcome: DrainOutcome) => void =
+                                () => undefined,
+                              /** A fallback-lane batch's ack named a skipped
+                               * op while this session has no replica (see
+                               * deliverLaneHead) -- the active view is stale
+                               * and must refetch. Never a desync: the batch
+                               * committed, so nothing here is retried or
+                               * discarded. */
+                              onSkippedNoReplica: () => void =
                                 () => undefined): OpQueue {
-  return createReplicaQueue(replica, onDesync, onDrain);
+  return createReplicaQueue(replica, onDesync, onDrain, onSkippedNoReplica);
 }

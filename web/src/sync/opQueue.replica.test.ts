@@ -1973,3 +1973,96 @@ test("reconnect resets the retry delay to 250ms", async () => {
     vi.useRealTimers();
   }
 });
+
+// --- pkm-c2gs: a no-replica tab (fallback lane, no changes feed) refetches
+// its view when an ack names a skipped op -- otherwise the ghost block the
+// skipped op targeted never leaves the screen, and every debounced flush
+// lands another child under its daily-note conflict header. A replica-backed
+// tab gets the same ghost tombstoned by its own feed, so this must fire only
+// while the queue has latched `unavailable` (no replica this session).
+
+/** Unlike laneOnlyReplica's CANTOPEN (a local persist failure that is never
+ * session-fatal, see errors.ts::isSessionFatal), this latches `unavailable`
+ * exactly as absentReplica() does for a real no-replica session -- the
+ * condition deliverLaneHead's refetch is narrowed to. */
+const noReplicaAtAll = () => laneOnlyReplica({
+  enqueue: async () => { throw new ReplicaUnavailableError("no openable database"); },
+});
+
+test("a fallback-lane ack naming a skipped op triggers the no-replica refetch",
+async () => {
+  fetchSeq([() => jsonResponse({
+    ok: true, ts: 1, applied: 1,
+    skipped: [{ index: 0, op: "update_text", uid: "u1",
+                reason: "missing_target", note_page: "2026-09-29" }],
+  })]);
+  const replica = noReplicaAtAll();
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  const ticket = q.enqueue([op("u1")]);
+  await q.settled();
+  await q.drain();
+  expect(skips).toHaveLength(1);
+  await expect(ticket.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("a fallback-lane ack with no skipped ops does not refetch", async () => {
+  fetchSeq([() => jsonResponse({ ok: true, ts: 1, applied: 1 })]);
+  const replica = noReplicaAtAll();
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.enqueue([op("u1")]);
+  await q.settled();
+  await q.drain();
+  expect(skips).toEqual([]);
+});
+
+test("a fallback-lane ack with an empty skipped list does not refetch", async () => {
+  fetchSeq([() => jsonResponse({ ok: true, ts: 1, applied: 1, skipped: [] })]);
+  const replica = noReplicaAtAll();
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.enqueue([op("u1")]);
+  await q.settled();
+  await q.drain();
+  expect(skips).toEqual([]);
+});
+
+test("a malformed skipped field (not an array) parses as no skip", async () => {
+  fetchSeq([() => jsonResponse({ ok: true, ts: 1, applied: 1, skipped: "nope" })]);
+  const replica = noReplicaAtAll();
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.enqueue([op("u1")]);
+  await q.settled();
+  await q.drain();
+  expect(skips).toEqual([]);
+});
+
+test("a skipped op delivered by the lane while the replica is otherwise fine" +
+" does not refetch (it has a feed to tombstone the ghost)", async () => {
+  // The lane also delivers ordering-only entries ahead of a durable batch
+  // while unavailable is still null (pkm-5ekv) -- a working replica, just a
+  // transient local persist failure. That tab has a changes feed, so the
+  // no-replica refetch must not fire for it.
+  const { bodies } = fetchSeq([() => jsonResponse({
+    ok: true, ts: 1, applied: 1,
+    skipped: [{ index: 0, op: "update_text", uid: "u1",
+                reason: "missing_target", note_page: "2026-09-29" }],
+  })]);
+  const replica = memReplica({
+    enqueue: async () => { throw new Error("worker crashed"); },
+  });
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.enqueue([op("u1")]);
+  await q.settled();
+  await q.drain();
+  expect(bodies).toHaveLength(1);
+  expect(skips).toEqual([]);
+});

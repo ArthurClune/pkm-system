@@ -22,7 +22,7 @@ export interface Oo1DbLike {
 /** ROLLBACK TO a savepoint after a failure the caller absorbs. If SQLite has
  * already rolled back the whole transaction (SQLITE_CORRUPT, IOERR, FULL),
  * the savepoint went with it; `cause` is then the error to raise, not "no
- * such savepoint", so recovery can still classify it (pkm-h1c6). */
+ * such savepoint", so recovery can still classify it. */
 export function rollbackToSavepoint(
   db: ReplicaDb, name: string, cause?: unknown,
 ): void {
@@ -54,7 +54,7 @@ export function wrapSqlite(raw: Oo1DbLike): ReplicaDb {
         // SQLite has already rolled back on some errors (SQLITE_CORRUPT,
         // IOERR, FULL), so this ROLLBACK can fail with "no transaction is
         // active". The error that caused it is the one the caller must see:
-        // recovery classifies on it (pkm-h1c6).
+        // recovery classifies on it.
         try {
           db.exec("ROLLBACK");
         } catch (rollbackError: unknown) {

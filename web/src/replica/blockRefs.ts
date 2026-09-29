@@ -1,11 +1,11 @@
 // pattern: Imperative Shell
-// The replica's half of the "block_refs is derived from block text" invariant
-// (pkm-d31f). block_refs rows are never shipped over sync -- targets are uids
-// needing no id resolution, and the extractor is parity-pinned against the
-// server (shared/fixtures/refs_parity.json) -- so every path that writes a
-// block's text re-derives them locally: apply.ts on remote apply (snapshot
-// bootstrap and change windows) and localOps.ts on optimistic local apply.
-// One composition so those two can't drift (pkm-t3qw).
+// The replica's half of the "block_refs is derived from block text" invariant.
+// block_refs rows are never shipped over sync -- targets are uids needing no
+// id resolution, and the extractor is parity-pinned against the server
+// (shared/fixtures/refs_parity.json) -- so every path that writes a block's
+// text re-derives them locally: apply.ts on remote apply (snapshot bootstrap
+// and change windows) and localOps.ts on optimistic local apply. One
+// composition so those two can't drift.
 
 import type { ReplicaDb } from "./db";
 import { extractRefs, type ExtractedRefs } from "./refs";

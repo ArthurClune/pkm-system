@@ -110,7 +110,7 @@ export interface OpQueue {
    * durable replica row, which survives a reload fine. This is the gate a
    * beforeunload guard must use: onPending also counts durable rows, and
    * gating on it would interrupt an ordinary offline reload that risks
-   * nothing (pkm-0htf). */
+   * nothing. */
   onUnsentInMemory(fn: (n: number) => void): () => void;
   /** Internal recovery ownership signal. Unlike onPoison, this fires before
    * the durable poison mark so a recovery lease cannot flush a stale row. */
@@ -126,7 +126,7 @@ export interface OpQueue {
   poisonMarkIntents(): readonly PoisonEvent[];
   /** Retry only durable poison marking. Never performs an ops POST. */
   retryPoisonMarks(): Promise<readonly PoisonEvent[]>;
-  /** Drop retained mark intents without marking them (pkm-tu5k). The escape
+  /** Drop retained mark intents without marking them. The escape
    * from a profile whose replica can never open: needs no replica call. If
    * the replica later opens, the unmarked batch redelivers, the server
    * rejects it again, and the normal poison → repair flow handles it then. */
@@ -135,7 +135,7 @@ export interface OpQueue {
    * follows, in order, before that batch may itself be POSTed. This is how
    * the recovery flush (replicaSync.flushBatches) — which posts leased
    * durable rows on its own, knowing nothing about the lane — gets the same
-   * ordering guarantee the drain enforces on itself (pkm-5ekv): call it
+   * ordering guarantee the drain enforces on itself: call it
    * before every batch that flush posts. A no-op when nothing in the lane
    * precedes `batchId`. Throws, and leaves the entry retained, on a POST
    * failure — a discard is the drain's decision alone, never this door's —
@@ -177,7 +177,7 @@ function postOps(ops: BlockOp[], batchId: string): Promise<OpsAck> {
 /** An enqueue whose ops could not be persisted locally (a full disk, OPFS
  * access-handle contention, an exhausted SAH pool). Retained in FIFO order and
  * delivered by drain() under the same connectivity/retry/recovery policy as
- * durable rows — never POSTed from enqueue() (pkm-49eh). */
+ * durable rows — never POSTed from enqueue(). */
 interface FallbackEntry {
   /** Minted once, at append time: a retry must re-POST a byte-identical
    * payload under the same id, since the server binds batch_id to a
@@ -235,7 +235,7 @@ function createReplicaQueue(replica: Replica,
   // not need telling by anyone: the single owner is the worker, and this is a
   // local cache of what it said. Nothing here lifts the recovery barrier —
   // that decision needs the stronger `unusable` evidence and belongs to
-  // startup (pkm-bjae).
+  // startup.
   let unavailable: ReplicaAvailability | null = null;
   const noteReplicaFailure = (error: unknown): void => {
     if (unavailable === null && isSessionFatal(error)) {
@@ -249,11 +249,11 @@ function createReplicaQueue(replica: Replica,
   // Every fallback mutation site (append, shift-on-delivery, shift-on-4xx)
   // already calls emitPending() immediately after, so this is the one choke
   // point that keeps onUnsentInMemory in step with the lane without a second
-  // call site to forget (pkm-0htf). dispose() never touches fallback.length —
+  // call site to forget. dispose() never touches fallback.length —
   // it settles entries in place, deliberately keeping them in the pending
   // diagnostic — so it needs no emit here either.
   // Each emission costs every subscriber a re-render, and in the app that is
-  // one per mounted outline (pkm-qfee), so a count that did not move is not
+  // one per mounted outline, so a count that did not move is not
   // published: a flushed edit used to publish `unsentInMemory: 0` on both its
   // persist and its delivery. null = nothing published yet, so a subscriber
   // registered before the first emit still learns the starting value.
@@ -359,7 +359,8 @@ function createReplicaQueue(replica: Replica,
   };
 
   const countPending = async (): Promise<number> => {
-    // Nothing to ask, and asking is what pkm-9x6u is about.
+    // A known-unavailable replica must not be asked: skip the RPC rather than
+    // rediscovering unavailability on every call via a rejected promise.
     if (unavailable !== null) return pendingCount;
     try {
       setPendingCount(await replica.pendingCount());
@@ -397,7 +398,7 @@ function createReplicaQueue(replica: Replica,
    * so an outside resume can hand the same batch out for a second rejection
    * — harmless here, since the only other effect a rejection drives, removing
    * the batch's `follows` mark, is an idempotent Map delete rather than the
-   * decrement it used to be (pkm-yavj). */
+   * decrement it used to be. */
   const rememberPoisonMark = (event: PoisonEvent): void => {
     const key = `${event.rowId}\u0000${event.batchId}`;
     const retained = new Map(poisonMarkIntents.map((intent) =>
@@ -424,7 +425,7 @@ function createReplicaQueue(replica: Replica,
       } catch (error: unknown) {
         // Same fact, learned from a different call. An unmarkable intent still
         // holds the gate: knowing the replica is gone does not make delivering
-        // past a KNOWN-rejected batch safe (pkm-tu5k).
+        // past a KNOWN-rejected batch safe.
         noteReplicaFailure(error);
         poisonMarkFailed.emit({ event, error });
         throw error;
@@ -571,7 +572,7 @@ function createReplicaQueue(replica: Replica,
         continue;
       }
       // The lane now needs this read before it can go out — a batch persisted
-      // after the head is what used to let it overtake (pkm-5ekv) — so a
+      // after the head is what used to let it overtake — so a
       // transient nextBatch() failure (caught above) delays the lane through
       // the normal backoff rather than losing it.
       if (laneHeadPrecedes(batch?.batch_id ?? null)) {
@@ -616,7 +617,7 @@ function createReplicaQueue(replica: Replica,
       try {
         // The ack's seq lets a pull that snapshotted this batch as pending
         // accept a window that already carries it, instead of refetching
-        // (pkm-ur2n: the save's WS nudge and this ack race).
+        // (the save's WS nudge and this ack race).
         result = await replica.deleteBatch(batch.id, batch.batch_id, reading.seq);
       } catch (error: unknown) {
         noteReplicaFailure(error);
@@ -662,8 +663,8 @@ function createReplicaQueue(replica: Replica,
         // kicked may be what lifted the block (setOnline(true) racing a drain
         // concluding offline, resume() racing one concluding recovering), and
         // dropping the kick then leaves delivery waiting for whatever kicks
-        // the queue next — the user's next edit, or another reconnect
-        // (pkm-v5x5). So redrain only once the queue is no longer terminally
+        // the queue next — the user's next edit, or another reconnect.
+        // So redrain only once the queue is no longer terminally
         // blocked: a still-offline queue would just repeat the same block, and
         // a retryable outcome already owns an armed timer that must keep its
         // backoff rather than being pre-empted by an immediate retry.
@@ -720,7 +721,7 @@ function createReplicaQueue(replica: Replica,
         // arrived (iOS suspending a PWA mid-RPC), the lane copy retained in
         // the catch below still carries the row's id, and whichever copy
         // delivers second lands on the server's applied_batches replay
-        // instead of a create-collision 400 (pkm-ybgt).
+        // instead of a create-collision 400.
         const batchId = newUid();
         try {
           const result = await replica.enqueue(ops, batchId);
@@ -758,17 +759,16 @@ function createReplicaQueue(replica: Replica,
           // the (edit-less) server state and detach the editor mid-keystroke.
           // So the ops are retained for ordered delivery by drain().
           //
-          // This used to be an allowlist of three error shapes, two of them
-          // matched by MESSAGE (quota / OPFS access-handle contention, pkm-c9hp
-          // / exhausted SAH pool, pkm-ndcu). Whether the user's writes survived
-          // therefore depended on string matching, and any unlisted shape — a
-          // wasm init failure, OPFS unavailable in private browsing, a dead
-          // worker's RpcLifecycleError — lost the edit AND rebased the outline
-          // (pkm-9x6u). A one-item blocklist is the honest rule.
+          // Never classify by matching error MESSAGE text: any unlisted shape
+          // — a wasm init failure, OPFS unavailable in private browsing, a
+          // dead worker's RpcLifecycleError — must still be retained rather
+          // than lost, and must not rebase the outline. The one-item
+          // blocklist above (`rejected === true`) is the only case allowed
+          // to bypass that.
           //
           // A `quota` flag was also emitted here, to drive an offline
           // read-only mode. Nothing could ever set it — the opfs-sahpool VFS
-          // reports an exhausted disk as a bare SQLITE_IOERR (pkm-avag) — so
+          // reports an exhausted disk as a bare SQLITE_IOERR — so
           // storage exhaustion arrives, correctly, as one more "could not
           // persist locally right now" and is retained like the rest.
           noteReplicaFailure(error);
@@ -781,7 +781,7 @@ function createReplicaQueue(replica: Replica,
           // Retain the ops in an ordered in-memory lane and let drain()
           // deliver them: that keeps offline state, backoff and the
           // recovery barrier in force, and keeps these ops behind the
-          // durable batches that preceded them (pkm-49eh) — by construction,
+          // durable batches that preceded them — by construction,
           // not by count: this entry gets the next `seq`, and any durable
           // batch already persisted is simply unmarked in `follows`, which
           // laneHeadPrecedes treats as ahead of the lane regardless.

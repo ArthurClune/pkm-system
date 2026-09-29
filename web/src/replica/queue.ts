@@ -7,7 +7,7 @@
 // flushes cleanly (op N leaves the text op N+1's hash matches). When it
 // fills a hash it also fills a missing page_title, from the replica's own
 // pages table, so the daily-note conflict header the server writes on a
-// missing block can name the page (pkm-3g4n).
+// missing block can name the page.
 // Poisoned batches (server terminal 4xx, see sync/rejection.ts) are set
 // aside, never retried forever (spec section 6).
 
@@ -55,9 +55,9 @@ export function enqueueBatch(db: ReplicaDb, ops: BlockOp[], nowMs: number,
           if (base !== null) {
             // page_title rides only with a hash filled here; a caller-hashed
             // op is stored exactly as sent. A filled copy can differ from the
-            // fallback-lane copy opQueue keeps of the same batch_id (pkm-ybgt)
+            // fallback-lane copy opQueue keeps of the same batch_id
             // when a reply is lost: the server's replay hash ignores both
-            // fields, so the second delivery still replays (pkm-95ss)
+            // fields, so the second delivery still replays.
             const title = op.page_title === undefined
               ? currentPageTitle(db, op.uid) : null;
             wireOp = {

@@ -1,6 +1,6 @@
 // pattern: Functional Core
 // Whether a sync window fetched against one pending-batch snapshot may still
-// be applied now that the pending set has moved on (pkm-ur2n).
+// be applied now that the pending set has moved on.
 //
 // The guard exists because a window the server generated BEFORE batch B
 // committed lacks B, and if B's ack deleted its pending row before the window

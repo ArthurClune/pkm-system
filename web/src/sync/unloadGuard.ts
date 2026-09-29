@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
 // beforeunload is the only hook a browser gives before a reload or tab close
-// discards whatever is still stranded in opQueue's in-memory fallback lane
-// (pkm-0htf). Registration is conditional on unsentInMemory > 0, not
+// discards whatever is still stranded in opQueue's in-memory fallback lane.
+// Registration is conditional on unsentInMemory > 0, not
 // unconditional-with-an-early-return-inside, because a beforeunload listener
 // that stays attached for the page's whole life disables the back/forward
 // cache — Chrome and Firefox both opt a page out of bfcache the moment one is

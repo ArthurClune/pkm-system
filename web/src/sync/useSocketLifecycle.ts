@@ -88,7 +88,7 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
             // only the resync bump can refresh them. `viewsAreStale` is what
             // says so: this session's mount-time catch-up may already have
             // absorbed the flush, leaving the reconnect's own cursor
-            // comparison with nothing to report (pkm-5fak).
+            // comparison with nothing to report.
             //
             // A pending count of zero is NOT by itself proof there is nothing
             // to do: an offline cold start's mount-time startupRun() already
@@ -98,7 +98,7 @@ export function useSocketLifecycle(deps: SocketLifecycleDeps): void {
             // nothing else retries it. Gate on `hasStarted()` too, so this
             // first connect still runs the reconnect protocol (which retries
             // start()) instead of leaving the replica un-bootstrapped until a
-            // reload (pkm-8k2c). A replica that never existed (`null`) needs
+            // reload. A replica that never existed (`null`) needs
             // no such retry — there is nothing for start() to (re)do.
             void initialPending.then(async (n) => {
               await depsRef.current.startupRun();

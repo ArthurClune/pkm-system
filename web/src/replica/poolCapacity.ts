@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Keeping the replica's OPFS SAH pool big enough to write (pkm-ndcu).
+// Keeping the replica's OPFS SAH pool big enough to write.
 //
 // sqlite-wasm's opfs-sahpool VFS is a FIXED pool of pre-opened OPFS files:
 // every file SQLite keeps in it — the database AND its rollback journal —
@@ -71,7 +71,6 @@ export async function ensureMinimumCapacity(
   return capacity >= min ? capacity : pool.addCapacity(min - capacity);
 }
 
-// The classifier that used to recognise this failure at the far end of the RPC
-// is gone (pkm-s7af): the op queue retains every replica failure except one the
-// replica reports as a rejection of the op, so a SQLITE_CANTOPEN write no
-// longer needs identifying by message to survive.
+// The op queue retains every replica failure except one the replica reports
+// as a rejection of the op, so a SQLITE_CANTOPEN write needs no classifier
+// that identifies it by message to survive.

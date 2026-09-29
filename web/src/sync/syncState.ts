@@ -21,7 +21,7 @@ export type SyncProblem =
   /** The replica could not be opened, so this session runs online-only: edits
    * still reach the server, but there is no local cache and no offline
    * editing. Session-scoped by design (the worker latches a failed open), so
-   * the only way out is a reload — see pkm-bjae. */
+   * the only way out is a reload. */
   | { kind: "replica-unavailable"; error: string }
   | { kind: "legacy-rejected"; repair: "running" | "failed" | "repaired";
       error: string; repairError?: string }
@@ -74,7 +74,7 @@ export interface SyncTransition {
  * storage was full, on the reasoning that a further edit could be silently
  * lost. It was unreachable: the flag behind it could never be set, because the
  * opfs-sahpool VFS reports an exhausted disk as an undifferentiated
- * SQLITE_IOERR (pkm-avag). An exhausted disk now behaves like every other
+ * SQLITE_IOERR. An exhausted disk now behaves like every other
  * failure to persist locally — the op is retained in the fallback lane and
  * delivered when the socket allows. */
 export function computeEditability(
@@ -145,7 +145,7 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
     case "poison-discovery-failed":
       return problem(state, { kind: "poison-discovery", error: event.error });
     case "poison-intents-discarded":
-      // pkm-tu5k: the user discarded retained poison-mark intents, so the
+      // The user discarded retained poison-mark intents, so the
       // mark-failed problem reporting them is now stale. Only that exact
       // phase clears — replica-unavailable never stomps another kind (below),
       // so a leftover mark-failed banner would otherwise outlive its intents.
@@ -156,7 +156,7 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       // A background "this session is online-only" report must not stomp a
       // delivery problem the user can act on — overwriting a failed
       // legacy-rejected repair would take its Retry with it, and retryProblem
-      // would no longer reach that repair at all (pkm-bjae review). Same
+      // would no longer reach that repair at all. Same
       // precedence shape as replica-stalled below.
       const current = state.problem;
       if (current && current.kind !== "replica-unavailable") {

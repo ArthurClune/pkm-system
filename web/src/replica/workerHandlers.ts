@@ -138,14 +138,10 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   // The availability fact, owned here — the worker is the only party that can
   // say "there is definitively no database" rather than "I could not ask".
   //
-  // This REPLACES pkm-bjae's latch, which worked by leaving the memoised
-  // dbPromise rejection in place. That was correct but implicit: its safety
-  // depended on a reader noticing that init() must not clear a promise three
-  // modules from where the consequence lands (a barrier lift kicks a drain that
-  // would have posted batches queued behind an undiscovered poison row). Two
-  // independent reviewers read that mechanism identically and drew opposite
-  // conclusions about whether it was a virtue or a defect. This says what it
-  // means. close() is still the only reset.
+  // Once set, `unavailable` (and the memoised `dbPromise` rejection behind
+  // it) must persist until close(): a barrier lift kicks a drain that would
+  // post batches queued behind an undiscovered poison row, so nothing may
+  // clear either before then. close() is the only reset.
   let unavailable: ReplicaUnavailableError | null = null;
   const db = async (): Promise<ReplicaDb> => {
     if (unavailable !== null) throw unavailable;
@@ -154,9 +150,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       return await dbPromise;
     } catch (error: unknown) {
       // The original message is carried through verbatim: it is the only
-      // diagnostic the banner has. Retention no longer matches on it (pkm-s7af
-      // made that a type check on this class instead), so the message itself
-      // is display-only from here on.
+      // diagnostic the banner has. Retention classifies by a type check on
+      // this class, never by matching the message, so the message itself is
+      // display-only from here on.
       unavailable ??= new ReplicaUnavailableError(
         error instanceof Error ? error.message : String(error),
       );
@@ -422,9 +418,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         // An existing database (any version) is left alone — init() owns
         // schema-mismatch detection and recovery.
         if (!tableExists(d, "sync_client_meta")) installSchema(d);
-        // The object shape always carries the caller-minted batch id
-        // (pkm-ybgt): worker and main bundle ship from one hashed build, so
-        // no version skew between caller and handler is possible.
+        // The object shape always carries the caller-minted batch id: worker
+        // and main bundle ship from one hashed build, so no version skew
+        // between caller and handler is possible.
         const { ops, batchId } = payload as { ops: BlockOp[]; batchId: string };
         return enqueueBatch(d, ops, nowMs(), batchId);
       });
@@ -465,7 +461,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       return gate.run(async () => {
         // No catch: an unopenable database is db()'s latched
         // ReplicaUnavailableError, exactly as it is for every other handler.
-        // Consumers derive "no-replica" from that rejection (pkm-61zt).
+        // Consumers derive "no-replica" from that rejection.
         const d = await queueDb();
         const fresh = !tableExists(d, "sync_client_meta");
         const pendingBatches = fresh ? [] : readPendingBatches(d);

@@ -2,10 +2,10 @@
 Both are plain downloads (text/markdown or application/zip +
 Content-Disposition: attachment), not JSON payloads.
 
-The single-page route (pkm-kplp) is the end-user export: it resolves
-((refs)) recursively to plain text and executes {{query: ...}} macros, per
-pkm.export.resolve -- unlike the whole-db zip (pkm-uvqf), which reuses the
-nightly backup's Core renderer unchanged (raw query command, one-level,
+The single-page route is the end-user export: it resolves ((refs))
+recursively to plain text and executes {{query: ...}} macros, per
+pkm.export.resolve -- unlike the whole-db zip, which reuses the nightly
+backup's Core renderer unchanged (raw query command, one-level,
 parens-wrapped ref resolution)."""
 import sqlite3
 import zipfile
@@ -214,7 +214,7 @@ def test_export_all_markdown_requires_auth(anon_client):
     assert r.status_code == 401
 
 
-# --- pkm-13ty: temp-file-backed archive + cleanup ---
+# --- temp-file-backed archive + cleanup ---
 
 def test_export_all_markdown_builds_zip_via_a_temp_dir_removed_after_response(
         client, monkeypatch):

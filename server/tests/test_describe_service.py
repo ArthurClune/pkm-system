@@ -213,7 +213,7 @@ def test_scan_enqueues_undescribed_and_force_retries(seeded_config):
     assert service.scan(con) == 1            # pending only
     # Let SHA_A's ordinary attempt run to completion (and fail) before
     # force-rescanning, so it's no longer "active" and the dedup guard
-    # doesn't mask the force-retry path under test (pkm-1wv1).
+    # doesn't mask the force-retry path under test.
     asyncio.run(_run(service))
     assert service.scan(con, force=True) == 2  # failed too
     con.close()
@@ -221,8 +221,7 @@ def test_scan_enqueues_undescribed_and_force_retries(seeded_config):
 
 def test_scan_does_not_requeue_a_sha_already_active(seeded_config):
     """Two scans before the worker drains the first pending sha must not
-    double-queue it -- this is the "repeated scan" duplication the bean
-    describes (pkm-1wv1)."""
+    double-queue it."""
     service = DescribeService(seeded_config, FakeDescriber(), None)
     _insert_asset(seeded_config, SHA_A)
     con = open_db(seeded_config.db_path)
@@ -234,8 +233,7 @@ def test_scan_does_not_requeue_a_sha_already_active(seeded_config):
 
 def test_maybe_enqueue_dedupes_while_in_flight(seeded_config):
     """Two maybe_enqueue calls for the same sha while the first attempt is
-    genuinely in flight must not trigger a second describe call -- this is
-    the "duplicate upload" duplication the bean describes (pkm-1wv1)."""
+    genuinely in flight must not trigger a second describe call."""
     fake = BlockingDescriber(error="openai http 429")
     service = DescribeService(seeded_config, fake, None)
     _insert_asset(seeded_config, SHA_A)

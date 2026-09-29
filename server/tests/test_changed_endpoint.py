@@ -1,4 +1,4 @@
-"""GET /api/changed: block edit-time listing (pkm-6eea)."""
+"""GET /api/changed: block edit-time listing."""
 import time
 from datetime import datetime, timezone
 

@@ -1,4 +1,4 @@
-"""Window-split parent-block dependency (pkm-qvlx).
+"""Window-split parent-block dependency.
 
 The feed hydrates blocks at CURRENT state inside one read transaction, so a
 window whose journal rows predate a parent-child move can ship a block whose
@@ -95,8 +95,8 @@ def test_window_split_ships_dependency_own_page(client):
 
 def test_window_split_ships_transitive_grandparent_chain(client):
     # create A, create B under A, then move an existing block under B: the
-    # window carrying the moved block's stale row must ship both ancestors,
-    # not just the immediate parent (pkm-qvlx transitivity).
+    # window carrying the moved block's stale row must ship both
+    # ancestors, transitively, not just the immediate parent.
     start = _drain(client)["latest_seq"]
     r = client.post("/api/ops", json={
         "client_id": "c1", "batch_id": "wingrand1",

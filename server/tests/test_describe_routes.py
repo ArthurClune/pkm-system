@@ -79,10 +79,10 @@ def test_scan_disabled(describe_disabled_client):
 
 def test_duplicate_upload_of_same_content_describes_once(seeded_config):
     """Two uploads of byte-identical content before the first describe
-    attempt finishes must not trigger a second concurrent describe call
-    (pkm-1wv1). The fake genuinely blocks mid-flight so the second
-    upload's maybe_enqueue races a real in-flight attempt, not one that
-    already finished (pkm-mbcc)."""
+    attempt finishes must not trigger a second concurrent describe call.
+    The fake genuinely blocks mid-flight so the second upload's
+    maybe_enqueue races a real in-flight attempt, not one that already
+    finished."""
     fake = BlockingDescriber()
     service = DescribeService(seeded_config, fake, None)
     with TestClient(create_app(seeded_config, describe_service=service)) as client:
@@ -141,7 +141,7 @@ def test_default_service_disabled_with_empty_key_file(seeded_config):
 
 def test_default_service_disabled_with_undecodable_key_file(seeded_config):
     """A key file that isn't valid UTF-8 must degrade to disabled, not raise
-    UnicodeDecodeError out of the app factory (pkm-wwy3 review fix)."""
+    UnicodeDecodeError out of the app factory."""
     from pkm.server.app import _default_describe_service
     seeded_config.openai_api_key_file.write_bytes(b"\xff\xfe\x00")
     service = _default_describe_service(seeded_config)
@@ -159,7 +159,7 @@ def test_default_service_enabled_with_key(seeded_config, monkeypatch):
 
 def test_default_service_enabled_with_key_file(seeded_config):
     """No env var, but the configured key-file path has stripped content:
-    the feature comes up using the file's key (pkm-wwy3)."""
+    the feature comes up using the file's key."""
     from pkm.server.app import _default_describe_service
     seeded_config.openai_api_key_file.write_text("sk-file-test\n", encoding="utf-8")
     service = _default_describe_service(seeded_config)
@@ -170,9 +170,9 @@ def test_default_service_enabled_with_key_file(seeded_config):
 
 
 def test_default_service_key_file_wins_over_env_var(seeded_config, monkeypatch):
-    """Precedence flip (pkm-04a2): a pkm-specific key file beats a general
-    ambient OPENAI_API_KEY, so cost-attribution keys aren't shadowed by
-    whatever's in the shell environment."""
+    """A pkm-specific key file beats a general ambient OPENAI_API_KEY, so
+    cost-attribution keys aren't shadowed by whatever's in the shell
+    environment."""
     from pkm.server.app import _default_describe_service
     monkeypatch.setenv("OPENAI_API_KEY", "sk-env-test")
     seeded_config.openai_api_key_file.write_text("sk-file-test\n", encoding="utf-8")

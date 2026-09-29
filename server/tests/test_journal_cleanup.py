@@ -139,9 +139,9 @@ def test_cleanup_requires_auth(anon_client):
 
 
 def test_cleanup_deletion_emits_seq_nudge(client, seeded_config):
-    """pkm-getl: cleanup commits deletions and advances changes.seq but
-    connected replicas were never nudged, so they kept showing deleted
-    daily pages until some unrelated mutation nudged them."""
+    """Cleanup commits deletions and advances changes.seq; connected
+    replicas must be nudged, or they keep showing deleted daily pages
+    until some unrelated mutation nudges them."""
     title = _daily_title(_in_window_days_ago())
     _insert_page(seeded_config.db_path, 96, title)
 

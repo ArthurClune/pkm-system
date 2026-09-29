@@ -1,9 +1,9 @@
-"""POST /api/assets/export.zip: zip of selected assets (pkm-jdu3).
+"""POST /api/assets/export.zip: zip of selected assets.
 
-pkm-13ty bounds this route's memory/resource use two ways: a hard
-count/byte limit on the selection (enforced from the `assets` table's
-`size` column, before any file is opened) and a temp-file-backed archive
-instead of building the whole zip in an in-memory BytesIO."""
+This route bounds memory/resource use two ways: a hard count/byte limit
+on the selection (enforced from the `assets` table's `size` column,
+before any file is opened) and a temp-file-backed archive instead of
+building the whole zip in an in-memory BytesIO."""
 import io
 import time
 import zipfile
@@ -128,7 +128,7 @@ def test_export_sanitizes_legacy_unsafe_filename(client, seeded_config):
     assert all(not n.startswith("/") for n in names)
 
 
-# --- pkm-13ty: count/byte limits ---
+# --- count/byte limits ---
 
 def test_export_refuses_over_count_limit_with_413(client, seeded_config):
     shas = _seed_assets(seeded_config, routes_assets.MAX_EXPORT_ASSET_COUNT + 1, 1)
@@ -167,7 +167,7 @@ def test_export_over_limit_never_returns_a_partial_zip(client, seeded_config):
     assert r.headers["content-type"] != "application/zip"
 
 
-# --- pkm-13ty: temp-file-backed archive + cleanup ---
+# --- temp-file-backed archive + cleanup ---
 
 def test_export_builds_zip_via_a_temp_dir_removed_after_response(
         client, monkeypatch):

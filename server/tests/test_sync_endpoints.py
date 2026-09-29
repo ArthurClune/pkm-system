@@ -135,8 +135,8 @@ def test_activation_and_rotated_generation_match_across_all_sync_payloads(client
 
 
 def test_generation_echoed_and_stable_across_endpoints(client):
-    """pkm-o9o5: both sync endpoints echo the database's generation token
-    so a client can detect a rebuilt database and re-bootstrap."""
+    """Both sync endpoints echo the database's generation token so a
+    client can detect a rebuilt database and re-bootstrap."""
     snap = client.get("/api/sync/snapshot").json()
     feed = _drain(client)
     gen = snap["generation"]
@@ -146,9 +146,9 @@ def test_generation_echoed_and_stable_across_endpoints(client):
 
 
 def test_limit_is_clamped_to_max(seeded_config):
-    """pkm-x7a5: a limit above MAX_LIMIT scans at most MAX_LIMIT journal
-    rows, so a huge client-supplied limit cannot make one request hydrate
-    an unbounded window."""
+    """A limit above MAX_LIMIT scans at most MAX_LIMIT journal rows, so a
+    huge client-supplied limit cannot make one request hydrate an
+    unbounded window."""
     from fastapi.testclient import TestClient
 
     from pkm.server.app import create_app
@@ -178,8 +178,8 @@ def test_limit_is_clamped_to_at_least_one(client):
 
 
 def test_feed_hydrates_sidebar_entries(client):
-    """pkm-ldqx: sidebar hydration moved to a chunked set query -- exercise
-    it through the feed with an actual entry, not just the journal row."""
+    """Sidebar hydration goes through a chunked set query -- exercise it
+    through the feed with an actual entry, not just the journal row."""
     start = _drain(client)["latest_seq"]
     r = client.post("/api/sidebar", json={"title": "Crypto"})
     assert r.status_code == 200
@@ -209,8 +209,8 @@ def test_cross_page_subtree_move_journals_every_subtree_row(client):
 
 def test_client_diagnostics_land_in_the_server_log(client, caplog):
     """A replica that found itself corrupt reports what its database said
-    before rebuilding (pkm-1mx9). The server only logs it: the access log
-    around the line is the rest of the story."""
+    before rebuilding. The server only logs it: the access log around the
+    line is the rest of the story."""
     import logging
     body = {
         "kind": "replica-corruption",

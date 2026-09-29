@@ -1,4 +1,4 @@
-"""Core resolution/rendering for the end-user single-page export (pkm-kplp):
+"""Core resolution/rendering for the end-user single-page export:
 ((block refs)) resolved recursively to plain text, {{query: ...}} macros
 executed to their matching results. Unlike pkm.export.markdown.render_page
 (the backup renderer, untested here -- see test_export_markdown.py), which

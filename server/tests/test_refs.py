@@ -114,17 +114,16 @@ def test_ref_ordering_and_types():
     )
 
 
-# pkm-7myl: a block whose entire text is one large fenced code block gets
-# blanked by strip_code() into one long run of whitespace (fences keep
-# their length so asset/ref offsets elsewhere stay stable). The attribute
-# regex used to be `^\s*([^\[\]{}:\n]+?)::` -- since `\s` is a near-subset
-# of the negated class, a long whitespace run with no "::" anywhere forces
-# the engine to retry the lazy inner group at every one of the `\s*`
-# prefix's O(n) possible split points, an O(n^2) blowup. On the real prod
-# graph this turned a single ~258KB pasted-code block into a ~224s regex
-# match, which is why GET /api/export.zip (whole-db export, one extract()
-# call per block via collect_block_ref_uids) looked "broken": the browser
-# waited minutes for a response that never seemed to arrive.
+# A block whose entire text is one large fenced code block gets blanked
+# by strip_code() into one long run of whitespace (fences keep their
+# length so asset/ref offsets elsewhere stay stable). The attribute regex
+# must stay linear here: a form like `^\s*([^\[\]{}:\n]+?)::` is a trap,
+# since `\s` is a near-subset of the negated class, so a long whitespace
+# run with no "::" anywhere forces the engine to retry the lazy inner
+# group at every one of the `\s*` prefix's O(n) possible split points --
+# an O(n^2) blowup that turns a large pasted-code block into a
+# multi-minute regex match, which stalls any route that calls extract()
+# per block (e.g. GET /api/export.zip via collect_block_ref_uids).
 def test_extract_is_linear_on_a_large_all_whitespace_run():
     huge_code_block = "```\n" + ("x" * 200_000) + "\n```"
     t0 = time.monotonic()
@@ -200,8 +199,8 @@ def test_extract_attribute_still_recognised_after_leading_whitespace():
     assert parsed.refs[0] == Ref("Tags", "attribute")
 
 
-# pkm-hjhy: a [[link]] spanning a newline used to mint a page whose title
-# held that newline, and such a page is unreachable through the API --
+# A [[link]] spanning a newline must not mint a page whose title holds
+# that newline: such a page is unreachable through the API --
 # Starlette's {title:path} converter compiles to `.*` with no re.DOTALL, so
 # GET/DELETE/rename/export all 404 on it. Titles are normalized where they
 # are born instead.

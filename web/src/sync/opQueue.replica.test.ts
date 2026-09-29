@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
 import type { BlockOp } from "../api/ops";
+import type { OpsAck } from "../api/payloads";
 import type { Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnavailableError,
          RpcLifecycleError } from "../replica/errors";
@@ -2151,8 +2152,8 @@ async () => {
   fetchSeq([() => jsonResponse({
     ok: true, ts: 1, applied: 1,
     skipped: [{ index: 0, op: "update_text", uid: "u1",
-                reason: "missing_target", note_page: "2026-09-29" }],
-  })]);
+                reason: "block_not_found", note_page: "2026-09-29" }],
+  } satisfies OpsAck)]);
   const replica = noReplicaAtAll();
   const skips: void[] = [];
   const q = createOpQueue(replica, () => undefined, () => undefined,
@@ -2201,8 +2202,8 @@ test("a malformed skipped field (not an array) parses as no skip", async () => {
 });
 
 test("a skipped op delivered by the lane while the replica is otherwise " +
-"fine still refetches (both paths consult ackSkipped, not only the " +
-"no-replica latch)", async () => {
+"fine still refetches (both paths read the ack's skipped list, not only " +
+"the no-replica latch)", async () => {
   // The lane also delivers ordering-only entries ahead of a durable batch
   // while unavailable is still null (pkm-5ekv) -- a working replica, just a
   // transient local persist failure. Its own feed will also tombstone the
@@ -2210,8 +2211,8 @@ test("a skipped op delivered by the lane while the replica is otherwise " +
   const { bodies } = fetchSeq([() => jsonResponse({
     ok: true, ts: 1, applied: 1,
     skipped: [{ index: 0, op: "update_text", uid: "u1",
-                reason: "missing_target", note_page: "2026-09-29" }],
-  })]);
+                reason: "block_not_found", note_page: "2026-09-29" }],
+  } satisfies OpsAck)]);
   const replica = memReplica({
     enqueue: async () => { throw new Error("worker crashed"); },
   });
@@ -2231,8 +2232,8 @@ test("a durable batch's ack naming a skipped op also refetches (a replica-" +
   fetchSeq([() => jsonResponse({
     ok: true, ts: 1, applied: 1, seq: 7,
     skipped: [{ index: 0, op: "update_text", uid: "u1",
-                reason: "missing_target", note_page: "2026-09-29" }],
-  })]);
+                reason: "block_not_found", note_page: "2026-09-29" }],
+  } satisfies OpsAck)]);
   const replica = memReplica();
   const skips: void[] = [];
   const q = createOpQueue(replica, () => undefined, () => undefined,

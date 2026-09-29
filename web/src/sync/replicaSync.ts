@@ -9,6 +9,7 @@
 
 import { ApiError, OfflineError } from "../api/client";
 import type { ApiFetchOptions } from "../api/client";
+import type { OpsAck } from "../api/payloads";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { ReplicaDiagnostics } from "../replica/client";
 import type {
@@ -16,7 +17,7 @@ import type {
 } from "../replica/client";
 import { availabilityOf, isCorruptionError, ReplicaError } from "../replica/errors";
 import type { OpQueue } from "./opQueue";
-import { ackSeq } from "./opsAck";
+import { readOpsAck } from "./opsAck";
 
 export type ReplicaState =
   | { mode: "starting" }
@@ -407,13 +408,14 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // recovery during it.
       await queue.deliverLaneAhead?.(b.batch_id);
       beforePost();
-      const ack = await fetchJson("/api/ops", {
+      const ack = (await fetchJson("/api/ops", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ client_id: clientId, batch_id: b.batch_id,
                                ops: b.ops }),
-      });
-      heldAcks.push({ id: b.id, batch_id: b.batch_id, seq: ackSeq(ack) ?? null });
+      })) as OpsAck;
+      heldAcks.push({ id: b.id, batch_id: b.batch_id,
+                     seq: readOpsAck(ack).seq ?? null });
     }
   };
 

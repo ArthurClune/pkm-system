@@ -1,13 +1,29 @@
 // pattern: Functional Core
 // Reading an /api/ops ack.
+import type { OpsAck, SkippedOp } from "../api/payloads";
 
-/** The journal seq an /api/ops ack names for its batch's commit, or
- * undefined when it names none (an ack stored before the field existed is
- * replayed verbatim without it). The OpenAPI schema types the ack as a bare
- * object, so the field is read by hand. Both delivery paths read it: the
- * drain, and the recovery flush. */
-export function ackSeq(ack: unknown): number | undefined {
-  if (typeof ack !== "object" || ack === null) return undefined;
+export type SkipReason = SkippedOp["reason"];
+
+export interface OpsAckReading {
+  /** The journal seq of the batch's commit; undefined when the ack names none
+   * (null, absent, or not a finite number). */
+  seq: number | undefined;
+  /** Every op the server skipped; empty when absent or not an array. */
+  skipped: readonly SkippedOp[];
+}
+
+/** Reads an /api/ops ack's `seq` and `skipped` through the generated
+ * `OpsAck` type. The parameter is the generated type, but the body still
+ * guards at runtime: the value is parsed network JSON, and the type states
+ * what the server sends without checking it. An ack stored before `seq` or
+ * `skipped` existed reads as unknown seq / no skips, the same as a
+ * malformed value would. Serves the drain, the lane and the recovery
+ * flush -- every caller that reads an ack. */
+export function readOpsAck(ack: OpsAck): OpsAckReading {
   const seq = (ack as { seq?: unknown }).seq;
-  return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
+  const skipped = (ack as { skipped?: unknown }).skipped;
+  return {
+    seq: typeof seq === "number" && Number.isFinite(seq) ? seq : undefined,
+    skipped: Array.isArray(skipped) ? skipped as SkippedOp[] : [],
+  };
 }

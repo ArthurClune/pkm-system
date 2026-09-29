@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { StrictMode, useEffect, useMemo } from "react";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
+import type { OpsAck } from "../api/payloads";
 import { DndProvider, useDnd } from "../dnd/DndContext";
 import { acquireOutlineSession } from "../outline/outlineSessions";
 import { sha256Hex } from "../replica/sha256";
@@ -772,8 +773,8 @@ test("a durable batch's ack naming a skipped op bumps resyncSeq (a " +
     ["/api/ops", {
       ok: true, ts: 1, applied: 1,
       skipped: [{ index: 0, op: "update_text", uid: "u1",
-                  reason: "missing_target", note_page: "2026-09-29" }],
-    }],
+                  reason: "block_not_found", note_page: "2026-09-29" }],
+    } satisfies OpsAck],
   ]);
   const replica = fakeReplicaForProvider();
   const rows: Array<{ id: number; batch_id: string;

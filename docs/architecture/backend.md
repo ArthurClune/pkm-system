@@ -210,9 +210,9 @@ operations:
 
 | Op | Does |
 |---|---|
-| `create` | insert a block, optionally creating its page via `page_title` |
+| `create` | insert a block; `page_title` places (and may create) the page of a top-level create, while a child lands on its parent's page |
 | `update_text` | replace a block's text; optional `base_text_hash` rides the conflict path, optional `page_title` labels a missing block's conflict header |
-| `move` | reposition or reparent; cross-page moves re-page the whole subtree |
+| `move` | reposition or reparent; cross-page moves re-page the whole subtree. `page_title` places a top-level move; a reparented block follows its parent's page |
 | `delete` | remove a block and its subtree |
 | `set_heading` | set the block's heading level |
 | `set_view_type` | set `numbered` / `document` rendering for the block's children |
@@ -234,7 +234,8 @@ Key mechanics:
 - **Ordering.** Siblings hold integer `order_idx`. An insert or move emits a
   `ShiftSiblings` effect — bump every sibling ≥ the target index — before
   placing the block. Cross-page moves re-page the whole subtree and touch both
-  pages, and a parent-chain check prevents cycles.
+  pages. A parent-chain check skips a move that would make a cycle (the
+  concurrent-structure table below).
 - **Refs re-derivation.** Every text change emits `ReindexRefs`, and
   `store.reindex_refs_for_text` is its only implementation, rebuilding `refs`
   and — via `store.reindex_block_refs` — `block_refs` from one parse. The
@@ -268,7 +269,7 @@ Key mechanics:
   | Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
   | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
   | Block gone, hint missing, blank, syntactically invalid, or (naming no current page) itself containing a backtick | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
-  | Block exists, but its move's target parent is gone | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
+  | Block exists, but its move's target parent is gone or is the block's own descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
 
   `page_title` only labels a header for the missing-block case; it never
   changes whether or where an op applies. An invalid hint can't fail the
@@ -327,12 +328,27 @@ Key mechanics:
   root. `_plan_missing_target` emits tombstones before live rows, so a
   window boundary can never put a tombstone after the rows that restore
   what it cascades away.
+- **Concurrent structure edits.** Another device may reshape the tree
+  between an op's enqueue and its push. These never reject a batch either:
+
+  | Op, situation | Outcome | Journalled |
+  |---|---|---|
+  | `create` under a live parent on another page than its `page_title` | created on the parent's page | the block (insert trigger) |
+  | `move` under a parent that is no longer on the page `page_title` names | moved onto the parent's page | the subtree (triggers) |
+  | `move` whose target is the block or its descendant | skipped as `move_cycle`; child `move skipped: would create a cycle` under the block's live-page header, grouped by the block's uid | every block of the moved subtree, root first |
+
+  `_context_for` resolves an op's `page_title` only for a top-level create
+  or move, so a stale title never creates an empty page. It reads a move's
+  target chain (`_parent_chain`) before `classify_missing_target`, which
+  sorts a cycle beside the missing targets. The skip journals no
+  tombstone, since nothing is gone. The replica holds the block under its own
+  descendant, a loop no page root reaches, and the live rows break it.
 
   Every other planning error is still a 400: invalid uid, uid already
-  exists, cycle, page mismatch, parent on another page, title syntax. So is
-  an op on a missing target whose uid (or missing parent uid) fails
-  `UID_RE` (`ops_core.impossible_uid_reason`). No client mints such a uid,
-  and it keeps arbitrary strings out of the journal and `conflict_headers`.
+  exists, title syntax. So is an op on a missing target whose uid (or
+  missing parent uid) fails `UID_RE` (`ops_core.impossible_uid_reason`). No
+  client mints such a uid, and it keeps arbitrary strings out of the
+  journal and `conflict_headers`.
 - **Idempotency.** A retried batch — same `batch_id`, matching stored request
   hash — replays the stored ack with no effects. The same id with a different
   payload is a 409. Offline queue replay depends on it. New `applied_batches`
@@ -486,7 +502,7 @@ requires the session cookie unless marked public, and FastAPI's `/docs` and
 | GET | `/{path}` *(public)* | SPA fallback: serves `web_dist` (index.html no-cache, hashed bundles under `/app-assets/`) |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` transactionally. Ack `{ok, ts, applied, seq, skipped?}`: `applied` counts every op processed, skipped ones included; `seq` is the journal max read inside the batch's own transaction; `skipped`, present only when non-empty, lists `{index, op, uid, reason, note_page}` for each op on a missing target (`reason` is `block_not_found` or `parent_not_found`, `note_page` the daily page its entry landed on or null). A replayed `batch_id` returns its stored ack verbatim, so one stored before `seq` or `skipped` existed lacks them; clients read a missing `skipped` as empty |
+| POST | `/api/ops` | Apply an `OpBatch` transactionally. Ack `{ok, ts, applied, seq, skipped?}`: `applied` counts every op processed, skipped ones included; `seq` is the journal max read inside the batch's own transaction; `skipped`, present only when non-empty, lists `{index, op, uid, reason, note_page}` for each op on a missing target or cycle-making move (`reason` is `block_not_found`, `parent_not_found` or `cycle`, `note_page` the daily page its entry landed on or null). A replayed `batch_id` returns its stored ack verbatim, so one stored before `seq` or `skipped` existed lacks them; clients read a missing `skipped` as empty |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks + `block_ref_counts` (daily pages auto-created). Backlinks and unlinked mentions both skip blocks on the page itself |
 | GET | `/api/block/{uid}` | One block subtree with page context + breadcrumbs |

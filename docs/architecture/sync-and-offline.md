@@ -233,9 +233,12 @@ block:
 | Block was deleted meanwhile (hash sent or not) | Edit lands the same way, under a `[[conflict]] … — edit to a block the server no longer has` header labelled from the op's `page_title` |
 | No hash sent, block exists (legacy/CLI callers) | Unconditional last-write-wins |
 | Structural op on a block or parent the server no longer has | Skipped or a no-op, with a daily-note entry wherever something was lost; the batch still acks 200 |
+| Create or move under a parent another device moved to another page | Follows the parent onto its current page |
+| Move that another device's move made a cycle | Skipped with a daily-note entry; the batch still acks 200 |
 
-The header forms, the daily-page grouping and the per-op table for missing
-targets are in [backend.md § The write path](backend.md#the-write-path).
+The header forms, the daily-page grouping and the per-op tables for missing
+targets and concurrent structure edits are in
+[backend.md § The write path](backend.md#the-write-path).
 Nothing is discarded: conflict blocks are ordinary blocks, so they reach every
 client through the feed and are findable through search and the `[[conflict]]`
 page's backlinks. The first row's replay, from records in the server-only
@@ -244,6 +247,8 @@ the old title back. A missing target never rejects its batch, so another
 device's delete cannot poison the queue; how the replica then drops its
 optimistic ghost is in
 [sync-recovery.md § Ops on blocks the server no longer has](sync-recovery.md#ops-on-blocks-the-server-no-longer-has).
+Another device's move cannot poison it either
+([sync-recovery.md § Ops another device's tree edit overtook](sync-recovery.md#ops-another-devices-tree-edit-overtook)).
 
 ## Title activation across online and offline paths
 

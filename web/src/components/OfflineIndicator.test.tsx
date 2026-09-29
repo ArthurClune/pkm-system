@@ -89,6 +89,52 @@ it("offline without editing shows the read-only reason", () => {
     "Offline — editing paused: offline — this graph is not yet available locally");
 });
 
+it("names memory-only edits in the offline connectivity banner", () => {
+  renderWith({ status: "reconnecting", canEdit: true, pending: 3, unsentInMemory: 2 });
+  const banner = screen.getByRole("status");
+  expect(banner).toHaveTextContent(
+    "Offline — 3 changes pending. 2 unsent changes exist only in memory here. "
+    + "Reloading or closing this tab discards them.");
+});
+
+it("does not name memory-only edits while connected", () => {
+  const { container } = renderWith({ status: "connected", pending: 0, unsentInMemory: 2 });
+  expect(container).toBeEmptyDOMElement();
+});
+
+it("says nothing about the lane when only durable rows are pending", () => {
+  renderWith({ status: "reconnecting", canEdit: true, pending: 2, unsentInMemory: 0 });
+  const banner = screen.getByRole("status");
+  expect(banner).toHaveTextContent("Offline — 2 changes pending");
+  expect(banner).not.toHaveTextContent("only in memory");
+});
+
+it("names memory-only edits even while editing is paused", () => {
+  renderWith({
+    status: "reconnecting", canEdit: false,
+    readOnlyReason: "offline — this graph is not yet available locally",
+    unsentInMemory: 1,
+  });
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Offline — editing paused: offline — this graph is not yet available "
+    + "locally. 1 unsent change exists only in memory here. Reloading or "
+    + "closing this tab discards it.");
+});
+
+it("does not double a full stop when the read-only reason already ends with one", () => {
+  renderWith({
+    status: "reconnecting", canEdit: false,
+    readOnlyReason: "offline — this graph is not yet available locally.",
+    unsentInMemory: 1,
+  });
+  const banner = screen.getByRole("status");
+  expect(banner).toHaveTextContent(
+    "Offline — editing paused: offline — this graph is not yet available "
+    + "locally. 1 unsent change exists only in memory here. Reloading or "
+    + "closing this tab discards it.");
+  expect(banner.textContent).not.toMatch(/\.\./);
+});
+
 const rejected = {
   kind: "rejected-batch" as const,
   event: {

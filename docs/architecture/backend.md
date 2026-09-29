@@ -269,7 +269,7 @@ Key mechanics:
   | Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
   | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
   | Block gone, hint missing, blank, syntactically invalid, or (naming no current page) itself containing a backtick | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
-  | Block exists, but its move's target parent is gone or is the block's own descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
+  | Block exists, but its move's target parent is gone, is the block itself, or is its descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
 
   `page_title` only labels a header for the missing-block case; it never
   changes whether or where an op applies. An invalid hint can't fail the
@@ -341,8 +341,11 @@ Key mechanics:
   or move, so a stale title never creates an empty page. It reads a move's
   target chain (`_parent_chain`) before `classify_missing_target`, which
   sorts a cycle beside the missing targets. The skip journals no
-  tombstone, since nothing is gone. The replica holds the block under its own
-  descendant, a loop no page root reaches, and the live rows break it.
+  tombstone, since nothing is gone. The block is an ancestor of the other
+  device's move, so the feed's parent closure already ships its row with
+  that move. The journalled subtree carries what else the replica's
+  optimistic move touched: descendants a cross-page move re-paged, and the
+  target's children it shifted.
 
   Every other planning error is still a 400: invalid uid, uid already
   exists, title syntax. So is an op on a missing target whose uid (or

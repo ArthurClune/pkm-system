@@ -400,5 +400,8 @@ The local cycle check matters on a replay over a snapshot or window that
 already holds the other device's move. Replaying the move there would put
 the block under its own descendant, a loop no page root reaches, and the
 subtree would vanish from its page until the ack. A move the replica applied
-before that state arrived is undone by the journalled rows instead.
+before that state arrived leaves no loop either. The window with the other
+device's move also ships the moved block's row, through the parent closure.
+The journalled subtree then restores what else the local move touched:
+descendants it re-paged, and the target's children it shifted.
 `missing_targets.json` pins the cycle rule on both sides.

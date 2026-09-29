@@ -81,8 +81,21 @@ transaction:
   state, so blocks ship with every row they depend on: their refs, the pages
   those refs target, the block's own page, and the transitive `parent_uid` chain
   (`_with_parent_closure`, cycle-safe). A missing dependency fails the replica's
-  deferred FK check at COMMIT. Entities that no longer exist ship as tombstones;
-  a dependency block that no longer exists is absent instead.
+  deferred FK check at COMMIT. A dependency block that no longer exists is
+  absent from the payload.
+- `sync_core.tombstone_entities` picks the tombstones. An entity absent from
+  current state ships as one. So does a `page` or `sidebar` id
+  (`REUSABLE_ID_KINDS`) with a delete row in the window, even when a live row
+  holds it. Both ids are an `INTEGER PRIMARY KEY` without `AUTOINCREMENT`.
+  SQLite gives the next insert max(id)+1, so deleting the highest id frees it
+  for reuse, and presence does not prove the row is the same entity.
+  That reused id ships as tombstone plus live row. The replica's page cascade
+  removes the page's blocks and refs before the upserts, so the window also
+  ships every current block on the page or with a ref to it. That makes the
+  page whole again by the window's COMMIT, not only once later windows arrive.
+  A block delivered onto the page earlier and moved off since is still cascaded
+  away, and returns with its own later row. Blocks keep the presence rule: a uid
+  recreated by undo is the same block.
 - `block_refs` never ships; both sides derive it from block text through the
   parity-pinned extractor (see
   [Offline editing and reconnect](#offline-editing-and-reconnect)).

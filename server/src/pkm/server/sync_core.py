@@ -17,10 +17,22 @@ window can ship a block whose parent_uid points at a block only a later
 window would otherwise deliver, so the caller walks the parent_uid chain
 to a fixpoint, ancestor by ancestor, adding every uid it fetches (found or
 not) to `known` before asking again -- that's what makes a cycle or a
-dangling parent_uid terminate the walk instead of looping."""
+dangling parent_uid terminate the walk instead of looping.
+
+tombstone_entities decides which of a window's entities ship as
+tombstones. A block that no longer exists does. A page or sidebar id is
+an INTEGER PRIMARY KEY without AUTOINCREMENT, so SQLite gives the next
+insert max(id)+1 and deleting the highest id frees it for reuse:
+presence in current state does not prove the row
+is the entity the window's older rows were about, while a delete row in
+the window does. So those two kinds also tombstone on a delete row, and
+the live row ships beside the tombstone. Block uids are never reused by
+the database (a block recreated under its old uid is the same block), so
+blocks keep the presence rule."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -33,6 +45,10 @@ V = TypeVar("V")
 # snapshot's block count is unbounded, so hydration chunks every id list
 # rather than assuming it fits in one `IN (...)` clause.
 CHUNK_SIZE = 500
+
+# Entity kinds keyed by a database-assigned integer id that a later insert
+# can take over once the row holding it is deleted.
+REUSABLE_ID_KINDS: frozenset[str] = frozenset({"page", "sidebar"})
 
 
 def chunk_ids(ids: Sequence[K], size: int = CHUNK_SIZE) -> list[list[K]]:
@@ -47,6 +63,8 @@ def hydrate_in_order(order: Sequence[K], present: Mapping[K, V]) -> list[V]:
 class Window:
     next_since: int
     entities: tuple[tuple[str, str], ...]  # unique (kind, entity_id)
+    # every (kind, entity_id) with at least one delete row in the window
+    tombstoned: frozenset[tuple[str, str]]
 
 
 def missing_parent_uids(parent_uids: Iterable[str | None],
@@ -58,10 +76,32 @@ def missing_parent_uids(parent_uids: Iterable[str | None],
     return {p for p in parent_uids if p is not None and p not in known}
 
 
-def dedupe_window(rows: Sequence[tuple[int, str, str]]) -> Window:
+def dedupe_window(rows: Sequence[tuple[int, str, str, int]]) -> Window:
+    """Rows are (seq, kind, entity_id, deleted) in seq order."""
     seen: dict[tuple[str, str], None] = {}  # insertion-ordered set
+    deleted_keys: set[tuple[str, str]] = set()
     last_seq = 0
-    for seq, kind, entity_id in rows:
+    for seq, kind, entity_id, deleted in rows:
         last_seq = seq
         seen.setdefault((kind, entity_id), None)
-    return Window(next_since=last_seq, entities=tuple(seen))
+        if deleted:
+            deleted_keys.add((kind, entity_id))
+    return Window(next_since=last_seq, entities=tuple(seen),
+                  tombstoned=frozenset(deleted_keys))
+
+
+def tombstone_entities(win: Window, present: Mapping[str, AbstractSet[str]]
+                       ) -> list[tuple[str, str]]:
+    """The window's entities that ship as tombstones, in window order: an
+    entity absent from current state (`present[kind]`, a missing kind
+    counting as empty), or a reusable-id entity with a delete row in the
+    window even though a live row now holds its id."""
+    return [(k, e) for k, e in win.entities
+            if e not in present.get(k, frozenset())
+            or (k in REUSABLE_ID_KINDS and (k, e) in win.tombstoned)]
+
+
+def tombstoned_ids(win: Window, kind: str) -> list[str]:
+    """Ids of `kind` with a delete row in the window, in window order."""
+    return [e for k, e in win.entities
+            if k == kind and (k, e) in win.tombstoned]

@@ -23,7 +23,8 @@ from pkm.contracts.responses import (ChangesPayload, SnapshotPayload,
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.sync_core import (chunk_ids, dedupe_window,
-                                    hydrate_in_order, missing_parent_uids)
+                                    hydrate_in_order, missing_parent_uids,
+                                    tombstone_entities, tombstoned_ids)
 from pkm.server.sync_meta import (
     database_generation,
     plain_space_title_canonicalization_active,
@@ -159,6 +160,27 @@ def _block_payloads(db: sqlite3.Connection,
     return blocks, dep_pages
 
 
+def _reused_page_dependents(db: sqlite3.Connection,
+                            page_ids: list[int]) -> list[str]:
+    """Uids of the current blocks on any of `page_ids`, then of the blocks
+    with a ref to one of them; deduped, first occurrence kept. A page id
+    with no live row has neither (its blocks were deleted with it and the
+    refs cascade removed the refs), so this returns nothing for it."""
+    uids: list[str] = []
+    for chunk in chunk_ids(page_ids):
+        marks = ",".join("?" * len(chunk))
+        uids.extend(r["uid"] for r in db.execute(
+            f"SELECT uid FROM blocks WHERE page_id IN ({marks})"
+            " ORDER BY uid", chunk))
+    for chunk in chunk_ids(page_ids):
+        marks = ",".join("?" * len(chunk))
+        uids.extend(r["src_block_uid"] for r in db.execute(
+            "SELECT DISTINCT src_block_uid FROM refs"
+            f" WHERE target_page_id IN ({marks}) ORDER BY src_block_uid",
+            chunk))
+    return list(dict.fromkeys(uids))
+
+
 def _page_payloads(db: sqlite3.Connection, ids: set[int]) -> list[SyncPage]:
     if not ids:
         return []
@@ -212,26 +234,49 @@ def sync_changes(since: int = 0, limit: int = 1000,
                 tombstones=[],
             )
         rows = db.execute(
-            "SELECT seq, kind, entity_id FROM changes WHERE seq > ?"
+            "SELECT seq, kind, entity_id, deleted FROM changes WHERE seq > ?"
             " ORDER BY seq LIMIT ?", (since, limit)).fetchall()
-        win = dedupe_window([(r["seq"], r["kind"], r["entity_id"])
-                             for r in rows])
+        win = dedupe_window([(r["seq"], r["kind"], r["entity_id"],
+                              r["deleted"]) for r in rows])
         block_uids = [e for k, e in win.entities if k == "block"]
         page_ids = {int(e) for k, e in win.entities if k == "page"}
         sidebar_ids = [int(e) for k, e in win.entities if k == "sidebar"]
 
+        deleted_pages = [int(e) for e in tombstoned_ids(win, "page")]
+        pages_by_id: dict[int, SyncPage] = {}
+        if deleted_pages:
+            # The window's own page rows are fetched first only when it holds
+            # a page delete, to tell a reused id (delete row, live row now)
+            # from a page that is simply gone.
+            pages_by_id = {p.id: p for p in _page_payloads(db, page_ids)}
+            reused_pages = [p for p in deleted_pages if p in pages_by_id]
+            if reused_pages:
+                # A page shipped as both tombstone and live row carries every
+                # current block on it or referencing it: the replica applies
+                # tombstones first, and the page's cascade removes those rows
+                # before the upserts. Shipping them here makes the page whole
+                # again by the window's COMMIT, not only once the blocks' own
+                # later journal rows arrive.
+                listed = set(block_uids)
+                block_uids += [
+                    u for u in _reused_page_dependents(db, reused_pages)
+                    if u not in listed]
+
         blocks, dep_pages = _block_payloads(db, block_uids)
-        pages = _page_payloads(db, page_ids | dep_pages)
+        # page ids already queried above are not asked for again, found or not
+        still_wanted = (dep_pages - page_ids) if deleted_pages \
+            else (page_ids | dep_pages)
+        pages_by_id.update(
+            (p.id, p) for p in _page_payloads(db, still_wanted))
+        pages = [pages_by_id[i] for i in sorted(pages_by_id)]
         sidebar = _sidebar_payloads(db, sidebar_ids)
 
-        present_blocks = {b.uid for b in blocks}
-        present_pages = {p.id for p in pages}
-        present_sidebar = {s.id for s in sidebar}
-        tombstones = [
-            SyncTombstone(kind=k, entity_id=e) for k, e in win.entities
-            if (k == "block" and e not in present_blocks)
-            or (k == "page" and int(e) not in present_pages)
-            or (k == "sidebar" and int(e) not in present_sidebar)]
+        # a reused page or sidebar id ships as a tombstone AND a live row
+        present = {"block": {b.uid for b in blocks},
+                   "page": {str(p.id) for p in pages},
+                   "sidebar": {str(s.id) for s in sidebar}}
+        tombstones = [SyncTombstone(kind=k, entity_id=e)
+                      for k, e in tombstone_entities(win, present)]
         return ChangesPayload(
             generation=generation,
             plain_space_title_canonicalization=plain_space_active,

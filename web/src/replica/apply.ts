@@ -312,10 +312,14 @@ function assertNoParkedTitles(db: ReplicaDb, table: TitledTable,
  * that took the title arrives, so tombstones go first (pkm-n31j). A page
  * tombstone cascades to its local blocks; any of those that survived
  * server-side (moved to another page) come back through the block upserts
- * that follow, because the feed hydrates current rows. That relies on the
- * server's `dedupe_window`: an entity is hydrated or tombstoned in a window,
- * never both. Were a page ever shipped as both, this order would let the
- * cascade eat blocks the window does not re-ship. */
+ * that follow, because the feed hydrates current rows. A page id the server
+ * deleted and reused inside the window arrives as both a tombstone and a
+ * live row: the tombstone's cascade clears the old page's blocks and every
+ * ref to the id. The server ships every current block on or referencing
+ * that page in the same window, so every block the server still has there
+ * is back by COMMIT. A block an earlier window hydrated onto the page, and
+ * which has left it since, is removed too and returns with its own later
+ * journal row, so the replica converges by a later window. */
 function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
   db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");

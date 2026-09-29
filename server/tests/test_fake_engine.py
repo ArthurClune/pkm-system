@@ -61,8 +61,8 @@ def test_confirm_flow_deny():
 
 
 def test_hang_scenario_parks_until_cancelled():
-    # backs the e2e Stop-button test (pkm-c98s item 3): "please hang" is the
-    # only scripted scenario that stays "busy" long enough to click Stop on.
+    # backs the e2e Stop-button test: "please hang" is the only scripted
+    # scenario that stays "busy" long enough to click Stop on.
     async def scenario():
         engine = FakeEngine()
         conv = await engine.create_conversation(SYSTEM_PROMPT, "sonnet")

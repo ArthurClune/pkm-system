@@ -465,7 +465,7 @@ def test_render_ops_ack_clean_and_skipped():
 
 
 def test_render_ops_ack_names_a_cycle_skip():
-    # pkm-fe9b: a move nesting a block under its own descendant is skipped
+    # A move nesting a block under its own descendant is skipped
     from pkm.contracts.responses import OpsAck, SkippedOp
     from pkm.render import render_ops_ack
     loop = SkippedOp(index=1, op="move", uid="uid_b2", reason="cycle",

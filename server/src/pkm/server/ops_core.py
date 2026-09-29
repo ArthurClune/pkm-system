@@ -19,6 +19,7 @@ from pkm.contracts.ops import (UID_RE, BlockOp, CreateOp, CreatePageOp,
                                SetHeadingOp, SetViewTypeOp, UpdateTextOp,
                                ViewType,
                                text_hash)
+from pkm.contracts.responses import SkipReason
 from pkm.refs import (TitleSyntaxReason, extract, normalize_title,
                       title_syntax_reason)
 from pkm.rename import rewrite_title_refs_map
@@ -344,9 +345,6 @@ def classify_missing_target(
         return MissingTarget("orphan_edit",
                              op.uid if op.text.strip() else None)
     return MissingTarget("skipped", op.uid)
-
-
-SkipReason = Literal["block_not_found", "parent_not_found", "cycle"]
 
 
 def skip_report(index: int, op: BlockOp, miss: MissingTarget,

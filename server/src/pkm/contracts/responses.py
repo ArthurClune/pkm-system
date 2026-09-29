@@ -440,15 +440,23 @@ class TitleMigrationApplyResponse(BaseModel):
 
 # -- Write acks ----------------------------------------------------------
 #
-# The two below are NOT declared as `response_model=` on their routes, and
-# should not be: no generated client reads them (the web app ignores the
-# asset-delete body and reads only the ops ack's optional `seq`, by hand), so
-# attaching them would add components to the published OpenAPI schema for
-# nothing. They exist because the CLI/MCP client does read them
-# -- `applied` is printed as "applied N ops" -- and reading them through a
-# model is what makes the read type-checked. tests/test_client_contracts.py
-# asserts each one still matches what its live route returns, which is the
-# thing a `response_model` would otherwise have enforced.
+# `AssetDeleteAck` is NOT declared as `response_model=` on its route, and
+# should not be: no generated client reads it, so attaching it would add a
+# component to the published OpenAPI schema for nothing. It exists because
+# the CLI/MCP client does read it -- `applied` is printed as "applied N
+# ops" on the sibling ack below -- and reading it through a model is what
+# makes the read type-checked. tests/test_client_contracts.py asserts it
+# still matches what its live route returns, which is the thing a
+# `response_model` would otherwise have enforced.
+#
+# `OpsAck` IS the `response_model` of POST /api/ops: the web reads its
+# `seq` and `skipped` through the generated TypeScript type, and a
+# replayed stored ack passes through it too, so an ack stored before
+# `seq` existed reaches the wire as `seq: null` (the client reads that as
+# unknown, so refetches).
+
+SkipReason = Literal["block_not_found", "parent_not_found", "cycle"]
+
 
 class SkippedOp(BaseModel):
     """One op the server skipped because its block (or, for create/move,
@@ -457,7 +465,7 @@ class SkippedOp(BaseModel):
     index: int
     op: str
     uid: str
-    reason: Literal["block_not_found", "parent_not_found", "cycle"]
+    reason: SkipReason
     # the daily page the op's note or lost text landed on; None when
     # nothing was written (a collapse/delete no-op, a blank text)
     note_page: str | None
@@ -470,7 +478,11 @@ class OpsAck(BaseModel):
     # every op processed, skipped ones included
     applied: int
     # The journal max as of this batch's commit. None for an ack stored (and
-    # so replayed verbatim) before the field existed.
+    # so replayed verbatim) before the field existed. These two fields are
+    # the one exception to this module's "keep every field required" rule:
+    # acks stored before they existed have to validate, so the generated
+    # TypeScript marks them optional, and the web reader tolerates their
+    # absence.
     seq: int | None = None
     # Empty for an ack stored before the field existed, same as for a batch
     # that skipped nothing.

@@ -17,7 +17,7 @@ from pkm.contracts.responses import (AssetSearchPayload, Backlinks, BlockNode,
                                      BlockPayload, BlockRefText, ChangedPayload,
                                      GoodlinksCheckPayload, GroupsPayload,
                                      LocalCheckPayload, OpsAck, PagePayload,
-                                     QueryPayload,
+                                     QueryPayload, SkipReason,
                                      SearchPayload, TitleMigrationApplyResponse,
                                      TitleMigrationAuditPayload,
                                      TitleMigrationBlocker,
@@ -215,7 +215,7 @@ def _count_label(n: int, singular: str, plural: str | None = None) -> str:
     return f"{n} {label}"
 
 
-_SKIP_REASON_TEXT = {
+_SKIP_REASON_TEXT: dict[SkipReason, str] = {
     "block_not_found": "block not found",
     "parent_not_found": "parent block not found",
     "cycle": "target is the block itself or one of its descendants",

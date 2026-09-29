@@ -1,5 +1,17 @@
 """batch_id dedup: a committed-but-unacknowledged batch retried by the
 durable client queue must not double-apply (spec section 1)."""
+import json
+from pathlib import Path
+
+import pytest
+
+from pkm.contracts.ops import OpBatch
+from pkm.server.db import open_db
+from pkm.server.ops_core import batch_replay_hash
+
+CASES = json.loads(
+    (Path(__file__).parents[2] / "shared" / "fixtures" / "ops_acks.json")
+    .read_text())["cases"]
 
 BATCH = {
     "client_id": "c1",
@@ -29,6 +41,30 @@ def test_same_batch_id_different_ops_is_rejected(client):
                              "text": "different payload"}])
     r2 = client.post("/api/ops", json=evil)
     assert r2.status_code == 409
+
+
+@pytest.mark.parametrize("i,case", list(enumerate(CASES)),
+                         ids=[c["name"] for c in CASES])
+def test_stored_ack_replays_through_the_model_as_the_fixture_wire(client, i,
+                                                                  case):
+    """A row in applied_batches seeded with each fixture shape must replay
+    through OpsAck exactly as the fixture's wire value, whatever field the
+    stored row predates."""
+    batch_id = f"ack-fixture-{i:04d}"
+    batch = {"client_id": "c1", "batch_id": batch_id,
+             "ops": [{"op": "set_collapsed", "uid": "uid_b1",
+                      "collapsed": True}]}
+    replay_hash = batch_replay_hash(OpBatch.model_validate(batch))
+    con = open_db(client.app.state.config.db_path)
+    con.execute("INSERT INTO applied_batches VALUES (?,?,?,?)",
+                (batch_id, replay_hash, json.dumps(case["stored"]), 1))
+    con.commit()
+    con.close()
+
+    r = client.post("/api/ops", json=batch)
+    assert r.status_code == 200
+    assert r.json() == case["wire"]
+    assert "seq" in r.json()  # null stays on the wire: read as unknown
 
 
 def test_batch_without_batch_id_is_rejected(client):
@@ -254,7 +290,7 @@ def test_pre_deploy_strict_hash_row_still_replays_and_still_409s(client):
 
     r_same = client.post("/api/ops", json=batch)
     assert r_same.status_code == 200
-    assert r_same.json() == ack  # the pre-deploy row's own stored ack
+    assert r_same.json() == {**ack, "skipped": []}  # replayed through OpsAck
 
     different = dict(batch, ops=[dict(batch["ops"][0], text="v2")])
     r_diff = client.post("/api/ops", json=different)

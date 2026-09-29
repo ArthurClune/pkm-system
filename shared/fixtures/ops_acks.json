@@ -1,0 +1,20 @@
+{
+  "skip_reasons": ["block_not_found", "parent_not_found", "cycle"],
+  "cases": [
+    {"name": "stored-before-seq",
+     "stored": {"ok": true, "ts": 1, "applied": 2},
+     "wire": {"ok": true, "ts": 1, "applied": 2, "seq": null, "skipped": []}},
+    {"name": "stored-before-skipped",
+     "stored": {"ok": true, "ts": 1, "applied": 2, "seq": 7},
+     "wire": {"ok": true, "ts": 1, "applied": 2, "seq": 7, "skipped": []}},
+    {"name": "stored-with-every-reason",
+     "stored": {"ok": true, "ts": 1, "applied": 3, "seq": 9, "skipped": [
+       {"index": 0, "op": "update_text", "uid": "uid_gone01", "reason": "block_not_found", "note_page": "September 29th, 2026"},
+       {"index": 1, "op": "create", "uid": "uid_new01", "reason": "parent_not_found", "note_page": "September 29th, 2026"},
+       {"index": 2, "op": "move", "uid": "uid_b1", "reason": "cycle", "note_page": null}]},
+     "wire": {"ok": true, "ts": 1, "applied": 3, "seq": 9, "skipped": [
+       {"index": 0, "op": "update_text", "uid": "uid_gone01", "reason": "block_not_found", "note_page": "September 29th, 2026"},
+       {"index": 1, "op": "create", "uid": "uid_new01", "reason": "parent_not_found", "note_page": "September 29th, 2026"},
+       {"index": 2, "op": "move", "uid": "uid_b1", "reason": "cycle", "note_page": null}]}}
+  ]
+}

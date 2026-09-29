@@ -825,12 +825,13 @@ def test_impossible_uid_on_a_missing_target_still_400s(client):
                                   "reason": "block not found: not a uid!"}
 
 
-def test_clean_batch_ack_omits_skipped(client):
-    # a missing list reads as empty (OpsAck's default, as for acks stored
-    # before the field existed), so a clean write's ack stays unchanged
+def test_clean_batch_ack_carries_an_empty_skipped_list(client):
+    # the response model always serializes the list, empty or not, so a
+    # clean write's ack carries skipped: [] rather than omitting the key
     r = _post(client, CLEAN_EDIT)
     assert r.status_code == 200
-    assert "skipped" not in r.json()
+    assert r.json()["skipped"] == []
+    assert isinstance(r.json()["seq"], int)
 
 
 def test_ops_chained_on_a_diverted_create_lose_no_text(client):
@@ -887,7 +888,7 @@ def test_create_under_a_parent_moved_to_another_page_follows_it(
                "order_idx": 1, "text": "typed child"},
               CLEAN_EDIT)
     assert r.status_code == 200
-    assert "skipped" not in r.json()
+    assert r.json()["skipped"] == []
     assert _ml_texts(client)[0] == "kept edit"
     [papers] = [b for b in _page_blocks(client, "AI") if b["uid"] == "uid_b2"]
     assert [c["uid"] for c in papers["children"]] == ["uid_b3", "follow_e1"]
@@ -921,7 +922,7 @@ def test_move_with_a_stale_page_title_follows_the_parent(
                "order_idx": 0, "page_title": "Page Since Deleted"},
               CLEAN_EDIT)
     assert r.status_code == 200
-    assert "skipped" not in r.json()
+    assert r.json()["skipped"] == []
     [papers] = [b for b in _page_blocks(client, "Machine%20Learning")
                 if b["uid"] == "uid_b2"]
     assert [c["uid"] for c in papers["children"]] == ["uid_b4", "uid_b3"]

@@ -1491,6 +1491,22 @@ export interface components {
             /** Ops */
             ops: (components["schemas"]["CreateOp"] | components["schemas"]["UpdateTextOp"] | components["schemas"]["MoveOp"] | components["schemas"]["DeleteOp"] | components["schemas"]["SetCollapsedOp"] | components["schemas"]["SetHeadingOp"] | components["schemas"]["SetViewTypeOp"] | components["schemas"]["CreatePageOp"])[];
         };
+        /**
+         * OpsAck
+         * @description POST /api/ops (routes_ops.py).
+         */
+        OpsAck: {
+            /** Ok */
+            ok: boolean;
+            /** Ts */
+            ts: number;
+            /** Applied */
+            applied: number;
+            /** Seq */
+            seq?: number | null;
+            /** Skipped */
+            skipped?: components["schemas"]["SkippedOp"][];
+        };
         /** PageMeta */
         PageMeta: {
             /** Id */
@@ -1649,6 +1665,27 @@ export interface components {
         SidebarNavPayload: {
             /** Entries */
             entries: components["schemas"]["SidebarNavEntry"][];
+        };
+        /**
+         * SkippedOp
+         * @description One op the server skipped because its block (or, for create/move,
+         *     its parent) no longer exists, or because a move would nest the block
+         *     under itself or its own descendant (`ops_core.skip_report`).
+         */
+        SkippedOp: {
+            /** Index */
+            index: number;
+            /** Op */
+            op: string;
+            /** Uid */
+            uid: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "block_not_found" | "parent_not_found" | "cycle";
+            /** Note Page */
+            note_page: string | null;
         };
         /** SnapshotPayload */
         SnapshotPayload: {
@@ -1931,9 +1968,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OpsAck"];
                 };
             };
             /** @description Validation Error */

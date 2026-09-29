@@ -104,9 +104,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Post Ops Api Ops Post"
+                  "$ref": "#/components/schemas/OpsAck"
                 }
               }
             }
@@ -3469,6 +3467,48 @@
         ],
         "title": "OpBatch"
       },
+      "OpsAck": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "ts": {
+            "type": "integer",
+            "title": "Ts"
+          },
+          "applied": {
+            "type": "integer",
+            "title": "Applied"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedOp"
+            },
+            "type": "array",
+            "title": "Skipped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "ts",
+          "applied"
+        ],
+        "title": "OpsAck",
+        "description": "POST /api/ops (routes_ops.py)."
+      },
       "PageMeta": {
         "properties": {
           "id": {
@@ -3864,6 +3904,52 @@
           "entries"
         ],
         "title": "SidebarNavPayload"
+      },
+      "SkippedOp": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "op": {
+            "type": "string",
+            "title": "Op"
+          },
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "block_not_found",
+              "parent_not_found",
+              "cycle"
+            ],
+            "title": "Reason"
+          },
+          "note_page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note Page"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "op",
+          "uid",
+          "reason",
+          "note_page"
+        ],
+        "title": "SkippedOp",
+        "description": "One op the server skipped because its block (or, for create/move,\nits parent) no longer exists, or because a move would nest the block\nunder itself or its own descendant (`ops_core.skip_report`)."
       },
       "SnapshotPayload": {
         "properties": {

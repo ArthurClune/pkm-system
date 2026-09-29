@@ -16,12 +16,14 @@ transport-neutral request/response models the server also serializes with
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
 
 from pkm.client.core import ApiError, ResponseSchemaError
 
+ROOT = Path(__file__).parents[2]
 SRC = Path(__file__).resolve().parents[1] / "src" / "pkm"
 # The planners and renderers are shared by both shells and the client
 # workflows, which is why they sit outside all three rather than under one.
@@ -181,12 +183,24 @@ def test_an_unknown_extra_field_is_tolerated(pkm_client, serving):
     assert pkm_client.search("x").pages == []
 
 
+def test_skip_reason_is_declared_once_and_pinned_by_the_shared_fixture():
+    from typing import get_args
+
+    from pkm import render
+    from pkm.contracts.responses import SkipReason, SkippedOp
+    from pkm.server import ops_core
+
+    fixture = json.loads((ROOT / "shared" / "fixtures" / "ops_acks.json")
+                        .read_text())
+    assert ops_core.SkipReason is SkipReason
+    assert list(get_args(SkipReason)) == fixture["skip_reasons"]
+    assert SkippedOp.model_fields["reason"].annotation == SkipReason
+    assert set(render._SKIP_REASON_TEXT) == set(get_args(SkipReason))
+
+
 def test_ops_ack_is_exactly_what_the_ops_route_returns(pkm_client, client):
-    """`OpsAck` is declared in pkm.contracts but deliberately NOT attached
-    to POST /api/ops as a response_model (that would add a component to
-    the published OpenAPI schema for a route no generated client reads).
-    This test is what keeps the two in step instead: the real route's ack
-    must validate against the model the client parses it with."""
+    """`OpsAck` is the route's `response_model`, so this test pins the
+    client's parse of a live ack, both a clean one and one that skips."""
     from pkm.contracts.responses import OpsAck
 
     raw = client.post("/api/ops", json={

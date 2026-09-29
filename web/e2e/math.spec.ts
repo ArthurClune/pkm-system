@@ -17,7 +17,7 @@ const caretToEnd = (page: Page) =>
   input(page).evaluate((el: HTMLTextAreaElement) =>
     el.setSelectionRange(el.value.length, el.value.length));
 
-test("renders $$...$$ as KaTeX, inline and display (pkm-lr96)", async ({ page }) => {
+test("renders $$...$$ as KaTeX, inline and display", async ({ page }) => {
   await login(page);
   const today = page.locator(".journal-day").first();
   await expect(today).toBeVisible();

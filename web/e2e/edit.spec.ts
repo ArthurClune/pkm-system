@@ -66,7 +66,7 @@ test("core editing loop: create, split, indent, persist, link, backlink", async 
   await expect(page.locator(".backlink-text")).toContainText("second block");
 });
 
-test("Tab and Shift-Tab move a multi-block selection one level (pkm-0ovd)", async ({ page }) => {
+test("Tab and Shift-Tab move a multi-block selection one level", async ({ page }) => {
   const title = `MultiIndent${Date.now()}`;
   await login(page);
   const createRes = await page.request.post("/api/pages", { data: { title } });
@@ -115,7 +115,7 @@ test("Tab and Shift-Tab move a multi-block selection one level (pkm-0ovd)", asyn
   await expect(page.locator(".block-row.selected")).toHaveCount(2);
 });
 
-test("Shift-Cmd moves a selected run within and across a parent (pkm-8jt5)", async ({ page }) => {
+test("Shift-Cmd moves a selected run within and across a parent", async ({ page }) => {
   const title = `SelectedMove${Date.now()}`;
   await login(page);
   const createRes = await page.request.post("/api/pages", { data: { title } });
@@ -211,7 +211,7 @@ test("Shift-Cmd moves a selected run within and across a parent (pkm-8jt5)", asy
   await expect(selectedRows.nth(1)).toHaveAttribute("data-uid", secondUid!);
 });
 
-test("Ctrl-Cmd arrows select to block edge, then whole blocks (pkm-am54)", async ({ page }) => {
+test("Ctrl-Cmd arrows select to block edge, then whole blocks", async ({ page }) => {
   const title = `CtrlCmdSelect${Date.now()}`;
   await login(page);
   const createRes = await page.request.post("/api/pages", { data: { title } });
@@ -264,7 +264,7 @@ test("Ctrl-Cmd arrows select to block edge, then whole blocks (pkm-am54)", async
   await expect(selectedRows).toHaveCount(2);
 });
 
-test("can click back into a line after emptying it (pkm-mc07)", async ({ page }) => {
+test("can click back into a line after emptying it", async ({ page }) => {
   await login(page);
   const today = page.locator(".journal-day").first();
   await expect(today).toBeVisible();
@@ -299,7 +299,7 @@ test("can click back into a line after emptying it (pkm-mc07)", async ({ page })
   await expect(input(page)).toBeFocused();
 });
 
-test("pausing mid [[ autocomplete does not create the partial page (pkm-xlah)", async ({ page }) => {
+test("pausing mid [[ autocomplete does not create the partial page", async ({ page }) => {
   // unique titles: the e2e DB is shared across specs and retries
   const stamp = Date.now();
   const scratch = `RefHold${stamp}`;
@@ -357,7 +357,7 @@ test("edits broadcast live to a second client", async ({ browser, badResponses }
   await ctxB.close();
 });
 
-test("Cmd-B bolds the selection and renders <strong> (pkm-kkpe)", async ({ page }) => {
+test("Cmd-B bolds the selection and renders <strong>", async ({ page }) => {
   // unique page: the e2e DB is shared across specs/retries, and today's
   // journal must stay untouched (other specs assume its state)
   const title = `BoldKey${Date.now()}`;

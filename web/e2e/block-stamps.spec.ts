@@ -49,7 +49,7 @@ test("the page menu toggles a stamp column that survives a reload", async ({ pag
   await expect(stamp).toHaveClass(/block-stamp-week/);
   await expect(stamp).toHaveText(/^\d{1,2} [A-Z][a-z]{2} \d{2}$/);
 
-  // Wait for the server's own copy before reloading (pkm-wi25). The block was
+  // Wait for the server's own copy before reloading. The block was
   // typed a few hundred ms ago, and a reload that beats the queue's first
   // delivery reloads onto an empty page — there is then no row to stamp, and
   // the failure reads as a missing stamp column rather than a missing block.

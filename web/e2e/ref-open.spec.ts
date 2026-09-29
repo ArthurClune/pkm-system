@@ -1,11 +1,11 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
-// pkm-a1e4: Ctrl-O (open a [[page reference]] under the caret) and
+// Ctrl-O (open a [[page reference]] under the caret) and
 // Ctrl-Shift-O (open it in the sidebar) used to jump straight to the target
 // title without creating it, so a reference typed this session -- whose
 // caret never left the [[...]] token, holding the debounced autosave that
-// would otherwise get-or-create it (pkm-xlah) -- 404d on arrival. Both must
+// would otherwise get-or-create it -- 404d on arrival. Both must
 // create the page first.
 
 const PASSWORD = "e2e-pw";
@@ -36,7 +36,7 @@ async function typeUnflushedRef(page: Page, target: string) {
   await expect(input(page)).toHaveValue(`[[${target}]]`);
 }
 
-test("Ctrl-O creates a not-yet-existing referenced page before navigating (pkm-a1e4)", async ({ page }) => {
+test("Ctrl-O creates a not-yet-existing referenced page before navigating", async ({ page }) => {
   const stamp = Date.now();
   const source = `RefOpenSource${stamp}`;
   const target = `RefOpenTarget${stamp}`;
@@ -59,7 +59,7 @@ test("Ctrl-O creates a not-yet-existing referenced page before navigating (pkm-a
   expect(after.ok()).toBeTruthy();
 });
 
-test("Ctrl-Shift-O creates a not-yet-existing referenced page and opens it in the sidebar (pkm-a1e4)", async ({ page }) => {
+test("Ctrl-Shift-O creates a not-yet-existing referenced page and opens it in the sidebar", async ({ page }) => {
   const stamp = Date.now();
   const source = `RefOpenSidebarSource${stamp}`;
   const target = `RefOpenSidebarTarget${stamp}`;

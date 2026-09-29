@@ -1,6 +1,6 @@
 // The embedded PDF viewer end-to-end: upload a real 3-page PDF, link it in a
 // block, and drive the react-pdf viewer -- pages rasterize to canvases, the
-// indicator follows scroll, and the fullscreen overlay opens/closes (pkm-srek).
+// indicator follows scroll, and the fullscreen overlay opens/closes.
 import { readFileSync } from "node:fs";
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
@@ -65,7 +65,7 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   await expect(overlay).toBeVisible();
   await expect(overlay.locator("canvas").first()).toBeVisible();
 
-  // modal a11y (pkm-bqrk): the dialog is aria-modal, focus moves to Close,
+  // modal a11y: the dialog is aria-modal, focus moves to Close,
   // the page behind can't scroll, and Tab is trapped inside the overlay --
   // Close to the scroll frame (an explicit tab stop, so keyboard users can
   // scroll the PDF), then wrapping from the frame back to the Download link.
@@ -79,7 +79,7 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
 
   // clicking overlay content (not Close) must not collapse the overlay or
   // re-enter block-edit mode -- the whole viewer, including the portalled
-  // overlay, is an interactive island (pkm-srek final review).
+  // overlay, is an interactive island.
   await overlay.locator(".pdf-overlay-bar").click();
   await expect(overlay).toBeVisible();
   // the overlay mounts a fresh PdfPages with its own scroll position, so it
@@ -96,7 +96,7 @@ test("uploaded multi-page PDF renders, scrolls, and expands", async ({ page }) =
   expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
 });
 
-test("Roam-style {{[[pdf]]: …}} macro renders the viewer (pkm-ph1m)", async ({ page }) => {
+test("Roam-style {{[[pdf]]: …}} macro renders the viewer", async ({ page }) => {
   await login(page);
 
   const res = await page.request.post("/api/assets", {

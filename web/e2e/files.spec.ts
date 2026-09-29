@@ -1,5 +1,5 @@
 // Asset file browser (/files): browse, copy-link, orphan purge, linked
-// delete, and export (pkm-jdu3).
+// delete, and export.
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
 
@@ -107,7 +107,7 @@ test("refs popover navigates; thumbnail expands in-app", async ({ page }) => {
   const popover = page.getByRole("dialog", { name: "References" });
   await expect(popover.getByText(title)).toBeVisible();
   await expect(popover.getByText(/sketch here/)).toBeVisible();
-  // pkm-v57y: media inside popover rows renders inert, so clicking the
+  // media inside popover rows renders inert, so clicking the
   // embedded image itself navigates to the block instead of expanding.
   await popover.locator(".backlink-item img").click();
   await page.waitForURL(`**/page/**#${uid}`);

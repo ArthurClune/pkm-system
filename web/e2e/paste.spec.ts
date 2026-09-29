@@ -1,4 +1,4 @@
-// pkm-tu3a/pkm-fwa2: Shift-Cmd-V pastes an indented outline as real
+// Shift-Cmd-V pastes an indented outline as real
 // hierarchy (and a copied multi-block selection round-trips through it);
 // plain Cmd-V always stays native, whatever the clipboard looks like.
 import { type Page } from "@playwright/test";
@@ -29,7 +29,7 @@ async function openFreshPage(page: Page, title: string) {
 }
 
 /** Dispatch a synthetic paste. With `chord`, a Shift-Cmd-V keydown goes
- * first — that's what arms the outline split (pkm-fwa2); a real chord press
+ * first — that's what arms the outline split; a real chord press
  * can't be used because Playwright's trusted keystroke would also trigger
  * the browser's own paste from the real (unknown) CI clipboard. Returns
  * whether the app intercepted the paste (called preventDefault). */
@@ -50,7 +50,7 @@ async function pasteText(page: Page, text: string, chord = false) {
     }, { clip: text, chord });
 }
 
-test("plain paste of multi-line text is never intercepted (pkm-fwa2)", async ({ page }) => {
+test("plain paste of multi-line text is never intercepted", async ({ page }) => {
   await login(page);
   const title = `Paste Native ${Date.now()}`;
   await openFreshPage(page, title);
@@ -111,8 +111,7 @@ test("copy of a multi-block selection round-trips hierarchy", async ({ page }) =
   await pasteText(page, "one\n\ttwo\n\t\tthree", true);
   await waitForServerText(page, src, "three");
 
-  // capture the clipboard: writeText is patched to window.__copied (pattern
-  // from pkm-y6af)
+  // capture the clipboard: writeText is patched to window.__copied
   await page.evaluate(() => {
     (window as unknown as { __copied?: string }).__copied = undefined;
     navigator.clipboard.writeText = (t: string) => {
@@ -122,7 +121,7 @@ test("copy of a multi-block selection round-trips hierarchy", async ({ page }) =
   });
 
   // Select all three blocks using the proven multi-select recipe from the
-  // pkm-0ovd Tab test (edit.spec.ts): extend the selection upward twice from
+  // Tab test (edit.spec.ts): extend the selection upward twice from
   // the deepest block. Focus already rests on "three" — planOutlinePaste's
   // focus target is the last-created descendant — so no click is needed
   // (and "three" isn't a ".block-text" span yet anyway: the focused block

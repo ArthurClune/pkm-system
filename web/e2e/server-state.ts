@@ -4,7 +4,7 @@
 // disconnect) — see OfflineIndicator.tsx. In a normally connected session
 // pending>0 shows no banner at all, so waiting on the banner is vacuous and
 // a reload can race the last queued mutation's HTTP delivery. Polling the
-// server directly is deterministic. (pkm-h7jb, originally hit in pkm-7q14.)
+// server directly is deterministic.
 import { expect, type Page } from "@playwright/test";
 
 type BlockNode = { text: string; children: BlockNode[] };

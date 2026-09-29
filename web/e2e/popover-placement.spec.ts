@@ -1,7 +1,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
-// pkm-muka: the block menu and the references popover are `position: fixed`
+// The block menu and the references popover are `position: fixed`
 // and anchored at viewport coordinates read off the click. Rendering them
 // inside a container that imposes layout containment makes that container
 // their containing block, so they paint displaced by its offset -- which is
@@ -208,7 +208,7 @@ test("menu and references popover stay anchored deep in a scrolled journal",
   await expect(popover.getByText(source)).toBeVisible();
   const popBox = (await popover.boundingBox())!;
   const viewport = page.viewportSize()!;
-  // Anchored under the badge and clamped into the viewport (pkm-7iv7). Under
+  // Anchored under the badge and clamped into the viewport. Under
   // a layout-contained ancestor the clamp still computes the same
   // coordinates; they just resolve against the section, not the viewport.
   expect(popBox.y).toBeGreaterThanOrEqual(0);

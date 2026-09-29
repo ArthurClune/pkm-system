@@ -25,7 +25,7 @@ async function openPageMenu(page: Page) {
   await page.getByRole("menuitem", { name: "Delete page…" }).click();
 }
 
-// pkm-pe79: deleting a page used window.confirm() for the "are you sure"
+// Deleting a page used window.confirm() for the "are you sure"
 // prompt, which iPadOS Safari silently no-ops in standalone/PWA mode --
 // the dialog never appears and the delete never happens. The fix renders
 // an in-app confirm dialog instead, which is exercisable headlessly (no
@@ -50,7 +50,7 @@ test("cancelling the delete confirm leaves the page intact", async ({ page }) =>
   await openPageMenu(page);
   // Scoped to the dialog: an unscoped query can also match the page-title
   // edit button when the (randomly generated) title itself contains
-  // "Cancel", since that button is legitimately named by its content (pkm-6phf).
+  // "Cancel", since that button is legitimately named by its content.
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 
@@ -73,7 +73,7 @@ test("confirming the delete dialog deletes the page and returns to the journal",
   expect(res.status()).toBe(404);
 });
 
-// pkm-2i6a: the page menu takes its dismissal from the shared useDismiss
+// The page menu takes its dismissal from the shared useDismiss
 // hook. Covered here in a real browser because the menu's trigger sits
 // inside the same wrapper the hook tests for containment -- a click on it
 // must toggle, not dismiss-then-reopen.

@@ -1,8 +1,8 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
-// pkm-vszf: the top-bar search field grows to a fixed 320px on focus
-// (pkm-0wg9). With the other top-bar controls present that pushes the input
+// The top-bar search field grows to a fixed 320px on focus.
+// With the other top-bar controls present that pushes the input
 // past 320px/390px phone viewports -- jsdom can't lay out flexbox, so this
 // is the only place that catches real overflow (src/styles.test.ts pins the
 // CSS declarations that fix it).
@@ -28,7 +28,7 @@ async function createAndVisitPage(page: Page, title: string) {
 }
 
 for (const viewport of [{ width: 320, height: 660 }, { width: 390, height: 844 }]) {
-  test(`focused search stays within a ${viewport.width}px viewport (pkm-vszf)`, async ({ page }) => {
+  test(`focused search stays within a ${viewport.width}px viewport`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const stamp = Date.now();
     await login(page);
@@ -37,7 +37,7 @@ for (const viewport of [{ width: 320, height: 660 }, { width: 390, height: 844 }
     const input = page.getByRole("textbox", { name: "Search" });
     await input.focus();
     await expect(input).toBeFocused();
-    // .top-bar-search-input animates its width over 0.15s (pkm-0wg9); reading
+    // .top-bar-search-input animates its width over 0.15s; reading
     // the box immediately catches an in-flight value that's still short of
     // the final (overflowing, pre-fix) width and would pass either way.
     await page.waitForTimeout(300);

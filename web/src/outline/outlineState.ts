@@ -3,7 +3,8 @@
 // read tokens, and I/O; this module only decides whether a tree is safe to
 // adopt and whether settlement requires a fresh authoritative read.
 import type { BlockNode } from "../api/payloads";
-import type { BlockOp } from "../api/ops";
+import type { BlockOp, UpdateTextOp } from "../api/ops";
+import { sha256Hex } from "../replica/sha256";
 import type { FocusTarget } from "./edits";
 import type { TextSelection } from "./keyEdits";
 import { applyOps, applyOpsWithChange, blocksEqual, findNode,
@@ -335,18 +336,50 @@ export function validateOutlineFocus(
   return focus && findNode(blocks, focus.uid) ? focus : null;
 }
 
-/** The text op a debounced draft should flush before a structural edit runs.
- * Empty when nothing is pending, when a remote batch already deleted the block
- * (flushing would doom the whole batch), or when the draft never changed the
- * text. */
-export function pendingTextOps(
-  pending: { uid: string; text: string } | null,
+/** An editor draft: the text typed into one block, and the text that block
+ * held when typing started (`null` when the tree lacked the block then). */
+export interface PendingDraft {
+  uid: string;
+  text: string;
+  base: string | null;
+}
+
+/** Record a draft change. The base is captured on the draft's first change
+ * and kept across later keystrokes, even when a remote batch has since
+ * changed the tree under it; a change to a different block starts over. */
+export function captureDraft(
+  prev: PendingDraft | null,
+  uid: string,
+  text: string,
   blocks: BlockNode[],
-): BlockOp[] {
+): PendingDraft {
+  if (prev?.uid === uid) return { uid, text, base: prev.base };
+  return { uid, text, base: findNode(blocks, uid)?.text ?? null };
+}
+
+/** The text op a draft flushes. It carries the hash of the text the draft was
+ * typed over (its base), not of whatever the tree holds now, so a remote edit
+ * that landed under the draft forks a conflict copy instead of being
+ * overwritten. It ships even when the block has left this tree (a remote
+ * delete or cross-page move): the server lands an edit to a missing block on
+ * today's daily note. Empty only when nothing changed (the text equals the
+ * base) or the tree already holds the text. A draft with no base carries just
+ * page_title, and stampBaseTextHashes hashes it as it would any op. */
+export function pendingTextOps(
+  pending: PendingDraft | null,
+  blocks: BlockNode[],
+  pageTitle: string,
+): UpdateTextOp[] {
   if (!pending) return [];
-  const node = findNode(blocks, pending.uid);
-  if (!node || node.text === pending.text) return [];
-  return [{ op: "update_text", uid: pending.uid, text: pending.text }];
+  const { uid, text, base } = pending;
+  if (text === base) return [];
+  const node = findNode(blocks, uid);
+  if (node && node.text === text) return [];
+  return [{
+    op: "update_text", uid, text,
+    ...(base !== null ? { base_text_hash: sha256Hex(base) } : {}),
+    page_title: pageTitle,
+  }];
 }
 
 /** Splice uploaded asset markdown into a block's text at the pre-upload caret,

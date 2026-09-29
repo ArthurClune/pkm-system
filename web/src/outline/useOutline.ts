@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
          useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
 import type { BlockNode } from "../api/payloads";
-import type { BlockOp } from "../api/ops";
+import type { BlockOp, UpdateTextOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
 import { useConfirm } from "../components/ConfirmDialog";
 import type { OutlineDndApi } from "../dnd/DndContext";
@@ -14,7 +14,7 @@ import { toggleTodo } from "../grammar/todo";
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
-import { stampBaseTextHashes } from "./baseTextHash";
+import { stampBaseTextHashes, withoutStamps } from "./baseTextHash";
 import { backspaceAtStart, deleteSelection, indentBlock, indentSelection,
          moveBlocksTo, moveSelectionDown, moveSelectionUp, moveSubtreeDown,
          moveSubtreeUp, outdentBlock, outdentSelection, setCollapsed,
@@ -32,8 +32,8 @@ import { extendSelection, needsDeleteConfirmation, selectedUids,
          type BlockSelection } from "./blockSelection";
 import { acquireOutlineSession,
          type OutlineSessionHandle } from "./outlineSessions";
-import { pendingTextOps, spliceUploadedMarkdown,
-         validateOutlineFocus } from "./outlineState";
+import { captureDraft, pendingTextOps, spliceUploadedMarkdown,
+         validateOutlineFocus, type PendingDraft } from "./outlineState";
 import { performRedo, performUndo, recordHistory,
          registerOutlineHistory } from "./undoManager";
 
@@ -97,7 +97,7 @@ export function useOutline(
   const sessionRef = useRef<OutlineSessionHandle | null>(null);
   const bootstrapRef = useRef(initial);
   bootstrapRef.current = initial;
-  const pendingRef = useRef<{ uid: string; text: string } | null>(null);
+  const pendingRef = useRef<PendingDraft | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useLayoutEffect(() => {
@@ -157,17 +157,17 @@ export function useOutline(
     pendingRef.current = null;
   }, [initial]);
 
-  const takePendingTextOps = useCallback((): BlockOp[] => {
+  const takePendingTextOps = useCallback((): UpdateTextOp[] => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
     const pending = pendingRef.current;
     pendingRef.current = null;
-    // no node: a remote batch deleted it — flushing would doom the whole
-    // batch. same text: the draft never actually changed anything.
-    return pendingTextOps(pending, blocksRef.current);
-  }, []);
+    // The draft ships even when its block has left the tree, and its hash is
+    // of the text it was typed over, not of what the tree holds now.
+    return pendingTextOps(pending, blocksRef.current, pageTitle);
+  }, [pageTitle]);
 
   /** Flush any pending text op, run the command against the flushed tree,
    * apply + enqueue everything in order, then move focus. */
@@ -203,11 +203,12 @@ export function useOutline(
     // Deliberately the UNSTAMPED ops: a hash captured now is stale by the time
     // undo/redo replays the entry, and a stale hash lands a spurious
     // [[conflict]] header on the daily note. undoManager stamps at replay
-    // time instead.
+    // time instead. The flushed text op arrives already stamped with the
+    // draft's base, so its stamps are stripped here.
     const inverse = invertOps(pre, pageTitle, ops);
     if (inverse !== null && inverse.length > 0) {
       recordHistory({
-        pageTitle, ops: [...ops], inverse,
+        pageTitle, ops: [...textOps.map(withoutStamps), ...result.ops], inverse,
         focusBefore: focusRef.current,
         focusAfter: result.focus ?? focusRef.current,
       });
@@ -269,8 +270,10 @@ export function useOutline(
   // Remote batches: the same applyOps as local edits. Text updates always
   // land on the block tree, even for the focused block — focus does not imply
   // an unflushed local draft. When a real draft exists the focused textarea
-  // keeps showing it (BlockInput owns that decision); its next flush then
-  // becomes the legitimate last-writer (per-block last-write-wins).
+  // keeps showing it (BlockInput owns that decision), and its flush carries
+  // the hash of the draft's base, not of the remote text now in the tree. The
+  // server therefore keeps the other text as a conflict copy, whichever edit
+  // arrives first.
   useEffect(() => sync.subscribe((batch) => {
     const remote = sessionRef.current?.applyRemote(batch);
     if (remote?.needsAuthoritative) {
@@ -292,7 +295,8 @@ export function useOutline(
       setFocus((f) => (f?.uid === uid ? null : f));
     },
     onDraftChange: (uid, text, holdFlush) => {
-      pendingRef.current = { uid, text };
+      pendingRef.current =
+        captureDraft(pendingRef.current, uid, text, blocksRef.current);
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;

@@ -1,11 +1,11 @@
 ---
 # pkm-impk
 title: 'Unflushed drafts fall outside the conflict model: remote text overwritten silently, local text dropped when the block leaves the tree'
-status: todo
+status: in-progress
 type: bug
 priority: high
 created_at: 2026-09-29T13:20:29Z
-updated_at: 2026-09-29T13:20:29Z
+updated_at: 2026-09-29T13:48:58Z
 parent: pkm-a4t2
 ---
 
@@ -37,9 +37,9 @@ changed or the present node already has the text.
 
 ## Todo
 
-- [ ] Invert `outlineState.test.ts` "drops a pending draft whose block a remote batch deleted": flushed, stamped with the base hash
-- [ ] Draft becomes `{ uid, text, base }`; `pendingTextOps(pending, blocks, pageTitle)` per the spec; `stampBaseTextHashes` already leaves a stamped op alone
-- [ ] Tests: remote update during a debounced draft flushes with the pre-remote hash; remote delete and remote cross-page move during a debounced and a held draft both flush; `text === base` and an identical remote edit both suppress
+- [x] Invert `outlineState.test.ts` "drops a pending draft whose block a remote batch deleted": flushed, stamped with the base hash
+- [x] Draft becomes `{ uid, text, base }`; `pendingTextOps(pending, blocks, pageTitle)` per the spec; `stampBaseTextHashes` already leaves a stamped op alone
+- [x] Tests: remote update during a debounced draft flushes with the pre-remote hash; remote delete and remote cross-page move during a debounced and a held draft both flush; `text === base` and an identical remote edit both suppress
 - [ ] Trace the `initial`-change effect in `useOutline.ts` that clears a draft without flushing; flush first if a production parent reaches it with a live draft; record the outcome here
 - [ ] Docs: `frontend-editor.md` § Drafts and commit points; `sync-and-offline.md` conflict section (order independence; D7's sentence scoped); troubleshooting row
 - [ ] verify, perf, merge

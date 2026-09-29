@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BlockOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
+import { sha256Hex } from "../replica/sha256";
 import { block } from "../test-helpers";
 import {
   beginAuthoritativeRead,
+  captureDraft,
   createOutlineState,
   pendingTextOps,
   spliceUploadedMarkdown,
@@ -333,23 +335,63 @@ describe("outline causality", () => {
 
   it("flushes a changed pending draft before a structural op", () => {
     const ops = pendingTextOps(
-      { uid: "u1", text: "typed" }, [block("u1", "old")],
+      { uid: "u1", text: "typed", base: "old" }, [block("u1", "old")], "Page",
     );
-    expect(ops).toEqual([{ op: "update_text", uid: "u1", text: "typed" }]);
+    expect(ops).toEqual([{
+      op: "update_text", uid: "u1", text: "typed",
+      base_text_hash: sha256Hex("old"), page_title: "Page",
+    }]);
   });
 
   it("drops a no-op pending draft whose text is unchanged", () => {
-    expect(pendingTextOps({ uid: "u1", text: "same" }, [block("u1", "same")]))
-      .toEqual([]);
+    expect(pendingTextOps(
+      { uid: "u1", text: "same", base: "same" }, [block("u1", "same")], "Page",
+    )).toEqual([]);
   });
 
-  it("drops a pending draft whose block a remote batch deleted", () => {
-    expect(pendingTextOps({ uid: "gone", text: "typed" }, [block("u1", "old")]))
-      .toEqual([]);
+  it("flushes a draft whose block a remote batch deleted, stamped with its base", () => {
+    expect(pendingTextOps(
+      { uid: "gone", text: "typed", base: "old" }, [block("u1", "old")], "Page",
+    )).toEqual([{
+      op: "update_text", uid: "gone", text: "typed",
+      base_text_hash: sha256Hex("old"), page_title: "Page",
+    }]);
   });
 
   it("has nothing to flush without a pending draft", () => {
-    expect(pendingTextOps(null, [block("u1", "old")])).toEqual([]);
+    expect(pendingTextOps(null, [block("u1", "old")], "Page")).toEqual([]);
+  });
+
+  it("stamps the base, not the tree, when a remote edit landed under the draft", () => {
+    const ops = pendingTextOps(
+      { uid: "u1", text: "typed", base: "old" }, [block("u1", "remote")], "Page",
+    );
+    expect(ops).toEqual([{
+      op: "update_text", uid: "u1", text: "typed",
+      base_text_hash: sha256Hex("old"), page_title: "Page",
+    }]);
+  });
+
+  it("drops a draft typed back to its base, even over a remote edit", () => {
+    expect(pendingTextOps(
+      { uid: "u1", text: "old", base: "old" }, [block("u1", "remote")], "Page",
+    )).toEqual([]);
+  });
+
+  it("drops a draft a remote edit already made", () => {
+    expect(pendingTextOps(
+      { uid: "u1", text: "same", base: "old" }, [block("u1", "same")], "Page",
+    )).toEqual([]);
+  });
+
+  it("a draft with no captured base carries page_title and no hash", () => {
+    const ops = pendingTextOps(
+      { uid: "gone", text: "typed", base: null }, [], "Page",
+    );
+    expect(ops).toEqual([
+      { op: "update_text", uid: "gone", text: "typed", page_title: "Page" },
+    ]);
+    expect(ops[0]).not.toHaveProperty("base_text_hash");
   });
 
   it("clamps an upload splice offset past intervening typing", () => {
@@ -652,3 +694,28 @@ function watchFieldReads(nodes: BlockNode[], onRead: () => void): BlockNode[] {
     return watched;
   });
 }
+
+describe("captureDraft", () => {
+  it("captures the tree text as base on the first change", () => {
+    expect(captureDraft(null, "u1", "a", [block("u1", "old")]))
+      .toEqual({ uid: "u1", text: "a", base: "old" });
+  });
+
+  it("keeps the base across later changes even when the tree moved on", () => {
+    expect(captureDraft(
+      { uid: "u1", text: "a", base: "old" }, "u1", "ab", [block("u1", "remote")],
+    )).toEqual({ uid: "u1", text: "ab", base: "old" });
+  });
+
+  it("recaptures for a different block", () => {
+    expect(captureDraft(
+      { uid: "u1", text: "a", base: "old" }, "u2", "x",
+      [block("u1", "old"), block("u2", "two")],
+    )).toEqual({ uid: "u2", text: "x", base: "two" });
+  });
+
+  it("records a null base for a block the tree lacks", () => {
+    expect(captureDraft(null, "gone", "x", []))
+      .toEqual({ uid: "gone", text: "x", base: null });
+  });
+});

@@ -353,26 +353,76 @@ test("remote update_text for a focused block with no draft is adopted", () => {
   expect(screen.getByText("second remote")).toBeInTheDocument();
 });
 
-test("focused block with a pending draft keeps the draft; it wins on flush", () => {
+test("a remote update under a debounced draft: the flush carries the draft's base hash", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = mount();
   const ta = focusBlock("first");
   fireEvent.change(ta, { target: { value: "typed" } });
-  // Remote update arrives while a real local draft is unflushed: the block
-  // tree adopts it, but the textarea keeps showing the local draft (LWW).
+  // The tree takes the remote text; the textarea keeps showing the draft.
   act(() => sync.emit({ client_id: "other", ts: 1, ops: [
     { op: "update_text", uid: "u1", text: "remote" },
   ] }));
   expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("typed");
-  // The draft flush is the next legitimate last-writer.
+  act(() => { vi.advanceTimersByTime(500); });
+  // The flush hashes the text the draft was typed over ("first"), so the
+  // server sees a mismatch and keeps "remote" as a conflict copy.
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "typed",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("keystrokes after a remote update keep the draft's first base", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "t1" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "t12" } });
   act(() => { vi.advanceTimersByTime(500); });
   expect(sync.sent).toEqual([
-    // The remote batch already landed on the block tree, so the flush hashes
-    // what it is really replacing — "remote", not the "first" it was typed over.
-    [{ op: "update_text", uid: "u1", text: "typed",
-      base_text_hash: sha256Hex("remote"), page_title: "Page" }],
+    [{ op: "update_text", uid: "u1", text: "t12",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
   ]);
+});
+
+test("the draft after a flush bases on the flushed text", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "one" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "one two" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toHaveLength(2);
+  expect(sync.sent[1][0]).toMatchObject({
+    op: "update_text", uid: "u1", text: "one two",
+    base_text_hash: sha256Hex("one"),
+  });
+});
+
+test("Enter after a remote update under a draft stamps the split batch with the base", () => {
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "first!" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  const live = screen.getByRole("textbox") as HTMLTextAreaElement;
+  live.setSelectionRange(6, 6);
+  fireEvent.keyDown(live, { key: "Enter" });
+  expect(sync.sent).toHaveLength(1);
+  expect(sync.sent[0][0]).toEqual({
+    op: "update_text", uid: "u1", text: "first!",
+    base_text_hash: sha256Hex("first"), page_title: "Page",
+  });
+  expect(sync.sent[0][1]).toMatchObject({ op: "create", page_title: "Page" });
 });
 
 test("focus then blur without editing after a remote update stays consistent", () => {
@@ -520,17 +570,77 @@ test("navigating away with no blur still flushes a held draft (pkm-mvdx)", () =>
   expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
-test("draft for a remotely-deleted block is dropped, not flushed", () => {
+const CROSS_PAGE_MOVE = { op: "move", uid: "u1", parent_uid: null,
+                         order_idx: 0, page_title: "Elsewhere" } as const;
+
+function hideTab() {
+  Object.defineProperty(document, "visibilityState",
+                        { value: "hidden", configurable: true });
+  fireEvent(document, new Event("visibilitychange"));
+  Object.defineProperty(document, "visibilityState",
+                        { value: "visible", configurable: true });
+}
+
+test("a debounced draft whose block a remote batch deleted still flushes", () => {
   vi.useFakeTimers();
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = mount();
   const ta = focusBlock("first");
-  fireEvent.change(ta, { target: { value: "doomed draft" } });
+  fireEvent.change(ta, { target: { value: "kept draft" } });
   act(() => sync.emit({ client_id: "other", ts: 1, ops: [
     { op: "delete", uid: "u1" },
   ] }));
   act(() => { vi.advanceTimersByTime(500); });
-  expect(sync.sent).toEqual([]);
+  // The server lands an edit to a missing block on today's daily note.
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "kept draft",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("a debounced draft whose block a remote cross-page move took still flushes", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "moved draft" } });
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [CROSS_PAGE_MOVE] }));
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent).toEqual([
+    [{ op: "update_text", uid: "u1", text: "moved draft",
+      base_text_hash: sha256Hex("first"), page_title: "Page" }],
+  ]);
+});
+
+test("a held draft under a remote update flushes on blur with its base hash", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  const ta = heldRefDraft(sync);
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "update_text", uid: "u1", text: "remote" },
+  ] }));
+  fireEvent.blur(ta);
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
+});
+
+test("a held draft whose block a remote batch deleted flushes on tab hide", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  heldRefDraft(sync);
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [
+    { op: "delete", uid: "u1" },
+  ] }));
+  hideTab();
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
+});
+
+test("a held draft whose block a remote cross-page move took flushes on tab hide", () => {
+  vi.useFakeTimers();
+  const sync = makeSync();
+  heldRefDraft(sync);
+  act(() => sync.emit({ client_id: "other", ts: 1, ops: [CROSS_PAGE_MOVE] }));
+  hideTab();
+  expect(sync.sent.flat()).toContainEqual(HELD_TEXT_OP);
 });
 
 test("a page already active elsewhere in this tab renders read-only", () => {

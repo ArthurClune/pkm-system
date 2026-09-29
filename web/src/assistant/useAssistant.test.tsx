@@ -172,7 +172,7 @@ describe("useAssistant", () => {
     expect(latest.error).toBe("network down");
   });
 
-  // pkm-e9ok: the phase drives the busy line's label and its elapsed clock.
+  // The phase drives the busy line's label and its elapsed clock.
   test("phase events update the label mid-turn; turn end clears it", async () => {
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     let release!: () => void;
@@ -301,7 +301,6 @@ describe("useAssistant", () => {
   });
 
   test("send retries once after a 404 (server reaped the conversation)", async () => {
-    // pkm-c98s item 4
     mocks.createConversation
       .mockResolvedValueOnce({ id: "c1", model: "sonnet" })
       .mockResolvedValueOnce({ id: "c2", model: "sonnet" });
@@ -343,7 +342,6 @@ describe("useAssistant", () => {
   });
 
   test("ApiError detail is surfaced as the error message, not the raw status", async () => {
-    // pkm-c98s item 5
     mocks.createConversation.mockRejectedValue(
       new ApiError(409, "/api/assistant/conversations", "at most 3 concurrent conversations"),
     );
@@ -353,7 +351,6 @@ describe("useAssistant", () => {
   });
 
   test("stop aborts the in-flight turn without surfacing an error", async () => {
-    // pkm-c98s item 3
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     let capturedSignal: AbortSignal | undefined;
     mocks.streamMessage.mockImplementation(
@@ -384,9 +381,9 @@ describe("useAssistant", () => {
   });
 
   test("stop then an immediate resend tolerates a transient 409 from the server catching up", async () => {
-    // pkm-c98s item 3: AbortController.abort() rejects the client's fetch
-    // promise immediately, well before the server has processed the TCP
-    // disconnect and released the conversation's busy flag (item 7). A
+    // AbortController.abort() rejects the client's fetch promise
+    // immediately, well before the server has processed the TCP
+    // disconnect and released the conversation's busy flag. A
     // send() issued right after Stop can therefore land while the server
     // still thinks the previous turn is running; retry briefly instead of
     // surfacing a confusing "a turn is already in progress" error for a
@@ -425,7 +422,6 @@ describe("useAssistant", () => {
   });
 
   test("pagehide sends a beacon to close the live conversation", async () => {
-    // pkm-c98s item 1
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     feed([{ type: "turn_done", usage: null }]);
     render(<Harness />);
@@ -455,7 +451,6 @@ describe("useAssistant", () => {
   });
 
   test("newChat aborts the live turn; its late events never reach the new chat", async () => {
-    // pkm-6ts2
     mocks.createConversation.mockResolvedValue({ id: "c1", model: "sonnet" });
     mocks.deleteConversation.mockResolvedValue(undefined);
     let emit!: (ev: AssistantEvent) => void;
@@ -565,7 +560,7 @@ describe("useAssistant", () => {
   });
 
   test("a superseded turn's finally, settling only after the next turn has started, cannot clobber it", async () => {
-    // pkm-6ts2 review: newChat() awaits the superseded turn before it
+    // newChat() awaits the superseded turn before it
     // resolves, so a test that awaits newChat() before starting the next
     // send() never actually overlaps the two turns -- by the time send()
     // runs, turn one's finally has already executed and its writes are

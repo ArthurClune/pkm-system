@@ -38,7 +38,7 @@ it("same-page drop delegates to the registered outline's moveTo", () => {
   expect(sync.sent).toEqual([]); // moveTo enqueues internally, fake doesn't
 });
 
-it("a same-page group drop passes the whole selection to moveTo (pkm-q89w)", () => {
+it("a same-page group drop passes the whole selection to moveTo", () => {
   const { sync, dnd } = setup();
   const api = fakeOutline();
   dnd().registerOutline("P", api);
@@ -58,7 +58,7 @@ it("same-page drop with no registered outline enqueues the op directly", () => {
   expect(sync.tickets[0].scope).toEqual(["page", "P"]);
 });
 
-it("group drop with no registered outline enqueues sequential move ops (pkm-q89w)", () => {
+it("group drop with no registered outline enqueues sequential move ops", () => {
   const { sync, dnd } = setup();
   dnd().drop({ uid: "u1", pageTitle: "P", uids: ["u1", "u2"] },
              { parent_uid: "x", order_idx: 3, page_title: "P" });
@@ -120,7 +120,7 @@ it("unmounted cross-page target skips insertion but retains subtree replay", () 
   );
 });
 
-it("a cross-page group drop moves every block: surgery, ops, and replays (pkm-q89w)", () => {
+it("a cross-page group drop moves every block: surgery, ops, and replays", () => {
   const attachOutlineReplay = vi.fn();
   const { sync, dnd } = setup({ attachOutlineReplay });
   const one: BlockNode = block("u1", "one");

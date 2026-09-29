@@ -168,21 +168,30 @@ caret sits inside a half-typed `[[ref` or `#tag` token, so autosave cannot
 create a page from a partial title.
 
 A draft is a `PendingDraft` (`outline/outlineState.ts`): `{ uid, text, base }`.
-`captureDraft` sets `base` to the tree's text on the draft's first change and
-keeps it through later keystrokes, even after a remote batch has changed the
-tree underneath. `pendingTextOps` decides what the flush sends:
+`base` is the text the user typed over, which is what the textarea showed, not
+what the tree holds. The two differ in two cases. A remote batch reaches the
+tree before the textarea adopts it. A dirty textarea never adopts it at all.
+So `useBlockDraft` reports the shown text at the first edit of a clean draft
+(`onDraftStart`), and after a flush the draft's own text is what the textarea
+shows. `captureDraft` takes that shown text as a new draft's base, falling back
+to the tree's text, and keeps the base through later keystrokes.
+`pendingTextOps` decides what the flush sends:
 
 | Draft at flush | Flush sends |
 |---|---|
 | `text === base`, or the tree already holds `text` | nothing |
 | block still in the tree, text changed | `update_text` with `base_text_hash` = hash of `base`, plus `page_title` |
-| block gone from the tree (remote delete, cross-page move) | the same op; the server lands it on today's daily note |
+| block gone from the tree (remote delete, cross-page move) | the same op; the server applies it to a moved block on its new page, and lands an edit to a deleted block on today's daily note |
 | `base` is `null` (the tree lacked the block at the first change) | `update_text` with `page_title` only; `stampBaseTextHashes` hashes it like any op |
 
 Hashing `base` is what lets the server keep both texts when another device
-edited the block from the same base. Undo history records the flushed op with
-its stamps removed (`withoutStamps`), so a redo hashes the tree it replays
-against. A new `initial` from a parent flushes the draft before the session
+edited the block from the same base. A draft on one block is flushed before
+focus or a new draft moves to another block. When a remote batch removes the
+block, its textarea unmounts with no blur, so nothing else would flush it. Undo history
+records the flushed op with its stamps removed (`withoutStamps`), so a redo
+hashes the tree it replays against. It leaves out a text op whose block has
+left the tree, which cannot be inverted there, so the rest of its batch stays
+undoable. A new `initial` from a parent flushes the draft before the session
 takes it: the flush makes the draft a relevant write, so the parent tree waits
 until that write settles.
 

@@ -841,7 +841,13 @@ function createReplicaQueue(replica: Replica,
         const head = fallback[0]!;
         // Left retained on any error — a discard is the drain's decision
         // alone, and this door never makes it.
-        await postOps(head.ops, head.batchId);
+        const ack = await postOps(head.ops, head.batchId);
+        // This batch committed (skipped ops are not a rejection), same as
+        // the lane and the durable drain: the view is told so it can
+        // refetch the ghost this batch's skip leaves behind.
+        if (readOpsAck(ack).skipped.length > 0) {
+          try { onSkipped(); } catch { /* listener isolation */ }
+        }
         settleLaneHead(head, { status: "delivered" });
       }
     },

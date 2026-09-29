@@ -1404,6 +1404,59 @@ async () => {
   await expect(q.refreshPending()).resolves.toBe(1);
 });
 
+test("deliverLaneAhead calls onSkipped once when the lane entry's ack names a skipped op",
+async () => {
+  fetchSeq([() => jsonResponse({
+    ok: true, ts: 1, applied: 1,
+    skipped: [{ index: 0, op: "update_text", uid: "u1",
+                reason: "block_not_found", note_page: "2026-09-29" }],
+  } satisfies OpsAck)]);
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  const failEnqueue = async (): Promise<never> => { throw new Error(CANTOPEN); };
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.setOnline(false);
+
+  replica.enqueue = failEnqueue;
+  const lane = q.enqueue([op("lane")]);
+  await q.settled();
+  replica.enqueue = durableEnqueue;
+  q.enqueue([op("durable")]); // follows the lane entry
+  await q.settled();
+  const durableId = replica.enqueued[0];
+
+  await q.deliverLaneAhead(durableId);
+
+  expect(skips).toHaveLength(1);
+  await expect(lane.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("deliverLaneAhead does not call onSkipped for a clean ack", async () => {
+  fetchSeq([() => jsonResponse(
+    { ok: true, ts: 1, applied: 1, skipped: [] } satisfies OpsAck)]);
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  const failEnqueue = async (): Promise<never> => { throw new Error(CANTOPEN); };
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.setOnline(false);
+
+  replica.enqueue = failEnqueue;
+  q.enqueue([op("lane")]);
+  await q.settled();
+  replica.enqueue = durableEnqueue;
+  q.enqueue([op("durable")]);
+  await q.settled();
+  const durableId = replica.enqueued[0];
+
+  await q.deliverLaneAhead(durableId);
+
+  expect(skips).toEqual([]);
+});
+
 test("a successful out-of-band flush settles an orphaned durable ticket",
 async () => {
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);

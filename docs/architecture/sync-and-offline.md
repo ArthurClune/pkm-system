@@ -244,7 +244,7 @@ comes from one of these:
 | A reconnect completes | its catch-up moved local data, which `replicaSync.appliedVersion()` counts | `reconnectFlow.ts` |
 | A reconnect with no usable replica | always: `appliedVersion()` returns null, which counts as moved | `reconnectFlow.ts` |
 | A first connect | only when it passes `begin({ viewsAreStale: true })`: the durable queue holds a previous page load's rows, or `replicaSync.hasStarted()` is still false because an offline cold start's bootstrap failed | `useSocketLifecycle.ts` |
-| An ack lists skipped ops | always, whatever the replica state | `opQueue.ts`, `ops-skipped`; [sync-recovery.md § Ops on blocks the server no longer has](sync-recovery.md#ops-on-blocks-the-server-no-longer-has) |
+| An ack lists skipped ops | always, whatever the replica state | `opQueue.ts`, `replicaSync.ts`, `ops-skipped`; [sync-recovery.md § Ops on blocks the server no longer has](sync-recovery.md#ops-on-blocks-the-server-no-longer-has) |
 | A repair or reset succeeds | always | `syncState.ts`; [sync-recovery.md § A batch the server rejects](sync-recovery.md#a-batch-the-server-rejects) |
 | The replica turns ready while the socket is not connected | always: views that read before it was ready refetch through the shim | `syncState.ts`, `mode-ready-check` |
 
@@ -348,10 +348,10 @@ lock only when a file it has open on that path holds one, so SQLite takes the
 journal back and removes it. Upstream sqlite-wasm answers
 `xCheckReservedLock` with a constant 1, which makes every leftover journal
 look like a live writer's; `web/patches/@sqlite.org__sqlite-wasm@3.53.0-build1.patch`
-carries the fix. It needs one live connection per pool file. The pool's
-access handles are exclusive across workers and tabs, and the worker keeps
-one connection per file. `web/e2e/replica-hot-journal.spec.ts` kills a
-writer mid-transaction and checks that the app's next open rolls it back.
+carries the fix. It relies on every connection to a file living in this pool,
+which the exclusive access handles guarantee. `web/e2e/replica-hot-journal.spec.ts`
+kills a writer mid-transaction and checks that the app's next open rolls it
+back.
 
 **The replica is a cache; the queue is the user's intent.** A snapshot can
 always be re-fetched; an unflushed pending op cannot. Every guard in

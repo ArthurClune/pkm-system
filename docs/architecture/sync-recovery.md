@@ -31,7 +31,7 @@ replica is a cache and the queue is the user's intent.
 | A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase commits the queue to the carry before unlinking | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json`'s skip-or-not cases | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
-| Any op the server skipped | Both delivery paths (`deliverLaneHead` and the durable batch loop in `runDrain`) read the ack's `skipped` list | Bumps resync regardless of `unavailable`; every mounted view's guarded read refetches | A replica-backed tab's own feed tombstones the replica row; the ack refetch is what tells the view, not the feed | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
+| Any op the server skipped | Every path that posts a batch (`deliverLaneHead`, the durable batch loop in `runDrain`, `deliverLaneAhead`, and `replicaSync.flushBatches`) reads the ack's `skipped` list through `readOpsAck` | Bumps resync regardless of `unavailable`; every mounted view's guarded read refetches | A replica-backed tab's own feed tombstones the replica row; the ack refetch is what tells the view, not the feed | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | Another device moved an op's parent, or made its move a cycle | `_context_for` and `classify_missing_target` on the server; `applyOne` and `skipsOnMissingTarget` in the replica | Create and move follow the parent; a cycle move is skipped on both sides | A stale `page_title` is never resolved; a cycle skip journals the moved subtree | [Ops another device's tree edit overtook](#ops-another-devices-tree-edit-overtook) |
 | The replica opens, then fails every write | `unsentInMemory > 0` while `status !== "connected"` | The offline connectivity banner appends the same "exists only in memory" sentence as the unavailable-replica banner | The sentence never fires while connected, since the lane drains within a drain cycle | [What the UI shows](#what-the-ui-shows) |
 
@@ -401,7 +401,7 @@ and the server's stored ack deletes them.
 
 | Where | What happens to the acks |
 |---|---|
-| `flushBatches` | Each `/api/ops` ack is held in `heldAcks` as `{ id, batch_id, seq }` (`ackSeq`, `sync/opsAck.ts`; null when the stored ack names none) |
+| `flushBatches` | Each `/api/ops` ack is held in `heldAcks` as `{ id, batch_id, seq }` (`readOpsAck`, `sync/opsAck.ts`; null when the ack names none) |
 | A run that ends before its commit (a preempted flush, a failed snapshot fetch) | The acks stay held for the next run, which after a preemption is the poison rebase |
 | `commitRecovery`, either kind | Takes every held ack. A `reset` passes none, since it drops `pending_ops`. A commit that fails hands them back |
 | The worker's rebase commit | `splitAckedRows` (`replica/ackedRows.ts`) matches rows by `id` and `batch_id` both. The matched rows are deleted in the snapshot's own transaction, so `reapplyPending` replays only the rest. An entry that matches no row is ignored |
@@ -515,10 +515,12 @@ A tab with no replica gets no tombstone. It delivers through the
 ghost block would stay on screen, and each flush into it would land another
 daily-note child. A replica-backed tab's feed does tombstone the replica row,
 but no resync event follows from that alone, so the view keeps the ghost
-until something else bumps resync. So both delivery paths, `deliverLaneHead`
-and the durable batch loop in `runDrain`, read the ack's `skipped` list. A
-non-empty one bumps resync (`ops-skipped`) whether or not `unavailable` is
-latched, and views refetch as for any other
+until something else bumps resync. So every path that posts a batch --
+`deliverLaneHead`, the durable batch loop in `runDrain`, `deliverLaneAhead`
+(the lane door a recovery flush opens ahead of a leased batch), and
+`replicaSync.flushBatches` itself -- reads the ack's `skipped` list through
+`readOpsAck`. A non-empty one bumps resync (`ops-skipped`) whether or not
+`unavailable` is latched, and views refetch as for any other
 [resync trigger](sync-and-offline.md#when-views-refetch). On a replica-backed
 tab the extra refetch races a feed that has already converged the row, which
 is harmless.

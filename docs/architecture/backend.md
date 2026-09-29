@@ -221,13 +221,22 @@ operations:
 
 ```mermaid
 flowchart LR
-    C[Client batch] --> R["routes_ops.py (Shell)<br/>idempotency check"]
-    R --> CTX["ops_apply._context_for (Shell)<br/>read SQLite → OpContext"]
-    CTX --> P["ops_core.plan_op (Core)<br/>pure: op + context → effect tuples"]
-    P --> X["ops_apply._execute (Shell)<br/>effects → SQL, one transaction"]
+    C[Client batch] --> R
+    subgraph TX["one transaction: BEGIN IMMEDIATE before the dedupe read"]
+        R["routes_ops.py (Shell)<br/>idempotency check"] --> CTX["ops_apply._context_for (Shell)<br/>read SQLite → OpContext"]
+        CTX --> P["ops_core.plan_op (Core)<br/>pure: op + context → effect tuples"]
+        P --> X["ops_apply._execute (Shell)<br/>effects → SQL"]
+    end
     X --> J["change journal<br/>(triggers, plus JournalBlock)"]
     X --> B["WS broadcast + seq nudge<br/>(after commit)"]
 ```
+
+`BEGIN IMMEDIATE` runs before the idempotency check, so the dedupe read and
+every op's context read share the same write lock as `_execute`: a
+concurrent `delete_page`/`rename_page`/`cleanup_journal` commit (their own
+connections, on the threadpool) cannot land between a context read and the
+effect it justified. A lock the busy timeout cannot take returns 503 with
+`Retry-After`.
 
 Key mechanics:
 

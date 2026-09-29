@@ -244,8 +244,8 @@ Key mechanics:
 - **Ordering.** Siblings hold integer `order_idx`. An insert or move emits a
   `ShiftSiblings` effect — bump every sibling ≥ the target index — before
   placing the block. Cross-page moves re-page the whole subtree and touch both
-  pages. A parent-chain check skips a move that would make a cycle (the
-  concurrent-structure table below).
+  pages. A parent-chain check skips a move that would make a cycle (see
+  [Concurrent structure edits](#concurrent-structure-edits)).
 - **Refs re-derivation.** Every text change emits `ReindexRefs`, and
   `store.reindex_refs_for_text` is its only implementation, rebuilding `refs`
   and — via `store.reindex_block_refs` — `block_refs` from one parse. The
@@ -262,106 +262,6 @@ Key mechanics:
   its page, while `update_text`, `move`, `set_heading` and `set_view_type` bump
   both. The trigger-driven change journal is independent of this, so a collapse
   still reaches other clients.
-- **Conflicts: per-block last-write-wins, with preservation.** `update_text`
-  carries an optional `base_text_hash`, the sha256 of the text the edit was
-  based on; a text hash rather than a version counter, so structural changes
-  don't manufacture conflicts. On mismatch, or on an edit to a block that no
-  longer exists, the incoming edit still wins and the losing text is rescued
-  as a child block under a `[[conflict]]` header appended to today's daily
-  page (`title_for_date(date.today())`, server-local). A second conflict on
-  the same block the same day appends under that same header instead of
-  minting another (`conflict_headers`, above). The header text names the
-  page:
-
-  | Case | Header text |
-  |---|---|
-  | Block still exists (mismatch) | `` [[conflict]] [[Page]] — overwritten by ((uid)) ``, `Page` read from the live block's own row |
-  | Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
-  | Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
-  | Block gone, hint missing, blank, syntactically invalid, or (naming no current page) itself containing a backtick | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
-  | Block exists, but its move's target parent is gone, is the block itself, or is its descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
-
-  `page_title` only labels a header for the missing-block case; it never
-  changes whether or where an op applies. An invalid hint can't fail the
-  batch: `find_op_title_violation`, whose violations are a 400, never
-  looks at it. A hint naming no current page (renamed or deleted since the
-  client saw it) is shown as inline code, which the ref extractor skips, so
-  the header cannot re-create that page (`ops_apply._hint_page_exists`).
-  An existing page is linked only when `[[Page]]` reads back through
-  `refs.extract` as that same title (`ops_core.existing_page_label`). A title
-  ending in `]` or holding paired backticks reads back as another title,
-  which the ref indexer would create. Such a title is shown in inline code
-  instead, or as `(page unknown)` if it holds a backtick.
-  Header and child uids are minted (`ops_apply._new_uid`) with an
-  alphanumeric first character so the CLI can address them without `--` (see
-  [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a second
-  conflict on the same block the same day reuses its header's uid.
-
-  `ops_core.classify_text_edit` sorts a hashed edit to a live block into
-  identical, clean or conflict. It first replays any `block_rewrites` row
-  `store.rewrite_snapshotted_blocks` left for that block
-  (`ops_core.replay_title_rewrites`), so a device that never saw a rename
-  cannot win with the old title and re-create the page it emptied. `plan_op` and
-  `ops_apply._context_for` both call it, so only a conflict resolves (and
-  may create) today's daily page. Hashless edits to a live block never touch it.
-- **Missing targets.** They never reject a batch. A batch is atomic, so one op
-  whose block (or create/move parent) is gone would otherwise take every
-  valid op in it down with a 400 and wedge the client's queue.
-  `ops_core.classify_missing_target` sorts such an op before planning, and
-  `_context_for` calls it too, so the daily page is resolved only when an
-  entry lands:
-
-  | Op, situation | Outcome | Entry grouped under | Journalled |
-  |---|---|---|---|
-  | `set_collapsed`, block gone | no-op | — | the uid |
-  | `delete`, block gone | no-op | — | — |
-  | `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | the block's uid | the uid |
-  | `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | the block's uid | the uid |
-  | `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | the parent's uid | created uid and parent uid |
-  | `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | the block's uid | the parent uid, then every block of the moved subtree |
-
-  Grouping by uid means an orphaned edit and a skipped op on the same block
-  share one header, whichever landed first. Notes name uids as plain text,
-  since a `((ref))` to a missing block renders broken. A skipped op resolves
-  no op `page_title`, since `get_or_create_page` would create a page for an
-  op that never applied. A follow-on op in the same batch sees a diverted
-  create's block as missing too, so it lands rather than 400s. Each skipped
-  op is left out of the broadcast and reported in the ack's `skipped` list
-  (`ops_core.skip_report`).
-
-  `JournalBlock` writes the journal row the triggers would. The feed ships a
-  journalled uid with no block row as a tombstone, and a live one as its
-  current row. A replica applies tombstones first, and a block tombstone
-  cascades the whole local subtree. So a ghost parent's tombstone also
-  deletes the live blocks a replica optimistically moved under it, which is
-  why a move to a missing parent journals the moved subtree, not just its
-  root. `_plan_missing_target` emits tombstones before live rows, so a
-  window boundary can never put a tombstone after the rows that restore
-  what it cascades away.
-- **Concurrent structure edits.** Another device may reshape the tree
-  between an op's enqueue and its push. These never reject a batch either:
-
-  | Op, situation | Outcome | Journalled |
-  |---|---|---|
-  | `create` under a live parent on another page than its `page_title` | created on the parent's page | the block (insert trigger) |
-  | `move` under a parent that is no longer on the page `page_title` names | moved onto the parent's page | the subtree (triggers) |
-  | `move` whose target is the block or its descendant | skipped as `move_cycle`; child `move skipped: would create a cycle` under the block's live-page header, grouped by the block's uid | every block of the moved subtree, root first |
-
-  `_context_for` resolves an op's `page_title` only for a top-level create
-  or move, so a stale title never creates an empty page. It reads a move's
-  target chain (`_parent_chain`) before `classify_missing_target`, which
-  sorts a cycle beside the missing targets. The skip journals no
-  tombstone, since nothing is gone. The block is an ancestor of the other
-  device's move, so the feed's parent closure already ships its row with
-  that move. The journalled subtree carries what else the replica's
-  optimistic move touched: descendants a cross-page move re-paged, and the
-  target's children it shifted.
-
-  Every other planning error is still a 400: invalid uid, uid already
-  exists, title syntax. So is an op on a missing target whose uid (or
-  missing parent uid) fails `UID_RE` (`ops_core.impossible_uid_reason`). No
-  client mints such a uid, and it keeps arbitrary strings out of the
-  journal and `conflict_headers`.
 - **Idempotency.** A retried batch — same `batch_id`, matching stored request
   hash — replays the stored ack with no effects. The same id with a different
   payload is a 409. Offline queue replay depends on it. New `applied_batches`
@@ -374,6 +274,128 @@ Key mechanics:
   the skipped ones) and a
   `{type:"seq", seq}` nudge to other clients (see
   [sync-and-offline.md](sync-and-offline.md)).
+
+Conflicts, missing targets and concurrent structure edits are what a batch
+meets when the tree changed after it was planned. None of them rejects the
+batch.
+
+### Conflicts
+
+Conflicts resolve per block: last write wins, and the losing text is kept.
+`update_text` carries an optional `base_text_hash`, the sha256 of the text the
+edit was based on. It is a text hash rather than a version counter, so
+structural changes don't manufacture conflicts. On a mismatch, or on an edit
+to a block that no longer exists, the incoming edit still wins. The losing
+text is rescued as a child block under a `[[conflict]]` header appended to
+today's daily page (`title_for_date(date.today())`, server-local). A second
+conflict on the same block the same day appends under that same header
+instead of minting another (`conflict_headers`, above). The header text names
+the page:
+
+| Case | Header text |
+|---|---|
+| Block still exists (mismatch) | `` [[conflict]] [[Page]] — overwritten by ((uid)) ``, `Page` read from the live block's own row |
+| Block gone, hint usable and names a page that still exists | `` [[conflict]] [[Page]] — edit to a block the server no longer has `` |
+| Block gone, hint usable but names no current page | `` [[conflict]] `Page` (page not found) — edit to a block the server no longer has `` |
+| Block gone, hint missing, blank, syntactically invalid, or (naming no current page) itself containing a backtick | `` [[conflict]] (page unknown) — edit to a block the server no longer has `` |
+| Block exists, but its move's target parent is gone, is the block itself, or is its descendant | `` [[conflict]] [[Page]] — ((uid)) ``, `Page` read from the live block's own row |
+
+`page_title` only labels a header for the missing-block case; it never
+changes whether or where an op applies. An invalid hint can't fail the
+batch: `find_op_title_violation`, whose violations are a 400, never looks at
+it. A hint naming no current page (renamed or deleted since the client saw
+it) is shown as inline code, which the ref extractor skips, so the header
+cannot re-create that page (`ops_apply._hint_page_exists`). An existing page
+is linked only when `[[Page]]` reads back through `refs.extract` as that same
+title (`ops_core.existing_page_label`). A title ending in `]` or holding
+paired backticks reads back as another title, which the ref indexer would
+create. Such a title is shown in inline code instead, or as `(page unknown)`
+if it holds a backtick. Header and child uids are minted (`ops_apply._new_uid`)
+with an alphanumeric first character so the CLI can address them without `--`
+(see [cli-and-mcp.md](cli-and-mcp.md#writes-uids-and-missing-pages)); a
+second conflict on the same block the same day reuses its header's uid.
+
+`ops_core.classify_text_edit` sorts a hashed edit to a live block into
+identical, clean or conflict. It first replays any `block_rewrites` row
+`store.rewrite_snapshotted_blocks` left for that block
+(`ops_core.replay_title_rewrites`), so a device that never saw a rename
+cannot win with the old title and re-create the page it emptied. `plan_op`
+and `ops_apply._context_for` both call it, so only a conflict resolves (and
+may create) today's daily page. Hashless edits to a live block never touch
+it.
+
+`delete` carries no hash. A delete that arrives after an edit it never saw
+removes that edit with no conflict copy. This gap is open, not accepted: a
+hash-guarded delete, which keeps the server's texts under the block's
+conflict header, is planned but not built.
+
+### Missing targets
+
+An op whose block (or create/move parent) is gone never rejects its batch. A
+batch is atomic, so one such op would otherwise take every valid op in it
+down with a 400 and wedge the client's queue.
+`ops_core.classify_missing_target` sorts such an op before planning, and
+`_context_for` calls it too, so the daily page is resolved only when an
+entry lands:
+
+| Op, situation | Outcome | Entry grouped under | Journalled |
+|---|---|---|---|
+| `set_collapsed`, block gone | no-op, but journalled: a replica that collapsed the block holds a ghost of it | — | the uid |
+| `delete`, block gone | no-op | — | — |
+| `move` / `set_heading` / `set_view_type`, block gone | skipped; child `move skipped: block <uid> not found` (or `heading change` / `view type change`) under the `(page unknown)` header | the block's uid | the uid |
+| `update_text`, block gone, hashed or not | text lands (header table above); a blank text lands nothing | the block's uid | the uid |
+| `create`, parent gone | block not created; its text lands, header labelled from the op's `page_title`; a blank text lands nothing | the parent's uid | created uid and parent uid |
+| `move`, block exists, parent gone | block stays put; child `move skipped: target parent <uid> not found` | the block's uid | the parent uid, then every block of the moved subtree |
+
+Grouping by uid means an orphaned edit and a skipped op on the same block
+share one header, whichever landed first. Notes name uids as plain text,
+since a `((ref))` to a missing block renders broken. A skipped op resolves
+no op `page_title`, since `get_or_create_page` would create a page for an
+op that never applied. Each skipped op is left out of the broadcast and
+reported in the ack's `skipped` list (`ops_core.skip_report`).
+
+A follow-on op in the same batch sees a diverted create's block as missing
+too, so it lands rather than 400s. Only text survives a diversion. A
+diverted subtree lands flat, each child's text under its own parent's uid,
+and loses its nesting, heading and view type. A create and then an edit of
+one uid in the same batch land both texts.
+
+`JournalBlock` writes the journal row the triggers would. The feed ships a
+journalled uid with no block row as a tombstone, and a live one as its
+current row. A replica applies tombstones first, and a block tombstone
+cascades the whole local subtree. So a ghost parent's tombstone also deletes
+the live blocks a replica optimistically moved under it, which is why a move
+to a missing parent journals the moved subtree, not just its root.
+`_plan_missing_target` emits tombstones before live rows, so a window
+boundary can never put a tombstone after the rows that restore what it
+cascades away.
+
+Every other planning error is still a 400: invalid uid, uid already exists,
+title syntax. So is an op on a missing target whose uid (or missing parent
+uid) fails `UID_RE` (`ops_core.impossible_uid_reason`). No client mints such
+a uid, and it keeps arbitrary strings out of the journal and
+`conflict_headers`.
+
+### Concurrent structure edits
+
+Another device may reshape the tree between an op's enqueue and its push:
+
+| Op, situation | Outcome | Journalled |
+|---|---|---|
+| `create` under a live parent on another page than its `page_title` | created on the parent's page | the block (insert trigger) |
+| `move` under a parent that is no longer on the page `page_title` names | moved onto the parent's page | the subtree (triggers) |
+| `move` whose target is the block or its descendant | skipped as `move_cycle`; child `move skipped: would create a cycle` under the block's live-page header, grouped by the block's uid | every block of the moved subtree, root first |
+
+`_context_for` resolves an op's `page_title` only for a top-level create or
+move, so a stale title never creates an empty page. It reads a move's target
+chain (`_parent_chain`) before `classify_missing_target`, which sorts a cycle
+beside the missing targets. The skip journals no tombstone, since nothing is
+gone. The block is an ancestor of the other device's move, so the feed's
+parent closure already ships its row with that move. The journalled subtree
+carries what else the replica's optimistic move touched: descendants a
+cross-page move re-paged, and the target's children it shifted.
+
+### Page mutations and the sidebar
 
 Page-level mutations (create, delete, rename, merge) live in `store.py` as
 composable functions that never commit; routes own the transaction.
@@ -598,9 +620,17 @@ parent cycle — which the write path forbids but a hand-edited database can
 still hold — stops at the repeat. Commas make the `instr` test exact: `UID_RE`
 is `^[a-zA-Z0-9_-]{6,32}$`, so no uid can contain one.
 
-Both replica mirrors of this traversal use the identical guard — see
-[sync-and-offline.md](sync-and-offline.md). Change all three together, so an
-offline read and a server read return the same trail.
+Every recursive walk over `parent_uid` uses this guard, and each server walk
+has a replica mirror written as the same CTE:
+
+| Walk | Server | Replica mirror | Used for |
+|---|---|---|---|
+| Ancestors with text, for many start uids | `routes_pages._fetch_ancestors` | `localApi/tree.ts` | breadcrumbs and backlink groups |
+| One block's parent chain | `ops_apply._parent_chain` | `localOps.ts::parentChain` | a move's cycle check |
+| One block's subtree, deepest first | `ops_apply._subtree_deepest_first` | `localOps.ts::subtreeUids` | delete, cross-page re-paging, journalling a subtree |
+
+Change a pair together, so an offline read or replay and the server agree.
+None of them caps depth.
 
 ## Generated artifacts and parity fixtures
 
@@ -616,7 +646,7 @@ with the change that invalidates them.
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
 | `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs |
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |
-| `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_missing_target` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts |
+| `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_missing_target` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |
 | `shared/fixtures/draft_flush.json` | hand-maintained case | `tests/test_ops_endpoint.py` | `web/src/views/EditablePage.draftFlush.test.tsx`: the op an editor draft flushes is the op the ops route's conflict and orphan paths are tested with |
 | `shared/fixtures/ops_acks.json` | hand-maintained cases | `tests/test_ops_idempotency.py`, `tests/test_client_contracts.py` | Pins the stored-ack-to-wire mapping of `POST /api/ops` and the `SkipReason` values; the web's `readOpsAck` and queue replay the wire acks (`web/src/sync/opsAck.test.ts`, `opsAck.composed.test.ts`) |
 

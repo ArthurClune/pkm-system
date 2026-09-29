@@ -1,11 +1,11 @@
 ---
 # pkm-xjew
 title: 'Docs corrections from the sync review not tied to a fix: D6, D7, carried-over items, AGENTS.md comment rule, shape pass'
-status: todo
+status: completed
 type: task
 priority: normal
 created_at: 2026-09-29T13:20:47Z
-updated_at: 2026-09-29T13:56:30Z
+updated_at: 2026-09-29T16:24:57Z
 parent: pkm-a4t2
 ---
 
@@ -49,7 +49,49 @@ Corrections:
 
 ## Todo
 
-- [ ] The corrections above, verified against the code
-- [ ] pkm-foap record; AGENTS.md line
-- [ ] Shape pass under `architecture-docs`; `check-arch-docs` clean
+- [x] The corrections above, verified against the code
+- [x] pkm-foap record; AGENTS.md line
+- [x] Shape pass under `architecture-docs`; `check-arch-docs` clean
 - [ ] merge
+
+## Summary of Changes
+
+Docs-only, verified against the code on main.
+
+Corrected (claims that were wrong or incomplete):
+- D6: backend.md § Breadcrumbs and recursive traversal now tables all three
+  mirrored walk pairs (`_fetch_ancestors`/`localApi/tree.ts`,
+  `_parent_chain`/`localOps.parentChain`,
+  `_subtree_deepest_first`/`localOps.subtreeUids`); sync-and-offline.md links
+  to it instead of claiming "all three change together" of one lineage.
+- D7: the stale-delete gap is stated as open in sync-and-offline.md's
+  conflict table and backend.md § Conflicts, until the hash-guarded delete
+  (pkm-nny8) ships.
+- `missing_targets.json`'s scope: after merging pkm-rrzq, sync-recovery.md
+  says its `cases` pin skip-or-not and its `placement_cases` pin where a
+  create or move lands (one sentence, reconciled with rrzq's).
+- The reconnect diagram no longer shows an unconditional resync bump; the
+  stale "a tab with no replica bumps on skipped ops" line is gone (skipped
+  ops bump whatever the replica state).
+- backend.md § Missing targets: a diverted subtree lands flat and loses
+  nesting, heading and view type; a create+edit of one uid lands both texts;
+  the `set_collapsed` no-op row says why it journals.
+
+Added:
+- sync-recovery.md: the post-latch ordering inversion (failure-table row and
+  a paragraph in A local write fails); the accepted windowed-replay
+  misorders (pkm-e21b's sibling case and the cross-page move descendant case).
+- sync-and-offline.md § When views refetch: one table of every `resyncSeq`
+  trigger, replacing the Ancillary bullet; troubleshooting links repointed.
+- frontend.md module map: sync/rejection.ts, sync/unloadGuard.ts,
+  replica/db.ts, clientSchema.ts, meta.ts, refs.ts, daily.ts, sha256.ts.
+- AGENTS.md: no bean ids in code or test comments.
+- pkm-foap: ruling record for `set_collapsed` journalling.
+
+Restructured (no claim changed):
+- backend.md § The write path: Conflicts, Missing targets, Concurrent
+  structure edits and Page mutations are subsections; Key mechanics keeps
+  the short bullets.
+- sync-recovery.md defers the idempotency hash and the journal ordering to
+  backend.md; stale-prone counts ("Seven conditions", "Three tables", "Two
+  more", "these four", "seven routes", "two invariants") reworded.

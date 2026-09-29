@@ -33,9 +33,9 @@ EXEMPT_READ_ROUTES = {"/healthz", "/api/openapi.json", "/assets/{sha256}/{filena
                       "/api/local/{path}"}  # local document bytes (pkm-g1ep)
 
 # Write routes return small ad-hoc JSON acks by design, so only GETs are
-# auto-checked - except the upload response, the one non-GET payload the web
-# client consumes as a generated type.
-CHECKED_NON_GET = {("/api/assets", "post")}
+# auto-checked - except the upload response and the ops ack, the non-GET
+# payloads the web client consumes as a generated type.
+CHECKED_NON_GET = {("/api/assets", "post"), ("/api/ops", "post")}
 
 
 def _checked_operations(schema: dict) -> list[tuple[str, str, dict]]:

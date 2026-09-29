@@ -1,4 +1,4 @@
-// Ergonomic names for the read-API response shapes. These are now generated
+// Ergonomic names for the response shapes. These are now generated
 // from the server's Pydantic response models (see server
 // src/pkm/contracts/responses.py),
 // flow through openapi.json into types.d.ts, and are guarded against drift by
@@ -44,3 +44,6 @@ export type AssetSearchPayload = Schemas["AssetSearchPayload"];
 
 export type GoodlinksArticle = Schemas["GoodlinksArticle"];
 export type GoodlinksLink = Schemas["GoodlinksLink"];
+
+export type OpsAck = Schemas["OpsAck"];
+export type SkippedOp = Schemas["SkippedOp"];

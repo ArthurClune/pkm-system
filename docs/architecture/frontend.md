@@ -129,7 +129,8 @@ web/src/
 │   ├── reconnectFlow.ts      Shell        Reconnect single-flight: drain → pull → resync
 │   ├── opQueue.ts            Shell        Durable-queue driver (+ queueState.ts Core)
 │   ├── replicaSync.ts        Shell        Cursor pull loop
-│   ├── opsAck.ts             Core         Reads the /api/ops ack's seq
+│   ├── opsAck.ts             Core         Reads the /api/ops ack (seq, skipped)
+│   │                                      through the generated OpsAck
 │   ├── socket.ts             Shell        WebSocket + reconnect policy
 │   ├── reconnectBackoff.ts   Core         Reconnect delay: 2 s doubling to a 30 s cap
 │   ├── syncState.ts          Core         Editability/health FSM
@@ -474,7 +475,8 @@ Playwright e2e against that build.**
   / branches 91 / functions 89 / lines 95), with workers and generated files
   excluded. The pure cores are the payoff of the FCIS split: they test with no
   React, DOM, fetch, worker or SQLite mocks.
-- **E2E** (Playwright, `web/e2e/`): thirty-three specs, two of them offline. Any
+- **E2E** (Playwright, `web/e2e/`): a growing set of specs, some of them
+  exercising the offline path. Any
   HTTP 5xx fails the run (`fixtures.ts`), and a server-side exception fails
   teardown. `e2e/server-state.ts::waitForServerText` polls the server's copy
   of a page, the reliable way to wait for a write before a reload.

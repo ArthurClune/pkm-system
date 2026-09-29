@@ -9,6 +9,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from pkm.contracts.ops import OpBatch
+from pkm.contracts.responses import OpsAck
 from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
@@ -18,7 +19,7 @@ from pkm.server.ops_core import OpError, batch_replay_hash, batch_request_hash
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-@router.post("/api/ops")
+@router.post("/api/ops", response_model=OpsAck)
 async def post_ops(request: Request,
                    batch: OpBatch,
                    db: sqlite3.Connection = Depends(get_db)) -> dict:
@@ -60,7 +61,9 @@ async def post_ops(request: Request,
                         "reason": "batch_id was already used with"
                                   " different ops"})
         db.rollback()
-        return json.loads(row["response"])  # replay: stored ack, no effects
+        # replay: the stored ack, passed through OpsAck like a fresh one, so
+        # a row stored before seq/skipped existed gains seq: null / [] here
+        return json.loads(row["response"])
     try:
         result = apply_batch(db, batch, now)
     except OpError as e:
@@ -74,13 +77,10 @@ async def post_ops(request: Request,
     # existed replay without it; clients treat a missing seq as unknown.
     seq = db.execute("SELECT COALESCE(MAX(seq), 0) FROM changes").fetchone()[0]
     # `applied` counts every op processed, skipped ones included; `skipped`
-    # lists the ops whose target no longer exists (ops_core.skip_report).
-    # It is sent only when non-empty: clients already read a missing list
-    # as empty (acks stored before the field existed replay without it),
-    # and every clean write's ack stays byte-for-byte what it was.
-    response = {"ok": True, "ts": now, "applied": len(batch.ops), "seq": seq}
-    if result.skipped:
-        response["skipped"] = result.skipped
+    # lists every op whose target no longer exists (ops_core.skip_report),
+    # and is empty for a clean batch.
+    response = {"ok": True, "ts": now, "applied": len(batch.ops), "seq": seq,
+                "skipped": result.skipped}
     # No IntegrityError branch here: BEGIN IMMEDIATE has been held since
     # before the dedupe SELECT above, so a second submission of this same
     # batch_id cannot reach this INSERT concurrently -- it blocks on the

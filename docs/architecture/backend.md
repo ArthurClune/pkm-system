@@ -205,8 +205,9 @@ Around that base model:
 ## The write path
 
 `POST /api/ops` is the transactional block-operation write path. Clients send
-an `OpBatch` (`client_id`, optional `batch_id`, 1–500 ops) of block-level
-operations:
+an `OpBatch` (`client_id`, a required `batch_id` of 8–64 characters, and
+1–500 ops) of block-level operations. A batch without a `batch_id` is a 422:
+an id-less batch cannot be deduplicated, so any retry or replay re-applies it.
 
 | Op | Does |
 |---|---|
@@ -536,7 +537,7 @@ requires the session cookie unless marked public, and FastAPI's `/docs` and
 | GET | `/{path}` *(public)* | SPA fallback: serves `web_dist` (index.html no-cache, hashed bundles under `/app-assets/`) |
 | GET | `/api/openapi.json` | Live OpenAPI schema |
 | **Writes** | | |
-| POST | `/api/ops` | Apply an `OpBatch` transactionally. Ack `{ok, ts, applied, seq, skipped?}`: `applied` counts every op processed, skipped ones included; `seq` is the journal max read inside the batch's own transaction; `skipped`, present only when non-empty, lists `{index, op, uid, reason, note_page}` for each op on a missing target or cycle-making move (`reason` is `block_not_found`, `parent_not_found` or `cycle`, `note_page` the daily page its entry landed on or null). A replayed `batch_id` returns its stored ack verbatim, so one stored before `seq` or `skipped` existed lacks them; clients read a missing `skipped` as empty |
+| POST | `/api/ops` | Apply an `OpBatch` transactionally. Response model `OpsAck`: `{ok, ts, applied, seq, skipped}`. `applied` counts every op processed, skipped ones included. `seq` is the journal max read inside the batch's own transaction. `skipped` is always a list (empty for a clean batch) of `{index, op, uid, reason, note_page}`, where `reason` is a `SkipReason` (`block_not_found`, `parent_not_found` or `cycle`) and `note_page` is the daily page the entry landed on, or null. A replayed `batch_id` returns its stored ack through the model, so an ack stored before `seq` existed replays `seq: null` (clients read that as unknown), and one stored before `skipped` existed replays `skipped: []` |
 | **Pages & blocks** | | |
 | GET | `/api/page/{title}?bl_offset&bl_limit` | Page tree + paginated backlinks + `block_ref_counts` (daily pages auto-created). Backlinks and unlinked mentions both skip blocks on the page itself |
 | GET | `/api/block/{uid}` | One block subtree with page context + breadcrumbs |
@@ -647,6 +648,7 @@ with the change that invalidates them.
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |
 | `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_missing_target` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |
 | `shared/fixtures/draft_flush.json` | hand-maintained case | `tests/test_ops_endpoint.py` | `web/src/views/EditablePage.draftFlush.test.tsx`: the op an editor draft flushes is the op the ops route's conflict and orphan paths are tested with |
+| `shared/fixtures/ops_acks.json` | hand-maintained cases | `tests/test_ops_idempotency.py`, `tests/test_client_contracts.py` | Pins the stored-ack-to-wire mapping of `POST /api/ops` and the `SkipReason` values; the web's `readOpsAck` and queue replay the wire acks (`web/src/sync/opsAck.test.ts`, `opsAck.composed.test.ts`) |
 
 ## Configuration and entrypoints
 

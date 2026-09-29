@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { defaultUnauthorizedHandler, setUnauthorizedHandler } from "../api/client";
 import type { BlockOp } from "../api/ops";
+import type { OpsAck } from "../api/payloads";
 import type { Replica } from "../replica/client";
 import { ReplicaError, ReplicaUnavailableError,
          RpcLifecycleError } from "../replica/errors";
@@ -1403,6 +1404,59 @@ async () => {
   await expect(q.refreshPending()).resolves.toBe(1);
 });
 
+test("deliverLaneAhead calls onSkipped once when the lane entry's ack names a skipped op",
+async () => {
+  fetchSeq([() => jsonResponse({
+    ok: true, ts: 1, applied: 1,
+    skipped: [{ index: 0, op: "update_text", uid: "u1",
+                reason: "block_not_found", note_page: "2026-09-29" }],
+  } satisfies OpsAck)]);
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  const failEnqueue = async (): Promise<never> => { throw new Error(CANTOPEN); };
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.setOnline(false);
+
+  replica.enqueue = failEnqueue;
+  const lane = q.enqueue([op("lane")]);
+  await q.settled();
+  replica.enqueue = durableEnqueue;
+  q.enqueue([op("durable")]); // follows the lane entry
+  await q.settled();
+  const durableId = replica.enqueued[0];
+
+  await q.deliverLaneAhead(durableId);
+
+  expect(skips).toHaveLength(1);
+  await expect(lane.delivered).resolves.toEqual({ status: "delivered" });
+});
+
+test("deliverLaneAhead does not call onSkipped for a clean ack", async () => {
+  fetchSeq([() => jsonResponse(
+    { ok: true, ts: 1, applied: 1, skipped: [] } satisfies OpsAck)]);
+  const replica = memReplica();
+  const durableEnqueue = replica.enqueue.bind(replica);
+  const failEnqueue = async (): Promise<never> => { throw new Error(CANTOPEN); };
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.setOnline(false);
+
+  replica.enqueue = failEnqueue;
+  q.enqueue([op("lane")]);
+  await q.settled();
+  replica.enqueue = durableEnqueue;
+  q.enqueue([op("durable")]);
+  await q.settled();
+  const durableId = replica.enqueued[0];
+
+  await q.deliverLaneAhead(durableId);
+
+  expect(skips).toEqual([]);
+});
+
 test("a successful out-of-band flush settles an orphaned durable ticket",
 async () => {
   const { bodies } = fetchSeq([() => jsonResponse({ ok: true })]);
@@ -2151,8 +2205,8 @@ async () => {
   fetchSeq([() => jsonResponse({
     ok: true, ts: 1, applied: 1,
     skipped: [{ index: 0, op: "update_text", uid: "u1",
-                reason: "missing_target", note_page: "2026-09-29" }],
-  })]);
+                reason: "block_not_found", note_page: "2026-09-29" }],
+  } satisfies OpsAck)]);
   const replica = noReplicaAtAll();
   const skips: void[] = [];
   const q = createOpQueue(replica, () => undefined, () => undefined,
@@ -2201,8 +2255,8 @@ test("a malformed skipped field (not an array) parses as no skip", async () => {
 });
 
 test("a skipped op delivered by the lane while the replica is otherwise " +
-"fine still refetches (both paths consult ackSkipped, not only the " +
-"no-replica latch)", async () => {
+"fine still refetches (both paths read the ack's skipped list, not only " +
+"the no-replica latch)", async () => {
   // The lane also delivers ordering-only entries ahead of a durable batch
   // while unavailable is still null (pkm-5ekv) -- a working replica, just a
   // transient local persist failure. Its own feed will also tombstone the
@@ -2210,8 +2264,8 @@ test("a skipped op delivered by the lane while the replica is otherwise " +
   const { bodies } = fetchSeq([() => jsonResponse({
     ok: true, ts: 1, applied: 1,
     skipped: [{ index: 0, op: "update_text", uid: "u1",
-                reason: "missing_target", note_page: "2026-09-29" }],
-  })]);
+                reason: "block_not_found", note_page: "2026-09-29" }],
+  } satisfies OpsAck)]);
   const replica = memReplica({
     enqueue: async () => { throw new Error("worker crashed"); },
   });
@@ -2231,8 +2285,8 @@ test("a durable batch's ack naming a skipped op also refetches (a replica-" +
   fetchSeq([() => jsonResponse({
     ok: true, ts: 1, applied: 1, seq: 7,
     skipped: [{ index: 0, op: "update_text", uid: "u1",
-                reason: "missing_target", note_page: "2026-09-29" }],
-  })]);
+                reason: "block_not_found", note_page: "2026-09-29" }],
+  } satisfies OpsAck)]);
   const replica = memReplica();
   const skips: void[] = [];
   const q = createOpQueue(replica, () => undefined, () => undefined,

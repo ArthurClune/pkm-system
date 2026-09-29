@@ -9,6 +9,7 @@
 
 import { ApiError, OfflineError } from "../api/client";
 import type { ApiFetchOptions } from "../api/client";
+import type { OpsAck } from "../api/payloads";
 import type { ApplyResult, Changes, Snapshot } from "../replica/apply";
 import type { ReplicaDiagnostics } from "../replica/client";
 import type {
@@ -16,7 +17,7 @@ import type {
 } from "../replica/client";
 import { availabilityOf, isCorruptionError, ReplicaError } from "../replica/errors";
 import type { OpQueue } from "./opQueue";
-import { ackSeq } from "./opsAck";
+import { readOpsAck } from "./opsAck";
 
 export type ReplicaState =
   | { mode: "starting" }
@@ -137,6 +138,12 @@ export interface ReplicaSyncDeps {
    * arming the timer. Defaults to "never offline" for callers (and tests)
    * that don't track connectivity. */
   isOffline?: () => boolean;
+  /** Either delivery path's ack named a skipped op (see opQueue.ts's
+   * deliverLaneHead/runDrain/deliverLaneAhead) -- the active view is stale
+   * and must refetch. Never a desync: the batch committed. Optional so
+   * callers that never surface a skip banner (tests, the recovery-only
+   * paths that don't own a view) can omit it. */
+  onSkipped?: () => void;
 }
 
 const errText = (e: unknown): string =>
@@ -246,6 +253,7 @@ const isWindowFailure = (error: unknown): boolean =>
 
 export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   const { replica, fetchJson, clientId, onState } = deps;
+  const onSkipped = deps.onSkipped ?? (() => undefined);
   const queue = deps.queue ?? {
     pause: () => undefined,
     resume: () => undefined,
@@ -407,13 +415,20 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       // recovery during it.
       await queue.deliverLaneAhead?.(b.batch_id);
       beforePost();
-      const ack = await fetchJson("/api/ops", {
+      const ack = (await fetchJson("/api/ops", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ client_id: clientId, batch_id: b.batch_id,
                                ops: b.ops }),
-      });
-      heldAcks.push({ id: b.id, batch_id: b.batch_id, seq: ackSeq(ack) ?? null });
+      })) as OpsAck;
+      const reading = readOpsAck(ack);
+      // This batch committed (skipped ops are not a rejection), same as the
+      // lane and the durable drain: the view is told so it can refetch the
+      // ghost this batch's skip leaves behind.
+      if (reading.skipped.length > 0) {
+        try { onSkipped(); } catch { /* listener isolation */ }
+      }
+      heldAcks.push({ id: b.id, batch_id: b.batch_id, seq: reading.seq ?? null });
     }
   };
 

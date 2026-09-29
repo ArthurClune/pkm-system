@@ -619,6 +619,57 @@ async () => {
   ]);
 });
 
+test("a recovery flush whose ack names a skipped op calls deps.onSkipped once",
+async () => {
+  const batches: PendingBatch[] = [
+    { id: 1, batch_id: "b-1",
+     ops: [{ op: "update_text", uid: "uid_a1", text: "x" }], poisoned: false },
+  ];
+  const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") {
+      return { ok: true, ts: 1, applied: 1, seq: 7,
+              skipped: [{ index: 0, op: "update_text", uid: "uid_a1",
+                         reason: "block_not_found", note_page: null }] };
+    }
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const { onState } = collector();
+  const skips: void[] = [];
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState,
+    onSkipped: () => skips.push(undefined),
+  });
+
+  await sync.start();
+
+  expect(skips).toHaveLength(1);
+});
+
+test("a recovery flush whose ack names no skipped op does not call deps.onSkipped",
+async () => {
+  const batches: PendingBatch[] = [
+    { id: 1, batch_id: "b-1", ops: [{ op: "delete", uid: "uid_a1" }], poisoned: false },
+  ];
+  const replica = fakeReplica({}, { schemaMismatch: true, pendingBatches: batches });
+  const fetchJson = vi.fn(async (path: string) => {
+    if (path === "/api/ops") return { ok: true, ts: 1, applied: 1, seq: 7, skipped: [] };
+    if (path === "/api/sync/snapshot") return SNAP;
+    return feed();
+  });
+  const { onState } = collector();
+  const skips: void[] = [];
+  const sync = createReplicaSync({
+    replica, fetchJson, clientId: "c1", onState,
+    onSkipped: () => skips.push(undefined),
+  });
+
+  await sync.start();
+
+  expect(skips).toEqual([]);
+});
+
 test("a failed recovery flush keeps the database and reports the failure", async () => {
   const replica = fakeReplica({}, {
     schemaMismatch: true,

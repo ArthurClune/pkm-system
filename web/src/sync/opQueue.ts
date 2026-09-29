@@ -3,13 +3,14 @@
 // WriteTicket settles when the active storage accepts a write, while drain()
 // reports whether every retained write reached the server.
 import { ApiError } from "../api/client";
-import { apiPost } from "../api/typedClient";
 import type { BlockOp } from "../api/ops";
+import type { OpsAck } from "../api/payloads";
+import { apiPost } from "../api/typedClient";
 import type { PendingBatch, PoisonedBatch, Replica } from "../replica/client";
 import { availabilityOf, isSessionFatal, ReplicaError,
          type ReplicaAvailability } from "../replica/errors";
 import { newUid } from "../uid";
-import { ackSeq } from "./opsAck";
+import { readOpsAck } from "./opsAck";
 import { createQueueState, terminalReason, transitionQueue,
          type QueueEffect, type QueueEvent } from "./queueState";
 import { isTerminalRejection } from "./rejection";
@@ -167,24 +168,10 @@ function ticket(scope: readonly string[] | undefined,
   return { id: `write-${nextTicket++}`, scope: scope ?? [], settled, delivered };
 }
 
-function postOps(ops: BlockOp[], batchId: string): Promise<unknown> {
+function postOps(ops: BlockOp[], batchId: string): Promise<OpsAck> {
   return apiPost("/api/ops", {
     body: { client_id: clientId, batch_id: batchId, ops },
   });
-}
-
-/** Whether an /api/ops ack named any op the server skipped -- a block, or
- * create/move parent, it no longer had (see `ops_core.classify_missing_target`
- * and `render.render_ops_ack` on the server; `skipped` is present only when
- * non-empty). Read by hand exactly like ackSeq's `seq`, for the same reason:
- * `OpsAck` is not a `response_model`, so the OpenAPI schema types the ack as a
- * bare object and regenerating it is a no-op. Missing, absent, or malformed
- * (not an array) all mean nothing was skipped -- the honest reading of a
- * shape this loose is "no evidence of a skip", not a thrown error. */
-function ackSkipped(ack: unknown): boolean {
-  if (typeof ack !== "object" || ack === null) return false;
-  const skipped = (ack as { skipped?: unknown }).skipped;
-  return Array.isArray(skipped) && skipped.length > 0;
 }
 
 /** An enqueue whose ops could not be persisted locally (a full disk, OPFS
@@ -462,7 +449,7 @@ function createReplicaQueue(replica: Replica,
   const deliverLaneHead = async (
     head: FallbackEntry,
   ): Promise<DrainOutcome | null> => {
-    let ack: unknown;
+    let ack: OpsAck;
     try {
       ack = await postOps(head.ops, head.batchId);
     } catch (error: unknown) {
@@ -485,7 +472,7 @@ function createReplicaQueue(replica: Replica,
     // from that alone, so the view keeps the ghost until something else bumps
     // resync. The extra refetch is harmless when the feed also converges the
     // row.
-    if (ackSkipped(ack)) {
+    if (readOpsAck(ack).skipped.length > 0) {
       try { onSkipped(); } catch { /* listener isolation */ }
     }
     settleLaneHead(head, { status: "delivered" });
@@ -609,7 +596,7 @@ function createReplicaQueue(replica: Replica,
         if (drainAgain) continue;
         return { status: "drained" };
       }
-      let ack: unknown;
+      let ack: OpsAck;
       try {
         ack = await postOps(batch.ops, batch.batch_id);
       } catch (error: unknown) {
@@ -618,10 +605,11 @@ function createReplicaQueue(replica: Replica,
         }
         return failed(error);
       }
+      const reading = readOpsAck(ack);
       // A committed durable batch whose ack names a skipped op needs the view
       // told, same as the lane: the replica tombstones the row from its own
       // feed, but no resync event follows from that alone.
-      if (ackSkipped(ack)) {
+      if (reading.skipped.length > 0) {
         try { onSkipped(); } catch { /* listener isolation */ }
       }
       let result;
@@ -629,7 +617,7 @@ function createReplicaQueue(replica: Replica,
         // The ack's seq lets a pull that snapshotted this batch as pending
         // accept a window that already carries it, instead of refetching
         // (pkm-ur2n: the save's WS nudge and this ack race).
-        result = await replica.deleteBatch(batch.id, batch.batch_id, ackSeq(ack));
+        result = await replica.deleteBatch(batch.id, batch.batch_id, reading.seq);
       } catch (error: unknown) {
         noteReplicaFailure(error);
         return failed(error);
@@ -853,7 +841,13 @@ function createReplicaQueue(replica: Replica,
         const head = fallback[0]!;
         // Left retained on any error — a discard is the drain's decision
         // alone, and this door never makes it.
-        await postOps(head.ops, head.batchId);
+        const ack = await postOps(head.ops, head.batchId);
+        // This batch committed (skipped ops are not a rejection), same as
+        // the lane and the durable drain: the view is told so it can
+        // refetch the ghost this batch's skip leaves behind.
+        if (readOpsAck(ack).skipped.length > 0) {
+          try { onSkipped(); } catch { /* listener isolation */ }
+        }
         settleLaneHead(head, { status: "delivered" });
       }
     },

@@ -8,7 +8,7 @@ that pins the behaviour, or an em dash if neither exists.
 Incident history lives only here. The docs under
 [architecture/](architecture/overview.md) describe the system as it is and
 carry no failure stories. A fix that installs an invariant adds one row here,
-and only for a failure that happened.
+and only for a failure that happened or that a review reproduced.
 
 ## Backend (server and HTTP API)
 

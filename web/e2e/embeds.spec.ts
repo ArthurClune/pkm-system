@@ -1,5 +1,5 @@
 // Embed rendering through the real tokenize -> render pipeline: a bare
-// pasted URL (no markdown link syntax) must produce the embed (pkm-vuhl).
+// pasted URL (no markdown link syntax) must produce the embed.
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
@@ -19,7 +19,7 @@ const caretToEnd = (page: Page) =>
 
 test("bare Bluesky URL renders as an embed iframe", async ({ page }) => {
   // hermetic: answer the handle->DID resolution locally (embed.bsky.app
-  // only accepts DIDs in the embed path, pkm-es9o)
+  // only accepts DIDs in the embed path)
   const did = "did:plc:tq6gqh5aaohgi55y2yofylwj";
   await page.route("**/xrpc/com.atproto.identity.resolveHandle*", (route) =>
     route.fulfill({ json: { did } }));

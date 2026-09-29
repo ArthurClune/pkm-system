@@ -58,7 +58,7 @@ test("assistant panel: toggle, echo turn, confirm allow/deny", async ({ page }) 
 });
 
 test("Stop button cancels a hung turn and the conversation stays usable", async ({ page }) => {
-  // pkm-c98s item 3. FakeEngine's "please hang" scenario never yields or
+  // FakeEngine's "please hang" scenario never yields or
   // finishes, so only a genuine abort (AbortController -> fetch abort ->
   // server-side cancellation) can end the turn.
   await login(page);
@@ -81,7 +81,6 @@ test("Stop button cancels a hung turn and the conversation stays usable", async 
 });
 
 test("pagehide closes the live conversation via sendBeacon", async ({ page }) => {
-  // pkm-c98s item 1
   await login(page);
   await page.keyboard.press("Control+j");
   const panel = page.getByRole("region", { name: "Assistant" });

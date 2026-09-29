@@ -1,4 +1,4 @@
-// /today, /tomorrow and /date slash-command shortcuts (pkm-rw6w): each
+// /today, /tomorrow and /date slash-command shortcuts: each
 // inserts a [[daily-note]] link. /today and /tomorrow apply directly;
 // /date opens an inline picker (DatePickerPopup) and inserts on mousedown.
 import { type Page } from "@playwright/test";
@@ -26,7 +26,7 @@ test("/today inserts a link to today's daily note", async ({ page }) => {
     .innerText();
   // Give the client's background replica sync a beat to catch up with
   // today's page before referencing it from elsewhere (journal-references.
-  // spec.ts precedent; pkm-c9hp: editing/referencing a page the local
+  // spec.ts precedent; editing/referencing a page the local
   // replica hasn't hydrated yet can trip a legacy-rejected repair that
   // discards the in-flight edit -- SyncProvider.tsx's legacy-rejected
   // handling is live, not dead code).
@@ -55,7 +55,7 @@ test("/date picker inserts the clicked date's link", async ({ page }) => {
   // the picker defaults to the current month, so day 15 IS today's page
   // whenever the suite happens to run on the 15th. Give replica sync the
   // same catch-up beat unconditionally rather than special-casing that one
-  // date (journal-references.spec.ts precedent; pkm-c9hp).
+  // date (journal-references.spec.ts precedent).
   await page.waitForTimeout(1500);
 
   const src = `slash dates date ${Date.now()}`;

@@ -14,7 +14,7 @@ async function login(page: Page) {
 const input = (page: Page) => page.locator("textarea.block-input");
 
 test("a [[daily note]] reference from another page shows under that day " +
-     "on the journal scroll (pkm-vvta)", async ({ page }) => {
+     "on the journal scroll", async ({ page }) => {
   // Written entirely on a separate, uniquely-named page -- today's own
   // daily note is never touched, so this can't collide with edit.spec.ts's
   // "today starts empty" assumption.
@@ -28,9 +28,9 @@ test("a [[daily note]] reference from another page shows under that day " +
   const todayTitle = await page.locator(".journal-day .page-title a").first()
     .innerText();
   // Give the client's background replica sync a beat to catch up with
-  // today's page before referencing it from elsewhere (pkm-c9hp: editing a
+  // today's page before referencing it from elsewhere: editing a
   // page the local replica hasn't hydrated yet can trip a legacy-rejected
-  // repair that discards the in-flight edit).
+  // repair that discards the in-flight edit.
   await page.waitForTimeout(1500);
 
   const createRes = await page.request.post("/api/pages", { data: { title: src } });

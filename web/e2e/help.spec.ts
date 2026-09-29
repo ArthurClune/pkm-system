@@ -1,4 +1,4 @@
-// docs/keyboard.md rendered at /help (pkm-9jwr): the doc is the single
+// docs/keyboard.md rendered at /help: the doc is the single
 // source of truth, so this only checks that a couple of known lines make it
 // to the page -- not the whole doc's content, which is the parser's job
 // (see src/help/parseHelpMarkdown.test.ts).

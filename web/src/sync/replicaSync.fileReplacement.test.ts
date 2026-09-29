@@ -6,7 +6,7 @@
 // durable somewhere else first.
 import { expect, test } from "vitest";
 import type { Snapshot } from "../replica/apply";
-import { type CarryStore, createCarryStore } from "../replica/carryStore";
+import { createCarryStore } from "../replica/carryStore";
 import { createReplica } from "../replica/client";
 import type { ReplicaDb } from "../replica/db";
 import { serveRpc, toPortLike } from "../replica/rpc";
@@ -25,15 +25,20 @@ const SNAP: Snapshot = {
 };
 const SQLITE_FULL = "SQLITE_FULL: sqlite3 result code 13: database or disk is full";
 
-test.fails("a poison repair whose file replacement fails keeps every queued row for its Retry", async () => {
+test("a poison repair whose file replacement fails keeps every queued row for its Retry", async () => {
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
   const carryDb = await openRawTestDb();
   let isDamaged = false;
   let current: ReplicaDb = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
-  const deps: WorkerDeps & { carry: CarryStore } = {
+  const carry = createCarryStore(fakeCarryFiles(carryDb));
+  // What the carry held at each unlink of the replica file: the rows must
+  // already be durable there when the old file goes.
+  const carriedAtDiscard: string[][] = [];
+  const deps: WorkerDeps = {
     openDb: async () => current,
     discardDbFile: () => {
+      carriedAtDiscard.push(carry.read().map((row) => row.batch_id));
       damaged.close();
       // The new file takes its schema, then fails the first write of the
       // queue's rows into it: after that the Retry has a working file and
@@ -41,7 +46,7 @@ test.fails("a poison repair whose file replacement fails keeps every queued row 
       current = failingOnce(
         fresh.db, /^INSERT (OR IGNORE )?INTO pending_ops\(id,/, SQLITE_FULL);
     },
-    carry: createCarryStore(fakeCarryFiles(carryDb)),
+    carry,
     nowMs: () => 10,
   };
   const ch = new MessageChannel();
@@ -66,8 +71,10 @@ test.fails("a poison repair whose file replacement fails keeps every queued row 
   isDamaged = true;
 
   await expect(sync.rebaseAuthoritative("poison")).rejects.toThrow(/SQLITE_FULL/);
+  expect(carriedAtDiscard).toEqual([["rejected", "valid"]]);
   // the repair banner's Retry
   await sync.rebaseAuthoritative("poison");
+  expect(carry.exists()).toBe(false);
 
   expect((await replica.pendingBatches())
     .map(({ id, batch_id, poisoned }) => ({ id, batch_id, poisoned })))

@@ -7,8 +7,8 @@ import { availabilityOf, ReplicaUnavailableError } from "./errors";
 import { type CarryStore, createCarryStore } from "./carryStore";
 import type { ReplicaDb } from "./db";
 import type { DurablePendingRow } from "./queue";
-import { failingOnce, fakeCarryFiles, openRawTestDb, withDamagedFreelist }
-  from "./testDb";
+import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
+         withDamagedFreelist } from "./testDb";
 import { buildHandlers, type WorkerDeps } from "./workerHandlers";
 
 const SNAP: Snapshot = {
@@ -536,7 +536,13 @@ async function poisonedQueueOverDamagedFile(options: {
   let discarded = false;
   const damagedDb = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
   const files = { openAfterDiscard: async (): Promise<ReplicaDb> => freshDb };
-  const discardDbFile = vi.fn(() => { damaged.close(); discarded = true; });
+  // what the carry held when the old file was unlinked
+  let carriedAtDiscard: DurablePendingRow[] | null = null;
+  const discardDbFile = vi.fn(() => {
+    carriedAtDiscard = carry?.read() ?? null;
+    damaged.close();
+    discarded = true;
+  });
   const handlers = buildHandlers({
     openDb: async () => discarded ? files.openAfterDiscard() : damagedDb,
     discardDbFile, carry, nowMs: () => 10,
@@ -561,19 +567,20 @@ async function poisonedQueueOverDamagedFile(options: {
   });
   return {
     handlers, commit, rowsBefore, carry, carryFiles, discardDbFile,
-    damaged, fresh, files,
+    damaged, fresh, files, carriedAtDiscard: () => carriedAtDiscard,
   };
 }
 
 test("a rebase over a damaged file carries every durable row into a new file", async () => {
   // The rejected-batch repair is a rebase and must never drop the valid rows
   // queued behind the poisoned one: they move across verbatim.
-  const { handlers, commit, rowsBefore, carry, discardDbFile, fresh } =
-    await poisonedQueueOverDamagedFile();
+  const { handlers, commit, rowsBefore, carry, discardDbFile, fresh,
+          carriedAtDiscard } = await poisonedQueueOverDamagedFile();
 
   await expect(commit()).resolves.toBeNull();
 
   expect(discardDbFile).toHaveBeenCalledOnce();
+  expect(carriedAtDiscard()).toEqual(rowsBefore);
   expect(fresh.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
   expect(carry?.exists()).toBe(false);
   // snapshot applied, and the valid batch re-applied over it
@@ -689,5 +696,91 @@ test("a snapshot failure after the import leaves no carry to resurrect drained r
   await handlers.close(undefined);
   const init = await handlers.init(undefined) as { pendingBatches: { id: number }[] };
   expect(init.pendingBatches.map((batch) => batch.id)).toEqual([2]);
+});
+
+const pendingSummary = (batches: unknown) =>
+  (batches as { id: number; batch_id: string; poisoned: boolean }[])
+    .map(({ id, batch_id, poisoned }) => ({ id, batch_id, poisoned }));
+
+/** A worker that got as far as unlinking the damaged file and then never
+ * came back: the new file's open hangs, as it does when the page is
+ * suspended mid-repair. */
+async function workerDiedAfterDiscard() {
+  const setup = await poisonedQueueOverDamagedFile();
+  setup.files.openAfterDiscard = () => new Promise<ReplicaDb>(() => {});
+  void setup.commit();
+  await vi.waitFor(() => { expect(setup.discardDbFile).toHaveBeenCalled(); });
+  const next = buildHandlers({
+    openDb: async () => setup.fresh.db, carry: setup.carry, nowMs: () => 10,
+  });
+  return { ...setup, next };
+}
+
+test("a worker that dies between discard and import hands its rows to the next worker", async () => {
+  const { next, fresh, rowsBefore, carry } = await workerDiedAfterDiscard();
+  const init = await next.init(undefined) as { pendingBatches: unknown };
+  expect(pendingSummary(init.pendingBatches)).toEqual([
+    { id: 1, batch_id: "rejected", poisoned: true },
+    { id: 2, batch_id: "valid", poisoned: false },
+  ]);
+  const poisoned = await next.poisonedBatches(undefined) as
+    { rowId: number; batchId: string }[];
+  expect(poisoned).toHaveLength(1);
+  expect(poisoned[0]).toMatchObject({ rowId: 1, batchId: "rejected" });
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+  expect(carry?.exists()).toBe(false);
+});
+
+test("an enqueue served before init on a restarted worker keeps the carried ids", async () => {
+  const { next, fresh } = await workerDiedAfterDiscard();
+  await next.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "first-edit" });
+  expect(fresh.db.select("SELECT id, batch_id FROM pending_ops ORDER BY id")).toEqual([
+    { id: 1, batch_id: "rejected" },
+    { id: 2, batch_id: "valid" },
+    { id: 3, batch_id: "first-edit" },
+  ]);
+});
+
+test("a failed open leaves the carry for the open after close", async () => {
+  const { handlers, commit, files, fresh } = await poisonedQueueOverDamagedFile();
+  files.openAfterDiscard = () => Promise.reject(new Error("open failed"));
+  await expect(commit()).rejects.toThrow("open failed");
+  files.openAfterDiscard = async () => fresh.db;
+  await handlers.close(undefined);
+  const init = await handlers.init(undefined) as { pendingBatches: { id: number }[] };
+  expect(init.pendingBatches.map((batch) => batch.id)).toEqual([1, 2]);
+});
+
+test("a Retry in the same worker rebases the carried rows", async () => {
+  const { handlers, commit, rowsBefore, fresh, carry } =
+    await poisonedQueueOverDamagedFile({
+      fresh: (db) => failingOnce(db, /^INSERT OR IGNORE INTO pending_ops/, SQLITE_FULL),
+    });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  const lease = await handlers.prepareRecovery(undefined) as {
+    token: string; batches: { id: number }[];
+  };
+  expect(lease.batches.map((batch) => batch.id)).toEqual([1, 2]);
+  await expect(handlers.commitRecovery({
+    token: lease.token, input: { kind: "rebase", snapshot: SNAP },
+  })).resolves.toBeNull();
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+  expect(carry?.exists()).toBe(false);
+});
+
+test("a carry that cannot be read is kept and the handler fails", async () => {
+  const t = await openTestDb();
+  const discard = vi.fn();
+  const handlers = buildHandlers({
+    openDb: async () => t.db,
+    carry: {
+      exists: () => true,
+      write: vi.fn(),
+      read: () => { throw new Error("carry unreadable"); },
+      discard,
+    },
+  });
+  await expect(handlers.pendingCount(undefined)).rejects.toThrow("carry unreadable");
+  expect(discard).not.toHaveBeenCalled();
 });
 

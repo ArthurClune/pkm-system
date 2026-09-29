@@ -155,6 +155,28 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       throw unavailable;
     }
   };
+  /** Import a carry left by a file replacement that did not finish, then
+   * discard it. A read or import failure propagates and keeps the carry. */
+  const adoptLeftoverCarry = (d: ReplicaDb): void => {
+    const carry = deps.carry;
+    if (carry?.exists() !== true) return;
+    const rows = carry.read();
+    // the same fresh-file rule init and enqueue apply
+    if (!tableExists(d, "sync_client_meta")) installSchema(d);
+    importPendingRows(d, rows);
+    carry.discard();
+  };
+  /** The database, for every handler that reads or writes it. A carry that
+   * exists holds rows no replica file is known to hold, so it is imported
+   * before any handler touches the queue: an insert first would take the
+   * carried ids, and the by-id import would then drop those rows. The
+   * recovery internals use db() instead, since mid-replacement the carry is
+   * the rows' only copy and must not be adopted into a half-built file. */
+  const queueDb = async (): Promise<ReplicaDb> => {
+    const d = await db();
+    adoptLeftoverCarry(d);
+    return d;
+  };
   const nowMs = deps.nowMs ?? (() => Date.now());
   const clockMs = deps.clockMs ?? (() => Date.now());
   const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID());
@@ -295,7 +317,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   return {
     async enqueue(payload) {
       return gate.run(async () => {
-        const d = await db();
+        const d = await queueDb();
         // the first edit can beat the socket connect that triggers init():
         // a fresh database gets its schema here so durability never waits.
         // An existing database (any version) is left alone — init() owns
@@ -309,7 +331,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       });
     },
     async nextBatch() {
-      return gate.run(async () => nextBatch(await db()));
+      return gate.run(async () => nextBatch(await queueDb()));
     },
     async deleteBatch(payload) {
       // A bare row id is accepted too: it is the pre-pkm-ur2n payload shape.
@@ -317,7 +339,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         ? { id: payload, ackedSeq: undefined }
         : payload as { id: number; ackedSeq?: number };
       return gate.run(async () => {
-        const pending = deleteBatch(await db(), id);
+        const pending = deleteBatch(await queueDb(), id);
         if (typeof ackedSeq === "number" && Number.isFinite(ackedSeq)) {
           ackedSeqs.set(id, ackedSeq);
         } else {
@@ -331,7 +353,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         const { id, error, batchId } = payload as {
           id: number; error: string; batchId: string;
         };
-        const d = await db();
+        const d = await queueDb();
         const matched = markPoisoned(d, id, error, batchId);
         return { pending: pendingCount(d), matched };
       });
@@ -341,7 +363,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         // No catch: an unopenable database is db()'s latched
         // ReplicaUnavailableError, exactly as it is for every other handler.
         // Consumers derive "no-replica" from that rejection (pkm-61zt).
-        const d = await db();
+        const d = await queueDb();
         const fresh = !tableExists(d, "sync_client_meta");
         const pendingBatches = fresh ? [] : readPendingBatches(d);
         if (fresh) installSchema(d);
@@ -355,13 +377,13 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     },
     async applySnapshot(payload) {
       return gate.run(async () => {
-        applySnapshotToDb(await db(), payload as Snapshot, nowMs());
+        applySnapshotToDb(await queueDb(), payload as Snapshot, nowMs());
         return null;
       });
     },
     async applyChanges(payload) {
       return gate.run(async () => {
-        const d = await db();
+        const d = await queueDb();
         const { feed, expectedPendingIds } = payload as {
           feed: Changes;
           expectedPendingIds: number[];
@@ -381,20 +403,20 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       });
     },
     async pendingBatches() {
-      return gate.run(async () => readPendingBatches(await db()));
+      return gate.run(async () => readPendingBatches(await queueDb()));
     },
     async poisonedBatches() {
       return gate.run(async () => {
-        const d = await db();
+        const d = await queueDb();
         return tableExists(d, "pending_ops") ? poisonedBatches(d) : [];
       });
     },
     async pendingCount() {
-      return gate.run(async () => pendingCount(await db()));
+      return gate.run(async () => pendingCount(await queueDb()));
     },
     async localApi(payload) {
       return gate.run(async () => handleLocalApi(
-        await db(), payload as LocalApiRequest, { newBatchId }));
+        await queueDb(), payload as LocalApiRequest, { newBatchId }));
     },
     async prepareRecovery(payload) {
       const expiresAtMs = Number(
@@ -402,8 +424,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       );
       const hasDeadline = Number.isFinite(expiresAtMs);
       const prepared = await gate.prepare(async () => {
-        const batches = readPendingBatches(await db());
-        const durableRows = readDurablePendingRows(await db());
+        const d = await queueDb();
+        const batches = readPendingBatches(d);
+        const durableRows = readDurablePendingRows(d);
         if (hasDeadline && clockMs() >= expiresAtMs) {
           throw new Error("recovery preparation expired");
         }
@@ -442,7 +465,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
           if (preparedRows?.token !== token) {
             throw new Error("invalid or inactive recovery token");
           }
-          const current = readDurablePendingRows(await db());
+          const current = readDurablePendingRows(await queueDb());
           if (fingerprint(current) !== preparedRows.fingerprint) {
             throw new Error("pending rows changed during recovery");
           }
@@ -470,7 +493,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     },
     async reset() {
       return gate.run(async () => {
-        const current = readPendingBatches(await db());
+        const current = readPendingBatches(await queueDb());
         if (current.length > 0) {
           throw new Error("cannot reset replica with pending rows");
         }
@@ -479,7 +502,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       });
     },
     async diagnostics() {
-      return gate.run(async () => collectDiagnostics(await db()));
+      return gate.run(async () => collectDiagnostics(await queueDb()));
     },
     async close() {
       return gate.run(async () => {

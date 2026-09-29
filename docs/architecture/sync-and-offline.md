@@ -58,10 +58,11 @@ sequenceDiagram
 ```
 
 Success is the 2xx, and the client's own state arrives through the same changes
-pull every other client uses. The one ack field the client reads is `seq`,
-which it hands to the pending-row delete so a pull already in flight can accept
-its window (see
+pull every other client uses. The client reads two ack fields. `seq` goes to
+the pending-row delete, so a pull already in flight can accept its window (see
 [sync-recovery.md § Windows and the pending queue](sync-recovery.md#windows-and-the-pending-queue)).
+`skipped` matters only to a tab with no replica, which refetches its views
+when the list is non-empty (see the `resyncSeq` note below).
 State flows down one way. Incoming WS op echoes are never written to the
 replica: a tab drops its own, matched by `client_id`, and uses other tabs' only
 to update live views.
@@ -159,7 +160,13 @@ replay time, because an entry-time hash is stale and lands a spurious
 
 The optimistic apply mirrors the server's timestamp rules as well as its row
 contents: `localOps.ts` leaves `blocks.updated_at` and `pages.updated_at` alone
-for `set_collapsed` (see [backend.md](backend.md#the-write-path)).
+for `set_collapsed` (see [backend.md](backend.md#the-write-path)). It also
+skips the ops the server skips: those on a missing block or parent, and a move
+that would make a cycle. A create under a live parent lands on that parent's
+page. `missingTarget.ts` makes the skip decision, and
+`shared/fixtures/missing_targets.json` pins it to `ops_core.classify_missing_target`.
+Why a replay must agree with the server is in
+[sync-recovery.md § Ops on blocks the server no longer has](sync-recovery.md#ops-on-blocks-the-server-no-longer-has).
 
 `refs` rows arrive hydrated, their target being a page id only the server mints,
 so `apply.ts` writes what the payload says. `localOps.ts` derives `refs` itself
@@ -329,7 +336,10 @@ always be re-fetched; an unflushed pending op cannot. Every guard in
   reconnect refetches. A first connect flushing a previous page load's
   leftovers passes `begin({ viewsAreStale: true })`. That first-connect gate
   also fires on an empty durable queue while `replicaSync.hasStarted()` is
-  still false, an offline cold start whose mount-time bootstrap failed.
+  still false, an offline cold start whose mount-time bootstrap failed. A tab
+  with no replica also bumps it when an ack lists skipped ops, because no feed
+  will tombstone the ghost block
+  ([sync-recovery.md](sync-recovery.md#ops-on-blocks-the-server-no-longer-has)).
 - Connectivity and delivery health are reported independently: the app can be
   online with delivery blocked by a poisoned batch.
 - **Online-only features** degrade explicitly rather than queueing:

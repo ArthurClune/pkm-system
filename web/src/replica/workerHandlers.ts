@@ -5,9 +5,11 @@
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
+import { splitAckedRows } from "./ackedRows";
 import { mergeCarriedRows } from "./carryMerge";
 import type { CarryStore } from "./carryStore";
-import type { PendingBatch, RecoveryCommit, ReplicaDiagnostics } from "./client";
+import type { AckedBatch, PendingBatch, RecoveryCommit, ReplicaDiagnostics }
+  from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
 import { isCorruptionMessage, isUnreadableFileMessage,
@@ -244,6 +246,15 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   // a batch was still pending (see pendingGuard.ts). In memory only: a worker
   // restart starts a fresh pull with a fresh pending snapshot.
   const ackedSeqs = new Map<number, number>();
+  /** Record the seq an ack named for a deleted row, or forget the row when
+   * the ack named none. */
+  const noteAck = (id: number, seq: number | null | undefined): void => {
+    if (typeof seq === "number" && Number.isFinite(seq)) {
+      ackedSeqs.set(id, seq);
+    } else {
+      ackedSeqs.delete(id);
+    }
+  };
   const nowMs = deps.nowMs ?? (() => Date.now());
   const clockMs = deps.clockMs ?? (() => Date.now());
   const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID());
@@ -346,8 +357,14 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   /** A rebase, and on the same file-level damage the same escape, except
    * that a rebase keeps the durable queue: the rejected-batch repair runs one
    * so the valid rows behind a poisoned batch are not posted ahead of it or
-   * lost. `rows` move across verbatim, ids included, since the provider
-   * deletes the poisoned row by id afterwards.
+   * lost. The rows no ack covers move across verbatim, ids included, since
+   * the provider deletes the poisoned row by id afterwards.
+   *
+   * The rows an ack in `acked` covers are deleted in the snapshot's own
+   * transaction, before its replay, so the replica keeps the server's result
+   * for them (a rename replay, a conflict, another device's write) instead of
+   * their wire text. Only the rest are replayed and, on the replacement
+   * path, carried. If the snapshot fails, the deletes roll back with it.
    *
    * The durable boundary: the rows are committed to the carry database
    * before the damaged file and its journal are unlinked. The new file
@@ -359,17 +376,27 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
    * serves. */
   const rebaseOrReplaceFile = async (
     snapshot: Snapshot, rows: readonly DurablePendingRow[],
+    acked: readonly AckedBatch[],
   ): Promise<void> => {
+    const { settled, remaining } = splitAckedRows(rows, acked);
     try {
-      applySnapshotToDb(await db(), snapshot, nowMs());
+      const d = await db();
+      d.transaction(() => {
+        for (const a of settled) deleteBatch(d, a.id);
+        applySnapshotToDb(d, snapshot, nowMs());
+      });
+      for (const a of settled) noteAck(a.id, a.seq);
     } catch (error: unknown) {
+      // No ack is recorded on this path: the rebuild clears ackedSeqs, and
+      // the new file's ids restart from the highest carried one, so an acked
+      // id above it may be reused by another batch.
       // No durable place for the rows: keep the damaged file, which still
       // holds them, rather than replace it.
       const carry = deps.carry;
       if (!carry) throw error;
       const fresh = await replaceFileAfter(error, () => {
         try {
-          carry.write(rows);
+          carry.write(remaining);
         } catch (writeError: unknown) {
           // The damaged file keeps the rows. A carry left behind would be
           // adopted as a short copy of them, so it goes now, best effort.
@@ -410,11 +437,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         : payload as { id: number; ackedSeq?: number };
       return gate.run(async () => {
         const pending = deleteBatch(await queueDb(), id);
-        if (typeof ackedSeq === "number" && Number.isFinite(ackedSeq)) {
-          ackedSeqs.set(id, ackedSeq);
-        } else {
-          ackedSeqs.delete(id);
-        }
+        noteAck(id, ackedSeq);
         return { pending };
       });
     },
@@ -542,7 +565,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
           if (input.kind === "reset") {
             await rebuildOrReplaceFile(input.snapshot);
           } else {
-            await rebaseOrReplaceFile(input.snapshot, current);
+            await rebaseOrReplaceFile(input.snapshot, current, input.acked);
           }
         });
         return null;

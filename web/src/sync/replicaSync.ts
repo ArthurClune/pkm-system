@@ -434,7 +434,10 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
       token = lease.token;
       await flushLease(lease, options.flush);
       const snapshot = await fetchSnapshot();
-      await replica.commitRecovery(token, { kind, snapshot });
+      const input: RecoveryCommit = kind === "reset"
+        ? { kind: "reset", snapshot }
+        : { kind: "rebase", snapshot, acked: [] };
+      await replica.commitRecovery(token, input);
       token = null; // commit released the worker gate
       adoptCursor(snapshot.seq, "snapshot");
       if (options.forceReadyOnSuccess) {

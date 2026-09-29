@@ -1777,7 +1777,7 @@ test("a window that fails identically WINDOW_STRIKES times rebases before the st
     // a rebase, not a reset: nothing says the schema or the FTS index is bad,
     // and a rebase keeps the pending queue rows
     expect(commitRecovery)
-      .toHaveBeenCalledWith("lease-1", { kind: "rebase", snapshot: SNAP });
+      .toHaveBeenCalledWith("lease-1", { kind: "rebase", snapshot: SNAP, acked: [] });
     expect(commitRecovery).toHaveBeenCalledTimes(1);
     expect(posted).toEqual([expect.objectContaining({
       kind: "window-unappliable",

@@ -134,11 +134,21 @@ web/src/
 │   ├── reconnectBackoff.ts   Core         Reconnect delay: 2 s doubling to a 30 s cap
 │   ├── syncState.ts          Core         Editability/health FSM
 │   ├── retryPolicy.ts        Core         Which recovery a banner Retry means
+│   ├── rejection.ts          Core         isTerminalRejection: which delivery
+│   │                                      failures mean the batch is bad
+│   ├── unloadGuard.ts        Shell        useUnloadGuard: beforeunload while the
+│   │                                      fallback lane holds edits
 │   └── assets.ts             Shell        Multipart upload
 │
 ├── replica/                  The offline engine (see sync-and-offline.md)
 │   ├── worker.ts / workerHandlers.ts  Shell  The worker; db()'s latched open
 │   ├── rpc.ts / client.ts    Shell        Typed RPC over the worker port
+│   ├── db.ts                 Shell        ReplicaDb over sqlite-wasm; rollbacks
+│   │                                      that keep the original error
+│   ├── clientSchema.ts       Shell        CLIENT_DDL (pending_ops, sync_client_meta),
+│   │                                      SCHEMA_VERSION, installSchema
+│   ├── meta.ts               Shell        sync_client_meta accessors (cursor,
+│   │                                      generation, title flag, schema version)
 │   ├── carryStore.ts         Shell        The pending queue's durable copy across a file replacement
 │   ├── carryMerge.ts         Core         Which pending rows a replacement at carry adoption keeps
 │   ├── ackedRows.ts          Core         Which lease rows a recovery commit's acks settle
@@ -152,6 +162,9 @@ web/src/
 │   ├── openRetry.ts / poolCapacity.ts  Core  OPFS open policy
 │   ├── pendingGuard.ts       Core         May a window apply over a moved pending set
 │   ├── titles.ts             Core         Title canonicalization
+│   ├── refs.ts               Core         Ref extraction for local writes (mirrors refs.py)
+│   ├── daily.ts              Core         Daily-page titles (mirrors daily.py)
+│   ├── sha256.ts             Core         Synchronous sha256 inside a replica transaction
 │   └── baseSchema.gen.ts     —            Generated from the server's BASE_DDL
 │
 ├── dnd/                      Shell        Drag-and-drop context + drop zones
@@ -161,7 +174,7 @@ web/src/
 
 ## Views and navigation
 
-There are seven routes:
+The SPA's routes:
 
 | Route | View |
 |---|---|

@@ -18,6 +18,7 @@ replica is a cache and the queue is the user's intent.
 | The replica refuses the op itself (title syntax) | `ReplicaError.rejected` | Ticket fails; `onDesync` repairs the outline | The only replica failure that discards | [A local write fails](#a-local-write-fails) |
 | Lane entries and durable rows are both waiting | `laneHeadPrecedes` | Ordered by batch identity | Every path that posts durable rows asks the queue first | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
 | An enqueue reply is lost after the row persisted | Two copies share one `batch_id` | The second delivery replays | `batch_id` is minted before the RPC | [The in-memory fallback lane](#the-in-memory-fallback-lane) |
+| The replica latches `unavailable` with durable rows still queued | `noteReplicaFailure`, on `isSessionFatal` evidence | The drain delivers only the lane; a later session delivers the durable rows, behind the lane's ops | A deferred `update_text` carries its `base_text_hash`, so it lands as a conflict and the newer text is kept; an op on a target the lane removed lands as a missing target | [A local write fails](#a-local-write-fails) |
 | The OPFS file cannot be opened | `openWithRetry`, `ensureMinimumCapacity` | Up to 6 attempts, then `unusable` for the session | `forceReinitIfPreviouslyFailed`; pool top-up before the open | [When the replica cannot be opened](#when-the-replica-cannot-be-opened) |
 | The worker RPC breaks | `RpcLifecycleError`, read as `unreachable` | Ops kept; recovery barrier held | `unreachable` never lifts the barrier | [Availability: two values, one owner](#availability-two-values-one-owner) |
 | A window was fetched before an ack deleted its pending row | `pendingSetStillCovered` | Applied if the ack's `seq` is covered, else refetched | No window applies without the edits it lacks | [Windows and the pending queue](#windows-and-the-pending-queue) |
@@ -26,10 +27,10 @@ replica is a cache and the queue is the user's intent.
 | The server answers a terminal 4xx for a durable batch | `isTerminalRejection` returns true | Row poisoned, delivery paused, snapshot repair drops it | Later rows never post ahead of it; the repair never resets | [A batch the server rejects](#a-batch-the-server-rejects) |
 | The server answers 401, 403, 408 or 429 | `isTerminalRejection` returns false | Retained under backoff exactly like a 5xx; on a 401, `apiFetch` still redirects to `/login` | A session expiry, a rotated secret or a cleared cookie never poisons or discards a batch | [A batch the server rejects](#a-batch-the-server-rejects) |
 | A pull keeps failing | `noteFailure`, counting only `isStallShaped` errors | Backoff retry; `stalled` after `STALL_AFTER_FAILURES` | Network-down and availability failures never count | [A pull that keeps failing](#a-pull-that-keeps-failing) |
-| Schema, generation, cursor, FK, title, corruption or repeated window failure | Seven detectors | `reset` or `rebase` from a snapshot | One lifecycle, `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
+| Schema, generation, cursor, FK, title, corruption or repeated window failure | One detector per trigger | `reset` or `rebase` from a snapshot | One lifecycle, `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
 | A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase commits the queue to the carry before unlinking | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
-| An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json` | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
+| An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json`'s skip-or-not cases | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | Any op the server skipped | Both delivery paths (`deliverLaneHead` and the durable batch loop in `runDrain`) read the ack's `skipped` list | Bumps resync regardless of `unavailable`; every mounted view's guarded read refetches | A replica-backed tab's own feed tombstones the replica row; the ack refetch is what tells the view, not the feed | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | Another device moved an op's parent, or made its move a cycle | `_context_for` and `classify_missing_target` on the server; `applyOne` and `skipsOnMissingTarget` in the replica | Create and move follow the parent; a cycle move is skipped on both sides | A stale `page_title` is never resolved; a cycle skip journals the moved subtree | [Ops another device's tree edit overtook](#ops-another-devices-tree-edit-overtook) |
 | The replica opens, then fails every write | `unsentInMemory > 0` while `status !== "connected"` | The offline connectivity banner appends the same "exists only in memory" sentence as the unavailable-replica banner | The sentence never fires while connected, since the lane drains within a drain cycle | [What the UI shows](#what-the-ui-shows) |
@@ -55,6 +56,14 @@ Kept ops join an ordered in-memory fallback lane. Once `noteReplicaFailure`
 latches `unavailable` from session-fatal evidence (see
 [Availability](#availability-two-values-one-owner)), the drain stops calling
 `nextBatch()`/`markPoisoned()` and delivers only the lane.
+
+Durable rows persisted before the latch then wait for a later session with a
+working replica. That session delivers them after the lane ops this one
+already sent, so the two outboxes arrive in reverse order. No edit is lost to
+that. A deferred `update_text` still carries the hash of the text it was
+based on, so it lands as a conflict and the newer text becomes the conflict
+copy. A deferred op on a block the lane's ops removed lands as a
+[missing target](#ops-on-blocks-the-server-no-longer-has).
 
 ### The in-memory fallback lane
 
@@ -84,9 +93,10 @@ retained entry keeps it. After a lost enqueue reply, a durable row and its lane
 copy therefore share one id. Whichever delivers second lands on the server's
 `applied_batches` replay instead of a create-collision 400. The two copies can
 differ: the worker fills `base_text_hash` and `page_title` into the durable
-row, while the lane holds the caller's unfilled ops. `batch_replay_hash`
-(`ops_core.py`) ignores both fields, so the second delivery replays instead of
-drawing a 409 (see [backend.md § The write path](backend.md#the-write-path)).
+row, while the lane holds the caller's unfilled ops. The server's
+`batch_replay_hash` leaves both fields out, so the second copy still replays
+rather than drawing a 409 (Idempotency in
+[backend.md § The write path](backend.md#the-write-path)).
 
 Every entry counts towards "N changes pending" and is kept until delivered,
 rejected with a terminal 4xx, or the queue is disposed. That terminal 4xx is
@@ -248,12 +258,20 @@ shifts siblings only when one the window re-shipped at its server index shares
 the block's slot. At enqueue a create onto an existing uid still fails, as the
 server 400s it.
 
+Replaying over a window leaves two orderings wrong for one round trip, and
+both are accepted. When a window re-ships only some siblings, at their server
+`order_idx`, into a list holding locally shifted indices, the replay can put
+those siblings out of order. A replayed cross-page move keeps its root in
+place but not a descendant the window re-shipped at the old page. Each lasts
+until the ack's echo re-ships the server's rows. Nothing wrong is stored, and
+a fix would mean keeping pre-images of every row a pending op touches.
+
 ## A batch the server rejects
 
 `isTerminalRejection` (`web/src/sync/rejection.ts`) decides which delivery
 failures mean the batch itself is bad, at both delivery sites in `opQueue.ts`
 (the lane and the durable drain). It is true only for an `ApiError` whose
-status is in `[400, 500)` and is not 401, 403, 408 or 429. Those four can
+status is in `[400, 500)` and is not 401, 403, 408 or 429. Those statuses can
 follow a session expiry, a rotated secret or a cleared cookie, and say nothing
 about the batch's content. They take the same retained-under-backoff path as
 a 5xx or a dropped fetch, instead of poisoning or discarding anything.
@@ -282,7 +300,7 @@ delivery. Which recovery a Retry click runs is decided by
 `retryPolicy.ts::planRetry`.
 
 `replicaSync`'s `authoritativeRepair` flag is the recovery barrier's ownership
-claim. Every exit that can hold it is one of these four:
+claim. Every exit that can hold it is one of these:
 
 | Ownership | When |
 |---|---|
@@ -317,7 +335,7 @@ so that a window failing identically rebases before the banner can show.
 
 ### Rebootstrap triggers
 
-Seven conditions cause a rebootstrap from `GET /api/sync/snapshot` on their own:
+These conditions cause a rebootstrap from `GET /api/sync/snapshot` on their own:
 
 | Trigger | Detected by | Kind |
 |---|---|---|
@@ -329,7 +347,7 @@ Seven conditions cause a rebootstrap from `GET /api/sync/snapshot` on their own:
 | The replica reports corruption (`SQLITE_CORRUPT`, or FTS5's `SQLITE_CORRUPT_VTAB`) applying a window or a rebase snapshot | `isCorruptionError` in `pullLoop` and `recover`, once per session; `replica.diagnostics()` (quick_check, FTS `integrity-check`, row counts, cursor) is posted to `POST /api/client/diagnostics` first | `reset`: a rebase would replay the snapshot through the same FTS triggers over the same corrupt index |
 | A window keeps failing for any other reason — a NOT NULL or CHECK violation, a bug in an upsert | `WINDOW_STRIKES` failures of one cursor with one message in `pullLoop`. `isWindowFailure` counts only a `ReplicaError` that is neither corruption nor an availability verdict, so transport failures never count. Posted with `replica.diagnostics()` under kind `window-unappliable`, once per session | `rebase`: nothing says the schema or the FTS index is bad, and a rebase keeps the pending queue's rows |
 
-Two more rebootstraps happen on request: the authoritative repair of a poisoned
+Rebootstraps also happen on request: the authoritative repair of a poisoned
 batch, and the user's own Reset local data.
 
 ### runRecovery
@@ -459,7 +477,8 @@ replaces the file again. If the new file will not open, `db()` latches the
 session unavailable and edits go online through the
 [fallback lane](#the-in-memory-fallback-lane). Those new edits can then reach
 the server ahead of the carried rows, which the next session delivers. That
-changes their order, but loses none of them.
+is the same reverse order as any latched session's durable rows
+([A local write fails](#a-local-write-fails)), and loses none of them.
 
 **Corruption must reach `isCorruptionError` with its own message.** SQLite
 rolls back the whole transaction by itself on `SQLITE_CORRUPT`, `IOERR` or
@@ -473,22 +492,20 @@ rebase over the same damaged file.
 
 An op whose block, or create/move parent, is gone never rejects its batch: the
 server skips it, lands any lost text on today's daily page, and acks 200 (the
-per-op table is in [backend.md § The write path](backend.md#the-write-path)).
+per-op table is in [backend.md § Missing targets](backend.md#missing-targets)).
 The client keeps its optimistic copy of the skipped op. So the server journals
 every uid involved in the same commit through `JournalBlock`, and the feed
 ships each as a tombstone, or as the block's real row if it exists.
 
 A replica applies tombstones first, and a block tombstone cascades its local
-subtree. For a move under a missing parent, the server journals the parent's
-tombstone and then every block of the moved subtree. `_plan_missing_target`
-emits tombstones before live rows, so a window boundary never puts a tombstone
-after the rows that restore what it cascades away. The ghost goes without a
-snapshot repair.
+subtree. The server orders its journal rows so that a window boundary never
+puts a tombstone after the rows that restore what it cascades away (same
+section of backend.md). The ghost goes without a snapshot repair.
 
 The replica's local apply skips the same ops. `skipsOnMissingTarget`
 (`replica/missingTarget.ts`) mirrors `classify_missing_target`, and
-`shared/fixtures/missing_targets.json` pins the two to one table. So when the
-feed removes one op's target, `reapplyPending` keeps the rest of that batch.
+`shared/fixtures/missing_targets.json` pins the two to the same skip-or-not
+verdict per case. So when the feed removes one op's target, `reapplyPending` keeps the rest of that batch.
 Rolling the whole batch back would revert its other edits until the ack. The
 next edit to a reverted block would then hash against stale text and draw a
 spurious conflict header.
@@ -498,13 +515,13 @@ A tab with no replica gets no tombstone. It delivers through the
 ghost block would stay on screen, and each flush into it would land another
 daily-note child. A replica-backed tab's feed does tombstone the replica row,
 but no resync event follows from that alone, so the view keeps the ghost
-until something else bumps resync. Both delivery paths -- `deliverLaneHead`
-and the durable batch loop in `runDrain` -- read the ack's `skipped` list,
-and a non-empty one bumps resync (`ops-skipped` in `syncState.ts`)
-regardless of whether `unavailable` is latched. That is the guarded read
-every resync trigger runs, not the outline repair epoch, so pending edits
-elsewhere on the page survive. The extra refetch on a replica-backed tab is
-harmless: it races a feed that has already converged the row.
+until something else bumps resync. So both delivery paths, `deliverLaneHead`
+and the durable batch loop in `runDrain`, read the ack's `skipped` list. A
+non-empty one bumps resync (`ops-skipped`) whether or not `unavailable` is
+latched, and views refetch as for any other
+[resync trigger](sync-and-offline.md#when-views-refetch). On a replica-backed
+tab the extra refetch races a feed that has already converged the row, which
+is harmless.
 
 ## Ops another device's tree edit overtook
 
@@ -526,4 +543,5 @@ before that state arrived leaves no loop either. The window with the other
 device's move also ships the moved block's row, through the parent closure.
 The journalled subtree then restores what else the local move touched:
 descendants it re-paged, and the target's children it shifted.
-`missing_targets.json` pins the cycle rule on both sides.
+`missing_targets.json` pins the cycle skip on both sides. The placement
+columns above are pinned by each side's own tests, not by a shared fixture.

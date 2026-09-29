@@ -130,7 +130,7 @@ flowchart TD
 sqlite-wasm memoises `installOpfsSAHPoolVfs` per VFS name and otherwise
 re-awaits the cached rejection. The top-up to `MIN_POOL_CAPACITY` must run
 before the open, because nothing grows the pool later and every file SQLite
-opens claims a slot. Six slots hold `PEAK_POOL_FILES` (`poolCapacity.ts`): the
+keeps in the pool claims a slot. Six slots hold `PEAK_POOL_FILES` (`poolCapacity.ts`): the
 replica, the carry and their journals, the most a
 [file replacement](#reset-rebase-and-file-replacement) holds at once.
 
@@ -212,7 +212,7 @@ and clears them all on a schema rebuild, which restarts the AUTOINCREMENT ids.
 | `reapplyPending` re-applies non-poisoned pending batches on top of every snapshot and feed window | `replica/apply.ts` | Later edits capturing stale base hashes |
 | `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
 | Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; sibling `order_idx` drifting up per window |
-| A rebase that replaces the file commits the queue to a carry database first; every handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |
+| A rebase that replaces the file commits the queue to a carry database first; every queue handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |
 
 The FK diff works whatever the enforcement pragmas say, so it also covers the
 reset rebuild, which runs under `foreign_keys=OFF`. The rolled-back batch stays
@@ -335,7 +335,8 @@ FTS checks do not. When the rebuild throws a corruption error,
 `rebuildOrReplaceFile` (`web/src/replica/workerHandlers.ts`) calls the worker's
 `discardDbFile`. That closes the database and unlinks the file and its
 `-journal` from the SAH pool, and the rebuild runs again on a fresh file. The
-journal goes too, or its first open would roll it back into the new file.
+journal goes too: this VFS never rolls a journal back, so one a killed worker
+left would otherwise hold a pool slot for good.
 Pending rows lose nothing, because a reset drops `pending_ops` anyway and its
 caller already holds them from `prepareRecovery`.
 
@@ -347,24 +348,45 @@ before the damaged file is unlinked.** The rows travel verbatim, ids,
 `poisoned` and `error` included, because the provider deletes the poisoned row
 by id afterwards.
 
-| Step | Action | If the worker dies here, the rows are in |
+| Step | Action | If the worker dies here, the rows are intact in |
 |---|---|---|
-| 1 | `carry.write(rows)` commits them to the carry (`carryStore.ts`) | both files |
-| 2 | `discardDbFile` unlinks the damaged file and its journal | the carry only |
-| 3 | The new file gets `rebuildSchema`, then `importPendingRows` (`INSERT OR IGNORE` by id) | both files |
+| 1 | `carry.write(rows)` commits them to the carry (`carryStore.ts`) | the damaged file |
+| 2 | `discardDbFile` unlinks the damaged file and its journal | the carry |
+| 3 | The new file gets `rebuildSchema`, then `importPendingRows` (`INSERT OR IGNORE` by id) | the carry |
 | 4 | `carry.discard()` | the new file |
 | 5 | The snapshot applies and re-applies pending | the new file |
+
+A commit is not atomic across a worker's death on this VFS. It never rolls
+back a journal a killed worker left, so a death inside a commit leaves that
+file torn. The carry guarantees that no row is lost at any instant: at every
+step, a file that is not being written holds them all. It does not guarantee
+that the file being written is readable, and adoption handles that case.
 
 A failed carry write leaves the damaged file untouched, and without a carry
 store a rebase rethrows rather than replace the file. The carry goes at step
 4, not after the snapshot. A carry kept past a failed snapshot would be
 adopted on a later open and bring back batches acked or deleted since.
 
-Every handler reaches the database through `queueDb`, which imports a leftover
-carry and discards it before serving. Adoption cannot wait for `init`, because
-an edit can reach a restarted worker first. Its insert would take the carried
-ids, and the by-id import would then drop those rows. A carry that cannot be
-read fails the handler and is kept.
+Every queue handler reaches the database through `queueDb`, which imports a
+leftover carry and discards it before serving. Adoption cannot wait for
+`init`, because an edit can reach a restarted worker first. Its insert would
+take the carried ids, and the by-id import would then drop those rows.
+`diagnostics` alone uses `db()`, so it never writes and an adoption failure
+cannot sink its report.
+
+No handler succeeds while a carry exists, because each adopts first and
+fails if it cannot. So every pending row the replica holds is also in the
+carry, and the rest of the replica is a cache. That makes adoption's two
+escapes safe:
+
+| Adoption meets | Outcome | Why no row is lost |
+|---|---|---|
+| A carry that reads as `SQLITE_CORRUPT*` or `SQLITE_NOTADB` (`isUnreadableFileMessage`, `errors.ts`) | The carry is discarded with a warning | Only a death inside step 1 tears it, and step 1 precedes the unlink, so the replica still holds the rows |
+| A replica whose `installSchema` or `importPendingRows` throws | `discardDbFile`, then the new file imports the rows and the carry is discarded | Every pending row in the replica is also in the carry |
+| Any other read error (contention, transient I/O), or a replacement that fails too | The handler fails and the carry is kept | The carry may be the rows' only copy |
+
+Without the escapes, one torn file would fail every handler for good,
+`prepareRecovery` included, and no edit would leave the device again.
 
 **Corruption must reach `isCorruptionError` with its own message.** SQLite
 rolls back the whole transaction by itself on `SQLITE_CORRUPT`, `IOERR` or

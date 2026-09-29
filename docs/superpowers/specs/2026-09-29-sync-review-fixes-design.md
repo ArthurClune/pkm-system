@@ -60,6 +60,10 @@ fresh file imports them from there.
 | 4 | Apply the snapshot, which reapplies pending as now | both hold them; the ignore-by-id import is a no-op |
 | 5 | Unlink the carry file and its journal | done |
 
+As shipped, the order differs from this table: the carry is discarded straight
+after the import, and every handler adopts a leftover carry on entry, not only
+`init`. See Deviations in `docs/superpowers/plans/2026-09-29-pkm-9xg0-durable-first-file-replacement.md`.
+
 **Adopt-on-open.** The handlers' `init`, once the schema check has run and
 before any other handler is served, asks the carry store whether a carry file
 exists. A leftover one is imported into `pending_ops` with the same

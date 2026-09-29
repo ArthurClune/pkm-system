@@ -71,8 +71,10 @@ function closeDb(): void {
 
 function discardDbFile(): void {
   closeDb();
-  // The journal too: a hot journal left in the pool would be rolled back
-  // into the new, empty file on its first open.
+  // The journal too. This VFS never treats a journal as hot (its
+  // xCheckReservedLock always reports a lock held), so one a killed worker
+  // left is never rolled back and never removed: it would hold a pool slot
+  // for good, beside a file it no longer describes.
   pool?.unlink(journalOf(REPLICA_FILE));
   pool?.unlink(REPLICA_FILE);
 }
@@ -89,7 +91,8 @@ const carryFiles: CarryFiles = {
     return { db: wrapSqlite(raw), close: () => { raw.close(); } };
   },
   unlink() {
-    // the journal first, for the reason discardDbFile gives
+    // its journal too, which a killed worker can leave and nothing else
+    // would ever remove (see discardDbFile)
     pool?.unlink(journalOf(CARRY_FILE));
     pool?.unlink(CARRY_FILE);
   },

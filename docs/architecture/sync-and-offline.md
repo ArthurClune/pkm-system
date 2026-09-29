@@ -303,10 +303,11 @@ transaction rolls back.
 One file, `/pkm-replica.sqlite3`, in a dedicated worker on the OPFS SAHPool VFS,
 holds both the graph copy (the server's `BASE_DDL`, replicated via the generated
 `web/src/replica/baseSchema.gen.ts`) and the client-only tables `pending_ops`
-and `sync_client_meta`. A second file, `/pkm-replica-carry.sqlite3`, exists
-only while a damaged replica file is being replaced, or after a worker died
-during one. It holds the pending queue across that
-[file replacement](sync-recovery.md#reset-rebase-and-file-replacement).
+and `sync_client_meta`. A second file, `/pkm-replica-carry.sqlite3`, holds
+the pending queue across a
+[file replacement](sync-recovery.md#reset-rebase-and-file-replacement). A
+worker that dies during one, or a carry write that fails, leaves it behind,
+and the next queue handler adopts and removes it.
 
 **The replica is a cache; the queue is the user's intent.** A snapshot can
 always be re-fetched; an unflushed pending op cannot. Every guard in

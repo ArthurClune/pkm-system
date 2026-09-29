@@ -2,8 +2,9 @@
 // Keeping the replica's OPFS SAH pool big enough to write (pkm-ndcu).
 //
 // sqlite-wasm's opfs-sahpool VFS is a FIXED pool of pre-opened OPFS files:
-// every file SQLite opens — the database AND its rollback journal and any
-// temp file — must claim one slot. `installOpfsSAHPoolVfs` sizes that pool
+// every file SQLite keeps in it — the database AND its rollback journal —
+// must claim one slot (temp files stay in memory in this build, see
+// MIN_POOL_CAPACITY). `installOpfsSAHPoolVfs` sizes that pool
 // from whatever it finds in its opaque directory, and only falls back to
 // `initialCapacity` (6) when it finds nothing at all:
 //
@@ -36,17 +37,20 @@ export const CARRY_FILE = "/pkm-replica-carry.sqlite3";
 export const journalOf = (file: string): string => `${file}-journal`;
 
 /** What the pool holds at once at the peak of a file replacement: the carry
- * and its journal are written while the damaged replica, and any hot journal
- * it left, are still there. */
+ * and its journal are written while the damaged replica, and any journal a
+ * killed worker left beside it, are still there. */
 export const PEAK_POOL_FILES: readonly string[] = [
   REPLICA_FILE, journalOf(REPLICA_FILE), CARRY_FILE, journalOf(CARRY_FILE),
 ];
 
 /** The pool size sqlite-wasm itself defaults to. Every persistent file, open
- * or not, claims a slot until it is unlinked; a rollback journal exists only
- * during a write transaction; this build keeps temp files in memory
- * (SQLITE_TEMP_STORE=2), so they claim none. Six slots therefore cover
- * PEAK_POOL_FILES with two to spare. */
+ * or not, claims a slot until it is unlinked. A rollback journal is created
+ * by a write transaction and unlinked when it ends, except that one left by
+ * a worker killed mid-write stays until something unlinks it, since this VFS
+ * never rolls a journal back; PEAK_POOL_FILES counts both journals for that
+ * reason. This build keeps temp files in memory (SQLITE_TEMP_STORE=2), so
+ * they claim none. Six slots therefore cover PEAK_POOL_FILES with two to
+ * spare. */
 export const MIN_POOL_CAPACITY = 6;
 
 /** The slice of sqlite-wasm's pool-utility object this needs. */

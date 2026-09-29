@@ -30,9 +30,11 @@ from pkm.contracts.ops import OpBatch
 from pkm.schema import DDL
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
+from pkm.server.store import fetch_page, rename_page_rows
 
 from perfcheck import fixture as _fixture_mod
-from perfcheck.fixture import generate
+from perfcheck.fixture import (RENAME_APPLIED_AT_MS, RENAME_SOURCE_TITLE,
+                               RENAME_TARGET_TITLE, generate)
 from perfcheck.run_core import stale_entries
 
 _FIXTURE_SRC = Path(_fixture_mod.__file__).read_bytes()
@@ -117,6 +119,17 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
                                          "ops": list(batch.ops)})
             apply_batch(con, ob, batch.now_ms)
             con.commit()
+        # Seeded once, directly through the store function a real rename
+        # uses (rename is a route, not an op batch): leaves a block_rewrites
+        # row for ops/edit-rename-replay (perfcheck.backend) to exercise
+        # ops_core.replay_title_rewrites.
+        source = fetch_page(con, RENAME_SOURCE_TITLE)
+        if source is None:
+            raise RuntimeError(
+                f"perf fixture: {RENAME_SOURCE_TITLE!r} missing before its seeded rename")
+        rename_page_rows(con, source["id"], RENAME_SOURCE_TITLE,
+                         RENAME_TARGET_TITLE, RENAME_APPLIED_AT_MS)
+        con.commit()
         con.executemany(
             "INSERT INTO assets(sha256, filename, mime, size, created_at, description)"
             " VALUES (?,?,?,?,?,?)",

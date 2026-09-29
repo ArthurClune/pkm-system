@@ -67,11 +67,34 @@ def test_landmarks_exist():
     fx = generate(1, 0.02)
     uids = {op["uid"] for op in creates(fx)}
     lm = fx.landmarks
-    assert {lm.popular_uid, lm.move_uid, lm.edit_uid} <= uids
+    assert {lm.popular_uid, lm.move_uid, lm.edit_uid,
+            lm.hashed_edit_uid, lm.rename_ref_uid} <= uids
     assert set(lm.ref_uids) <= uids and len(lm.ref_uids) == 30
     kids = [op for op in creates(fx) if op["parent_uid"] == lm.move_uid]
     assert kids, "move_uid must have children so the move is a subtree move"
     assert fx.assets and fx.sidebar
+
+
+def test_hashed_edit_and_rename_ref_text_are_fixed():
+    from perfcheck.fixture import HASHED_EDIT_TEXT, RENAME_REF_TEXT
+
+    fx = generate(1, 0.02)
+    lm = fx.landmarks
+    by_uid = {op["uid"]: op["text"] for op in creates(fx)}
+    # these two texts must stay exactly as generated -- backend.py computes
+    # base_text_hash from the module constants, not from the fixture, so a
+    # drift here would silently break every ops/edit-hashed-* scenario
+    assert by_uid[lm.hashed_edit_uid] == HASHED_EDIT_TEXT
+    assert by_uid[lm.rename_ref_uid] == RENAME_REF_TEXT
+
+
+def test_missing_target_uids_are_never_generated():
+    from perfcheck.fixture import MISSING_BLOCK_UID, MISSING_PARENT_UID
+
+    fx = generate(1, 1.0)
+    uids = {op["uid"] for op in creates(fx)}
+    assert MISSING_BLOCK_UID not in uids
+    assert MISSING_PARENT_UID not in uids
 
 
 def test_generate_raises_a_clear_error_when_the_big_page_never_nests(monkeypatch):

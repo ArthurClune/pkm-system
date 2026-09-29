@@ -1,10 +1,10 @@
 {
-  "commit": "ff75eb9",
+  "commit": "d564178",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
   },
-  "fixture_hash": "1787e2b65bd60abb",
+  "fixture_hash": "df9e86e8f395ca70",
   "scenarios": {
     "assets/range": {
       "bytes": {
@@ -17,7 +17,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.09
+        "value": 2.55
       },
       "statements": {
         "class": "exact",
@@ -25,11 +25,11 @@
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 197
+        "value": 257
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 4
+        "value": 5
       }
     },
     "assets/search": {
@@ -43,7 +43,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.2
+        "value": 3.52
       },
       "statements": {
         "class": "exact",
@@ -51,11 +51,11 @@
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 652
+        "value": 852
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 12
+        "value": 15
       }
     },
     "block-refs/30": {
@@ -69,7 +69,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.9
+        "value": 1.91
       },
       "statements": {
         "class": "exact",
@@ -95,7 +95,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 16.52
+        "value": 16.42
       },
       "statements": {
         "class": "exact",
@@ -121,7 +121,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 10.12
+        "value": 10.05
       },
       "statements": {
         "class": "exact",
@@ -139,7 +139,7 @@
     "changed/week": {
       "bytes": {
         "class": "exact",
-        "value": 111458
+        "value": 111437
       },
       "full_scans": {
         "class": "exact",
@@ -147,7 +147,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 15.74
+        "value": 15.66
       },
       "statements": {
         "class": "exact",
@@ -173,7 +173,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 13.87
+        "value": 13.67
       },
       "statements": {
         "class": "exact",
@@ -199,7 +199,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 13.96
+        "value": 13.68
       },
       "statements": {
         "class": "exact",
@@ -214,6 +214,32 @@
         "value": 147
       }
     },
+    "ops/create-missing-parent": {
+      "bytes": {
+        "class": "exact",
+        "value": 175
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 1
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 3.38
+      },
+      "statements": {
+        "class": "exact",
+        "value": 49
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 22
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
     "ops/edit-1": {
       "bytes": {
         "class": "exact",
@@ -225,7 +251,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.46
+        "value": 2.54
       },
       "statements": {
         "class": "exact",
@@ -234,6 +260,162 @@
       "trigger_statements": {
         "class": "exact",
         "value": 9
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "ops/edit-hashed-clean": {
+      "bytes": {
+        "class": "exact",
+        "value": 55
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 2.69
+      },
+      "statements": {
+        "class": "exact",
+        "value": 24
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 9
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "ops/edit-hashed-conflict": {
+      "bytes": {
+        "class": "exact",
+        "value": 55
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 1
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 3.31
+      },
+      "statements": {
+        "class": "exact",
+        "value": 64
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 29
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "ops/edit-hashed-identical": {
+      "bytes": {
+        "class": "exact",
+        "value": 55
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 2.24
+      },
+      "statements": {
+        "class": "exact",
+        "value": 9
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 0
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "ops/edit-missing-block": {
+      "bytes": {
+        "class": "exact",
+        "value": 178
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 1
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 3.04
+      },
+      "statements": {
+        "class": "exact",
+        "value": 42
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 22
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "ops/edit-rename-replay": {
+      "bytes": {
+        "class": "exact",
+        "value": 55
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 0
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 2.69
+      },
+      "statements": {
+        "class": "exact",
+        "value": 24
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 9
+      },
+      "vm_steps_k": {
+        "class": "exact",
+        "value": 0
+      }
+    },
+    "ops/move-missing-parent": {
+      "bytes": {
+        "class": "exact",
+        "value": 170
+      },
+      "full_scans": {
+        "class": "exact",
+        "value": 1
+      },
+      "median_ms": {
+        "class": "timing",
+        "value": 3.58
+      },
+      "statements": {
+        "class": "exact",
+        "value": 54
+      },
+      "trigger_statements": {
+        "class": "exact",
+        "value": 22
       },
       "vm_steps_k": {
         "class": "exact",
@@ -251,7 +433,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.65
+        "value": 2.64
       },
       "statements": {
         "class": "exact",
@@ -277,7 +459,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 16.16
+        "value": 16.36
       },
       "statements": {
         "class": "exact",
@@ -303,7 +485,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 12.46
+        "value": 12.25
       },
       "statements": {
         "class": "exact",
@@ -329,7 +511,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 5.71
+        "value": 5.56
       },
       "statements": {
         "class": "exact",
@@ -347,7 +529,7 @@
     "page/hub-deep": {
       "bytes": {
         "class": "exact",
-        "value": 18159
+        "value": 18302
       },
       "full_scans": {
         "class": "exact",
@@ -355,7 +537,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 4.61
+        "value": 4.62
       },
       "statements": {
         "class": "exact",
@@ -381,7 +563,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.76
+        "value": 1.74
       },
       "statements": {
         "class": "exact",
@@ -399,7 +581,7 @@
     "query/and-not": {
       "bytes": {
         "class": "exact",
-        "value": 57867
+        "value": 58010
       },
       "full_scans": {
         "class": "exact",
@@ -407,7 +589,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 5.48
+        "value": 5.32
       },
       "statements": {
         "class": "exact",
@@ -419,7 +601,7 @@
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 29
+        "value": 30
       }
     },
     "rename/hub": {
@@ -433,19 +615,19 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 41.69
+        "value": 41.37
       },
       "statements": {
         "class": "exact",
-        "value": 4064
+        "value": 4076
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 3013
+        "value": 3020
       },
       "vm_steps_k": {
         "class": "exact",
-        "value": 131
+        "value": 132
       }
     },
     "search/common": {
@@ -459,7 +641,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 62.87
+        "value": 62.16
       },
       "statements": {
         "class": "exact",
@@ -467,7 +649,7 @@
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 43522
+        "value": 43519
       },
       "vm_steps_k": {
         "class": "exact",
@@ -485,7 +667,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 63.41
+        "value": 62.62
       },
       "statements": {
         "class": "exact",
@@ -493,7 +675,7 @@
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 43682
+        "value": 43679
       },
       "vm_steps_k": {
         "class": "exact",
@@ -511,7 +693,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.96
+        "value": 1.92
       },
       "statements": {
         "class": "exact",
@@ -519,7 +701,7 @@
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 115
+        "value": 109
       },
       "vm_steps_k": {
         "class": "exact",
@@ -537,7 +719,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 25.99
+        "value": 25.64
       },
       "statements": {
         "class": "exact",
@@ -545,7 +727,7 @@
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 16996
+        "value": 16993
       },
       "vm_steps_k": {
         "class": "exact",
@@ -563,7 +745,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.9
+        "value": 1.79
       },
       "statements": {
         "class": "exact",
@@ -571,7 +753,7 @@
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 54
+        "value": 51
       },
       "vm_steps_k": {
         "class": "exact",
@@ -589,7 +771,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 11.13
+        "value": 11.02
       },
       "statements": {
         "class": "exact",
@@ -597,7 +779,7 @@
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 8220
+        "value": 8206
       },
       "vm_steps_k": {
         "class": "exact",
@@ -615,7 +797,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.58
+        "value": 1.54
       },
       "statements": {
         "class": "exact",
@@ -633,7 +815,7 @@
     "sync/changes-mid": {
       "bytes": {
         "class": "exact",
-        "value": 150259
+        "value": 150826
       },
       "full_scans": {
         "class": "exact",
@@ -641,11 +823,11 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 5.02
+        "value": 5.05
       },
       "statements": {
         "class": "exact",
-        "value": 10
+        "value": 11
       },
       "trigger_statements": {
         "class": "exact",
@@ -659,7 +841,7 @@
     "sync/snapshot": {
       "bytes": {
         "class": "exact",
-        "value": 15141959
+        "value": 15143025
       },
       "full_scans": {
         "class": "exact",
@@ -667,7 +849,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 357.71
+        "value": 346.13
       },
       "statements": {
         "class": "exact",
@@ -693,7 +875,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.93
+        "value": 1.92
       },
       "statements": {
         "class": "exact",
@@ -719,7 +901,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.56
+        "value": 2.47
       },
       "statements": {
         "class": "exact",
@@ -745,7 +927,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 20.69
+        "value": 20.76
       },
       "statements": {
         "class": "exact",
@@ -771,7 +953,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.25
+        "value": 3.29
       },
       "statements": {
         "class": "exact",
@@ -779,7 +961,7 @@
       },
       "trigger_statements": {
         "class": "exact",
-        "value": 52
+        "value": 68
       },
       "vm_steps_k": {
         "class": "exact",

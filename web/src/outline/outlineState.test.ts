@@ -714,6 +714,24 @@ describe("captureDraft", () => {
     )).toEqual({ uid: "u2", text: "x", base: "two" });
   });
 
+  it("starts from the text the editor showed, not the tree, when given one", () => {
+    expect(captureDraft(null, "u1", "firstX", [block("u1", "remote")],
+                        { uid: "u1", base: "first" }))
+      .toEqual({ uid: "u1", text: "firstX", base: "first" });
+  });
+
+  it("ignores a shown text recorded for another block", () => {
+    expect(captureDraft(null, "u2", "x", [block("u2", "two")],
+                        { uid: "u1", base: "first" }))
+      .toEqual({ uid: "u2", text: "x", base: "two" });
+  });
+
+  it("keeps the draft's own base over a later shown text", () => {
+    expect(captureDraft({ uid: "u1", text: "a", base: "old" }, "u1", "ab",
+                        [block("u1", "old")], { uid: "u1", base: "a" }))
+      .toEqual({ uid: "u1", text: "ab", base: "old" });
+  });
+
   it("records a null base for a block the tree lacks", () => {
     expect(captureDraft(null, "gone", "x", []))
       .toEqual({ uid: "gone", text: "x", base: null });

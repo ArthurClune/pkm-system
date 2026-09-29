@@ -10,8 +10,8 @@ import { BlockInput } from "./BlockInput";
 
 function handlers(): OutlineHandlers {
   return {
-    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftChange: vi.fn(),
-    onFlushDraft: vi.fn(),
+    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(),
+    onDraftChange: vi.fn(), onFlushDraft: vi.fn(),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveSubtreeUp: vi.fn(), onMoveSubtreeDown: vi.fn(),
     onBackspaceAtStart: vi.fn(),
@@ -98,6 +98,23 @@ test("typing reports the draft", () => {
   mount(h, 0);
   fireEvent.change(focusedTextarea(), { target: { value: "hi" } });
   expect(h.onDraftChange).toHaveBeenCalledWith("u1", "hi");
+});
+
+test("the first edit of a clean draft reports the text it was typed over", () => {
+  const h = handlers();
+  const { rerender } = mount(h, 0);
+  fireEvent.change(focusedTextarea(), { target: { value: "hi" } });
+  fireEvent.change(focusedTextarea(), { target: { value: "hi!" } });
+  expect(h.onDraftStart).toHaveBeenCalledTimes(1);
+  expect(h.onDraftStart).toHaveBeenCalledWith("u1", "hello [[World]]");
+  expect(vi.mocked(h.onDraftStart).mock.invocationCallOrder[0])
+    .toBeLessThan(vi.mocked(h.onDraftChange).mock.invocationCallOrder[0]);
+  // The draft commits (the tree catches up), so the next edit starts a new
+  // draft typed over the committed text.
+  rerender(inputElement(h, { ...NODE, text: "hi!" }));
+  fireEvent.change(focusedTextarea(), { target: { value: "hi!?" } });
+  expect(h.onDraftStart).toHaveBeenCalledTimes(2);
+  expect(h.onDraftStart).toHaveBeenLastCalledWith("u1", "hi!");
 });
 
 test("keyboard map dispatches to the right handlers", () => {

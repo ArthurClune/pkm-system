@@ -37,6 +37,9 @@ export interface BlockDraftOptions {
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. */
   onEdit(text: string, holdFlush: boolean): void;
+  /** Called before the first onEdit of a clean draft with the text the
+   * textarea showed until then: the text the user is typing over. */
+  onDirty(shown: string): void;
   /** Called when committed text is adopted over the draft: the replacement
    * text invalidates any offset into the old text the caller remembered. */
   onAdopt(): void;
@@ -60,7 +63,7 @@ export interface BlockDraft {
 }
 
 export function useBlockDraft(
-  { text, cursor, onEdit, onAdopt }: BlockDraftOptions,
+  { text, cursor, onEdit, onDirty, onAdopt }: BlockDraftOptions,
 ): BlockDraft {
   const [draft, setDraft] = useState(text);
   const ref = useRef<HTMLTextAreaElement | null>(null);
@@ -160,16 +163,24 @@ export function useBlockDraft(
     ref.current?.setSelectionRange(sel.start, sel.end);
   }, [draft]);
 
+  // draftRef, not the tree's text: until the adoption effect has run, the
+  // textarea still shows the text before a remote change, and that is what
+  // the user is typing over.
+  const markDirty = () => {
+    if (!dirtyRef.current) onDirty(draftRef.current);
+    dirtyRef.current = true;
+  };
+
   return {
     ref,
     text: draft,
     typed: (next, holdFlush) => {
-      dirtyRef.current = true;
+      markDirty();
       setDraft(next);
       onEdit(next, holdFlush);
     },
     replace: (next, selStart, selEnd, holdFlush) => {
-      dirtyRef.current = true;
+      markDirty();
       const el = ref.current;
       if (el && el.value === next) {
         // Selection-only edit (skipping over an auto-inserted closer): there

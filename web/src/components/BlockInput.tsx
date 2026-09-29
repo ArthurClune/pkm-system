@@ -54,6 +54,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       if (holdFlush) handlers.onDraftChange(node.uid, text, true);
       else handlers.onDraftChange(node.uid, text);
     },
+    onDirty: (shown) => handlers.onDraftStart(node.uid, shown),
     onAdopt: () => setDatePickerAt(null), // adopted text invalidates the offset
   });
   // Shared with the phone Composer (pkm-noow): the completion context and the

@@ -15,6 +15,11 @@ export interface OutlineHandlers {
    * moved focus elsewhere, the old textarea's unmount-blur arrives late and
    * must not clear the new focus (the hook checks the uid). */
   onBlurBlock(uid: string): void;
+  /** The first edit of a clean draft is about to be reported: `shown` is the
+   * text the textarea showed, which the user is typing over. It becomes the
+   * new draft's base, so its flush hashes what the user saw rather than a
+   * remote text the tree took before the textarea could show it. */
+  onDraftStart(uid: string, shown: string): void;
   /** holdFlush (pkm-xlah): the caret sits mid [[ref / #tag token, so the
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. Blur/structural commits flush held drafts regardless. */

@@ -12,7 +12,8 @@ const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync
 
 function handlers(): OutlineHandlers {
   return {
-    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftChange: vi.fn(),
+    onFocusBlock: vi.fn(), onBlurBlock: vi.fn(), onDraftStart: vi.fn(),
+    onDraftChange: vi.fn(),
     onFlushDraft: vi.fn(),
     onSplit: vi.fn(), onIndent: vi.fn(), onOutdent: vi.fn(),
     onMoveSubtreeUp: vi.fn(), onMoveSubtreeDown: vi.fn(),

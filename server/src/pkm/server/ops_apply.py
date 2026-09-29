@@ -1,5 +1,5 @@
 # pattern: Imperative Shell
-"""Assemble OpContext snapshots from SQLite and execute planned effects.
+"""Read SQLite into per-kind op contexts and execute planned effects.
 Runs inside the caller's transaction; never commits or rolls back."""
 from __future__ import annotations
 
@@ -12,13 +12,18 @@ from pkm.contracts.daily import title_for_date
 from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
                                OpBatch, UpdateTextOp)
 from pkm.refs import canonicalize_title
-from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
-                                 Effect, InsertBlock, JournalBlock,
-                                 Skip, OpContext, OpError,
+from pkm.server.ops_core import (SKIPPED_CONTEXTS, BlockContext, BlockInfo,
+                                 BlockRewrite, ConflictLanding, CreateContext,
+                                 DeleteBlocks, DeleteContext, Effect,
+                                 ExistingHeader, FreshHeader, InsertBlock,
+                                 JournalBlock, LandedSkipContext, MoveContext,
+                                 OpContext, OpError, PageContext,
                                  RecordConflictHeader, ReindexRefs,
-                                 SetCollapsed, SetHeading,
-                                 SetPageId, SetParent, SetViewType,
-                                 ShiftSiblings, TouchPage, UpdateText,
+                                 SetCollapsed, SetHeading, SetPageId,
+                                 SetParent, SetViewType, ShiftSiblings, Skip,
+                                 SkipContext, SkippedContext,
+                                 StuckMoveContext, TextConflictContext,
+                                 TextEditContext, TouchPage, UpdateText,
                                  classify_skip, classify_text_edit,
                                  find_op_title_violation, plan_op,
                                  skip_report)
@@ -150,58 +155,55 @@ def _conflict_header(db: sqlite3.Connection, target_uid: str, day: str,
     return row["header_uid"], idx
 
 
-def _with_conflict_landing(db: sqlite3.Connection, target_uid: str,
-                           now_ms: int, ctx: OpContext) -> OpContext:
-    """ctx plus where a text conflict on target_uid would land: today's
-    daily page, under its existing header for the block or at a fresh
-    top-level slot. The day key is the server's local date, same as the
-    daily page."""
+def _conflict_landing(db: sqlite3.Connection, target_uid: str,
+                      now_ms: int) -> ConflictLanding:
+    """Where text that could not apply to target_uid lands: today's daily
+    page, under its existing header for the block or at a fresh top-level
+    slot. The day key is the server's local date, same as the daily page."""
     day = title_for_date(date.today())
     daily = get_or_create_page(db, day, now_ms)
     idx = db.execute(
         "SELECT COALESCE(MAX(order_idx) + 1, 0) FROM blocks"
         " WHERE page_id = ? AND parent_uid IS NULL",
         (daily["id"],)).fetchone()[0]
-    header = _conflict_header(db, target_uid, day, daily["id"])
-    # A fresh header uid is only needed when there's no existing header to
-    # append under (conflict_entry_effects only reads conflict_uid for a
-    # brand-new header) -- minting one anyway would be a uid neither this
-    # apply nor any later one ever uses.
-    return dataclasses.replace(
-        ctx, conflict_uid=_new_uid() if header is None else None,
-        conflict_child_uid=_new_uid(),
-        daily_page_id=daily["id"], daily_append_idx=idx, daily_title=day,
-        conflict_header_uid=header[0] if header is not None else None,
-        conflict_header_next_idx=header[1] if header is not None else None)
+    existing = _conflict_header(db, target_uid, day, daily["id"])
+    # A fresh header uid is minted only when there's no existing header to
+    # append under: minting one anyway would be a uid neither this apply nor
+    # any later one ever uses. It is minted before the entry uid.
+    header = (FreshHeader(_new_uid(), idx) if existing is None
+              else ExistingHeader(*existing))
+    return ConflictLanding(daily_page_id=daily["id"], daily_title=day,
+                           entry_uid=_new_uid(), header=header)
 
 
 def _skip_context(db: sqlite3.Connection, op, skip: Skip,
-                            block: BlockInfo | None, parent: BlockInfo | None,
-                            chain: tuple[str, ...],
-                            now_ms: int) -> OpContext:
-    """Context for an op classify_skip flagged. Resolves no op
-    page_title (get_or_create would create a page for an op that isn't
-    applied), and pays for today's daily page only when an entry lands.
-    `chain` rides along so apply_batch's re-classification of a move_cycle
-    agrees with this one."""
-    ctx = OpContext(block=block, parent=parent, parent_chain=chain)
+                  block: BlockInfo | None, now_ms: int) -> SkippedContext:
+    """Context for an op classify_skip flagged. Resolves no op page_title
+    (get_or_create would create a page for an op that isn't applied), and
+    pays for today's daily page only when an entry lands."""
     if skip.landing_uid is None:
-        return ctx
-    if isinstance(op, (CreateOp, UpdateTextOp)):
-        ctx = dataclasses.replace(
-            ctx, hint_page_exists=_hint_page_exists(db, op.page_title))
+        return SkipContext(skip)
     if skip.kind in ("move_parent_missing", "move_cycle"):
         assert block is not None  # the block exists; its target does not fit
-        ctx = dataclasses.replace(ctx,
-                                  page_title=_page_title(db, block.page_id),
-                                  subtree=_subtree_deepest_first(db, op.uid))
-    return _with_conflict_landing(db, skip.landing_uid, now_ms, ctx)
+        page_title = _require_page_title(db, block.page_id)
+        subtree = _subtree_deepest_first(db, op.uid)
+        return StuckMoveContext(
+            skip, _conflict_landing(db, skip.landing_uid, now_ms),
+            page_title, subtree)
+    hint_page_exists = (isinstance(op, (CreateOp, UpdateTextOp))
+                        and _hint_page_exists(db, op.page_title))
+    return LandedSkipContext(
+        skip, _conflict_landing(db, skip.landing_uid, now_ms),
+        hint_page_exists)
 
 
 def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
+    """Read what `op` needs, classify it once (classify_skip, then
+    classify_text_edit for a hashed edit), and return the context type
+    that classification calls for."""
     if isinstance(op, CreatePageOp):
         page = _resolve_page(db, op.page_title, now_ms)
-        return OpContext(page_id=page["id"])
+        return PageContext(page["id"])
     block = _block_info(db, op.uid)
     parent_uid = (op.parent_uid if isinstance(op, (CreateOp, MoveOp))
                   else None)
@@ -210,49 +212,43 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     chain = (_parent_chain(db, parent.uid)
              if isinstance(op, MoveOp) and block is not None
              and parent is not None else ())
-    skip = classify_skip(op, block is not None, parent is not None,
-                                   chain)
+    skip = classify_skip(op, block is not None, parent is not None, chain)
     if skip is not None:
-        return _skip_context(db, op, skip, block, parent, chain,
-                                       now_ms)
+        return _skip_context(db, op, skip, block, now_ms)
     if isinstance(op, CreateOp):
         # Under a live parent the block lands on the parent's page, so the
         # op's page_title is never resolved: a title gone stale since
         # another device moved the parent would get_or_create an empty
-        # page (pkm-fe9b). It places only a top-level create.
+        # page. It places only a top-level create.
         page_id = (parent.page_id if parent is not None
                    else _resolve_page(db, op.page_title, now_ms)["id"])
-        return OpContext(block=block, page_id=page_id, parent=parent)
+        return CreateContext(uid_taken=block is not None, page_id=page_id)
+    assert block is not None  # classify_skip covered its absence
     if isinstance(op, MoveOp):
         # same rule as create: page_title places only a top-level move
         page_id = (_resolve_page(db, op.page_title, now_ms)["id"]
                    if op.page_title is not None and parent is None
                    else None)
-        return OpContext(block=block, parent=parent, parent_chain=chain,
-                         page_id=page_id,
-                         subtree=_subtree_deepest_first(db, op.uid))
+        return MoveContext(block, parent, page_id,
+                           _subtree_deepest_first(db, op.uid))
     if isinstance(op, DeleteOp):
-        return OpContext(block=block,
-                         subtree=_subtree_deepest_first(db, op.uid))
+        return DeleteContext(block, _subtree_deepest_first(db, op.uid))
     if isinstance(op, UpdateTextOp) and op.base_text_hash is not None:
         row = db.execute(
-            "SELECT b.text, b.order_idx, p.title FROM blocks b"
+            "SELECT b.text, p.title FROM blocks b"
             " JOIN pages p ON p.id = b.page_id WHERE b.uid = ?",
             (op.uid,)).fetchone()
         rewrites = _block_rewrites(db, op.uid)
-        live = OpContext(block=block, current_text=row["text"],
-                         order_idx=row["order_idx"], page_title=row["title"],
-                         block_rewrites=rewrites)
-        # classify_text_edit runs the same replay+hash logic plan_op uses to
-        # decide check 2/4/5, so the shell and the planner can't drift on
-        # what counts as clean: only a real conflict pays for today's daily
-        # page and its ~3 extra queries.
         outcome = classify_text_edit(op.text, op.base_text_hash,
                                      row["text"], rewrites)
         if outcome.kind != "conflict":
-            return live
-        return _with_conflict_landing(db, op.uid, now_ms, live)
-    return OpContext(block=block)
+            return TextEditContext(block, outcome)
+        # only a real conflict pays for today's daily page and its extra
+        # queries
+        return TextConflictContext(
+            block, outcome.text, row["text"], row["title"],
+            _conflict_landing(db, op.uid, now_ms))
+    return BlockContext(block)
 
 
 def _execute(db: sqlite3.Connection, eff: Effect, now_ms: int) -> None:
@@ -334,10 +330,11 @@ def _require_page_title(db: sqlite3.Connection, page_id: int) -> str:
 
 def _broadcast_page_title(db: sqlite3.Connection, op,
                           ctx: OpContext) -> str | None:
-    if isinstance(op, (CreateOp, CreatePageOp)) and ctx.page_id is not None:
+    if isinstance(ctx, (CreateContext, PageContext)):
         return _require_page_title(db, ctx.page_id)
-    if not isinstance(op, MoveOp) or ctx.block is None:
+    if not isinstance(ctx, MoveContext):
         return None
+    assert isinstance(op, MoveOp)
     row = db.execute("SELECT page_id FROM blocks WHERE uid = ?",
                      (op.uid,)).fetchone()
     if row is None:
@@ -365,8 +362,8 @@ def _broadcast_op(db: sqlite3.Connection, op, ctx: OpContext) -> dict:
 @dataclasses.dataclass(frozen=True)
 class AppliedBatch:
     """What apply_batch did: the applied ops as they should be broadcast
-    (see _broadcast_op), and one `ops_core.skip_report` per op on a
-    missing target. A skipped op is not echoed as if it were applied; its
+    (see _broadcast_op), and one `ops_core.skip_report` per op the shell
+    classified as skipped. A skipped op is not echoed as if it were applied; its
     daily-note entry and journal rows reach other clients through the
     feed."""
     broadcast_ops: list[dict]
@@ -388,12 +385,8 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
         ctx = _context_for(db, op, now_ms)
         for eff in plan_op(index, op, ctx):
             _execute(db, eff, now_ms)
-        skip = (None if isinstance(op, CreatePageOp) else
-                classify_skip(op, ctx.block is not None,
-                                        ctx.parent is not None,
-                                        ctx.parent_chain))
-        if skip is None:
-            broadcast_ops.append(_broadcast_op(db, op, ctx))
+        if isinstance(ctx, SKIPPED_CONTEXTS):
+            skipped.append(skip_report(index, op, ctx))
         else:
-            skipped.append(skip_report(index, op, skip, ctx))
+            broadcast_ops.append(_broadcast_op(db, op, ctx))
     return AppliedBatch(broadcast_ops, skipped)

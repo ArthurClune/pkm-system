@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: low
 created_at: 2026-09-29T13:20:54Z
-updated_at: 2026-09-29T20:03:58Z
+updated_at: 2026-09-29T20:11:59Z
 parent: pkm-a4t2
 ---
 
@@ -37,7 +37,7 @@ Bounded refactors; no spec. After the fixes in this epic land.
 - [x] ops_hash.py split
 - [x] conflict_notes.py split
 - [x] MissingTarget family renamed (Skip, orphan_structural)
-- [ ] Per-kind contexts carry the shell's one classification
+- [x] Per-kind contexts carry the shell's one classification
 - [ ] Docs updated
 - [ ] Stale test comments; apply.test.ts groups named by behaviour
 - [ ] describe grouping in the flat web test files

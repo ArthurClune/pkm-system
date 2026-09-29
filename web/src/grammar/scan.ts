@@ -37,7 +37,7 @@ export type GrammarToken =
        suffixEnd: number } & Span)
   | ({ kind: "inline-code" | "code-fence" } & Span);
 
-// pkm-hjhy: mirrors refs.py normalize_title. A page title holding control
+// Mirrors refs.py normalize_title. A page title holding control
 // whitespace is unreachable through the API (Starlette compiles
 // {title:path} to `.*` with no DOTALL, so /api/page/<title> 404s on a
 // newline), so a multi-line [[link]] resolves to the one-line title — for
@@ -81,7 +81,7 @@ function scanCode(text: string): { codeTokens: GrammarToken[]; clean: string } {
       // info string (```css, ```mermaid), never a closer — without this
       // skip, an outer fence pairs with the first inner example's opener,
       // fence parity flips, and hex colours in the exposed code mint pages
-      // named "0277bd" (pkm-9qgk; mirrors _CODE_FENCE in refs.py).
+      // named "0277bd" (mirrors _CODE_FENCE in refs.py).
       let close = text.indexOf("```", i + 3);
       while (close !== -1 && close + 3 < text.length
              && WORD_CHAR_RE.test(text[close + 3])) {

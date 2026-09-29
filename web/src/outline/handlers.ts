@@ -3,12 +3,12 @@
 // useOutline implements it and the components (EditableBlockTree, BlockInput)
 // consume it, so the dependency points UI -> engine. It used to be declared in
 // EditableBlockTree.tsx, which forced the engine to import a type from a
-// component (pkm-64bq).
+// component.
 //
 // Deliberately a plain callback interface rather than a discriminated command
 // union + dispatcher: every member is already a distinct, named,
 // individually-typed operation, and the union would add a second name and a
-// switch for each one without removing a single case (pkm-64bq).
+// switch for each one without removing a single case.
 export interface OutlineHandlers {
   onFocusBlock(uid: string, cursor: number): void;
   /** Blur reports WHICH block blurred: when a structural op has already
@@ -20,7 +20,7 @@ export interface OutlineHandlers {
    * new draft's base, so its flush hashes what the user saw rather than a
    * remote text the tree took before the textarea could show it. */
   onDraftStart(uid: string, shown: string): void;
-  /** holdFlush (pkm-xlah): the caret sits mid [[ref / #tag token, so the
+  /** holdFlush: the caret sits mid [[ref / #tag token, so the
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. Blur/structural commits flush held drafts regardless. */
   onDraftChange(uid: string, text: string, holdFlush?: boolean): void;
@@ -33,7 +33,7 @@ export interface OutlineHandlers {
    * kept while that block's draft is pending, so a textarea remounted over
    * the draft puts the caret back where the user left it. */
   onInputUnmount(uid: string, selStart: number, selEnd: number): void;
-  /** Commit the pending draft NOW, without touching focus (pkm-hhbc). The
+  /** Commit the pending draft NOW, without touching focus. The
    * tree calls this before it navigates away under its own steam: unmounting
    * delivers no blur, so a flush-held draft would otherwise be dropped. */
   onFlushDraft(): void;
@@ -41,7 +41,7 @@ export interface OutlineHandlers {
   onIndent(uid: string): void;
   onOutdent(uid: string): void;
   /** Shift+Cmd+Arrow: move the block's whole subtree, preserving depth,
-   * possibly crossing a parent boundary (pkm-hx2w). */
+   * possibly crossing a parent boundary. */
   onMoveSubtreeUp(uid: string): void;
   onMoveSubtreeDown(uid: string): void;
   onBackspaceAtStart(uid: string): void;
@@ -58,7 +58,7 @@ export interface OutlineHandlers {
    * GoodLinks and splice the `Local copy::` attribute at `cursor` in `uid`.
    * The block has already been blurred by the pick, like /upload. */
   onGoodlinks(uid: string, cursor: number): void;
-  /** Shift-Cmd-V outline paste (pkm-tu3a/pkm-fwa2): parse the clipboard's
+  /** Shift-Cmd-V outline paste: parse the clipboard's
    * indentation into real blocks anchored at the caret. Plain Cmd-V and
    * single-line clipboards stay native. */
   onPasteOutline(uid: string, selStart: number, selEnd: number,
@@ -66,7 +66,7 @@ export interface OutlineHandlers {
   /** Begin a multi-block selection from `uid` towards `dir` (Shift+Arrow at a
    * block edge); the current block is included. */
   onStartBlockSelection(uid: string, dir: "up" | "down"): void;
-  /** Ctrl+Cmd+Arrow Up/Down (pkm-am54): select exactly `uid` as a one-block
+  /** Ctrl+Cmd+Arrow Up/Down: select exactly `uid` as a one-block
    * selection; further presses extend it via onExtendBlockSelection. */
   onSelectBlock(uid: string): void;
   onExtendBlockSelection(dir: "up" | "down"): void;
@@ -80,7 +80,7 @@ export interface OutlineHandlers {
   onMoveSelectionUp(): void;
   onMoveSelectionDown(): void;
   /** Backspace/Delete while a block selection is active: delete every
-   * selected block as a set (pkm-q89w). */
+   * selected block as a set. */
   onDeleteBlockSelection(): void;
   /** Optional: useOutline has no access to the page title or the drag/drop
    * API a real implementation needs, so it leaves this unset. EditablePage
@@ -88,7 +88,7 @@ export interface OutlineHandlers {
    * spreading useOutline's handlers and adding this key — optionality means
    * that spread no longer needs a satisfy-the-interface stub to override. */
   onDragStartBlock?(uid: string): void;
-  /** App-level undo/redo (pkm-7q14): global history, not per-outline. */
+  /** App-level undo/redo: global history, not per-outline. */
   onUndo(): void;
   onRedo(): void;
 }

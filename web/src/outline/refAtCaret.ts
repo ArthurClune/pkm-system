@@ -15,7 +15,7 @@ export function refTitleAtCaret(text: string, caret: number): string | null {
     if (t.kind !== "page-ref") continue;
     const start = t.tag ? t.start + 1 : t.start; // caret on the # is outside
     // normalized so Ctrl-O navigates to the page the ref actually
-    // resolves to, not to an unaddressable multi-line title (pkm-hjhy)
+    // resolves to, not to an unaddressable multi-line title
     const title = normalizeRefTitle(text.slice(t.content.start, t.content.end));
     if (title === "" || caret < start || caret > t.end) continue;
     const size = t.end - start;

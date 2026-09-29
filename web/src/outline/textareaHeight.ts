@@ -4,7 +4,7 @@
 // then measure" round trip, and whether a freshly measured height differs
 // enough from the last applied one to be worth writing. Kept pure and
 // DOM-free so the keystroke cost question (how many forced layouts does
-// typing X do) is answerable without a browser (pkm-youp).
+// typing X do) is answerable without a browser.
 //
 // Why a reset is sometimes required: a textarea's `scrollHeight` is clamped
 // below by the element's OWN current box height -- once the box has grown to

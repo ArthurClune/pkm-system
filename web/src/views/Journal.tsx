@@ -22,7 +22,7 @@ const SERVER_MAX_DAYS = 31; // get_journal clamps `days`; asking for more is moo
 
 // A day's authoritative page fetch 404s when it's been deleted (or never
 // created) underneath us — an empty-daily prune, or the server's
-// today-only auto-create (pkm-fy52) declining a non-today title. Either
+// today-only auto-create declining a non-today title. Either
 // way that's an empty day, not a failed load (substituteMissingDay).
 const fetchDayBlocks = (title: string): Promise<PagePayload["blocks"]> =>
   loadOutlineBlocks(title, substituteMissingDay);
@@ -32,7 +32,7 @@ export function Journal() {
   const [refTexts, setRefTexts] = useState<Record<string, BlockRefText>>({});
   const [refCounts, setRefCounts] = useState<Record<string, number>>({});
   const [autoLoad, setAutoLoad] = useState(true);
-  // The API returns only non-empty days (pkm-03x6), so a batch shorter than
+  // The API returns only non-empty days, so a batch shorter than
   // requested means the journal's past is exhausted: nothing left to load.
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export function Journal() {
   // Refs, not state, so the IntersectionObserver callback never goes stale.
   const daysRef = useRef<JournalDay[]>([]);
   // Day count on screen when a resync reset the cursor: the head reload asks
-  // for the whole window so the view doesn't collapse to one batch (pkm-wstt).
+  // for the whole window so the view doesn't collapse to one batch.
   const windowRef = useRef(0);
   const loadingRef = useRef(false);
   const genRef = useRef(0);
@@ -161,7 +161,7 @@ export function Journal() {
   }, [releaseAllReads]);
   useEffect(() => { void loadMore(); }, [loadMore]);
 
-  // Fire-and-forget: prune empty daily pages from the past week (pkm-c3kz).
+  // Fire-and-forget: prune empty daily pages from the past week.
   // Failures are silent; the next Journal load retries. This effect runs
   // after the loadMore effect above, so the journal GET is dispatched
   // first — but the two requests still race on the server over separate
@@ -180,7 +180,7 @@ export function Journal() {
     loadingRef.current = false;
     // Clear only the cursor (daysRef), not the rendered day list: blanking
     // setDays here unmounted every .journal-day and remounted it after the
-    // refetch, detaching the DOM mid-interaction (pkm-ss9k remount churn).
+    // refetch, detaching the DOM mid-interaction (remount churn).
     // Freshness doesn't need the remount — block content flows through the
     // shared outline sessions, and the head reload below replaces the day
     // list in place under stable per-date keys when it lands.

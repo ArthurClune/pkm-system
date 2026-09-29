@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { routeMetaFor } from "./routeMeta";
 
-/** Sets document.title from the centralized route table (pkm-77w2),
+/** Sets document.title from the centralized route table,
  * replacing five near-identical per-view effects. /page/* has no entry in
  * that table on purpose: PageView.tsx keeps its own effect, setting the
  * title once the loaded page's own title is known. The not-found catch-all

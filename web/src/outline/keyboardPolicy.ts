@@ -48,7 +48,7 @@ export type KeyDecision =
   | { type: "navigate-ref"; title: string; sidebar: boolean }
   | { type: "start-block-selection"; dir: "up" | "down" }
   | { type: "select-to-block-edge"; edge: "start" | "end" }
-  /** Replace the textarea selection with this exact range (pkm-jgtn:
+  /** Replace the textarea selection with this exact range (used by
    * line-wise Shift+Cmd+Left/Right). direction matches setSelectionRange's,
    * so the moving end stays the one further presses keep extending. */
   | { type: "select-range"; selStart: number; selEnd: number;
@@ -86,7 +86,7 @@ export type AutocompleteKeyAction = "move-up" | "move-down" | "pick" | "close";
 /** Whether an open autocomplete popup should claim this keydown, and what it
  * should do. Only unmodified Arrow/Enter/Tab/Escape are consumed — any
  * Cmd/Ctrl/Shift/Alt combination is left for native selection/navigation or
- * editor commands instead (pkm-clt1). Shared by decideEditorKey (the outline
+ * editor commands instead. Shared by decideEditorKey (the outline
  * editor) and Composer so both agree on the same modifier boundary rather
  * than each re-deriving it. */
 export function autocompleteKeyAction(k: {
@@ -144,7 +144,7 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   if (i.altKey && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
     return NONE;
   }
-  // Ctrl+Cmd+Arrow is the selection chord (pkm-am54): Left/Right select from
+  // Ctrl+Cmd+Arrow is the selection chord: Left/Right select from
   // the caret to the block's start/end (the whole logical block, not the
   // display line native selection stops at); Up/Down lift the caret into a
   // whole-block selection that further presses extend (the tree container
@@ -184,14 +184,14 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
     if (title) return { type: "navigate-ref", title, sidebar: i.shiftKey };
   }
   // Shift+Cmd+Arrow is the sole application movement chord: move the
-  // block's whole subtree (pkm-hx2w). It must be caught before the plain-
+  // block's whole subtree. It must be caught before the plain-
   // Shift block-selection-start check below (same shiftKey+Arrow shape), and
   // like any mutation it is read-only-gated.
   if (isShiftMetaOnly(i) && (i.key === "ArrowUp" || i.key === "ArrowDown")) {
     if (i.readOnly) return NONE;
     return i.key === "ArrowUp" ? { type: "move-subtree-up" } : { type: "move-subtree-down" };
   }
-  // Shift+Cmd+Left/Right select line-wise (pkm-jgtn): first press selects to
+  // Shift+Cmd+Left/Right select line-wise: first press selects to
   // the start/end of the LOGICAL line (like Ctrl+Cmd+Left/Right, not the
   // display line the native binding stops at), and each further press adds
   // one whole line — native's "select to line start" is a dead end on the
@@ -216,7 +216,7 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   // selection; copying is read-only-safe so this precedes the cut. The edge
   // is measured at the end that would move (selStart going up, selEnd going
   // down), so a live text selection escalates to a block selection the
-  // moment it can no longer grow within the block (pkm-jgtn) — it must never
+  // moment it can no longer grow within the block — it must never
   // fall into the boundary-arrow rules, which would drop it. Meta/Ctrl
   // variants are excluded: Ctrl+Shift+Up is native select-to-paragraph-start
   // and must stay with the platform.
@@ -228,8 +228,8 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
     if (atEdge) return { type: "start-block-selection", dir: up ? "up" : "down" };
   }
   if (i.readOnly) return NONE;
-  // Cmd-Z / Shift-Cmd-Z (Ctrl variants for non-Mac): app-level undo/redo
-  // (pkm-7q14). preventDefault in the shell kills the textarea's native
+  // Cmd-Z / Shift-Cmd-Z (Ctrl variants for non-Mac): app-level undo/redo.
+  // preventDefault in the shell kills the textarea's native
   // undo, which would otherwise fight the op-based history.
   if ((i.metaKey || i.ctrlKey) && !i.altKey && i.key.toLowerCase() === "z") {
     // Deliberately not isMetaOrCtrlOnly below: Shift is part of THIS decision
@@ -237,7 +237,7 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
     return i.shiftKey ? { type: "redo" } : { type: "undo" };
   }
   // Cmd-Alt-1/2/3 set heading levels 1-3, Cmd-Alt-0 clears back to plain
-  // text, matching Google Docs' ⌥⌘1/2/3 and ⌥⌘0 (pkm-bt9h). Matched on
+  // text, matching Google Docs' ⌥⌘1/2/3 and ⌥⌘0. Matched on
   // `i.code` (Digit0-3) rather than `i.key`: on macOS, Option+digit produces
   // special glyphs in `key` (e.g. Option-1 -> "¡"), so only the physical
   // key code is reliable — `key` is kept only as a jsdom/test fallback when
@@ -281,7 +281,7 @@ export function decideEditorKey(i: EditorKeyInput): KeyDecision {
   // line start, ...) and Shift arrows are selection (native within the
   // block, block selection at the edges above) — hijacking any of them into
   // block navigation would preventDefault the native behaviour or silently
-  // drop a live selection (pkm-jgtn).
+  // drop a live selection.
   if (i.metaKey || i.ctrlKey || i.altKey || i.shiftKey) return NONE;
   // The logical-newline check alone can't see soft-wrapping: a block with no
   // "\n" at all still spans several VISUAL lines, and the caret should move
@@ -334,7 +334,7 @@ export type SelectionKeyDecision =
  *   "none" leaves the event uncancelled for the platform.
  * - Creating, extending, copying and dismissing a selection are
  *   read-only-safe; every MUTATING branch (indent/outdent, move, delete) is
- *   gated on !readOnly and degrades to "none" (pkm-rckh: a selection made
+ *   gated on !readOnly and degrades to "none" (a selection made
  *   while editable outlives the switch to read-only, and used to stay
  *   destroyable). useOutline's handlers do not re-check editability, so this
  *   gate is the only one. */
@@ -353,7 +353,7 @@ export function decideSelectionKey(i: SelectionKeyInput): SelectionKeyDecision {
   if (i.shiftKey && !i.metaKey && !i.ctrlKey && !i.altKey && verticalArrow) {
     return { type: "extend-selection", dir };
   }
-  // Ctrl+Cmd+Up/Down keeps extending the selection it started (pkm-am54).
+  // Ctrl+Cmd+Up/Down keeps extending the selection it started.
   if (i.ctrlKey && i.metaKey && !i.shiftKey && !i.altKey && verticalArrow) {
     return { type: "extend-selection", dir };
   }

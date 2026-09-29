@@ -2,7 +2,7 @@
 // Measures which VISUAL (display) line a textarea's caret sits on, so plain
 // ArrowUp/Down in a soft-wrapped block (no "\n", multiple rendered lines) can
 // tell keyboardPolicy.ts apart from a genuinely-single-line caret at the
-// block's logical edge (pkm-2867). The functional core has no DOM access and
+// block's logical edge. The functional core has no DOM access and
 // cannot see wrapping, hence this lives in the shell.
 //
 // jsdom has no layout engine (clientHeight/offsetTop always read 0), so this

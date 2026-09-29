@@ -53,7 +53,7 @@ export function detectAutocomplete(text: string,
  * the last input event detected; a click or a selection-only caret move fires
  * no input event, so it can describe a token the caret has since left —
  * acting on it would splice the completion at the old offset, or swallow an
- * Enter the user meant as a newline (pkm-noow). Null when nothing is open, or
+ * Enter the user meant as a newline. Null when nothing is open, or
  * when the live caret no longer implies exactly the stored context: a
  * narrowed query is stale too, because the rows on screen were fetched for
  * the longer one and completing would strand its tail. */
@@ -69,7 +69,7 @@ export function liveAcContext(stored: AcContext | null, text: string,
 /** Whether the debounced draft autosave should be deferred: the caret is
  * mid-token in a page-creating context ([[ ref or #tag), so committing now
  * would materialise the half-typed title as a page — the server creates a
- * page for every ref it indexes (pkm-xlah). Slash commands create nothing,
+ * page for every ref it indexes. Slash commands create nothing,
  * so they never hold. Explicit commits (blur, structural edits) still flush. */
 export function holdsDraftFlush(ctx: AcContext | null): boolean {
   return ctx !== null && (ctx.kind === "ref" || ctx.kind === "tag");

@@ -24,12 +24,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "text", label: "text" },
   { name: "todo", label: "to-do" },
   { name: "table", label: "table" },
-  // Renders live from the page's heading blocks (pkm-mzks); the macro text
+  // Renders live from the page's heading blocks; the macro text
   // is all that is ever stored, exactly like {{table}}.
   { name: "toc", label: "table of contents" },
   { name: "python", label: "python code block" },
   // "shell" not "bash": hljs's shell grammar highlights $-prefixed session
-  // transcripts, which is what these blocks usually hold (pkm-4nj1).
+  // transcripts, which is what these blocks usually hold.
   { name: "shell", label: "shell code block" },
   { name: "javascript", label: "javascript code block" },
   { name: "mermaid", label: "mermaid diagram" },
@@ -43,7 +43,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "query-and", label: "query (and)" },
   { name: "query-or", label: "query (or)" },
   { name: "query-and-not", label: "query (and not)" },
-  // Daily-note link shortcuts (pkm-rw6w). applySlashCommand takes the
+  // Daily-note link shortcuts. applySlashCommand takes the
   // current date from the shell (clock reads are I/O, so the core never
   // calls new Date() itself).
   { name: "today", label: "link to today" },
@@ -100,7 +100,7 @@ function applyTodoPrefix(content: string): { text: string; cursor: number } {
 }
 
 /** {{query: ...}} expression skeletons per command, operands left as bare
- * "A" / "B" placeholders (not [[A]] / [[B]] page links -- pkm-nl6h: real
+ * "A" / "B" placeholders (not [[A]] / [[B]] page links -- real
  * [[...]] tokens get ref-indexed and their pages auto-created the moment
  * the block's draft flushes, even if the user never edits the placeholder.
  * The user replaces "A" / "B" with real [[Page]] links (see queryPlaceholder

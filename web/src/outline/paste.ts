@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Hierarchy-preserving outline paste (pkm-tu3a): parse clipboard text into a
+// Hierarchy-preserving outline paste: parse clipboard text into a
 // forest by indentation, then plan the exact op batch that anchors it at the
 // paste location. Indent widths are compared ordinally with an indent stack,
 // so 2-space, 4-space, and tab clipboards all work without configuration; an
@@ -74,8 +74,8 @@ export interface PasteChordKeys {
 }
 
 /** Shift-Cmd-V (Ctrl-Shift-V on non-Mac): the explicit "split this paste
- * into an outline" chord (pkm-fwa2). Plain paste always stays native — the
- * pkm-tu3a always-intercept policy was reverted after live use showed prose
+ * into an outline" chord. Plain paste always stays native — the
+ * always-intercept policy was reverted after live use showed prose
  * belongs in one block. A ClipboardEvent carries no modifier state, so the
  * shell arms on this chord's keydown and consumes the arm on the next
  * paste event. */

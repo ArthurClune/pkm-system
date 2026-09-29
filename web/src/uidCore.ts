@@ -21,7 +21,7 @@ export function bytesToUid(bytes: ArrayLike<number>): string {
 
 // The alphabet's last two symbols ('_' at 62, '-' at 63) aren't
 // alphanumeric. A uid starting with '-' is read by argparse on the Python
-// CLI as an unknown option (pkm-y5yv), so uid.ts's newUid() resamples the
+// CLI as an unknown option, so uid.ts's newUid() resamples the
 // first byte until it lands in the alphanumeric prefix (indices 0-61)
 // rather than accepting all 64 -- this predicate is the pure "does this
 // byte land in the accepted prefix" check the impure resample loop drives.

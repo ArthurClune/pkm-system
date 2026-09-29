@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// Thin fetch wrapper: JSON in/out; 401 -> login redirect. Offline (pkm-y8p0):
+// Thin fetch wrapper: JSON in/out; 401 -> login redirect. Offline:
 // when the websocket is down, requests route to the replica's local API
 // shim first — same OpenAPI shapes, zero view changes. Routes the shim
 // doesn't cover throw OfflineError so views can show a clear online-only
@@ -7,7 +7,7 @@
 
 export class ApiError extends Error {
   readonly status: number;
-  /** The server's `{"detail": "..."}` body, when present (pkm-c98s item 5):
+  /** The server's `{"detail": "..."}` body, when present:
    * e.g. the assistant's 409 "at most 3 concurrent conversations". */
   readonly detail?: string;
 
@@ -94,7 +94,7 @@ async function localFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.body as T;
 }
 
-/** How long a read may hang before it is abandoned (pkm-d6i6). A slow-not-
+/** How long a read may hang before it is abandoned. A slow-not-
  * dead link used to hold a `fetch` open indefinitely; for the sync pull that
  * is the worst case, because `replicaSync`'s in-flight `pulling` promise
  * swallows every further `seq` nudge while it lasts. The abort is an ordinary
@@ -130,7 +130,7 @@ function readTimeoutSignal(
 /** The transport. `T` is whatever the caller names, unchecked against the
  * URL and the method -- prefer `typedClient.ts`'s apiGet/apiPost/apiPut/
  * apiDelete, which derive `T` (and the body, and the parameters) from the
- * generated schema and then call this (pkm-60bf). Reach for apiFetch
+ * generated schema and then call this. Reach for apiFetch
  * directly only where the schema cannot express the request: the typed
  * client is JSON-only, so POST /api/assets (multipart/form-data) belongs
  * here. The schema's other non-JSON write, POST /api/assets/export.zip

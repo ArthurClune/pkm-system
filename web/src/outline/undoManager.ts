@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// The per-tab global undo history (pkm-7q14): a module singleton, like the
+// The per-tab global undo history: a module singleton, like the
 // session registry it dispatches into. Entries are recorded by useOutline's
 // run() and replayed through the SAME pipeline as any edit — sync.enqueue for
 // durability plus applyLocal on the page's mounted session for instant
@@ -95,7 +95,7 @@ function dispatch(sync: HistoryDispatch, batch: BlockOp[], title: string,
   // Peek BEFORE enqueueing: the hash must be taken against the tree as it is
   // now, not as it was when the entry was recorded, or a replay after any later
   // edit would carry a stale hash and land a spurious daily-note [[conflict]]
-  // header (pkm-4ubd). With no mounted session there is no tree to hash against, so
+  // header. With no mounted session there is no tree to hash against, so
   // the ops go out unstamped, and the worker fills them in when the replica
   // is openable — the same fallback as a block this tree does not know. But
   // in an online-only session the replica never opens, so the worker never
@@ -104,7 +104,7 @@ function dispatch(sync: HistoryDispatch, batch: BlockOp[], title: string,
   // and peekOutlineSession returns null once a page's session is released —
   // so undoing an edit to a page you have since navigated away from, in a
   // session whose replica never opened, ships an unguarded update_text.
-  // Residual hole, tracked but not fixed by pkm-4ubd.
+  // Residual hole, tracked but not fixed.
   //
   // try/finally because peeking first put an acquired handle on the wrong side
   // of sync.enqueue, which throws on a disposed queue (opQueue.ts): before the

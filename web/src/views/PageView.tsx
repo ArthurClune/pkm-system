@@ -28,7 +28,7 @@ export function PageView() {
   useResync(resync); // rejected batch or reconnect: guarded authoritative read
   useEffect(() => { document.title = `${title} — pkm`; }, [title]);
 
-  // A block ref navigated here with the target uid as the hash (pkm-pzdu):
+  // A block ref navigated here with the target uid as the hash:
   // once the payload has rendered, scroll to that block and flash it. A bare
   // "#" carries no target; a uid not on the page (deleted, or inside a
   // collapsed subtree) is a no-op inside the hook.

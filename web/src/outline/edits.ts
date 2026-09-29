@@ -163,7 +163,7 @@ export function indentSelection(blocks: BlockNode[], pageTitle: string,
 /** Outdent every selected root exactly once. A top-level run aborts the whole
  * gesture; otherwise each run lands consecutively after its former parent and
  * adopts the unselected siblings between it and the next run (or the end of
- * its sibling list) as children of its last block (pkm-udqj). */
+ * its sibling list) as children of its last block. */
 export function outdentSelection(blocks: BlockNode[], pageTitle: string,
                                  uids: string[]): EditResult {
   const runs = selectionSiblingRuns(blocks, uids);
@@ -205,7 +205,7 @@ export function indentBlock(blocks: BlockNode[], pageTitle: string,
 
 /** Ops that reparent siblings[from..to) under `adopter`, appended after its
  * existing children in order — outdent takes the following siblings with it,
- * so the page reads identically top-to-bottom before and after (pkm-udqj).
+ * so the page reads identically top-to-bottom before and after.
  * A collapsed adopter is expanded first so the adopted blocks don't silently
  * vanish into its subtree (mirrors indentBlock). */
 function adoptTrailingOps(adopter: BlockNode, siblings: BlockNode[],
@@ -265,7 +265,7 @@ export function moveBlockDown(blocks: BlockNode[], pageTitle: string,
   return done(blocks, pageTitle, ops, null);
 }
 
-/** Depth-preserving move that can cross a parent boundary (pkm-hx2w): a
+/** Depth-preserving move that can cross a parent boundary: a
  * previous sibling is a plain swap (delegates to moveBlockUp); otherwise, if
  * the parent has a previous sibling P, the block becomes P's LAST child —
  * same absolute depth, now inside the preceding subtree. No further escape:

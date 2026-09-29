@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// One localStorage-backed user preference (pkm-kk0t): a bare string
+// One localStorage-backed user preference: a bare string
 // validated by a type guard, read once on mount and written back on every
 // change. Storage is best-effort at both ends -- a read that throws
 // (private mode, storage disabled) yields the fallback, and a write that

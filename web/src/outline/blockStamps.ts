@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Block timestamps in the page margin (bean pkm-4ler): which instant a row
+// Block timestamps in the page margin: which instant a row
 // shows, which age band tints it, how it reads, and which ops count as a
 // change. Clockless by construction -- "now" always arrives as an argument,
 // so the reducer and the renderer can be tested without touching the clock.
@@ -55,7 +55,7 @@ export function formatStampTitle(ts: number): string {
     + `, ${hh}:${mm}`;
 }
 
-/** Does this op change its target block, in the sense pkm-r7k8 settled?
+/** Does this op change its target block?
  * This is the same rule replica/localOps.ts applies when it writes
  * updated_at, kept here as one pure predicate so the replica's stored date
  * and the displayed date cannot drift apart. Notably set_collapsed is NOT a

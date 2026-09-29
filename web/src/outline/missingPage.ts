@@ -22,9 +22,9 @@ const emptyPagePayload = (title: string): PagePayload => ({
 });
 
 /** A non-today daily page 404s if nobody has written to it yet or it was
- * pruned empty (server: GET /api/page auto-creates only today's daily,
- * pkm-fy52). It is an empty editable page, not an error, in every surface
- * that displays it (pkm-63s1) — the first edit lazily creates the row via
+ * pruned empty (server: GET /api/page auto-creates only today's daily).
+ * It is an empty editable page, not an error, in every surface
+ * that displays it — the first edit lazily creates the row via
  * CreateOp's get_or_create. Any other missing page stays an error. */
 export const substituteMissingDaily: MissingPagePolicy = (title, status) =>
   status === 404 && dateForTitle(title) !== null

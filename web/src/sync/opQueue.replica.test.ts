@@ -2091,12 +2091,12 @@ test("reconnect resets the retry delay to 250ms", async () => {
   }
 });
 
-// --- pkm-c2gs: a no-replica tab (fallback lane, no changes feed) refetches
-// its view when an ack names a skipped op -- otherwise the ghost block the
-// skipped op targeted never leaves the screen, and every debounced flush
-// lands another child under its daily-note conflict header. A replica-backed
-// tab gets the same ghost tombstoned by its own feed, so this must fire only
-// while the queue has latched `unavailable` (no replica this session).
+// --- Any ack naming a skipped op, on either delivery path, refetches the
+// active view -- otherwise the ghost block the skipped op targeted never
+// leaves the screen, and every debounced flush lands another child under
+// its daily-note conflict header. A replica-backed tab's own feed also
+// tombstones the ghost row, but nothing else bumps resync for it, so this
+// fires regardless of whether the queue has latched `unavailable`.
 
 /** Unlike laneOnlyReplica's CANTOPEN (a local persist failure that is never
  * session-fatal, see errors.ts::isSessionFatal), this latches `unavailable`
@@ -2160,12 +2160,13 @@ test("a malformed skipped field (not an array) parses as no skip", async () => {
   expect(skips).toEqual([]);
 });
 
-test("a skipped op delivered by the lane while the replica is otherwise fine" +
-" does not refetch (it has a feed to tombstone the ghost)", async () => {
+test("a skipped op delivered by the lane while the replica is otherwise " +
+"fine still refetches (both paths consult ackSkipped, not only the " +
+"no-replica latch)", async () => {
   // The lane also delivers ordering-only entries ahead of a durable batch
   // while unavailable is still null (pkm-5ekv) -- a working replica, just a
-  // transient local persist failure. That tab has a changes feed, so the
-  // no-replica refetch must not fire for it.
+  // transient local persist failure. Its own feed will also tombstone the
+  // ghost, so this refetch is a harmless extra, not a correctness gap.
   const { bodies } = fetchSeq([() => jsonResponse({
     ok: true, ts: 1, applied: 1,
     skipped: [{ index: 0, op: "update_text", uid: "u1",
@@ -2181,5 +2182,50 @@ test("a skipped op delivered by the lane while the replica is otherwise fine" +
   await q.settled();
   await q.drain();
   expect(bodies).toHaveLength(1);
+  expect(skips).toHaveLength(1);
+});
+
+test("a durable batch's ack naming a skipped op also refetches (a replica-" +
+"backed tab's feed tombstones the row, but nothing else bumps resync for " +
+"it)", async () => {
+  fetchSeq([() => jsonResponse({
+    ok: true, ts: 1, applied: 1, seq: 7,
+    skipped: [{ index: 0, op: "update_text", uid: "u1",
+                reason: "missing_target", note_page: "2026-09-29" }],
+  })]);
+  const replica = memReplica();
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.enqueue([op("u1")]);
+  await q.settled();
+  await q.drain();
+  expect(skips).toHaveLength(1);
+  expect(replica.rows).toEqual([]); // delivered and deleted, same as today
+});
+
+test("a durable ack with no skipped ops does not refetch", async () => {
+  fetchSeq([() => jsonResponse({ ok: true, ts: 1, applied: 1 })]);
+  const replica = memReplica();
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.enqueue([op("u1")]);
+  await q.settled();
+  await q.drain();
+  expect(skips).toEqual([]);
+});
+
+test("a durable batch the server terminally rejects never calls onSkipped",
+async () => {
+  fetchSeq([() => jsonResponse({ detail: "bad op" }, 400)]);
+  const replica = memReplica();
+  const skips: void[] = [];
+  const q = createOpQueue(replica, () => undefined, () => undefined,
+    () => skips.push(undefined));
+  q.enqueue([op("u1")]);
+  await q.settled();
+  const outcome = await q.drain();
+  expect(outcome).toMatchObject({ reason: "recovering" });
   expect(skips).toEqual([]);
 });

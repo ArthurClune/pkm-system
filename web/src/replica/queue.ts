@@ -150,9 +150,16 @@ export function pendingCount(db: ReplicaDb): number {
     "SELECT COUNT(*) AS n FROM pending_ops WHERE poisoned = 0")[0].n);
 }
 
-export function deleteBatch(db: ReplicaDb, id: number): number {
-  db.exec("DELETE FROM pending_ops WHERE id = ?", [id]);
-  return pendingCount(db);
+/** Delete one row, matched by id AND batch id; returns whether it matched.
+ * A row id alone is not an identity: a reset or a file replacement restarts
+ * the AUTOINCREMENT ids, so a delete that was queued for a batch the
+ * rebuild dropped would otherwise remove the new batch that took its id. */
+export function deleteBatch(db: ReplicaDb, id: number, batchId: string): boolean {
+  const matches = db.select<{ id: number }>(
+    "SELECT id FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
+  if (matches.length === 0) return false;
+  db.exec("DELETE FROM pending_ops WHERE id = ? AND batch_id = ?", [id, batchId]);
+  return true;
 }
 
 export function markPoisoned(db: ReplicaDb, id: number, error: string,

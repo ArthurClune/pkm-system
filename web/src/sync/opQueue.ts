@@ -615,7 +615,7 @@ function createReplicaQueue(replica: Replica,
         // The ack's seq lets a pull that snapshotted this batch as pending
         // accept a window that already carries it, instead of refetching
         // (pkm-ur2n: the save's WS nudge and this ack race).
-        result = await replica.deleteBatch(batch.id, ackSeq(ack));
+        result = await replica.deleteBatch(batch.id, batch.batch_id, ackSeq(ack));
       } catch (error: unknown) {
         noteReplicaFailure(error);
         return failed(error);

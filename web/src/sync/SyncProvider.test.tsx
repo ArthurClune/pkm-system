@@ -874,8 +874,8 @@ test("rejected batch repair finishes before resync and later delivery", async ()
     return { token: "poison-lease", batches: [...rows] };
   };
   replica.commitRecovery = async () => { trace.push("commit repair"); };
-  replica.deleteBatch = async (id) => {
-    trace.push(`delete ${id}`);
+  replica.deleteBatch = async (id, batchId) => {
+    trace.push(`delete ${id} ${batchId}`);
     rows.splice(rows.findIndex((row) => row.id === id), 1);
     return { pending: rows.filter((row) => !row.poisoned).length };
   };
@@ -899,7 +899,9 @@ test("rejected batch repair finishes before resync and later delivery", async ()
   await act(async () => { releaseSnapshot(); await snapshotGate; });
   await vi.waitFor(() => { expect(posts).toEqual(["bad-batch", "good-batch"]); });
   expect(trace).toEqual([
-    "mark poison", "prepare repair", "commit repair", "delete 1", "delete 2",
+    // both deletes name the batch: the poison discard, then the drain's ack
+    "mark poison", "prepare repair", "commit repair",
+    "delete 1 bad-batch", "delete 2 good-batch",
   ]);
   expect(sync.resyncSeq).toBe(baselineResync + 1);
 });

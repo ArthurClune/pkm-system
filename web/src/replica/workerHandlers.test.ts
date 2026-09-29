@@ -330,7 +330,7 @@ test("one failed open is replayed by EVERY handler, and opens only once", async 
     ["init", undefined],
     ["enqueue", { ops: [{ op: "delete", uid: "uid_b1" }], batchId: "batch-b1" }],
     ["nextBatch", undefined],
-    ["deleteBatch", 1],
+    ["deleteBatch", { id: 1, batchId: "b" }],
     ["markPoisoned", { id: 1, error: "e", batchId: "b" }],
     ["applySnapshot", SNAP],
     ["applyChanges", { feed: { reset: false, generation: "gen-1",
@@ -437,7 +437,7 @@ test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async
   await handlers.applySnapshot(SNAP);
   await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "a" });
   const [first] = ids();
-  await handlers.deleteBatch({ id: first, ackedSeq: 6 });
+  await handlers.deleteBatch({ id: first, batchId: "a", ackedSeq: 6 });
   await handlers.reset(undefined);
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
@@ -588,7 +588,7 @@ test("a rebase over a damaged file carries every durable row into a new file", a
   expect(fresh.db.select("SELECT uid, text FROM blocks"))
     .toEqual([{ uid: "uid_b1", text: "edited" }]);
   // the provider's post-repair delete by row id still finds the poisoned row
-  await expect(handlers.deleteBatch({ id: 1 })).resolves.toMatchObject({ pending: 1 });
+  await expect(handlers.deleteBatch({ id: 1, batchId: "rejected" })).resolves.toMatchObject({ pending: 1 });
   await expect(handlers.enqueue({
     ops: [{ op: "delete", uid: "uid_b1" }], batchId: "next",
   })).resolves.toEqual({ pending: 2, batchId: "next" });
@@ -693,7 +693,7 @@ test("a snapshot failure after the import leaves no carry to resurrect drained r
   expect(fresh.db.select<{ id: number }>(DURABLE_ROWS).map((row) => row.id))
     .toEqual([1, 2]);
   expect(carry?.exists()).toBe(false);
-  await handlers.deleteBatch({ id: 1 });
+  await handlers.deleteBatch({ id: 1, batchId: "rejected" });
   await handlers.close(undefined);
   const init = await handlers.init(undefined) as { pendingBatches: { id: number }[] };
   expect(init.pendingBatches.map((batch) => batch.id)).toEqual([2]);
@@ -771,7 +771,7 @@ test("a Retry in the same worker rebases the carried rows", async () => {
 
 test("a deleteBatch served first by a restarted worker adopts the carry", async () => {
   const { next, fresh } = await workerDiedAfterDiscard();
-  await expect(next.deleteBatch({ id: 1 })).resolves.toEqual({ pending: 1 });
+  await expect(next.deleteBatch({ id: 1, batchId: "rejected" })).resolves.toEqual({ pending: 1 });
   expect(fresh.db.select("SELECT id, batch_id FROM pending_ops ORDER BY id"))
     .toEqual([{ id: 2, batch_id: "valid" }]);
 });
@@ -1161,4 +1161,89 @@ test("a rebase that replaces the file carries only the rows no ack covers", asyn
   await handlers.init(undefined);
   expect((await handlers.pendingBatches(undefined) as { id: number }[])
     .map((batch) => batch.id)).toEqual([1]);
+});
+
+/** The drain holds row 1 ("x") with its POST in flight when a recovery
+ * leases. The user types behind the lease, and the drain's delete for "x"
+ * queues behind that. The commit then restarts the queue's ids (a file
+ * replacement carries no acked row; a reset drops the table), so "typed"
+ * takes id 1, and a delete by bare id would remove a never-sent edit. */
+async function drainDeleteQueuedBehindLease(options: { damaged: boolean }) {
+  const damaged = await openRawTestDb();
+  const fresh = await openRawTestDb();
+  const carry = createCarryStore(fakeCarryFiles(await openRawTestDb()));
+  let isDamaged = false;
+  let discarded = false;
+  const damagedDb = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
+  const handlers = buildHandlers({
+    openDb: async () => discarded ? fresh.db : damagedDb,
+    discardDbFile: () => { damaged.close(); discarded = true; },
+    carry, nowMs: () => 10,
+  });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({
+    ops: [{ op: "update_text", uid: "uid_b1", text: "sent" }], batchId: "x",
+  });
+  await expect(handlers.nextBatch(undefined)).resolves.toMatchObject({ id: 1 });
+  isDamaged = options.damaged;
+  const lease = await handlers.prepareRecovery(undefined) as { token: string };
+  const typed = handlers.enqueue({
+    ops: [{ op: "update_text", uid: "uid_b1", text: "typed" }], batchId: "typed",
+  });
+  const drainDelete = handlers.deleteBatch({ id: 1, batchId: "x", ackedSeq: 7 });
+  const db = () => discarded ? fresh.db : damaged.db;
+  return { handlers, lease, typed, drainDelete, db, discarded: () => discarded };
+}
+
+test("the drain's delete for a batch a replacing rebase settled spares the batch that reuses its id", async () => {
+  const { handlers, lease, typed, drainDelete, db, discarded } =
+    await drainDeleteQueuedBehindLease({ damaged: true });
+  await expect(handlers.commitRecovery({
+    token: lease.token,
+    input: { kind: "rebase", snapshot: SNAP, acked: [{ id: 1, batch_id: "x", seq: 7 }] },
+  })).resolves.toBeNull();
+  await expect(typed).resolves.toMatchObject({ batchId: "typed" });
+  await drainDelete;
+  expect(discarded()).toBe(true);
+  expect(db().select("SELECT id, batch_id FROM pending_ops"))
+    .toEqual([{ id: 1, batch_id: "typed" }]);
+});
+
+test("the drain's delete for a batch a reset dropped spares the batch that reuses its id", async () => {
+  const { handlers, lease, typed, drainDelete, db } =
+    await drainDeleteQueuedBehindLease({ damaged: false });
+  await expect(handlers.commitRecovery({
+    token: lease.token, input: { kind: "reset", snapshot: SNAP },
+  })).resolves.toBeNull();
+  await expect(typed).resolves.toMatchObject({ batchId: "typed" });
+  await drainDelete;
+  expect(db().select("SELECT id, batch_id FROM pending_ops"))
+    .toEqual([{ id: 1, batch_id: "typed" }]);
+});
+
+test("a delete that matches no row records no acked seq for its id", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.applySnapshot(SNAP);
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "a" });
+  // a stale delete for another batch that once held id 1
+  await handlers.deleteBatch({ id: 1, batchId: "gone", ackedSeq: 7 });
+  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
+  // Row 1 is later deleted without an ack, so nothing may vouch for it.
+  t.db.exec("DELETE FROM pending_ops WHERE id = 1");
+  await expect(handlers.applyChanges({
+    feed: EMPTY_GEN1_FEED, expectedPendingIds: [1],
+  })).resolves.toEqual({ status: "pending-changed" });
+});
+
+test("deleteBatch refuses a payload without the row's batch id", async () => {
+  const t = await openRawTestDb();
+  const handlers = buildHandlers({ openDb: async () => t.db, nowMs: () => 10 });
+  await handlers.init(undefined);
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "a" });
+  await expect(handlers.deleteBatch({ id: 1 })).rejects.toThrow(/batch id/);
+  await expect(handlers.deleteBatch(1)).rejects.toThrow(/batch id/);
+  expect(t.db.select("SELECT batch_id FROM pending_ops")).toEqual([{ batch_id: "a" }]);
 });

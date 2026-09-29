@@ -192,11 +192,18 @@ describe("queue reads and lifecycle", () => {
     expect(allBatches(t.db)[0].poisoned).toBe(true);
   });
 
-  test("deleteBatch removes the row and reports the remaining count", () => {
+  test("deleteBatch removes the row its id and batch id both match", () => {
     enqueueBatch(t.db, [{ op: "delete", uid: "uid_q1" }], 99, "batch-1");
     const b = nextBatch(t.db)!;
-    expect(deleteBatch(t.db, b.id)).toBe(0);
+    expect(deleteBatch(t.db, b.id, b.batch_id)).toBe(true);
     expect(nextBatch(t.db)).toBeNull();
+  });
+
+  test("deleteBatch leaves a row whose batch id differs", () => {
+    enqueueBatch(t.db, [{ op: "delete", uid: "uid_q1" }], 99, "batch-1");
+    const b = nextBatch(t.db)!;
+    expect(deleteBatch(t.db, b.id, "another-batch")).toBe(false);
+    expect(nextBatch(t.db)).toMatchObject({ id: b.id, batch_id: "batch-1" });
   });
 
   test("durable poison details can be discovered after startup", () => {

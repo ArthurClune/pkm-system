@@ -101,13 +101,17 @@ export interface Replica {
   pendingBatches(): Promise<PendingBatch[]>;
   /** Rejected durable rows, oldest first, for startup repair. */
   poisonedBatches(): Promise<PoisonedBatch[]>;
-  /** `ackedSeq` is the journal seq the server's ack named for this batch's
+  /** Deletes the row only when both `id` and `batchId` match it: a reset or
+   * a file replacement restarts row ids, and a delete queued behind one must
+   * not remove the new batch that took the id.
+   * `ackedSeq` is the journal seq the server's ack named for this batch's
    * commit, when known: it lets a pull whose pending snapshot still held the
    * batch apply a window that already carries it. Deletes that are not an
    * ack (a rebase settle, a poison discard) omit it. A rebase commit deletes
    * the rows its flush got acks for itself, and records their seqs the same
    * way. */
-  deleteBatch(id: number, ackedSeq?: number): Promise<{ pending: number }>;
+  deleteBatch(id: number, batchId: string,
+              ackedSeq?: number): Promise<{ pending: number }>;
   markPoisoned(id: number, error: string, batchId: string): Promise<{
     pending: number; matched: boolean;
   }>;
@@ -143,7 +147,8 @@ export function createReplica(port: PortLike, terminate?: () => void): Replica {
     nextBatch: () => rpc.call("nextBatch"),
     pendingBatches: () => rpc.call("pendingBatches"),
     poisonedBatches: () => rpc.call("poisonedBatches"),
-    deleteBatch: (id, ackedSeq) => rpc.call("deleteBatch", { id, ackedSeq }),
+    deleteBatch: (id, batchId, ackedSeq) =>
+      rpc.call("deleteBatch", { id, batchId, ackedSeq }),
     markPoisoned: (id, error, batchId) =>
       rpc.call("markPoisoned", { id, error, batchId }),
     pendingCount: () => rpc.call("pendingCount"),

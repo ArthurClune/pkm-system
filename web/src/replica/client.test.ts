@@ -81,7 +81,7 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
   // The request was dispatched while this optimistic batch still existed.
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id); // its POST was acknowledged meanwhile
+  await replica.deleteBatch(batch.id, batch.batch_id); // its POST was acknowledged meanwhile
 
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
@@ -108,7 +108,7 @@ test("a window whose latest_seq covers the acked batch applies despite the stale
   ], "batch-ack");
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id, 6);
+  await replica.deleteBatch(batch.id, batch.batch_id, 6);
 
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
@@ -131,7 +131,7 @@ test("a window read before the acked batch committed is still refused", async ()
   ], "batch-ack");
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id, 7); // committed after the window's read
+  await replica.deleteBatch(batch.id, batch.batch_id, 7); // committed after the window's read
 
   const result = await replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
@@ -152,8 +152,8 @@ test("a later seq-less delete of the same id forgets the recorded acked seq", as
   await replica.enqueue([{ op: "delete", uid: "uid_b1" }], "batch-1");
   const pendingAtDispatch = (await replica.pendingBatches()).map((batch) => batch.id);
   const batch = (await replica.nextBatch())!;
-  await replica.deleteBatch(batch.id, 6);
-  await replica.deleteBatch(batch.id);
+  await replica.deleteBatch(batch.id, batch.batch_id, 6);
+  await replica.deleteBatch(batch.id, batch.batch_id);
 
   await expect(replica.applyChanges({
     reset: false, generation: "gen-1", plain_space_title_canonicalization: false,
@@ -344,7 +344,7 @@ test("enqueue round-trips: persisted, optimistic, drainable", async () => {
     status: 422,
     message: "request failed: 422 /api/ops",
   }]);
-  await replica.deleteBatch(batch.id);
+  await replica.deleteBatch(batch.id, batch.batch_id);
   expect(await replica.pendingCount()).toBe(0);
   await expect(replica.markPoisoned(99, "gone", "gone-batch")).resolves.toEqual({
     pending: 0, matched: false,

@@ -382,7 +382,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     try {
       const d = await db();
       d.transaction(() => {
-        for (const a of settled) deleteBatch(d, a.id);
+        for (const a of settled) deleteBatch(d, a.id, a.batch_id);
         applySnapshotToDb(d, snapshot, nowMs());
       });
       for (const a of settled) noteAck(a.id, a.seq);
@@ -431,14 +431,22 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       return gate.run(async () => nextBatch(await queueDb()));
     },
     async deleteBatch(payload) {
-      // A bare row id is accepted too: it is the pre-pkm-ur2n payload shape.
-      const { id, ackedSeq } = typeof payload === "number"
-        ? { id: payload, ackedSeq: undefined }
-        : payload as { id: number; ackedSeq?: number };
+      // The batch id is required: see queue.ts deleteBatch. The worker and
+      // its callers ship in one build, so no older payload shape arrives.
+      const { id, batchId, ackedSeq } = (typeof payload === "object" && payload !== null
+        ? payload : {}) as { id?: number; batchId?: unknown; ackedSeq?: number };
       return gate.run(async () => {
-        const pending = deleteBatch(await queueDb(), id);
-        noteAck(id, ackedSeq);
-        return { pending };
+        const d = await queueDb();
+        if (typeof id !== "number" || typeof batchId !== "string") {
+          throw new Error("deleteBatch needs the row's id and batch id");
+        }
+        // A delete that matched nothing cannot say which batch its seq was
+        // for, so it records none and forgets any seq held for the id:
+        // forgetting costs at most one refetch, vouching wrongly would let a
+        // window apply over a batch it does not carry.
+        const matched = deleteBatch(d, id, batchId);
+        noteAck(id, matched ? ackedSeq : undefined);
+        return { pending: pendingCount(d) };
       });
     },
     async markPoisoned(payload) {

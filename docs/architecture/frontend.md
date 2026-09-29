@@ -129,7 +129,8 @@ web/src/
 │   ├── reconnectFlow.ts      Shell        Reconnect single-flight: drain → pull → resync
 │   ├── opQueue.ts            Shell        Durable-queue driver (+ queueState.ts Core)
 │   ├── replicaSync.ts        Shell        Cursor pull loop
-│   ├── opsAck.ts             Core         Reads the /api/ops ack's seq
+│   ├── opsAck.ts             Core         Reads the /api/ops ack (seq, skipped)
+│   │                                      through the generated OpsAck
 │   ├── socket.ts             Shell        WebSocket + reconnect policy
 │   ├── reconnectBackoff.ts   Core         Reconnect delay: 2 s doubling to a 30 s cap
 │   ├── syncState.ts          Core         Editability/health FSM

@@ -281,11 +281,12 @@ under the same parent within one batch: the plain ones count from the
 parent's original child count and can interleave with the indexed one
 instead of landing after it.
 
-An update, move or delete whose uid no longer exists, or a move under
-the block itself or one of its descendants, is skipped by the
-server rather than failing the batch: the other commands still apply,
-each skipped op is printed with where its note or text landed on today's
-daily page, and the command exits 1. The batch is committed by then, so
+An update, move or delete whose uid no longer exists, a create or move
+whose parent no longer exists, or a move under the block itself or one
+of its descendants, is skipped by the server rather than failing the
+batch: the other commands still apply, each skipped op is printed with
+where its note or text landed on today's daily page, and the command
+exits 1. The batch is committed by then, so
 fix the skipped ops on their own; re-running it repeats the rest. A
 "((uid))" parent is checked before anything is sent, so a mistyped one
 fails the whole batch instead.

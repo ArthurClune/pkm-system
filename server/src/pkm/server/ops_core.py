@@ -168,21 +168,20 @@ def classify_text_edit(
     return TextEditOutcome("conflict", replayed_text)
 
 
-MissingTargetKind = Literal["noop", "skipped", "orphan_edit",
-                            "diverted_create", "move_parent_missing",
-                            "move_cycle"]
+SkipKind = Literal["noop", "orphan_structural", "orphan_edit",
+                   "diverted_create", "move_parent_missing", "move_cycle"]
 
 
 @dataclass(frozen=True)
-class MissingTarget:
-    """What an op whose target block, or create/move parent, the server
-    doesn't have does instead of failing its batch. A batch is atomic and
-    offline clients replay it as-is, so a 400 here would discard every
-    other op in it and block the queue behind it.
+class Skip:
+    """An op the server does not apply as sent, and what it does instead of
+    failing its batch: the ops the ack lists under `skipped`. A batch is
+    atomic and offline clients replay it as-is, so a 400 here would discard
+    every other op in it and block the queue behind it.
 
     - noop: set_collapsed / delete of a missing block
-    - skipped: move / set_heading / set_view_type of a missing block; a
-      note says what was skipped
+    - orphan_structural: move / set_heading / set_view_type of a missing
+      block; a note says what was skipped
     - orphan_edit: update_text of a missing block, hashed or not (check 1);
       its text lands unless blank
     - diverted_create: create under a missing parent; the block is not
@@ -191,23 +190,21 @@ class MissingTarget:
       it stays put and a note says why
     - move_cycle: block and target both exist, but the target is the block
       or one of its descendants (two devices moved blocks under each other
-      concurrently, pkm-fe9b); it stays put and a note says why. Not a
-      missing target strictly, but it is skipped the same way and for the
-      same reason
+      concurrently); it stays put and a note says why
 
     `landing_uid` is the uid today's daily-note entry groups under (its
     conflict_headers key), or None when nothing lands. Both `plan_op` and
-    `ops_apply._context_for` classify through `classify_missing_target`,
+    `ops_apply._context_for` classify through `classify_skip`,
     so the shell pays for the daily page only when the planner lands an
     entry on it."""
-    kind: MissingTargetKind
+    kind: SkipKind
     landing_uid: str | None
 
 
-def classify_missing_target(
+def classify_skip(
     op: BlockOp, block_exists: bool, parent_exists: bool,
     parent_chain: tuple[str, ...] = (),
-) -> MissingTarget | None:
+) -> Skip | None:
     """None when the op's targets exist and it plans normally.
     `block_exists` is whether op.uid names a block; `parent_exists` whether
     a create/move's parent_uid does (ignored when parent_uid is None);
@@ -220,36 +217,35 @@ def classify_missing_target(
             return None
         # a blank create has lost nothing worth landing
         landing = op.parent_uid if op.text.strip() else None
-        return MissingTarget("diverted_create", landing)
+        return Skip("diverted_create", landing)
     if block_exists:
         if isinstance(op, MoveOp) and op.parent_uid is not None:
             if not parent_exists:
-                return MissingTarget("move_parent_missing", op.uid)
+                return Skip("move_parent_missing", op.uid)
             if op.uid in parent_chain:
-                return MissingTarget("move_cycle", op.uid)
+                return Skip("move_cycle", op.uid)
         return None
     if isinstance(op, (SetCollapsedOp, DeleteOp)):
-        return MissingTarget("noop", None)
+        return Skip("noop", None)
     if isinstance(op, UpdateTextOp):
-        return MissingTarget("orphan_edit",
-                             op.uid if op.text.strip() else None)
-    return MissingTarget("skipped", op.uid)
+        return Skip("orphan_edit", op.uid if op.text.strip() else None)
+    return Skip("orphan_structural", op.uid)
 
 
-def skip_report(index: int, op: BlockOp, miss: MissingTarget,
+def skip_report(index: int, op: BlockOp, skip: Skip,
                 ctx: OpContext) -> dict:
-    """The ack's `skipped` entry for an op `classify_missing_target`
+    """The ack's `skipped` entry for an op `classify_skip`
     flagged: which op, which uid, why, and the daily page its entry landed
     on (None when nothing landed). It is the only signal a caller that
     sends uids unchecked (`pkm batch`) gets for a mistyped one."""
     assert not isinstance(op, CreatePageOp)  # never classified missing
     reason: SkipReason = (
-        "cycle" if miss.kind == "move_cycle" else
-        "parent_not_found" if miss.kind in ("diverted_create",
+        "cycle" if skip.kind == "move_cycle" else
+        "parent_not_found" if skip.kind in ("diverted_create",
                                             "move_parent_missing")
         else "block_not_found")
     return {"index": index, "op": op.op, "uid": op.uid, "reason": reason,
-            "note_page": (ctx.daily_title if miss.landing_uid is not None
+            "note_page": (ctx.daily_title if skip.landing_uid is not None
                           else None)}
 
 
@@ -431,9 +427,9 @@ def conflict_entry_effects(
     )
 
 
-def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
+def _plan_skip(index: int, op: BlockOp, skip: Skip,
                          ctx: OpContext) -> tuple[Effect, ...]:
-    """Effects for an op `classify_missing_target` flagged: a daily-note
+    """Effects for an op `classify_skip` flagged: a daily-note
     entry when it has a landing_uid, plus JournalBlock for every uid a
     replica may hold a ghost of, so the feed corrects it.
 
@@ -443,7 +439,7 @@ def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
     rows that bring the survivors back."""
     assert not isinstance(op, CreatePageOp)  # never classified missing
     live: tuple[Effect, ...] = ()
-    if miss.kind == "noop":
+    if skip.kind == "noop":
         # a replica that just collapsed a block the server lacks holds a
         # ghost of it; one that deleted it already dropped its copy
         return ((JournalBlock(op.uid, True),)
@@ -462,7 +458,7 @@ def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
         tombstones = (JournalBlock(op.uid, True),)
         lost_text = op.text
         header_text = orphan_header_text(op.page_title, ctx.hint_page_exists)
-    elif miss.kind in ("move_parent_missing", "move_cycle"):
+    elif skip.kind in ("move_parent_missing", "move_cycle"):
         assert isinstance(op, MoveOp) and op.parent_uid is not None
         if ctx.page_title is None or not ctx.subtree:
             raise OpError(index, "conflict context missing")
@@ -476,31 +472,31 @@ def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
         # target's children it shifted. Both lie inside this subtree.
         live = tuple(JournalBlock(u, False)
                      for u in reversed(ctx.subtree))
-        if miss.kind == "move_parent_missing":
+        if skip.kind == "move_parent_missing":
             tombstones = (JournalBlock(op.parent_uid, True),)
             lost_text = move_parent_missing_note(op.parent_uid)
         else:
             tombstones = ()
             lost_text = MOVE_CYCLE_NOTE
         header_text = live_block_header_text(ctx.page_title, op.uid)
-    else:                                            # skipped
+    else:                                            # orphan_structural
         # a structural op carries no page hint worth naming: a move's
         # page_title is where it was going, not where the block was
         tombstones = (JournalBlock(op.uid, True),)
         assert isinstance(op, (MoveOp, SetHeadingOp, SetViewTypeOp))
         lost_text = block_missing_note(op)
         header_text = orphan_header_text(None, False)
-    if miss.landing_uid is None:                     # blank text: nothing lost
+    if skip.landing_uid is None:                     # blank text: nothing lost
         return (*tombstones, *live)
     if not _conflict_landing_ready(ctx):
         raise OpError(index, "conflict context missing")
     return (*tombstones,
-            *conflict_entry_effects(miss.landing_uid, lost_text, header_text,
+            *conflict_entry_effects(skip.landing_uid, lost_text, header_text,
                                     ctx),
             *live)
 
 
-def impossible_uid_reason(op: BlockOp, miss: MissingTarget) -> str | None:
+def impossible_uid_reason(op: BlockOp, skip: Skip) -> str | None:
     """The 400 an op on a missing target still gets when the uid it would
     journal or land under could never have been minted (fails UID_RE).
     Clients only mint valid uids, so this never wedges a real queue; it
@@ -508,7 +504,7 @@ def impossible_uid_reason(op: BlockOp, miss: MissingTarget) -> str | None:
     assert not isinstance(op, CreatePageOp)  # never classified missing
     if not isinstance(op, CreateOp) and not UID_RE.match(op.uid):
         return f"block not found: {op.uid}"
-    if (miss.kind in ("diverted_create", "move_parent_missing")
+    if (skip.kind in ("diverted_create", "move_parent_missing")
             and isinstance(op, (CreateOp, MoveOp))
             and op.parent_uid is not None and not UID_RE.match(op.parent_uid)):
         return f"parent not found: {op.parent_uid}"
@@ -527,13 +523,13 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
             raise OpError(index, f"invalid uid: {op.uid!r}")
         if ctx.block is not None:
             raise OpError(index, f"uid already exists: {op.uid}")
-    miss = classify_missing_target(op, ctx.block is not None,
+    skip = classify_skip(op, ctx.block is not None,
                                    ctx.parent is not None, ctx.parent_chain)
-    if miss is not None:
-        reason = impossible_uid_reason(op, miss)
+    if skip is not None:
+        reason = impossible_uid_reason(op, skip)
         if reason is not None:
             raise OpError(index, reason)
-        return _plan_missing_target(index, op, miss, ctx)
+        return _plan_skip(index, op, skip, ctx)
     if isinstance(op, CreateOp):
         # A create under a live parent lands on the parent's page, whatever
         # its page_title says: another device may have moved the parent
@@ -548,7 +544,7 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                             op.text, op.heading, op.view_type),
                 ReindexRefs(op.uid, op.text),
                 TouchPage(page_id))
-    assert ctx.block is not None  # classify_missing_target covered its absence
+    assert ctx.block is not None  # classify_skip covered its absence
     if isinstance(op, UpdateTextOp):
         if op.base_text_hash is None:                # check 3: legacy
             return (UpdateText(op.uid, op.text),

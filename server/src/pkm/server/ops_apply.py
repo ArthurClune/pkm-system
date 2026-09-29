@@ -14,12 +14,12 @@ from pkm.contracts.ops import (CreateOp, CreatePageOp, DeleteOp, MoveOp,
 from pkm.refs import canonicalize_title
 from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  Effect, InsertBlock, JournalBlock,
-                                 MissingTarget, OpContext, OpError,
+                                 Skip, OpContext, OpError,
                                  RecordConflictHeader, ReindexRefs,
                                  SetCollapsed, SetHeading,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TouchPage, UpdateText,
-                                 classify_missing_target, classify_text_edit,
+                                 classify_skip, classify_text_edit,
                                  find_op_title_violation, plan_op,
                                  skip_report)
 from pkm.server.store import (BlankTitleError, fetch_page,
@@ -175,27 +175,27 @@ def _with_conflict_landing(db: sqlite3.Connection, target_uid: str,
         conflict_header_next_idx=header[1] if header is not None else None)
 
 
-def _missing_target_context(db: sqlite3.Connection, op, miss: MissingTarget,
+def _skip_context(db: sqlite3.Connection, op, skip: Skip,
                             block: BlockInfo | None, parent: BlockInfo | None,
                             chain: tuple[str, ...],
                             now_ms: int) -> OpContext:
-    """Context for an op classify_missing_target flagged. Resolves no op
+    """Context for an op classify_skip flagged. Resolves no op
     page_title (get_or_create would create a page for an op that isn't
     applied), and pays for today's daily page only when an entry lands.
     `chain` rides along so apply_batch's re-classification of a move_cycle
     agrees with this one."""
     ctx = OpContext(block=block, parent=parent, parent_chain=chain)
-    if miss.landing_uid is None:
+    if skip.landing_uid is None:
         return ctx
     if isinstance(op, (CreateOp, UpdateTextOp)):
         ctx = dataclasses.replace(
             ctx, hint_page_exists=_hint_page_exists(db, op.page_title))
-    if miss.kind in ("move_parent_missing", "move_cycle"):
+    if skip.kind in ("move_parent_missing", "move_cycle"):
         assert block is not None  # the block exists; its target does not fit
         ctx = dataclasses.replace(ctx,
                                   page_title=_page_title(db, block.page_id),
                                   subtree=_subtree_deepest_first(db, op.uid))
-    return _with_conflict_landing(db, miss.landing_uid, now_ms, ctx)
+    return _with_conflict_landing(db, skip.landing_uid, now_ms, ctx)
 
 
 def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
@@ -206,14 +206,14 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     parent_uid = (op.parent_uid if isinstance(op, (CreateOp, MoveOp))
                   else None)
     parent = _block_info(db, parent_uid) if parent_uid else None
-    # a move's target chain: what classify_missing_target's cycle test reads
+    # a move's target chain: what classify_skip's cycle test reads
     chain = (_parent_chain(db, parent.uid)
              if isinstance(op, MoveOp) and block is not None
              and parent is not None else ())
-    miss = classify_missing_target(op, block is not None, parent is not None,
+    skip = classify_skip(op, block is not None, parent is not None,
                                    chain)
-    if miss is not None:
-        return _missing_target_context(db, op, miss, block, parent, chain,
+    if skip is not None:
+        return _skip_context(db, op, skip, block, parent, chain,
                                        now_ms)
     if isinstance(op, CreateOp):
         # Under a live parent the block lands on the parent's page, so the
@@ -388,12 +388,12 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
         ctx = _context_for(db, op, now_ms)
         for eff in plan_op(index, op, ctx):
             _execute(db, eff, now_ms)
-        miss = (None if isinstance(op, CreatePageOp) else
-                classify_missing_target(op, ctx.block is not None,
+        skip = (None if isinstance(op, CreatePageOp) else
+                classify_skip(op, ctx.block is not None,
                                         ctx.parent is not None,
                                         ctx.parent_chain))
-        if miss is None:
+        if skip is None:
             broadcast_ops.append(_broadcast_op(db, op, ctx))
         else:
-            skipped.append(skip_report(index, op, miss, ctx))
+            skipped.append(skip_report(index, op, skip, ctx))
     return AppliedBatch(broadcast_ops, skipped)

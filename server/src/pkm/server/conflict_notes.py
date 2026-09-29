@@ -63,7 +63,7 @@ def orphan_header_text(page_title: str | None, hint_page_exists: bool) -> str:
     which may be missing, unusable, or stale (naming a page the store no
     longer has); hint_page_exists is resolved by the shell. Also heads every
     other entry grouped under a missing block's uid (see
-    `ops_core.classify_missing_target`), so whichever lands first, they share it."""
+    `ops_core.classify_skip`), so whichever lands first, they share it."""
     return (f"[[conflict]] {conflict_label(page_title, hint_page_exists)}"
            " — edit to a block the server no longer has")
 

@@ -8,12 +8,12 @@ from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OpBatch, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, text_hash)
 from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
-                                 InsertBlock, JournalBlock, MissingTarget,
+                                 InsertBlock, JournalBlock, Skip,
                                  OpContext, OpError, RecordConflictHeader,
                                  ReindexRefs, SetCollapsed, SetHeading,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TextEditOutcome, TouchPage,
-                                 UpdateText, classify_missing_target,
+                                 UpdateText, classify_skip,
                                  classify_text_edit, plan_op,
                                  skip_report)
 from pkm.server.db import init_db, open_db
@@ -470,35 +470,35 @@ def _create_under(parent_uid="ghost_p1", text="lost child", page_title="AI"):
     (MoveOp(op="move", uid="ghost99", parent_uid="uid_p", order_idx=0),
      True, True, None),
     # plain no-ops, nothing lands
-    (_COLLAPSE, False, False, MissingTarget("noop", None)),
-    (_DELETE, False, False, MissingTarget("noop", None)),
+    (_COLLAPSE, False, False, Skip("noop", None)),
+    (_DELETE, False, False, Skip("noop", None)),
     # skipped with a note under the missing block's own uid
-    (_MOVE, False, False, MissingTarget("skipped", "ghost99")),
+    (_MOVE, False, False, Skip("orphan_structural", "ghost99")),
     (MoveOp(op="move", uid="ghost99", parent_uid="ghost_p1", order_idx=0),
-     False, False, MissingTarget("skipped", "ghost99")),
-    (_HEADING, False, False, MissingTarget("skipped", "ghost99")),
-    (_VIEW, False, False, MissingTarget("skipped", "ghost99")),
+     False, False, Skip("orphan_structural", "ghost99")),
+    (_HEADING, False, False, Skip("orphan_structural", "ghost99")),
+    (_VIEW, False, False, Skip("orphan_structural", "ghost99")),
     # text edits, hashed or not, land their text under the block's uid
     (UpdateTextOp(op="update_text", uid="ghost99", text="x"), False, False,
-     MissingTarget("orphan_edit", "ghost99")),
+     Skip("orphan_edit", "ghost99")),
     (UpdateTextOp(op="update_text", uid="ghost99", text="x",
                   base_text_hash=text_hash("y")), False, False,
-     MissingTarget("orphan_edit", "ghost99")),
+     Skip("orphan_edit", "ghost99")),
     # ... unless blank: nothing lost, nothing lands (same as a blank create)
     (UpdateTextOp(op="update_text", uid="ghost99", text=" "), False, False,
-     MissingTarget("orphan_edit", None)),
+     Skip("orphan_edit", None)),
     # a create under a missing parent lands under the PARENT's uid ...
     (_create_under(), False, False,
-     MissingTarget("diverted_create", "ghost_p1")),
+     Skip("diverted_create", "ghost_p1")),
     # ... unless it carries no text, which leaves nothing to land
     (_create_under(text="  "), False, False,
-     MissingTarget("diverted_create", None)),
+     Skip("diverted_create", None)),
     # the block exists but its move target doesn't
     (MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0),
-     True, False, MissingTarget("move_parent_missing", "uid_b3")),
+     True, False, Skip("move_parent_missing", "uid_b3")),
 ])
-def test_classify_missing_target(op, block_exists, parent_exists, expected):
-    assert classify_missing_target(op, block_exists, parent_exists) == expected
+def test_classify_skip(op, block_exists, parent_exists, expected):
+    assert classify_skip(op, block_exists, parent_exists) == expected
 
 
 MISSING_TARGETS_FIXTURE = (
@@ -510,12 +510,12 @@ _BLOCK_OP_ADAPTER = TypeAdapter(BlockOp)
 
 @pytest.mark.parametrize("case", MISSING_TARGETS_CASES,
                         ids=[c["name"] for c in MISSING_TARGETS_CASES])
-def test_classify_missing_target_matches_shared_fixture(case):
-    # Pins classify_missing_target against the same skip/no-skip table the
+def test_classify_skip_matches_shared_fixture(case):
+    # Pins classify_skip against the same skip/no-skip table the
     # replica's TS mirror (web/src/replica/missingTarget.ts) is tested
     # against, so the two languages cannot drift apart (pkm-7788).
     op = _BLOCK_OP_ADAPTER.validate_python(case["op"])
-    skipped = classify_missing_target(
+    skipped = classify_skip(
         op, case["block_exists"], case["parent_exists"],
         tuple(case.get("parent_chain", ()))) is not None
     assert skipped == case["skip"]
@@ -739,24 +739,24 @@ _B2 = BlockInfo("uid_b2", 1, None)
 @pytest.mark.parametrize("op, block_exists, parent_exists, chain, expected", [
     # the target parent's chain holds the moved block: a cycle
     (_CYCLE_MOVE, True, True, ("uid_b3", "uid_b2"),
-     MissingTarget("move_cycle", "uid_b2")),
+     Skip("move_cycle", "uid_b2")),
     # a block moved under itself is the shortest cycle
     (MoveOp(op="move", uid="uid_b2", parent_uid="uid_b2", order_idx=0),
-     True, True, ("uid_b2",), MissingTarget("move_cycle", "uid_b2")),
+     True, True, ("uid_b2",), Skip("move_cycle", "uid_b2")),
     # a chain without the block plans normally
     (_CYCLE_MOVE, True, True, ("uid_b3", "uid_b1"), None),
     # a missing block or parent is the missing-target case, chain or not
     (_CYCLE_MOVE, False, True, ("uid_b3", "uid_b2"),
-     MissingTarget("skipped", "uid_b2")),
+     Skip("orphan_structural", "uid_b2")),
     (_CYCLE_MOVE, True, False, ("uid_b3", "uid_b2"),
-     MissingTarget("move_parent_missing", "uid_b2")),
+     Skip("move_parent_missing", "uid_b2")),
     # only a move's chain means anything
     (_create_under(parent_uid="uid_b3"), False, True, ("uid_b3", "newuid1"),
      None),
 ])
 def test_classify_move_cycle(op, block_exists, parent_exists, chain,
                              expected):
-    assert classify_missing_target(op, block_exists, parent_exists,
+    assert classify_skip(op, block_exists, parent_exists,
                                    chain) == expected
 
 
@@ -813,21 +813,21 @@ def test_cycle_move_needs_the_live_page_title_and_subtree():
 
 
 @pytest.mark.parametrize("op, miss, note_page, expected", [
-    (_MOVE, MissingTarget("skipped", "ghost99"), "September 28th, 2026",
+    (_MOVE, Skip("orphan_structural", "ghost99"), "September 28th, 2026",
      {"index": 3, "op": "move", "uid": "ghost99", "reason": "block_not_found",
       "note_page": "September 28th, 2026"}),
-    (_DELETE, MissingTarget("noop", None), None,
+    (_DELETE, Skip("noop", None), None,
      {"index": 3, "op": "delete", "uid": "ghost99",
       "reason": "block_not_found", "note_page": None}),
-    (_create_under(), MissingTarget("diverted_create", "ghost_p1"),
+    (_create_under(), Skip("diverted_create", "ghost_p1"),
      "September 28th, 2026",
      {"index": 3, "op": "create", "uid": "newuid1",
       "reason": "parent_not_found", "note_page": "September 28th, 2026"}),
     (MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0),
-     MissingTarget("move_parent_missing", "uid_b3"), "September 28th, 2026",
+     Skip("move_parent_missing", "uid_b3"), "September 28th, 2026",
      {"index": 3, "op": "move", "uid": "uid_b3",
       "reason": "parent_not_found", "note_page": "September 28th, 2026"}),
-    (_CYCLE_MOVE, MissingTarget("move_cycle", "uid_b2"),
+    (_CYCLE_MOVE, Skip("move_cycle", "uid_b2"),
      "September 28th, 2026",
      {"index": 3, "op": "move", "uid": "uid_b2", "reason": "cycle",
       "note_page": "September 28th, 2026"}),

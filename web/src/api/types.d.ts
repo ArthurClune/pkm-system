@@ -90,7 +90,7 @@ export interface paths {
         /**
          * Get Block Refs
          * @description On-demand ((uid)) resolution for refs pasted after the page payload
-         *     loaded (pkm-y6af). `uids` is comma-separated; unknown uids are omitted
+         *     loaded. `uids` is comma-separated; unknown uids are omitted
          *     (the client renders them unresolved, same as the payload path).
          */
         get: operations["get_block_refs_api_block_refs_get"];
@@ -111,7 +111,7 @@ export interface paths {
         };
         /**
          * Get Block Backlinks
-         * @description The ((uid)) badge's popover read (pkm-d31f): who references this
+         * @description The ((uid)) badge's popover read: who references this
          *     block. Same group shape and ordering as page backlinks; the count badge
          *     itself rides the page/journal payloads (block_ref_counts).
          */
@@ -133,8 +133,8 @@ export interface paths {
         };
         /**
          * Get Block
-         * @description One block's subtree plus its page and ancestor texts (pkm-w05j:
-         *     the CLI/MCP `get <uid>` read; pages remain the only other read unit).
+         * @description One block's subtree plus its page and ancestor texts (the CLI/MCP
+         *     `get <uid>` read; pages remain the only other read unit).
          */
         get: operations["get_block_api_block__uid__get"];
         put?: never;
@@ -257,19 +257,19 @@ export interface paths {
         };
         /**
          * Get Journal
-         * @description Newest-first batch of non-empty daily pages (pkm-03x6). The head
+         * @description Newest-first batch of non-empty daily pages. The head
          *     batch (no `before`) starts with today — auto-created so there is a
          *     page to compose into, even when empty — followed by the most recent
          *     non-empty days; `before` pages strictly backwards from that date. A
          *     day with no blocks but an inbound [[link]] from elsewhere counts as
          *     non-empty too, so a reminder written on another page surfaces under
-         *     the day it points at (pkm-vvta) once that day would otherwise show.
+         *     the day it points at once that day would otherwise show.
          *     Empty, unreferenced days are omitted, and a batch shorter than `days`
          *     tells the client the journal is exhausted.
          *
          *     Each day carries its own linked-references preview
          *     (JOURNAL_BACKLINK_PREVIEW pages of them), so a scroll of N days is N/batch
-         *     requests rather than one page read per day (pkm-5fak).
+         *     requests rather than one page read per day.
          */
         get: operations["get_journal_api_journal_get"];
         put?: never;
@@ -368,8 +368,8 @@ export interface paths {
         };
         /**
          * Todos
-         * @description Blocks whose text starts with a {{TODO}} marker, grouped by page
-         *     (pkm-w05j). SQL narrows to TODO-containing candidates; the shared
+         * @description Blocks whose text starts with a {{TODO}} marker, grouped by page.
+         *     SQL narrows to TODO-containing candidates; the shared
          *     pkm.todo matcher (the grammar's block-start rule, both bracket
          *     variants, '> ' quote prefix) decides. Marker-based rather than
          *     refs-based: the editor emits the bracket-less {{TODO}}, which
@@ -394,7 +394,7 @@ export interface paths {
         /**
          * Changed
          * @description Blocks touched in [since, until), grouped by page in the order
-         *     each page was first touched (pkm-6eea). `since`/`until` are each
+         *     each page was first touched. `since`/`until` are each
          *     either a 'YYYY-MM-DD' date (local midnight) or a full ISO datetime
          *     (naive = local time, aware = honoured as given); `until` defaults to
          *     now and is exclusive. A block is 'new' when its created_at falls in
@@ -518,9 +518,9 @@ export interface paths {
         };
         /**
          * Search Assets
-         * @description LIKE search over description + filename (pkm-zc0c). Empty q lists
+         * @description LIKE search over description + filename. Empty q lists
          *     most-recent uploads. LIKE, not FTS: personal-scale table, and no
-         *     offline-parity burden. pkm-jdu3 adds type/date/linked filters,
+         *     offline-parity burden. Adds type/date/linked filters,
          *     offset pagination, and a total count. linked/orphan filtering needs
          *     refs for every candidate, so that path scans the filtered set
          *     (personal scale keeps it cheap); linked=all computes refs only for
@@ -585,7 +585,7 @@ export interface paths {
          *     missing-on-disk shas are skipped, not errors: the zip honestly
          *     contains what could be exported.
          *
-         *     pkm-13ty: the selection's count and total bytes (summed from the
+         *     The selection's count and total bytes (summed from the
          *     `assets` table -- no file is opened just to measure it) are checked
          *     against MAX_EXPORT_ASSET_COUNT/MAX_EXPORT_TOTAL_BYTES before any zip
          *     is built; over either limit the request is refused with 413, never
@@ -780,7 +780,7 @@ export interface paths {
         };
         /**
          * Export All Markdown
-         * @description Whole-graph export, zipped. pkm-13ty: built in a temp directory and
+         * @description Whole-graph export, zipped. Built in a temp directory and
          *     streamed back via FileResponse rather than buffered whole in an
          *     in-memory BytesIO -- the graph has no size cap, so an unbounded
          *     number of pages/assets must not translate into an unbounded process
@@ -1042,7 +1042,7 @@ export interface components {
          * BlockBacklinksPayload
          * @description GET /api/block/{uid}/backlinks: every block referencing ((uid)),
          *     grouped like page backlinks. Unpaginated by design -- counts are small
-         *     and nothing user-visible truncates silently (pkm-d31f).
+         *     and nothing user-visible truncates silently.
          */
         BlockBacklinksPayload: {
             /** Groups */
@@ -1404,8 +1404,8 @@ export interface components {
          * JournalDay
          * @description One day of the journal scroll, complete: the day renders from this
          *     alone. `backlinks` is a preview page of the day's linked references
-         *     (pkm-vvta) -- carried here because fetching them per day turned a scroll
-         *     of N days into N page reads (pkm-5fak).
+         *     -- carried here because fetching them per day turned a scroll
+         *     of N days into N page reads.
          */
         JournalDay: {
             /** Date */

@@ -239,22 +239,36 @@ def sync_changes(since: int = 0, limit: int = 1000,
         win = dedupe_window([(r["seq"], r["kind"], r["entity_id"],
                               r["deleted"]) for r in rows])
         block_uids = [e for k, e in win.entities if k == "block"]
-        reused_pages = [int(e) for e in tombstoned_ids(win, "page")]
-        if reused_pages:
-            # A page shipped as both tombstone and live row carries every
-            # current block on it or referencing it: the replica applies
-            # tombstones first, and the page's cascade removes those rows
-            # before the upserts. Shipping them here makes the page whole
-            # again by the window's COMMIT, not only once the blocks' own
-            # later journal rows arrive.
-            listed = set(block_uids)
-            block_uids += [u for u in _reused_page_dependents(db, reused_pages)
-                           if u not in listed]
         page_ids = {int(e) for k, e in win.entities if k == "page"}
         sidebar_ids = [int(e) for k, e in win.entities if k == "sidebar"]
 
+        deleted_pages = [int(e) for e in tombstoned_ids(win, "page")]
+        pages_by_id: dict[int, SyncPage] = {}
+        if deleted_pages:
+            # The window's own page rows are fetched first only when it holds
+            # a page delete, to tell a reused id (delete row, live row now)
+            # from a page that is simply gone.
+            pages_by_id = {p.id: p for p in _page_payloads(db, page_ids)}
+            reused_pages = [p for p in deleted_pages if p in pages_by_id]
+            if reused_pages:
+                # A page shipped as both tombstone and live row carries every
+                # current block on it or referencing it: the replica applies
+                # tombstones first, and the page's cascade removes those rows
+                # before the upserts. Shipping them here makes the page whole
+                # again by the window's COMMIT, not only once the blocks' own
+                # later journal rows arrive.
+                listed = set(block_uids)
+                block_uids += [
+                    u for u in _reused_page_dependents(db, reused_pages)
+                    if u not in listed]
+
         blocks, dep_pages = _block_payloads(db, block_uids)
-        pages = _page_payloads(db, page_ids | dep_pages)
+        # page ids already queried above are not asked for again, found or not
+        still_wanted = (dep_pages - page_ids) if deleted_pages \
+            else (page_ids | dep_pages)
+        pages_by_id.update(
+            (p.id, p) for p in _page_payloads(db, still_wanted))
+        pages = [pages_by_id[i] for i in sorted(pages_by_id)]
         sidebar = _sidebar_payloads(db, sidebar_ids)
 
         # a reused page or sidebar id ships as a tombstone AND a live row

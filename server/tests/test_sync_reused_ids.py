@@ -112,3 +112,21 @@ def test_window_with_no_reused_page_ships_no_extra_blocks(client):
     feed = _drain(client, since=start)
     assert feed["blocks"] == []
     assert _tombstones(feed) == {("page", str(r.json()["id"]))}
+
+
+def test_deleted_not_reused_page_runs_no_dependents_query(client,
+                                                          monkeypatch):
+    # only an id that is tombstoned in the window AND live now is reused;
+    # a page that is simply gone must not cost the dependents fetch
+    from pkm.server import routes_sync
+
+    def _must_not_run(db, page_ids):
+        raise AssertionError(f"dependents fetched for {page_ids}")
+
+    monkeypatch.setattr(routes_sync, "_reused_page_dependents", _must_not_run)
+    r = client.post("/api/pages", json={"title": "GoneForGood"})
+    assert r.status_code == 200
+    start = _drain(client)["latest_seq"]
+    assert client.delete("/api/page/GoneForGood").status_code == 200
+    feed = _drain(client, since=start)
+    assert _tombstones(feed) == {("page", str(r.json()["id"]))}

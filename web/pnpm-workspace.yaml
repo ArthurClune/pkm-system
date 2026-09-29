@@ -12,3 +12,10 @@ overrides:
 # pnpm's strict layout would otherwise make unresolvable from app code.
 publicHoistPattern:
   - pdfjs-dist
+# The opfs-sahpool VFS answered xCheckReservedLock with 1 every time, so a
+# killed worker's rollback journal was never played back; the patch reports
+# RESERVED only when this pool holds it on the file. It is keyed to the exact
+# version: an upgrade must carry it forward, or drop it once upstream fixes
+# the VFS (docs/architecture/sync-and-offline.md, The replica).
+patchedDependencies:
+  '@sqlite.org/sqlite-wasm@3.53.0-build1': patches/@sqlite.org__sqlite-wasm@3.53.0-build1.patch

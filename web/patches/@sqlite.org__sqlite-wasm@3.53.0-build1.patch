@@ -1,0 +1,68 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 6475875f8a7d5c1eee34d322ea3e3e91a97c7b1e..3c8650a8b1d7bf51e94e99772b77dc0647421ebb 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -14589,7 +14589,10 @@ async function sqlite3InitModule(moduleArg = {}) {
+ 					const pool = getPoolForPFile(pFile);
+ 					pool.log("xCheckReservedLock");
+ 					pool.storeErr();
+-					wasm.poke32(pOut, 1);
++					/* SQLite plays a leftover journal back only when this reports no
++					   RESERVED lock. Answering 1 always made every journal a killed
++					   worker left look like a live writer's, so it was never rolled back. */
++					wasm.poke32(pOut, pool.isPathReserved(pool.getOFileForS3File(pFile).path) ? 1 : 0);
+ 					return 0;
+ 				},
+ 				xClose: function(pFile) {
+@@ -15118,6 +15121,17 @@ async function sqlite3InitModule(moduleArg = {}) {
+ 					return this.#mapS3FileToOFile_.get(pFile);
+ 				}
+ 				/**
++				Whether a file this pool has open on `path` holds RESERVED or a
++				stronger lock. A pool's files are reachable only through its own
++				exclusive SAHs, so no other worker or tab can hold one.
++				*/
++				isPathReserved(path) {
++					for (const f of this.#mapS3FileToOFile_.values()) {
++						if (f.path === path && f.lockType >= capi.SQLITE_LOCK_RESERVED) return true;
++					}
++					return false;
++				}
++				/**
+ 				Maps or unmaps (if file is falsy) the given (sqlite3_file*)
+ 				to an xOpen file object and to this pool object.
+ 				*/
+diff --git a/dist/sqlite3-worker1.mjs b/dist/sqlite3-worker1.mjs
+index 4d0ec9e72da08ad6a0daa640a1d3caa6a86f181a..fa76c71b615a164a6e112a7efd137b2f37532339 100644
+--- a/dist/sqlite3-worker1.mjs
++++ b/dist/sqlite3-worker1.mjs
+@@ -14401,7 +14401,10 @@ async function sqlite3InitModule(moduleArg = {}) {
+ 					const pool = getPoolForPFile(pFile);
+ 					pool.log("xCheckReservedLock");
+ 					pool.storeErr();
+-					wasm.poke32(pOut, 1);
++					/* SQLite plays a leftover journal back only when this reports no
++					   RESERVED lock. Answering 1 always made every journal a killed
++					   worker left look like a live writer's, so it was never rolled back. */
++					wasm.poke32(pOut, pool.isPathReserved(pool.getOFileForS3File(pFile).path) ? 1 : 0);
+ 					return 0;
+ 				},
+ 				xClose: function(pFile) {
+@@ -14930,6 +14933,17 @@ async function sqlite3InitModule(moduleArg = {}) {
+ 					return this.#mapS3FileToOFile_.get(pFile);
+ 				}
+ 				/**
++				Whether a file this pool has open on `path` holds RESERVED or a
++				stronger lock. A pool's files are reachable only through its own
++				exclusive SAHs, so no other worker or tab can hold one.
++				*/
++				isPathReserved(path) {
++					for (const f of this.#mapS3FileToOFile_.values()) {
++						if (f.path === path && f.lockType >= capi.SQLITE_LOCK_RESERVED) return true;
++					}
++					return false;
++				}
++				/**
+ 				Maps or unmaps (if file is falsy) the given (sqlite3_file*)
+ 				to an xOpen file object and to this pool object.
+ 				*/

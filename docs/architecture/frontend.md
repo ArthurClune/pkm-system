@@ -129,6 +129,7 @@ web/src/
 │   ├── reconnectFlow.ts      Shell        Reconnect single-flight: drain → pull → resync
 │   ├── opQueue.ts            Shell        Durable-queue driver (+ queueState.ts Core)
 │   ├── replicaSync.ts        Shell        Cursor pull loop
+│   ├── opsAck.ts             Core         Reads the /api/ops ack's seq
 │   ├── socket.ts             Shell        WebSocket + reconnect policy
 │   ├── reconnectBackoff.ts   Core         Reconnect delay: 2 s doubling to a 30 s cap
 │   ├── syncState.ts          Core         Editability/health FSM
@@ -140,6 +141,7 @@ web/src/
 │   ├── rpc.ts / client.ts    Shell        Typed RPC over the worker port
 │   ├── carryStore.ts         Shell        The pending queue's durable copy across a file replacement
 │   ├── carryMerge.ts         Core         Which pending rows a replacement at carry adoption keeps
+│   ├── ackedRows.ts          Core         Which lease rows a recovery commit's acks settle
 │   ├── queue.ts / apply.ts / reconcile.ts / recoveryGate.ts  Shell  Pending ops, feed
 │   │                                      apply, negative-id remap, recovery FIFO
 │   ├── localApi/             Shell        Offline read shims: the routes' exact JSON

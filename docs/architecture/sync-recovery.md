@@ -203,8 +203,11 @@ starts a pull while the batch is still pending, and the HTTP ack lands during
 the fetch.
 
 The worker holds the acked seqs in memory (`ackedSeqs`), keyed by `pending_ops`
-row id. It drops entries outside the latest snapshot on each `applyChanges`,
-and clears them all on a schema rebuild, which restarts the AUTOINCREMENT ids.
+row id. `deleteBatch` writes them, and so does a rebase commit that deletes
+acked rows in place (see [runRecovery](#runrecovery)). A file replacement writes
+none, because its rebuild clears them. The worker drops entries outside the
+latest snapshot on each `applyChanges`, and clears them all on a schema
+rebuild, which restarts the AUTOINCREMENT ids.
 
 ## Recovery never erases intent
 
@@ -216,6 +219,7 @@ and clears them all on a schema rebuild, which restarts the AUTOINCREMENT ids.
 | `reapplyPending` re-applies non-poisoned pending batches on top of every snapshot and feed window | `replica/apply.ts` | Later edits capturing stale base hashes |
 | `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
 | Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; sibling `order_idx` drifting up per window |
+| A rebase commit deletes the rows its flush got acks for, in the snapshot's transaction, before the replay | `replicaSync.ts::flushBatches`, `workerHandlers.ts`, `replica/ackedRows.ts` | Recovery replaying a batch's wire text over the server's result |
 | A rebase that replaces the file commits the queue to a carry database first; every queue handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |
 
 The FK diff works whatever the enforcement pragmas say, so it also covers the
@@ -310,11 +314,11 @@ flowchart TD
     P["queue.pause('recovery')"] --> AW{"awaitInFlightPull?"}
     AW -->|yes| WP["await the pull in flight"] --> L
     AW -->|no| L["replica.prepareRecovery()<br/>gate held, pending rows fingerprinted"]
-    L --> F["flushLease: skip · preemptible · blocking"]
+    L --> F["flushLease: skip · preemptible · blocking<br/>each ack held as { id, batch_id, seq }"]
     F --> S["GET /api/sync/snapshot"]
     S --> C{"commitRecovery:<br/>pending rows unchanged?"}
     C -->|"yes, reset"| RB["rebuildOrReplaceFile"]
-    C -->|"yes, rebase"| RS["rebaseOrReplaceFile"]
+    C -->|"yes, rebase"| RS["rebaseOrReplaceFile<br/>acked rows deleted in the snapshot's transaction"]
     RB --> OK["adoptCursor(snapshot.seq)"]
     RS --> OK
     C -.->|no| AB["abortRecovery(token), rethrow"]
@@ -341,6 +345,18 @@ backwards. Schema and feed recovery keeps `awaitInFlightPull` false because
 through `recover()`, which turns a `rebase` failing on fresh corruption into
 the session's one `reset`.
 
+**A rebase never replays a batch its flush got an ack for.** The server's
+result can differ from the wire op (a rename replay, a conflict, another
+device's write). The next pull starts at the snapshot's seq, so that batch's
+journal row never comes back to correct a replay of its wire text.
+
+| Where | What happens to the acks |
+|---|---|
+| `flushBatches` | Each `/api/ops` ack is held in `heldAcks` as `{ id, batch_id, seq }` (`ackSeq`, `sync/opsAck.ts`; null when the stored ack names none) |
+| A run that ends before its commit (a preempted flush, a failed snapshot fetch) | The acks stay held for the next run, which after a preemption is the poison rebase |
+| `commitRecovery`, either kind | Takes every held ack. A `reset` passes none, since it drops `pending_ops`. A commit that fails hands them back |
+| The worker's rebase commit | `splitAckedRows` (`replica/ackedRows.ts`) matches rows by `id` and `batch_id` both. The matched rows are deleted in the snapshot's own transaction, so `reapplyPending` replays only the rest. An entry that matches no row is ignored |
+
 ### Reset, rebase and file replacement
 
 A `reset` rebuilds the tables inside the existing file, in one transaction, so
@@ -358,14 +374,15 @@ caller already holds them from `prepareRecovery`.
 A `rebase` meets the same damage when its snapshot apply deletes rows.
 `rebaseOrReplaceFile` takes the same escape but keeps the queue. This is how
 the rejected-batch repair gets past a damaged file without resetting. **The
-queue is committed to the carry database, `/pkm-replica-carry.sqlite3`,
-before the damaged file is unlinked.** The rows travel verbatim, ids,
+rows no ack covers are committed to the carry database,
+`/pkm-replica-carry.sqlite3`, before the damaged file is unlinked.** They
+travel verbatim, ids,
 `poisoned` and `error` included, because the provider deletes the poisoned row
 by id afterwards.
 
 | Step | Action | If the worker dies here, the rows are intact in |
 |---|---|---|
-| 1 | `carry.write(rows)` commits them to the carry (`carryStore.ts`) | the damaged file |
+| 1 | `carry.write(remaining)` commits them to the carry (`carryStore.ts`) | the damaged file |
 | 2 | `discardDbFile` unlinks the damaged file and its journal | the carry |
 | 3 | The new file gets `rebuildSchema`, then `importPendingRows` (`INSERT OR IGNORE` by id) | the carry |
 | 4 | `carry.discard()` | the new file |

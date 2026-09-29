@@ -375,9 +375,10 @@ export function captureDraft(
  * that landed under the draft forks a conflict copy instead of being
  * overwritten. It ships even when the block has left this tree (a remote
  * delete or cross-page move): the server applies it wherever the block now
- * lives, and lands an edit to a deleted block on today's daily note. Empty only when nothing changed (the text equals the
- * base) or the tree already holds the text. A draft with no base carries just
- * page_title, and stampBaseTextHashes hashes it as it would any op. */
+ * lives, and lands an edit to a deleted block on today's daily note. Empty
+ * only when nothing changed (the text equals the base) or the tree already
+ * holds the text. A draft with no base carries just page_title, and
+ * stampBaseTextHashes hashes it as it would any op. */
 export function pendingTextOps(
   pending: PendingDraft | null,
   blocks: BlockNode[],

@@ -60,6 +60,12 @@ export interface BlockDraft {
           holdFlush: boolean): void;
   onCompositionStart(): void;
   onCompositionEnd(): void;
+  /** The draft has been committed and the tree has since changed this block
+   * for the user (undo, redo, an upload splice): mark it clean and adopt the
+   * tree's text once it has rendered. Left dirty, the textarea would keep
+   * showing the old text, and the next draft would be typed over text the
+   * tree no longer holds. */
+  settle(): void;
 }
 
 export function useBlockDraft(
@@ -145,7 +151,11 @@ export function useBlockDraft(
     onAdoptRef.current();
     setDraft(text);
   };
-  useEffect(tryAdopt, [text]);
+  // settle() bumps this so adoption also runs when the tree's text for this
+  // block ends up where it started (an undo of a draft that had not yet
+  // reached the tree), which leaves `text` unchanged.
+  const [settled, setSettled] = useState(0);
+  useEffect(tryAdopt, [text, settled]);
 
   // Restore the selection once a setDraft has committed to the DOM (a plain
   // value swap would otherwise leave the browser's default of moving the
@@ -198,6 +208,10 @@ export function useBlockDraft(
     onCompositionEnd: () => {
       composingRef.current = false;
       tryAdopt();
+    },
+    settle: () => {
+      dirtyRef.current = false;
+      setSettled((n) => n + 1);
     },
   };
 }

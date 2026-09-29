@@ -41,7 +41,10 @@ export interface OutlineHandlers {
   onSetHeading(uid: string, heading: number | null): void;
   onSetViewType(uid: string, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: string): void;
-  onFiles(uid: string, cursor: number, files: File[]): void;
+  /** Resolves once the uploads have finished: true when their markdown was
+   * spliced into the block, false when nothing was (every upload failed, or
+   * the block is gone). */
+  onFiles(uid: string, cursor: number, files: File[]): Promise<boolean>;
   /** /goodlinks (see outline/goodlinks.ts): resolve the nearest URL against
    * GoodLinks and splice the `Local copy::` attribute at `cursor` in `uid`.
    * The block has already been blurred by the pick, like /upload. */

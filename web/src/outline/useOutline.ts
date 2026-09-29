@@ -377,7 +377,7 @@ export function useOutline(
     }),
     onFiles: (uid, cursor, files) => {
       setUploadError(null);
-      void (async () => {
+      return (async () => {
         let inserted = "";
         const failures: string[] = [];
         for (const file of files) {
@@ -394,10 +394,12 @@ export function useOutline(
             ? `Upload failed — ${failures[0]}`
             : `${failures.length} uploads failed — ${failures.join("; ")}`);
         }
-        if (inserted === "") return;
+        if (inserted === "") return false;
+        let didSplice = false;
         run((b) => {
           const node = findNode(b, uid);
           if (!node) return { blocks: b, ops: [], focus: null };
+          didSplice = true;
           // splice at the pre-paste offset, clamped: the user may have kept
           // typing during a slow upload (accepted for v1)
           const spliced = spliceUploadedMarkdown(node.text, cursor, inserted);
@@ -414,6 +416,7 @@ export function useOutline(
             ? { uid, cursor: spliced.selStart } : null;
           return { blocks: applyOps(b, ops, pageTitle), ops, focus };
         });
+        return didSplice;
       })();
     },
     onGoodlinks: (uid, cursor) => {

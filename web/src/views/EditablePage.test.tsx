@@ -7,9 +7,13 @@ import { block, makeSync, reserveOutlineEditor, stubFetch,
          type SyncFake } from "../test-helpers";
 import { SyncContext } from "../sync/SyncProvider";
 import { sha256Hex } from "../replica/sha256";
+import { resetHistory } from "../outline/undoManager";
 import { EditablePage } from "./EditablePage";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  resetHistory();
+});
 
 function mount(sync = makeSync(), initial = [
   block("u1", "first", { order_idx: 0 }),
@@ -468,6 +472,61 @@ test("a keystroke between a flush and the textarea catching up bases on the flus
   });
 });
 
+const textbox = () => screen.getByRole("textbox") as HTMLTextAreaElement;
+const undoKey = () => fireEvent.keyDown(textbox(), { key: "z", metaKey: true });
+const redoKey = () =>
+  fireEvent.keyDown(textbox(), { key: "z", metaKey: true, shiftKey: true });
+
+test("Cmd+Z on a dirty draft shows the undone text, and the next draft bases on it", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  fireEvent.change(focusBlock("first"), { target: { value: "first X" } });
+  undoKey(); // within the debounce: flushes "first X", then undoes it
+  expect(textbox().value).toBe("first");
+  fireEvent.change(textbox(), { target: { value: "first!" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  // The server holds "first" after the undo, so this applies cleanly.
+  expect(sync.sent.at(-1)).toEqual([
+    { op: "update_text", uid: "u1", text: "first!",
+      base_text_hash: sha256Hex("first"), page_title: "Page" },
+  ]);
+});
+
+test("Cmd+Shift+Z after an undo shows the redone text, and the next draft bases on it", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  fireEvent.change(focusBlock("first"), { target: { value: "first X" } });
+  undoKey();
+  redoKey();
+  expect(textbox().value).toBe("first X");
+  fireEvent.change(textbox(), { target: { value: "first X!" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent.at(-1)).toEqual([
+    { op: "update_text", uid: "u1", text: "first X!",
+      base_text_hash: sha256Hex("first X"), page_title: "Page" },
+  ]);
+});
+
+test("a second Cmd+Z reaches further back, and the next draft bases on its text", () => {
+  vi.useFakeTimers();
+  stubFetch([["/api/titles", { titles: [] }]]);
+  const sync = mount();
+  fireEvent.change(focusBlock("first"), { target: { value: "first X" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  fireEvent.change(textbox(), { target: { value: "first X!" } });
+  undoKey(); // flushes "first X!", then undoes it
+  undoKey(); // undoes "first X"
+  expect(textbox().value).toBe("first");
+  fireEvent.change(textbox(), { target: { value: "first?" } });
+  act(() => { vi.advanceTimersByTime(500); });
+  expect(sync.sent.at(-1)).toEqual([
+    { op: "update_text", uid: "u1", text: "first?",
+      base_text_hash: sha256Hex("first"), page_title: "Page" },
+  ]);
+});
+
 test("Enter after a remote update under a draft stamps the split batch with the base", () => {
   stubFetch([["/api/titles", { titles: [] }]]);
   const sync = mount();
@@ -533,6 +592,27 @@ test("pasting an image uploads it and splices markdown at the cursor", async () 
       base_text_hash: sha256Hex("first"), page_title: "Page",
     });
   });
+});
+
+test("a paste-upload into a dirty draft shows the spliced text, and the next draft bases on it", async () => {
+  const url = `/assets/${"cd".repeat(32)}/pic.png`;
+  const spliced = `D![pic.png](${url})`;
+  stubFetch([["/api/titles", { titles: [] }],
+             ["/api/assets", { sha256: "cd".repeat(32), filename: "pic.png",
+                               mime: "image/png", size: 3, url }]]);
+  const sync = mount();
+  const ta = focusBlock("first");
+  fireEvent.change(ta, { target: { value: "D" } });
+  ta.setSelectionRange(1, 1);
+  fireEvent.paste(ta, { clipboardData: {
+    files: [new File(["png"], "pic.png", { type: "image/png" })] } });
+  await vi.waitFor(() => { expect(textbox().value).toBe(spliced); });
+  fireEvent.change(textbox(), { target: { value: `${spliced}!` } });
+  fireEvent.blur(textbox());
+  expect(sync.sent.at(-1)).toEqual([
+    { op: "update_text", uid: "u1", text: `${spliced}!`,
+      base_text_hash: sha256Hex(spliced), page_title: "Page" },
+  ]);
 });
 
 test("hiding the tab flushes the pending draft immediately", () => {

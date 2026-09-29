@@ -23,7 +23,8 @@ from pkm.contracts.responses import (ChangesPayload, SnapshotPayload,
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.sync_core import (chunk_ids, dedupe_window,
-                                    hydrate_in_order, missing_parent_uids)
+                                    hydrate_in_order, missing_parent_uids,
+                                    tombstone_entities)
 from pkm.server.sync_meta import (
     database_generation,
     plain_space_title_canonicalization_active,
@@ -212,10 +213,10 @@ def sync_changes(since: int = 0, limit: int = 1000,
                 tombstones=[],
             )
         rows = db.execute(
-            "SELECT seq, kind, entity_id FROM changes WHERE seq > ?"
+            "SELECT seq, kind, entity_id, deleted FROM changes WHERE seq > ?"
             " ORDER BY seq LIMIT ?", (since, limit)).fetchall()
-        win = dedupe_window([(r["seq"], r["kind"], r["entity_id"])
-                             for r in rows])
+        win = dedupe_window([(r["seq"], r["kind"], r["entity_id"],
+                              r["deleted"]) for r in rows])
         block_uids = [e for k, e in win.entities if k == "block"]
         page_ids = {int(e) for k, e in win.entities if k == "page"}
         sidebar_ids = [int(e) for k, e in win.entities if k == "sidebar"]
@@ -224,14 +225,12 @@ def sync_changes(since: int = 0, limit: int = 1000,
         pages = _page_payloads(db, page_ids | dep_pages)
         sidebar = _sidebar_payloads(db, sidebar_ids)
 
-        present_blocks = {b.uid for b in blocks}
-        present_pages = {p.id for p in pages}
-        present_sidebar = {s.id for s in sidebar}
-        tombstones = [
-            SyncTombstone(kind=k, entity_id=e) for k, e in win.entities
-            if (k == "block" and e not in present_blocks)
-            or (k == "page" and int(e) not in present_pages)
-            or (k == "sidebar" and int(e) not in present_sidebar)]
+        # a reused page or sidebar id ships as a tombstone AND a live row
+        present = {"block": {b.uid for b in blocks},
+                   "page": {str(p.id) for p in pages},
+                   "sidebar": {str(s.id) for s in sidebar}}
+        tombstones = [SyncTombstone(kind=k, entity_id=e)
+                      for k, e in tombstone_entities(win, present)]
         return ChangesPayload(
             generation=generation,
             plain_space_title_canonicalization=plain_space_active,

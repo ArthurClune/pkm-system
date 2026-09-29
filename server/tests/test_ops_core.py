@@ -191,6 +191,22 @@ def test_a_context_that_does_not_fit_the_op_is_a_programmer_error_not_a_400():
             B, TextEditOutcome("conflict", "x")))
 
 
+def test_a_skip_context_that_does_not_fit_its_skip_kind_is_a_programmer_error():
+    # Planned silently, these would drop a skip's note, or tombstone a live
+    # block and cascade its subtree away on a replica.
+    heading = SetHeadingOp(op="set_heading", uid="ghost1", heading=1)
+    with pytest.raises(AssertionError):
+        plan_op(0, heading, SkipContext(Skip("orphan_structural", "ghost1")))
+    move = MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0)
+    with pytest.raises(AssertionError):
+        plan_op(0, move, LandedSkipContext(
+            Skip("move_parent_missing", "uid_b3"), _landing(), False))
+    with pytest.raises(AssertionError):
+        plan_op(0, heading, StuckMoveContext(
+            Skip("orphan_structural", "ghost1"), _landing(),
+            "Machine Learning", ("ghost1",)))
+
+
 def _move_ctx(block_page=1, parent_page=1, page_id=None):
     return MoveContext(BlockInfo("u_child", block_page, None),
                        BlockInfo("u_parent", parent_page, None),

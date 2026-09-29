@@ -370,6 +370,9 @@ class StuckMoveContext:
 
 
 SkippedContext = Union[SkipContext, LandedSkipContext, StuckMoveContext]
+# SkippedContext's members as a tuple, for isinstance: spelled out so type
+# checkers narrow on it (a get_args() tuple narrows to Unknown); a test pins
+# it to the Union
 SKIPPED_CONTEXTS = (SkipContext, LandedSkipContext, StuckMoveContext)
 OpContext = Union[PageContext, CreateContext, MoveContext, DeleteContext,
                   BlockContext, TextEditContext, TextConflictContext,
@@ -530,6 +533,11 @@ def _plan_skip(op: BlockOp, ctx: SkippedContext) -> tuple[Effect, ...]:
     rows that bring the survivors back."""
     assert not isinstance(op, CreatePageOp)  # never classified skipped
     skip = ctx.skip
+    # the context type must fit the skip kind, not just the op: planned
+    # anyway, a mismatch drops a note or tombstones a live block
+    assert isinstance(ctx, SkipContext) == (skip.landing_uid is None)
+    assert isinstance(ctx, StuckMoveContext) == (
+        skip.kind in ("move_parent_missing", "move_cycle"))
     if isinstance(ctx, StuckMoveContext):       # move_parent_missing / move_cycle
         assert isinstance(op, MoveOp) and op.parent_uid is not None
         # the whole moved subtree, root first. move_parent_missing: a

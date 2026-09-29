@@ -245,7 +245,7 @@ for a hashed edit, `classify_text_edit`. It then hands `plan_op` the context
 type that classification calls for, such as `TextConflictContext` or
 `StuckMoveContext`, and `apply_batch` reads the skip for the ack off that
 same context. Every field of a context type is required, so the shell cannot
-hand the planner a half-built one. A context that does not fit its op is an
+hand the planner a half-built one. A context that does not fit its op, or its skip kind, is an
 `AssertionError`, a 500 the client retries. It must never become a 400,
 which would poison the client's queue over a server bug.
 

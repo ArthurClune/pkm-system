@@ -1,4 +1,5 @@
 from datetime import date
+from typing import get_args
 
 import pytest
 
@@ -773,3 +774,82 @@ def test_cycle_move_journals_the_moved_subtree_and_creates_no_page(db):
     assert rows.index(("uid_b2", 0)) < rows.index(("uid_b3", 0))
     assert all(deleted == 0 for _, deleted in rows)
     assert _page_id(db, "Stale Page") is None
+
+
+_B6_TEXT = "AI overview mentions Machine Learning in plain text"
+_GHOST = "ghost99"
+
+
+def _edit(uid, text, base=None):
+    op = {"op": "update_text", "uid": uid, "text": text}
+    if base is not None:
+        op["base_text_hash"] = text_hash(base)
+    return op
+
+
+@pytest.mark.parametrize("op, context, detail", [
+    ({"op": "create_page", "page_title": "Fresh"}, "PageContext", None),
+    ({"op": "create", "uid": "new_u1", "page_title": "AI", "order_idx": 0,
+      "text": "t"}, "CreateContext", False),
+    ({"op": "create", "uid": "new_u1", "page_title": "AI",
+      "parent_uid": "uid_b2", "order_idx": 0, "text": "t"},
+     "CreateContext", False),
+    ({"op": "create", "uid": "uid_b1", "page_title": "AI",
+      "parent_uid": "ghost_p1", "order_idx": 0, "text": "t"},
+     "CreateContext", True),
+    ({"op": "create", "uid": "new_u1", "page_title": "AI",
+      "parent_uid": "ghost_p1", "order_idx": 0, "text": "t"},
+     "LandedSkipContext", "diverted_create"),
+    ({"op": "create", "uid": "new_u1", "page_title": "AI",
+      "parent_uid": "ghost_p1", "order_idx": 0, "text": " "},
+     "SkipContext", "diverted_create"),
+    ({"op": "move", "uid": "uid_b3", "parent_uid": None, "order_idx": 0},
+     "MoveContext", None),
+    ({"op": "move", "uid": "uid_b3", "parent_uid": "uid_b6", "order_idx": 0},
+     "MoveContext", None),
+    ({"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3", "order_idx": 0},
+     "StuckMoveContext", "move_cycle"),
+    ({"op": "move", "uid": "uid_b2", "parent_uid": "ghost_p1", "order_idx": 0},
+     "StuckMoveContext", "move_parent_missing"),
+    ({"op": "move", "uid": _GHOST, "parent_uid": None, "order_idx": 0},
+     "LandedSkipContext", "orphan_structural"),
+    ({"op": "delete", "uid": "uid_b2"}, "DeleteContext", None),
+    ({"op": "delete", "uid": _GHOST}, "SkipContext", "noop"),
+    ({"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
+     "BlockContext", None),
+    ({"op": "set_collapsed", "uid": _GHOST, "collapsed": True},
+     "SkipContext", "noop"),
+    ({"op": "set_heading", "uid": "uid_b2", "heading": 1},
+     "BlockContext", None),
+    ({"op": "set_heading", "uid": _GHOST, "heading": 1},
+     "LandedSkipContext", "orphan_structural"),
+    ({"op": "set_view_type", "uid": _GHOST, "view_type": "numbered"},
+     "LandedSkipContext", "orphan_structural"),
+    (_edit("uid_b6", "plain"), "BlockContext", None),
+    (_edit("uid_b6", "clean", base=_B6_TEXT), "TextEditContext", "clean"),
+    (_edit("uid_b6", _B6_TEXT, base="stale"), "TextEditContext", "identical"),
+    (_edit("uid_b6", "mine", base="stale"), "TextConflictContext", None),
+    (_edit(_GHOST, "lost"), "LandedSkipContext", "orphan_edit"),
+    (_edit(_GHOST, " "), "SkipContext", "orphan_edit"),
+])
+def test_context_for_picks_the_context_its_classification_calls_for(
+        db, op, context, detail):
+    # The planner trusts the context type; this pins the shell's choice of
+    # it for every way an op can plan. `detail` is the skip kind, the text
+    # edit outcome, or whether a create's uid is taken.
+    parsed = OpBatch.model_validate(
+        {"client_id": "t", "batch_id": "ctx_types", "ops": [op]}).ops[0]
+    ctx = ops_apply._context_for(db, parsed, NOW)
+    assert type(ctx).__name__ == context
+    if isinstance(ctx, ops_core.SKIPPED_CONTEXTS):
+        assert ctx.skip.kind == detail
+    elif isinstance(ctx, ops_core.TextEditContext):
+        assert ctx.outcome.kind == detail
+    elif isinstance(ctx, ops_core.CreateContext):
+        assert ctx.uid_taken is detail
+
+
+def test_skipped_contexts_are_exactly_the_skipped_context_union():
+    # apply_batch reports an op as skipped by isinstance against this tuple;
+    # a Union member missing from it would be broadcast as applied instead
+    assert set(ops_core.SKIPPED_CONTEXTS) == set(get_args(ops_core.SkippedContext))

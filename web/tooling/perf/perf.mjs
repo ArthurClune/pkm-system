@@ -398,7 +398,7 @@ async function main() {
   // ---- J. journal churn: React commits / re-rendered fibers per keystroke -
   // The Journal mounts one EditablePage per loaded day and never unmounts it,
   // so this is the scenario where a single new Sync context identity costs
-  // every mounted outline a re-render (pkm-qfee).
+  // every mounted outline a re-render.
   if (ONLY.includes("J")) {
     await page.goto(BASE + "/");
     await page.waitForSelector(".journal-day", { timeout: 30_000 });
@@ -503,7 +503,7 @@ async function main() {
         const got = fire(zone, "dragover", 200, y);
         ms.push(got.ms);
         // The drop is only legal if the handler called preventDefault
-        // synchronously -- coalescing must never defer that (pkm-ikk0).
+        // synchronously -- coalescing must never defer that.
         if (!got.prevented) notPrevented++;
         await new Promise((r) => setTimeout(r, paceMs));
       }

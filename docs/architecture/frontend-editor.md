@@ -174,7 +174,11 @@ tree before the textarea adopts it. A dirty textarea never adopts it at all.
 So `useBlockDraft` reports the shown text at the first edit of a clean draft
 (`onDraftStart`), and after a flush the draft's own text is what the textarea
 shows. `captureDraft` takes that shown text as a new draft's base, falling back
-to the tree's text, and keeps the base through later keystrokes.
+to the tree's text, and keeps the base through later keystrokes. Undo, redo and
+an upload splice from the focused textarea change the block for the user after
+flushing its draft, so `BlockInput` then calls `settle()`. The draft goes
+clean and adopts the tree's text. Left dirty, the textarea would keep the old
+text, and the next draft would be typed over text the tree no longer holds.
 `pendingTextOps` decides what the flush sends:
 
 | Draft at flush | Flush sends |

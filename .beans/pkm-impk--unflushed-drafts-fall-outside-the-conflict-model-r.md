@@ -71,4 +71,8 @@ Outcome: reachable via a narrow race; now flushes first. `flushNow()` runs befor
   - `run()` leaves a text op whose block is missing from `pre` out of the history entry, so a batch carrying an orphaned draft stays undoable (M2).
   - Docs: the flush table's cross-page-move row (the server applies the edit to the moved block; only a deleted block lands on the daily note), the base-from-the-view paragraph, the flush-before-switch note; troubleshooting row cause updated.
   - Filed pkm-sfp1 (same-page remote move drops the pending draft; predates this branch).
+- Re-review fixes (U1, P2):
+  - `useBlockDraft.settle()` marks the draft clean and re-runs adoption. `BlockInput` calls it after `onUndo`/`onRedo` and after a paste/drop upload whose `onFiles` promise resolves true (the splice ran). The textarea then shows the undo's, redo's or splice's text, and the next draft is based on it: no spurious `[[conflict]]` after Cmd+Z while typing, and an upload's markdown is no longer overwritten.
+  - `OutlineHandlers.onFiles` now returns `Promise<boolean>` (true when the markdown was spliced into the block).
+  - Docs: the settle() note in frontend-editor.md § Drafts and commit points; one troubleshooting row.
 - Perf: not run in this branch (parallel-executor brief); the orchestrator runs `perf/check.sh` after merge.

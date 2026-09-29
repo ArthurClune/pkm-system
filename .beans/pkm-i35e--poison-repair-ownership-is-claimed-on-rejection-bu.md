@@ -1,11 +1,11 @@
 ---
 # pkm-i35e
 title: Poison-repair ownership is claimed on rejection but released only on repair success
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-09-29T13:20:39Z
-updated_at: 2026-09-29T13:20:39Z
+updated_at: 2026-09-29T15:43:50Z
 parent: pkm-a4t2
 ---
 
@@ -34,7 +34,34 @@ before it resumes.
 
 ## Todo
 
-- [ ] Failing tests: an unmatched marking round releases the claim, resumes delivery and lets a later bootstrap recovery run; `discardProblem` releases and the re-POST path still repairs
-- [ ] Report the unmatched round from `markRetainedPoison`; release and resume in `replicaSync`; release in `discardProblem`
-- [ ] Docs: `sync-recovery.md` § A batch the server rejects — ownership lifecycle table (claimed on rejection; released on repair success, unmatched round, or discard); troubleshooting row
-- [ ] verify, perf, merge
+- [x] Failing tests: an unmatched marking round releases the claim, resumes delivery and lets a later bootstrap recovery run; `discardProblem` releases and the re-POST path still repairs
+- [x] Report the unmatched round from `markRetainedPoison`; release and resume in `replicaSync`; release in `discardProblem`
+- [x] Docs: `sync-recovery.md` § A batch the server rejects — ownership lifecycle table (claimed on rejection; released on repair success, unmatched round, or discard); troubleshooting row
+- [x] verify (perf and merge run by the orchestrator after this branch lands)
+
+## Summary of Changes
+
+Closed the two exits (spec § F8) that could leave `replicaSync`'s
+`authoritativeRepair = "poison"` claim held forever with no resumer:
+
+- **Unmatched marking round** (Path A): `opQueue.ts`'s `markRetainedPoison`
+  gains `onPoisonMarkUnmatched(fn: () => void): () => void`, firing once per
+  round where retained intents existed and none matched a durable row.
+  `replicaSync.ts` subscribes alongside its existing `onPoisonPending`
+  subscription and releases the claim + resumes the queue when it fires (a
+  no-op when no claim is held).
+- **`discardProblem`** (Path B): `SyncProvider.tsx`'s `actions.discardProblem`
+  now calls `replicaSync.completeAuthoritativeRepair("poison")` unconditionally
+  before its startup/mid-session branches, so both release correctly (a
+  harmless no-op when no claim is held, via `completeAuthoritativeRepair`'s own
+  reason guard).
+
+Each new test asserts the release directly (not just eventual delivery) and
+was confirmed red against the unfixed code before the fix landed, including
+the composed test across the real `opQueue` + `replicaSync` + `SyncProvider`
+stack.
+
+Files touched: `web/src/sync/opQueue.ts`, `web/src/sync/opQueue.replica.test.ts`,
+`web/src/sync/replicaSync.ts`, `web/src/sync/replicaSync.test.ts`,
+`web/src/sync/SyncProvider.tsx`, `web/src/sync/SyncProvider.test.tsx`,
+`docs/architecture/sync-recovery.md`, `docs/troubleshooting.md`.

@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: high
 created_at: 2026-09-29T13:20:25Z
-updated_at: 2026-09-29T14:27:58Z
+updated_at: 2026-09-29T14:43:54Z
 parent: pkm-a4t2
 ---
 
@@ -41,7 +41,7 @@ dependency beside `discardDbFile`.
 - [x] Review fix m-4: sync-recovery.md step table, sync-and-offline.md carry sentence, spec § F1 pointer
 - [x] Review fix m-5: diagnostics does not adopt
 - [x] Review fix I-2: bean filed for the SAH pool's hot-journal behaviour
-- [ ] perf, merge (orchestrator)
+- [x] perf, merge (orchestrator)
 
 ## Summary of Changes
 
@@ -122,4 +122,3 @@ dependency beside `discardDbFile`.
   subset; rows are lost only if both files are damaged at once), and notes
   that a replacement that keeps failing reorders delivery but loses nothing.
   frontend.md module map gains `carryMerge.ts`.
-

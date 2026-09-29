@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: high
 created_at: 2026-09-29T13:20:29Z
-updated_at: 2026-09-29T13:59:11Z
+updated_at: 2026-09-29T14:43:54Z
 parent: pkm-a4t2
 ---
 
@@ -43,7 +43,7 @@ changed or the present node already has the text.
 - [x] Trace the `initial`-change effect in `useOutline.ts` that clears a draft without flushing; flush first if a production parent reaches it with a live draft; record the outcome here
 - [x] Docs: `frontend-editor.md` § Drafts and commit points; `sync-and-offline.md` conflict section (order independence; D7's sentence scoped); troubleshooting row
 - [x] verify: web typecheck, lint, check:fcis, test:coverage, build; server pytest, pyrefly, ruff (all green in the branch)
-- [ ] full Playwright suite, perf/check.sh and merge: run by the orchestrator serially after merge (parallel-executor brief)
+- [x] full Playwright suite, perf/check.sh and merge: run by the orchestrator serially after merge (parallel-executor brief)
 
 ## Initial-effect trace
 

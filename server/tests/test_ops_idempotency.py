@@ -66,7 +66,7 @@ def test_conflicting_batch_id_409_detail_shape_matches_400(client):
 
 def test_batch_id_insert_race_blocks_on_the_batchs_transaction(client,
                                                                monkeypatch):
-    """pkm-gwwu: BEGIN IMMEDIATE now covers the dedupe SELECT through the
+    """BEGIN IMMEDIATE now covers the dedupe SELECT through the
     commit, so a second connection trying to insert the same batch_id can
     no longer land inside that window -- it blocks on the write lock the
     batch already holds, and the batch's own effects are unaffected."""

@@ -12,7 +12,14 @@ const RETRY_LATER_STATUSES: ReadonlySet<number> = new Set([401, 403, 408, 429]);
  * failure such as a dropped fetch or an offline error — is not a terminal
  * rejection. A `true` result narrows `error` to `ApiError` for the caller;
  * `false` does not imply the opposite (a 5xx `ApiError` also returns
- * false), it only means the caller must not treat it as one. */
+ * false), it only means the caller must not treat it as one.
+ *
+ * Checks `"status" in error` rather than `instanceof ApiError`: this file is
+ * Functional Core, and `ApiError` is a class in the Imperative Shell's
+ * `api/client.ts`, so a value import of it here would cross the FCIS
+ * boundary. Only `ApiError` carries a numeric `status` today, so the duck
+ * type is exact; a future Error subclass with its own `status` field would
+ * need this check revisited. */
 export function isTerminalRejection(error: unknown): error is ApiError {
   if (!(error instanceof Error) || !("status" in error)) return false;
   const apiError = error as ApiError;

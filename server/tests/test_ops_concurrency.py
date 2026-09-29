@@ -1,4 +1,4 @@
-"""pkm-gwwu: post_ops's dedupe read and the batch's context reads must not
+"""post_ops's dedupe read and the batch's context reads must not
 run in a window a concurrent delete_page/rename_page/cleanup_journal commit
 can land inside. These tests race a second connection against the batch's
 own transaction, deterministically, by monkeypatching a function

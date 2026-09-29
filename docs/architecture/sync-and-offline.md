@@ -313,8 +313,8 @@ holds both the graph copy (the server's `BASE_DDL`, replicated via the generated
 and `sync_client_meta`. A second file, `/pkm-replica-carry.sqlite3`, holds
 the pending queue across a
 [file replacement](sync-recovery.md#reset-rebase-and-file-replacement). A
-worker that dies during one, or a carry write that fails, leaves it behind,
-and the next queue handler adopts and removes it.
+worker that dies during one leaves it behind, and the next queue handler
+adopts and removes it.
 
 **The replica is a cache; the queue is the user's intent.** A snapshot can
 always be re-fetched; an unflushed pending op cannot. Every guard in

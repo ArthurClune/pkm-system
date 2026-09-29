@@ -18,80 +18,19 @@ from pkm.contracts.ops import (UID_RE, BlockOp, CreateOp, CreatePageOp,
                                ViewType,
                                text_hash)
 from pkm.contracts.responses import SkipReason
-from pkm.refs import (TitleSyntaxReason, extract, normalize_title,
-                      title_syntax_reason)
+from pkm.refs import TitleSyntaxReason, extract, title_syntax_reason
 from pkm.rename import rewrite_title_refs_map
+from pkm.server.conflict_notes import (MOVE_CYCLE_NOTE, block_missing_note,
+                                       live_block_header_text,
+                                       move_parent_missing_note,
+                                       orphan_header_text,
+                                       overwritten_header_text)
 
 # Most renames a stale edit can be behind. Each step is one recorded
 # rewrite of the same block, so the bound only matters for a block renamed
 # through a long chain while one device stayed offline; past it the edit
 # falls back to the ordinary conflict path.
 MAX_REPLAYED_REWRITES = 10
-
-
-def _links_back(title: str) -> bool:
-    """Does `[[title]]` read back as a ref to exactly `title`? Not for
-    every title: a trailing `]` or a pair of backticks shifts what the
-    extractor sees, and the ref indexer would create THAT page."""
-    refs = extract(f"[[{title}]]").refs
-    return ([normalize_title(r.title) for r in refs]
-            == [normalize_title(title)])
-
-
-def existing_page_label(title: str) -> str:
-    """A page that exists, as a header names it: a `[[link]]` when that
-    reads back as the page, else inline code (which the ref extractor
-    never scans), else -- a title holding a backtick can't be fenced that
-    simply -- the generic label."""
-    if _links_back(title):
-        return f"[[{title}]]"
-    if "`" in title:
-        return "(page unknown)"
-    return f"`{title}`"
-
-
-def conflict_label(page_title: str | None, hint_page_exists: bool) -> str:
-    """Label for check 1's client page-title hint (spec section 2). It
-    never fails the op, and it must not produce a `[[link]]` to a page that
-    does not exist, or the ref indexer creates one:
-
-    - unusable (missing, blank, or syntactically invalid): the generic label
-    - page exists: `existing_page_label`
-    - no such page: the title as inline code, or the generic label for a
-      title holding a backtick
-    """
-    if (page_title is None or not page_title.strip()
-            or title_syntax_reason(page_title) is not None):
-        return "(page unknown)"
-    if hint_page_exists:
-        return existing_page_label(page_title)
-    if "`" in page_title:
-        return "(page unknown)"
-    return f"`{page_title}` (page not found)"
-
-
-def overwritten_header_text(page_title: str, uid: str) -> str:
-    """Header for check 5: the live block's own page, read straight from
-    its row -- always a real title, never a client-supplied hint."""
-    return (f"[[conflict]] {existing_page_label(page_title)}"
-            f" — overwritten by (({uid}))")
-
-
-def orphan_header_text(page_title: str | None, hint_page_exists: bool) -> str:
-    """Header for check 1: page_title is the client's op.page_title hint,
-    which may be missing, unusable, or stale (naming a page the store no
-    longer has); hint_page_exists is resolved by the shell (see OpContext).
-    Also heads every other entry grouped under a missing block's uid (see
-    `classify_missing_target`), so whichever lands first, they share it."""
-    return (f"[[conflict]] {conflict_label(page_title, hint_page_exists)}"
-           " — edit to a block the server no longer has")
-
-
-def live_block_header_text(page_title: str, uid: str) -> str:
-    """Header for a change to a live block that could not be applied (a
-    move whose target parent is gone): names the block's own page, read
-    from its row like check 5's, and embeds the block itself."""
-    return f"[[conflict]] {existing_page_label(page_title)} — (({uid}))"
 
 
 class OpError(ValueError):
@@ -447,27 +386,6 @@ Effect = Union[ShiftSiblings, InsertBlock, UpdateText, SetParent,
                ReindexRefs, TouchPage, SetPageId, RecordConflictHeader,
                JournalBlock]
 
-# What a skipped op on a missing block (MissingTarget "skipped") was, for
-# its note. Notes name uids as plain text: a ((ref)) to a block that does
-# not exist renders broken.
-_SKIPPED_WHAT: dict[type, str] = {
-    MoveOp: "move",
-    SetHeadingOp: "heading change",
-    SetViewTypeOp: "view type change",
-}
-
-
-def skipped_note(what: str, uid: str) -> str:
-    return f"{what} skipped: block {uid} not found"
-
-
-def move_parent_missing_note(parent_uid: str) -> str:
-    return f"move skipped: target parent {parent_uid} not found"
-
-
-MOVE_CYCLE_NOTE = "move skipped: would create a cycle"
-
-
 def _conflict_landing_ready(ctx: OpContext) -> bool:
     """True once ctx carries everything `conflict_entry_effects` needs: the
     daily page, its append slot and the conflict-entry uid, plus -- only
@@ -569,7 +487,8 @@ def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
         # a structural op carries no page hint worth naming: a move's
         # page_title is where it was going, not where the block was
         tombstones = (JournalBlock(op.uid, True),)
-        lost_text = skipped_note(_SKIPPED_WHAT[type(op)], op.uid)
+        assert isinstance(op, (MoveOp, SetHeadingOp, SetViewTypeOp))
+        lost_text = block_missing_note(op)
         header_text = orphan_header_text(None, False)
     if miss.landing_uid is None:                     # blank text: nothing lost
         return (*tombstones, *live)

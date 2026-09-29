@@ -14,7 +14,7 @@ from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
                                  SetPageId, SetParent, SetViewType,
                                  ShiftSiblings, TextEditOutcome, TouchPage,
                                  UpdateText, classify_missing_target,
-                                 classify_text_edit, conflict_label, plan_op,
+                                 classify_text_edit, plan_op,
                                  skip_report)
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
@@ -287,32 +287,6 @@ def test_missing_block_hint_with_backtick_and_no_page_says_page_unknown():
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] (page unknown) — edit to a block "
                            "the server no longer has")
-
-
-@pytest.mark.parametrize(
-    "page_title, hint_page_exists, label",
-    [
-        ("AI Agent Security", True, "[[AI Agent Security]]"),
-        ("Old Title", False, "`Old Title` (page not found)"),
-        ("a`b", False, "(page unknown)"),
-        (None, False, "(page unknown)"),
-        ("  ", False, "(page unknown)"),
-        ("a[[b", False, "(page unknown)"),
-        # a hint could exist and still be unusable syntax at the same
-        # time (e.g. it names a real page's title that happens to hold
-        # `[[`) -- unusable always wins.
-        ("a[[b", True, "(page unknown)"),
-        # the page exists, but `[[title]]` would read back as a different
-        # title (a trailing `]`, paired backticks), and the ref indexer
-        # would create THAT page -- so it is named, not linked
-        ("x]", True, "`x]`"),
-        ("[x]", True, "`[x]`"),
-        ("a}]", True, "`a}]`"),
-        ("a`b`c", True, "(page unknown)"),
-        ("  Padded  ", True, "[[  Padded  ]]"),
-    ])
-def test_conflict_label_table(page_title, hint_page_exists, label):
-    assert conflict_label(page_title, hint_page_exists) == label
 
 
 def test_missing_block_appends_under_todays_header():

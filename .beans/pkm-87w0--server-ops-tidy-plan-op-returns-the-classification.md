@@ -5,7 +5,7 @@ status: in-progress
 type: task
 priority: low
 created_at: 2026-09-29T13:20:54Z
-updated_at: 2026-09-29T20:01:55Z
+updated_at: 2026-09-29T20:03:05Z
 parent: pkm-a4t2
 ---
 
@@ -35,7 +35,7 @@ Bounded refactors; no spec. After the fixes in this epic land.
 ## Checklist
 
 - [x] ops_hash.py split
-- [ ] conflict_notes.py split
+- [x] conflict_notes.py split
 - [ ] MissingTarget family renamed (Skip, orphan_structural)
 - [ ] Per-kind contexts carry the shell's one classification
 - [ ] Docs updated

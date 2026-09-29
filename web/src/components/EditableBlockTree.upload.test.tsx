@@ -1,4 +1,4 @@
-// pkm-zrjc: the /upload pick gives up the block itself, so the uploaded
+// The /upload pick gives up the block itself, so the uploaded
 // image renders even when the native dialog does not blur the textarea.
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -25,8 +25,7 @@ async function flush() {
 }
 
 it("the /upload pick gives up the block itself, so the uploaded image "
-   + "renders even when the native dialog does not blur the textarea "
-   + "(pkm-zrjc)", async () => {
+   + "renders even when the native dialog does not blur the textarea", async () => {
   stubFetch([["/api/assets", INFO]]);
   const view = render(
     <SyncContext.Provider value={makeSync()}>

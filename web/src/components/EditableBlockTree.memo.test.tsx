@@ -12,7 +12,7 @@ import { EditableBlockTree } from "./EditableBlockTree";
 // The real module with one export watched. Every rendered row tokenizes its
 // own text, so the call count is a direct count of rows that re-rendered —
 // and a wasted re-render is invisible in the DOM, since React reconciles an
-// unchanged render to nothing (pkm-qfee).
+// unchanged render to nothing.
 vi.mock("../grammar/tokenize", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../grammar/tokenize")>();
   return { ...actual, tokenizeBlock: vi.fn(actual.tokenizeBlock) };

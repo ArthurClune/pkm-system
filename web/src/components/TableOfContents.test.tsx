@@ -1,4 +1,4 @@
-// The rendered side of {{toc}} (pkm-mzks): a nested list of links to
+// The rendered side of {{toc}}: a nested list of links to
 // #<uid>, which the page's existing hash scroll-and-flash consumes.
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -58,7 +58,7 @@ it("says so when the page has no headings", () => {
   expect(container.querySelector("a")).toBeNull();
 });
 
-// The card's title (pkm-6lg5): the list indents under it, and it stays put
+// The card's title: the list indents under it, and it stays put
 // when there is nothing to list, so an empty toc still reads as a toc.
 it("titles the card, before the list and before the empty state alike", () => {
   const withEntries = mount([entry("aaa", "Intro", 1)]);

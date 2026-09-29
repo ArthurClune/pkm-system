@@ -17,9 +17,9 @@ beforeEach(() => {
 });
 
 // The browser title is set by the centralized route-title effect
-// (useRouteTitle, pkm-77w2), not by this component -- see
+// (useRouteTitle), not by this component -- see
 // useRouteTitle.test.tsx for that coverage.
-it("renders a Settings title and a whole-database export download link (pkm-7myl)", () => {
+it("renders a Settings title and a whole-database export download link", () => {
   render(<Settings />);
 
   expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
@@ -37,7 +37,7 @@ it("structures settings as a list of sections so more items can be added later",
   render(<Settings />);
 
   // one section today ("Export"); more will land as siblings, not as a
-  // one-off special case -- see pkm-7myl.
+  // one-off special case.
   const sections = document.querySelectorAll(".settings-section");
   expect(sections.length).toBeGreaterThanOrEqual(1);
   expect(screen.getByRole("heading", { level: 2, name: "Export" })).toBeInTheDocument();

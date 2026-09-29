@@ -59,11 +59,11 @@ test("clicking an autocomplete row completes the page reference", async () => {
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
-// Same race as BlockInput's (pkm-j7ez): the caret after a pick used to be
+// Same race as BlockInput's: the caret after a pick used to be
 // placed in a requestAnimationFrame, so until the next frame it sat at the
 // end of the text and typing there was later yanked back. Frames are held
 // back here; the caret must be right without one and stay where typing put it.
-test("a mid-text completion places the caret after the ref before any frame (pkm-j7ez)", async () => {
+test("a mid-text completion places the caret after the ref before any frame", async () => {
   const frames: FrameRequestCallback[] = [];
   const spy = vi.spyOn(window, "requestAnimationFrame")
     .mockImplementation((cb) => { frames.push(cb); return frames.length; });
@@ -122,7 +122,7 @@ test("arrow keys choose an autocomplete row and Enter applies it", async () => {
 });
 
 test("modified Arrow/Enter/Tab/Escape do not move, pick, or close the popup", async () => {
-  // pkm-clt1: Cmd/Ctrl/Shift/Alt variants must be left alone — Composer has
+  // Cmd/Ctrl/Shift/Alt variants must be left alone — Composer has
   // no other keyboard shortcuts, so a modified key should leave the popup,
   // selection, and draft exactly as they were.
   stubFetch([["/api/titles", { titles: ["Alpha", "Alpine"] }]]);
@@ -144,7 +144,7 @@ test("modified Arrow/Enter/Tab/Escape do not move, pick, or close the popup", as
   expect(screen.getByRole("option", { name: "Alpine" })).toHaveAttribute("aria-selected", "false");
 });
 
-test("a selection-only caret move drops the stale completion (pkm-noow)", async () => {
+test("a selection-only caret move drops the stale completion", async () => {
   // Clicking (or arrowing) elsewhere in the textarea moves selectionStart
   // without firing an input event, so the context captured by the last
   // onChange still points at "[[Al". jsdom does not move the caret for a
@@ -167,7 +167,7 @@ test("a selection-only caret move drops the stale completion (pkm-noow)", async 
   expect(onSend).not.toHaveBeenCalled();
 });
 
-test("clicking away from the token closes the popup (pkm-noow)", async () => {
+test("clicking away from the token closes the popup", async () => {
   stubFetch([["/api/titles", { titles: ["Alpha"] }]]);
   render(<Composer onSend={vi.fn()} readOnly={false} />);
   const ta = typeRefQuery("Al");
@@ -178,7 +178,7 @@ test("clicking away from the token closes the popup (pkm-noow)", async () => {
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
-test("a stale completion is not applied by a mouse pick (pkm-noow)", async () => {
+test("a stale completion is not applied by a mouse pick", async () => {
   stubFetch([["/api/titles", { titles: ["Alpha"] }]]);
   render(<Composer onSend={vi.fn()} readOnly={false} />);
   const ta = typeRefQuery("Al");

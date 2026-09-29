@@ -55,7 +55,7 @@ it("reflects a collapsed sidebar with a 'Show sidebar' label and aria-expanded=f
   expect(button).toHaveAttribute("aria-expanded", "false");
 });
 
-it("renders svg icons in the sidebar toggle and page menu buttons (pkm-mijo)", () => {
+it("renders svg icons in the sidebar toggle and page menu buttons", () => {
   renderTopBar("/page/AWS");
   expect(screen.getByRole("button", { name: "Hide sidebar" }).querySelector("svg")).not.toBeNull();
   expect(screen.getByRole("button", { name: "Page menu" }).querySelector("svg")).not.toBeNull();
@@ -90,7 +90,7 @@ it("page menu button starts closed and toggles aria-expanded on click", () => {
   expect(screen.getByRole("menuitem", { name: "Open in sidebar" })).toBeInTheDocument();
 });
 
-it("shows an 'Export as Markdown' download link in the page menu (pkm-uvqf)", () => {
+it("shows an 'Export as Markdown' download link in the page menu", () => {
   renderTopBar("/page/Machine Learning");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   const link = screen.getByRole("menuitem", { name: "Export as Markdown" });
@@ -99,7 +99,7 @@ it("shows an 'Export as Markdown' download link in the page menu (pkm-uvqf)", ()
   expect(link).toHaveAttribute("download");
 });
 
-it("encodes slashes in namespaced page titles for the export link (pkm-uvqf)", () => {
+it("encodes slashes in namespaced page titles for the export link", () => {
   renderTopBar("/page/AWS/SCP");
   fireEvent.click(screen.getByRole("button", { name: "Page menu" }));
   const link = screen.getByRole("menuitem", { name: "Export as Markdown" });
@@ -134,7 +134,7 @@ it("closes the menu on Escape", () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-// pkm-pe79: window.confirm/alert are suppressed by iPadOS Safari in
+// window.confirm/alert are suppressed by iPadOS Safari in
 // standalone/PWA mode -- these exercise the in-app dialog that replaced it
 // (a real DOM dialog, not window.confirm, so this also proves the flow
 // doesn't depend on a native API iPad silently no-ops).
@@ -184,7 +184,7 @@ it("a failed delete closes the menu, does not navigate, and announces an actiona
   expect(screen.queryByText("home")).toBeNull();
 
   // role="alert" is how the sync banner and upload errors announce failures
-  // elsewhere in the app (pkm-d5re) -- the same pattern, not a new one.
+  // elsewhere in the app -- the same pattern, not a new one.
   const alert = screen.getByRole("alert");
   expect(alert).toHaveTextContent("Paper");
   expect(alert).toHaveTextContent("boom");
@@ -257,35 +257,35 @@ it("navigating away clears a stale delete error", async () => {
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-it("shows the current page title in the bar on page routes (pkm-absu)", () => {
+it("shows the current page title in the bar on page routes", () => {
   renderTopBar("/page/AWS/SCP");
   const label = screen.getByText("AWS/SCP");
   expect(label).toHaveClass("top-bar-title");
 });
 
-it("labels the journal route 'Daily Notes' in the bar (pkm-absu)", () => {
+it("labels the journal route 'Daily Notes' in the bar", () => {
   renderTopBar("/");
   expect(screen.getByText("Daily Notes")).toHaveClass("top-bar-title");
 });
 
-it("labels the current-work route in the bar (pkm-absu)", () => {
+it("labels the current-work route in the bar", () => {
   renderTopBar("/current-work");
   expect(screen.getByText("Current Work")).toHaveClass("top-bar-title");
 });
 
-// pkm-77w2: /files and /settings existed in the router but had no top-bar
-// label until route metadata was centralized.
-it("labels the files route in the bar (pkm-77w2)", () => {
+// /files and /settings need their own route-label coverage: they exist in
+// the router but only get a top-bar label from centralized route metadata.
+it("labels the files route in the bar", () => {
   renderTopBar("/files");
   expect(screen.getByText("Files")).toHaveClass("top-bar-title");
 });
 
-it("labels the settings route in the bar (pkm-77w2)", () => {
+it("labels the settings route in the bar", () => {
   renderTopBar("/settings");
   expect(screen.getByText("Settings")).toHaveClass("top-bar-title");
 });
 
-it("shows the search shortcut hint inside the search pill (pkm-absu)", () => {
+it("shows the search shortcut hint inside the search pill", () => {
   const { container } = renderTopBar("/");
   const hint = container.querySelector("kbd.top-bar-search-hint");
   expect(hint).not.toBeNull();

@@ -1,5 +1,5 @@
 // Page links carry their title namespace as data-ns so the stylesheet can
-// colour whole trees ([[AWS/...]], [[Claude/...]]) differently (pkm-r71a).
+// colour whole trees ([[AWS/...]], [[Claude/...]]) differently.
 import { render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { expect, it, vi } from "vitest";

@@ -137,7 +137,7 @@ it("renders nothing for a non-post href", () => {
   expect(container).toBeEmptyDOMElement();
 });
 
-// --- actor/height identity reconciliation (pkm-stn6) ---
+// --- actor/height identity reconciliation ---
 
 it("ignores a resolved handle for an actor the href has since moved away from", async () => {
   const dids: Record<string, string> = {

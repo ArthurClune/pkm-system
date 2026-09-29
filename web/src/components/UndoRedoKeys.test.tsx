@@ -1,4 +1,4 @@
-// pkm-7q14: window-level undo keys — fire only when no editable element owns
+// Window-level undo keys fire only when no editable element owns
 // the keystroke, so the search bar keeps native input undo.
 import { fireEvent, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";

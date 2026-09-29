@@ -43,7 +43,7 @@ let failLoad = false;
 let failWith: unknown = null;
 // Manual mode lets a test control exactly when a document's load and its
 // page-1 metadata resolve, independently -- needed to exercise the
-// old-document-completes-late races (pkm-qs7y). Each mount/href-change of
+// old-document-completes-late races. Each mount/href-change of
 // the mocked Document registers one entry in pendingLoads.
 type Viewport = { width: number; height: number };
 type LoadHandle = {
@@ -266,7 +266,7 @@ it("focus moves into the dialog on open and returns to Expand on close", async (
 it("the overlay's scroll frame is a labelled tab stop inside the trap", async () => {
   // Browsers make scrollable containers implicit tab stops, but the trap
   // only sees explicit matches -- without a real tabindex a keyboard user
-  // could never reach the frame to scroll the PDF (pkm-bqrk review).
+  // could never reach the frame to scroll the PDF.
   await renderLoaded();
   // the inline frame keeps its native (implicit) behaviour; it unmounts
   // while expanded, so check it before opening the overlay
@@ -310,7 +310,7 @@ it("locks body scrolling while the overlay is open and restores the prior value"
 });
 
 it("no click anywhere in the viewer bubbles to an enclosing block's click-to-edit handler", async () => {
-  // Regression test for pkm-srek: a real block renders this viewer inside
+  // A real block renders this viewer inside
   // EditableBlockTree's `.block-text`, which has its own onClick that
   // re-enters edit mode (and would unmount this viewer, along with any
   // `expanded` state, before the overlay ever renders) unless every click
@@ -328,7 +328,7 @@ it("no click anywhere in the viewer bubbles to an enclosing block's click-to-edi
   // Notes and Download are real anchors, and correctly left unprevented --
   // a download link should do its native thing. But jsdom then tries a real
   // navigation on a timer and logs "Not implemented: navigation" against
-  // whichever test happens to be running by then, not this one. pkm-10ah's
+  // whichever test happens to be running by then, not this one.
   // App.test.tsx swallows the same noise with a document-level bubble
   // listener, but that relies on the click reaching document at all; here it
   // can't; the island's whole point (asserted below via onParentClick) is
@@ -396,7 +396,7 @@ it("a non-503 HTTP failure still reads as a render failure", async () => {
   expect(screen.queryByText("Not downloaded on the host.")).toBeNull();
 });
 
-// ---- pkm-qs7y: reset and generation-guard on href change --------------
+// ---- reset and generation-guard on href change ------------------------
 
 const href2 = `/assets/${"cd".repeat(32)}/doc2.pdf`;
 
@@ -485,7 +485,7 @@ it("a stale load error from the previous document does not mark the new document
   expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
 });
 
-// ---- pkm-5o11: overlay-only mode (used by /files) ----------------------
+// ---- overlay-only mode (used by /files) --------------------------------
 
 it("with onClose renders the fullscreen overlay immediately, with no inline frame or Expand", async () => {
   manual = true;

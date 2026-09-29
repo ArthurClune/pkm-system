@@ -129,7 +129,7 @@ it("other errors revert and surface a message", async () => {
   expect(screen.getByRole("heading", { name: "My Page" })).toBeInTheDocument();
 });
 
-it("the editable title is a focusable button inside the heading (pkm-l4z8)", () => {
+it("the editable title is a focusable button inside the heading", () => {
   mount("My Page");
   const heading = screen.getByRole("heading", { name: "My Page" });
   const trigger = screen.getByRole("button", { name: "My Page" });

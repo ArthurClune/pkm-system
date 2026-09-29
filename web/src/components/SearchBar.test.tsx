@@ -36,7 +36,7 @@ function renderBar(openInSidebar: (title: string, uid?: string) => void = () => 
   return screen.getByPlaceholderText("Search…");
 }
 
-it("styles the search input with the shared field tokens (pkm-mrru, pkm-0wg9)", () => {
+it("styles the search input with the shared field tokens", () => {
   stubFetch([]);
   renderBar();
   // the top-bar search is the same object as /files' search, icon and all

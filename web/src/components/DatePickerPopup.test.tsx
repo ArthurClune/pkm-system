@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { DatePickerPopup } from "./DatePickerPopup";
 
-describe("DatePickerPopup (pkm-rw6w)", () => {
+describe("DatePickerPopup", () => {
   test("shows the initial month and reports a clicked day", () => {
     const onPick = vi.fn();
     render(<DatePickerPopup initial={new Date(2026, 6, 29)} onPick={onPick} />);
@@ -26,7 +26,7 @@ describe("DatePickerPopup (pkm-rw6w)", () => {
     expect(onPick).toHaveBeenCalledWith(new Date(2026, 7, 20));
   });
 
-  test("exactly the initial date's own cell is highlighted as today (pkm-0xla)", () => {
+  test("exactly the initial date's own cell is highlighted as today", () => {
     const { container } = render(
       <DatePickerPopup initial={new Date(2026, 6, 29)} onPick={vi.fn()} />);
     // June 29 also sits in this grid as an outside cell with the same day

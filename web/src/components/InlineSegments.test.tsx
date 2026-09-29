@@ -105,7 +105,7 @@ it("renders images, pdf embeds for /assets/*.pdf links, and external links", asy
 });
 
 it("renders a bare Bluesky post URL as an embedded iframe, not a plain anchor", async () => {
-  // embed.bsky.app only accepts DIDs, so the handle is resolved first (pkm-es9o)
+  // embed.bsky.app only accepts DIDs, so the handle is resolved first
   const did = "did:plc:z72i7hdynmk6r22z27h6tvur";
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true, status: 200, json: async () => ({ did }),
@@ -218,7 +218,7 @@ it("renders malformed percent-encoding in a pdf macro label as the raw filename"
   await waitFor(() => expect(screen.getByTestId("pdf-viewer")).toBeInTheDocument());
 });
 
-it("dispatches asset-link segments to AssetLink (pkm-gdi5)", () => {
+it("dispatches asset-link segments to AssetLink", () => {
   const sha = "492d80a8b6a72a7c4615c69a9a7def6fac0e019d452f9c88bb61ca8a671dbfd7";
   const url = `/assets/${sha}/IMG_0868.jpeg`;
   renderText(`see ${url} now`);
@@ -241,7 +241,7 @@ it("renders click-to-load pdf embeds for /api/local/*.pdf links and plain anchor
     "[bundle.zip](/api/local/Papers/bundle.zip)");
   expect(screen.getByRole("link", { name: "Title.pdf" }))
     .toHaveAttribute("href", "/api/local/Papers/Machine%20Learning/Title.pdf");
-  // Local-copy PDFs are click-to-load (pkm-pv7w): a page listing many papers
+  // Local-copy PDFs are click-to-load: a page listing many papers
   // must not fetch and parse every one of them on render.
   expect(screen.queryByTestId("pdf-viewer")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Open" }));

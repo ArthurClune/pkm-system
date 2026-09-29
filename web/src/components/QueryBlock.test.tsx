@@ -108,7 +108,7 @@ it("shows the server's 400 as an error state", async () => {
   expect(await screen.findByText(/400/)).toBeInTheDocument();
 });
 
-// --- out-of-order / concurrency (pkm-stn6) ---
+// --- out-of-order / concurrency ---
 
 it("keeps only the current expr's results when a superseded expr resolves late", async () => {
   const a = defer<Response>();

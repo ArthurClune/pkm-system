@@ -1,5 +1,5 @@
 // The namespace of a page title is the prefix before its first "/" --
-// [[AWS/EC2]] is in "aws". Used to colour refs by tree (pkm-r71a).
+// [[AWS/EC2]] is in "aws". Used to colour refs by tree.
 import { expect, test } from "vitest";
 import { pageNamespace } from "./pageNamespace";
 

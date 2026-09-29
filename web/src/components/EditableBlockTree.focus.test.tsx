@@ -9,7 +9,7 @@ import * as tree from "../outline/tree";
 import { EditableBlockTree } from "./EditableBlockTree";
 
 // The real module with one export watched: this file asserts HOW OFTEN the
-// tree walks itself, so the walk has to be countable (pkm-nvxh).
+// tree walks itself, so the walk has to be countable.
 vi.mock("../outline/tree", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../outline/tree")>();
   return { ...actual, ancestorChain: vi.fn(actual.ancestorChain) };

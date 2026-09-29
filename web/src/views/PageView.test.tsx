@@ -119,7 +119,7 @@ it("shows an error state on 404", async () => {
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
-it("renders an empty editable page for a missing daily title (pkm-fy52)", async () => {
+it("renders an empty editable page for a missing daily title", async () => {
   stubFetch([]);
   renderAt("/page/July%201st%2C%202026");
   expect(await screen.findByRole("heading", { name: "July 1st, 2026" }))
@@ -128,7 +128,7 @@ it("renders an empty editable page for a missing daily title (pkm-fy52)", async 
   expect(document.querySelector(".page")).not.toBeNull();
 });
 
-it("still shows the error for a missing normal page (pkm-fy52)", async () => {
+it("still shows the error for a missing normal page", async () => {
   stubFetch([]);
   renderAt("/page/No%20Such%20Page");
   expect(await screen.findByText(/could not load/i)).toBeInTheDocument();
@@ -1244,7 +1244,7 @@ it("a superseded resync failure cannot replace a newer parent winner with error"
   expect(isOutlineSessionActive(title)).toBe(false);
 });
 
-it("scrolls to and flashes the block named in the location hash (pkm-pzdu)", async () => {
+it("scrolls to and flashes the block named in the location hash", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([
@@ -1262,7 +1262,7 @@ it("scrolls to and flashes the block named in the location hash (pkm-pzdu)", asy
   expect(row!.classList.contains("flash-target")).toBe(true);
 });
 
-it("a hash naming no block on the page is a no-op (pkm-pzdu)", async () => {
+it("a hash naming no block on the page is a no-op", async () => {
   const scrollIntoView = vi.fn();
   window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
   stubFetch([

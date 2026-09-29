@@ -1,5 +1,5 @@
 // A ((uid)) pasted after the page payload loaded is not in block_ref_texts;
-// the provider fetches it on demand so the ref resolves live (pkm-y6af).
+// the provider fetches it on demand so the ref resolves live.
 import { render, screen, waitFor } from "@testing-library/react";
 import { useContext, useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";

@@ -203,7 +203,7 @@ test("Cmd-Alt-0 through Cmd-Alt-3 set plain text and heading levels", () => {
   expect(h.onDraftChange).not.toHaveBeenCalled();
 });
 
-test("the old Ctrl-Alt heading chord no longer fires (pkm-bt9h)", () => {
+test("the old Ctrl-Alt heading chord no longer fires", () => {
   const h = handlers();
   mount(h, 0);
   fireEvent.keyDown(focusedTextarea(), {
@@ -336,8 +336,7 @@ test("clicking a slash-menu row picks it (mouseDown, not click)", () => {
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
-test("Tab accepts the highlighted slash-menu row, same as Enter (pkm-x3so: this " +
-     "already worked at HEAD — kept as a regression test)", () => {
+test("Tab accepts the highlighted slash-menu row, same as Enter", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -371,7 +370,7 @@ test("a non-matching slash query shows no rows and Enter falls through to split"
   expect(h.onSplit).toHaveBeenCalledWith("u1", 4);
 });
 
-describe("a caret moved without an input event (pkm-noow)", () => {
+describe("a caret moved without an input event", () => {
   // A click or a selection-only key moves selectionStart with no input
   // event, so the context captured by the last onChange can describe a token
   // the caret has left. jsdom does not move the caret for a native key, so
@@ -462,10 +461,10 @@ test("typing /h1 shows the heading rows; Enter strips the trigger and dispatches
 // its caret in a requestAnimationFrame. Typing that landed before the next
 // frame -- routine under load -- was then yanked back to the offset captured
 // at replace time: /h1 then "Intro" left the caret at 0, so Enter split the
-// heading's text into the block below (pkm-j7ez). These tests hold frames
+// heading's text into the block below. These tests hold frames
 // back entirely, so they see what a user who types before the next frame
 // sees; the caret must already be right, and must stay where typing put it.
-describe("caret placement after a programmatic replace (pkm-j7ez)", () => {
+describe("caret placement after a programmatic replace", () => {
   function holdFrames() {
     const frames: FrameRequestCallback[] = [];
     const spy = vi.spyOn(window, "requestAnimationFrame")
@@ -608,7 +607,7 @@ function mountWithPageRoute(h: OutlineHandlers, cursor: number) {
     </MemoryRouter>);
 }
 
-test("Ctrl-O inside a [[page reference]] navigates to that page (pkm-ul9u)", async () => {
+test("Ctrl-O inside a [[page reference]] navigates to that page", async () => {
   stubFetch([["/api/pages", { id: 1, title: "World", created_at: 0, updated_at: 0 }]]);
   const h = handlers();
   mountWithPageRoute(h, 0);
@@ -618,7 +617,7 @@ test("Ctrl-O inside a [[page reference]] navigates to that page (pkm-ul9u)", asy
   await waitFor(() => expect(screen.getByText("page view here")).toBeInTheDocument());
 });
 
-test("Ctrl-O outside a ref does not navigate or preventDefault (pkm-ul9u)", () => {
+test("Ctrl-O outside a ref does not navigate or preventDefault", () => {
   const h = handlers();
   mountWithPageRoute(h, 0);
   const ta = focusedTextarea();
@@ -628,11 +627,11 @@ test("Ctrl-O outside a ref does not navigate or preventDefault (pkm-ul9u)", () =
   expect(screen.getByText("home")).toBeInTheDocument();
 });
 
-// pkm-a1e4: a freshly-typed [[ref]] whose caret never left the brackets has
-// no server-side row yet (the create-on-flush path is held mid-token,
-// pkm-xlah) -- Ctrl-O used to navigate straight to a page that 404s. It must
+// A freshly-typed [[ref]] whose caret never left the brackets has
+// no server-side row yet (the create-on-flush path is held mid-token)
+// -- Ctrl-O must not navigate straight to a page that 404s. It must
 // create the page first.
-test("Ctrl-O creates the target page before navigating if it doesn't exist yet (pkm-a1e4)", async () => {
+test("Ctrl-O creates the target page before navigating if it doesn't exist yet", async () => {
   const fetchMock = stubFetch([
     ["/api/pages", { id: 9, title: "World", created_at: 0, updated_at: 0 }],
   ]);
@@ -649,11 +648,11 @@ test("Ctrl-O creates the target page before navigating if it doesn't exist yet (
   await waitFor(() => expect(screen.getByText("page view here")).toBeInTheDocument());
 });
 
-// pkm-hhbc (data loss): the draft that names the ref is flush-held while the
+// The draft that names the ref is flush-held while the
 // caret is inside the token, and navigating unmounts this tree without a blur.
 // The flush must therefore be asked for HERE, and before POST /api/pages, so
 // the ref row is created by the normal ops path rather than racing it.
-test("navigate-ref flushes the held draft before creating the page (pkm-hhbc)", async () => {
+test("navigate-ref flushes the held draft before creating the page", async () => {
   const fetchMock = stubFetch([
     ["/api/pages", { id: 9, title: "World", created_at: 0, updated_at: 0 }],
   ]);
@@ -671,7 +670,7 @@ test("navigate-ref flushes the held draft before creating the page (pkm-hhbc)", 
     .toBeLessThan(fetchMock.mock.invocationCallOrder[pagesCall]);
 });
 
-test("Ctrl-Shift-O opens the reference in the sidebar instead of navigating (pkm-a1e4)", async () => {
+test("Ctrl-Shift-O opens the reference in the sidebar instead of navigating", async () => {
   stubFetch([["/api/pages", { id: 9, title: "World", created_at: 0, updated_at: 0 }]]);
   const openInSidebar = vi.fn();
   const h = handlers();
@@ -699,7 +698,7 @@ test("Ctrl-Shift-O opens the reference in the sidebar instead of navigating (pkm
   expect(screen.getByText("home")).toBeInTheDocument();
 });
 
-test("Cmd-K wraps the selection as a markdown link (pkm-jbjk)", () => {
+test("Cmd-K wraps the selection as a markdown link", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -708,7 +707,7 @@ test("Cmd-K wraps the selection as a markdown link (pkm-jbjk)", () => {
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[hello]() [[World]]");
 });
 
-test("Cmd-K with no selection inserts an empty []() (pkm-jbjk)", () => {
+test("Cmd-K with no selection inserts an empty []()", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -717,7 +716,7 @@ test("Cmd-K with no selection inserts an empty []() (pkm-jbjk)", () => {
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[]()hello [[World]]");
 });
 
-test("Ctrl-K is left alone (mac kill-line, not link) (pkm-jbjk)", () => {
+test("Ctrl-K is left alone (mac kill-line, not link)", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -726,7 +725,7 @@ test("Ctrl-K is left alone (mac kill-line, not link) (pkm-jbjk)", () => {
   expect(h.onDraftChange).not.toHaveBeenCalled();
 });
 
-test("Cmd-Enter cycles the block's TODO state, updating the textarea immediately (pkm-wquz)", () => {
+test("Cmd-Enter cycles the block's TODO state, updating the textarea immediately", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -736,7 +735,7 @@ test("Cmd-Enter cycles the block's TODO state, updating the textarea immediately
   expect(h.onSplit).not.toHaveBeenCalled();
 });
 
-test("Ctrl-Enter also cycles the block's TODO state (pkm-wquz)", () => {
+test("Ctrl-Enter also cycles the block's TODO state", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -745,7 +744,7 @@ test("Ctrl-Enter also cycles the block's TODO state (pkm-wquz)", () => {
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "{{TODO}} hello [[World]]");
 });
 
-test("Cmd-Shift-Enter does not cycle the TODO state (pkm-wquz)", () => {
+test("Cmd-Shift-Enter does not cycle the TODO state", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -755,7 +754,7 @@ test("Cmd-Shift-Enter does not cycle the TODO state (pkm-wquz)", () => {
   expect(h.onSplit).not.toHaveBeenCalled();
 });
 
-test("typing [ auto-closes the bracket (pkm-3sxw)", () => {
+test("typing [ auto-closes the bracket", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -764,7 +763,7 @@ test("typing [ auto-closes the bracket (pkm-3sxw)", () => {
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[]hello [[World]]");
 });
 
-test("typing ( around a selection wraps it (pkm-3sxw)", () => {
+test("typing ( around a selection wraps it", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -773,7 +772,7 @@ test("typing ( around a selection wraps it (pkm-3sxw)", () => {
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "(hello) [[World]]");
 });
 
-test("typing [ twice opens the [[ page-link autocomplete (pkm-3sxw)", () => {
+test("typing [ twice opens the [[ page-link autocomplete", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -785,12 +784,12 @@ test("typing [ twice opens the [[ page-link autocomplete (pkm-3sxw)", () => {
   // rAF that places it, so set it explicitly before the second keystroke.
   ta.setSelectionRange(1, 1);
   fireEvent.keyDown(ta, { key: "[" }); // -> "[[]]" caret 2, ref popup opens
-  // caret inside the open ref: the draft is flush-held (pkm-xlah)
+  // caret inside the open ref: the draft is flush-held
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[]]", true);
 });
 
 test("wrapping a selection in [[ ]] opens the ref popup for the selected text "
-     + "and Enter completes it (pkm-wxwp)", () => {
+     + "and Enter completes it", () => {
   stubFetch([["/api/titles", { titles: [] }]]);
   const h = handlers();
   mount(h, 0);
@@ -813,8 +812,7 @@ test("wrapping a selection in [[ ]] opens the ref popup for the selected text "
   expect(screen.queryByRole("listbox")).toBeNull();
 });
 
-test("typing with the caret inside an open [[ ref holds the draft flush "
-     + "(pkm-xlah)", () => {
+test("typing with the caret inside an open [[ ref holds the draft flush", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -825,7 +823,7 @@ test("typing with the caret inside an open [[ ref holds the draft flush "
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "[[How LLM]]", true);
 });
 
-test("a #tag token holds the draft flush until the token ends (pkm-xlah)", () => {
+test("a #tag token holds the draft flush until the token ends", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -839,7 +837,7 @@ test("a #tag token holds the draft flush until the token ends (pkm-xlah)", () =>
   expect(h.onDraftChange).toHaveBeenLastCalledWith("u1", "#How ");
 });
 
-test("Shift+ArrowDown at a block edge starts a block selection (pkm-9b8n)", () => {
+test("Shift+ArrowDown at a block edge starts a block selection", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -848,7 +846,7 @@ test("Shift+ArrowDown at a block edge starts a block selection (pkm-9b8n)", () =
   expect(h.onStartBlockSelection).toHaveBeenCalledWith("u1", "down");
 });
 
-test("Shift+ArrowUp at a block edge starts a block selection upward (pkm-9b8n)", () => {
+test("Shift+ArrowUp at a block edge starts a block selection upward", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -857,7 +855,7 @@ test("Shift+ArrowUp at a block edge starts a block selection upward (pkm-9b8n)",
   expect(h.onStartBlockSelection).toHaveBeenCalledWith("u1", "up");
 });
 
-test("Shift+Arrow inside a multi-line block extends text, not blocks (pkm-9b8n)", () => {
+test("Shift+Arrow inside a multi-line block extends text, not blocks", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -867,7 +865,7 @@ test("Shift+Arrow inside a multi-line block extends text, not blocks (pkm-9b8n)"
   expect(h.onStartBlockSelection).not.toHaveBeenCalled();
 });
 
-test("Shift+ArrowUp with text selected starts a block selection, not a focus move (pkm-jgtn)", () => {
+test("Shift+ArrowUp with text selected starts a block selection, not a focus move", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -877,7 +875,7 @@ test("Shift+ArrowUp with text selected starts a block selection, not a focus mov
   expect(h.onArrow).not.toHaveBeenCalled();
 });
 
-test("Shift+Cmd+ArrowLeft selects line-wise: to the line start, then a line per press (pkm-jgtn)", () => {
+test("Shift+Cmd+ArrowLeft selects line-wise: to the line start, then a line per press", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -894,7 +892,7 @@ test("Shift+Cmd+ArrowLeft selects line-wise: to the line start, then a line per 
   expect([ta.selectionStart, ta.selectionEnd]).toEqual([0, 8]);
 });
 
-test("Shift+Cmd+ArrowRight selects line-wise downward (pkm-jgtn)", () => {
+test("Shift+Cmd+ArrowRight selects line-wise downward", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -908,7 +906,7 @@ test("Shift+Cmd+ArrowRight selects line-wise downward (pkm-jgtn)", () => {
   expect([ta.selectionStart, ta.selectionEnd]).toEqual([2, 11]);
 });
 
-test("Ctrl+Cmd+ArrowLeft selects to the block start and stays there (pkm-am54)", () => {
+test("Ctrl+Cmd+ArrowLeft selects to the block start and stays there", () => {
   const h = handlers();
   mount(h, 5);
   const ta = focusedTextarea();
@@ -922,7 +920,7 @@ test("Ctrl+Cmd+ArrowLeft selects to the block start and stays there (pkm-am54)",
   expect([ta.selectionStart, ta.selectionEnd]).toEqual([0, 5]);
 });
 
-test("Ctrl+Cmd+ArrowRight selects to the block end (pkm-am54)", () => {
+test("Ctrl+Cmd+ArrowRight selects to the block end", () => {
   const h = handlers();
   mount(h, 6);
   const ta = focusedTextarea();
@@ -934,7 +932,7 @@ test("Ctrl+Cmd+ArrowRight selects to the block end (pkm-am54)", () => {
     .toEqual([6, "hello [[World]]".length]);
 });
 
-test("Ctrl+Cmd+ArrowUp/Down selects the whole block instead of moving focus (pkm-am54)", () => {
+test("Ctrl+Cmd+ArrowUp/Down selects the whole block instead of moving focus", () => {
   const h = handlers();
   mount(h, 0);
   const ta = focusedTextarea();
@@ -951,7 +949,7 @@ test("Ctrl+Cmd+ArrowUp/Down selects the whole block instead of moving focus (pkm
   expect(h.onStartBlockSelection).not.toHaveBeenCalled();
 });
 
-// pkm-fwa2: plain paste is ALWAYS native; only the Shift-Cmd-V chord (armed
+// Plain paste is ALWAYS native; only the Shift-Cmd-V chord (armed
 // by its keydown, consumed by the paste event that follows) splits the
 // clipboard into an outline.
 const pressPasteChord = (ta: HTMLTextAreaElement, mods: object = {}) =>
@@ -1058,7 +1056,7 @@ test("read-only outlines do not intercept text pastes", () => {
   expect(h.onPasteOutline).not.toHaveBeenCalled();
 });
 
-describe("/date picker (pkm-rw6w)", () => {
+describe("/date picker", () => {
   test("picking /date strips the trigger and opens the picker", () => {
     const h = handlers();
     mount(h, 0);
@@ -1111,7 +1109,7 @@ describe("/date picker (pkm-rw6w)", () => {
     expect(screen.queryByRole("dialog", { name: "pick a date" })).toBeNull();
   });
 
-  test("a remote update adopted while the picker is open closes it (pkm-0xla)", () => {
+  test("a remote update adopted while the picker is open closes it", () => {
     const h = handlers();
     const view = mount(h, 0);
     const ta = focusedTextarea();

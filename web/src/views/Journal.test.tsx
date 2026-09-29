@@ -83,7 +83,7 @@ it("renders the first batch newest-first and loads older days on intersect", asy
   expect(screen.queryByRole("link", { name: "July 2nd, 2026" })).not.toBeInTheDocument();
   // oldest already-loaded date is passed as the exclusive `before`. Not
   // necessarily the LAST call: each rendered day also lazily fetches its
-  // own linked references (pkm-vvta), and that fetch can land after this
+  // own linked references, and that fetch can land after this
   // one settles.
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/journal?days=5&before=2026-07-04", READ_INIT);
@@ -170,7 +170,7 @@ it("discards a stale in-flight load when a resync resets the journal", async () 
 });
 
 it("keeps day sections mounted across a resync (no remount churn)", async () => {
-  // pkm-ss9k: a resync bump must refresh content in place. Blanking the day
+  // A resync bump must refresh content in place. Blanking the day
   // list first unmounts every .journal-day and remounts it after the refetch,
   // which detaches the DOM mid-interaction (Playwright "not stable" flake).
   let journalCalls = 0;
@@ -357,7 +357,7 @@ it("releases captured session reservations when unmounted in flight", async () =
 });
 
 it("stops auto-loading when a batch comes back short (journal exhausted)", async () => {
-  // pkm-03x6: the API returns only non-empty days; fewer than requested
+  // The API returns only non-empty days; fewer than requested
   // means there is nothing older, so the journal stops asking entirely.
   const fetchMock = stubFetch([
     ["/api/journal?days=5&before=2026-07-04", { days: [
@@ -385,8 +385,8 @@ it("stops auto-loading when a batch comes back short (journal exhausted)", async
     .not.toBeInTheDocument();
 });
 
-it("a resync reloads the whole scrolled window, not just the head batch " +
-   "(pkm-wstt)", async () => {
+it("a resync reloads the whole scrolled window, not just the head batch",
+   async () => {
   const head = [
     day("2026-07-22", "July 22nd, 2026"),
     day("2026-07-14", "July 14th, 2026"),
@@ -427,7 +427,7 @@ it("a resync reloads the whole scrolled window, not just the head batch " +
     .toBeInTheDocument();
 });
 
-it("loads a scrolled window of days with no request per day (pkm-5fak)",
+it("loads a scrolled window of days with no request per day",
 async () => {
   // The journal payload carries everything a day renders — blocks AND its
   // linked references — so N days on screen must cost the N/BATCH journal
@@ -452,7 +452,7 @@ async () => {
   expect(perDay).toEqual([]);
 });
 
-it("refetches a resynced window in one request, not one per day (pkm-5fak)",
+it("refetches a resynced window in one request, not one per day",
 async () => {
   const days = ["2026-07-22", "2026-07-21", "2026-07-20", "2026-07-19",
                 "2026-07-18"].map((d) => day(d, `Day ${d}`));
@@ -472,14 +472,14 @@ async () => {
 
   rerender(inSync({ ...sync, resyncSeq: 1 }));
   await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(before));
-  // The whole on-screen window comes back as one batch (pkm-wstt), and the
+  // The whole on-screen window comes back as one batch, and the
   // five days it replaces add nothing of their own.
   const sinceResync = fetchMock.mock.calls.slice(before).map(([u]) => String(u));
   expect(sinceResync).toEqual(["/api/journal?days=5"]);
 });
 
 it("treats a 404 on an active session's authoritative refetch as an empty day, " +
-   "not a failed load (pkm-fy52: day deleted underneath us)", async () => {
+   "not a failed load (day deleted underneath us)", async () => {
   const title = "July 8th, 2026";
   const journal = deferred<Response>();
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -532,7 +532,7 @@ it("treats a 404 on an active session's authoritative refetch as an empty day, "
   }
 });
 
-it("a repair-triggered day reload treats a 404 as an empty day (pkm-fy52)", async () => {
+it("a repair-triggered day reload treats a 404 as an empty day", async () => {
   const title = "July 8th, 2026";
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
@@ -568,8 +568,8 @@ it("a repair-triggered day reload treats a 404 as an empty day (pkm-fy52)", asyn
 });
 
 it("shows a day's linked references from the journal payload, but not for a " +
-   "day with none (pkm-vvta)", async () => {
-  // The references ride along with the day (pkm-5fak), so they are on screen
+   "day with none", async () => {
+  // The references ride along with the day, so they are on screen
   // as soon as it renders — no second request, and none for the empty day.
   const fetchMock = stubFetch([
     ["/api/journal/cleanup", { deleted: [] }],
@@ -599,7 +599,7 @@ it("shows a day's linked references from the journal payload, but not for a " +
     .not.toContain("/api/page/July%208th%2C%202026?bl_limit=5");
 });
 
-it("resolves a ((block ref)) inside a day's linked reference (pkm-5fak)",
+it("resolves a ((block ref)) inside a day's linked reference",
 async () => {
   // The server merges each day's backlink item texts into the journal
   // payload's block_ref_texts, so the refs inside them resolve from the one

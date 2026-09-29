@@ -1,11 +1,11 @@
 ---
 # pkm-rrzq
 title: 'Composed sync tests the review found missing: conflict/skip e2e, browser-restart e2e, WS skipped echo, shared placement cases'
-status: todo
+status: in-progress
 type: task
 priority: normal
 created_at: 2026-09-29T13:20:45Z
-updated_at: 2026-09-29T13:20:45Z
+updated_at: 2026-09-29T16:05:18Z
 parent: pkm-a4t2
 ---
 

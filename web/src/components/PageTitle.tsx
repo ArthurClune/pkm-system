@@ -1,7 +1,7 @@
 // pattern: Imperative Shell
-// Click-to-edit page title (pkm-g0t5). Enter/blur commit, Escape reverts.
+// Click-to-edit page title. Enter/blur commit, Escape reverts.
 // A commit POSTs /rename with allow_merge=false; a 409 means the title is
-// taken, so ask (same in-app confirm dialog as Delete page, pkm-pe79) and
+// taken, so ask (same in-app confirm dialog as Delete page) and
 // retry with allow_merge=true. Daily notes are not editable (server
 // rejects them too). The server is atomic, so any failure = clean revert.
 import { useRef, useState } from "react";
@@ -59,7 +59,7 @@ export function PageTitle({ title }: { title: string }) {
     };
     return (
       <>
-        {/* The affordance is a real button inside the heading (pkm-l4z8):
+        {/* The affordance is a real button inside the heading:
           * an onClick on the <h1> itself was unreachable from the keyboard.
           * The heading keeps its place in the document outline and the button
           * inherits its type, so nothing moves visually. The button must stay
@@ -74,9 +74,8 @@ export function PageTitle({ title }: { title: string }) {
           * That both broke the page's primary heading for screen readers and
           * failed WCAG 2.5.3 (visible label not in the accessible name). A
           * title containing a word like "Cancel" or "Merge" colliding with
-          * an unrelated dialog's same-named button (pkm-6phf's c2d9718 first
-          * tried to fix that here) is instead handled by scoping the
-          * colliding queries to their dialog. */}
+          * an unrelated dialog's same-named button is instead handled by
+          * scoping the colliding queries to their dialog. */}
         <h1 className={`page-title${editable ? " page-title-editable" : ""}`}>
           {editable
             ? (

@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// The one renderer for backlink-group markup (pkm-d31f): BacklinksSection
+// The one renderer for backlink-group markup: BacklinksSection
 // and the block-reference popover both render through here — same
 // precedent as JournalDayReferences reusing BacklinksSection rather than
 // growing a second renderer.

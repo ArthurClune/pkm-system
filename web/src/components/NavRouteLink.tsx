@@ -12,7 +12,7 @@ import { NavLink } from "react-router-dom";
  * modified clicks (`shouldProcessLinkClick` bails on `shiftKey`), so an
  * untrapped shift-click falls through to the browser, which opens the whole
  * app in a second window — two live copies of the same page, which the sync
- * layer then warns about (pkm-10ah). Unlike NavPageLink there is nothing
+ * layer then warns about. Unlike NavPageLink there is nothing
  * better to offer in its place: a `SidebarPanel` renders a page *by title*,
  * and no page sits behind these routes. So the click is swallowed and the app
  * is left exactly as it was — same route, and `onNavigate` deliberately

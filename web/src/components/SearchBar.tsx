@@ -150,8 +150,8 @@ export function SearchBar() {
     }
     cancel();
     // Block hits carry their uid so both destinations scroll to and flash the
-    // matched block: the main pane reads it from the URL hash (pkm-pzdu), the
-    // sidebar panel takes it directly (pkm-gdi5).
+    // matched block: the main pane reads it from the URL hash, the
+    // sidebar panel takes it directly.
     if (sidebar) openInSidebar(row.title, row.uid);
     else navigate(pagePath(row.title) + (row.uid ? `#${row.uid}` : ""));
   };
@@ -180,7 +180,7 @@ export function SearchBar() {
              onChange={(e) => { setOpen(true); setQuery(e.target.value); }}
              onKeyDown={onKeyDown} />
       {/* must directly follow the input: the CSS hides it via `+` when the
-        * input is focused or holds text (pkm-absu) */}
+        * input is focused or holds text */}
       <kbd className="top-bar-search-hint" aria-hidden="true">
         {IS_MAC ? "⌘U" : "Ctrl+U"}
       </kbd>

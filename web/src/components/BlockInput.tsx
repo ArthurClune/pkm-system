@@ -7,7 +7,7 @@
 // that only exist while a block is focused: the completion popup and its
 // picks (slash commands, /upload, /date), the inline date picker, paste and
 // drop, and Ctrl-O ref navigation. Every semantic mutation goes out through
-// the OutlineHandlers port; nothing here touches the block tree (pkm-64bq).
+// the OutlineHandlers port; nothing here touches the block tree.
 import { useContext, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost } from "../api/typedClient";
@@ -45,7 +45,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   // so the offset can't go stale; pickDate still clamps as a backstop.
   const [datePickerAt, setDatePickerAt] = useState<number | null>(null);
   // A draft typed with the caret inside an open [[ ref / #tag token is
-  // flush-held (pkm-xlah): the debounced autosave would turn the half-typed
+  // flush-held: the debounced autosave would turn the half-typed
   // title into a page. The plain two-arg call is kept when not held.
   const draft = useBlockDraft({
     text: node.text,
@@ -61,15 +61,15 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     onUnmount: (selStart, selEnd) =>
       handlers.onInputUnmount(node.uid, selStart, selEnd),
   });
-  // Shared with the phone Composer (pkm-noow): the completion context and the
+  // Shared with the phone Composer: the completion context and the
   // caret a pick splices at are re-derived from the live textarea selection,
   // so a click or a selection-only caret move (neither fires an input event)
   // can't leave a completion pointing at where the caret used to be.
   const ac = useAutocomplete();
   const navigate = useNavigate();
   const { openInSidebar } = useContext(SidebarContext);
-  // Armed by a Shift-Cmd-V keydown, consumed by the paste event that follows
-  // (pkm-fwa2): a ClipboardEvent carries no modifier state, so this is how
+  // Armed by a Shift-Cmd-V keydown, consumed by the paste event that follows:
+  // a ClipboardEvent carries no modifier state, so this is how
   // the paste handler knows the user asked for the outline split. Any other
   // keydown clears it, so a stale arm (chord pressed but no paste delivered)
   // can't hijack a later plain Cmd-V.
@@ -93,7 +93,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   // onChange (we preventDefault), so we re-derive the autocomplete context here
   // — that's what lets typing "[" twice open the [[ page-link popup. The
   // context is detected at the selection END: wrapping a selection in "[["
-  // keeps the inner text selected, and that text is the query (pkm-wxwp).
+  // keeps the inner text selected, and that text is the query.
   // Detecting at the start would see "[[" followed by nothing. For a
   // collapsed caret the two are the same offset.
   const applyKeyEdit = (r: TextSelection) => {
@@ -102,11 +102,11 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     draft.replace(r.text, r.selStart, r.selEnd, holdsDraftFlush(ctx));
   };
 
-  // Ctrl-O / Ctrl-Shift-O over a [[page reference]] (pkm-a1e4): the target
+  // Ctrl-O / Ctrl-Shift-O over a [[page reference]]: the target
   // page may not exist server-side yet. A ref only gets-or-created when its
   // block text actually flushes (ops_apply.py, mirroring every ref in the
   // committed text) -- while the caret still sits inside the [[...]] token
-  // the draft flush is held (pkm-xlah), so a brand-new reference typed this
+  // the draft flush is held, so a brand-new reference typed this
   // session has no row at all. POST /api/pages is idempotent (creating an
   // existing page just returns it, routes_pages.create_page) so it's safe
   // to call unconditionally before navigating/opening, the same
@@ -114,11 +114,12 @@ export function BlockInput({ node, cursor, handlers, readOnly,
   // if creation fails (e.g. offline), still navigate/open as before -- the
   // destination view surfaces its own error if the page truly isn't there.
   //
-  // The held draft is flushed FIRST (pkm-hhbc, data loss): navigating unmounts
-  // this tree and React delivers no blur for a removed node, so the only
-  // other commit point never runs and the typed text -- including the ref we
-  // are navigating to -- was lost. Flushing before POST /api/pages also keeps
-  // the ref row a product of the normal ops path instead of racing it.
+  // The held draft is flushed FIRST: navigating unmounts this tree and
+  // React delivers no blur for a removed node, so the only other commit
+  // point never runs and the typed text -- including the ref we are
+  // navigating to -- would otherwise be lost. Flushing before POST
+  // /api/pages also keeps the ref row a product of the normal ops path
+  // instead of racing it.
   const ensureRefPageThenOpen = async (title: string, sidebar: boolean) => {
     handlers.onFlushDraft();
     try {
@@ -136,9 +137,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     const { ctx, caret, text } = target;
     // "/upload": strip the trigger, then open the tree-owned file picker.
     // handlers.onFiles splices the uploaded asset's markdown in once the user
-    // has chosen files; the input outlives this component (pkm-gbsb) because
+    // has chosen files; the input outlives this component because
     // the pick blurs (and so unmounts) BlockInput itself before opening the
-    // dialog (pkm-zrjc) -- the native file dialog does not reliably blur the
+    // dialog -- the native file dialog does not reliably blur the
     // textarea on its own, so this can't rely on that. setText must run
     // first: onBlurBlock flushes the draft, and the flush needs to see the
     // stripped-trigger text this onDraftChange call just registered.
@@ -215,7 +216,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     // below receives the clipboard.
     outlinePasteArmedRef.current = isOutlinePasteChord(e);
     // Display-line measurement is real layout work, so it's only done for
-    // the plain (unmodified) arrow that would actually consult it (pkm-2867)
+    // the plain (unmodified) arrow that would actually consult it
     // — never for the Shift/Meta/Ctrl chords, which have their own logic,
     // and never for any other key. ArrowUp only needs "first" (measured at
     // selStart, matching the core's own up-check); ArrowDown only needs
@@ -233,7 +234,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       return;
     }
     // A popup the caret has moved away from must not claim the key: Enter
-    // stays a split, Tab stays an indent (pkm-noow). resolve() drops the
+    // stays a split, Tab stays an indent. resolve() drops the
     // stale context, so the policy is told the popup is closed.
     const acLive = ac.resolve(el) !== null;
     const decision = decideEditorKey({
@@ -272,7 +273,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
         handlers.onStartBlockSelection(node.uid, decision.dir);
         return;
       case "select-to-block-edge":
-        // Ctrl+Cmd+Left/Right (pkm-am54): the native binding stops at the
+        // Ctrl+Cmd+Left/Right: the native binding stops at the
         // display line of a wrapped block; we select to the block boundary.
         e.preventDefault();
         if (decision.edge === "start") {
@@ -282,7 +283,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
         }
         return;
       case "select-range":
-        // Shift+Cmd+Left/Right (pkm-jgtn): line-wise selection over logical
+        // Shift+Cmd+Left/Right: line-wise selection over logical
         // lines; the policy computed the exact range from the draft.
         e.preventDefault();
         el.setSelectionRange(decision.selStart, decision.selEnd,
@@ -367,7 +368,7 @@ export function BlockInput({ node, cursor, handlers, readOnly,
       return;
     }
     const text = e.clipboardData.getData("text/plain");
-    // Plain paste is always native (pkm-fwa2); the split needs both the
+    // Plain paste is always native; the split needs both the
     // Shift-Cmd-V arm and a clipboard with actual structure to splice into.
     if (!armed || !isOutlinePaste(text)) return;
     e.preventDefault();

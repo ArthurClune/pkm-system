@@ -103,7 +103,7 @@ export function BlueskyEmbed({ href }: { href: string }) {
         // wrapper keeps its unmeasured default box, exactly as before.
         loading="lazy"
         // allow-same-origin is required: with an opaque origin the embed
-        // page renders blank (pkm-es9o); this matches Bluesky's official
+        // page renders blank; this matches Bluesky's official
         // embed.js, which uses no sandbox at all
         sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       />

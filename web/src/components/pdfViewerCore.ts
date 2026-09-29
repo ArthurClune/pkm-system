@@ -93,7 +93,7 @@ export function placeholderHeight(
 
 /** Fallback note for a document that failed to load. pdf.js surfaces an
  * HTTP failure as an error carrying `status`; 503 is the server's
- * "iCloud has not downloaded this file on the host" signal (pkm-g1ep). */
+ * "iCloud has not downloaded this file on the host" signal. */
 export function failureNote(err: unknown): string {
   const status = typeof err === "object" && err !== null && "status" in err
     ? (err as { status?: unknown }).status

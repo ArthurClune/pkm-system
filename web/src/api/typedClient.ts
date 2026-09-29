@@ -1,5 +1,5 @@
 // pattern: Imperative Shell
-// A path- and method-aware wrapper over apiFetch (pkm-60bf). apiFetch<T>
+// A path- and method-aware wrapper over apiFetch. apiFetch<T>
 // lets a caller name ANY response type for ANY URL, so an obsolete caller
 // type, an online/offline drift, or a wrong request body all typecheck.
 // Here the OpenAPI path template and the HTTP verb are the arguments, and

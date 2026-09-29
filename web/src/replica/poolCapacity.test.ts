@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { MIN_POOL_CAPACITY, ensureMinimumCapacity } from "./poolCapacity";
+import { MIN_POOL_CAPACITY, PEAK_POOL_FILES, ensureMinimumCapacity }
+  from "./poolCapacity";
 
 function fakePool(capacity: number, addCapacity = vi.fn(async (n: number) => {
   capacity += n;
@@ -54,5 +55,13 @@ describe("ensureMinimumCapacity", () => {
     // One slot holds /pkm-replica.sqlite3; SQLite needs at least one more for
     // the rollback journal, and temp files can want more still.
     expect(MIN_POOL_CAPACITY).toBeGreaterThanOrEqual(2);
+  });
+
+  it("holds the replica, the carry and both journals at once", () => {
+    expect(PEAK_POOL_FILES).toEqual([
+      "/pkm-replica.sqlite3", "/pkm-replica.sqlite3-journal",
+      "/pkm-replica-carry.sqlite3", "/pkm-replica-carry.sqlite3-journal",
+    ]);
+    expect(MIN_POOL_CAPACITY).toBeGreaterThanOrEqual(new Set(PEAK_POOL_FILES).size);
   });
 });

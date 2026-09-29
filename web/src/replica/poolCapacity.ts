@@ -29,8 +29,24 @@
 // creates fresh randomly-named files, so it never contends with handles the
 // outgoing worker still holds.
 
-/** The pool size sqlite-wasm itself defaults to. One slot holds the database,
- * the rest cover the rollback journal and temp files. */
+export const REPLICA_FILE = "/pkm-replica.sqlite3";
+/** The pending queue's durable copy while a damaged replica file is
+ * replaced (see carryStore.ts). */
+export const CARRY_FILE = "/pkm-replica-carry.sqlite3";
+export const journalOf = (file: string): string => `${file}-journal`;
+
+/** What the pool holds at once at the peak of a file replacement: the carry
+ * and its journal are written while the damaged replica, and any hot journal
+ * it left, are still there. */
+export const PEAK_POOL_FILES: readonly string[] = [
+  REPLICA_FILE, journalOf(REPLICA_FILE), CARRY_FILE, journalOf(CARRY_FILE),
+];
+
+/** The pool size sqlite-wasm itself defaults to. Every persistent file, open
+ * or not, claims a slot until it is unlinked; a rollback journal exists only
+ * during a write transaction; this build keeps temp files in memory
+ * (SQLITE_TEMP_STORE=2), so they claim none. Six slots therefore cover
+ * PEAK_POOL_FILES with two to spare. */
 export const MIN_POOL_CAPACITY = 6;
 
 /** The slice of sqlite-wasm's pool-utility object this needs. */

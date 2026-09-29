@@ -53,7 +53,13 @@ export type SyncEvent =
   | { type: "reset-blocked"; pending: number }
   | { type: "reset-failed"; error: string }
   | { type: "reset-succeeded" }
-  | { type: "dismiss" };
+  | { type: "dismiss" }
+  /** The fallback lane delivered a batch whose ack named a skipped op (pkm-c2gs):
+   * this session has no replica, so there is no changes feed to tombstone the
+   * ghost block the op targeted. Never a "problem" — the server committed the
+   * batch fine — just a signal that the active view is stale and must refetch,
+   * the same guarded read every other resync bump triggers. */
+  | { type: "ops-skipped-no-replica" };
 
 export type SyncEffect = { type: "bump-resync" };
 
@@ -233,6 +239,8 @@ export function transitionSync(state: SyncState, event: SyncEvent): SyncTransiti
       return repaired || acknowledgedReset
         ? problem(state, undefined) : { state, effects: [] };
     }
+    case "ops-skipped-no-replica":
+      return { state, effects: [{ type: "bump-resync" }] };
     default: {
       const exhaustive: never = event;
       throw new Error(`unhandled sync event: ${String(exhaustive)}`);

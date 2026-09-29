@@ -29,6 +29,7 @@ replica is a cache and the queue is the user's intent.
 | A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase carries the durable queue across | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json` | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
+| The same, but the tab has no replica (no feed to tombstone the ghost) | `deliverLaneHead` reads the ack's `skipped` list, only while `unavailable` is latched | Bumps resync; every mounted view's guarded read refetches | Never fires for a replica-backed lane delivery, which gets the tombstone from its feed instead | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | The replica opens, then fails every write | Nothing | Known gap | — | [What the UI shows](#what-the-ui-shows) |
 
 ## A local write fails
@@ -371,3 +372,17 @@ feed removes one op's target, `reapplyPending` keeps the rest of that batch.
 Rolling the whole batch back would revert its other edits until the ack. The
 next edit to a reverted block would then hash against stale text and draw a
 spurious conflict header.
+
+A tab with no replica has neither a feed nor a tombstone: it delivers through
+the fallback lane instead (see [above](#the-in-memory-fallback-lane)) and
+drops its own WS echo (`SyncProvider`'s `onBatch`, `batch.client_id ===
+clientId`). Left alone, a ghost block on screen would never disappear, and
+every debounced flush would land another child under its daily-note conflict
+header. `deliverLaneHead` reads the ack `postOps` returns after every
+fallback-lane POST, and once `unavailable` is latched (see
+[Availability](#availability-two-values-one-owner)), a non-empty `skipped`
+bumps resync (`ops-skipped-no-replica` in `syncState.ts`) instead. That is the
+same guarded read every other resync trigger runs — never the outline repair
+epoch — so a pending edit elsewhere on the page survives. A replica-backed
+lane delivery (the ordering-only case above) skips this: its feed already
+tombstones the same ghost, so bumping there too would be a redundant refetch.

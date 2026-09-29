@@ -255,6 +255,11 @@ export function SyncProvider({ children, replica }: {
   ) => Promise<void>>(async () => undefined);
   const problemRef = useRef<SyncProblem>();
   problemRef.current = problem;
+  // pkm-c2gs: read via a ref, not closed over directly, for the same reason
+  // repairLegacyRef is -- the queue below is memoised with an empty
+  // dependency array (it must stay one stable instance for the provider's
+  // whole lifetime), so nothing it closes over may need to change identity.
+  const skippedNoReplicaRef = useRef<() => void>(() => undefined);
 
   // Route the deterministic delivery-health policy through the syncState core:
   // it computes the next problem value and any resync intent; this shell keeps
@@ -279,6 +284,7 @@ export function SyncProvider({ children, replica }: {
       if (effect.type === "bump-resync") setResyncSeq((n) => n + 1);
     }
   }, []);
+  skippedNoReplicaRef.current = () => applySync({ type: "ops-skipped-no-replica" });
 
   const replicaRef = useRef<Replica | null | undefined>(undefined);
   const ownedReplicaRef = useRef<OwnedReplica | null>(null);
@@ -294,7 +300,11 @@ export function SyncProvider({ children, replica }: {
   const queue = useMemo(
     () => createOpQueue(replicaRef.current ?? absentReplica(), (error) => {
       void repairLegacyRef.current(error);
-    }, (outcome) => drainObserverRef.current(outcome)), []);
+    }, (outcome) => drainObserverRef.current(outcome),
+    // pkm-c2gs: a no-replica tab has no changes feed to tombstone a ghost
+    // block a skipped op targeted, so it must refetch instead. Never a
+    // desync -- the batch committed -- so this bumps resync only.
+    () => skippedNoReplicaRef.current()), []);
 
   repairLegacyRef.current = (error) => {
     legacyRejectedRef.current = error;

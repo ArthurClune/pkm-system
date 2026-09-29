@@ -64,40 +64,41 @@ def test_conflicting_batch_id_409_detail_shape_matches_400(client):
     assert detail["index"] is None
 
 
-def test_batch_id_insert_race_serves_winner_ack_and_rolls_back(client,
+def test_batch_id_insert_race_blocks_on_the_batchs_transaction(client,
                                                                monkeypatch):
-    """pkm-x7a5 item 5: the applied_batches IntegrityError branch. A
-    concurrent submission of the same batch_id commits between this
-    request's dedup SELECT and its INSERT: the loser rolls back its own
-    effects and returns the winner's stored acknowledgement."""
+    """pkm-gwwu: BEGIN IMMEDIATE now covers the dedupe SELECT through the
+    commit, so a second connection trying to insert the same batch_id can
+    no longer land inside that window -- it blocks on the write lock the
+    batch already holds, and the batch's own effects are unaffected."""
     import json
+    import sqlite3
+
+    import pytest
 
     from pkm.server import routes_ops
     from pkm.server.db import open_db
     from pkm.server.ops_core import batch_request_hash
 
     real = routes_ops.apply_batch
-    winner_ack = {"ok": True, "ts": 1, "applied": 99}
 
     def racing(db, batch, now):
-        # the winner commits first, on its own connection, before the
-        # loser's write transaction starts
         con = open_db(client.app.state.config.db_path)
-        con.execute("INSERT INTO applied_batches VALUES (?,?,?,?)",
-                    (batch.batch_id, batch_request_hash(batch),
-                     json.dumps(winner_ack), 1))
-        con.commit()
+        con.execute("PRAGMA busy_timeout=50")
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            con.execute(
+                "INSERT INTO applied_batches VALUES (?,?,?,?)",
+                (batch.batch_id, batch_request_hash(batch),
+                 json.dumps({"ok": True, "ts": 1, "applied": 99}), 1))
         con.close()
         return real(db, batch, now)
 
     monkeypatch.setattr(routes_ops, "apply_batch", racing)
     r = client.post("/api/ops", json=BATCH)
     assert r.status_code == 200
-    assert r.json() == winner_ack  # stored ack, not this request's own
-    # the loser's effects were rolled back: the block does not exist
+    assert r.json()["applied"] == len(BATCH["ops"])  # its own ack, not a fake
     monkeypatch.setattr(routes_ops, "apply_batch", real)
     page = client.get("/api/page/AI").json()
-    assert "uid_idem1" not in {b["uid"] for b in page["blocks"]}
+    assert "uid_idem1" in {b["uid"] for b in page["blocks"]}  # unaffected
 
 
 def _journal_max(client) -> int:

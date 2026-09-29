@@ -1,11 +1,11 @@
 ---
 # pkm-87w0
 title: 'Server ops tidy: plan_op returns the classification, conflict_notes split, per-kind contexts, MissingTarget rename, test hygiene'
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-09-29T13:20:54Z
-updated_at: 2026-09-29T13:20:54Z
+updated_at: 2026-09-29T20:01:55Z
 parent: pkm-a4t2
 ---
 
@@ -30,3 +30,15 @@ id; stale comments in `opQueue.replica.test.ts` (the removed count rule),
 `test_ops_core.py` (an unneeded `conflict_uid`).
 
 Bounded refactors; no spec. After the fixes in this epic land.
+
+
+## Checklist
+
+- [x] ops_hash.py split
+- [ ] conflict_notes.py split
+- [ ] MissingTarget family renamed (Skip, orphan_structural)
+- [ ] Per-kind contexts carry the shell's one classification
+- [ ] Docs updated
+- [ ] Stale test comments; apply.test.ts groups named by behaviour
+- [ ] describe grouping in the flat web test files
+- [ ] Verification; findings recorded in the report

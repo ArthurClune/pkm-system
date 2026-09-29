@@ -7,7 +7,7 @@ import pytest
 
 from pkm.contracts.ops import OpBatch
 from pkm.server.db import open_db
-from pkm.server.ops_core import batch_replay_hash
+from pkm.server.ops_hash import batch_replay_hash
 
 CASES = json.loads(
     (Path(__file__).parents[2] / "shared" / "fixtures" / "ops_acks.json")
@@ -113,7 +113,7 @@ def test_batch_id_insert_race_blocks_on_the_batchs_transaction(client,
 
     from pkm.server import routes_ops
     from pkm.server.db import open_db
-    from pkm.server.ops_core import batch_request_hash
+    from pkm.server.ops_hash import batch_request_hash
 
     real = routes_ops.apply_batch
 
@@ -160,7 +160,7 @@ def test_ack_carries_the_journal_seq_that_includes_the_batch(client):
 
 def _request_hash(ops) -> str:
     from pkm.contracts.ops import OpBatch
-    from pkm.server.ops_core import batch_request_hash
+    from pkm.server.ops_hash import batch_request_hash
     return batch_request_hash(OpBatch.model_validate(
         {"client_id": "c1", "batch_id": "batch-gold-0001", "ops": ops}))
 
@@ -192,7 +192,7 @@ def test_page_title_hint_is_part_of_the_request_hash():
 # while the strict request hash above stays pinned unchanged.
 def _replay_hash(ops) -> str:
     from pkm.contracts.ops import OpBatch
-    from pkm.server.ops_core import batch_replay_hash
+    from pkm.server.ops_hash import batch_replay_hash
     return batch_replay_hash(OpBatch.model_validate(
         {"client_id": "c1", "batch_id": "batch-gold-0001", "ops": ops}))
 
@@ -276,7 +276,7 @@ def test_pre_deploy_strict_hash_row_still_replays_and_still_409s(client):
 
     from pkm.server.db import open_db
     from pkm.contracts.ops import OpBatch
-    from pkm.server.ops_core import batch_request_hash
+    from pkm.server.ops_hash import batch_request_hash
 
     batch = {"client_id": "c1", "batch_id": "batch-95ss-0004",
             "ops": [{"op": "update_text", "uid": "uid_b1", "text": "v1"}]}

@@ -108,7 +108,11 @@ export function applySnapshot(db: ReplicaDb, snap: Snapshot,
  * then the provider deletes their rows before delivery resumes.
  * Re-applying is safe: batches flush to the server unchanged. An op whose
  * block or parent the feed removed is skipped inside applyLocalOps, as the
- * server skips it, so the rest of its batch still lands (pkm-7788). A batch
+ * server skips it, so the rest of its batch still lands (pkm-7788). A window
+ * does not wipe first, so its replay runs over the batch's own effects:
+ * `reapply` keeps a create's existing row and an already-placed move where
+ * they are rather than failing the insert or shifting siblings again
+ * (pkm-b0zf). A batch
  * that still cannot apply (applyLocalOps throws) is skipped whole via
  * savepoint rollback — push-time resolution owns it. A batch
  * whose rows dangle counts as no-longer-applicable too: deferred FKs let the
@@ -124,7 +128,7 @@ function reapplyPending(db: ReplicaDb, nowMs: number): void {
     let result: { after: Set<string> } | null;
     let failure: unknown;
     try {
-      applyLocalOps(db, b.ops, nowMs);
+      applyLocalOps(db, b.ops, nowMs, { reapply: true });
       const after = fkViolations(db);
       result = addsFkViolation(before, after) ? null : { after };
     } catch (error: unknown) {

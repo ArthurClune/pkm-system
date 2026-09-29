@@ -442,8 +442,8 @@ def test_classify_text_edit_identical_with_rewrite_replay():
 def test_classify_text_edit_clean_with_rewrite_replay():
     # A stale hash that would look like a conflict without replay (base
     # hashes the pre-rename text, live is what the rename produced) becomes
-    # a clean apply once the same rename is replayed onto the offline edit
-    # (pkm-wy1v case (a): a rewritten block whose replayed edit is clean).
+    # a clean apply once the same rename is replayed onto the offline edit:
+    # a rewritten block whose replayed edit is clean.
     t0, t1 = "note about [[Old]]", "note about [[New]]"
     edit = "note about [[Old]] plus comment"
     rewrites = (BlockRewrite(text_hash(t0), text_hash(t1), "Old", "New"),)
@@ -464,7 +464,7 @@ def test_classify_text_edit_conflict_with_rewrite_replay():
         "conflict", "note about [[New]] plus comment")
 
 
-# --- ops on missing blocks (pkm-foap) -------------------------------------
+# --- ops on missing blocks -------------------------------------------------
 #
 # An op whose target block (or create/move parent) the server doesn't have
 # never 400s: it is a no-op, lands a note/lost text in today's daily note,
@@ -543,7 +543,7 @@ _BLOCK_OP_ADAPTER = TypeAdapter(BlockOp)
 def test_classify_skip_matches_shared_fixture(case):
     # Pins classify_skip against the same skip/no-skip table the
     # replica's TS mirror (web/src/replica/missingTarget.ts) is tested
-    # against, so the two languages cannot drift apart (pkm-7788).
+    # against, so the two languages cannot drift apart.
     op = _BLOCK_OP_ADAPTER.validate_python(case["op"])
     skipped = classify_skip(
         op, case["block_exists"], case["parent_exists"],
@@ -739,7 +739,7 @@ def test_move_to_missing_parent_leaves_the_block_and_notes_why():
     )
 
 
-# --- a move that would make a cycle (pkm-fe9b) ------------------------------
+# --- a move that would make a cycle -----------------------------------------
 #
 # Two devices moved blocks under each other concurrently: the server applied
 # the first, so the second would nest a block under its own descendant.

@@ -46,12 +46,12 @@ class BlockingCloseDescriber(FakeDescriber):
 
 class BlockingDescriber:
     """A describer that genuinely holds the in-flight state until the test
-    releases it (pkm-1wv1 dedup tests). `started` is set the instant
+    releases it, for dedup tests. `started` is set the instant
     `describe()` is entered; the coroutine then blocks (via a worker
     thread, so it never freezes the caller's event loop) until `release`
-    is set. pkm-mbcc: a fake that "is slow" must actually block at the
-    awaited point, not just claim to -- a plain call counter can't prove
-    two concurrent enqueues collapsed into one in-flight attempt."""
+    is set. A fake that "is slow" must actually block at the awaited
+    point, not just claim to -- a plain call counter can't prove two
+    concurrent enqueues collapsed into one in-flight attempt."""
 
     def __init__(self, text: str = "a bar chart of monthly revenue",
                  error: str | None = None):

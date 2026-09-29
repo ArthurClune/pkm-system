@@ -26,10 +26,10 @@ def graph(tmp_path):
         (1, "Alpha", None, None),
         (2, "July 7th, 2026", None, None),
     ])
-    # pkm-x3l7: export_graph now verifies an existing asset's sha256/size
-    # before hardlinking it forward, so the fixture's sha must be the
-    # real hash of its bytes (b"png") -- a placeholder would look
-    # corrupt on every run after the first.
+    # export_graph verifies an existing asset's sha256/size before
+    # hardlinking it forward, so the fixture's sha must be the real hash
+    # of its bytes (b"png") -- a placeholder would look corrupt on every
+    # run after the first.
     sha = hashlib.sha256(b"png").hexdigest()
     db.executemany(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -304,10 +304,10 @@ def test_recovers_from_a_crash_between_the_two_publish_renames(graph):
 
 
 def test_repairs_truncated_existing_asset_from_live_store(graph):
-    # pkm-x3l7: a previously-exported asset file that got truncated on
-    # disk must not be hardlinked forward as-is -- the next export has
-    # to notice the size mismatch and re-copy the correct bytes from the
-    # live store instead.
+    # A previously-exported asset file that got truncated on disk must
+    # not be hardlinked forward as-is -- the next export has to notice
+    # the size mismatch and re-copy the correct bytes from the live store
+    # instead.
     db, live_assets, export, sha = graph
     export_graph(db, live_assets, export)
     corrupt = export / "assets" / sha / "pic.png"
@@ -339,12 +339,11 @@ def test_repairs_same_size_corrupted_existing_asset_from_live_store(graph):
 
 def test_corrupt_existing_asset_with_missing_live_source_is_surfaced(
         graph, caplog):
-    # pkm-x3l7 review finding: an existing export asset that fails
-    # verification AND has no live-store source to repair from must not
-    # silently vanish from the new export the same way a never-captured
-    # asset does -- it needs its own counter and a warning naming the
-    # sha, since a page still links to an asset that's now genuinely
-    # missing from disk.
+    # An existing export asset that fails verification AND has no
+    # live-store source to repair from must not silently vanish from the
+    # new export the same way a never-captured asset does -- it needs its
+    # own counter and a warning naming the sha, since a page still links
+    # to an asset that's now genuinely missing from disk.
     db, live_assets, export, sha = graph
     export_graph(db, live_assets, export)
     corrupt = export / "assets" / sha / "pic.png"
@@ -387,11 +386,11 @@ def test_valid_existing_asset_is_still_hardlinked_not_recopied(graph):
 
 def test_existing_asset_verified_through_the_shared_boundary(
         graph, monkeypatch):
-    # pkm-6g0l: the exporter and the importer share one on-disk
-    # verification ritual, and the size-before-hash short circuit has to
-    # survive the move. Both are visible in what gets hashed: an intact
-    # existing asset's bytes are read and hashed before it is hardlinked
-    # forward, a truncated one's are not.
+    # The exporter and the importer share one on-disk verification
+    # ritual, and the size-before-hash short circuit must hold. Both are
+    # visible in what gets hashed: an intact existing asset's bytes are
+    # read and hashed before it is hardlinked forward, a truncated one's
+    # are not.
     db, live_assets, export, sha = graph
     export_graph(db, live_assets, export)
 

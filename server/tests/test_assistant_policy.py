@@ -72,8 +72,8 @@ def test_resolve_model():
 
 
 def test_default_model_prefers_glm_when_offered():
-    # pkm-452i: glm is the preferred default, but it is only servable when a
-    # z.ai key is configured -- a keyless deployment must default to sonnet
+    # glm is the preferred default, but it is only servable when a z.ai
+    # key is configured -- a keyless deployment must default to sonnet
     # rather than 400 every default create.
     assert default_model(available_models(zai_configured=True)) == "glm"
     assert default_model(available_models(zai_configured=False)) == "sonnet"
@@ -112,10 +112,10 @@ def test_ops_preview_rename_page():
 
 
 def test_ops_preview_batch_lists_ops():
-    # pkm-y3rr: the payload shape here must match mcp.server.batch's real
-    # signature -- `commands`, each {"command": ..., "params": {...}}. An
-    # earlier version of this test invented an `ops` key the tool cannot emit,
-    # so it passed while every real approval card rendered "0 operation(s)".
+    # The payload shape here must match mcp.server.batch's real
+    # signature -- `commands`, each {"command": ..., "params": {...}}. A
+    # test invoking a different key the tool cannot emit would pass while
+    # every real approval card rendered "0 operation(s)".
     out = ops_preview("batch", {"commands": [
         {"command": "move", "params": {"uid": "abc123", "page": "Demo"}},
         {"command": "delete", "params": {"uid": "def456"}},
@@ -136,10 +136,9 @@ def test_ops_preview_batch_never_silently_empty():
 
 
 def test_ops_preview_does_not_clip_moderate_values():
-    # pkm-c98s item 6: the original 120-char clip made users approve writes
-    # they couldn't fully see. ops_preview (unlike tool_summary) now only
-    # clips pathologically long values, so ordinary note text is shown
-    # in full.
+    # A tight char clip would make users approve writes they couldn't
+    # fully see. ops_preview (unlike tool_summary) only clips
+    # pathologically long values, so ordinary note text is shown in full.
     text = "x" * 500
     out = ops_preview("update_block", {"uid": "abc123", "text": text})
     assert text in out
@@ -165,17 +164,17 @@ def test_system_prompt_mentions_tools_and_confirm():
 
 
 def test_system_prompt_tells_model_to_cite_clickable_links():
-    # pkm-hjcc: the web panel renders bare /assets/<sha>/<filename> URLs and
-    # ((uid)) block refs as clickable links (pkm-gdi5), but only if the model
-    # emits them in its FIRST answer -- the prompt must say so explicitly.
+    # The web panel renders bare /assets/<sha>/<filename> URLs and
+    # ((uid)) block refs as clickable links, but only if the model emits
+    # them in its FIRST answer -- the prompt must say so explicitly.
     assert "/assets/" in SYSTEM_PROMPT
     assert "((" in SYSTEM_PROMPT
 
 
 def test_system_prompt_warns_against_caret_in_block_ref_citations():
-    # pkm-wx86: tool output shows blocks with trailing ^uid markers; GLM
-    # copied the marker verbatim, citing ((^uid)), which the web grammar
-    # rejects. The prompt must show the wrong form explicitly.
+    # Tool output shows blocks with trailing ^uid markers; a model can copy
+    # the marker verbatim, citing ((^uid)), which the web grammar rejects.
+    # The prompt must show the wrong form explicitly.
     assert "((^" in SYSTEM_PROMPT
 
 
@@ -189,8 +188,8 @@ def test_every_mcp_tool_is_classified():
     """The assistant only lets through tools named in READ_TOOLS or
     WRITE_TOOLS; anything else is denied as "Tool not permitted". A verb
     added to the MCP server without a matching entry here is invisible to
-    the in-app assistant even though CLI and Claude Code sessions see it
-    (pkm-6eea's changed_blocks shipped that way)."""
+    the in-app assistant even though CLI and Claude Code sessions see
+    it."""
     from pkm.mcp import server as mcp_server
     registered = {t.name for t in mcp_server.mcp._tool_manager.list_tools()}
     assert registered == set(READ_TOOLS) | set(WRITE_TOOLS)

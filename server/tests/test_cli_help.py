@@ -70,8 +70,8 @@ def test_rename_help_is_self_sufficient(capsys):
         assert needle in out, f"rename --help omits {needle!r}"
 
 
-# Needles unique to the heading-*writing* prose added for pkm-8m94 -- not
-# just "heading"/"###", which `batch --help` already contained via the
+# Needles unique to the heading-*writing* prose -- not just
+# "heading"/"###", which `batch --help` already contained via the
 # unrelated parent-spec heading-*matching* prose ("a different level, e.g.
 # '###', makes its own heading"). Each needle below only exists if the
 # heading-writing sentence for that verb/command is present.

@@ -28,8 +28,8 @@ def test_requires_auth(anon_client):
 
 
 def test_create_conversation_defaults_to_sonnet_without_key(assistant_client):
-    # pkm-452i: the default is glm only when a z.ai key makes it servable;
-    # this keyless app must fall back to sonnet, not 400 the default create.
+    # The default is glm only when a z.ai key makes it servable; this
+    # keyless app must fall back to sonnet, not 400 the default create.
     r = assistant_client.post("/api/assistant/conversations", json={})
     assert r.status_code == 200
     body = r.json()
@@ -77,9 +77,9 @@ def test_models_endpoint_offers_glm_with_key(seeded_config, fake_engine, tmp_pat
 
 
 def test_conversation_cap_evicts_oldest_idle_over_http(assistant_client):
-    # pkm-c98s item 1: reaching the cap with idle conversations evicts the
-    # least-recently-used one instead of 409ing, so a reload that orphans
-    # the client-side conversation id can't lock the user out for 15 min.
+    # Reaching the cap with idle conversations evicts the least-recently-used
+    # one instead of 409ing, so a reload that orphans the client-side
+    # conversation id can't lock the user out for 15 min.
     ids = [
         assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
         for _ in range(3)
@@ -122,9 +122,9 @@ def test_message_stream_echo(assistant_client):
 
 
 def test_with_keepalive_emits_comment_frames_while_the_turn_is_silent():
-    # pkm-mbcc defect 1: a turn can be silent for a long time (a big block to
-    # reason about, a confirm parked on the user), and an idle SSE connection
-    # is what mobile backgrounding and NAT/proxy timeouts drop.
+    # A turn can be silent for a long time (a big block to reason about, a
+    # confirm parked on the user), and an idle SSE connection is what mobile
+    # backgrounding and NAT/proxy timeouts drop.
     async def slow_stream():
         await asyncio.sleep(0.12)
         yield TextDelta(text="hi")
@@ -252,9 +252,9 @@ def test_delete_conversation(assistant_client):
 
 
 def test_close_conversation_via_post_for_sendbeacon(assistant_client):
-    # pkm-c98s item 1: navigator.sendBeacon can only POST (no DELETE, no
-    # custom body/headers), so the same idempotent close is also reachable
-    # by POSTing the conversation's own URL -- used for pagehide cleanup.
+    # navigator.sendBeacon can only POST (no DELETE, no custom body/headers),
+    # so the same idempotent close is also reachable by POSTing the
+    # conversation's own URL -- used for pagehide cleanup.
     cid = assistant_client.post("/api/assistant/conversations", json={}).json()["id"]
     assert assistant_client.post(f"/api/assistant/conversations/{cid}").json() == {"ok": True}
     # idempotent, and works even when already gone (as sendBeacon fires with

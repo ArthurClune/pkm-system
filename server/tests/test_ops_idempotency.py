@@ -68,8 +68,8 @@ def test_stored_ack_replays_through_the_model_as_the_fixture_wire(client, i,
 
 
 def test_batch_without_batch_id_is_rejected(client):
-    """Id-less batches dedupe nowhere, so replays re-apply; the server now
-    rejects them outright (2026-07-22 incident, bean pkm-ri5b)."""
+    """Id-less batches dedupe nowhere, so replays re-apply; the server
+    rejects them outright."""
     body = {"client_id": "c1", "ops": [
         {"op": "set_collapsed", "uid": "uid_b1", "collapsed": True}]}
     assert client.post("/api/ops", json=body).status_code == 422
@@ -87,7 +87,7 @@ def test_rejected_batch_is_not_recorded(client):
 
 
 def test_conflicting_batch_id_409_detail_shape_matches_400(client):
-    """pkm-x7a5: both op-route error responses carry a dict detail with a
+    """Both op-route error responses carry a dict detail with a
     'reason' key, so clients parse one shape."""
     r1 = client.post("/api/ops", json=BATCH)
     assert r1.status_code == 200
@@ -142,8 +142,8 @@ def _journal_max(client) -> int:
 
 
 def test_ack_carries_the_journal_seq_that_includes_the_batch(client):
-    """pkm-ur2n: the ack names the journal max as of the batch's own commit,
-    so a replica can tell a sync window that already carries the batch
+    """The ack names the journal max as of the batch's own commit, so a
+    replica can tell a sync window that already carries the batch
     (latest_seq >= ack seq) from one that might predate it."""
     before = _journal_max(client)
     ack = client.post("/api/ops", json=BATCH).json()
@@ -185,8 +185,8 @@ def test_page_title_hint_is_part_of_the_request_hash():
     assert _request_hash(hinted) != _request_hash(HINTLESS)
 
 
-# pkm-95ss: base_text_hash and page_title are guard/label metadata the
-# worker may fill into a durable copy of a batch and not the in-memory
+# base_text_hash and page_title are guard/label metadata the worker may
+# fill into a durable copy of a batch and not the in-memory
 # fallback-lane copy of the same batch_id (a lost enqueue reply). They
 # never change which op is applied, so the replay hash must ignore them
 # while the strict request hash above stays pinned unchanged.
@@ -224,8 +224,8 @@ def test_replay_hash_still_differs_for_a_genuinely_different_batch():
 
 def test_worker_filled_then_bare_replays_with_one_effect(client):
     """(a) post a batch without base_text_hash/page_title, then the same
-    batch_id with them filled in -> 200, the stored ack, no second effect
-    (pkm-95ss)."""
+    batch_id with them filled in -> 200, the stored ack, no second
+    effect."""
     bare = {"client_id": "c1", "batch_id": "batch-95ss-0001",
            "ops": [{"op": "update_text", "uid": "uid_b1", "text": "v1"}]}
     r1 = client.post("/api/ops", json=bare)

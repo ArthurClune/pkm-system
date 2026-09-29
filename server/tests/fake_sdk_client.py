@@ -3,7 +3,7 @@
 receive_response() awaits a queue, like the real SDK awaits the CLI
 subprocess, so a turn stays live while a confirm round-trip is pending: a
 double that resolves immediately never exercises the dropped-consumer
-cleanup path at all (pkm-mbcc).
+cleanup path at all.
 """
 
 from __future__ import annotations
@@ -74,8 +74,8 @@ class HangingInterruptClient(FakeSDKClient):
 
     That is what the real harness does when it is parked inside can_use_tool:
     it cannot acknowledge an interrupt until the permission decision it is
-    awaiting arrives (pkm-mbcc defect 2). FakeSDKClient's instant interrupt()
-    hides the ordering bug entirely.
+    awaiting arrives. FakeSDKClient's instant interrupt() would hide that
+    ordering bug entirely.
     """
 
     async def interrupt(self):

@@ -1,4 +1,4 @@
-"""CleanupFileResponse (pkm-13ty): a FileResponse whose cleanup callback
+"""CleanupFileResponse: a FileResponse whose cleanup callback
 must run even when the response never reaches a completed send, unlike
 stock FileResponse's `background` task, which Starlette only awaits
 after `__call__` returns *without* raising.

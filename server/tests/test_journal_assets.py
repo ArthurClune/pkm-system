@@ -8,8 +8,8 @@ from pkm.server.routes_pages import JOURNAL_BACKLINK_PREVIEW
 
 
 def test_journal_includes_seeded_daily(client):
-    # seeded daily page: July 7th, 2026. Empty days are omitted (pkm-03x6):
-    # the batch holds only non-empty dailies, so July 6th is not a filler row.
+    # seeded daily page: July 7th, 2026. Empty days are omitted: the batch
+    # holds only non-empty dailies, so July 6th is not a filler row.
     r = client.get("/api/journal",
                    params={"before": "2026-07-08", "days": 2})
     assert r.status_code == 200
@@ -92,8 +92,8 @@ def test_journal_cursor_pages_through_nonempty_days_until_exhausted(
 
 def test_journal_surfaces_an_empty_day_referenced_from_elsewhere(
         client, seeded_config):
-    # pkm-vvta: a daily page with zero blocks would normally be invisible
-    # (only non-empty days show, and it isn't "today"). A [[link]] from
+    # A daily page with zero blocks would normally be invisible (only
+    # non-empty days show, and it isn't "today"). A [[link]] from
     # another page's block still means it has something worth surfacing --
     # linked references -- so it counts as non-empty too.
     con = sqlite3.connect(seeded_config.db_path)
@@ -114,8 +114,8 @@ def test_journal_surfaces_an_empty_day_referenced_from_elsewhere(
     assert day["title"] == "July 5th, 2026"
     assert day["exists"] is True
     assert day["blocks"] == []
-    # ...and it arrives WITH those references (pkm-5fak): the day renders
-    # from this payload alone, so a scroll of N days is not N page reads.
+    # ...and it arrives WITH those references: the day renders from this
+    # payload alone, so a scroll of N days is not N page reads.
     assert day["backlinks"]["total_pages"] == 1
     assert [(g["page_title"], [i["text"] for i in g["items"]])
             for g in day["backlinks"]["groups"]] == [
@@ -127,8 +127,7 @@ def test_journal_day_backlinks_carry_their_own_block_ref_texts(
         client, seeded_config):
     # A referencing block may itself embed ((uid)). The journal merges those
     # texts into the payload's one block_ref_texts map, so the day's inline
-    # references resolve without the per-day page read they used to make
-    # (pkm-5fak).
+    # references resolve without a per-day page read.
     con = sqlite3.connect(seeded_config.db_path)
     con.execute("INSERT INTO pages VALUES (?,?,NULL,NULL)", (91, "July 4th, 2026"))
     con.execute(

@@ -1,5 +1,5 @@
-"""pkm-t3qw: every server path that re-derives a block's refs goes through
-one composition, `store.reindex_refs_for_text`.
+"""Every server path that re-derives a block's refs goes through one
+composition, `store.reindex_refs_for_text`.
 
 Two call sites own that ritual -- op application (`ops_apply._execute`'s
 ReindexRefs effect) and snapshot rewriting (`store.rewrite_snapshotted_blocks`,

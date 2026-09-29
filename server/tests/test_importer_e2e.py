@@ -412,9 +412,9 @@ def test_stale_tmp_asset_does_not_survive_import(tmp_path):
 
 
 def test_truncated_existing_asset_is_repaired(tmp_path):
-    # pkm-x3l7: a content-addressed asset file that survived a previous
-    # truncated write must not be trusted just because it exists at its
-    # sha-named path -- a re-run has to notice and rewrite it.
+    # A content-addressed asset file that survived a previous truncated
+    # write must not be trusted just because it exists at its sha-named
+    # path -- a re-run has to notice and rewrite it.
     files = _setup_files(tmp_path)
     out = tmp_path / "data"
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
@@ -475,11 +475,11 @@ def test_valid_existing_asset_is_not_rewritten(tmp_path, monkeypatch):
 def test_existing_assets_verified_through_the_shared_boundary(
     tmp_path, monkeypatch
 ):
-    # pkm-6g0l: importer and exporter now share one on-disk verification
-    # ritual, and its size-before-hash short circuit has to survive the
-    # move. Both provable from what actually gets hashed on a re-run: the
-    # intact asset's bytes are read and hashed, the truncated one's are
-    # not (its size alone already condemns it).
+    # Importer and exporter share one on-disk verification ritual, and
+    # its size-before-hash short circuit must hold: provable from what
+    # actually gets hashed on a re-run. The intact asset's bytes are read
+    # and hashed, the truncated one's are not (its size alone already
+    # condemns it).
     files = _setup_files(tmp_path)
     out = tmp_path / "data"
     assert main([str(FIXTURE), "--files", str(files), "--out", str(out)]) == 0
@@ -502,9 +502,9 @@ def test_existing_assets_verified_through_the_shared_boundary(
 def test_title_migration_gets_the_shared_connection_out_of_a_transaction(
     tmp_path, monkeypatch
 ):
-    # pkm-6g0l moved the database-free asset phase inside the
-    # row-writing connection's lifetime, so one connection now serves
-    # both the inserts and the title migration. audit_title_migration
+    # The database-free asset phase runs inside the row-writing
+    # connection's lifetime, so one connection serves both the inserts
+    # and the title migration. audit_title_migration
     # and apply_title_migration each refuse a connection that is already
     # in a transaction (RuntimeError), and the commit before the asset
     # phase is the only thing ending the implicit one the inserts

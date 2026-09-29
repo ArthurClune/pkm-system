@@ -52,10 +52,10 @@ def test_init_db_sets_wal_mode(tmp_path):
 
 
 def test_create_app_initializes_db_without_an_explicit_init_db_call(tmp_path):
-    # pkm-2939: create_app() must run init_db() itself, so a future
-    # entrypoint (or a direct create_app(config) call) that forgets the
-    # by-convention init_db()-before-serve step still gets WAL mode and
-    # migrations rather than silently serving against a raw/legacy db.
+    # create_app() must run init_db() itself, so a future entrypoint (or
+    # a direct create_app(config) call) that forgets the by-convention
+    # init_db()-before-serve step still gets WAL mode and migrations
+    # rather than silently serving against a raw/legacy db.
     config = _config(tmp_path)
     assert not config.db_path.exists()
     create_app(config)
@@ -80,10 +80,10 @@ def test_open_db_sets_connection_local_pragmas_only(tmp_path):
 
 
 def test_fresh_data_dir_serves_journal_without_an_import(tmp_path):
-    # pkm-cqu2: create_app() against a brand-new data dir (the README setup
-    # path: pkm.server.setup then pkm.server.run, no Roam import) must not
-    # 500 on the very first page route -- init_db() has to lay down the
-    # base schema (pages, blocks, ...) itself, not rely on an importer run
+    # create_app() against a brand-new data dir (the README setup path:
+    # pkm.server.setup then pkm.server.run, no Roam import) must not 500
+    # on the very first page route -- init_db() has to lay down the base
+    # schema (pages, blocks, ...) itself, not rely on an importer run
     # having built the database first.
     tmp_path.mkdir(exist_ok=True)
     (tmp_path / "assets").mkdir(exist_ok=True)

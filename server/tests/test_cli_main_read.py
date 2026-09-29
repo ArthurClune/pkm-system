@@ -119,9 +119,9 @@ def test_get_today_creates_and_renders_daily(run):
 
 def test_get_addresses_a_legacy_leading_dash_uid_via_double_dash(
         run, pkm_client):
-    # Pre-pkm-y5yv uids (e.g. imported from Roam) can begin with '-'; a bare
-    # CLI argument like that is swallowed by argparse as an unknown option,
-    # so the documented workaround is `--` to end option parsing.
+    # Legacy uids (e.g. imported from Roam) can begin with '-'; a bare CLI
+    # argument like that is swallowed by argparse as an unknown option, so
+    # the documented workaround is `--` to end option parsing.
     legacy_uid = "-legacy1a2b3c"
     pkm_client.post_ops([
         {"op": "create", "uid": legacy_uid, "page_title": "AI",
@@ -224,7 +224,7 @@ def test_refs_returns_every_group_beyond_the_single_page_cap(
         run, seed_backlinks):
     # The route caps a single response to 100 backlink groups; `pkm refs`
     # wording promises every linking block, so 101 extra sources (plus the
-    # seeded one) must all show up, not just the first 100 (pkm-3cyg).
+    # seeded one) must all show up, not just the first 100.
     seed_backlinks(101)
     code, out, _ = run("refs", "Machine Learning")
     assert code == 0

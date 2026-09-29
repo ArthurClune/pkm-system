@@ -1,4 +1,4 @@
-"""The shared on-disk asset verification boundary (pkm-6g0l).
+"""The shared on-disk asset verification boundary.
 
 `asset_on_disk_needs_repair` is the one implementation of the "trust
 nothing already at a content-addressed path" ritual both the importer's

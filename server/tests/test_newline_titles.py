@@ -1,4 +1,4 @@
-"""pkm-hjhy: page titles must never contain a control whitespace char.
+"""Page titles must never contain a control whitespace char.
 
 Starlette's `{title:path}` converter compiles to `^/api/page/(?P<title>.*)$`
 with no re.DOTALL, so `.` never matches a newline: a page whose title holds

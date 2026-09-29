@@ -1,4 +1,4 @@
-"""GET /api/block/{uid}: subtree + page context (pkm-w05j)."""
+"""GET /api/block/{uid}: subtree + page context."""
 
 
 def test_block_returns_subtree_page_and_breadcrumbs(client):

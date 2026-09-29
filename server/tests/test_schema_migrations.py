@@ -1,5 +1,5 @@
-"""Guarded ALTERs in db._ensure_schema_migrations must upgrade a
-pre-pkm-zc0c database (assets without description columns) in place."""
+"""Guarded ALTERs in db._ensure_schema_migrations must upgrade a database
+predating the assets description columns in place."""
 import sqlite3
 
 from pkm.server.db import init_db, open_db
@@ -73,7 +73,8 @@ def test_block_refs_backfill_fills_historical_rows(tmp_path):
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
         " heading, collapsed) VALUES ('uid_src01', 1, NULL, 0,"
         " 'see ((uid_tgt01))', NULL, 0)")
-    # simulate a pre-pkm-d31f database: rows exist but no index, no marker
+    # simulate a database predating block_refs: rows exist but no index, no
+    # marker
     con.execute("DELETE FROM sync_meta WHERE key = 'block_refs_backfilled'")
     con.commit()
     con.close()

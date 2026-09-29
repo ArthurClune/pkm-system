@@ -325,7 +325,7 @@ def test_create_page_op_reaches_changes_feed(client):
     assert "Feed Visible" in {p["title"] for p in feed["pages"]}
 
 
-# --- conflicts land in the daily note (pkm-3g4n) ---------------------------
+# --- conflicts land in the daily note ---------------------------------------
 #
 # Every text conflict lands on today's daily page as a top-level
 # "[[conflict]] [[Page]] — ..." header, with the lost texts as its children,
@@ -474,7 +474,7 @@ def test_draft_flush_after_delete_lands_on_the_daily_note(client):
 
 def test_orphan_conflict_hint_naming_a_renamed_away_page_does_not_recreate_it(
         client, seeded_config):
-    # pkm-x8e3: the client's hint is stale -- "Machine Learning" was renamed
+    # The client's hint can be stale -- "Machine Learning" was renamed
     # away before this offline edit reached the server. The header must name
     # it without linking it (a [[link]] would make the ref indexer recreate
     # an empty page under the old title -- exactly what replay_title_rewrites
@@ -592,7 +592,7 @@ def test_hashless_update_on_missing_block_lands_like_a_hashed_one(client):
                                    ["x"])]
 
 
-# --- ops on missing blocks never reject their batch (pkm-foap) -------------
+# --- ops on missing blocks never reject their batch -------------------------
 #
 # Each is skipped (with a note where the ruling asks for one), the rest of
 # the batch applies, and the uids a replica may hold a ghost of are
@@ -864,7 +864,7 @@ def test_ops_chained_on_a_diverted_create_lose_no_text(client):
         _skipped(3, "move", "uid_b6", "parent_not_found")]
 
 
-# --- concurrent structure edits never reject their batch (pkm-fe9b) --------
+# --- concurrent structure edits never reject their batch --------------------
 #
 # Another device moved blocks after these ops were queued. A create or move
 # under a live parent follows the parent to its current page; a move that
@@ -1004,7 +1004,7 @@ def test_replayed_missing_target_batch_lands_nothing_twice(client, op):
 # uid_b1's seeded text is "Tags:: #AI", so renaming the "AI" page rewrites
 # it. A device that edited the block before syncing that rename pushes the
 # old spelling with the pre-rename hash; the rename is replayed over the
-# incoming text rather than letting the old title win (pkm-x5w0).
+# incoming text rather than letting the old title win.
 
 STALE_BASE = "Tags:: #AI"
 STALE_EDIT = "Tags:: #AI plus offline words"

@@ -158,7 +158,7 @@ def main() -> int:
     db_path = prepare_db(data, Path(from_db) if from_db else None)
     (data / "assets").mkdir()
     # A tiny local document root so web/e2e/local-docs.spec.ts can click a
-    # Local copy:: link end to end (pkm-g1ep).
+    # Local copy:: link end to end.
     local_root = data / "local" / "Papers"
     local_root.mkdir(parents=True)
     shutil.copy(root / "test-data" / "assets" / "sample.pdf", local_root / "sample.pdf")

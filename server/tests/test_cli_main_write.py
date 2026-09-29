@@ -88,12 +88,12 @@ def test_save_under_new_heading(run, pkm_client):
 def test_save_twice_to_a_control_whitespace_titled_page_appends_and_reuses_the_heading(
         run, pkm_client):
     """A page title holding control whitespace (e.g. a stray tab) is
-    normalized at creation (pkm-hjhy) -- "Ctrl\tTitle" is only ever stored,
-    and addressable, as "Ctrl Title". A second `pkm save` to the SAME raw
+    normalized at creation -- "Ctrl\tTitle" is only ever stored, and
+    addressable, as "Ctrl Title". A second `pkm save` to the SAME raw
     (pre-normalization) title must see the page's real, already-saved
     blocks -- not a false-empty placeholder that would reset the append
     position to the top of the page and mint a second "## Notes" heading
-    the first save already created (pkm-5k8p)."""
+    the first save already created."""
     run("save", "-p", "Ctrl\tTitle", "--parent", "## Notes", "first")
     code, _, _ = run("save", "-p", "Ctrl\tTitle", "--parent", "## Notes", "second")
     assert code == 0
@@ -240,7 +240,7 @@ def test_batch_propagates_indexed_forbidden_reference_server_error(
 def test_save_empty_text_on_new_page_leaves_no_page_behind(run, pkm_client):
     # plan_save rejects empty text after the page would already have been
     # fetched/created -- the page must not persist when the save as a
-    # whole fails (pkm-w80k: page creation rides the same atomic batch).
+    # whole fails: page creation rides the same atomic batch.
     code, _, err = run("save", "-p", "Brand New Page", "")
     assert code == 1
     assert "empty" in err
@@ -323,8 +323,8 @@ def test_batch_nested_but_empty_outline_items_exits_1(run):
 
 def test_batch_schema_failure_leaves_no_page_or_blocks(run, pkm_client):
     # A schema-invalid second command must fail the whole batch before the
-    # first command's brand-new page is fetched/created at all (pkm-4w23:
-    # validation runs before any page discovery or I/O).
+    # first command's brand-new page is fetched/created at all: validation
+    # runs before any page discovery or I/O.
     cmds = [
         {"command": "create",
          "params": {"page": "Brand New Batch Page", "text": "hello"}},
@@ -401,7 +401,7 @@ def test_rename_json_emits_the_response_model(run):
 def test_update_addresses_a_legacy_leading_dash_uid_via_double_dash(
         run, pkm_client):
     # Same argparse hazard as `pkm get`: a uid starting with '-' must be
-    # addressed with `--` to end option parsing (pkm-y5yv).
+    # addressed with `--` to end option parsing.
     legacy_uid = "-legacy1a2b3c"
     pkm_client.post_ops([
         {"op": "create", "uid": legacy_uid, "page_title": "AI",
@@ -430,7 +430,7 @@ def test_update_done_flag_on_a_legacy_leading_dash_uid_puts_flags_before_the_gua
 
 def test_batch_reports_a_move_that_would_make_a_cycle_and_exits_1(
         run, pkm_client):
-    # pkm-fe9b: moving a block under its own child is skipped, not a 400
+    # Moving a block under its own child is skipped, not a 400
     from datetime import date
     today = title_for_date(date.today())
     cmds = [

@@ -34,7 +34,7 @@ def test_backlinks_exclude_the_pages_own_blocks(client, seeded_config):
     """A block on page P that references [[P]] (Roam-style {{[[TODO]]}}
     markers on the TODO page are the common case) is not a linked
     reference to P -- the page cannot be its own backlink source, just as
-    unlinked references already skip the current page (pkm-r747)."""
+    unlinked references already skip the current page."""
     from pkm.server.db import open_db
     con = open_db(seeded_config.db_path)
     con.execute(

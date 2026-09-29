@@ -1,13 +1,13 @@
-"""pkm-1rb5: a title that normalizes to "" must never mint an unreachable,
+"""A title that normalizes to "" must never mint an unreachable,
 blank-titled page. The plain HTTP route (POST /api/pages) already 422s on
-these (bean pkm-hjhy) -- but create/create_page/cross-page-move ops call
+these -- but create/create_page/cross-page-move ops call
 store.get_or_create_page directly, bypassing that check, and pydantic's
 `min_length=1` on page_title lets a whitespace-only string ("\\n", "\\t",
 "   ") through untouched.
 
-The ops path must additionally never *reject* a batch for this (pkm-hjhy:
-an offline client replays queued batches, and a rejected batch wedges its
-queue permanently) -- so unlike the HTTP route, ops resolve a
+The ops path must additionally never *reject* a batch for this: an
+offline client replays queued batches, and a rejected batch wedges its
+queue permanently -- so unlike the HTTP route, ops resolve a
 normalized-empty page_title to a deterministic fallback page instead.
 
 NOTE (review round 1): refs.normalize_title() is deliberately narrow -- it
@@ -33,7 +33,7 @@ empty duplicate -- stranding the real page's content and backlinks under
 the padded title, reachable only by a byte-exact URL. Blankness and
 canonicalization are separate concerns: `"   "` (nothing but padding) is
 blank and must fall back; `" EvilCorp"` (padding plus real content) is not
-blank and must keep matching itself exactly, the same as before pkm-1rb5.
+blank and must keep matching itself exactly, the same as before.
 
 NOTE (final-review fix wave): two more findings, both in the blast radius
 of the BlankTitleError check landing in get_or_create_page.
@@ -49,9 +49,9 @@ reaches get_or_create_page unguarded at the two ref-indexing call sites
 used by rename/merge) and raises BlankTitleError -- which neither
 routes_ops.py (catches only OpError) nor the rename route (catches only
 sqlite3.IntegrityError) handles, so it surfaces as an uncaught HTTP 500.
-For the ops path that is strictly worse than either pre-pkm-1rb5 behavior
-(silently minting a "   "-titled page) or the 422 pkm-hjhy explicitly
-banned from the ops path: a durable batch that will never succeed on
+For the ops path that is strictly worse than either the prior behavior
+(silently minting a "   "-titled page) or the 422 explicitly banned from
+the ops path: a durable batch that will never succeed on
 retry, permanently wedging an offline client's queue. The fix skips the
 ref entirely at both call sites (no Untitled fallback here -- per
 extract()'s own docstring, a blank-normalizing title "is not a reference
@@ -415,12 +415,12 @@ def test_ops_broadcast_the_canonical_title_after_activation(client):
 
 
 def test_padded_title_is_preserved_and_reused_exactly(tmp_path):
-    """Round-2 regression (review round 2): a title padded with plain
-    leading/trailing space but not blank -- real content sits under it --
-    must keep matching itself exactly, the same as before pkm-1rb5. The
-    row is inserted directly (not via get_or_create_page) to simulate the
-    pre-existing production page: it was minted back when refs/ops never
-    stripped, so its stored title carries the padding."""
+    """A title padded with plain leading/trailing space but not blank --
+    real content sits under it -- must keep matching itself exactly, the
+    same as before. The row is inserted directly (not via
+    get_or_create_page) to simulate a pre-existing production page: it
+    was minted back when refs/ops never stripped, so its stored title
+    carries the padding."""
     db = _fresh_db(tmp_path)
     padded = " EvilCorp"
     db.execute(

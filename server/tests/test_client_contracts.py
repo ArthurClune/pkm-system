@@ -1,6 +1,6 @@
 """The client/CLI/MCP side compiles against `pkm.contracts` -- the
-transport-neutral request/response models the server also serializes with
-(pkm-0wr8). Two things are guarded here:
+transport-neutral request/response models the server also serializes with.
+Two things are guarded here:
 
 * dependency direction: nothing on the client side -- the two shells, the
   shared HTTP client, and the transport-neutral planners/renderers -- may
@@ -230,7 +230,7 @@ def test_ops_ack_stored_before_skipped_existed_reads_as_none_skipped():
 def test_asset_delete_ack_is_exactly_what_the_delete_route_returns(
         pkm_client, client, tmp_path):
     """Same guard for DELETE /api/assets/{sha256}, the client's
-    compensating call after a failed upload link (pkm-c17m)."""
+    compensating call after a failed upload link."""
     from pkm.contracts.responses import AssetDeleteAck
 
     f = tmp_path / "ack.png"

@@ -2,12 +2,12 @@
 generated types.d.ts) must match the live schema, or the TS op types the
 editor sends with are stale.
 
-The read-response guard below is the pkm-5nrm addition: it asserts each read
-route is backed by a named response-model component, so reverting a route to a
-bare `-> dict` (which drops the response contract from the schema) fails even
-after openapi.json is regenerated to match. pkm-2939 replaced the original
-hardcoded path->model map with auto-discovery from the OpenAPI document
-itself, so a brand-new GET route added later is covered with no map edit."""
+The read-response guard below asserts each read route is backed by a named
+response-model component, so reverting a route to a bare `-> dict` (which
+drops the response contract from the schema) fails even after openapi.json is
+regenerated to match. It auto-discovers routes from the OpenAPI document
+itself, rather than a hardcoded path->model map, so a brand-new GET route
+added later is covered with no map edit."""
 from __future__ import annotations
 
 import json
@@ -25,12 +25,11 @@ REGEN = ("regenerate with `uv run python -m pkm.server.openapi_dump "
 # Routes exempt from the "must declare a response_model" rule because they
 # don't return a JSON API payload: a health check, the schema introspection
 # endpoint itself, and binary file downloads (an asset, a page rendered to
-# markdown, and the whole-graph markdown export as a zip -- pkm-uvqf). Keep
-# this list explicit and minimal - anything else returning bare-dict JSON is
-# a bug.
+# markdown, and the whole-graph markdown export as a zip). Keep this list
+# explicit and minimal - anything else returning bare-dict JSON is a bug.
 EXEMPT_READ_ROUTES = {"/healthz", "/api/openapi.json", "/assets/{sha256}/{filename}",
                       "/api/export/page/{title}", "/api/export.zip",
-                      "/api/local/{path}"}  # local document bytes (pkm-g1ep)
+                      "/api/local/{path}"}  # local document bytes
 
 # Write routes return small ad-hoc JSON acks by design, so only GETs are
 # auto-checked - except the upload response and the ops ack, the non-GET

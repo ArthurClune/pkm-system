@@ -37,9 +37,9 @@ class _RaisingWS:
         # Without this, close() completes within a single scheduler step
         # and structurally cannot be interrupted by a pending
         # self-cancellation -- which would make a test using this fake
-        # blind to the exact ordering bug pkm-nn57's second-round review
-        # found (disconnect()-before-close() lets the drain task's
-        # self-cancel land inside this await and cut the close short).
+        # blind to an ordering bug: disconnect()-before-close() lets the
+        # drain task's self-cancel land inside this await and cut the
+        # close short.
         await asyncio.sleep(0)
         self.closed = True
 
@@ -252,7 +252,7 @@ def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
         await _until(lambda: set(hub._conns) == {good})
         # Hub-initiated drops (send failure/timeout) must close the
         # socket, or a real client would never see `onclose` fire and
-        # reconnect (pkm-nn57 final review).
+        # reconnect.
         await _until(lambda: raising.closed and stalling.closed)
         assert good.sent == [{"ok": 1}]
         assert set(hub._conns) == {good}
@@ -264,10 +264,10 @@ def test_broadcast_drops_bad_connections_and_still_delivers(monkeypatch):
 
 
 def test_broadcast_does_not_block_on_stalled_clients(monkeypatch):
-    """pkm-nn57: the old Hub.broadcast() awaited each client sequentially
-    with a SEND_TIMEOUT-bounded wait, so N stalled clients added
-    N * SEND_TIMEOUT of latency to every write that broadcasts. It must
-    now hand frames off (e.g. to a per-client queue) and return without
+    """Hub.broadcast() must not await each client sequentially with a
+    SEND_TIMEOUT-bounded wait -- that would add N * SEND_TIMEOUT of
+    latency to every write that broadcasts for N stalled clients. It must
+    hand frames off (e.g. to a per-client queue) and return without
     waiting on any client's send, so the cost is independent of how many
     clients are stalled."""
     from pkm.server import ws as ws_module
@@ -292,7 +292,7 @@ def test_broadcast_does_not_block_on_stalled_clients(monkeypatch):
 def test_broadcast_preserves_per_client_order_when_first_send_is_slow():
     """A client's still-in-flight first frame must not let a later
     broadcast() call's frame arrive first -- clients must never observe
-    seq nudges out of order (pkm-nn57)."""
+    seq nudges out of order."""
     from pkm.server import ws as ws_module
 
     async def _run():
@@ -313,9 +313,9 @@ def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
     """A client that isn't draining fast enough (queue full) is dropped
     outright rather than buffered without bound -- and its socket is
     actually closed, so a real client sees `onclose` fire and reconnects
-    and resyncs from its cursor, same as any other dropped connection
-    (pkm-nn57 final review: a Hub-initiated drop that never closes the
-    socket leaves a healthy-but-slow client wedged until tab reload)."""
+    and resyncs from its cursor, same as any other dropped connection. A
+    Hub-initiated drop that never closes the socket would leave a
+    healthy-but-slow client wedged until tab reload."""
     from pkm.server import ws as ws_module
     monkeypatch.setattr(ws_module, "QUEUE_SIZE", 2)
 
@@ -337,12 +337,11 @@ def test_broadcast_disconnects_client_whose_queue_overflows(monkeypatch):
 
 
 def test_default_thresholds_keep_a_backlogged_client():
-    """pkm-d6i6 (decided 2026-09-01): the DEFAULT drop thresholds are
-    tuned for flaky links, not a LAN, so no monkeypatch here. A client
-    dozens of nudges behind is kept: what a backlog costs this
-    single-user server is queued bytes plus one drain task, while every
-    drop costs the client a full reconnect + changes pull + resyncSeq
-    refetch cycle."""
+    """The DEFAULT drop thresholds are tuned for flaky links, not a LAN,
+    so no monkeypatch here. A client dozens of nudges behind is kept:
+    what a backlog costs this single-user server is queued bytes plus
+    one drain task, while every drop costs the client a full reconnect +
+    changes pull + resyncSeq refetch cycle."""
     from pkm.server import ws as ws_module
 
     async def _run():
@@ -365,9 +364,8 @@ def test_default_thresholds_keep_a_backlogged_client():
 
 
 def test_default_send_timeout_waits_out_a_slow_send():
-    """The other half of the pkm-d6i6 decision: a send slower than the
-    pre-decision 1 s SEND_TIMEOUT is waited out rather than dropped. A
-    slow client is far cheaper than a dropped one."""
+    """A slow send must be waited out rather than dropped: a slow client
+    is far cheaper than a dropped one."""
     from pkm.server import ws as ws_module
 
     async def _run():
@@ -384,13 +382,13 @@ def test_default_send_timeout_waits_out_a_slow_send():
 
 
 def test_drain_close_survives_concurrent_broadcast_overflow(monkeypatch):
-    """pkm-nn57 third-round review: while _drain's except branch has a
-    close in flight for a failed client, a concurrent broadcast() that
-    hits QueueFull for that SAME client must not be able to cancel the
-    in-flight close out from under it. _drain forgets the client from
-    the registry before starting the close, so a concurrent broadcast()
-    can no longer see it to drop it -- closing the cross-task version of
-    the self-cancel race the second round fixed only within one task."""
+    """While _drain's except branch has a close in flight for a failed
+    client, a concurrent broadcast() that hits QueueFull for that SAME
+    client must not be able to cancel the in-flight close out from under
+    it. _drain forgets the client from the registry before starting the
+    close, so a concurrent broadcast() can no longer see it to drop it --
+    closing the cross-task version of a self-cancel race that a
+    same-task fix alone would miss."""
     from pkm.server import ws as ws_module
     monkeypatch.setattr(ws_module, "QUEUE_SIZE", 1)
 
@@ -482,8 +480,8 @@ def test_daily_autocreate_on_get_emits_seq_nudge(client):
 
 
 def test_seq_frame_is_typed_and_validated():
-    """pkm-x7a5: the WS nudge frame is built from a typed model, not an
-    ad-hoc dict literal (spec contract-hardening)."""
+    """The WS nudge frame is built from a typed model, not an ad-hoc dict
+    literal."""
     import sqlite3
 
     from pkm.schema import DDL

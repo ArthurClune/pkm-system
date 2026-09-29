@@ -1,4 +1,4 @@
-"""pkm-r7k8: init_db() backfills NULL blocks.created_at from the block's
+"""init_db() backfills NULL blocks.created_at from the block's
 page, guarded so it never mints a created_at greater than the block's own
 updated_at (merged/moved blocks can sit on pages younger than their last
 edit) and never writes NULL back. Re-running init_db() must be a no-op

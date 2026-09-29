@@ -81,8 +81,8 @@ def test_backlinks_normalizes_control_whitespace_title(tools, pkm_client):
 
 def test_backlinks_returns_every_group_beyond_the_single_page_cap(
         tools, seed_backlinks):
-    # Same pagination cap as the CLI's `pkm refs` (pkm-3cyg): the MCP tool
-    # must not silently drop groups past the route's 100-group limit.
+    # Same pagination cap as the CLI's `pkm refs`: the MCP tool must not
+    # silently drop groups past the route's 100-group limit.
     seed_backlinks(101)
     out = tools.backlinks("Machine Learning")
     assert out.startswith("# Backlinks: Machine Learning (102 pages)")
@@ -128,10 +128,10 @@ def test_save_note_todo_and_outline(tools, pkm_client):
 
 def test_save_note_twice_to_a_control_whitespace_titled_page_appends_and_reuses_the_heading(
         tools, pkm_client):
-    """Mirrors the CLI regression (pkm-5k8p): a title with control
-    whitespace normalizes at creation (pkm-hjhy), so a second save_note
-    call using the same raw spelling must see the page's real blocks
-    instead of a false-empty placeholder."""
+    """Mirrors the CLI regression: a title with control whitespace
+    normalizes at creation, so a second save_note call using the same raw
+    spelling must see the page's real blocks instead of a false-empty
+    placeholder."""
     tools.save_note("first", page="Ctrl\tTitle", parent="## Notes")
     tools.save_note("second", page="Ctrl\tTitle", parent="## Notes")
     page = pkm_client.get_page("Ctrl Title")
@@ -232,7 +232,7 @@ def test_batch_propagates_indexed_forbidden_reference_server_error(
 def test_save_note_empty_text_on_new_page_leaves_no_page_behind(tools, pkm_client):
     # plan_save rejects empty text after the page would already have been
     # fetched/created -- the page must not persist when the save as a
-    # whole fails (pkm-w80k: page creation rides the same atomic batch).
+    # whole fails: page creation rides the same atomic batch.
     with pytest.raises(BuildError, match="empty"):
         tools.save_note("", page="Brand New Page")
     with pytest.raises(ApiError) as e:
@@ -292,8 +292,8 @@ def test_batch_nested_but_empty_outline_items_raises(tools):
 
 def test_batch_schema_failure_leaves_no_page_or_blocks(tools, pkm_client):
     # A schema-invalid second command must fail the whole batch before the
-    # first command's brand-new page is fetched/created at all (pkm-4w23:
-    # validation runs before any page discovery or I/O).
+    # first command's brand-new page is fetched/created at all: validation
+    # runs before any page discovery or I/O.
     cmds = [
         {"command": "create",
          "params": {"page": "Brand New MCP Batch Page", "text": "hello"}},

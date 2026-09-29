@@ -77,8 +77,8 @@ def test_refs_kind_constraint(db):
 
 
 def test_db_generation_token_created_and_stable(db):
-    """pkm-o9o5: a random generation token is minted when the DDL first
-    runs and survives re-running the (idempotent) DDL."""
+    """A random generation token is minted when the DDL first runs and
+    survives re-running the (idempotent) DDL."""
     row = db.execute(
         "SELECT value FROM sync_meta WHERE key = 'db_generation'").fetchone()
     assert row is not None

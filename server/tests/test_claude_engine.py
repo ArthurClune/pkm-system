@@ -52,7 +52,7 @@ class FailingConnectClient(FakeSDKClient):
 class HangingConnectClient(FakeSDKClient):
     """connect() never returns until cancelled -- simulates a wedged
     handshake that the admission lock's wait_for(create_timeout) times out
-    on (pkm-rovq)."""
+    on."""
 
     async def connect(self):
         await asyncio.Event().wait()  # never set
@@ -187,8 +187,8 @@ def test_glm_without_token_is_rejected_before_any_side_effect(tmp_path):
 
 
 def test_create_conversation_factory_failure_unlinks_config(tmp_path):
-    # pkm-4zq4: a client_factory failure must not leave the 0600 credential
-    # file behind -- there is no client to disconnect, but the config still
+    # A client_factory failure must not leave the 0600 credential file
+    # behind -- there is no client to disconnect, but the config still
     # needs cleanup.
     engine = make_engine(tmp_path, factory=failing_factory)
 
@@ -201,8 +201,8 @@ def test_create_conversation_factory_failure_unlinks_config(tmp_path):
 
 
 def test_create_conversation_connect_failure_unlinks_and_disconnects(tmp_path):
-    # pkm-4zq4: connect() failing after the client was created must still
-    # disconnect the partially-started client and unlink the config file.
+    # connect() failing after the client was created must still disconnect
+    # the partially-started client and unlink the config file.
     engine = make_engine(tmp_path, factory=FailingConnectClient)
 
     async def scenario():
@@ -216,7 +216,7 @@ def test_create_conversation_connect_failure_unlinks_and_disconnects(tmp_path):
 
 
 def test_create_conversation_cancelled_during_connect_cleans_up(tmp_path):
-    # pkm-4zq4: this is what happens when service.create()'s
+    # This is what happens when service.create()'s
     # asyncio.wait_for(create_conversation(...), CREATE_TIMEOUT_S) times out
     # on a wedged handshake -- CancelledError is delivered into connect().
     # Startup must still disconnect the client and unlink the config file
@@ -235,15 +235,13 @@ def test_create_conversation_cancelled_during_connect_cleans_up(tmp_path):
 
 
 def test_close_cleanup_survives_a_second_cancellation_during_disconnect(tmp_path):
-    # pkm-4zq4 fix round 1, finding 1: close() awaited client.disconnect()
-    # guarded only by `except Exception`, then unlinked the config file as a
-    # separate, later statement. CancelledError is BaseException, not
-    # Exception -- a second cancellation delivered into that disconnect()
-    # await (e.g. uvicorn cancelling the aborted POST, on top of the
-    # create_timeout cancellation that got us into cleanup in the first
-    # place) skipped the unlink entirely, leaking the 0600 session-token
-    # file. No prior fake's disconnect() ever awaited anything, which is why
-    # the suite was green over this hole.
+    # close() must guard client.disconnect() against BaseException, not just
+    # Exception: CancelledError is a BaseException, so a second cancellation
+    # delivered into that disconnect() await (e.g. uvicorn cancelling the
+    # aborted POST, on top of the create_timeout cancellation that got us
+    # into cleanup in the first place) must not skip the unlink and leak the
+    # 0600 session-token file. No prior fake's disconnect() ever awaited
+    # anything, which is why this needs a fake that actually blocks there.
     engine = make_engine(tmp_path, factory=HangingDisconnectClient)
 
     async def scenario():
@@ -364,8 +362,8 @@ def test_close_during_live_turn_unblocks_consumer(tmp_path):
 
 
 def test_send_interrupts_harness_when_consumer_drops_before_any_event(tmp_path):
-    # pkm-c98s item 2: an SSE consumer that disconnects mid-turn must not
-    # leave the CLI subprocess still executing the abandoned query. A
+    # An SSE consumer that disconnects mid-turn must not leave the CLI
+    # subprocess still executing the abandoned query. A
     # generator that is cancelled while genuinely suspended mid-body (as
     # Starlette cancels the streaming task on client disconnect) -- not one
     # that is aclose()'d before it has ever been started -- is what actually
@@ -418,11 +416,11 @@ def test_send_interrupts_harness_when_consumer_drops_mid_confirm(tmp_path):
 
 
 def test_parked_confirm_is_declined_without_waiting_for_interrupt(tmp_path):
-    # pkm-mbcc defect 2: the decline loop used to run *after* awaiting
-    # interrupt(), which cannot return while the harness sits inside
-    # can_use_tool awaiting the very decision that loop supplies. The parked
-    # confirm was therefore never answered, and the harness stayed wedged
-    # until the process restarted.
+    # The decline loop must not run *after* awaiting interrupt(), which
+    # cannot return while the harness sits inside can_use_tool awaiting the
+    # very decision that loop supplies -- otherwise a parked confirm is
+    # never answered and the harness stays wedged until the process
+    # restarts.
     engine = make_engine(tmp_path, factory=HangingInterruptClient)
 
     async def scenario():
@@ -455,8 +453,8 @@ def test_parked_confirm_is_declined_without_waiting_for_interrupt(tmp_path):
 
 
 def test_disconnect_cleanup_survives_a_wedged_interrupt(tmp_path, monkeypatch):
-    # pkm-mbcc defect 2, second half: even with nothing pending, cleanup must
-    # not hang forever on a harness that never acknowledges the interrupt.
+    # Even with nothing pending, cleanup must not hang forever on a harness
+    # that never acknowledges the interrupt.
     monkeypatch.setattr(claude_engine, "INTERRUPT_TIMEOUT_S", 0.05)
     engine = make_engine(tmp_path, factory=HangingInterruptClient)
 
@@ -505,9 +503,9 @@ def test_disconnect_cleanup_survives_an_interrupt_that_raises(tmp_path):
     assert client.interrupts == 1
 
 
-# --- pkm-rwwc: an unacknowledged interrupt leaves the harness state
-# uncertain -- the conversation must be flagged unhealthy so the service
-# retires it instead of reusing it for a later turn. ---
+# --- an unacknowledged interrupt leaves the harness state uncertain -- the
+# conversation must be flagged unhealthy so the service retires it instead
+# of reusing it for a later turn. ---
 
 
 def test_wedged_interrupt_marks_conversation_unhealthy(tmp_path, monkeypatch):
@@ -696,12 +694,11 @@ def test_turn_mapper_prefers_partial_deltas():
     assert mapper.map(msg) == []
 
 
-# --- pkm-e9ok option D: a turn with NO SDK messages at all for the stall
-# window is a dead network, not a thinking model (verified live 2026-08-19:
-# both harnesses emit a steady flow of thinking_delta stream events during
-# honest reasoning). The 2026-07-31 outage sat like this for 7.5 minutes
-# with the panel showing "thinking..."; the watchdog kills the turn instead
-# of waiting on the user's patience. ---
+# --- a turn with NO SDK messages at all for the stall window is a dead
+# network, not a thinking model: both harnesses emit a steady flow of
+# thinking_delta stream events during honest reasoning, so total silence
+# means the watchdog kills the turn instead of waiting on the user's
+# patience. ---
 
 
 def test_stalled_turn_times_out_with_an_error_event(tmp_path, monkeypatch):
@@ -818,10 +815,10 @@ def test_stall_watchdog_suspended_while_confirm_parked(tmp_path, monkeypatch):
 
 
 def test_turn_mapper_emits_phase_on_content_block_start():
-    """content_block_start opens the silent window pkm-e9ok is about: the
-    thinking/tool_use block's start arrives ~25-50s before the assembled
+    """content_block_start opens the silent window before an assembled turn:
+    the thinking/tool_use block's start arrives ~25-50s before the assembled
     AssistantMessage, so the phase label must come from here. Shapes match
-    live dumps from both harnesses (claude + z.ai glm, 2026-08-19)."""
+    live dumps from both harnesses (claude + z.ai glm)."""
     from claude_agent_sdk import StreamEvent
 
     def start(content_block):

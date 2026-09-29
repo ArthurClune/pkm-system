@@ -1,7 +1,6 @@
-"""Regression tests for pkm-lhzd: open_db() must never perform WAL/DDL
-setup, because that requires SQLite locks that collide with any other
-connection's open write transaction. See docs/2026-07-10-implementation-
-review.md finding 1 for the original Playwright-reproduced traceback."""
+"""Regression tests: open_db() must never perform WAL/DDL setup, because
+that requires SQLite locks that collide with any other connection's open
+write transaction."""
 import sqlite3
 import threading
 

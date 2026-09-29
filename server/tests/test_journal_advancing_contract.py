@@ -1,4 +1,4 @@
-"""pkm-getl: a mutation-route contract test enumerating every
+"""A mutation-route contract test enumerating every
 journal-advancing endpoint (a route whose commit touches blocks, pages, or
 sidebar_entries -- the tables with changes-journal triggers, schema.py
 SERVER_DDL). Each one must emit a WS seq nudge after its commit; the journal

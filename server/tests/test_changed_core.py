@@ -1,4 +1,4 @@
-"""Pure window parsing/classification for pkm-6eea (pkm changed)."""
+"""Pure window parsing/classification for `pkm changed`."""
 from datetime import date, datetime, timedelta, timezone
 
 import pytest

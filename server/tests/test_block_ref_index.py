@@ -1,4 +1,4 @@
-"""pkm-d31f: block_refs stays current through every text write path."""
+"""block_refs stays current through every text write path."""
 from pkm.server.db import open_db
 
 

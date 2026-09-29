@@ -6,8 +6,8 @@ Behavior is keyed on the user text so Playwright can drive it:
                      then Saved./Okay, not saving. after resolve_confirm.
 - "please hang"   -> parks forever (never yields, never finishes) until the
                      consumer stops iterating (e2e drive for the Stop
-                     button / pkm-c98s item 3: nothing else in this double
-                     can keep a turn "busy" indefinitely to click Stop on).
+                     button: nothing else in this double can keep a turn
+                     "busy" indefinitely to click Stop on).
 - anything else   -> TextDelta("echo: <text>") + TurnDone.
 """
 

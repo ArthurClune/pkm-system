@@ -127,7 +127,7 @@ export interface ReplicaSyncDeps {
    * on its own, knowing nothing about the lane, so flushBatches asks the
    * queue to deliver whatever the lane holds ahead of each one first. */
   queue?: Pick<OpQueue, "pause" | "resume"> &
-    Partial<Pick<OpQueue, "onPoisonPending" | "deliverLaneAhead">>;
+    Partial<Pick<OpQueue, "onPoisonPending" | "onPoisonMarkUnmatched" | "deliverLaneAhead">>;
   /** True while the socket is down (mirrors the offline gateway's own
    * `statusRef.current === "reconnecting"` predicate). A failed pull's retry
    * is pointless here -- every retry while offline just reproduces the same
@@ -333,6 +333,16 @@ export function createReplicaSync(deps: ReplicaSyncDeps): ReplicaSync {
   // lease acquired just before that mark therefore cannot flush its stale
   // pre-mark batch list.
   queue.onPoisonPending?.(() => { authoritativeRepair = "poison"; });
+
+  // A marking round that matched no row leaves nothing for onPoison to
+  // trigger a repair from; this is the other half of the claim onPoisonPending
+  // took above, and it must release what that claim owns and nothing more.
+  queue.onPoisonMarkUnmatched?.(() => {
+    if (authoritativeRepair === "poison") {
+      authoritativeRepair = null;
+      queue.resume("recovery");
+    }
+  });
 
   /** Local data now reflects `seq`. A `"snapshot"` always replaced the
    * database; a `"window"` only moved it if the feed had rows to apply, which

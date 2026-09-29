@@ -373,16 +373,12 @@ Rolling the whole batch back would revert its other edits until the ack. The
 next edit to a reverted block would then hash against stale text and draw a
 spurious conflict header.
 
-A tab with no replica has neither a feed nor a tombstone: it delivers through
-the fallback lane instead (see [above](#the-in-memory-fallback-lane)) and
-drops its own WS echo (`SyncProvider`'s `onBatch`, `batch.client_id ===
-clientId`). Left alone, a ghost block on screen would never disappear, and
-every debounced flush would land another child under its daily-note conflict
-header. `deliverLaneHead` reads the ack `postOps` returns after every
-fallback-lane POST, and once `unavailable` is latched (see
-[Availability](#availability-two-values-one-owner)), a non-empty `skipped`
-bumps resync (`ops-skipped-no-replica` in `syncState.ts`) instead. That is the
-same guarded read every other resync trigger runs — never the outline repair
-epoch — so a pending edit elsewhere on the page survives. A replica-backed
-lane delivery (the ordering-only case above) skips this: its feed already
-tombstones the same ghost, so bumping there too would be a redundant refetch.
+A tab with no replica gets no tombstone. It delivers through the
+[fallback lane](#the-in-memory-fallback-lane) and drops its own WS echo, so a
+ghost block would stay on screen, and each flush into it would land another
+daily-note child. So once `unavailable` is latched, `deliverLaneHead` reads the
+ack's `skipped` list, and a non-empty one bumps resync
+(`ops-skipped-no-replica` in `syncState.ts`). That is the guarded read every
+resync trigger runs, not the outline repair epoch, so pending edits elsewhere
+on the page survive. A replica-backed lane delivery does not bump, because its
+feed tombstones the ghost.

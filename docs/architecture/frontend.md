@@ -138,6 +138,7 @@ web/src/
 ├── replica/                  The offline engine (see sync-and-offline.md)
 │   ├── worker.ts / workerHandlers.ts  Shell  The worker; db()'s latched open
 │   ├── rpc.ts / client.ts    Shell        Typed RPC over the worker port
+│   ├── carryStore.ts         Shell        The pending queue's durable copy across a file replacement
 │   ├── queue.ts / apply.ts / reconcile.ts / recoveryGate.ts  Shell  Pending ops, feed
 │   │                                      apply, negative-id remap, recovery FIFO
 │   ├── localApi/             Shell        Offline read shims: the routes' exact JSON

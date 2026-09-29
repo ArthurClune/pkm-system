@@ -26,7 +26,7 @@ replica is a cache and the queue is the user's intent.
 | The server answers 4xx for a durable batch | The drain's `ApiError` branch | Row poisoned, delivery paused, snapshot repair drops it | Later rows never post ahead of it; the repair never resets | [A batch the server rejects](#a-batch-the-server-rejects) |
 | A pull keeps failing | `noteFailure`, counting only `isStallShaped` errors | Backoff retry; `stalled` after `STALL_AFTER_FAILURES` | Network-down and availability failures never count | [A pull that keeps failing](#a-pull-that-keeps-failing) |
 | Schema, generation, cursor, FK, title, corruption or repeated window failure | Seven detectors | `reset` or `rebase` from a snapshot | One lifecycle, `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
-| A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase carries the durable queue across | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
+| A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase commits the queue to the carry before unlinking | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json` | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | The same, but the tab has no replica (no feed to tombstone the ghost) | `deliverLaneHead` reads the ack's `skipped` list, only while `unavailable` is latched | Bumps resync; every mounted view's guarded read refetches | Never fires for a replica-backed lane delivery, which gets the tombstone from its feed instead | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
@@ -130,7 +130,9 @@ flowchart TD
 sqlite-wasm memoises `installOpfsSAHPoolVfs` per VFS name and otherwise
 re-awaits the cached rejection. The top-up to `MIN_POOL_CAPACITY` must run
 before the open, because nothing grows the pool later and every file SQLite
-opens claims a slot.
+opens claims a slot. Six slots hold `PEAK_POOL_FILES` (`poolCapacity.ts`): the
+replica, the carry and their journals, the most a
+[file replacement](#reset-rebase-and-file-replacement) holds at once.
 
 ### Availability: two values, one owner
 
@@ -210,6 +212,7 @@ and clears them all on a schema rebuild, which restarts the AUTOINCREMENT ids.
 | `reapplyPending` re-applies non-poisoned pending batches on top of every snapshot and feed window | `replica/apply.ts` | Later edits capturing stale base hashes |
 | `reapplyPending` diffs `PRAGMA foreign_key_check` around each batch and rolls a violating one back to its savepoint | `replica/apply.ts` | A pending block re-created under a row the feed removed failing the whole window at COMMIT |
 | Replay (`applyLocalOps` with `reapply`) keeps a create whose row exists, and a move whose block already sits at its target, in place | `replica/localOps.ts::keepSlot` | A pending create failing its whole batch on every window; sibling `order_idx` drifting up per window |
+| A rebase that replaces the file commits the queue to a carry database first; every handler adopts a leftover carry before serving | `workerHandlers.ts`, `replica/carryStore.ts` | A failed open, schema install or import, or a killed worker, losing the queue during a file replacement |
 
 The FK diff works whatever the enforcement pragmas say, so it also covers the
 reset rebuild, which runs under `foreign_keys=OFF`. The rolled-back batch stays
@@ -337,10 +340,31 @@ Pending rows lose nothing, because a reset drops `pending_ops` anyway and its
 caller already holds them from `prepareRecovery`.
 
 A `rebase` meets the same damage when its snapshot apply deletes rows.
-`rebaseOrReplaceFile` takes the same escape but keeps the queue: the durable
-rows move to the new file verbatim, ids and `poisoned` included, and commit
-before the snapshot applies. This is how the rejected-batch repair gets past a
-damaged file without resetting.
+`rebaseOrReplaceFile` takes the same escape but keeps the queue. This is how
+the rejected-batch repair gets past a damaged file without resetting. **The
+queue is committed to the carry database, `/pkm-replica-carry.sqlite3`,
+before the damaged file is unlinked.** The rows travel verbatim, ids,
+`poisoned` and `error` included, because the provider deletes the poisoned row
+by id afterwards.
+
+| Step | Action | If the worker dies here, the rows are in |
+|---|---|---|
+| 1 | `carry.write(rows)` commits them to the carry (`carryStore.ts`) | both files |
+| 2 | `discardDbFile` unlinks the damaged file and its journal | the carry only |
+| 3 | The new file gets `rebuildSchema`, then `importPendingRows` (`INSERT OR IGNORE` by id) | both files |
+| 4 | `carry.discard()` | the new file |
+| 5 | The snapshot applies and re-applies pending | the new file |
+
+A failed carry write leaves the damaged file untouched, and without a carry
+store a rebase rethrows rather than replace the file. The carry goes at step
+4, not after the snapshot. A carry kept past a failed snapshot would be
+adopted on a later open and bring back batches acked or deleted since.
+
+Every handler reaches the database through `queueDb`, which imports a leftover
+carry and discards it before serving. Adoption cannot wait for `init`, because
+an edit can reach a restarted worker first. Its insert would take the carried
+ids, and the by-id import would then drop those rows. A carry that cannot be
+read fails the handler and is kept.
 
 **Corruption must reach `isCorruptionError` with its own message.** SQLite
 rolls back the whole transaction by itself on `SQLITE_CORRUPT`, `IOERR` or

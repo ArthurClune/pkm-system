@@ -204,7 +204,7 @@ directly through `store.rename_page_rows` — rename is a route, not an op, so
 it can't ride an `OpBatch` — which is the only way to exercise
 `ops_core.replay_title_rewrites`. The three `ops/*-missing-*` scenarios
 target uids the fixture never generates (`MISSING_BLOCK_UID`,
-`MISSING_PARENT_UID`), reaching `ops_core.classify_missing_target`'s
+`MISSING_PARENT_UID`), reaching `ops_core.classify_skip`'s
 `orphan_edit`, `diverted_create` and `move_parent_missing` branches.
 
 ## Frontend check

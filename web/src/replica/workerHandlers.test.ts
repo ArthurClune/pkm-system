@@ -275,7 +275,7 @@ test("an acquired recovery lease expires if its client forgets the token", async
 
 test("a failed open stays latched: init's rejection must not re-arm the database",
 async () => {
-  // pkm-bjae / pkm-61zt: SyncProvider lifts the op queue's recovery barrier on
+  // SyncProvider lifts the op queue's recovery barrier on
   // the strength of init() rejecting with the latched ReplicaUnavailableError,
   // WITHOUT having read the poison table. If init's failure path cleared the
   // memoised open, the next handler call would attempt a fresh one — and in
@@ -304,9 +304,8 @@ async () => {
 });
 
 test("one failed open is replayed by EVERY handler, and opens only once", async () => {
-  // Characterisation for pkm-q2jj: today this holds because db() is
-  // `dbPromise ??= openDb()` and nothing clears the rejection. Task 3 replaces
-  // that implicit mechanism with an explicit latch; this test must not notice.
+  // This holds because db() is `dbPromise ??= openDb()` and nothing clears
+  // the rejection.
   //
   // commitRecovery(), abortRecovery() and close() are deliberately excluded:
   // commitRecovery takes a lease token and is covered by its own recovery
@@ -314,10 +313,9 @@ test("one failed open is replayed by EVERY handler, and opens only once", async 
   // (abortRecovery only touches the in-memory recovery gate, and close()
   // only clears dbPromise and calls the injected closeDb). prepareRecovery
   // takes no required payload (its own tests call it with undefined) and
-  // does call db(), so it belongs in the list below. init() used to be
-  // excluded here because it caught the open failure and returned
-  // { ok: false }; now that it is just another handler (pkm-61zt), it belongs
-  // in the list too.
+  // does call db(), so it belongs in the list below. init() is just another
+  // handler, not one that catches the open failure and returns
+  // { ok: false }, so it belongs in the list too.
   let opens = 0;
   const handlers = buildHandlers({
     openDb: async () => {
@@ -366,8 +364,8 @@ async () => {
   const first = await handlers.pendingCount(undefined).catch((e: unknown) => e);
   expect(first).toBeInstanceOf(ReplicaUnavailableError);
   // The original message is preserved deliberately: it is the only
-  // diagnostic a user-visible banner has. Retention itself no longer matches
-  // on it (pkm-s7af made that a type check on this class instead).
+  // diagnostic a user-visible banner has. Retention matches on a type
+  // check against this class, never on the message text.
   expect((first as Error).message).toBe("OPFS is not available in this browser");
 
   // Same object, not a fresh one per call: the fact is latched, not re-derived.
@@ -387,17 +385,16 @@ async () => {
   // new profile. Without it, pendingCount would query a table that does not
   // exist yet — and SyncProvider does hit that path on a fresh profile: it
   // calls pendingCount() from a mount effect with no dependency on init()
-  // completing first (see pkm-za9j's recorded finding).
+  // completing first.
   await expect(handlers.init(undefined)).resolves.toMatchObject({ empty: true });
   await expect(handlers.pendingCount(undefined)).resolves.toBe(0);
   expect(opens).toBe(2);
 });
 
 test("init rejects with the latched error instead of reporting ok:false", async () => {
-  // ok:false was the FIRST of five representations of one fact (pkm-q2jj): a
-  // value that says what the latched rejection already says, kept in sync by
-  // convention. With the worker owning the fact, init() is just another
-  // handler.
+  // An ok:false value would say what the latched rejection already says,
+  // kept in sync only by convention. With the worker owning the fact,
+  // init() is just another handler.
   const handlers = buildHandlers({
     openDb: async () => { throw new Error("OPFS is not available in this browser"); },
   });
@@ -407,7 +404,7 @@ test("init rejects with the latched error instead of reporting ok:false", async 
 });
 
 test("enqueue persists a caller-provided batch id instead of minting one", async () => {
-  // The lost-reply window (pkm-ybgt): if the caller never sees this reply, it
+  // The lost-reply window: if the caller never sees this reply, it
   // retains the ops under the id it chose. The row must carry that same id so
   // the duplicate delivery lands on the server's replay path, not a 400.
   const t = await openRawTestDb();
@@ -426,7 +423,7 @@ test("enqueue persists a caller-provided batch id instead of minting one", async
 });
 
 test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async () => {
-  // pkm-ur2n: an acked seq is keyed by row id, and ids are only unique within
+  // An acked seq is keyed by row id, and ids are only unique within
   // one pending_ops table. Dropping the table resets AUTOINCREMENT, so a seq
   // recorded before a rebuild must not vouch for a new row that reuses its id.
   const t = await openRawTestDb();

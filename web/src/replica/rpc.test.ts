@@ -36,7 +36,7 @@ test("interleaved calls resolve to their own callers", async () => {
 test("handler errors reject with ReplicaError, message preserved", async () => {
   // A plain failure carries no flags: an exhausted disk arrives here as an
   // undifferentiated SQLITE_IOERR and must be treated like any other failure
-  // to persist locally (pkm-avag).
+  // to persist locally.
   const { server, client } = pair();
   serveRpc(server, {
     boom: async () => { throw new Error("plain failure"); },

@@ -96,7 +96,7 @@ test("a feed fetched before an acknowledged batch deletion cannot overwrite it",
 });
 
 test("a window whose latest_seq covers the acked batch applies despite the stale pending snapshot", async () => {
-  // pkm-ur2n: the save's WS nudge started this pull while the batch was
+  // The save's WS nudge started this pull while the batch was
   // pending; the HTTP ack then deleted it, naming the journal seq of its
   // commit. The window was read at latest_seq >= that seq, so it already
   // carries the batch -- refetching would fetch the very same rows.
@@ -194,10 +194,9 @@ test("reset destroys the database and reinstalls a fresh schema", async () => {
 });
 
 test("openDb failure rejects init() with the worker's latched error", async () => {
-  // ok:false used to let a failed open cross the RPC boundary as a value.
-  // init() is now just another handler: the worker's db() latch rejects it
-  // exactly like every other call, and the typed error is what travels
-  // (pkm-61zt).
+  // init() is just another handler: the worker's db() latch rejects it
+  // exactly like every other call, and the typed error is what travels --
+  // a failed open must never cross the RPC boundary as an ok:false value.
   const ch = new MessageChannel();
   serveRpc(toPortLike(ch.port2), buildHandlers({
     openDb: async () => { throw new Error("OPFS unavailable"); },

@@ -24,7 +24,7 @@ const fixture = JSON.parse(readFileSync(
   join(__dirname, "../../../../shared/fixtures/shim_parity.json"), "utf-8"),
 ) as Fixture;
 
-const IMPLEMENTED = (_name: string) => true; // search included (pkm-blz2)
+const IMPLEMENTED = (_name: string) => true; // search included
 const DEPS = { newBatchId: () => "parity-batch" };
 
 let t: TestDb;

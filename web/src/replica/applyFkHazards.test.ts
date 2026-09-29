@@ -1,5 +1,5 @@
 // @vitest-environment node
-// FK hazards in feed/snapshot application (pkm-qvlx). defer_foreign_keys=ON
+// FK hazards in feed/snapshot application. defer_foreign_keys=ON
 // postpones FK checks to the outer COMMIT — past the savepoints reapplyPending
 // relies on. A dangling parent_uid therefore doesn't fail the op that inserts
 // it; it fails the whole window/snapshot transaction, and because the cursor
@@ -111,7 +111,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     expect(queuedBatchIds(t.db)).toEqual(["batch-child"]);
   });
 
-  test("tombstones the server journals for a skipped op drop a ghost and its local-only child (pkm-foap)", () => {
+  test("tombstones the server journals for a skipped op drop a ghost and its local-only child", () => {
     // The server skips an op on a missing target and journals the uids a
     // replica may hold a ghost of. uid_ghost is one: an acked create the
     // server diverted to the daily note, still in the replica because the
@@ -141,7 +141,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
     expect(t.db.select("PRAGMA foreign_key_check")).toEqual([]);
   });
 
-  test("a block moved under a ghost keeps its subtree when the ghost's tombstone and the re-shipped subtree share a window (pkm-foap)", () => {
+  test("a block moved under a ghost keeps its subtree when the ghost's tombstone and the re-shipped subtree share a window", () => {
     // The client moved uid_b2 (child uid_b3) under uid_ghost_p, a parent the
     // server never had; both batches are acked. The server skips the move
     // and journals the parent's tombstone first, then every row of the moved
@@ -169,7 +169,7 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
                 { uid: "uid_b3", parent_uid: "uid_b2" }]);
   });
 
-  test("baseline tightening catches a DELETE-freed rowid reused by a later batch's dangling insert (pkm-ufjt)", () => {
+  test("baseline tightening catches a DELETE-freed rowid reused by a later batch's dangling insert", () => {
     // `blocks` is a rowid table (uid TEXT PRIMARY KEY, no AUTOINCREMENT): a
     // new row's rowid is max(rowid)+1, so deleting the max-rowid row frees it
     // for reuse by the very next insert in the same transaction. Demonstrate
@@ -273,8 +273,8 @@ describe("feed windows and pending batches must not wedge on FK constraints", ()
   });
 
   test("a window failing on anything other than an FK still throws", () => {
-    // needs-bootstrap is the answer to a dependency-incomplete window (and,
-    // since pkm-n31j, to a stale title holder) only. Any other constraint
+    // needs-bootstrap is the answer to a dependency-incomplete window (and
+    // to a stale title holder) only. Any other constraint
     // failure is a genuine bug or a corrupt replica, and bootstrapping past
     // it would hide it behind an endless resync.
     expect(() => applyChanges(t.db, emptyFeed({

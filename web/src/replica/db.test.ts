@@ -53,7 +53,7 @@ describe("wrapSqlite + installSchema", () => {
   test("an engine auto-rollback does not replace the original error", async () => {
     // SQLite rolls the transaction back itself on SQLITE_CORRUPT/IOERR/FULL;
     // the wrapper's own ROLLBACK then fails with "no transaction is active".
-    // The caller must still see the error that caused it (pkm-h1c6).
+    // The caller must still see the error that caused it.
     const t = await openTestDb();
     expect(() => t.db.transaction(() => {
       t.db.exec("INSERT INTO pages(id, title) VALUES (1, 'AI')");

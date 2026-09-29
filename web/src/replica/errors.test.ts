@@ -24,7 +24,7 @@ describe("availabilityOf", () => {
   });
 
   test("a terminal RPC failure is unreachable, not unusable", () => {
-    // "we could not ask" is not evidence that there is no database (pkm-bjae).
+    // "we could not ask" is not evidence that there is no database.
     for (const kind of ["worker-error", "message-error", "timeout", "disposed"] as const) {
       expect(availabilityOf(new RpcLifecycleError(kind, kind))).toBe("unreachable");
     }
@@ -61,7 +61,7 @@ describe("isSessionFatal", () => {
 
 describe("isCorruptionError", () => {
   test("recognises SQLite corruption reported through a replica error", () => {
-    // What FTS5 raises when its index and content table disagree (pkm-n31j);
+    // What FTS5 raises when its index and content table disagree;
     // the wrapper surfaces the engine's message unchanged.
     expect(isCorruptionError(new ReplicaError(
       "SQLITE_CORRUPT_VTAB: sqlite3 result code 267: database disk image is malformed",

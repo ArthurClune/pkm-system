@@ -286,7 +286,7 @@ describe("applyLocalOps", () => {
     t.db.exec("UPDATE blocks SET updated_at = 10 WHERE uid IN ('uid_r1', 'uid_r2')");
     t.db.exec("UPDATE pages SET updated_at = 10 WHERE id = 1");
 
-    // Collapse/expand is not a real change (bean pkm-r7k8): it must not
+    // Collapse/expand is not a real change: it must not
     // touch the block's own updated_at, nor its page's — otherwise a
     // collapse toggle would reorder "recently touched" page lists.
     applyLocalOps(t.db, [
@@ -359,7 +359,7 @@ describe("applyLocalOps", () => {
   });
 
   test("a batch applies atomically: a bad op rolls the whole batch back", () => {
-    // A missing target is skipped (pkm-7788), not a failure, so this now
+    // A missing target is skipped, not a failure, so this now
     // needs an op that still throws: a create whose uid already exists.
     expect(() => applyLocalOps(t.db, [
       { op: "update_text", uid: "uid_r1", text: "changed" },
@@ -369,7 +369,7 @@ describe("applyLocalOps", () => {
     expect(blockRow("uid_r1").text).toBe("first"); // rolled back
   });
 
-  describe("pkm-7788: missing-target ops are skipped, not thrown, like the server", () => {
+  describe("missing-target ops are skipped, not thrown, like the server", () => {
     test.each([
       ["update_text", { op: "update_text", uid: "uid_missing", text: "x" }],
       ["move", { op: "move", uid: "uid_missing", parent_uid: null, order_idx: 0 }],
@@ -415,7 +415,7 @@ describe("applyLocalOps", () => {
     });
   });
 
-  describe("pkm-fe9b: concurrent structure edits resolve as the server resolves them", () => {
+  describe("concurrent structure edits resolve as the server resolves them", () => {
     // uid_m1 lives on ML (page 2); the ops below were queued when the
     // editor still placed it elsewhere
     beforeEach(() => {
@@ -496,7 +496,7 @@ describe("applyLocalOps", () => {
   });
 });
 
-describe("opBumpsUpdatedAt agrees with what the replica actually writes (pkm-4ler)", () => {
+describe("opBumpsUpdatedAt agrees with what the replica actually writes", () => {
   const ops: Array<[string, BlockOp]> = [
     ["update_text", { op: "update_text", uid: "uid_r1", text: "changed" }],
     ["move", { op: "move", uid: "uid_r1", parent_uid: null, order_idx: 5 }],

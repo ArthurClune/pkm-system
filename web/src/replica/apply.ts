@@ -312,9 +312,11 @@ function assertNoParkedTitles(db: ReplicaDb, table: TitledTable,
  * that follow, because the feed hydrates current rows. A page id the server
  * deleted and reused inside the window arrives as both a tombstone and a
  * live row: the tombstone's cascade clears the old page's blocks and every
- * ref to the id, and the server ships every current block on or referencing
- * that page in the same window, so the cascade removes nothing the window
- * does not restore. */
+ * ref to the id. The server ships every current block on or referencing
+ * that page in the same window, so every block the server still has there
+ * is back by COMMIT. A block an earlier window hydrated onto the page, and
+ * which has left it since, is removed too and returns with its own later
+ * journal row, so the replica converges by a later window. */
 function applyWindow(db: ReplicaDb, feed: Changes, nowMs: number): void {
   db.transaction(() => {
     db.exec("PRAGMA defer_foreign_keys = ON");

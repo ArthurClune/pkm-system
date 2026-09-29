@@ -539,7 +539,8 @@ describe("applyChanges: a title moving between ids inside one window", () => {
 });
 
 describe("applyChanges: a page id deleted and reused inside one window", () => {
-  // SQLite hands a deleted page id to the next insert, so the server ships
+  // SQLite gives the next insert max(id)+1, so deleting the highest page id
+  // frees it for reuse, and the server ships
   // such an id as a tombstone and a live row in one window. Tombstones lead:
   // the page's cascade clears what hung off the old page, then the upserts
   // bring back everything the window ships for the new one.

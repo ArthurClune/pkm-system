@@ -36,7 +36,7 @@ the only migration mechanism) or a stable page uid.
 - [x] Note here whether a block uid recreated by undo has the same shape (out of scope unless trivial): a block uid recreated by undo is the same block: everything a server block delete cascades (its subtree, its refs and block_refs) is journalled per row or re-derived by `upsertBlock`, so the presence rule loses nothing; no change
 - [x] Docs: `sync-and-offline.md` feed section tombstone rule; `backend.md` changes-route row if it describes tombstones (it does not; left alone); troubleshooting row
 - [x] verify (branch-local: server suite, web checks, the new e2e spec)
-- [ ] perf, merge (orchestrator, after merge)
+- [ ] perf (before merge), merge
 
 ## Summary of Changes
 
@@ -53,7 +53,9 @@ the only migration mechanism) or a stable page uid.
   current block on that page or with a ref to it (`_reused_page_dependents`),
   deduped against the window's own uids and through the normal hydration path
   (parents and dependency pages ship too). No extra query without a page
-  delete in the window.
+  delete in the window. This does not decide final convergence (later
+  windows re-ship those blocks anyway); it makes the page whole again by the
+  window's COMMIT, closing the gap between windows of one pull loop.
 - `web/src/replica/apply.ts`: `applyWindow`'s ordering comment states the
   reused-id rule instead of promising "never both"; characterisation tests in
   `apply.test.ts` pin the replica side (no code change needed).

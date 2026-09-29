@@ -244,7 +244,9 @@ def sync_changes(since: int = 0, limit: int = 1000,
             # A page shipped as both tombstone and live row carries every
             # current block on it or referencing it: the replica applies
             # tombstones first, and the page's cascade removes those rows
-            # before the upserts, so the window must restore them itself.
+            # before the upserts. Shipping them here makes the page whole
+            # again by the window's COMMIT, not only once the blocks' own
+            # later journal rows arrive.
             listed = set(block_uids)
             block_uids += [u for u in _reused_page_dependents(db, reused_pages)
                            if u not in listed]

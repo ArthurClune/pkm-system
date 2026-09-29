@@ -21,8 +21,9 @@ dangling parent_uid terminate the walk instead of looping.
 
 tombstone_entities decides which of a window's entities ship as
 tombstones. A block that no longer exists does. A page or sidebar id is
-an INTEGER PRIMARY KEY without AUTOINCREMENT, so SQLite hands a deleted
-id to the next insert: presence in current state does not prove the row
+an INTEGER PRIMARY KEY without AUTOINCREMENT, so SQLite gives the next
+insert max(id)+1 and deleting the highest id frees it for reuse:
+presence in current state does not prove the row
 is the entity the window's older rows were about, while a delete row in
 the window does. So those two kinds also tombstone on a delete row, and
 the live row ships beside the tombstone. Block uids are never reused by

@@ -915,3 +915,95 @@ test("diagnostics neither adopts a carry nor fails on one", async () => {
   expect(carry.read).not.toHaveBeenCalled();
   expect(carry.discard).not.toHaveBeenCalled();
 });
+
+const SQLITE_IOERR = "SQLITE_IOERR: sqlite3 result code 10: disk I/O error";
+
+/** `db`, except that once `arm()` is called its next `reads` reads of
+ * sqlite_master throw `message`. */
+function failingSchemaReads(db: ReplicaDb, message: string) {
+  let left = 0;
+  return {
+    arm: (reads = 1) => { left = reads; },
+    db: {
+      ...db,
+      select<T>(sql: string, params?: Parameters<ReplicaDb["select"]>[1]): T[] {
+        if (left > 0 && /sqlite_master/.test(sql)) {
+          left -= 1;
+          throw new Error(message);
+        }
+        return db.select<T>(sql, params);
+      },
+      transaction: (fn: () => void) => db.transaction(fn),
+    } as ReplicaDb,
+  };
+}
+
+/** A replica holding batches `one` and `two` beside a carry file: empty, as
+ * a carry write that failed after opening its file leaves one, or holding
+ * `carried`. Once set up, the replica's next `reads` schema reads fail. */
+async function replicaBesideEmptyCarry(
+  message: string, reads: number, carried?: DurablePendingRow[],
+) {
+  const replica = await openRawTestDb();
+  const fresh = await openRawTestDb();
+  const carryFiles = fakeCarryFiles(await openRawTestDb());
+  const carry = createCarryStore(carryFiles);
+  const failing = failingSchemaReads(replica.db, message);
+  let replaced = false;
+  const handlers = buildHandlers({
+    openDb: async () => replaced ? fresh.db : failing.db,
+    discardDbFile: () => { replica.close(); replaced = true; },
+    carry, nowMs: () => 10,
+  });
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "one" });
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b2" }], batchId: "two" });
+  if (carried) carry.write(carried);
+  else carryFiles.open().close();
+  failing.arm(reads);
+  return { handlers, carry, fresh, replaced: () => replaced };
+}
+
+test("a replacement at adoption keeps the rows the replica still held beside an empty carry",
+async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const { handlers, carry, fresh, replaced } =
+    await replicaBesideEmptyCarry(SQLITE_IOERR, 1);
+  const batches = await handlers.pendingBatches(undefined) as { batch_id: string }[];
+  expect(replaced()).toBe(true);
+  expect(batches.map((batch) => batch.batch_id)).toEqual(["one", "two"]);
+  expect(fresh.db.select<{ id: number }>("SELECT id FROM pending_ops ORDER BY id")
+    .map((row) => row.id)).toEqual([1, 2]);
+  expect(carry.exists()).toBe(false);
+  warn.mockRestore();
+});
+
+test("a replacement at adoption over a replica it cannot read imports the carry's rows",
+async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const { handlers, carry, fresh, replaced } =
+    await replicaBesideEmptyCarry(SQLITE_IOERR, Infinity, CARRIED);
+  await handlers.pendingBatches(undefined);
+  expect(replaced()).toBe(true);
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(CARRIED);
+  expect(carry.exists()).toBe(false);
+  warn.mockRestore();
+});
+
+test("a failed carry write leaves no carry behind", async () => {
+  const { commit, carryFiles } = await poisonedQueueOverDamagedFile({
+    carry: (inner) => createCarryStore({
+      exists: () => inner.exists(),
+      unlink: () => { inner.unlink(); },
+      open: () => {
+        const handle = inner.open();
+        return {
+          db: failingOnce(handle.db, /^INSERT OR IGNORE/, SQLITE_FULL),
+          close: handle.close,
+        };
+      },
+    }),
+  });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expect(carryFiles.exists()).toBe(false);
+});
+

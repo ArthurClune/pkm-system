@@ -5,6 +5,7 @@
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
+import { mergeCarriedRows } from "./carryMerge";
 import type { CarryStore } from "./carryStore";
 import type { PendingBatch, RecoveryCommit, ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
@@ -171,18 +172,24 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
    *
    * A carry is written only when its replica file has already been judged
    * damaged, and no handler can succeed while one exists (each adopts first
-   * and fails if it cannot), so every pending row the replica holds is also
-   * in the carry and the rest of the replica is a cache the next snapshot
-   * refills. That makes two escapes safe, and both are needed: rethrown, each
-   * would fail every handler for good, the recovery that could clear it
-   * included.
+   * and fails if it cannot), so neither file's queue changes while it does.
+   * A carry whose write committed holds every pending row the replica held;
+   * one whose write failed or was cut short holds a subset, possibly none,
+   * and the replica it was written from still holds them all. Beyond its
+   * queue the replica is a cache the next snapshot refills. That makes two
+   * escapes safe, and both are needed: rethrown, each would fail every
+   * handler for good, the recovery that could clear it included.
    * - The carry cannot be read as a database at all. On this VFS a commit is
    *   not atomic across a worker's death, so a worker killed while writing
    *   the carry leaves it torn; that write comes before the replica is
    *   unlinked, so the replica still holds the rows, and the carry is
    *   discarded unread.
    * - The replica cannot take the rows (a new file torn while it was being
-   *   built, say): the replica file is replaced and the new one imports them.
+   *   built, or a transient I/O error): the replica file is replaced, and the
+   *   new one imports the carry's rows together with every row the old file
+   *   can still be read for, so a short carry cannot shed rows only the old
+   *   file held. An old file that cannot be read adds none; rows are lost
+   *   then only if the carry is short too, which takes both files damaged.
    * Any other read failure (contention, transient I/O) propagates and keeps
    * the carry for the next handler, and so does a replacement that fails in
    * turn: the carry is then the rows' only sure copy. */
@@ -206,12 +213,14 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       if (!deps.discardDbFile) throw error;
       console.warn("replica: the replica file cannot take the carried rows,"
                    + " replacing it", error);
-      // the new file's ids restart from the carried rows, as after a rebuild
+      const held = probe(() => readDurablePendingRows(target), () => []);
+      const kept = mergeCarriedRows(rows, held);
+      // the new file's ids restart from the kept rows, as after a rebuild
       ackedSeqs.clear();
       await deps.discardDbFile();
       dbPromise = null;
       target = await db();
-      importCarried(target, rows);
+      importCarried(target, kept);
     }
     carry.discard();
     return target;
@@ -353,7 +362,16 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       // holds them, rather than replace it.
       const carry = deps.carry;
       if (!carry) throw error;
-      const fresh = await replaceFileAfter(error, () => { carry.write(rows); });
+      const fresh = await replaceFileAfter(error, () => {
+        try {
+          carry.write(rows);
+        } catch (writeError: unknown) {
+          // The damaged file keeps the rows. A carry left behind would be
+          // adopted as a short copy of them, so it goes now, best effort.
+          try { carry.discard(); } catch { /* adoption copes with it */ }
+          throw writeError;
+        }
+      });
       rebuildSchema(fresh);
       importPendingRows(fresh, carry.read());
       carry.discard();

@@ -33,7 +33,7 @@ def _canonical_op(op: BlockOp) -> dict:
 
 def batch_replay_hash(batch: OpBatch) -> str:
     """Like `batch_request_hash`, but tolerant of base_text_hash and
-    page_title on update_text ops (pkm-95ss): the worker fills these
+    page_title on update_text ops: the worker fills these
     into the durable copy of a batch when the client omitted them,
     but a lost enqueue reply leaves the client's in-memory fallback-lane
     copy of the SAME batch_id with the original, unfilled ops. Both

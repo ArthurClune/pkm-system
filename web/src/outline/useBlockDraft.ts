@@ -8,7 +8,7 @@
 //
 // It does NOT know about autocomplete, slash commands, uploads or the /date
 // picker: callers decide what the new text is and whether its flush is held,
-// this only holds it and reports it (pkm-64bq).
+// this only holds it and reports it.
 import { useEffect, useLayoutEffect, useRef, useState,
          type MutableRefObject } from "react";
 import { clampCaret } from "./edits";
@@ -19,7 +19,7 @@ import { heightChanged, mayHaveShrunk } from "./textareaHeight";
 // (styles.css, `.block-input`) makes the browser do the auto-grow natively,
 // so where it's supported the JS measure-and-set below is dead weight this
 // skips entirely. Supported since Chromium 123 and Safari 26.2 (desktop and
-// iPadOS) as of this writing (pkm-youp) -- the fallback below exists for
+// iPadOS) as of this writing -- the fallback below exists for
 // older engines. jsdom has a `CSS` global but no `CSS.supports`, hence the
 // extra function check (a bare call would throw in every unit test).
 const supportsFieldSizing =
@@ -45,7 +45,7 @@ export interface BlockDraftOptions {
   /** The textarea is unmounting with this selection. */
   onUnmount(selStart: number, selEnd: number): void;
   /** Report an edit to the outline (which debounces the autosave).
-   * holdFlush (pkm-xlah): the caret sits mid [[ref / #tag token, so the
+   * holdFlush: the caret sits mid [[ref / #tag token, so the
    * debounced autosave must wait — flushing now would create a page from the
    * half-typed title. */
   onEdit(text: string, holdFlush: boolean): void;
@@ -141,7 +141,7 @@ export function useBlockDraft(
   // Auto-grow to fit content. Skipped entirely where `field-sizing: content`
   // is supported -- the CSS does this natively with no forced layout from
   // here. Otherwise: a naive "reset to auto, then measure" on every
-  // keystroke forces two synchronous layouts (pkm-youp measured 3/keystroke,
+  // keystroke forces two synchronous layouts (measured 3/keystroke,
   // 20% of a core at typing speed on a 300-block page). `heightAppliedRef`
   // and `heightTextRef` let the fallback pay for the reset only when the
   // content may have shrunk (textareaHeight.ts) and pay for the write only
@@ -190,7 +190,7 @@ export function useBlockDraft(
   // Restore the selection once a setDraft has committed to the DOM (a plain
   // value swap would otherwise leave the browser's default of moving the
   // caret to the end of the new text). A layout effect, never a
-  // requestAnimationFrame (pkm-j7ez): React commits a discrete event's update
+  // requestAnimationFrame: React commits a discrete event's update
   // before the next event is dispatched, so the caret is right before any
   // further keystroke can land. A frame callback runs later than that under
   // load, and would move a caret the user has since typed past back to the

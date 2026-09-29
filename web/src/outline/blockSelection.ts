@@ -36,7 +36,7 @@ export function extendSelection(
 
 /** The selected blocks' text joined with newlines in document order, each
  * line indented with one tab per depth level relative to the shallowest
- * selected block (pkm-tu3a) — what lands on the clipboard when the selection
+ * selected block — what lands on the clipboard when the selection
  * is copied, and what parseOutlineForest round-trips back into structure. */
 export function selectionText(blocks: BlockNode[], sel: BlockSelection): string {
   const uids = selectedUids(blocks, sel);
@@ -55,7 +55,7 @@ export function selectionText(blocks: BlockNode[], sel: BlockSelection): string 
     .join("\n");
 }
 
-/** The uids a drag should carry when the grab handle is `grabbed` (pkm-q89w):
+/** The uids a drag should carry when the grab handle is `grabbed`:
  * the selection's root uids in document order when the grabbed block is part
  * of the selection (a selected descendant travels inside its parent), or null
  * when it isn't — that drag is a plain single-block drag. */

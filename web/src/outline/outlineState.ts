@@ -150,7 +150,7 @@ function adopt(state: OutlineState, blocks: BlockNode[]): OutlineState {
 }
 
 /** The tree an op batch leaves behind, plus whether anything moved. Two
- * sources of change: the ops themselves, and the stamps pkm-4ler puts on the
+ * sources of change: the ops themselves, and the timestamp stamping puts on the
  * blocks they touched — a batch whose ops all resolve to what was already
  * there can still bump updated_at, exactly as the server does. */
 function applyBatch(state: OutlineState, ops: readonly BlockOp[],
@@ -186,7 +186,7 @@ function replayActions(
   return replayed;
 }
 
-/** Stamp updated_at on the blocks a batch changed (bean pkm-4ler). Runs on
+/** Stamp updated_at on the blocks a batch changed. Runs on
  * the tree AFTER applyOps, so a uid the batch deleted, or an op aimed at
  * another page, is skipped simply by not being here. The clock arrives with
  * the event: this module stays pure, and a remote edit stamps exactly like a

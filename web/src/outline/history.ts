@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Undo/redo history for pkm-7q14. invertOps turns a forward op batch into
+// Undo/redo history. invertOps turns a forward op batch into
 // the batch that reverses it, computed against the pre-edit tree by
 // simulating each op in sequence (via the same applyOps the editor uses, so
 // inversion can never disagree with what the ops actually did). set_collapsed

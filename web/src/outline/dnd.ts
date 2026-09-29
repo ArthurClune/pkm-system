@@ -14,7 +14,7 @@ export interface DragSource {
   pageTitle: string;
   /** When the grabbed block is part of a multi-block selection, the whole
    * group being dragged: the selection's root uids in document order,
-   * including `uid` (pkm-q89w). Absent for a plain single-block drag. */
+   * including `uid`. Absent for a plain single-block drag. */
   uids?: string[];
 }
 

@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// Month-grid maths for the /date picker (pkm-rw6w): a Monday-first grid of
+// Month-grid maths for the /date picker: a Monday-first grid of
 // whole weeks covering the given month, with leading/trailing days from the
 // adjacent months marked inMonth: false. All dates are local midnights,
 // matching replica/daily.ts's convention.

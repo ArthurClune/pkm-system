@@ -1,11 +1,11 @@
 ---
 # pkm-gwwu
 title: POST /api/ops reads a batch's context in autocommit, so a concurrent delete swallows the text under an ok ack
-status: todo
+status: completed
 type: bug
 priority: high
 created_at: 2026-09-29T13:20:27Z
-updated_at: 2026-09-29T13:20:27Z
+updated_at: 2026-09-29T14:02:26Z
 parent: pkm-a4t2
 ---
 
@@ -31,8 +31,49 @@ branch goes.
 
 ## Todo
 
-- [ ] Rewrite `test_ops_idempotency.py`'s injected-commit test: the second connection (short busy timeout) is shown to block and the batch is unaffected
-- [ ] New tests through `POST /api/ops` with a second connection: a page deleted before the route lands the text on today's daily page; a rename before the route cannot resurrect the old title
-- [ ] `BEGIN IMMEDIATE` before the dedupe read; replay and error paths roll back; lock timeout → 503; remove the `IntegrityError` branch
-- [ ] Docs D1: `routes_ops.py` docstring (regen `openapi.json`), `backend.md` § The write path, the `sync-and-offline.md` one-transaction line; troubleshooting row
-- [ ] verify, perf, merge
+- [x] Rewrite `test_ops_idempotency.py`'s injected-commit test: the second connection (short busy timeout) is shown to block and the batch is unaffected
+- [x] New tests through `POST /api/ops` with a second connection: a page deleted before the route lands the text on today's daily page; a rename before the route cannot resurrect the old title
+- [x] `BEGIN IMMEDIATE` before the dedupe read; replay and error paths roll back; lock timeout → 503; remove the `IntegrityError` branch
+- [x] Docs D1: `routes_ops.py` docstring (regen `openapi.json`), `backend.md` § The write path, the `sync-and-offline.md` one-transaction line; troubleshooting row
+- [x] verify, merge (perf/check.sh deferred: this worktree ran alongside sibling agents per the executor brief; the orchestrator runs it serially after merge)
+
+## Summary of Changes
+
+`post_ops` (`server/src/pkm/server/routes_ops.py`) now issues `BEGIN
+IMMEDIATE` before computing `rhash`/`replay_hash` or reading the
+`applied_batches` dedupe row, so that read and every op's context read
+(`ops_apply._context_for`/`_hint_page_exists`) share the same write lock as
+the batch's own effects. A lock the busy timeout cannot take returns 503
+with `Retry-After: 1` instead of an uncaught `sqlite3.OperationalError`. The
+409 mismatched-hash branch and the plain replay branch each roll back before
+returning; the `OpError` branch already did. The `except
+sqlite3.IntegrityError` branch on the `applied_batches` INSERT is deleted:
+with context and effects in one transaction, the race it used to catch
+(a second submission of the same `batch_id`) now blocks on `BEGIN IMMEDIATE`
+instead, and finds the row through the ordinary dedupe SELECT once unblocked.
+
+New `server/tests/test_ops_concurrency.py`: a concurrent `delete_page` and a
+concurrent `rename_page`, each raced from a second connection with a short
+busy timeout inside a monkeypatched `ops_apply._context_for`/
+`_hint_page_exists`, now block on the batch's transaction rather than
+landing inside it; a third test holds the write lock externally and
+confirms `post_ops` returns 503 with `Retry-After: 1`.
+`test_ops_idempotency.py`'s `test_batch_id_insert_race_serves_winner_ack_and_rolls_back`
+is rewritten as `test_batch_id_insert_race_blocks_on_the_batchs_transaction`:
+the racing second connection now blocks instead of winning, and the
+original batch's own effects land unaffected.
+
+Docs: `backend.md` § The write path's flowchart now shows the idempotency
+check and context reads inside the same `TX` subgraph as `_execute`, with a
+short prose note; `sync-and-offline.md`'s "one transaction" sequence step
+now names the batch_id dedupe check explicitly; one troubleshooting row
+added. `web/src/api/openapi.json`/`types.d.ts` regenerated for the new
+`post_ops` docstring (a `description` field only; no request/response shape
+changed).
+
+Deviation from the plan: the plan's two Task 1 test bodies index
+`fetch_page(...)`'s `sqlite3.Row | None` result directly
+(`page["id"]`); `uv run pyrefly check` flagged this as
+`None is not subscriptable`, so both tests gained an `assert page is not
+None` before the index, matching the existing convention elsewhere in the
+test suite (e.g. `test_ops_endpoint.py`).

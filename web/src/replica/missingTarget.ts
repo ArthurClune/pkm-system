@@ -1,6 +1,6 @@
 // pattern: Functional Core
 // Which ops the replica's local apply skips on a missing target: the same
-// ops the server's ops_core.classify_missing_target skips, so a re-applied
+// ops the server's ops_core.classify_skip skips, so a re-applied
 // batch keeps its valid ops instead of rolling back whole. That includes a
 // move that would make a cycle, which the server
 // skips the same way. Both sides pass shared/fixtures/missing_targets.json,

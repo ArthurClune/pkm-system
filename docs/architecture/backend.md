@@ -92,8 +92,9 @@ Inside `pkm/server/`:
 | `routes_pages.py`, `routes_ops.py`, `routes_search.py`, `routes_sidebar.py`, `routes_sync.py`, `routes_assets.py`, `routes_local.py`, `routes_goodlinks.py`, `routes_export.py`, `routes_migrations.py` | Shell | The HTTP surface (table below) |
 | `goodlinks_gateway.py` | Shell | httpx2 edge to the GoodLinks local API |
 | `title_migration.py` / `sync_meta.py` | Shell / Shell | Transaction-owned title inventory/apply; durable activation/generation accessors |
-| `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py` |
-| `ops_apply.py` | Shell | Reads SQLite into an `OpContext`, executes planned effects |
+| `ops_core.py` | Core | Pure `plan_op()` → effect tuples, over the op models in `pkm/contracts/ops.py`; the op classifiers (`classify_skip`, `classify_text_edit`) and one context type per way an op plans |
+| `ops_hash.py` / `conflict_notes.py` | Core / Core | The `applied_batches` request hashes; the text of `[[conflict]]` headers and skip notes |
+| `ops_apply.py` | Shell | Reads SQLite, classifies each op once, builds its per-kind context, executes planned effects |
 | `store.py` | Shell | Reusable page mutations (create/delete/rename/merge); never commits |
 | `query_exec.py` | Shell | Runs a `query.py` plan (`count_matches`, `execute_plan`); owns the filter keeping a `{{query}}` block out of its own results, and the row order, for both plan surfaces (`/api/query`, the resolved page export) |
 | `tree.py`, `grouping.py`, `daily.py`, `fts.py`, `query.py`, `sync_core.py`, `mime_sniff.py` | Core | Pure helpers: tree building; `{page_id, page_title, items}` group shaping (`group_by_page`, `group_backlinks`, `group_changed`); journal-day selection + empty-daily test; FTS queries; `{{[[query]]}}` parsing and SQL planning; sync windowing and hydration ordering; MIME sniffing |
@@ -224,7 +225,7 @@ an id-less batch cannot be deduplicated, so any retry or replay re-applies it.
 flowchart LR
     C[Client batch] --> R
     subgraph TX["one transaction: BEGIN IMMEDIATE before the dedupe read"]
-        R["routes_ops.py (Shell)<br/>idempotency check"] --> CTX["ops_apply._context_for (Shell)<br/>read SQLite → OpContext"]
+        R["routes_ops.py (Shell)<br/>idempotency check"] --> CTX["ops_apply._context_for (Shell)<br/>read SQLite, classify once → per-kind context"]
         CTX --> P["ops_core.plan_op (Core)<br/>pure: op + context → effect tuples"]
         P --> X["ops_apply._execute (Shell)<br/>effects → SQL"]
     end
@@ -238,6 +239,15 @@ concurrent `delete_page`/`rename_page`/`cleanup_journal` commit (their own
 connections, on the threadpool) cannot land between a context read and the
 effect it justified. A lock the busy timeout cannot take returns 503 with
 `Retry-After`.
+
+`ops_apply._context_for` classifies each op once, with `ops_core.classify_skip` and,
+for a hashed edit, `classify_text_edit`. It then hands `plan_op` the context
+type that classification calls for, such as `TextConflictContext` or
+`StuckMoveContext`, and `apply_batch` reads the skip for the ack off that
+same context. Every field of a context type is required, so the shell cannot
+hand the planner a half-built one. A context that does not fit its op, or its skip kind, is an
+`AssertionError`, a 500 the client retries. It must never become a 400,
+which would poison the client's queue over a server bug.
 
 Key mechanics:
 
@@ -265,7 +275,7 @@ Key mechanics:
 - **Idempotency.** A retried batch — same `batch_id`, matching stored request
   hash — replays the stored ack with no effects. The same id with a different
   payload is a 409. Offline queue replay depends on it. New `applied_batches`
-  rows store `batch_replay_hash` (`ops_core.py`), which leaves out an
+  rows store `batch_replay_hash` (`ops_hash.py`), which leaves out an
   `update_text` op's `base_text_hash` and `page_title`: the worker can fill
   those into the durable copy of a batch while the fallback-lane copy under the
   same `batch_id` keeps the caller's ops. Rows written before it hold the
@@ -307,7 +317,7 @@ it. A hint naming no current page (renamed or deleted since the client saw
 it) is shown as inline code, which the ref extractor skips, so the header
 cannot re-create that page (`ops_apply._hint_page_exists`). An existing page
 is linked only when `[[Page]]` reads back through `refs.extract` as that same
-title (`ops_core.existing_page_label`). A title ending in `]` or holding
+title (`conflict_notes.existing_page_label`). A title ending in `]` or holding
 paired backticks reads back as another title, which the ref indexer would
 create. Such a title is shown in inline code instead, or as `(page unknown)`
 if it holds a backtick. Header and child uids are minted (`ops_apply._new_uid`)
@@ -319,10 +329,9 @@ second conflict on the same block the same day reuses its header's uid.
 identical, clean or conflict. It first replays any `block_rewrites` row
 `store.rewrite_snapshotted_blocks` left for that block
 (`ops_core.replay_title_rewrites`), so a device that never saw a rename
-cannot win with the old title and re-create the page it emptied. `plan_op`
-and `ops_apply._context_for` both call it, so only a conflict resolves (and
-may create) today's daily page. Hashless edits to a live block never touch
-it.
+cannot win with the old title and re-create the page it emptied. Only a
+conflict resolves (and may create) today's daily page. Hashless edits to a
+live block never touch it.
 
 `delete` carries no hash. A delete that arrives after an edit it never saw
 removes that edit with no conflict copy. This gap is open, not accepted: a
@@ -334,9 +343,8 @@ conflict header, is planned but not built.
 An op whose block (or create/move parent) is gone never rejects its batch. A
 batch is atomic, so one such op would otherwise take every valid op in it
 down with a 400 and wedge the client's queue.
-`ops_core.classify_missing_target` sorts such an op before planning, and
-`_context_for` calls it too, so the daily page is resolved only when an
-entry lands:
+`ops_core.classify_skip` sorts such an op before its context is read, so
+the daily page is resolved only when an entry lands:
 
 | Op, situation | Outcome | Entry grouped under | Journalled |
 |---|---|---|---|
@@ -366,7 +374,7 @@ current row. A replica applies tombstones first, and a block tombstone
 cascades the whole local subtree. So a ghost parent's tombstone also deletes
 the live blocks a replica optimistically moved under it, which is why a move
 to a missing parent journals the moved subtree, not just its root.
-`_plan_missing_target` emits tombstones before live rows, so a window
+`_plan_skip` emits tombstones before live rows, so a window
 boundary can never put a tombstone after the rows that restore what it
 cascades away.
 
@@ -388,7 +396,7 @@ Another device may reshape the tree between an op's enqueue and its push:
 
 `_context_for` resolves an op's `page_title` only for a top-level create or
 move, so a stale title never creates an empty page. It reads a move's target
-chain (`_parent_chain`) before `classify_missing_target`, which sorts a cycle
+chain (`_parent_chain`) before `classify_skip`, which sorts a cycle
 beside the missing targets. The skip journals no tombstone, since nothing is
 gone. The block is an ancestor of the other device's move, so the feed's
 parent closure already ships its row with that move. The journalled subtree
@@ -646,7 +654,7 @@ with the change that invalidates them.
 | `shared/fixtures/title_syntax.json` | hand-maintained cases | `tests/test_refs.py` | Pins `refs.title_syntax_reason` and the replica's `titleSyntaxReason` to the same verdicts (`web/src/replica/titles.test.ts`, `localApi/router.test.ts`) |
 | `shared/fixtures/refs_parity.json` | `pkm.refs_parity_dump` | `tests/test_refs_parity_fixture.py` | TS extractors replay the exact Python outputs |
 | `shared/fixtures/shim_parity.json` | `pkm.server.shim_parity_dump` | `tests/test_shim_parity_fixture.py` | The offline API shim (`web/src/replica/localApi/`) must return byte-identical JSON to the real routes |
-| `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_missing_target` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |
+| `shared/fixtures/missing_targets.json` | hand-maintained cases | `tests/test_ops_core.py` | Pins `ops_core.classify_skip` and the replica's `skipsOnMissingTarget` (`web/src/replica/missingTarget.test.ts`) to the same skip-or-not verdicts. Its `placement_cases` pin where a create or move lands, through `ops_apply.apply_batch` and the replica's `applyLocalOps`, replays included |
 | `shared/fixtures/draft_flush.json` | hand-maintained case | `tests/test_ops_endpoint.py` | `web/src/views/EditablePage.draftFlush.test.tsx`: the op an editor draft flushes is the op the ops route's conflict and orphan paths are tested with |
 | `shared/fixtures/ops_acks.json` | hand-maintained cases | `tests/test_ops_idempotency.py`, `tests/test_client_contracts.py` | Pins the stored-ack-to-wire mapping of `POST /api/ops` and the `SkipReason` values; the web's `readOpsAck` and queue replay the wire acks (`web/src/sync/opsAck.test.ts`, `opsAck.composed.test.ts`) |
 

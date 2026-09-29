@@ -30,9 +30,9 @@ replica is a cache and the queue is the user's intent.
 | Schema, generation, cursor, FK, title, corruption or repeated window failure | One detector per trigger | `reset` or `rebase` from a snapshot | One lifecycle, `runRecovery` | [Rebootstrap triggers](#rebootstrap-triggers) |
 | A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase commits the queue to the carry before unlinking | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
-| An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json`'s skip-or-not cases | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
+| An op names a block or parent the server no longer has | `ops_core.classify_skip`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json`'s skip-or-not cases | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | Any op the server skipped | Every path that posts a batch (`deliverLaneHead`, the durable batch loop in `runDrain`, `deliverLaneAhead`, and `replicaSync.flushBatches`) reads the ack's `skipped` list through `readOpsAck` | Bumps resync regardless of `unavailable`; every mounted view's guarded read refetches | A replica-backed tab's own feed tombstones the replica row; the ack refetch is what tells the view, not the feed | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
-| Another device moved an op's parent, or made its move a cycle | `_context_for` and `classify_missing_target` on the server; `applyOne` and `skipsOnMissingTarget` in the replica | Create and move follow the parent; a cycle move is skipped on both sides | A stale `page_title` is never resolved; a cycle skip journals the moved subtree | [Ops another device's tree edit overtook](#ops-another-devices-tree-edit-overtook) |
+| Another device moved an op's parent, or made its move a cycle | `_context_for` and `classify_skip` on the server; `applyOne` and `skipsOnMissingTarget` in the replica | Create and move follow the parent; a cycle move is skipped on both sides | A stale `page_title` is never resolved; a cycle skip journals the moved subtree | [Ops another device's tree edit overtook](#ops-another-devices-tree-edit-overtook) |
 | The replica opens, then fails every write | `unsentInMemory > 0` while `status !== "connected"` | The offline connectivity banner appends the same "exists only in memory" sentence as the unavailable-replica banner | The sentence never fires while connected, since the lane drains within a drain cycle | [What the UI shows](#what-the-ui-shows) |
 
 ## A local write fails
@@ -503,7 +503,7 @@ puts a tombstone after the rows that restore what it cascades away (same
 section of backend.md). The ghost goes without a snapshot repair.
 
 The replica's local apply skips the same ops. `skipsOnMissingTarget`
-(`replica/missingTarget.ts`) mirrors `classify_missing_target`, and
+(`replica/missingTarget.ts`) mirrors `classify_skip`, and
 `shared/fixtures/missing_targets.json` pins the two to the same skip-or-not
 verdict per case. So when the feed removes one op's target, `reapplyPending` keeps the rest of that batch.
 Rolling the whole batch back would revert its other edits until the ack. The

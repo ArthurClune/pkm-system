@@ -14,7 +14,8 @@ from pkm.server import notify
 from pkm.server.auth import require_auth
 from pkm.server.db import get_db
 from pkm.server.ops_apply import apply_batch
-from pkm.server.ops_core import OpError, batch_replay_hash, batch_request_hash
+from pkm.server.ops_core import OpError
+from pkm.server.ops_hash import batch_replay_hash, batch_request_hash
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 

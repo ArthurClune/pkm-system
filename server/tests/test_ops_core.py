@@ -7,19 +7,52 @@ from pydantic import TypeAdapter, ValidationError
 from pkm.contracts.ops import (BlockOp, CreateOp, CreatePageOp, DeleteOp,
                                MoveOp, OpBatch, SetCollapsedOp, SetHeadingOp,
                                SetViewTypeOp, UpdateTextOp, text_hash)
-from pkm.server.ops_core import (BlockInfo, BlockRewrite, DeleteBlocks,
-                                 InsertBlock, JournalBlock, MissingTarget,
-                                 OpContext, OpError, RecordConflictHeader,
-                                 ReindexRefs, SetCollapsed, SetHeading,
-                                 SetPageId, SetParent, SetViewType,
-                                 ShiftSiblings, TextEditOutcome, TouchPage,
-                                 UpdateText, classify_missing_target,
-                                 classify_text_edit, conflict_label, plan_op,
-                                 skip_report)
 from pkm.server.db import init_db, open_db
 from pkm.server.ops_apply import apply_batch
+from pkm.server.ops_core import (BlockContext, BlockInfo, BlockRewrite,
+                                 ConflictLanding, CreateContext, DeleteBlocks,
+                                 DeleteContext, ExistingHeader, FreshHeader,
+                                 InsertBlock, JournalBlock, LandedSkipContext,
+                                 MoveContext, OpError, PageContext,
+                                 RecordConflictHeader, ReindexRefs,
+                                 SetCollapsed, SetHeading, SetPageId,
+                                 SetParent, SetViewType, ShiftSiblings, Skip,
+                                 SkipContext, SkippedContext,
+                                 StuckMoveContext, TextConflictContext,
+                                 TextEditContext, TextEditOutcome, TouchPage,
+                                 UpdateText, classify_skip,
+                                 classify_text_edit, plan_op, skip_report)
 
 B = BlockInfo(uid="uid_b3", page_id=1, parent_uid="uid_b2")
+_DAY = "September 28th, 2026"
+# today's header for the target already exists: entries append under it
+_EXISTING = ExistingHeader("uid_old", 3)
+
+
+def _landing(header: ExistingHeader | FreshHeader | None = None
+             ) -> ConflictLanding:
+    """Today's daily page 9; a fresh header uid_hd1 at slot 4 unless one
+    exists already; the entry is uid_ch1."""
+    return ConflictLanding(9, _DAY, "uid_ch1",
+                           header if header is not None
+                           else FreshHeader("uid_hd1", 4))
+
+
+def _skip_ctx(op: BlockOp, *, block_exists: bool = False,
+              parent_exists: bool = False, chain: tuple[str, ...] = (),
+              header: ExistingHeader | None = None,
+              hint_page_exists: bool = False,
+              page_title: str = "Machine Learning",
+              subtree: tuple[str, ...] = ("uid_b3",)) -> SkippedContext:
+    """The context ops_apply._context_for builds for an op classify_skip
+    flags, with the given reads."""
+    skip = classify_skip(op, block_exists, parent_exists, chain)
+    assert skip is not None
+    if skip.landing_uid is None:
+        return SkipContext(skip)
+    if skip.kind in ("move_parent_missing", "move_cycle"):
+        return StuckMoveContext(skip, _landing(header), page_title, subtree)
+    return LandedSkipContext(skip, _landing(header), hint_page_exists)
 
 
 def test_batch_parses_discriminated_ops():
@@ -46,8 +79,7 @@ def test_plan_create():
     op = CreateOp(op="create", uid="newuid1", page_title="P",
                   parent_uid="uid_b2", order_idx=1, text="t [[X]]",
                   view_type="numbered")
-    ctx = OpContext(page_id=1, parent=BlockInfo("uid_b2", 1, None))
-    effects = plan_op(0, op, ctx)
+    effects = plan_op(0, op, CreateContext(uid_taken=False, page_id=1))
     assert effects == (
         ShiftSiblings(1, "uid_b2", 1),
         InsertBlock("newuid1", 1, "uid_b2", 1, "t [[X]]", None, "numbered"),
@@ -56,73 +88,63 @@ def test_plan_create():
     )
 
 
-def test_plan_create_rejects_bad_uid_dup_and_foreign_parent():
-    ctx = OpContext(page_id=1, parent=BlockInfo("uid_b2", 1, None))
+def test_plan_create_rejects_bad_uid_and_dup():
     with pytest.raises(OpError, match="invalid uid"):
         plan_op(0, CreateOp(op="create", uid="a!", page_title="P",
-                            order_idx=0, text=""), ctx)
+                            order_idx=0, text=""),
+                CreateContext(uid_taken=False, page_id=1))
     with pytest.raises(OpError, match="already exists"):
         plan_op(0, CreateOp(op="create", uid="uid_b3", page_title="P",
                             order_idx=0, text=""),
-                OpContext(block=B, page_id=1))
+                CreateContext(uid_taken=True, page_id=1))
 
 
-@pytest.mark.parametrize("page_id", [1, None])
-def test_create_follows_its_parent_onto_the_parents_page(page_id):
-    # pkm-fe9b: another device moved the parent to page 2 after this create
-    # was queued with page_title "P" (page 1). The block lands beside its
-    # parent, whatever the stale title says -- and the shell no longer
-    # resolves that title for a create under a live parent at all.
-    op = CreateOp(op="create", uid="newuid1", page_title="P",
-                  parent_uid="uid_b6", order_idx=0, text="t")
-    ctx = OpContext(page_id=page_id, parent=BlockInfo("uid_b6", 2, None))
-    assert plan_op(0, op, ctx) == (
-        ShiftSiblings(2, "uid_b6", 0),
-        InsertBlock("newuid1", 2, "uid_b6", 0, "t", None, None),
-        ReindexRefs("newuid1", "t"),
-        TouchPage(2))
+def test_plan_create_page_executes_nothing():
+    # context assembly already resolved (and created) the page
+    assert plan_op(0, CreatePageOp(op="create_page", page_title="AI"),
+                   PageContext(2)) == ()
 
 
 def test_plan_update_text():
     effects = plan_op(0, UpdateTextOp(op="update_text", uid="uid_b3",
-                                      text="new"), OpContext(block=B))
+                                      text="new"), BlockContext(B))
     assert effects == (UpdateText("uid_b3", "new"),
                        ReindexRefs("uid_b3", "new"), TouchPage(1))
 
 
-def test_plan_move_and_cycle():
-    ctx = OpContext(block=B, parent=BlockInfo("uid_b1", 1, None),
-                    parent_chain=("uid_b1",))
+def test_plan_move():
+    ctx = MoveContext(B, BlockInfo("uid_b1", 1, None), None, ("uid_b3",))
     assert plan_op(0, MoveOp(op="move", uid="uid_b3", parent_uid="uid_b1",
                              order_idx=0), ctx) == (
         ShiftSiblings(1, "uid_b1", 0), SetParent("uid_b3", "uid_b1", 0),
         TouchPage(1))
     # to top level
     assert plan_op(0, MoveOp(op="move", uid="uid_b3", parent_uid=None,
-                             order_idx=2), OpContext(block=B)) == (
+                             order_idx=2),
+                   MoveContext(B, None, None, ("uid_b3",))) == (
         ShiftSiblings(1, None, 2), SetParent("uid_b3", None, 2), TouchPage(1))
 
 
 def test_plan_delete_and_collapse():
     assert plan_op(0, DeleteOp(op="delete", uid="uid_b2"),
-                   OpContext(block=BlockInfo("uid_b2", 1, None),
-                             subtree=("uid_b3", "uid_b2"))) == (
+                   DeleteContext(BlockInfo("uid_b2", 1, None),
+                                 ("uid_b3", "uid_b2"))) == (
         DeleteBlocks(("uid_b3", "uid_b2")), TouchPage(1))
-    # pkm-r7k8: collapse/expand is not a real change -- no TouchPage, unlike
-    # every other op planned here.
+    # collapse/expand is not a real change -- no TouchPage, unlike every
+    # other op planned here.
     assert plan_op(0, SetCollapsedOp(op="set_collapsed", uid="uid_b2",
                                      collapsed=True),
-                   OpContext(block=BlockInfo("uid_b2", 1, None))) == (
+                   BlockContext(BlockInfo("uid_b2", 1, None))) == (
         SetCollapsed("uid_b2", True),)
 
 
 def test_plan_set_heading():
     assert plan_op(0, SetHeadingOp(op="set_heading", uid="uid_b2", heading=2),
-                   OpContext(block=BlockInfo("uid_b2", 1, None))) == (
+                   BlockContext(BlockInfo("uid_b2", 1, None))) == (
         SetHeading("uid_b2", 2), TouchPage(1))
     # clearing back to plain text
     assert plan_op(0, SetHeadingOp(op="set_heading", uid="uid_b2", heading=None),
-                   OpContext(block=BlockInfo("uid_b2", 1, None))) == (
+                   BlockContext(BlockInfo("uid_b2", 1, None))) == (
         SetHeading("uid_b2", None), TouchPage(1))
 
 
@@ -137,12 +159,12 @@ def test_plan_set_view_type_and_reject_unknown_value():
     assert plan_op(
         0, SetViewTypeOp(op="set_view_type", uid="uid_b2",
                          view_type="numbered"),
-        OpContext(block=BlockInfo("uid_b2", 1, None)),
+        BlockContext(BlockInfo("uid_b2", 1, None)),
     ) == (SetViewType("uid_b2", "numbered"), TouchPage(1))
     assert plan_op(
         0, SetViewTypeOp(op="set_view_type", uid="uid_b2",
                          view_type="document"),
-        OpContext(block=BlockInfo("uid_b2", 1, None)),
+        BlockContext(BlockInfo("uid_b2", 1, None)),
     ) == (SetViewType("uid_b2", "document"), TouchPage(1))
     with pytest.raises(ValidationError):
         SetViewTypeOp(op="set_view_type", uid="uid_b2", view_type="table")  # pyrefly: ignore[bad-argument-type] (deliberately invalid: asserting ValidationError)
@@ -151,17 +173,44 @@ def test_plan_set_view_type_and_reject_unknown_value():
 def test_op_error_carries_index():
     with pytest.raises(OpError) as e:
         plan_op(7, CreateOp(op="create", uid="a!", page_title="P",
-                            order_idx=0, text=""), OpContext(page_id=1))
+                            order_idx=0, text=""),
+                CreateContext(uid_taken=False, page_id=1))
     assert e.value.index == 7 and "invalid uid" in e.value.reason
 
 
+def test_a_context_that_does_not_fit_the_op_is_a_programmer_error_not_a_400():
+    # A 400 would poison the client's queue over a shell bug the client did
+    # not cause; an AssertionError is a 500, which clients retry.
+    move = MoveOp(op="move", uid="uid_b3", parent_uid=None, order_idx=0)
+    with pytest.raises(AssertionError):
+        plan_op(0, move, DeleteContext(B, ("uid_b3",)))
+    edit = UpdateTextOp(op="update_text", uid="uid_b3", text="x",
+                        base_text_hash=text_hash("y"))
+    with pytest.raises(AssertionError):
+        plan_op(0, edit, TextEditContext(
+            B, TextEditOutcome("conflict", "x")))
+
+
+def test_a_skip_context_that_does_not_fit_its_skip_kind_is_a_programmer_error():
+    # Planned silently, these would drop a skip's note, or tombstone a live
+    # block and cascade its subtree away on a replica.
+    heading = SetHeadingOp(op="set_heading", uid="ghost1", heading=1)
+    with pytest.raises(AssertionError):
+        plan_op(0, heading, SkipContext(Skip("orphan_structural", "ghost1")))
+    move = MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0)
+    with pytest.raises(AssertionError):
+        plan_op(0, move, LandedSkipContext(
+            Skip("move_parent_missing", "uid_b3"), _landing(), False))
+    with pytest.raises(AssertionError):
+        plan_op(0, heading, StuckMoveContext(
+            Skip("orphan_structural", "ghost1"), _landing(),
+            "Machine Learning", ("ghost1",)))
+
+
 def _move_ctx(block_page=1, parent_page=1, page_id=None):
-    return OpContext(
-        block=BlockInfo("u_child", block_page, None),
-        parent=BlockInfo("u_parent", parent_page, None),
-        parent_chain=("u_parent",),
-        page_id=page_id,
-        subtree=("u_gc", "u_child"))
+    return MoveContext(BlockInfo("u_child", block_page, None),
+                       BlockInfo("u_parent", parent_page, None),
+                       page_id, ("u_gc", "u_child"))
 
 
 def test_move_cross_page_under_parent_reassigns_subtree():
@@ -178,8 +227,8 @@ def test_move_cross_page_under_parent_reassigns_subtree():
 def test_move_top_level_to_named_page():
     op = MoveOp(op="move", uid="u_child", parent_uid=None, order_idx=0,
                 page_title="July 1st, 2026")
-    ctx = OpContext(block=BlockInfo("u_child", 1, "u_old"),
-                    page_id=7, subtree=("u_child",))
+    ctx = MoveContext(BlockInfo("u_child", 1, "u_old"), None, 7,
+                      ("u_child",))
     effects = plan_op(0, op, ctx)
     assert effects == (
         ShiftSiblings(7, None, 0),
@@ -201,9 +250,9 @@ def test_move_same_page_unchanged_shape():
 
 @pytest.mark.parametrize("page_id", [3, None])
 def test_move_follows_its_parent_whatever_page_title_says(page_id):
-    # pkm-fe9b: page_title named the parent's page when the move was queued;
-    # another device has since moved the parent to page 2. The block follows
-    # the parent, and the shell no longer resolves the stale title.
+    # page_title named the parent's page when the move was queued; another
+    # device has since moved the parent to page 2. The block follows the
+    # parent, and the shell no longer resolves the stale title.
     op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=0,
                 page_title="Somewhere Else")
     assert plan_op(0, op, _move_ctx(parent_page=2, page_id=page_id)) == (
@@ -217,28 +266,29 @@ def test_move_follows_its_parent_whatever_page_title_says(page_id):
 _BLK = BlockInfo("uid_t1", page_id=1, parent_uid=None)
 
 
-def _ctx(current="old text", order=2):
-    return OpContext(block=_BLK, current_text=current, order_idx=order,
-                     conflict_uid="uid_cf1")
-
-
-def _daily_ctx(**overrides):
-    fields = dict(daily_page_id=9, daily_append_idx=4,
-                 daily_title="September 28th, 2026", conflict_uid="uid_hd1",
-                 conflict_child_uid="uid_ch1")
-    fields.update(overrides)
-    return fields
-
-
 def _op(text="new text", base="old text", page_title=None):
     return UpdateTextOp(op="update_text", uid="uid_t1", text=text,
                         base_text_hash=text_hash(base),
                         page_title=page_title)
 
 
+def _text_ctx(op: UpdateTextOp, current: str,
+              header: ExistingHeader | None = None,
+              page_title: str = "Machine Learning",
+              ) -> TextEditContext | TextConflictContext:
+    """The context ops_apply._context_for builds for a hashed edit of _BLK
+    whose live text is `current`."""
+    assert op.base_text_hash is not None
+    outcome = classify_text_edit(op.text, op.base_text_hash, current, ())
+    if outcome.kind != "conflict":
+        return TextEditContext(_BLK, outcome)
+    return TextConflictContext(_BLK, outcome.text, current, page_title,
+                               _landing(header))
+
+
 def test_missing_block_creates_daily_header_naming_the_hint():
-    ctx = OpContext(block=None, hint_page_exists=True, **_daily_ctx())
-    effs = plan_op(0, _op(page_title="AI Agent Security"), ctx)
+    op = _op(page_title="AI Agent Security")
+    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert (header.page_id, header.parent_uid, header.order_idx) == (9, None, 4)
@@ -249,16 +299,15 @@ def test_missing_block_creates_daily_header_naming_the_hint():
     assert (child.page_id, child.parent_uid, child.order_idx) == (9, "uid_hd1", 0)
     assert child.text == "new text"
     record = next(e for e in effs if isinstance(e, RecordConflictHeader))
-    assert record == RecordConflictHeader("uid_t1", "September 28th, 2026",
-                                          "uid_hd1")
+    assert record == RecordConflictHeader("uid_t1", _DAY, "uid_hd1")
 
 
 @pytest.mark.parametrize("page_title", [None, "  ", "a[[b"])
 def test_missing_block_without_usable_hint_says_page_unknown(page_title):
     # hint_page_exists is irrelevant here -- an unusable hint always falls
     # back to the generic label regardless.
-    ctx = OpContext(block=None, hint_page_exists=True, **_daily_ctx())
-    effs = plan_op(0, _op(page_title=page_title), ctx)
+    op = _op(page_title=page_title)
+    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] (page unknown) — edit to a block "
@@ -266,11 +315,11 @@ def test_missing_block_without_usable_hint_says_page_unknown(page_title):
 
 
 def test_missing_block_hint_names_a_renamed_away_page_says_not_found():
-    # usable hint, but hint_page_exists is False (pkm-x8e3): the page it
-    # names is gone -- renamed or deleted since the client last saw it --
-    # so the header must not link it (that would recreate the page).
-    ctx = OpContext(block=None, hint_page_exists=False, **_daily_ctx())
-    effs = plan_op(0, _op(page_title="Old Title"), ctx)
+    # usable hint, but hint_page_exists is False: the page it names is gone
+    # -- renamed or deleted since the client last saw it -- so the header
+    # must not link it (that would recreate the page).
+    op = _op(page_title="Old Title")
+    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=False))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] `Old Title` (page not found) — "
@@ -281,44 +330,17 @@ def test_missing_block_hint_with_backtick_and_no_page_says_page_unknown():
     # usable hint, no such page, but the title itself holds a backtick: an
     # inline-code span can't safely wrap it, so this also falls back to the
     # generic label rather than emitting a broken/misleading code span.
-    ctx = OpContext(block=None, hint_page_exists=False, **_daily_ctx())
-    effs = plan_op(0, _op(page_title="a`b"), ctx)
+    op = _op(page_title="a`b")
+    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=False))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] (page unknown) — edit to a block "
                            "the server no longer has")
 
 
-@pytest.mark.parametrize(
-    "page_title, hint_page_exists, label",
-    [
-        ("AI Agent Security", True, "[[AI Agent Security]]"),
-        ("Old Title", False, "`Old Title` (page not found)"),
-        ("a`b", False, "(page unknown)"),
-        (None, False, "(page unknown)"),
-        ("  ", False, "(page unknown)"),
-        ("a[[b", False, "(page unknown)"),
-        # a hint could exist and still be unusable syntax at the same
-        # time (e.g. it names a real page's title that happens to hold
-        # `[[`) -- unusable always wins.
-        ("a[[b", True, "(page unknown)"),
-        # the page exists, but `[[title]]` would read back as a different
-        # title (a trailing `]`, paired backticks), and the ref indexer
-        # would create THAT page -- so it is named, not linked
-        ("x]", True, "`x]`"),
-        ("[x]", True, "`[x]`"),
-        ("a}]", True, "`a}]`"),
-        ("a`b`c", True, "(page unknown)"),
-        ("  Padded  ", True, "[[  Padded  ]]"),
-    ])
-def test_conflict_label_table(page_title, hint_page_exists, label):
-    assert conflict_label(page_title, hint_page_exists) == label
-
-
 def test_missing_block_appends_under_todays_header():
-    ctx = OpContext(block=None, **_daily_ctx(
-        conflict_header_uid="uid_old", conflict_header_next_idx=3))
-    effs = plan_op(0, _op(page_title="AI Agent Security"), ctx)
+    op = _op(page_title="AI Agent Security")
+    effs = plan_op(0, op, _skip_ctx(op, header=_EXISTING))
     inserts = [e for e in effs if isinstance(e, InsertBlock)]
     assert inserts == [InsertBlock("uid_ch1", 9, "uid_old", 3, "new text", None)]
     assert not any(isinstance(e, RecordConflictHeader) for e in effs)
@@ -327,28 +349,27 @@ def test_missing_block_appends_under_todays_header():
 def test_check_2_identical_text_is_noop_even_with_stale_hash():
     # device 2 pushes the same text device 1 already synced: base hash is
     # stale but the content matches -- never a conflict (spec section 2)
-    effs = plan_op(0, _op(text="same", base="anything else"),
-                   _ctx(current="same"))
-    assert effs == ()
+    op = _op(text="same", base="anything else")
+    assert plan_op(0, op, _text_ctx(op, "same")) == ()
 
 
 def test_check_3_absent_hash_applies_as_today():
     op = UpdateTextOp(op="update_text", uid="uid_t1", text="new")
-    effs = plan_op(0, op, OpContext(block=_BLK))
+    effs = plan_op(0, op, BlockContext(_BLK))
     assert any(isinstance(e, UpdateText) for e in effs)
     assert not any(isinstance(e, InsertBlock) for e in effs)
 
 
 def test_check_4_matching_hash_applies_without_conflict():
-    effs = plan_op(0, _op(), _ctx())
-    assert any(isinstance(e, UpdateText) for e in effs)
-    assert not any(isinstance(e, InsertBlock) for e in effs)
+    op = _op()
+    assert plan_op(0, op, _text_ctx(op, "old text")) == (
+        UpdateText("uid_t1", "new text"),
+        ReindexRefs("uid_t1", "new text"), TouchPage(1))
 
 
 def test_check_5_incoming_wins_and_loser_goes_to_daily_header():
-    ctx = OpContext(block=_BLK, current_text="server text meanwhile", order_idx=2,
-                    page_title="Machine Learning", **_daily_ctx())
-    effs = plan_op(0, _op(base="what I saw before going offline"), ctx)
+    op = _op(base="what I saw before going offline")
+    effs = plan_op(0, op, _text_ctx(op, "server text meanwhile"))
     upd = next(e for e in effs if isinstance(e, UpdateText))
     assert upd == UpdateText("uid_t1", "new text")  # incoming wins (LWW)
     assert not any(isinstance(e, ShiftSiblings) for e in effs)
@@ -364,44 +385,27 @@ def test_check_5_incoming_wins_and_loser_goes_to_daily_header():
 
 
 def test_check_5_appends_under_todays_header():
-    ctx = OpContext(block=_BLK, current_text="server text meanwhile", order_idx=2,
-                    page_title="Machine Learning",
-                    **_daily_ctx(conflict_header_uid="uid_old",
-                                conflict_header_next_idx=3))
-    effs = plan_op(0, _op(base="what I saw before going offline"), ctx)
+    op = _op(base="what I saw before going offline")
+    effs = plan_op(0, op, _text_ctx(op, "server text meanwhile",
+                                    header=_EXISTING))
     inserts = [e for e in effs if isinstance(e, InsertBlock)]
     assert inserts == [InsertBlock("uid_ch1", 9, "uid_old", 3,
                                    "server text meanwhile", None)]
     assert any(isinstance(e, UpdateText) for e in effs)
 
 
-def test_check_4_clean_apply_needs_no_conflict_uid():
-    # pkm-wy1v: check 2/4 must not require ctx.conflict_uid -- ops_apply no
-    # longer mints one for a clean hashed edit.
-    ctx = OpContext(block=_BLK, current_text="old text", order_idx=2)
-    effs = plan_op(0, _op(), ctx)
-    assert effs == (UpdateText("uid_t1", "new text"),
-                    ReindexRefs("uid_t1", "new text"), TouchPage(1))
-
-
-def test_check_2_identical_needs_no_conflict_uid():
-    ctx = OpContext(block=_BLK, current_text="same", order_idx=2)
-    effs = plan_op(0, _op(text="same", base="anything else"), ctx)
-    assert effs == ()
-
-
-def test_missing_block_header_already_exists_needs_no_conflict_uid():
-    # pkm-wy1v: _with_conflict_landing only mints conflict_uid when no
-    # header exists yet -- plan_op must accept conflict_uid=None once a
-    # header for today is already recorded.
-    ctx = OpContext(block=None, **_daily_ctx(
-        conflict_uid=None, conflict_header_uid="uid_old",
-        conflict_header_next_idx=3))
-    effs = plan_op(0, _op(page_title="AI Agent Security"), ctx)
-    inserts = [e for e in effs if isinstance(e, InsertBlock)]
-    assert inserts == [InsertBlock("uid_ch1", 9, "uid_old", 3,
-                                   "new text", None)]
-    assert not any(isinstance(e, RecordConflictHeader) for e in effs)
+def test_check_5_applies_the_replayed_edit_not_the_callers_text():
+    t0, t1 = "note about [[Old]]", "note about [[New]] and more"
+    op = UpdateTextOp(op="update_text", uid="uid_t1",
+                      text="note about [[Old]] plus comment",
+                      base_text_hash=text_hash(t0))
+    ctx = TextConflictContext(_BLK, "note about [[New]] plus comment", t1,
+                              "Machine Learning", _landing())
+    effs = plan_op(0, op, ctx)
+    assert effs[-3:] == (
+        UpdateText("uid_t1", "note about [[New]] plus comment"),
+        ReindexRefs("uid_t1", "note about [[New]] plus comment"),
+        TouchPage(1))
 
 
 # --- classify_text_edit: the shared identical/clean/conflict predicate ----
@@ -496,35 +500,35 @@ def _create_under(parent_uid="ghost_p1", text="lost child", page_title="AI"):
     (MoveOp(op="move", uid="ghost99", parent_uid="uid_p", order_idx=0),
      True, True, None),
     # plain no-ops, nothing lands
-    (_COLLAPSE, False, False, MissingTarget("noop", None)),
-    (_DELETE, False, False, MissingTarget("noop", None)),
+    (_COLLAPSE, False, False, Skip("noop", None)),
+    (_DELETE, False, False, Skip("noop", None)),
     # skipped with a note under the missing block's own uid
-    (_MOVE, False, False, MissingTarget("skipped", "ghost99")),
+    (_MOVE, False, False, Skip("orphan_structural", "ghost99")),
     (MoveOp(op="move", uid="ghost99", parent_uid="ghost_p1", order_idx=0),
-     False, False, MissingTarget("skipped", "ghost99")),
-    (_HEADING, False, False, MissingTarget("skipped", "ghost99")),
-    (_VIEW, False, False, MissingTarget("skipped", "ghost99")),
+     False, False, Skip("orphan_structural", "ghost99")),
+    (_HEADING, False, False, Skip("orphan_structural", "ghost99")),
+    (_VIEW, False, False, Skip("orphan_structural", "ghost99")),
     # text edits, hashed or not, land their text under the block's uid
     (UpdateTextOp(op="update_text", uid="ghost99", text="x"), False, False,
-     MissingTarget("orphan_edit", "ghost99")),
+     Skip("orphan_edit", "ghost99")),
     (UpdateTextOp(op="update_text", uid="ghost99", text="x",
                   base_text_hash=text_hash("y")), False, False,
-     MissingTarget("orphan_edit", "ghost99")),
+     Skip("orphan_edit", "ghost99")),
     # ... unless blank: nothing lost, nothing lands (same as a blank create)
     (UpdateTextOp(op="update_text", uid="ghost99", text=" "), False, False,
-     MissingTarget("orphan_edit", None)),
+     Skip("orphan_edit", None)),
     # a create under a missing parent lands under the PARENT's uid ...
     (_create_under(), False, False,
-     MissingTarget("diverted_create", "ghost_p1")),
+     Skip("diverted_create", "ghost_p1")),
     # ... unless it carries no text, which leaves nothing to land
     (_create_under(text="  "), False, False,
-     MissingTarget("diverted_create", None)),
+     Skip("diverted_create", None)),
     # the block exists but its move target doesn't
     (MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0),
-     True, False, MissingTarget("move_parent_missing", "uid_b3")),
+     True, False, Skip("move_parent_missing", "uid_b3")),
 ])
-def test_classify_missing_target(op, block_exists, parent_exists, expected):
-    assert classify_missing_target(op, block_exists, parent_exists) == expected
+def test_classify_skip(op, block_exists, parent_exists, expected):
+    assert classify_skip(op, block_exists, parent_exists) == expected
 
 
 MISSING_TARGETS_FIXTURE = (
@@ -536,12 +540,12 @@ _BLOCK_OP_ADAPTER = TypeAdapter(BlockOp)
 
 @pytest.mark.parametrize("case", MISSING_TARGETS_CASES,
                         ids=[c["name"] for c in MISSING_TARGETS_CASES])
-def test_classify_missing_target_matches_shared_fixture(case):
-    # Pins classify_missing_target against the same skip/no-skip table the
+def test_classify_skip_matches_shared_fixture(case):
+    # Pins classify_skip against the same skip/no-skip table the
     # replica's TS mirror (web/src/replica/missingTarget.ts) is tested
     # against, so the two languages cannot drift apart (pkm-7788).
     op = _BLOCK_OP_ADAPTER.validate_python(case["op"])
-    skipped = classify_missing_target(
+    skipped = classify_skip(
         op, case["block_exists"], case["parent_exists"],
         tuple(case.get("parent_chain", ()))) is not None
     assert skipped == case["skip"]
@@ -595,13 +599,13 @@ def test_placement_matches_shared_fixture(case, tmp_path):
 def test_collapse_on_missing_block_only_journals_the_ghost():
     # the client just toggled a row the server doesn't have: the tombstone
     # this journal row ships drops it from the replica
-    assert plan_op(0, _COLLAPSE, OpContext()) == (
+    assert plan_op(0, _COLLAPSE, _skip_ctx(_COLLAPSE)) == (
         JournalBlock("ghost99", deleted=True),)
 
 
 def test_delete_of_missing_block_is_empty():
     # the client's own optimistic delete already removed its copy
-    assert plan_op(0, _DELETE, OpContext()) == ()
+    assert plan_op(0, _DELETE, _skip_ctx(_DELETE)) == ()
 
 
 @pytest.mark.parametrize("op, note", [
@@ -611,7 +615,7 @@ def test_delete_of_missing_block_is_empty():
 ])
 def test_skipped_op_on_missing_block_lands_a_note_under_the_orphan_header(
         op, note):
-    effs = plan_op(0, op, OpContext(**_daily_ctx()))
+    effs = plan_op(0, op, _skip_ctx(op))
     # the tombstone leads: journal rows reach replicas in seq order, and a
     # window boundary must never put a ghost's tombstone after live rows
     assert effs == (
@@ -620,15 +624,14 @@ def test_skipped_op_on_missing_block_lands_a_note_under_the_orphan_header(
         ReindexRefs("uid_hd1", _ORPHAN_HEADER),
         InsertBlock("uid_ch1", 9, "uid_hd1", 0, note, None),
         ReindexRefs("uid_ch1", note),
-        RecordConflictHeader("ghost99", "September 28th, 2026", "uid_hd1"),
+        RecordConflictHeader("ghost99", _DAY, "uid_hd1"),
         TouchPage(9),
     )
 
 
 def test_skipped_op_appends_under_an_existing_header_for_the_block():
-    effs = plan_op(0, _MOVE, OpContext(**_daily_ctx(
-        conflict_uid=None, conflict_header_uid="uid_old",
-        conflict_header_next_idx=2)))
+    effs = plan_op(0, _MOVE, _skip_ctx(
+        _MOVE, header=ExistingHeader("uid_old", 2)))
     assert [e for e in effs if isinstance(e, InsertBlock)] == [
         InsertBlock("uid_ch1", 9, "uid_old", 2,
                     "move skipped: block ghost99 not found", None)]
@@ -646,32 +649,26 @@ def test_skipped_op_appends_under_an_existing_header_for_the_block():
               parent_uid="bad parent", order_idx=0, text="t"),
      "parent not found: bad parent"),
 ])
-def test_missing_target_with_an_impossible_uid_still_400s(op, reason):
+def test_skipped_op_with_an_impossible_uid_still_400s(op, reason):
     # clients only mint UID_RE uids, so this never wedges a real queue; it
     # keeps unvalidated strings out of the journal and conflict_headers
-    block = B if isinstance(op, MoveOp) else None
+    ctx = _skip_ctx(op, block_exists=isinstance(op, MoveOp))
     with pytest.raises(OpError) as e:
-        plan_op(0, op, OpContext(block=block, page_title="Machine Learning",
-                                 **_daily_ctx()))
+        plan_op(0, op, ctx)
     assert e.value.reason == reason
 
 
 def test_blank_orphan_edit_only_journals():
     op = UpdateTextOp(op="update_text", uid="ghost99", text="")
-    assert plan_op(0, op, OpContext()) == (JournalBlock("ghost99", True),)
-
-
-def test_skipped_op_without_landing_context_is_an_error():
-    with pytest.raises(OpError, match="conflict context missing"):
-        plan_op(0, _HEADING, OpContext())
+    assert plan_op(0, op, _skip_ctx(op)) == (JournalBlock("ghost99", True),)
 
 
 def test_unhashed_edit_of_missing_block_lands_like_a_hashed_one():
     op = UpdateTextOp(op="update_text", uid="uid_t1", text="new text",
                       page_title="AI Agent Security")
-    effs = plan_op(0, op, OpContext(hint_page_exists=True, **_daily_ctx()))
-    hashed = plan_op(0, _op(page_title="AI Agent Security"),
-                     OpContext(hint_page_exists=True, **_daily_ctx()))
+    hashed_op = _op(page_title="AI Agent Security")
+    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
+    hashed = plan_op(0, hashed_op, _skip_ctx(hashed_op, hint_page_exists=True))
     assert effs == hashed
     assert effs[0] == JournalBlock("uid_t1", deleted=True)
     assert [e.text for e in effs if isinstance(e, InsertBlock)] == [
@@ -680,8 +677,8 @@ def test_unhashed_edit_of_missing_block_lands_like_a_hashed_one():
 
 
 def test_create_under_missing_parent_lands_its_text_under_the_parent():
-    effs = plan_op(0, _create_under(), OpContext(hint_page_exists=True,
-                                                 **_daily_ctx()))
+    op = _create_under()
+    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=True))
     header = ("[[conflict]] [[AI]] — edit to a block the server no longer"
               " has")
     assert effs == (
@@ -691,14 +688,14 @@ def test_create_under_missing_parent_lands_its_text_under_the_parent():
         ReindexRefs("uid_hd1", header),
         InsertBlock("uid_ch1", 9, "uid_hd1", 0, "lost child", None),
         ReindexRefs("uid_ch1", "lost child"),
-        RecordConflictHeader("ghost_p1", "September 28th, 2026", "uid_hd1"),
+        RecordConflictHeader("ghost_p1", _DAY, "uid_hd1"),
         TouchPage(9),
     )
 
 
 def test_create_under_missing_parent_names_a_missing_page_without_linking():
-    effs = plan_op(0, _create_under(page_title="Gone Page"),
-                   OpContext(hint_page_exists=False, **_daily_ctx()))
+    op = _create_under(page_title="Gone Page")
+    effs = plan_op(0, op, _skip_ctx(op, hint_page_exists=False))
     header = next(e for e in effs if isinstance(e, InsertBlock)
                   and e.uid == "uid_hd1")
     assert header.text == ("[[conflict]] `Gone Page` (page not found) —"
@@ -706,23 +703,23 @@ def test_create_under_missing_parent_names_a_missing_page_without_linking():
 
 
 def test_blank_create_under_missing_parent_only_journals():
-    assert plan_op(0, _create_under(text=""), OpContext()) == (
+    op = _create_under(text="")
+    assert plan_op(0, op, _skip_ctx(op)) == (
         JournalBlock("newuid1", deleted=True),
         JournalBlock("ghost_p1", deleted=True))
 
 
 def test_create_under_missing_parent_still_checks_its_uid():
+    op = CreateOp(op="create", uid="a!", page_title="P",
+                  parent_uid="ghost_p1", order_idx=0, text="t")
     with pytest.raises(OpError, match="invalid uid"):
-        plan_op(0, CreateOp(op="create", uid="a!", page_title="P",
-                            parent_uid="ghost_p1", order_idx=0, text="t"),
-                OpContext(**_daily_ctx()))
+        plan_op(0, op, _skip_ctx(op))
 
 
 def test_move_to_missing_parent_leaves_the_block_and_notes_why():
     op = MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0)
-    effs = plan_op(0, op, OpContext(
-        block=B, page_title="Machine Learning",
-        subtree=("uid_gc", "uid_c1", "uid_b3"), **_daily_ctx()))
+    effs = plan_op(0, op, _skip_ctx(
+        op, block_exists=True, subtree=("uid_gc", "uid_c1", "uid_b3")))
     header = "[[conflict]] [[Machine Learning]] — ((uid_b3))"
     note = "move skipped: target parent ghost_p1 not found"
     # A replica that applied the move holds the whole subtree under a ghost
@@ -734,22 +731,12 @@ def test_move_to_missing_parent_leaves_the_block_and_notes_why():
         ReindexRefs("uid_hd1", header),
         InsertBlock("uid_ch1", 9, "uid_hd1", 0, note, None),
         ReindexRefs("uid_ch1", note),
-        RecordConflictHeader("uid_b3", "September 28th, 2026", "uid_hd1"),
+        RecordConflictHeader("uid_b3", _DAY, "uid_hd1"),
         TouchPage(9),
         JournalBlock("uid_b3", deleted=False),
         JournalBlock("uid_c1", deleted=False),
         JournalBlock("uid_gc", deleted=False),
     )
-
-
-def test_move_to_missing_parent_needs_the_live_page_title():
-    op = MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0)
-    with pytest.raises(OpError, match="conflict context missing"):
-        plan_op(0, op, OpContext(block=B, **_daily_ctx()))
-    # ... and the subtree, without which the replica loses the descendants
-    with pytest.raises(OpError, match="conflict context missing"):
-        plan_op(0, op, OpContext(block=B, page_title="Machine Learning",
-                                 **_daily_ctx()))
 
 
 # --- a move that would make a cycle (pkm-fe9b) ------------------------------
@@ -765,33 +752,32 @@ _B2 = BlockInfo("uid_b2", 1, None)
 @pytest.mark.parametrize("op, block_exists, parent_exists, chain, expected", [
     # the target parent's chain holds the moved block: a cycle
     (_CYCLE_MOVE, True, True, ("uid_b3", "uid_b2"),
-     MissingTarget("move_cycle", "uid_b2")),
+     Skip("move_cycle", "uid_b2")),
     # a block moved under itself is the shortest cycle
     (MoveOp(op="move", uid="uid_b2", parent_uid="uid_b2", order_idx=0),
-     True, True, ("uid_b2",), MissingTarget("move_cycle", "uid_b2")),
+     True, True, ("uid_b2",), Skip("move_cycle", "uid_b2")),
     # a chain without the block plans normally
     (_CYCLE_MOVE, True, True, ("uid_b3", "uid_b1"), None),
     # a missing block or parent is the missing-target case, chain or not
     (_CYCLE_MOVE, False, True, ("uid_b3", "uid_b2"),
-     MissingTarget("skipped", "uid_b2")),
+     Skip("orphan_structural", "uid_b2")),
     (_CYCLE_MOVE, True, False, ("uid_b3", "uid_b2"),
-     MissingTarget("move_parent_missing", "uid_b2")),
+     Skip("move_parent_missing", "uid_b2")),
     # only a move's chain means anything
     (_create_under(parent_uid="uid_b3"), False, True, ("uid_b3", "newuid1"),
      None),
 ])
 def test_classify_move_cycle(op, block_exists, parent_exists, chain,
                              expected):
-    assert classify_missing_target(op, block_exists, parent_exists,
+    assert classify_skip(op, block_exists, parent_exists,
                                    chain) == expected
 
 
-def _cycle_ctx(**overrides):
-    fields = dict(block=_B2, parent=B, parent_chain=("uid_b3", "uid_b2"),
-                  page_title="Machine Learning",
-                  subtree=("uid_b3", "uid_b2"), **_daily_ctx())
-    fields.update(overrides)
-    return OpContext(**fields)
+def _cycle_ctx(op: MoveOp = _CYCLE_MOVE,
+               chain: tuple[str, ...] = ("uid_b3", "uid_b2"),
+               header: ExistingHeader | None = None) -> SkippedContext:
+    return _skip_ctx(op, block_exists=True, parent_exists=True, chain=chain,
+                     header=header, subtree=("uid_b3", "uid_b2"))
 
 
 def test_move_that_would_make_a_cycle_leaves_the_block_and_notes_why():
@@ -807,7 +793,7 @@ def test_move_that_would_make_a_cycle_leaves_the_block_and_notes_why():
         ReindexRefs("uid_hd1", header),
         InsertBlock("uid_ch1", 9, "uid_hd1", 0, note, None),
         ReindexRefs("uid_ch1", note),
-        RecordConflictHeader("uid_b2", "September 28th, 2026", "uid_hd1"),
+        RecordConflictHeader("uid_b2", _DAY, "uid_hd1"),
         TouchPage(9),
         JournalBlock("uid_b2", deleted=False),
         JournalBlock("uid_b3", deleted=False),
@@ -816,7 +802,7 @@ def test_move_that_would_make_a_cycle_leaves_the_block_and_notes_why():
 
 def test_move_under_itself_is_skipped_like_any_cycle():
     op = MoveOp(op="move", uid="uid_b2", parent_uid="uid_b2", order_idx=0)
-    effs = plan_op(0, op, _cycle_ctx(parent=_B2, parent_chain=("uid_b2",)))
+    effs = plan_op(0, op, _cycle_ctx(op, chain=("uid_b2",)))
     assert [e.text for e in effs if isinstance(e, InsertBlock)] == [
         "[[conflict]] [[Machine Learning]] — ((uid_b2))",
         "move skipped: would create a cycle"]
@@ -824,41 +810,34 @@ def test_move_under_itself_is_skipped_like_any_cycle():
 
 def test_cycle_note_appends_under_an_existing_header_for_the_block():
     effs = plan_op(0, _CYCLE_MOVE, _cycle_ctx(
-        conflict_uid=None, conflict_header_uid="uid_old",
-        conflict_header_next_idx=2))
+        header=ExistingHeader("uid_old", 2)))
     assert [e for e in effs if isinstance(e, InsertBlock)] == [
         InsertBlock("uid_ch1", 9, "uid_old", 2,
                     "move skipped: would create a cycle", None)]
 
 
-def test_cycle_move_needs_the_live_page_title_and_subtree():
-    with pytest.raises(OpError, match="conflict context missing"):
-        plan_op(0, _CYCLE_MOVE, _cycle_ctx(page_title=None))
-    with pytest.raises(OpError, match="conflict context missing"):
-        plan_op(0, _CYCLE_MOVE, _cycle_ctx(subtree=()))
-
-
-@pytest.mark.parametrize("op, miss, note_page, expected", [
-    (_MOVE, MissingTarget("skipped", "ghost99"), "September 28th, 2026",
+@pytest.mark.parametrize("op, ctx, expected", [
+    (_MOVE, _skip_ctx(_MOVE),
      {"index": 3, "op": "move", "uid": "ghost99", "reason": "block_not_found",
-      "note_page": "September 28th, 2026"}),
-    (_DELETE, MissingTarget("noop", None), None,
+      "note_page": _DAY}),
+    (_DELETE, _skip_ctx(_DELETE),
      {"index": 3, "op": "delete", "uid": "ghost99",
       "reason": "block_not_found", "note_page": None}),
-    (_create_under(), MissingTarget("diverted_create", "ghost_p1"),
-     "September 28th, 2026",
+    (_create_under(), _skip_ctx(_create_under()),
      {"index": 3, "op": "create", "uid": "newuid1",
-      "reason": "parent_not_found", "note_page": "September 28th, 2026"}),
+      "reason": "parent_not_found", "note_page": _DAY}),
+    (_create_under(text=""), _skip_ctx(_create_under(text="")),
+     {"index": 3, "op": "create", "uid": "newuid1",
+      "reason": "parent_not_found", "note_page": None}),
     (MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1", order_idx=0),
-     MissingTarget("move_parent_missing", "uid_b3"), "September 28th, 2026",
+     _skip_ctx(MoveOp(op="move", uid="uid_b3", parent_uid="ghost_p1",
+                      order_idx=0), block_exists=True),
      {"index": 3, "op": "move", "uid": "uid_b3",
-      "reason": "parent_not_found", "note_page": "September 28th, 2026"}),
-    (_CYCLE_MOVE, MissingTarget("move_cycle", "uid_b2"),
-     "September 28th, 2026",
+      "reason": "parent_not_found", "note_page": _DAY}),
+    (_CYCLE_MOVE, _cycle_ctx(),
      {"index": 3, "op": "move", "uid": "uid_b2", "reason": "cycle",
-      "note_page": "September 28th, 2026"}),
+      "note_page": _DAY}),
 ])
-def test_skip_report_names_the_op_and_where_its_note_landed(
-        op, miss, note_page, expected):
-    ctx = OpContext(**_daily_ctx()) if note_page else OpContext()
-    assert skip_report(3, op, miss, ctx) == expected
+def test_skip_report_names_the_op_and_where_its_note_landed(op, ctx,
+                                                            expected):
+    assert skip_report(3, op, ctx) == expected

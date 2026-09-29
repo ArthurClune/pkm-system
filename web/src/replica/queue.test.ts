@@ -162,10 +162,11 @@ describe("enqueueBatch", () => {
     expect(ops[0].page_title).toBe("Explicit Page");
   });
 
-  test("a caller-hashed op is persisted exactly as the lane would keep it", () => {
-    // opQueue's fallback lane retains the ops as the caller passed them, so
-    // a lost enqueue reply leaves two copies of one batch_id; they must be
-    // byte-identical or the second delivery 409s instead of replaying
+  test("a caller-hashed op is persisted unchanged", () => {
+    // The fill adds only what the caller left out, so an op that already
+    // carries base_text_hash is stored byte for byte. The lane copy a lost
+    // enqueue reply leaves need not match the stored one: the server's
+    // replay hash ignores base_text_hash and page_title on update_text.
     const ops: BlockOp[] = [{
       op: "update_text", uid: "uid_q1", text: "linked",
       base_text_hash: sha256Hex("original text"),

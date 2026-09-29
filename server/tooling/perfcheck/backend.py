@@ -44,7 +44,7 @@ SALT = bytes.fromhex("22" * 16)
 # conflict (ops_core.classify_text_edit) rather than a clean apply.
 _STALE_HASH = "a" * 64
 # A fresh, never-created uid for ops/create-missing-parent's own block: it
-# must not exist yet (classify_missing_target checks block_exists on it
+# must not exist yet (classify_skip checks block_exists on it
 # too), so it is neither a fixture uid nor MISSING_BLOCK_UID/MISSING_PARENT_UID.
 _NEW_CREATE_UID = "ghostcreate0001"
 
@@ -136,7 +136,7 @@ def scenarios(lm: Landmarks, max_seq: int) -> list[Scenario]:
               "text": RENAME_REF_TEXT + " (offline edit predating the rename)",
               "base_text_hash": text_hash(RENAME_REF_TEXT)}]), writes=True),
         # Missing-target landings (pkm-foap): op.uid / op.parent_uid name
-        # nothing the server has, so classify_missing_target diverts the
+        # nothing the server has, so classify_skip diverts the
         # op instead of failing the whole batch.
         Scenario("ops/edit-missing-block", "POST", "/api/ops", body=batch(
             [{"op": "update_text", "uid": MISSING_BLOCK_UID,

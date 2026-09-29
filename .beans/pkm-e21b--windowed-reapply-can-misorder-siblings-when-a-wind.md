@@ -1,11 +1,11 @@
 ---
 # pkm-e21b
 title: Windowed reapply can misorder siblings when a window re-ships some of them
-status: todo
+status: scrapped
 type: bug
 priority: low
 created_at: 2026-09-29T09:56:19Z
-updated_at: 2026-09-29T09:56:19Z
+updated_at: 2026-09-29T11:27:03Z
 ---
 
 Residual from pkm-b0zf. A windowed `reapplyPending` replays pending batches over their own optimistic effects. `keepSlot` (localOps.ts) stops the sibling-shift drift, but when a window re-ships only some siblings, at their server order_idx, into a list that holds locally shifted indices, the replay can misorder them.
@@ -18,3 +18,7 @@ A proper fix undoes pending effects before the window's upsert, e.g. by keeping 
 
 - [ ] Decide whether it is worth a schema change
 - [ ] Failing test for the example above
+
+## Reasons for Scrapping
+
+Not worth fixing (Arthur, 2026-09-29). Hitting it takes unconfirmed structural edits in a list, a sibling in that list edited on another device, and the feed update carrying that sibling arriving before the confirmation. Online that window is under a second; the realistic case is reconnecting after offline work, and even then it lasts one round trip. It fixes itself: when the server applies the batch it re-sends every block the batch shifted, with the correct order, so nothing is stored wrong. The only risk is acting on the wrong order (indent/move) during that gap. A proper fix means keeping copies of the rows every pending op touches (a replica schema change, plus a mechanism recovery must keep correct), which is too much cost and risk for a glitch that lasts a second and heals itself. pkm-b0zf already improved this case: it used to give a tie and drift on every window.

@@ -246,27 +246,31 @@ def test_same_page_move_broadcast_keeps_page_title_null(db):
 
 
 def test_move_cycle_against_db_chain(db):
-    # child of uid_b2 is uid_b3; moving uid_b2 under uid_b3 must fail
-    with pytest.raises(OpError, match="cycle"):
-        apply_batch(db, _batch(
-            {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
-             "order_idx": 0}), NOW)
-    db.rollback()
+    # child of uid_b2 is uid_b3; moving uid_b2 under uid_b3 is skipped
+    result = apply_batch(db, _batch(
+        {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+         "order_idx": 0}), NOW)
+    assert [s["reason"] for s in result.skipped] == ["cycle"]
+    assert result.broadcast_ops == []
+    row = db.execute("SELECT parent_uid, order_idx FROM blocks"
+                     " WHERE uid = 'uid_b2'").fetchone()
+    assert (row["parent_uid"], row["order_idx"]) == (None, 1)
 
 
 @pytest.mark.parametrize("depth", [100, 101, 102, 150])
-def test_move_root_under_own_descendant_always_raises_cycle(db, depth):
+def test_move_root_under_own_descendant_is_always_a_cycle(db, depth):
     # A move that would nest a hierarchy under its own descendant must be
-    # rejected at every depth, not just within the old 100-level cap: ancestry
+    # caught at every depth, not just within the old 100-level cap: ancestry
     # traversal has to see the full chain to notice op.uid reappearing in it.
     apply_batch(db, _batch(*_linear_chain("Machine Learning", depth)), NOW)
     db.commit()
     deepest = f"level{depth - 1}"
-    with pytest.raises(OpError, match="cycle"):
-        apply_batch(db, _batch(
-            {"op": "move", "uid": "level0", "parent_uid": deepest,
-             "order_idx": 0}), NOW)
-    db.rollback()
+    result = apply_batch(db, _batch(
+        {"op": "move", "uid": "level0", "parent_uid": deepest,
+         "order_idx": 0}), NOW)
+    assert [s["reason"] for s in result.skipped] == ["cycle"]
+    assert db.execute("SELECT parent_uid FROM blocks WHERE uid = 'level0'"
+                      ).fetchone()[0] is None
 
 
 @pytest.mark.parametrize("depth", [100, 101, 102, 150])
@@ -306,7 +310,7 @@ def test_delete_removes_entire_deep_subtree(db, depth):
 
 
 def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
-    # ops rejects any move that would CREATE a cycle, but a corrupted DB
+    # ops skips any move that would CREATE a cycle, but a corrupted DB
     # could already contain one (e.g. from before this fix, or manual
     # tampering). The traversal guard must be what stops recursion in that
     # case, not the depth cap this bug removed -- an unguarded recursive CTE
@@ -316,8 +320,8 @@ def test_parent_chain_and_subtree_terminate_on_preexisting_cycle(db):
     apply_batch(db, _batch(*_linear_chain("Machine Learning", 5, prefix="cycle")),
                NOW)
     db.commit()
-    # Close the chain into a cycle by hand: ops_core's plan_op would refuse
-    # this via a MoveOp, so go straight to SQL to manufacture the corruption.
+    # Close the chain into a cycle by hand: ops_core's plan_op would skip
+    # this as a MoveOp, so go straight to SQL to manufacture the corruption.
     db.execute("UPDATE blocks SET parent_uid = 'cycle4' WHERE uid = 'cycle0'")
     db.commit()
     expected = {"cycle0", "cycle1", "cycle2", "cycle3", "cycle4"}
@@ -492,8 +496,8 @@ def test_op_error_index_reports_failing_op(db):
     with pytest.raises(OpError) as e:
         apply_batch(db, _batch(
             {"op": "set_collapsed", "uid": "uid_b2", "collapsed": True},
-            {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
-             "order_idx": 0},  # a cycle
+            {"op": "create", "uid": "uid_b1", "page_title": "AI",
+             "order_idx": 0, "text": "dup"},  # uid exists
         ), NOW)
     assert e.value.index == 1
     db.rollback()
@@ -699,3 +703,73 @@ def test_move_to_missing_parent_journals_the_live_block_and_the_parent(db):
     row = db.execute("SELECT parent_uid, order_idx FROM blocks"
                      " WHERE uid = 'uid_b3'").fetchone()
     assert (row["parent_uid"], row["order_idx"]) == ("uid_b2", 0)
+
+
+# --- concurrent structure edits (pkm-fe9b) ----------------------------------
+#
+# Another device reshaped the tree after these ops were queued. A create or
+# move under a live parent follows the parent to its current page; a move
+# that would nest a block under its own descendant is skipped with a note.
+
+def _page_id(db, title):
+    row = db.execute("SELECT id FROM pages WHERE title = ?",
+                     (title,)).fetchone()
+    return row["id"] if row is not None else None
+
+
+def test_create_under_a_parent_on_another_page_follows_the_parent(db):
+    before = _max_seq(db)
+    result = apply_batch(db, _batch(
+        # uid_b6 lives on AI (page 2); the create was queued for a page the
+        # parent has since left, which does not exist here any more
+        {"op": "create", "uid": "follow_c1", "page_title": "Stale Page",
+         "parent_uid": "uid_b6", "order_idx": 0, "text": "typed child"},
+    ), NOW)
+    db.commit()
+    row = db.execute("SELECT page_id, parent_uid FROM blocks"
+                     " WHERE uid = 'follow_c1'").fetchone()
+    assert (row["page_id"], row["parent_uid"]) == (2, "uid_b6")
+    assert result.skipped == []
+    # other tabs place it by the page it really landed on
+    assert result.broadcast_ops[0]["page_title"] == "AI"
+    # the stale title resolves nothing: no page is created for it
+    assert _page_id(db, "Stale Page") is None
+    # the insert trigger journals the block, so the feed ships its real row
+    assert ("follow_c1", 0) in _journal_rows_since(db, before)
+
+
+def test_move_with_a_stale_page_title_follows_the_parent(db):
+    result = apply_batch(db, _batch(
+        # uid_b4 is on page 3; uid_b6 is on AI (page 2), not "Stale Page"
+        {"op": "move", "uid": "uid_b4", "parent_uid": "uid_b6",
+         "order_idx": 0, "page_title": "Stale Page"},
+    ), NOW)
+    db.commit()
+    row = db.execute("SELECT page_id, parent_uid FROM blocks"
+                     " WHERE uid = 'uid_b4'").fetchone()
+    assert (row["page_id"], row["parent_uid"]) == (2, "uid_b6")
+    assert result.skipped == []
+    assert result.broadcast_ops[0]["page_title"] == "AI"
+    assert _page_id(db, "Stale Page") is None
+
+
+def test_cycle_move_journals_the_moved_subtree_and_creates_no_page(db):
+    before = _max_seq(db)
+    result = apply_batch(db, _batch(
+        {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3",
+         "order_idx": 0, "page_title": "Stale Page"},
+        {"op": "set_collapsed", "uid": "uid_b1", "collapsed": True},
+    ), NOW)
+    db.commit()
+    # the rest of the batch applies and is the only op broadcast
+    assert result.broadcast_ops == [{"op": "set_collapsed", "uid": "uid_b1",
+                                     "collapsed": True}]
+    assert result.skipped == [{
+        "index": 0, "op": "move", "uid": "uid_b2", "reason": "cycle",
+        "note_page": title_for_date(date.today())}]
+    rows = _journal_rows_since(db, before)
+    # every row of the moved subtree ships live, root first; nothing is
+    # tombstoned, since nothing is gone
+    assert rows.index(("uid_b2", 0)) < rows.index(("uid_b3", 0))
+    assert all(deleted == 0 for _, deleted in rows)
+    assert _page_id(db, "Stale Page") is None

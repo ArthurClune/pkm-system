@@ -428,6 +428,27 @@ def test_update_done_flag_on_a_legacy_leading_dash_uid_puts_flags_before_the_gua
         "{{DONE}} legacy task"
 
 
+def test_batch_reports_a_move_that_would_make_a_cycle_and_exits_1(
+        run, pkm_client):
+    # pkm-fe9b: moving a block under its own child is skipped, not a 400
+    from datetime import date
+    today = title_for_date(date.today())
+    cmds = [
+        {"command": "move", "params": {"uid": "uid_b2",
+                                       "page": "Machine Learning",
+                                       "parent": "((uid_b3))"}},
+        {"command": "create", "params": {"page": "AI", "text": "kept"}},
+    ]
+    code, out, err = run("batch", stdin=json.dumps(cmds))
+    assert code == 1
+    assert out.splitlines()[:2] == [
+        "warning: skipped 1 of 2 ops; the other 1 was applied",
+        "  move ^uid_b2: target is the block itself or one of its"
+        f" descendants; noted on [[{today}]]"]
+    assert "do not re-run the batch" in err
+    assert "kept" in _page_texts(pkm_client, "AI")
+
+
 def test_batch_reports_ops_skipped_for_a_missing_uid_and_exits_1(
         run, pkm_client):
     # batch update/move/delete send the uid unchecked; a mistyped one is

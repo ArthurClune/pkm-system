@@ -9,6 +9,7 @@ interface MissingTargetCase {
   op: BlockOp;
   block_exists: boolean;
   parent_exists: boolean;
+  parent_chain?: string[];
   skip: boolean;
 }
 
@@ -17,7 +18,9 @@ const cases = JSON.parse(readFileSync(new URL(
 ), "utf-8")) as { cases: MissingTargetCase[] };
 
 describe("skipsOnMissingTarget", () => {
-  test.each(cases.cases)("$name", ({ op, block_exists, parent_exists, skip }) => {
-    expect(skipsOnMissingTarget(op, block_exists, parent_exists)).toBe(skip);
+  test.each(cases.cases)("$name", ({ op, block_exists, parent_exists,
+                                     parent_chain = [], skip }) => {
+    expect(skipsOnMissingTarget(op, block_exists, parent_exists, parent_chain))
+      .toBe(skip);
   });
 });

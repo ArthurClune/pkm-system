@@ -279,7 +279,8 @@ def classify_text_edit(
 
 
 MissingTargetKind = Literal["noop", "skipped", "orphan_edit",
-                            "diverted_create", "move_parent_missing"]
+                            "diverted_create", "move_parent_missing",
+                            "move_cycle"]
 
 
 @dataclass(frozen=True)
@@ -298,6 +299,11 @@ class MissingTarget:
       created and its text lands instead
     - move_parent_missing: the block exists but its move target doesn't;
       it stays put and a note says why
+    - move_cycle: block and target both exist, but the target is the block
+      or one of its descendants (two devices moved blocks under each other
+      concurrently, pkm-fe9b); it stays put and a note says why. Not a
+      missing target strictly, but it is skipped the same way and for the
+      same reason
 
     `landing_uid` is the uid today's daily-note entry groups under (its
     conflict_headers key), or None when nothing lands. Both `plan_op` and
@@ -308,11 +314,15 @@ class MissingTarget:
     landing_uid: str | None
 
 
-def classify_missing_target(op: BlockOp, block_exists: bool,
-                            parent_exists: bool) -> MissingTarget | None:
+def classify_missing_target(
+    op: BlockOp, block_exists: bool, parent_exists: bool,
+    parent_chain: tuple[str, ...] = (),
+) -> MissingTarget | None:
     """None when the op's targets exist and it plans normally.
     `block_exists` is whether op.uid names a block; `parent_exists` whether
-    a create/move's parent_uid does (ignored when parent_uid is None)."""
+    a create/move's parent_uid does (ignored when parent_uid is None);
+    `parent_chain` a move's target parent and its ancestors (read only for
+    a move whose block and parent both exist)."""
     if isinstance(op, CreatePageOp):
         return None
     if isinstance(op, CreateOp):
@@ -322,9 +332,11 @@ def classify_missing_target(op: BlockOp, block_exists: bool,
         landing = op.parent_uid if op.text.strip() else None
         return MissingTarget("diverted_create", landing)
     if block_exists:
-        if (isinstance(op, MoveOp) and op.parent_uid is not None
-                and not parent_exists):
-            return MissingTarget("move_parent_missing", op.uid)
+        if isinstance(op, MoveOp) and op.parent_uid is not None:
+            if not parent_exists:
+                return MissingTarget("move_parent_missing", op.uid)
+            if op.uid in parent_chain:
+                return MissingTarget("move_cycle", op.uid)
         return None
     if isinstance(op, (SetCollapsedOp, DeleteOp)):
         return MissingTarget("noop", None)
@@ -334,7 +346,7 @@ def classify_missing_target(op: BlockOp, block_exists: bool,
     return MissingTarget("skipped", op.uid)
 
 
-SkipReason = Literal["block_not_found", "parent_not_found"]
+SkipReason = Literal["block_not_found", "parent_not_found", "cycle"]
 
 
 def skip_report(index: int, op: BlockOp, miss: MissingTarget,
@@ -344,9 +356,11 @@ def skip_report(index: int, op: BlockOp, miss: MissingTarget,
     on (None when nothing landed). It is the only signal a caller that
     sends uids unchecked (`pkm batch`) gets for a mistyped one."""
     assert not isinstance(op, CreatePageOp)  # never classified missing
-    reason: SkipReason = ("parent_not_found" if miss.kind in
-                          ("diverted_create", "move_parent_missing")
-                          else "block_not_found")
+    reason: SkipReason = (
+        "cycle" if miss.kind == "move_cycle" else
+        "parent_not_found" if miss.kind in ("diverted_create",
+                                            "move_parent_missing")
+        else "block_not_found")
     return {"index": index, "op": op.op, "uid": op.uid, "reason": reason,
             "note_page": (ctx.daily_title if miss.landing_uid is not None
                           else None)}
@@ -364,13 +378,13 @@ class OpContext:
     block: BlockInfo | None = None        # row for op.uid, if it exists
     page_id: int | None = None            # create: resolved target page
     parent: BlockInfo | None = None       # create/move: target parent row
-    parent_chain: tuple[str, ...] = ()    # move: target parent + its ancestors
+    parent_chain: tuple[str, ...] = ()    # move: target parent + its ancestors (move_cycle's test)
     subtree: tuple[str, ...] = ()         # delete/move: op.uid subtree (delete: deepest first)
     # update_text conflict handling (spec section 2); populated by the
     # shell only when the op carries base_text_hash
     current_text: str | None = None      # target's text right now
     order_idx: int | None = None         # target's order_idx
-    page_title: str | None = None        # live block's page title (check 5, move_parent_missing)
+    page_title: str | None = None        # live block's page title (check 5, move_parent_missing, move_cycle)
     # orphan_edit / diverted_create only: does a page with op.page_title
     # (the client's hint) currently exist? Resolved by the shell
     # (ops_apply._context_for) since it's a store lookup; decides
@@ -503,6 +517,9 @@ def move_parent_missing_note(parent_uid: str) -> str:
     return f"move skipped: target parent {parent_uid} not found"
 
 
+MOVE_CYCLE_NOTE = "move skipped: would create a cycle"
+
+
 def _conflict_landing_ready(ctx: OpContext) -> bool:
     """True once ctx carries everything `conflict_entry_effects` needs: the
     daily page, its append slot and the conflict-entry uid, plus -- only
@@ -579,16 +596,24 @@ def _plan_missing_target(index: int, op: BlockOp, miss: MissingTarget,
         tombstones = (JournalBlock(op.uid, True),)
         lost_text = op.text
         header_text = orphan_header_text(op.page_title, ctx.hint_page_exists)
-    elif miss.kind == "move_parent_missing":
+    elif miss.kind in ("move_parent_missing", "move_cycle"):
         assert isinstance(op, MoveOp) and op.parent_uid is not None
         if ctx.page_title is None or not ctx.subtree:
             raise OpError(index, "conflict context missing")
-        tombstones = (JournalBlock(op.parent_uid, True),)
-        # the whole moved subtree, root first: a replica that applied the
-        # move loses all of it to the parent's tombstone cascade
+        # the whole moved subtree, root first. move_parent_missing: a
+        # replica that applied the move loses all of it to the parent's
+        # tombstone cascade. move_cycle: nothing is gone, but the replica
+        # holds the block under its own descendant, a loop no page root
+        # reaches, and a cross-page move re-paged the block's local subtree
+        # (the target's shifted siblings sit inside that subtree too).
         live = tuple(JournalBlock(u, False)
                      for u in reversed(ctx.subtree))
-        lost_text = move_parent_missing_note(op.parent_uid)
+        if miss.kind == "move_parent_missing":
+            tombstones = (JournalBlock(op.parent_uid, True),)
+            lost_text = move_parent_missing_note(op.parent_uid)
+        else:
+            tombstones = ()
+            lost_text = MOVE_CYCLE_NOTE
         header_text = live_block_header_text(ctx.page_title, op.uid)
     else:                                            # skipped
         # a structural op carries no page hint worth naming: a move's
@@ -634,22 +659,26 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
         if ctx.block is not None:
             raise OpError(index, f"uid already exists: {op.uid}")
     miss = classify_missing_target(op, ctx.block is not None,
-                                   ctx.parent is not None)
+                                   ctx.parent is not None, ctx.parent_chain)
     if miss is not None:
         reason = impossible_uid_reason(op, miss)
         if reason is not None:
             raise OpError(index, reason)
         return _plan_missing_target(index, op, miss, ctx)
     if isinstance(op, CreateOp):
-        if ctx.page_id is None:
+        # A create under a live parent lands on the parent's page, whatever
+        # its page_title says: another device may have moved the parent
+        # since the create was queued (pkm-fe9b). page_title only places a
+        # top-level create.
+        page_id = (ctx.parent.page_id if ctx.parent is not None
+                   else ctx.page_id)
+        if page_id is None:
             raise OpError(index, "page could not be resolved")
-        if ctx.parent is not None and ctx.parent.page_id != ctx.page_id:
-            raise OpError(index, "parent is on a different page")
-        return (ShiftSiblings(ctx.page_id, op.parent_uid, op.order_idx),
-                InsertBlock(op.uid, ctx.page_id, op.parent_uid, op.order_idx,
+        return (ShiftSiblings(page_id, op.parent_uid, op.order_idx),
+                InsertBlock(op.uid, page_id, op.parent_uid, op.order_idx,
                             op.text, op.heading, op.view_type),
                 ReindexRefs(op.uid, op.text),
-                TouchPage(ctx.page_id))
+                TouchPage(page_id))
     assert ctx.block is not None  # classify_missing_target covered its absence
     if isinstance(op, UpdateTextOp):
         if op.base_text_hash is None:                # check 3: legacy
@@ -682,11 +711,10 @@ def plan_op(index: int, op: BlockOp, ctx: OpContext) -> tuple[Effect, ...]:
                 *base_effects)
     if isinstance(op, MoveOp):
         if op.parent_uid is not None:
-            assert ctx.parent is not None  # else move_parent_missing
-            if ctx.page_id is not None and ctx.page_id != ctx.parent.page_id:
-                raise OpError(index, "page_title does not match parent's page")
-            if op.uid in ctx.parent_chain:
-                raise OpError(index, "move would create a cycle")
+            # else move_parent_missing; a cycle is move_cycle
+            assert ctx.parent is not None
+            # under a parent the block follows it, whatever page_title
+            # says: another device may have moved the parent (pkm-fe9b)
             target_page = ctx.parent.page_id
         else:
             target_page = (ctx.page_id if ctx.page_id is not None

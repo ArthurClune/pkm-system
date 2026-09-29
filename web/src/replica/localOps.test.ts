@@ -415,6 +415,78 @@ describe("applyLocalOps", () => {
     });
   });
 
+  describe("pkm-fe9b: concurrent structure edits resolve as the server resolves them", () => {
+    // uid_m1 lives on ML (page 2); the ops below were queued when the
+    // editor still placed it elsewhere
+    beforeEach(() => {
+      t.db.exec(
+        "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text)" +
+        " VALUES ('uid_m1', 2, NULL, 0, 'moved elsewhere')");
+    });
+
+    test("a create under a parent on another page follows the parent", () => {
+      applyLocalOps(t.db, [
+        { op: "create", uid: "uid_new1", page_title: "AI",
+          parent_uid: "uid_m1", order_idx: 0, text: "typed child" },
+      ], 99);
+
+      expect(blockRow("uid_new1")).toMatchObject(
+        { page_id: 2, parent_uid: "uid_m1", order_idx: 0 });
+    });
+
+    test("a create under a live parent resolves no page for its stale title", () => {
+      applyLocalOps(t.db, [
+        { op: "create", uid: "uid_new1", page_title: "Never Seen Here",
+          parent_uid: "uid_m1", order_idx: 0, text: "typed child" },
+      ], 99);
+
+      expect(blockRow("uid_new1").page_id).toBe(2);
+      expect(rows("SELECT id FROM pages WHERE title = 'Never Seen Here'"))
+        .toEqual([]);
+    });
+
+    test("a move whose page_title no longer names the parent's page follows the parent", () => {
+      applyLocalOps(t.db, [
+        { op: "move", uid: "uid_r2", parent_uid: "uid_m1", order_idx: 0,
+          page_title: "Never Seen Here" },
+      ], 99);
+
+      expect(blockRow("uid_r2")).toMatchObject(
+        { page_id: 2, parent_uid: "uid_m1" });
+      expect(blockRow("uid_r2c").page_id).toBe(2);
+      expect(rows("SELECT id FROM pages WHERE title = 'Never Seen Here'"))
+        .toEqual([]);
+    });
+
+    test.each([
+      ["under its own child", "uid_r2c"],
+      ["under itself", "uid_r2"],
+    ])("a move %s is skipped; the batch's other ops still apply", (_label, parent) => {
+      const before = replicaState().blocks;
+
+      applyLocalOps(t.db, [
+        { op: "move", uid: "uid_r2", parent_uid: parent, order_idx: 0 },
+        { op: "update_text", uid: "uid_m1", text: "sibling applied" },
+      ], 99);
+
+      expect(blockRow("uid_m1").text).toBe("sibling applied");
+      const after = rows<{ uid: string }>("SELECT * FROM blocks ORDER BY uid")
+        .filter((r) => r.uid !== "uid_m1");
+      expect(after).toEqual(
+        (before as { uid: string }[]).filter((r) => r.uid !== "uid_m1"));
+    });
+
+    test("a move under a deeper descendant is skipped too", () => {
+      const [root, , , leaf] = makeChain(4, "deep");
+
+      applyLocalOps(t.db, [
+        { op: "move", uid: root, parent_uid: leaf, order_idx: 0 },
+      ], 99);
+
+      expect(blockRow(root).parent_uid).toBeNull();
+    });
+  });
+
   test("touches the page's updated_at", () => {
     applyLocalOps(t.db, [
       { op: "update_text", uid: "uid_r1", text: "changed" },

@@ -177,18 +177,21 @@ def _with_conflict_landing(db: sqlite3.Connection, target_uid: str,
 
 def _missing_target_context(db: sqlite3.Connection, op, miss: MissingTarget,
                             block: BlockInfo | None, parent: BlockInfo | None,
+                            chain: tuple[str, ...],
                             now_ms: int) -> OpContext:
     """Context for an op classify_missing_target flagged. Resolves no op
     page_title (get_or_create would create a page for an op that isn't
-    applied), and pays for today's daily page only when an entry lands."""
-    ctx = OpContext(block=block, parent=parent)
+    applied), and pays for today's daily page only when an entry lands.
+    `chain` rides along so apply_batch's re-classification of a move_cycle
+    agrees with this one."""
+    ctx = OpContext(block=block, parent=parent, parent_chain=chain)
     if miss.landing_uid is None:
         return ctx
     if isinstance(op, (CreateOp, UpdateTextOp)):
         ctx = dataclasses.replace(
             ctx, hint_page_exists=_hint_page_exists(db, op.page_title))
-    if miss.kind == "move_parent_missing":
-        assert block is not None  # the block exists; only its parent is gone
+    if miss.kind in ("move_parent_missing", "move_cycle"):
+        assert block is not None  # the block exists; its target does not fit
         ctx = dataclasses.replace(ctx,
                                   page_title=_page_title(db, block.page_id),
                                   subtree=_subtree_deepest_first(db, op.uid))
@@ -203,16 +206,28 @@ def _context_for(db: sqlite3.Connection, op, now_ms: int) -> OpContext:
     parent_uid = (op.parent_uid if isinstance(op, (CreateOp, MoveOp))
                   else None)
     parent = _block_info(db, parent_uid) if parent_uid else None
-    miss = classify_missing_target(op, block is not None, parent is not None)
+    # a move's target chain: what classify_missing_target's cycle test reads
+    chain = (_parent_chain(db, parent.uid)
+             if isinstance(op, MoveOp) and block is not None
+             and parent is not None else ())
+    miss = classify_missing_target(op, block is not None, parent is not None,
+                                   chain)
     if miss is not None:
-        return _missing_target_context(db, op, miss, block, parent, now_ms)
+        return _missing_target_context(db, op, miss, block, parent, chain,
+                                       now_ms)
     if isinstance(op, CreateOp):
-        page = _resolve_page(db, op.page_title, now_ms)
-        return OpContext(block=block, page_id=page["id"], parent=parent)
+        # Under a live parent the block lands on the parent's page, so the
+        # op's page_title is never resolved: a title gone stale since
+        # another device moved the parent would get_or_create an empty
+        # page (pkm-fe9b). It places only a top-level create.
+        page_id = (parent.page_id if parent is not None
+                   else _resolve_page(db, op.page_title, now_ms)["id"])
+        return OpContext(block=block, page_id=page_id, parent=parent)
     if isinstance(op, MoveOp):
-        chain = _parent_chain(db, op.parent_uid) if op.parent_uid else ()
+        # same rule as create: page_title places only a top-level move
         page_id = (_resolve_page(db, op.page_title, now_ms)["id"]
-                   if op.page_title is not None else None)
+                   if op.page_title is not None and parent is None
+                   else None)
         return OpContext(block=block, parent=parent, parent_chain=chain,
                          page_id=page_id,
                          subtree=_subtree_deepest_first(db, op.uid))
@@ -375,7 +390,8 @@ def apply_batch(db: sqlite3.Connection, batch: OpBatch,
             _execute(db, eff, now_ms)
         miss = (None if isinstance(op, CreatePageOp) else
                 classify_missing_target(op, ctx.block is not None,
-                                        ctx.parent is not None))
+                                        ctx.parent is not None,
+                                        ctx.parent_chain))
         if miss is None:
             broadcast_ops.append(_broadcast_op(db, op, ctx))
         else:

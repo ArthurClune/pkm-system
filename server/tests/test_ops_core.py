@@ -63,10 +63,22 @@ def test_plan_create_rejects_bad_uid_dup_and_foreign_parent():
         plan_op(0, CreateOp(op="create", uid="uid_b3", page_title="P",
                             order_idx=0, text=""),
                 OpContext(block=B, page_id=1))
-    with pytest.raises(OpError, match="different page"):
-        plan_op(0, CreateOp(op="create", uid="newuid1", page_title="P",
-                            parent_uid="uid_b6", order_idx=0, text=""),
-                OpContext(page_id=1, parent=BlockInfo("uid_b6", 2, None)))
+
+
+@pytest.mark.parametrize("page_id", [1, None])
+def test_create_follows_its_parent_onto_the_parents_page(page_id):
+    # pkm-fe9b: another device moved the parent to page 2 after this create
+    # was queued with page_title "P" (page 1). The block lands beside its
+    # parent, whatever the stale title says -- and the shell no longer
+    # resolves that title for a create under a live parent at all.
+    op = CreateOp(op="create", uid="newuid1", page_title="P",
+                  parent_uid="uid_b6", order_idx=0, text="t")
+    ctx = OpContext(page_id=page_id, parent=BlockInfo("uid_b6", 2, None))
+    assert plan_op(0, op, ctx) == (
+        ShiftSiblings(2, "uid_b6", 0),
+        InsertBlock("newuid1", 2, "uid_b6", 0, "t", None, None),
+        ReindexRefs("newuid1", "t"),
+        TouchPage(2))
 
 
 def test_plan_update_text():
@@ -87,12 +99,6 @@ def test_plan_move_and_cycle():
     assert plan_op(0, MoveOp(op="move", uid="uid_b3", parent_uid=None,
                              order_idx=2), OpContext(block=B)) == (
         ShiftSiblings(1, None, 2), SetParent("uid_b3", None, 2), TouchPage(1))
-    # moving under own descendant = cycle: uid appears in the parent chain
-    with pytest.raises(OpError, match="cycle"):
-        plan_op(0, MoveOp(op="move", uid="uid_b2", parent_uid="uid_b3",
-                          order_idx=0),
-                OpContext(block=BlockInfo("uid_b2", 1, None),
-                          parent=B, parent_chain=("uid_b3", "uid_b2")))
 
 
 def test_plan_delete_and_collapse():
@@ -191,20 +197,19 @@ def test_move_same_page_unchanged_shape():
         TouchPage(1))
 
 
-def test_move_page_title_must_match_parent_page():
+@pytest.mark.parametrize("page_id", [3, None])
+def test_move_follows_its_parent_whatever_page_title_says(page_id):
+    # pkm-fe9b: page_title named the parent's page when the move was queued;
+    # another device has since moved the parent to page 2. The block follows
+    # the parent, and the shell no longer resolves the stale title.
     op = MoveOp(op="move", uid="u_child", parent_uid="u_parent", order_idx=0,
                 page_title="Somewhere Else")
-    with pytest.raises(OpError, match="page_title does not match"):
-        plan_op(0, op, _move_ctx(parent_page=2, page_id=3))
-
-
-def test_move_cycle_check_still_applies_cross_page():
-    op = MoveOp(op="move", uid="u_parent", parent_uid="u_parent", order_idx=0)
-    ctx = OpContext(block=BlockInfo("u_parent", 1, None),
-                    parent=BlockInfo("u_parent", 2, None),
-                    parent_chain=("u_parent",), subtree=("u_parent",))
-    with pytest.raises(OpError, match="cycle"):
-        plan_op(0, op, ctx)
+    assert plan_op(0, op, _move_ctx(parent_page=2, page_id=page_id)) == (
+        ShiftSiblings(2, "u_parent", 0),
+        SetParent("u_child", "u_parent", 0),
+        SetPageId(("u_gc", "u_child"), 2),
+        TouchPage(1),
+        TouchPage(2))
 
 
 _BLK = BlockInfo("uid_t1", page_id=1, parent_uid=None)
@@ -535,7 +540,8 @@ def test_classify_missing_target_matches_shared_fixture(case):
     # against, so the two languages cannot drift apart (pkm-7788).
     op = _BLOCK_OP_ADAPTER.validate_python(case["op"])
     skipped = classify_missing_target(
-        op, case["block_exists"], case["parent_exists"]) is not None
+        op, case["block_exists"], case["parent_exists"],
+        tuple(case.get("parent_chain", ()))) is not None
     assert skipped == case["skip"]
 
 
@@ -699,6 +705,92 @@ def test_move_to_missing_parent_needs_the_live_page_title():
                                  **_daily_ctx()))
 
 
+# --- a move that would make a cycle (pkm-fe9b) ------------------------------
+#
+# Two devices moved blocks under each other concurrently: the server applied
+# the first, so the second would nest a block under its own descendant.
+
+_CYCLE_MOVE = MoveOp(op="move", uid="uid_b2", parent_uid="uid_b3",
+                     order_idx=0, page_title="Machine Learning")
+_B2 = BlockInfo("uid_b2", 1, None)
+
+
+@pytest.mark.parametrize("op, block_exists, parent_exists, chain, expected", [
+    # the target parent's chain holds the moved block: a cycle
+    (_CYCLE_MOVE, True, True, ("uid_b3", "uid_b2"),
+     MissingTarget("move_cycle", "uid_b2")),
+    # a block moved under itself is the shortest cycle
+    (MoveOp(op="move", uid="uid_b2", parent_uid="uid_b2", order_idx=0),
+     True, True, ("uid_b2",), MissingTarget("move_cycle", "uid_b2")),
+    # a chain without the block plans normally
+    (_CYCLE_MOVE, True, True, ("uid_b3", "uid_b1"), None),
+    # a missing block or parent is the missing-target case, chain or not
+    (_CYCLE_MOVE, False, True, ("uid_b3", "uid_b2"),
+     MissingTarget("skipped", "uid_b2")),
+    (_CYCLE_MOVE, True, False, ("uid_b3", "uid_b2"),
+     MissingTarget("move_parent_missing", "uid_b2")),
+    # only a move's chain means anything
+    (_create_under(parent_uid="uid_b3"), False, True, ("uid_b3", "newuid1"),
+     None),
+])
+def test_classify_move_cycle(op, block_exists, parent_exists, chain,
+                             expected):
+    assert classify_missing_target(op, block_exists, parent_exists,
+                                   chain) == expected
+
+
+def _cycle_ctx(**overrides):
+    fields = dict(block=_B2, parent=B, parent_chain=("uid_b3", "uid_b2"),
+                  page_title="Machine Learning",
+                  subtree=("uid_b3", "uid_b2"), **_daily_ctx())
+    fields.update(overrides)
+    return OpContext(**fields)
+
+
+def test_move_that_would_make_a_cycle_leaves_the_block_and_notes_why():
+    effs = plan_op(0, _CYCLE_MOVE, _cycle_ctx())
+    header = "[[conflict]] [[Machine Learning]] — ((uid_b2))"
+    note = "move skipped: would create a cycle"
+    # A replica that applied the move holds uid_b2 under its own
+    # descendant, a loop no page root reaches: every row of the moved
+    # block's server subtree (root first) is re-shipped as it really is.
+    # Nothing is gone, so nothing is tombstoned.
+    assert effs == (
+        InsertBlock("uid_hd1", 9, None, 4, header, None),
+        ReindexRefs("uid_hd1", header),
+        InsertBlock("uid_ch1", 9, "uid_hd1", 0, note, None),
+        ReindexRefs("uid_ch1", note),
+        RecordConflictHeader("uid_b2", "September 28th, 2026", "uid_hd1"),
+        TouchPage(9),
+        JournalBlock("uid_b2", deleted=False),
+        JournalBlock("uid_b3", deleted=False),
+    )
+
+
+def test_move_under_itself_is_skipped_like_any_cycle():
+    op = MoveOp(op="move", uid="uid_b2", parent_uid="uid_b2", order_idx=0)
+    effs = plan_op(0, op, _cycle_ctx(parent=_B2, parent_chain=("uid_b2",)))
+    assert [e.text for e in effs if isinstance(e, InsertBlock)] == [
+        "[[conflict]] [[Machine Learning]] — ((uid_b2))",
+        "move skipped: would create a cycle"]
+
+
+def test_cycle_note_appends_under_an_existing_header_for_the_block():
+    effs = plan_op(0, _CYCLE_MOVE, _cycle_ctx(
+        conflict_uid=None, conflict_header_uid="uid_old",
+        conflict_header_next_idx=2))
+    assert [e for e in effs if isinstance(e, InsertBlock)] == [
+        InsertBlock("uid_ch1", 9, "uid_old", 2,
+                    "move skipped: would create a cycle", None)]
+
+
+def test_cycle_move_needs_the_live_page_title_and_subtree():
+    with pytest.raises(OpError, match="conflict context missing"):
+        plan_op(0, _CYCLE_MOVE, _cycle_ctx(page_title=None))
+    with pytest.raises(OpError, match="conflict context missing"):
+        plan_op(0, _CYCLE_MOVE, _cycle_ctx(subtree=()))
+
+
 @pytest.mark.parametrize("op, miss, note_page, expected", [
     (_MOVE, MissingTarget("skipped", "ghost99"), "September 28th, 2026",
      {"index": 3, "op": "move", "uid": "ghost99", "reason": "block_not_found",
@@ -714,6 +806,10 @@ def test_move_to_missing_parent_needs_the_live_page_title():
      MissingTarget("move_parent_missing", "uid_b3"), "September 28th, 2026",
      {"index": 3, "op": "move", "uid": "uid_b3",
       "reason": "parent_not_found", "note_page": "September 28th, 2026"}),
+    (_CYCLE_MOVE, MissingTarget("move_cycle", "uid_b2"),
+     "September 28th, 2026",
+     {"index": 3, "op": "move", "uid": "uid_b2", "reason": "cycle",
+      "note_page": "September 28th, 2026"}),
 ])
 def test_skip_report_names_the_op_and_where_its_note_landed(
         op, miss, note_page, expected):

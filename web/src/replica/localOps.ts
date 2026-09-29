@@ -8,9 +8,11 @@
 // NEGATIVE ids, reconciled when the feed delivers the authoritative row
 // (reconcile.ts); ops carry titles, so negative ids never go on the wire.
 // An op on a missing block or create/move parent is skipped, as the server
-// skips it (missingTarget.ts, pkm-7788). A re-applied batch (reapply)
-// finds its own create and move effects already in place and does not
-// repeat them (pkm-b0zf).
+// skips it (missingTarget.ts, pkm-7788), and so is a move that would nest
+// a block under itself or its own descendant. A create or move under a
+// live parent lands on the parent's page, whatever its page_title says
+// (pkm-fe9b). A re-applied batch (reapply) finds its own create and move
+// effects already in place and does not repeat them (pkm-b0zf).
 
 import type { BlockOp } from "../api/ops";
 import { reindexBlockRefs } from "./blockRefs";
@@ -116,6 +118,19 @@ const keepSlot = (db: ReplicaDb, uid: string, at: BlockInfo): void => {
     [at.page_id, at.parent_uid, at.order_idx, uid]);
 };
 
+/** uid and every ancestor above it; the visited-path guard stops on a
+ * loop already in the replica, as ops_apply._parent_chain does. */
+const parentChain = (db: ReplicaDb, uid: string): string[] =>
+  db.select<{ uid: string }>(
+    `WITH RECURSIVE chain(uid, parent_uid, path) AS (
+       SELECT uid, parent_uid, ',' || uid || ',' FROM blocks WHERE uid = ?
+       UNION ALL
+       SELECT b.uid, b.parent_uid, c.path || b.uid || ','
+         FROM chain c JOIN blocks b ON b.uid = c.parent_uid
+        WHERE instr(c.path, ',' || b.uid || ',') = 0
+     )
+     SELECT uid FROM chain`, [uid]).map((r) => r.uid);
+
 export const subtreeUids = (db: ReplicaDb, uid: string): string[] =>
   db.select<{ uid: string }>(
     `WITH RECURSIVE sub(uid, path, depth) AS (
@@ -137,18 +152,35 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
   const parentUid = op.op === "create" || op.op === "move"
     ? op.parent_uid ?? null : null;
   const parentInfo = parentUid !== null ? blockInfo(db, parentUid) : null;
-  if (skipsOnMissingTarget(op, info !== null, parentInfo !== null)) return;
+  const chain = op.op === "move" && info !== null && parentInfo !== null
+    ? parentChain(db, parentUid!) : [];
+  if (skipsOnMissingTarget(op, info !== null, parentInfo !== null, chain)) {
+    return;
+  }
 
   switch (op.op) {
     case "create": {
       // On replay the row is this create's own: the enqueue-time apply, or
       // the server's echo. Later ops re-apply over it; keep it as it is.
       if (reapply && info !== null) {
+        // ... except that it follows a parent the window moved to another
+        // page, as the server will place it (pkm-fe9b)
+        if (parentInfo !== null && info.page_id !== parentInfo.page_id) {
+          for (const uid of subtreeUids(db, op.uid)) {
+            db.exec("UPDATE blocks SET page_id = ? WHERE uid = ?",
+                    [parentInfo.page_id, uid]);
+          }
+          info.page_id = parentInfo.page_id;
+        }
         keepSlot(db, op.uid, info);
         return;
       }
-      // otherwise an existing uid fails the INSERT, as the server 400s
-      const pageId = getOrCreateLocalPage(db, op.page_title, nowMs);
+      // otherwise an existing uid fails the INSERT, as the server 400s.
+      // Under a live parent the block lands on the parent's page, as on
+      // the server: page_title places only a top-level create.
+      const pageId = parentInfo !== null
+        ? parentInfo.page_id
+        : getOrCreateLocalPage(db, op.page_title, nowMs);
       shiftSiblings(db, pageId, op.parent_uid ?? null, op.order_idx);
       db.exec(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text," +
@@ -233,9 +265,9 @@ function applyOne(db: ReplicaDb, op: BlockOp, nowMs: number,
 }
 
 /** Apply a batch atomically; a throwing op rolls the whole batch back.
- * An op on a missing target is skipped rather than thrown on, as the server
- * skips it, so the rest of the batch still lands (the replica may simply be
- * behind the editor). What still throws: a create onto an existing uid, a
+ * An op on a missing target, or a move that would make a cycle, is skipped
+ * rather than thrown on, as the server skips it, so the rest of the batch
+ * still lands (the replica may simply be behind the editor). What still throws: a create onto an existing uid, a
  * title the grammar refuses. Callers treat the local apply as best-effort
  * cache maintenance, never as durability.
  *

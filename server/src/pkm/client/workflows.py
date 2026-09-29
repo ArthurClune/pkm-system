@@ -103,10 +103,10 @@ def edit_block(client: PkmClient, uid: str, text: str | None = None,
 
 def apply_batch(client: PkmClient, commands: object) -> OpsAck:
     """Apply a `{command, params}` batch atomically; returns the server's
-    ack. Its `skipped` list names ops whose uid no longer exists: the
-    server skips those (noting them on today's daily page) rather than
-    failing the batch, and batch commands send uids unchecked, so the
-    shells must report it.
+    ack. Its `skipped` list names ops whose uid no longer exists, and
+    moves that would make a cycle: the server skips those (noting them on
+    today's daily page) rather than failing the batch, and batch commands
+    send uids unchecked, so the shells must report it.
 
     Validation runs before any page is fetched or created, so a malformed
     batch triggers no I/O at all (pkm-4w23), and every page the batch

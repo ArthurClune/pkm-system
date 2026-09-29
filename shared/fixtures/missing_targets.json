@@ -72,6 +72,24 @@
      "block_exists": false, "parent_exists": false, "skip": true},
     {"name": "move-whose-parent-is-missing-is-skipped",
      "op": {"op": "move", "uid": "uid_b3", "parent_uid": "ghost_p1", "order_idx": 0},
-     "block_exists": true, "parent_exists": false, "skip": true}
+     "block_exists": true, "parent_exists": false, "skip": true},
+
+    {"name": "move-whose-parent-chain-lacks-the-block-plans-normally",
+     "op": {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3", "order_idx": 0},
+     "block_exists": true, "parent_exists": true,
+     "parent_chain": ["uid_b3", "uid_b1"], "skip": false},
+    {"name": "move-under-own-descendant-is-skipped-as-a-cycle",
+     "op": {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b3", "order_idx": 0},
+     "block_exists": true, "parent_exists": true,
+     "parent_chain": ["uid_b3", "uid_b2"], "skip": true},
+    {"name": "move-under-itself-is-skipped-as-a-cycle",
+     "op": {"op": "move", "uid": "uid_b2", "parent_uid": "uid_b2", "order_idx": 0},
+     "block_exists": true, "parent_exists": true,
+     "parent_chain": ["uid_b2"], "skip": true},
+    {"name": "create-ignores-a-parent-chain",
+     "op": {"op": "create", "uid": "newuid1", "page_title": "AI",
+            "parent_uid": "uid_b3", "order_idx": 0, "text": "child"},
+     "block_exists": false, "parent_exists": true,
+     "parent_chain": ["uid_b3", "newuid1"], "skip": false}
   ]
 }

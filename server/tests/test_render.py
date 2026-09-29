@@ -462,3 +462,15 @@ def test_render_ops_ack_clean_and_skipped():
     assert render_ops_ack(OpsAck(ok=True, ts=1, applied=4, skipped=[gone])
                           ).startswith(
         "warning: skipped 1 of 4 ops; the other 3 were applied\n")
+
+
+def test_render_ops_ack_names_a_cycle_skip():
+    # pkm-fe9b: a move nesting a block under its own descendant is skipped
+    from pkm.contracts.responses import OpsAck, SkippedOp
+    from pkm.render import render_ops_ack
+    loop = SkippedOp(index=1, op="move", uid="uid_b2", reason="cycle",
+                     note_page="September 28th, 2026")
+    assert render_ops_ack(OpsAck(ok=True, ts=1, applied=2, skipped=[loop])
+                          ).splitlines()[1] == (
+        "  move ^uid_b2: target is the block itself or one of its"
+        " descendants; noted on [[September 28th, 2026]]")

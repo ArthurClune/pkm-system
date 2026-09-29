@@ -452,11 +452,12 @@ class TitleMigrationApplyResponse(BaseModel):
 
 class SkippedOp(BaseModel):
     """One op the server skipped because its block (or, for create/move,
-    its parent) no longer exists (`ops_core.skip_report`)."""
+    its parent) no longer exists, or because a move would nest the block
+    under itself or its own descendant (`ops_core.skip_report`)."""
     index: int
     op: str
     uid: str
-    reason: Literal["block_not_found", "parent_not_found"]
+    reason: Literal["block_not_found", "parent_not_found", "cycle"]
     # the daily page the op's note or lost text landed on; None when
     # nothing was written (a collapse/delete no-op, a blank text)
     note_page: str | None

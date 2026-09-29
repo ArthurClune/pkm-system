@@ -62,3 +62,11 @@ decision is made (opQueue's ack handling and the syncState transition); the
 scenario itself (a genuinely dead replica in a real browser, `/api/journal/
 cleanup` removing a shown block, watching the ghost disappear) is not
 practically driveable through Playwright's stubs, so none is proposed.
+
+**Correction (pkm-6xza, 2026-09-29):** The `unavailable !== null` guard on
+`deliverLaneHead`'s callback, described above as narrowing the refetch to a
+genuinely no-replica session, was wrong: it also skipped every durable
+(replica-backed, online) delivery. A replica-backed tab's feed tombstones
+the replica row but never bumps `resyncSeq` by itself, so the view kept the
+ghost. Both delivery paths now consult `ackSkipped` unconditionally; see
+pkm-6xza.

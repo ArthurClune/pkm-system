@@ -30,7 +30,7 @@ replica is a cache and the queue is the user's intent.
 | A rebuild or rebase meets page-level file damage | A corruption message from the rebuild | The file is replaced | A rebase commits the queue to the carry before unlinking | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | `ROLLBACK` fails after SQLite already rolled back | `wrapSqlite`, `rollbackToSavepoint` | The original error is raised | Corruption keeps its own message | [Reset, rebase and file replacement](#reset-rebase-and-file-replacement) |
 | An op names a block or parent the server no longer has | `ops_core.classify_missing_target`; `skipsOnMissingTarget` in the replica | Skipped with an ack 200, and skipped in local apply; journal rows fix the replica | Tombstones are journalled before live rows; both sides pass `missing_targets.json` | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
-| The same, but the tab has no replica (no feed to tombstone the ghost) | `deliverLaneHead` reads the ack's `skipped` list, only while `unavailable` is latched | Bumps resync; every mounted view's guarded read refetches | Never fires for a replica-backed lane delivery, which gets the tombstone from its feed instead | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
+| Any op the server skipped | Both delivery paths (`deliverLaneHead` and the durable batch loop in `runDrain`) read the ack's `skipped` list | Bumps resync regardless of `unavailable`; every mounted view's guarded read refetches | A replica-backed tab's own feed tombstones the replica row; the ack refetch is what tells the view, not the feed | [Ops on blocks the server no longer has](#ops-on-blocks-the-server-no-longer-has) |
 | Another device moved an op's parent, or made its move a cycle | `_context_for` and `classify_missing_target` on the server; `applyOne` and `skipsOnMissingTarget` in the replica | Create and move follow the parent; a cycle move is skipped on both sides | A stale `page_title` is never resolved; a cycle skip journals the moved subtree | [Ops another device's tree edit overtook](#ops-another-devices-tree-edit-overtook) |
 | The replica opens, then fails every write | Nothing | Known gap | — | [What the UI shows](#what-the-ui-shows) |
 
@@ -448,12 +448,15 @@ spurious conflict header.
 A tab with no replica gets no tombstone. It delivers through the
 [fallback lane](#the-in-memory-fallback-lane) and drops its own WS echo, so a
 ghost block would stay on screen, and each flush into it would land another
-daily-note child. So once `unavailable` is latched, `deliverLaneHead` reads the
-ack's `skipped` list, and a non-empty one bumps resync
-(`ops-skipped-no-replica` in `syncState.ts`). That is the guarded read every
-resync trigger runs, not the outline repair epoch, so pending edits elsewhere
-on the page survive. A replica-backed lane delivery does not bump, because its
-feed tombstones the ghost.
+daily-note child. A replica-backed tab's feed does tombstone the replica row,
+but no resync event follows from that alone, so the view keeps the ghost
+until something else bumps resync. Both delivery paths -- `deliverLaneHead`
+and the durable batch loop in `runDrain` -- read the ack's `skipped` list,
+and a non-empty one bumps resync (`ops-skipped` in `syncState.ts`)
+regardless of whether `unavailable` is latched. That is the guarded read
+every resync trigger runs, not the outline repair epoch, so pending edits
+elsewhere on the page survive. The extra refetch on a replica-backed tab is
+harmless: it races a feed that has already converged the row.
 
 ## Ops another device's tree edit overtook
 

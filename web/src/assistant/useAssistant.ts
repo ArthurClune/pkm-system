@@ -13,7 +13,7 @@ import {
 } from "./client";
 import type { AssistantEvent } from "./sse";
 
-/** ApiError carries the server's `detail` message (pkm-c98s item 5); prefer
+/** ApiError carries the server's `detail` message; prefer
  * it over the generic "request failed: <status> <path>" wrapper text. */
 function friendlyMessage(err: unknown): string {
   if (err instanceof ApiError && err.detail) return err.detail;
@@ -30,7 +30,7 @@ function isBusyError(err: unknown): boolean {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// pkm-c98s item 3: AbortController.abort() rejects the client's own fetch
+// AbortController.abort() rejects the client's own fetch
 // promise the instant Stop is clicked, well before the server has noticed
 // the dropped connection and released the conversation's busy flag (see
 // service.py's synchronous reservation, item 7). Sending again right after
@@ -65,7 +65,7 @@ export type ChatItem =
 
 export type PendingConfirm = { toolUseId: string; opsPreview: string };
 
-/** What the busy line shows (pkm-e9ok): the server's phase label ("reasoning",
+/** What the busy line shows: the server's phase label ("reasoning",
  * "preparing save_note", "replying") or null for the unlabelled stretches
  * (before the first stream event; while a tool runs), plus when the current
  * stretch started, so the panel can tick an elapsed clock from it. */
@@ -95,7 +95,7 @@ export function useAssistant() {
   const abortController = useRef<AbortController | null>(null);
   const stopRequested = useRef(false);
 
-  // Turn generations (pkm-6ts2). send() takes the next generation; newChat()
+  // Turn generations. send() takes the next generation; newChat()
   // bumps it to supersede whatever is running. Every state write that happens
   // after an await is gated on still being the current generation, so a
   // superseded turn's events and finalizers cannot touch the chat that
@@ -103,7 +103,7 @@ export function useAssistant() {
   const turnGen = useRef(0);
   const activeTurn = useRef<Promise<void> | null>(null);
 
-  // pkm-c98s item 1: a page reload orphans the conversation id client-side
+  // A page reload orphans the conversation id client-side
   // without deleting it server-side. Idle reaping and oldest-idle eviction
   // (server-side) eventually clean it up, but a best-effort beacon on
   // pagehide closes it immediately when the tab actually navigates away.
@@ -180,7 +180,7 @@ export function useAssistant() {
   }, []);
 
   // Runs one turn; on a 404 (server reaped the conversation -- idle timeout
-  // or oldest-idle eviction elsewhere, pkm-c98s item 4) it resets the
+  // or oldest-idle eviction elsewhere) it resets the
   // conversation id and retries exactly once with a freshly created one,
   // instead of leaving the panel stuck talking to a dead id.
   const runTurn = useCallback(
@@ -243,9 +243,9 @@ export function useAssistant() {
         try {
           await runTurn(text, true, gen);
         } catch (err) {
-          // pkm-c98s item 3: a user-requested Stop aborts the fetch, which
+          // A user-requested Stop aborts the fetch, which
           // rejects with an AbortError -- that is success, not a failure to
-          // report. A superseded turn's failure (pkm-6ts2) belongs to a chat
+          // report. A superseded turn's failure belongs to a chat
           // that no longer exists, so it is not reported either.
           if (current() && !(stopRequested.current && isAbortError(err))) {
             setError(friendlyMessage(err));
@@ -289,7 +289,7 @@ export function useAssistant() {
       } catch (err) {
         // newChat superseded this decision: the conversation it belonged to is
         // gone, and neither the reset below nor an error banner may land on the
-        // chat that replaced it (pkm-6ts2).
+        // chat that replaced it.
         if (gen !== turnGen.current) return;
         if (err instanceof ApiError && err.status === 404) {
           // reaped while waiting on the user's decision: no live turn to
@@ -310,7 +310,7 @@ export function useAssistant() {
   const newChat = useCallback(async () => {
     // Supersede first: from here on the running turn's events and finalizers
     // are ignored, which is what makes clearing the state below safe to do
-    // immediately rather than after the abort round-trip (pkm-6ts2).
+    // immediately rather than after the abort round-trip.
     turnGen.current += 1;
     const id = conversationId.current;
     const inflight = activeTurn.current;

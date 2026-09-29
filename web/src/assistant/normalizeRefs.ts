@@ -1,5 +1,5 @@
 // pattern: Functional Core
-// pkm-wx86: MCP tool output shows blocks with trailing ^uid markers and
+// MCP tool output shows blocks with trailing ^uid markers and
 // some models (GLM) copy the caret verbatim into citations, emitting
 // ((^uid)). The shared ref grammar deliberately rejects that form, so the
 // assistant render path strips the caret before tokenizing instead of

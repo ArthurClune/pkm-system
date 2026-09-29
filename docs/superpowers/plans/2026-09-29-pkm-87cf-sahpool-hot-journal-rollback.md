@@ -304,6 +304,16 @@ git commit -m "docs(pkm-87cf): replica commits are atomic across worker death; c
 
 ## Appendix A: upstream report (draft; Arthur decides whether to file)
 
+> **Superseded, not filed (2026-09-29).** The same bug was reported
+> independently on the SQLite forum the day this shipped:
+> https://sqlite.org/forum/forumpost/ccf76ca422. It names the same method,
+> symptom and fix, and confirms it on npm 3.53.4 and trunk across Chromium,
+> Firefox and WebKit. Filing this draft would duplicate that thread; a reply
+> there with our reproduction (195 of 200 rows uncommitted after a kill, seen
+> in the field as damaged replicas on iPad) is the useful contribution. The
+> draft is kept below for that reply. Status and the upgrade procedure live in
+> `docs/architecture/sqlite-wasm-patch.md`.
+
 Where: the SQLite forum (https://sqlite.org/forum). The VFS source lives in the core tree (`ext/wasm/api/sqlite3-vfs-opfs-sahpool.c-pp.js`), and the sibling `"opfs"` fix was handled there. The npm packaging repo (github.com/sqlite/sqlite-wasm) is the wrong place.
 
 > **Title:** opfs-sahpool: xCheckReservedLock() always reports a reserved lock, so hot journals are never rolled back

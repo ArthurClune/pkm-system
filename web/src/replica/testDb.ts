@@ -3,6 +3,7 @@
 // modules are tested against the engine the browser runs.
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import { type ReplicaDb, type Oo1DbLike, wrapSqlite } from "./db";
+import type { CarryFiles } from "./carryStore";
 import { installSchema } from "./clientSchema";
 
 interface Sqlite3Module {
@@ -31,4 +32,60 @@ export async function openRawTestDb(): Promise<TestDb> {
   db.exec("PRAGMA foreign_keys=ON");
   db.exec("PRAGMA recursive_triggers=ON");
   return { db, close: () => raw.close() };
+}
+
+/** Carry files over one in-memory database. Content persists across opens,
+ * as a file would; unlink really drops the table, so a discarded carry is
+ * gone. `closes` counts close() calls. */
+export function fakeCarryFiles(t: TestDb): CarryFiles & { closes: number } {
+  let present = false;
+  const files = {
+    closes: 0,
+    exists: () => present,
+    open: () => {
+      present = true;
+      return { db: t.db, close: () => { files.closes += 1; } };
+    },
+    unlink: () => {
+      present = false;
+      t.db.exec("DROP TABLE IF EXISTS pending_ops");
+    },
+  };
+  return files;
+}
+
+/** A database whose file-level structure is damaged: dropping a table walks
+ * the broken freelist, so every logical rebuild fails the same way (the
+ * 2026-09-28 iPad incident). Reads still work. */
+export const withDamagedFreelist = (
+  db: ReplicaDb, freesPages: RegExp = /^DROP /i, isDamaged = () => true,
+): ReplicaDb => ({
+  ...db,
+  exec(sql, params) {
+    if (isDamaged() && freesPages.test(sql)) {
+      throw new Error(
+        "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed");
+    }
+    db.exec(sql, params);
+  },
+  transaction: (fn) => db.transaction(fn),
+});
+
+/** `db`, except that the first exec whose SQL matches `statement` throws
+ * `message`; every later call goes through. */
+export function failingOnce(
+  db: ReplicaDb, statement: RegExp, message: string,
+): ReplicaDb {
+  let failed = false;
+  return {
+    ...db,
+    exec(sql, params) {
+      if (!failed && statement.test(sql)) {
+        failed = true;
+        throw new Error(message);
+      }
+      db.exec(sql, params);
+    },
+    transaction: (fn) => db.transaction(fn),
+  };
 }

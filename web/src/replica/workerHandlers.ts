@@ -5,15 +5,19 @@
 import type { BlockOp } from "../api/ops";
 import type { Changes, Snapshot } from "./apply";
 import { applyChanges, applySnapshot } from "./apply";
+import { mergeCarriedRows } from "./carryMerge";
+import type { CarryStore } from "./carryStore";
 import type { PendingBatch, RecoveryCommit, ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION, installSchema } from "./clientSchema";
 import type { ReplicaDb } from "./db";
-import { isCorruptionMessage, ReplicaUnavailableError } from "./errors";
+import { isCorruptionMessage, isUnreadableFileMessage,
+         ReplicaUnavailableError } from "./errors";
 import { getMeta } from "./meta";
 import { handleLocalApi, type LocalApiRequest } from "./localApi/router";
 import { pendingSetStillCovered } from "./pendingGuard";
-import { allBatches, deleteBatch, enqueueBatch, markPoisoned, nextBatch,
-         pendingCount, poisonedBatches } from "./queue";
+import { allBatches, deleteBatch, type DurablePendingRow, enqueueBatch,
+         importPendingRows, markPoisoned, nextBatch, pendingCount,
+         poisonedBatches } from "./queue";
 import { createRecoveryGate } from "./recoveryGate";
 import type { RpcHandlers } from "./rpc";
 
@@ -22,9 +26,13 @@ export interface WorkerDeps {
   /** Close the active database resource before the worker is terminated. */
   closeDb?(): Promise<void> | void;
   /** Close the database and delete its file (and any rollback journal), so
-   * the next openDb() creates an empty one. The reset path's escape from
-   * damage a logical rebuild cannot get past (pkm-h1c6). */
+   * the next openDb() creates an empty one. The escape from damage a logical
+   * rebuild cannot get past, and from a file that cannot take a leftover
+   * carry's rows. */
   discardDbFile?(): Promise<void> | void;
+  /** Where a rebase commits the queue before a file replacement unlinks the
+   * old file. Without one, a rebase never replaces the file. */
+  carry?: CarryStore;
   /** Injectable for tests; the worker uses Date.now/crypto.randomUUID.
    * nowMs and clockMs both default to Date.now and are two names for the
    * same wall clock, kept distinct because they measure different things:
@@ -53,14 +61,6 @@ function readPendingBatches(db: ReplicaDb): PendingBatch[] {
   return allBatches(db);
 }
 
-interface DurablePendingRow {
-  id: number;
-  batch_id: string;
-  ops_json: string;
-  poisoned: number;
-  error: string | null;
-}
-
 function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {
   if (!tableExists(db, "pending_ops")) return [];
   return db.select<DurablePendingRow>(
@@ -68,6 +68,9 @@ function readDurablePendingRows(db: ReplicaDb): DurablePendingRow[] {
     " FROM pending_ops ORDER BY id",
   );
 }
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 const quoteIdentifier = (name: string): string =>
   `"${name.replaceAll('"', '""')}"`;
@@ -158,6 +161,84 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       throw unavailable;
     }
   };
+  /** The carried rows into `d`, with the same fresh-file rule init and
+   * enqueue apply: a file with no schema gets one first. */
+  const importCarried = (d: ReplicaDb, rows: readonly DurablePendingRow[]): void => {
+    if (!tableExists(d, "sync_client_meta")) installSchema(d);
+    importPendingRows(d, rows);
+  };
+  /** Import a carry left by a file replacement that did not finish, discard
+   * it, and resolve to the database that now holds its rows.
+   *
+   * A carry is written only when its replica file has already been judged
+   * damaged, and no handler can succeed while one exists (each adopts first
+   * and fails if it cannot), so neither file's queue changes while it does.
+   * A carry whose write committed holds every pending row the replica held;
+   * one whose write failed or was cut short holds a subset, possibly none,
+   * and the replica it was written from still holds them all. Beyond its
+   * queue the replica is a cache the next snapshot refills. That makes two
+   * escapes safe, and both are needed: rethrown, each would fail every
+   * handler for good, the recovery that could clear it included.
+   * - The carry cannot be read as a database at all. On this VFS a commit is
+   *   not atomic across a worker's death, so a worker killed while writing
+   *   the carry leaves it torn; that write comes before the replica is
+   *   unlinked, so the replica still holds the rows, and the carry is
+   *   discarded unread.
+   * - The replica cannot take the rows (a new file torn while it was being
+   *   built, or a transient I/O error): the replica file is replaced, and the
+   *   new one imports the carry's rows together with every row the old file
+   *   can still be read for, so a short carry cannot shed rows only the old
+   *   file held. An old file that cannot be read adds none; rows are lost
+   *   then only if the carry is short too, which takes both files damaged.
+   * Any other read failure (contention, transient I/O) propagates and keeps
+   * the carry for the next handler, and so does a replacement that fails in
+   * turn: the carry is then the rows' only sure copy. */
+  const adoptLeftoverCarry = async (d: ReplicaDb): Promise<ReplicaDb> => {
+    const carry = deps.carry;
+    if (carry?.exists() !== true) return d;
+    let rows: DurablePendingRow[];
+    try {
+      rows = carry.read();
+    } catch (error: unknown) {
+      if (!isUnreadableFileMessage(messageOf(error))) throw error;
+      console.warn("replica: discarding an unreadable carry; the replica file"
+                   + " written before it still holds its rows", error);
+      carry.discard();
+      return d;
+    }
+    let target = d;
+    try {
+      importCarried(target, rows);
+    } catch (error: unknown) {
+      if (!deps.discardDbFile) throw error;
+      console.warn("replica: the replica file cannot take the carried rows,"
+                   + " replacing it", error);
+      const held = probe(() => readDurablePendingRows(target), () => []);
+      const kept = mergeCarriedRows(rows, held);
+      // the new file's ids restart from the kept rows, as after a rebuild
+      ackedSeqs.clear();
+      await deps.discardDbFile();
+      dbPromise = null;
+      target = await db();
+      importCarried(target, kept);
+    }
+    carry.discard();
+    return target;
+  };
+  /** The database, for every handler that reads or writes the queue. A
+   * carry that exists holds rows no replica file is known to hold, so it is
+   * imported before any handler touches the queue: an insert first would
+   * take the carried ids, and the by-id import would then drop those rows.
+   * The recovery internals use db() instead, since mid-replacement the carry
+   * is the rows' only copy and must not be adopted into a half-built file;
+   * so does diagnostics, which only reads and must report on an unwell
+   * database even when an adoption would fail. */
+  const queueDb = async (): Promise<ReplicaDb> => adoptLeftoverCarry(await db());
+  // Batch row id -> the journal seq its server ack named, for batches deleted
+  // on an ack. applyChanges consults it to accept a window fetched while such
+  // a batch was still pending (see pendingGuard.ts). In memory only: a worker
+  // restart starts a fresh pull with a fresh pending snapshot.
+  const ackedSeqs = new Map<number, number>();
   const nowMs = deps.nowMs ?? (() => Date.now());
   const clockMs = deps.clockMs ?? (() => Date.now());
   const newBatchId = deps.newBatchId ?? (() => crypto.randomUUID());
@@ -169,11 +250,6 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     fingerprint: string;
     expiryTimer: ReturnType<typeof setTimeout> | null;
   } | null = null;
-  // Batch row id -> the journal seq its server ack named, for batches deleted
-  // on an ack. applyChanges consults it to accept a window fetched while such
-  // a batch was still pending (see pendingGuard.ts). In memory only: a worker
-  // restart starts a fresh pull with a fresh pending snapshot.
-  const ackedSeqs = new Map<number, number>();
   const fingerprint = (rows: readonly DurablePendingRow[]): string =>
     JSON.stringify(rows);
   const clearPrepared = (token: string): void => {
@@ -248,10 +324,14 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     }
   };
   /** Delete the damaged file and open a fresh one, if `error` is corruption
-   * and the host can delete files; otherwise rethrow `error`. */
-  const replaceFileAfter = async (error: unknown): Promise<ReplicaDb> => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!deps.discardDbFile || !isCorruptionMessage(message)) throw error;
+   * and the host can delete files; otherwise rethrow `error`.
+   * `beforeDiscard` runs once the file is known to be going and before
+   * anything is deleted; if it throws, the file is kept. */
+  const replaceFileAfter = async (
+    error: unknown, beforeDiscard?: () => void,
+  ): Promise<ReplicaDb> => {
+    if (!deps.discardDbFile || !isCorruptionMessage(messageOf(error))) throw error;
+    beforeDiscard?.();
     console.warn("replica: rebuild hit file-level corruption, replacing the file",
                  error);
     await deps.discardDbFile();
@@ -261,25 +341,40 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   /** A rebase, and on the same file-level damage the same escape, except
    * that a rebase keeps the durable queue: the rejected-batch repair runs one
    * so the valid rows behind a poisoned batch are not posted ahead of it or
-   * lost (pkm-1b2w). `rows` move across verbatim, ids included, since the
-   * provider deletes the poisoned row by id afterwards. They commit before
-   * the snapshot applies, so a failed apply still leaves them durable. */
+   * lost. `rows` move across verbatim, ids included, since the provider
+   * deletes the poisoned row by id afterwards.
+   *
+   * The durable boundary: the rows are committed to the carry database
+   * before the damaged file and its journal are unlinked. The new file
+   * imports them from the carry by id once its schema is installed, and the
+   * carry is discarded as soon as that import commits, so a later snapshot
+   * failure leaves the rows in the new file and nothing stale behind to be
+   * adopted again. From the unlink to that commit the carry is the only
+   * copy, which is why every queue handler adopts a leftover carry before it
+   * serves. */
   const rebaseOrReplaceFile = async (
     snapshot: Snapshot, rows: readonly DurablePendingRow[],
   ): Promise<void> => {
     try {
       applySnapshotToDb(await db(), snapshot, nowMs());
     } catch (error: unknown) {
-      const fresh = await replaceFileAfter(error);
-      rebuildSchema(fresh);
-      fresh.transaction(() => {
-        for (const row of rows) {
-          fresh.exec(
-            "INSERT INTO pending_ops(id, batch_id, ops_json, poisoned, error)" +
-            " VALUES (?, ?, ?, ?, ?)",
-            [row.id, row.batch_id, row.ops_json, row.poisoned, row.error]);
+      // No durable place for the rows: keep the damaged file, which still
+      // holds them, rather than replace it.
+      const carry = deps.carry;
+      if (!carry) throw error;
+      const fresh = await replaceFileAfter(error, () => {
+        try {
+          carry.write(rows);
+        } catch (writeError: unknown) {
+          // The damaged file keeps the rows. A carry left behind would be
+          // adopted as a short copy of them, so it goes now, best effort.
+          try { carry.discard(); } catch { /* adoption copes with it */ }
+          throw writeError;
         }
       });
+      rebuildSchema(fresh);
+      importPendingRows(fresh, carry.read());
+      carry.discard();
       applySnapshotToDb(fresh, snapshot, nowMs());
     }
   };
@@ -287,7 +382,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
   return {
     async enqueue(payload) {
       return gate.run(async () => {
-        const d = await db();
+        const d = await queueDb();
         // the first edit can beat the socket connect that triggers init():
         // a fresh database gets its schema here so durability never waits.
         // An existing database (any version) is left alone — init() owns
@@ -301,7 +396,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       });
     },
     async nextBatch() {
-      return gate.run(async () => nextBatch(await db()));
+      return gate.run(async () => nextBatch(await queueDb()));
     },
     async deleteBatch(payload) {
       // A bare row id is accepted too: it is the pre-pkm-ur2n payload shape.
@@ -309,7 +404,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         ? { id: payload, ackedSeq: undefined }
         : payload as { id: number; ackedSeq?: number };
       return gate.run(async () => {
-        const pending = deleteBatch(await db(), id);
+        const pending = deleteBatch(await queueDb(), id);
         if (typeof ackedSeq === "number" && Number.isFinite(ackedSeq)) {
           ackedSeqs.set(id, ackedSeq);
         } else {
@@ -323,7 +418,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         const { id, error, batchId } = payload as {
           id: number; error: string; batchId: string;
         };
-        const d = await db();
+        const d = await queueDb();
         const matched = markPoisoned(d, id, error, batchId);
         return { pending: pendingCount(d), matched };
       });
@@ -333,7 +428,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
         // No catch: an unopenable database is db()'s latched
         // ReplicaUnavailableError, exactly as it is for every other handler.
         // Consumers derive "no-replica" from that rejection (pkm-61zt).
-        const d = await db();
+        const d = await queueDb();
         const fresh = !tableExists(d, "sync_client_meta");
         const pendingBatches = fresh ? [] : readPendingBatches(d);
         if (fresh) installSchema(d);
@@ -347,13 +442,13 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     },
     async applySnapshot(payload) {
       return gate.run(async () => {
-        applySnapshotToDb(await db(), payload as Snapshot, nowMs());
+        applySnapshotToDb(await queueDb(), payload as Snapshot, nowMs());
         return null;
       });
     },
     async applyChanges(payload) {
       return gate.run(async () => {
-        const d = await db();
+        const d = await queueDb();
         const { feed, expectedPendingIds } = payload as {
           feed: Changes;
           expectedPendingIds: number[];
@@ -373,20 +468,20 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       });
     },
     async pendingBatches() {
-      return gate.run(async () => readPendingBatches(await db()));
+      return gate.run(async () => readPendingBatches(await queueDb()));
     },
     async poisonedBatches() {
       return gate.run(async () => {
-        const d = await db();
+        const d = await queueDb();
         return tableExists(d, "pending_ops") ? poisonedBatches(d) : [];
       });
     },
     async pendingCount() {
-      return gate.run(async () => pendingCount(await db()));
+      return gate.run(async () => pendingCount(await queueDb()));
     },
     async localApi(payload) {
       return gate.run(async () => handleLocalApi(
-        await db(), payload as LocalApiRequest, { newBatchId }));
+        await queueDb(), payload as LocalApiRequest, { newBatchId }));
     },
     async prepareRecovery(payload) {
       const expiresAtMs = Number(
@@ -394,8 +489,9 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       );
       const hasDeadline = Number.isFinite(expiresAtMs);
       const prepared = await gate.prepare(async () => {
-        const batches = readPendingBatches(await db());
-        const durableRows = readDurablePendingRows(await db());
+        const d = await queueDb();
+        const batches = readPendingBatches(d);
+        const durableRows = readDurablePendingRows(d);
         if (hasDeadline && clockMs() >= expiresAtMs) {
           throw new Error("recovery preparation expired");
         }
@@ -434,7 +530,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
           if (preparedRows?.token !== token) {
             throw new Error("invalid or inactive recovery token");
           }
-          const current = readDurablePendingRows(await db());
+          const current = readDurablePendingRows(await queueDb());
           if (fingerprint(current) !== preparedRows.fingerprint) {
             throw new Error("pending rows changed during recovery");
           }
@@ -462,7 +558,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
     },
     async reset() {
       return gate.run(async () => {
-        const current = readPendingBatches(await db());
+        const current = readPendingBatches(await queueDb());
         if (current.length > 0) {
           throw new Error("cannot reset replica with pending rows");
         }
@@ -471,6 +567,7 @@ export function buildHandlers(deps: WorkerDeps): RpcHandlers {
       });
     },
     async diagnostics() {
+      // db(), not queueDb(): see queueDb
       return gate.run(async () => collectDiagnostics(await db()));
     },
     async close() {

@@ -1,11 +1,11 @@
 ---
 # pkm-9xg0
 title: Replacing a damaged replica file deletes the only copy of the pending queue before the new copy is durable
-status: todo
+status: completed
 type: bug
 priority: high
 created_at: 2026-09-29T13:20:25Z
-updated_at: 2026-09-29T13:20:25Z
+updated_at: 2026-09-29T14:27:58Z
 parent: pkm-a4t2
 ---
 
@@ -28,9 +28,98 @@ dependency beside `discardDbFile`.
 
 ## Todo
 
-- [ ] Failing tests: the `discardDbFile` fake replaces the db with an empty one; fail the open, the schema install and the insert in turn (rows are in the carry); a dead worker between discard and import, then fresh handlers over the same fakes, restores the rows with their ids
-- [ ] Carry store `{ exists, write, read, discard }` implemented in `worker.ts` over a second pool database; write before unlink, import by id after the schema, discard after the snapshot
-- [ ] Adopt-on-open in `init` after the schema check; `poisoned` and `error` travel with the rows
-- [ ] Confirm `MIN_POOL_CAPACITY` covers replica + journal + carry + journal
-- [ ] Docs D2: `sync-recovery.md` § Recovery never erases intent and its failure rows, § Reset, rebase and file replacement; rewrite the handler comment to state the durable boundary; troubleshooting row
-- [ ] verify, perf, merge
+- [x] Failing tests: the `discardDbFile` fake replaces the db with an empty one; fail the open, the schema install and the insert in turn (rows are in the carry); a dead worker between discard and import, then fresh handlers over the same fakes, restores the rows with their ids
+- [x] Carry store `{ exists, write, read, discard }` implemented in `worker.ts` over a second pool database; write before unlink, import by id after the schema, discard after the import (not the snapshot; see Summary)
+- [x] Adopt-on-open (at every handler's entry, not only `init`; see Summary); `poisoned` and `error` travel with the rows
+- [x] Confirm `MIN_POOL_CAPACITY` covers replica + journal + carry + journal
+- [x] Docs D2: `sync-recovery.md` § Recovery never erases intent and its failure rows, § Reset, rebase and file replacement; rewrite the handler comment to state the durable boundary; troubleshooting row
+- [x] verify (typecheck, lint, check:fcis, test:coverage, build; full Playwright and perf are run by the orchestrator after merge)
+- [x] Review fix I-1a: adoption whose schema install or import fails replaces the replica file; a failed replacement is loud and keeps the carry
+- [x] Review fix I-1b: an unreadable (corrupt / not-a-database) carry is discarded with a warning; any other read error stays loud and keeps the carry
+- [x] Review fix m-1: adoption pinned for deleteBatch and localApi on a restarted worker
+- [x] Review fix m-3: comment corrections in worker.ts and poolCapacity.ts
+- [x] Review fix m-4: sync-recovery.md step table, sync-and-offline.md carry sentence, spec § F1 pointer
+- [x] Review fix m-5: diagnostics does not adopt
+- [x] Review fix I-2: bean filed for the SAH pool's hot-journal behaviour
+- [ ] perf, merge (orchestrator)
+
+## Summary of Changes
+
+- `web/src/replica/carryStore.ts` (new, Shell): the carry database
+  (`/pkm-replica-carry.sqlite3`) over injected `CarryFiles`; `write` replaces
+  its `pending_ops` in one transaction, `read` returns rows by id (none when
+  the table never committed), `discard` unlinks.
+- `queue.ts`: `DurablePendingRow` (moved) and `importPendingRows`, the
+  `INSERT OR IGNORE` by-id import used by the carry and the new file.
+- `workerHandlers.ts`: `WorkerDeps.carry`; `rebaseOrReplaceFile` writes the
+  carry before `discardDbFile`, imports from it after `rebuildSchema`, and
+  discards it once the import commits; without a carry store a rebase keeps
+  the damaged file. Every handler goes through `queueDb`, which adopts a
+  leftover carry first.
+- `worker.ts`: `CarryFiles` over the SAH pool (`getFileNames`, journal-first
+  unlink). `poolCapacity.ts`: `REPLICA_FILE`, `CARRY_FILE`, `journalOf`,
+  `PEAK_POOL_FILES`; `MIN_POOL_CAPACITY` (6) covers the four peak files
+  (TEMP_STORE=2 checked in the shipped wasm).
+- Deviations from the spec: adoption at every handler's entry (an enqueue or
+  local-API write can reach a restarted worker before `init` and would take
+  the carried ids); the carry is discarded after the import, not after the
+  snapshot (a carry kept past a failed snapshot would resurrect acked or
+  deleted rows); no carry store means no replacement for a rebase.
+- Tests: destroying `discardDbFile` fakes; open, schema, import and carry-write
+  failures; dead worker between discard and import; enqueue before init; Retry
+  in the same worker; unreadable carry; snapshot failure with no
+  resurrection; composed poison repair through `replicaSync` and the real
+  `Replica` facade (`replicaSync.fileReplacement.test.ts`), which also checks
+  that the carry already holds the rows at the moment of unlink.
+- Docs: `sync-recovery.md` (carry step table, adopt-on-entry, guard row,
+  failure-table must-hold, pool note), `sync-and-offline.md` (carry file),
+  `frontend.md` (module map), `troubleshooting.md` (one row).
+
+### Review fixes
+
+- Adoption (`adoptLeftoverCarry`, `workerHandlers.ts`) no longer wedges the
+  queue on a torn file. A replica whose `installSchema` or import of the
+  carried rows throws is replaced (`discardDbFile`, reopen, import, discard
+  the carry). A carry that reads as `SQLITE_CORRUPT*` or `SQLITE_NOTADB`
+  (`isUnreadableFileMessage`, new in `errors.ts`) is discarded with a
+  warning. Any other read error, and a replacement that fails too, stays
+  loud and keeps the carry. Both escapes rest on one invariant: no handler
+  succeeds while a carry exists, so every pending row the replica holds is
+  also in the carry.
+- `diagnostics` reads through `db()`: it never adopts, writes, or fails on a
+  carry.
+- Tests: adoption schema-install and import failures (replaced, rows kept,
+  carry gone); replacement that will not open or cannot take the rows (loud,
+  carry kept); torn carry beside an intact replica (NOTADB, CORRUPT);
+  transient read errors (BUSY, IOERR); adoption pins for `deleteBatch`,
+  `nextBatch` and `localApi` on a restarted worker; diagnostics does not
+  adopt; classifier cases. The reviewer's M5 (discard before import), M8,
+  M16 and M17 mutations now go red.
+- Comments in `worker.ts` and `poolCapacity.ts` corrected: this VFS never
+  treats a journal as hot, so a killed worker's journal stays; temp files
+  claim no slot.
+- Docs: `sync-recovery.md`'s step table no longer assumes commits are atomic
+  across worker death, and gains a table of adoption's outcomes;
+  `sync-and-offline.md`'s carry sentence; the spec's F1 table points at the
+  plan's Deviations.
+- Filed pkm-87cf for the SAH pool VFS never rolling back a hot journal
+  (review I-2).
+
+### Re-review fixes
+
+- A replacement at carry adoption imports `mergeCarriedRows` (new Functional
+  Core `carryMerge.ts`): the carry's rows merged by id with every row the old
+  file can still be read for, the carry's row winning a clash. A carry whose
+  write failed or was cut short (an empty or partial carry) plus a transient
+  import error no longer replaces the only file holding the queue.
+- A failed `carry.write` in `rebaseOrReplaceFile` discards the carry, best
+  effort.
+- Tests: the reviewer's scenario (replica holds `one` and `two`, empty carry,
+  SQLITE_IOERR on the first adoption read) keeps both batches; an unreadable
+  old file imports the carry's rows; a failed carry write leaves no carry;
+  merge cases.
+- Docs: sync-recovery.md states the actual guarantee (a short carry is a
+  subset; rows are lost only if both files are damaged at once), and notes
+  that a replacement that keeps failing reorders delivery but loses nothing.
+  frontend.md module map gains `carryMerge.ts`.
+

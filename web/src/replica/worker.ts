@@ -9,11 +9,11 @@
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import { type Oo1DbLike, type ReplicaDb, wrapSqlite } from "./db";
 import { openWithRetry, SAH_POOL_INSTALL_OPTIONS } from "./openRetry";
-import { ensureMinimumCapacity, type CapacityPool } from "./poolCapacity";
+import { type CarryFiles, createCarryStore } from "./carryStore";
+import { CARRY_FILE, ensureMinimumCapacity, journalOf, REPLICA_FILE,
+         type CapacityPool } from "./poolCapacity";
 import { serveRpc, toPortLike } from "./rpc";
 import { buildHandlers } from "./workerHandlers";
-
-const DB_FILE = "/pkm-replica.sqlite3";
 
 interface SahPoolOptions {
   name: string;
@@ -25,6 +25,8 @@ interface SahPoolOptions {
 interface PoolUtil extends CapacityPool {
   OpfsSAHPoolDb: new (filename: string) => Oo1DbLike & { close(): void };
   unlink(filename: string): boolean;
+  /** The names of the files the pool holds, open or not. */
+  getFileNames(): string[];
 }
 
 let sqlite3: {
@@ -57,7 +59,7 @@ async function openDb(): Promise<ReplicaDb> {
     // makes every write fail with SQLITE_CANTOPEN forever (pkm-ndcu). Grow it
     // back before opening the database.
     await ensureMinimumCapacity(pool);
-    rawDb = new pool.OpfsSAHPoolDb(DB_FILE);
+    rawDb = new pool.OpfsSAHPoolDb(REPLICA_FILE);
     return pragmas(wrapSqlite(rawDb));
   }, { sleep });
 }
@@ -69,11 +71,34 @@ function closeDb(): void {
 
 function discardDbFile(): void {
   closeDb();
-  // The journal too: a hot journal left in the pool would be rolled back
-  // into the new, empty file on its first open.
-  pool?.unlink(`${DB_FILE}-journal`);
-  pool?.unlink(DB_FILE);
+  // The journal too. This VFS never treats a journal as hot (its
+  // xCheckReservedLock always reports a lock held), so one a killed worker
+  // left is never rolled back and never removed: it would hold a pool slot
+  // for good, beside a file it no longer describes.
+  pool?.unlink(journalOf(REPLICA_FILE));
+  pool?.unlink(REPLICA_FILE);
 }
 
+/** The carry as a second database in the same pool. Every carry call comes
+ * from a handler that has already opened the replica, so the pool is
+ * installed by then; the pool normalises names to URL pathnames, which keep
+ * the leading slash, so the listing matches CARRY_FILE as written. */
+const carryFiles: CarryFiles = {
+  exists: () => pool?.getFileNames().includes(CARRY_FILE) ?? false,
+  open() {
+    if (pool === null) throw new Error("replica pool not installed");
+    const raw = new pool.OpfsSAHPoolDb(CARRY_FILE);
+    return { db: wrapSqlite(raw), close: () => { raw.close(); } };
+  },
+  unlink() {
+    // its journal too, which a killed worker can leave and nothing else
+    // would ever remove (see discardDbFile)
+    pool?.unlink(journalOf(CARRY_FILE));
+    pool?.unlink(CARRY_FILE);
+  },
+};
+
 serveRpc(toPortLike(self as unknown as { postMessage(msg: unknown): void; onmessage: unknown }),
-         buildHandlers({ openDb, closeDb, discardDbFile }));
+         buildHandlers({
+           openDb, closeDb, discardDbFile, carry: createCarryStore(carryFiles),
+         }));

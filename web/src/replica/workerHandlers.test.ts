@@ -4,9 +4,12 @@ import { applySnapshot, type Snapshot } from "./apply";
 import type { ReplicaDiagnostics } from "./client";
 import { SCHEMA_VERSION } from "./clientSchema";
 import { availabilityOf, ReplicaUnavailableError } from "./errors";
+import { type CarryStore, createCarryStore } from "./carryStore";
 import type { ReplicaDb } from "./db";
-import { openRawTestDb } from "./testDb";
-import { buildHandlers } from "./workerHandlers";
+import type { DurablePendingRow } from "./queue";
+import { failingOnce, fakeCarryFiles, openRawTestDb, openTestDb,
+         withDamagedFreelist } from "./testDb";
+import { buildHandlers, type WorkerDeps } from "./workerHandlers";
 
 const SNAP: Snapshot = {
   generation: "gen-1", plain_space_title_canonicalization: false, seq: 5,
@@ -449,23 +452,6 @@ test("a schema rebuild forgets acked seqs, since pending_ops ids restart", async
   })).resolves.toEqual({ status: "pending-changed" });
 });
 
-/** A database whose file-level structure is damaged: dropping a table walks
- * the broken freelist, so every logical rebuild fails the same way (the
- * 2026-09-28 iPad incident, pkm-h1c6). Reads still work. */
-const withDamagedFreelist = (
-  db: ReplicaDb, freesPages: RegExp = /^DROP /i, isDamaged = () => true,
-): ReplicaDb => ({
-  ...db,
-  exec(sql, params) {
-    if (isDamaged() && freesPages.test(sql)) {
-      throw new Error(
-        "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed");
-    }
-    db.exec(sql, params);
-  },
-  transaction: (fn) => db.transaction(fn),
-});
-
 test("a reset over a damaged file replaces the file and rebuilds into the new one", async () => {
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
@@ -525,16 +511,42 @@ test("a reset failure that is not corruption keeps the file", async () => {
   expect(discardDbFile).not.toHaveBeenCalled();
 });
 
-test("a rebase over a damaged file carries every durable row into a new file", async () => {
-  // The rejected-batch repair is a rebase and must never drop the valid rows
-  // queued behind the poisoned one (pkm-1b2w): they move across verbatim.
+const SQLITE_FULL = "SQLITE_FULL: sqlite3 result code 13: database or disk is full";
+const DURABLE_ROWS =
+  "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id";
+
+/** A poisoned batch and a valid one queued behind it, in a replica file that
+ * turns out damaged when the repair's rebase runs. Discarding the file really
+ * closes the old database, so the rows survive only if they were made
+ * durable elsewhere first. `fresh` wraps the new file's database (once, so a
+ * failing wrapper fails once per worker); `openAfterDiscard` may be replaced
+ * to make the new file's open fail or hang. */
+async function poisonedQueueOverDamagedFile(options: {
+  fresh?: (db: ReplicaDb) => ReplicaDb;
+  carry?: (files: ReturnType<typeof fakeCarryFiles>) => CarryStore | undefined;
+  applySnapshot?: WorkerDeps["applySnapshot"];
+} = {}) {
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
+  const carryFiles = fakeCarryFiles(await openRawTestDb());
+  const carry = options.carry
+    ? options.carry(carryFiles) : createCarryStore(carryFiles);
+  const freshDb = options.fresh ? options.fresh(fresh.db) : fresh.db;
   let isDamaged = false;
-  let current = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
-  const discardDbFile = vi.fn(() => { current = fresh.db; });
+  let discarded = false;
+  const damagedDb = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
+  const files = { openAfterDiscard: async (): Promise<ReplicaDb> => freshDb };
+  // what the carry held when the old file was unlinked
+  let carriedAtDiscard: DurablePendingRow[] | null = null;
+  const discardDbFile = vi.fn(() => {
+    carriedAtDiscard = carry?.read() ?? null;
+    damaged.close();
+    discarded = true;
+  });
   const handlers = buildHandlers({
-    openDb: async () => current, discardDbFile, nowMs: () => 10,
+    openDb: async () => discarded ? files.openAfterDiscard() : damagedDb,
+    discardDbFile, carry, nowMs: () => 10,
+    applySnapshot: options.applySnapshot,
   });
   await handlers.init(undefined);
   await handlers.applySnapshot(SNAP);
@@ -547,19 +559,30 @@ test("a rebase over a damaged file carries every durable row into a new file", a
     batchId: "valid",
   });
   await handlers.markPoisoned({ id: 1, error: "HTTP 400", batchId: "rejected" });
-  const rowsBefore = damaged.db.select(
-    "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id");
+  const rowsBefore = damaged.db.select<DurablePendingRow>(DURABLE_ROWS);
   isDamaged = true;
   const lease = await handlers.prepareRecovery(undefined) as { token: string };
-
-  await expect(handlers.commitRecovery({
+  const commit = () => handlers.commitRecovery({
     token: lease.token, input: { kind: "rebase", snapshot: SNAP },
-  })).resolves.toBeNull();
+  });
+  return {
+    handlers, commit, rowsBefore, carry, carryFiles, discardDbFile,
+    damaged, fresh, files, carriedAtDiscard: () => carriedAtDiscard,
+  };
+}
+
+test("a rebase over a damaged file carries every durable row into a new file", async () => {
+  // The rejected-batch repair is a rebase and must never drop the valid rows
+  // queued behind the poisoned one: they move across verbatim.
+  const { handlers, commit, rowsBefore, carry, discardDbFile, fresh,
+          carriedAtDiscard } = await poisonedQueueOverDamagedFile();
+
+  await expect(commit()).resolves.toBeNull();
 
   expect(discardDbFile).toHaveBeenCalledOnce();
-  expect(fresh.db.select(
-    "SELECT id, batch_id, ops_json, poisoned, error FROM pending_ops ORDER BY id"))
-    .toEqual(rowsBefore);
+  expect(carriedAtDiscard()).toEqual(rowsBefore);
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+  expect(carry?.exists()).toBe(false);
   // snapshot applied, and the valid batch re-applied over it
   expect(fresh.db.select("SELECT uid, text FROM blocks"))
     .toEqual([{ uid: "uid_b1", text: "edited" }]);
@@ -573,12 +596,14 @@ test("a rebase over a damaged file carries every durable row into a new file", a
 test("a rebase keeps the carried rows even if the snapshot then fails on the new file", async () => {
   const damaged = await openRawTestDb();
   const fresh = await openRawTestDb();
+  const carry = createCarryStore(fakeCarryFiles(await openRawTestDb()));
   let isDamaged = false;
   let current = withDamagedFreelist(damaged.db, /^DELETE /i, () => isDamaged);
   let failSnapshot = false;
   const handlers = buildHandlers({
     openDb: async () => current,
-    discardDbFile: () => { current = fresh.db; },
+    discardDbFile: () => { damaged.close(); current = fresh.db; },
+    carry,
     nowMs: () => 10,
     applySnapshot: (db, snapshot, nowMs) => {
       if (failSnapshot && db === fresh.db) throw new Error("snapshot apply failed");
@@ -596,4 +621,389 @@ test("a rebase keeps the carried rows even if the snapshot then fails on the new
   })).rejects.toThrow();
   expect(fresh.db.select("SELECT batch_id FROM pending_ops"))
     .toEqual([{ batch_id: "kept" }]);
+  expect(carry.exists()).toBe(false);
 });
+
+test("a rebase whose new file will not open leaves every row in the carry", async () => {
+  const { commit, rowsBefore, carry, files } = await poisonedQueueOverDamagedFile();
+  files.openAfterDiscard = () => Promise.reject(new Error("open failed"));
+  await expect(commit()).rejects.toThrow("open failed");
+  expect(carry?.read()).toEqual(rowsBefore);
+});
+
+test("a rebase whose schema install fails on the new file leaves every row in the carry", async () => {
+  const { commit, rowsBefore, carry } = await poisonedQueueOverDamagedFile({
+    fresh: (db) => failingOnce(db, /CREATE TABLE/i, SQLITE_FULL),
+  });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expect(carry?.read()).toEqual(rowsBefore);
+});
+
+test("a rebase whose row import fails leaves every row in the carry", async () => {
+  const { commit, rowsBefore, carry } = await poisonedQueueOverDamagedFile({
+    fresh: (db) => failingOnce(db, /^INSERT OR IGNORE INTO pending_ops/, SQLITE_FULL),
+  });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expect(carry?.read()).toEqual(rowsBefore);
+});
+
+test("a carry write failure leaves the damaged file and its rows in place", async () => {
+  const { commit, rowsBefore, discardDbFile, damaged } =
+    await poisonedQueueOverDamagedFile({
+      carry: (inner) => createCarryStore({
+        exists: () => inner.exists(),
+        unlink: () => { inner.unlink(); },
+        open: () => {
+          const handle = inner.open();
+          return {
+            db: failingOnce(handle.db, /^INSERT OR IGNORE/, SQLITE_FULL),
+            close: handle.close,
+          };
+        },
+      }),
+    });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expect(discardDbFile).not.toHaveBeenCalled();
+  expect(damaged.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+});
+
+test("a rebase without a carry store keeps the damaged file", async () => {
+  const { commit, rowsBefore, discardDbFile, damaged } =
+    await poisonedQueueOverDamagedFile({ carry: () => undefined });
+  await expect(commit()).rejects.toThrow(/SQLITE_CORRUPT/);
+  expect(discardDbFile).not.toHaveBeenCalled();
+  expect(damaged.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+});
+
+test("a snapshot failure after the import leaves no carry to resurrect drained rows", async () => {
+  // The carry goes as soon as the new file holds the rows. Kept past a failed
+  // snapshot, it would be adopted on the next open and bring back rows that
+  // were acked or deleted in the meantime.
+  let failOn: ReplicaDb | null = null;
+  const setup = await poisonedQueueOverDamagedFile({
+    applySnapshot: (db, snapshot, nowMs) => {
+      if (db === failOn) throw new Error("snapshot apply failed");
+      applySnapshot(db, snapshot, nowMs);
+    },
+  });
+  const { handlers, commit, carry, fresh } = setup;
+  failOn = fresh.db;
+  await expect(commit()).rejects.toThrow("snapshot apply failed");
+  expect(fresh.db.select<{ id: number }>(DURABLE_ROWS).map((row) => row.id))
+    .toEqual([1, 2]);
+  expect(carry?.exists()).toBe(false);
+  await handlers.deleteBatch({ id: 1 });
+  await handlers.close(undefined);
+  const init = await handlers.init(undefined) as { pendingBatches: { id: number }[] };
+  expect(init.pendingBatches.map((batch) => batch.id)).toEqual([2]);
+});
+
+const pendingSummary = (batches: unknown) =>
+  (batches as { id: number; batch_id: string; poisoned: boolean }[])
+    .map(({ id, batch_id, poisoned }) => ({ id, batch_id, poisoned }));
+
+/** A worker that got as far as unlinking the damaged file and then never
+ * came back: the new file's open hangs, as it does when the page is
+ * suspended mid-repair. */
+async function workerDiedAfterDiscard() {
+  const setup = await poisonedQueueOverDamagedFile();
+  setup.files.openAfterDiscard = () => new Promise<ReplicaDb>(() => {});
+  void setup.commit();
+  await vi.waitFor(() => { expect(setup.discardDbFile).toHaveBeenCalled(); });
+  const next = buildHandlers({
+    openDb: async () => setup.fresh.db, carry: setup.carry, nowMs: () => 10,
+  });
+  return { ...setup, next };
+}
+
+test("a worker that dies between discard and import hands its rows to the next worker", async () => {
+  const { next, fresh, rowsBefore, carry } = await workerDiedAfterDiscard();
+  const init = await next.init(undefined) as { pendingBatches: unknown };
+  expect(pendingSummary(init.pendingBatches)).toEqual([
+    { id: 1, batch_id: "rejected", poisoned: true },
+    { id: 2, batch_id: "valid", poisoned: false },
+  ]);
+  const poisoned = await next.poisonedBatches(undefined) as
+    { rowId: number; batchId: string }[];
+  expect(poisoned).toHaveLength(1);
+  expect(poisoned[0]).toMatchObject({ rowId: 1, batchId: "rejected" });
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+  expect(carry?.exists()).toBe(false);
+});
+
+test("an enqueue served before init on a restarted worker keeps the carried ids", async () => {
+  const { next, fresh } = await workerDiedAfterDiscard();
+  await next.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "first-edit" });
+  expect(fresh.db.select("SELECT id, batch_id FROM pending_ops ORDER BY id")).toEqual([
+    { id: 1, batch_id: "rejected" },
+    { id: 2, batch_id: "valid" },
+    { id: 3, batch_id: "first-edit" },
+  ]);
+});
+
+test("a failed open leaves the carry for the open after close", async () => {
+  const { handlers, commit, files, fresh } = await poisonedQueueOverDamagedFile();
+  files.openAfterDiscard = () => Promise.reject(new Error("open failed"));
+  await expect(commit()).rejects.toThrow("open failed");
+  files.openAfterDiscard = async () => fresh.db;
+  await handlers.close(undefined);
+  const init = await handlers.init(undefined) as { pendingBatches: { id: number }[] };
+  expect(init.pendingBatches.map((batch) => batch.id)).toEqual([1, 2]);
+});
+
+test("a Retry in the same worker rebases the carried rows", async () => {
+  const { handlers, commit, rowsBefore, fresh, carry } =
+    await poisonedQueueOverDamagedFile({
+      fresh: (db) => failingOnce(db, /^INSERT OR IGNORE INTO pending_ops/, SQLITE_FULL),
+    });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  const lease = await handlers.prepareRecovery(undefined) as {
+    token: string; batches: { id: number }[];
+  };
+  expect(lease.batches.map((batch) => batch.id)).toEqual([1, 2]);
+  await expect(handlers.commitRecovery({
+    token: lease.token, input: { kind: "rebase", snapshot: SNAP },
+  })).resolves.toBeNull();
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(rowsBefore);
+  expect(carry?.exists()).toBe(false);
+});
+
+test("a deleteBatch served first by a restarted worker adopts the carry", async () => {
+  const { next, fresh } = await workerDiedAfterDiscard();
+  await expect(next.deleteBatch({ id: 1 })).resolves.toEqual({ pending: 1 });
+  expect(fresh.db.select("SELECT id, batch_id FROM pending_ops ORDER BY id"))
+    .toEqual([{ id: 2, batch_id: "valid" }]);
+});
+
+test("a nextBatch served first by a restarted worker drains the carried rows", async () => {
+  const { next } = await workerDiedAfterDiscard();
+  await expect(next.nextBatch(undefined))
+    .resolves.toMatchObject({ id: 2, batch_id: "valid" });
+});
+
+test("a local-API write served first by a restarted worker keeps the carried ids", async () => {
+  const { next, fresh } = await workerDiedAfterDiscard();
+  await expect(next.localApi({
+    method: "POST", path: "/api/pages", body: { title: "Offline" }, nowMs: 1,
+  })).resolves.toMatchObject({ handled: true, status: 200 });
+  expect(fresh.db.select<{ id: number }>("SELECT id FROM pending_ops ORDER BY id")
+    .map((row) => row.id)).toEqual([1, 2, 3]);
+});
+
+const SQLITE_CORRUPT =
+  "SQLITE_CORRUPT: sqlite3 result code 11: database disk image is malformed";
+const SQLITE_NOTADB =
+  "SQLITE_NOTADB: sqlite3 result code 26: file is not a database";
+const IMPORT_ROW = /^INSERT OR IGNORE INTO pending_ops/;
+const CARRIED: DurablePendingRow[] = [
+  { id: 1, batch_id: "rejected", ops_json: "[]", poisoned: 1, error: "HTTP 400" },
+  { id: 2, batch_id: "valid", ops_json: "[]", poisoned: 0, error: null },
+];
+
+/** A committed carry beside a replica file that cannot take its rows, as a
+ * new file torn by a worker killed mid-commit cannot. `raw` leaves the
+ * replica without a schema, so the adoption's schema install is what runs
+ * first; `replacement` opens the file that replaces it. */
+async function carryBesideUnwritableReplica(options: {
+  failing: RegExp;
+  raw?: boolean;
+  replacement?: (fresh: ReplicaDb) => Promise<ReplicaDb>;
+}) {
+  const replica = options.raw ? await openRawTestDb() : await openTestDb();
+  const fresh = await openRawTestDb();
+  const carry = createCarryStore(fakeCarryFiles(await openRawTestDb()));
+  carry.write(CARRIED);
+  let replaced = false;
+  const discardDbFile = vi.fn(() => { replica.close(); replaced = true; });
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const handlers = buildHandlers({
+    openDb: async () => replaced
+      ? (options.replacement ?? (async (db) => db))(fresh.db)
+      : failingOnce(replica.db, options.failing, SQLITE_CORRUPT),
+    discardDbFile, carry, nowMs: () => 10,
+  });
+  return { handlers, carry, fresh, discardDbFile, warn };
+}
+
+test.each([
+  ["schema install", /CREATE TABLE/i, true],
+  ["row import", IMPORT_ROW, false],
+])("an adoption whose %s fails replaces the replica file and keeps every carried row",
+async (_step, failing, raw) => {
+  const { handlers, carry, fresh, discardDbFile, warn } =
+    await carryBesideUnwritableReplica({ failing, raw });
+  const batches = await handlers.pendingBatches(undefined);
+  expect(pendingSummary(batches)).toEqual([
+    { id: 1, batch_id: "rejected", poisoned: true },
+    { id: 2, batch_id: "valid", poisoned: false },
+  ]);
+  expect(discardDbFile).toHaveBeenCalledOnce();
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(CARRIED);
+  expect(carry.exists()).toBe(false);
+  expect(warn).toHaveBeenCalled();
+  warn.mockRestore();
+});
+
+test.each([
+  ["will not open", async (): Promise<ReplicaDb> => {
+    throw new Error("open failed");
+  }, /open failed/],
+  ["cannot take the rows either", async (db: ReplicaDb) =>
+    failingOnce(db, IMPORT_ROW, SQLITE_FULL), /SQLITE_FULL/],
+])("an adoption whose replacement file %s fails loudly and keeps the carry",
+async (_how, replacement, expected) => {
+  const { handlers, carry, discardDbFile, warn } =
+    await carryBesideUnwritableReplica({ failing: IMPORT_ROW, replacement });
+  await expect(handlers.pendingBatches(undefined)).rejects.toThrow(expected);
+  expect(discardDbFile).toHaveBeenCalledOnce();
+  expect(carry.exists()).toBe(true);
+  expect(carry.read()).toEqual(CARRIED);
+  warn.mockRestore();
+});
+
+/** A carry store whose file is present but whose read throws `message`. */
+const unreadableCarry = (message: string) => {
+  let present = true;
+  return {
+    exists: () => present,
+    write: vi.fn(),
+    read: vi.fn((): DurablePendingRow[] => { throw new Error(message); }),
+    discard: vi.fn(() => { present = false; }),
+  };
+};
+
+test.each([SQLITE_NOTADB, SQLITE_CORRUPT])(
+  "a torn carry beside an intact replica is discarded and the replica's rows kept: %s",
+  async (message) => {
+    const t = await openRawTestDb();
+    const carry = unreadableCarry(message);
+    let carryLeft = false;
+    const handlers = buildHandlers({
+      openDb: async () => t.db,
+      carry: { ...carry, exists: () => carryLeft && carry.exists() },
+      nowMs: () => 10,
+    });
+    await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "kept" });
+    carryLeft = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(handlers.pendingCount(undefined)).resolves.toBe(1);
+    expect(carry.discard).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    expect(t.db.select("SELECT batch_id FROM pending_ops"))
+      .toEqual([{ batch_id: "kept" }]);
+  });
+
+test.each([
+  "SQLITE_BUSY: sqlite3 result code 5: database is locked",
+  "SQLITE_IOERR: sqlite3 result code 10: disk I/O error",
+])("a carry that cannot be read for any other reason is kept and the handler fails: %s",
+async (message) => {
+  const t = await openTestDb();
+  const carry = unreadableCarry(message);
+  const handlers = buildHandlers({ openDb: async () => t.db, carry });
+  await expect(handlers.pendingCount(undefined)).rejects.toThrow(message);
+  expect(carry.discard).not.toHaveBeenCalled();
+});
+
+test("diagnostics neither adopts a carry nor fails on one", async () => {
+  const t = await openTestDb();
+  const carry = unreadableCarry("SQLITE_BUSY: sqlite3 result code 5: database is locked");
+  const handlers = buildHandlers({ openDb: async () => t.db, carry });
+  const report = await handlers.diagnostics(undefined) as ReplicaDiagnostics;
+  expect(report.quickCheck).toEqual(["ok"]);
+  expect(carry.read).not.toHaveBeenCalled();
+  expect(carry.discard).not.toHaveBeenCalled();
+});
+
+const SQLITE_IOERR = "SQLITE_IOERR: sqlite3 result code 10: disk I/O error";
+
+/** `db`, except that once `arm()` is called its next `reads` reads of
+ * sqlite_master throw `message`. */
+function failingSchemaReads(db: ReplicaDb, message: string) {
+  let left = 0;
+  return {
+    arm: (reads = 1) => { left = reads; },
+    db: {
+      ...db,
+      select<T>(sql: string, params?: Parameters<ReplicaDb["select"]>[1]): T[] {
+        if (left > 0 && /sqlite_master/.test(sql)) {
+          left -= 1;
+          throw new Error(message);
+        }
+        return db.select<T>(sql, params);
+      },
+      transaction: (fn: () => void) => db.transaction(fn),
+    } as ReplicaDb,
+  };
+}
+
+/** A replica holding batches `one` and `two` beside a carry file: empty, as
+ * a carry write that failed after opening its file leaves one, or holding
+ * `carried`. Once set up, the replica's next `reads` schema reads fail. */
+async function replicaBesideEmptyCarry(
+  message: string, reads: number, carried?: DurablePendingRow[],
+) {
+  const replica = await openRawTestDb();
+  const fresh = await openRawTestDb();
+  const carryFiles = fakeCarryFiles(await openRawTestDb());
+  const carry = createCarryStore(carryFiles);
+  const failing = failingSchemaReads(replica.db, message);
+  let replaced = false;
+  const handlers = buildHandlers({
+    openDb: async () => replaced ? fresh.db : failing.db,
+    discardDbFile: () => { replica.close(); replaced = true; },
+    carry, nowMs: () => 10,
+  });
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b1" }], batchId: "one" });
+  await handlers.enqueue({ ops: [{ op: "delete", uid: "uid_b2" }], batchId: "two" });
+  if (carried) carry.write(carried);
+  else carryFiles.open().close();
+  failing.arm(reads);
+  return { handlers, carry, fresh, replaced: () => replaced };
+}
+
+test("a replacement at adoption keeps the rows the replica still held beside an empty carry",
+async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const { handlers, carry, fresh, replaced } =
+    await replicaBesideEmptyCarry(SQLITE_IOERR, 1);
+  const batches = await handlers.pendingBatches(undefined) as { batch_id: string }[];
+  expect(replaced()).toBe(true);
+  expect(batches.map((batch) => batch.batch_id)).toEqual(["one", "two"]);
+  expect(fresh.db.select<{ id: number }>("SELECT id FROM pending_ops ORDER BY id")
+    .map((row) => row.id)).toEqual([1, 2]);
+  expect(carry.exists()).toBe(false);
+  warn.mockRestore();
+});
+
+test("a replacement at adoption over a replica it cannot read imports the carry's rows",
+async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const { handlers, carry, fresh, replaced } =
+    await replicaBesideEmptyCarry(SQLITE_IOERR, Infinity, CARRIED);
+  await handlers.pendingBatches(undefined);
+  expect(replaced()).toBe(true);
+  expect(fresh.db.select(DURABLE_ROWS)).toEqual(CARRIED);
+  expect(carry.exists()).toBe(false);
+  warn.mockRestore();
+});
+
+test("a failed carry write leaves no carry behind", async () => {
+  const { commit, carryFiles } = await poisonedQueueOverDamagedFile({
+    carry: (inner) => createCarryStore({
+      exists: () => inner.exists(),
+      unlink: () => { inner.unlink(); },
+      open: () => {
+        const handle = inner.open();
+        return {
+          db: failingOnce(handle.db, /^INSERT OR IGNORE/, SQLITE_FULL),
+          close: handle.close,
+        };
+      },
+    }),
+  });
+  await expect(commit()).rejects.toThrow(/SQLITE_FULL/);
+  expect(carryFiles.exists()).toBe(false);
+});
+
